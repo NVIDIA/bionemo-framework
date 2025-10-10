@@ -94,7 +94,7 @@ def test_sccollection_serialization(tmp_path, test_directory):
     assert dat.number_nonzero_values() == 57
     assert np.isclose(dat.sparsity(), 0.972753346080306, rtol=1e-6)
     # Flattened dataset should preserve minimal dtypes for this fixture
-    assert dat.dtypes["data.npy"] == "uint8"
+    assert dat.dtypes["data.npy"] == "float32"
     assert dat.dtypes["col_ptr.npy"] == "uint8"
     assert dat.dtypes["row_ptr.npy"] == "uint8"
 
@@ -178,11 +178,11 @@ def test_sccollection_dtype_changes_on_concatenation(tmp_path):
     assert ds_small.dtypes["data.npy"] == "float32"
     assert ds_small.dtypes["col_ptr.npy"] == "uint8"
     assert ds_small.dtypes["row_ptr.npy"] == "uint8"
-    assert ds_large.dtypes["data.npy"] == "uint32"
+    assert ds_large.dtypes["data.npy"] == "float32"
     assert ds_large.dtypes["col_ptr.npy"] == "uint32"
     assert ds_large.dtypes["row_ptr.npy"] == "uint8"
 
-    # Flatten datasets and loa new dataset
+    # Flatten datasets and load new dataset
     out_path = tmp_path / "flattened_forward"
     coll.flatten(out_path)
     merged = SingleCellMemMapDataset(out_path)
@@ -192,10 +192,8 @@ def test_sccollection_dtype_changes_on_concatenation(tmp_path):
     assert merged.dtypes["col_ptr.npy"] == "uint32"
     assert merged.dtypes["row_ptr.npy"] == "uint8"
 
-    # Expected arrays
     assert np.array_equal(np.array(merged.data), np.array([70_000.0, 1.0, 0.5, -1.25, 3.75, 2.0]))
     assert np.array_equal(np.array(merged.col_index), np.array([10, 65_537, 0, 11, 5, 7]))
-    # rowptr: large [0,1,1,2] + small offset by 2 → append [2,4,4,6]
     assert np.array_equal(np.array(merged.row_index), np.array([0, 1, 1, 2, 2, 4, 4, 6]))
 
     # Reverse order: small then large

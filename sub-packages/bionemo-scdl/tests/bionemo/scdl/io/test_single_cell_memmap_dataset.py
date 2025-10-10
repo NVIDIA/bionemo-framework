@@ -117,10 +117,7 @@ def test_load_h5ad(tmp_path, test_directory):
     np.isclose(ds.sparsity(), 0.9375, rtol=1e-6)
     assert len(ds) == 8
     # Dtype expectations: integer-valued counts in 0-255, 10 columns, 5 nnz
-    assert ds.dtypes["data.npy"] == "uint8"
-    assert ds.dtypes["col_ptr.npy"] == "uint8"
-    assert ds.dtypes["row_ptr.npy"] == "uint8"
-    assert ds.dtypes["data.npy"] == "uint8"
+    assert ds.dtypes["data.npy"] == "float32"
     assert ds.dtypes["col_ptr.npy"] == "uint8"
     assert ds.dtypes["row_ptr.npy"] == "uint8"
 
@@ -141,7 +138,7 @@ def test_SingleCellMemMapDataset_constructor(generate_dataset):
 
     assert generate_dataset.shape() == (8, [10])
     # Dtype expectations: integer-valued counts in 0-255, 10 columns, 5 nnz
-    assert generate_dataset.dtypes["data.npy"] == "uint8"
+    assert generate_dataset.dtypes["data.npy"] == "float32"
     assert generate_dataset.dtypes["col_ptr.npy"] == "uint8"
     assert generate_dataset.dtypes["row_ptr.npy"] == "uint8"
 
@@ -215,7 +212,7 @@ def test_concat_SingleCellMemMapDatasets_underlying_memmaps(tmp_path, test_direc
     assert (np.array(dt.col_index) == exp_cols).all()
     assert (np.array(dt.data) == exp_data).all()
     # Dtypes should remain minimal and consistent
-    assert dt.dtypes["data.npy"] == "uint8"
+    assert dt.dtypes["data.npy"] == "float32"
     assert dt.dtypes["col_ptr.npy"] == "uint8"
     assert dt.dtypes["row_ptr.npy"] == "uint8"
 
@@ -232,7 +229,7 @@ def test_concat_SingleCellMemMapDatasets_diff(tmp_path, test_directory):
     assert dt.number_of_values() == exp_n_val
     assert dt.number_nonzero_values() == exp_nnz
     # Dtypes should promote safely; for sample inputs they remain uint8
-    assert dt.dtypes["data.npy"] == "uint8"
+    assert dt.dtypes["data.npy"] == "float32"
     assert dt.dtypes["col_ptr.npy"] == "uint8"
     assert dt.dtypes["row_ptr.npy"] == "uint8"
 
@@ -286,6 +283,9 @@ def test_load_h5ad_properly_converted_dtypes(tmp_path):
 
     ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=h5ad_path)
 
-    assert ds.dtypes["data.npy"] == "uint32"
+    assert ds.dtypes["data.npy"] == "float32"
     assert ds.dtypes["col_ptr.npy"] == "uint32"
     assert ds.dtypes["row_ptr.npy"] == "uint8"
+
+
+# TODO: add tests to specify memmap format

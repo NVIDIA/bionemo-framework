@@ -27,30 +27,11 @@ from typing import Dict, Iterable
 import numpy as np
 
 from bionemo.scdl.util.scdl_constants import (
-    VALID_DTYPE_CONVERSIONS,
+    FLOAT_ORDER,
+    INT_ORDER,
     FileNames,
     Mode,
 )
-
-
-def check_integer_valued_and_cast(array, sample_size=100_000, tol=1e-8):
-    """Checks if the array is integer-valued and casts it to the smallest unsigned integer dtype.
-
-    Args:
-        array: The sparse array to check (must have .data attribute)
-        sample_size: The number of elements to sample from the array
-        tol: The tolerance for the difference between the array and the rounded array
-
-    Returns:
-        The smallest unsigned integer dtype that can represent the given number or the original dtype if the array is not integer-valued
-    """
-    sample = np.random.choice(array.data, min(sample_size, len(array.data)), replace=False)
-    if ((np.abs(sample - np.round(sample)) < tol) | (~np.isfinite(sample))).all():
-        # Return numpy dtype string (e.g., 'uint8') for consistency with self.dtypes
-        return smallest_uint_dtype(sample.max())
-    else:
-        # Return numpy dtype string (e.g., 'float32')
-        return array.dtype
 
 
 def smallest_uint_dtype(x: int):
@@ -74,33 +55,18 @@ def smallest_uint_dtype(x: int):
 
 
 def determine_dtype(dtypes: Iterable[object]) -> str:
-    """Determine the minimal common lossless destination dtype.
+    """Choose a common destination dtype by same-family upscaling.
 
-    Preference order:
-    - Smallest unsigned integer if possible
-    - Otherwise, smallest float
+    - If all source dtypes are unsigned integers: return the widest unsigned int
+    - If all source dtypes are floats: return the widest float
+    - Otherwise: raise (mixed families not allowed)
     """
-    uint_order = ["uint8", "uint16", "uint32", "uint64"]
-    float_order = ["float16", "float32", "float64"]
-
-    # Normalize inputs to canonical numpy dtype names (e.g., 'uint32', 'float32')
-    source_dtypes = {np.dtype(dt).name for dt in dtypes}
-
-    # Allowed destinations per source include identity and any listed conversions
-    per_source_allowed = [({src} | {dst for (s, dst) in VALID_DTYPE_CONVERSIONS if s == src}) for src in source_dtypes]
-    common = set.intersection(*per_source_allowed) if per_source_allowed else set()
-    if not common:
-        raise ValueError(f"No common lossless destination dtype for sources: {sorted(source_dtypes)}")
-
-    common_uints = [dt for dt in common if dt in uint_order]
-    if common_uints:
-        return min(common_uints, key=uint_order.index)
-
-    common_floats = [dt for dt in common if dt in float_order]
-    if common_floats:
-        return min(common_floats, key=float_order.index)
-
-    raise ValueError(f"Unsupported dtype family in common destinations: {sorted(common)}")
+    canonical = [np.dtype(dt).name for dt in dtypes]
+    if all(dt in INT_ORDER for dt in canonical):
+        return max(set(canonical), key=lambda dt: INT_ORDER.index(dt))
+    if all(dt in FLOAT_ORDER for dt in canonical):
+        return max(set(canonical), key=lambda dt: FLOAT_ORDER.index(dt))
+    raise ValueError(f"Mixed float and integer dtype families not allowed: {sorted(set(canonical))}")
 
 
 def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:

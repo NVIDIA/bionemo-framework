@@ -17,7 +17,7 @@ import os
 
 import numpy as np
 
-from bionemo.scdl.util.scdl_constants import VALID_DTYPE_CONVERSIONS
+from bionemo.scdl.util.scdl_constants import FLOAT_ORDER, INT_ORDER
 
 
 def extend_files(
@@ -31,13 +31,13 @@ def extend_files(
 ):
     """Concatenates the contents of `second` into `first` using memory-efficient operations.
 
-    Supports optional dtype conversion for upscaling:
+    Supports optional dtype conversion for upscaling within the same family only:
     - uint upscaling: uint8 → uint16 → uint32 → uint64
     - float upscaling: float16 → float32 → float64
 
     When source_dtype and dest_dtype are provided and differ, performs element-wise
     conversion during copy. Only safe upscaling operations are allowed (no downscaling,
-    no cross-type conversions like uint↔float).
+    no cross-family conversions like uint↔float).
 
     Parameters:
     - first (str): Path to the first file (will be extended).
@@ -54,26 +54,24 @@ def extend_files(
     - ValueError: If conversion is not a safe upscaling operation.
 
     """
-    # Ensure destination file exists (supports in-place conversion workflows that rename original away)
-    dest_dir = os.path.dirname(first) or "."
-    if not os.path.exists(dest_dir):
-        os.makedirs(dest_dir, exist_ok=True)
-    if not os.path.exists(first):
-        open(first, "wb").close()
-
-    if source_dtype is not None and buffer_size_b % np.dtype(source_dtype).itemsize != 0:
-        raise ValueError(
-            f"Buffer size {buffer_size_b} is not divisible by source dtype size {np.dtype(source_dtype).itemsize}"
-        )
-
-    # Check if dtype conversion is needed
-    if source_dtype is not None and dest_dtype is not None and source_dtype != dest_dtype:
+    if offset < 0:
+        raise ValueError(f"Offset {offset} must be non-negative")
+    if dest_dtype is not None and source_dtype is not None and source_dtype != dest_dtype:
+        if offset % np.dtype(source_dtype).itemsize != 0:
+            raise ValueError(
+                f"Offset {offset} must be divisible by source dtype size {np.dtype(source_dtype).itemsize}"
+            )
+        if buffer_size_b % np.dtype(source_dtype).itemsize != 0:
+            raise ValueError(
+                f"Buffer size {buffer_size_b} is not divisible by source dtype size {np.dtype(source_dtype).itemsize}"
+            )
         _extend_files_with_dtype_conversion(
             first, second, source_dtype, dest_dtype, buffer_size_b, delete_file2_on_complete, offset
         )
-    else:
-        # Fast path for matching dtypes or dtype params not provided
-        _extend_files_fast_copy(first, second, buffer_size_b, delete_file2_on_complete, offset)
+        return
+
+    # Fallback/raw copy when no conversion requested (or same dtype)
+    _extend_files_fast_copy(first, second, buffer_size_b, delete_file2_on_complete, offset)
 
 
 def _extend_files_fast_copy(
@@ -134,17 +132,14 @@ def _extend_files_with_dtype_conversion(
     """Internal function to extend files with dtype conversion.
 
     Converts data from source_dtype to dest_dtype during copy. Only supports safe
-    lossless conversions defined in VALID_DTYPE_CONVERSIONS:
+    same-family upscaling (as ordered by INT_ORDER/FLOAT_ORDER):
 
     Supported conversions:
-    - uint upscaling: uint8 → uint16 → uint32 → uint64 (lossless)
-    - float upscaling: float16 → float32 → float64 (lossless)
-    - Safe uint → float: uint8/uint16 → float32, uint8/uint16/uint32 → float64 (lossless)
+    - uint upscaling and float upscaling
 
     Rejects:
     - Downscaling (e.g., uint64 → uint32): risk of overflow
-    - Unsafe uint → float (e.g., uint32 → float32, uint64 → float64): risk of precision loss
-    - float → uint conversions: loss of fractional part
+    - Any uint ↔ float conversions
 
     Parameters:
     - first (str): Destination file
@@ -156,69 +151,78 @@ def _extend_files_with_dtype_conversion(
     - offset (int): Byte offset to skip in source
 
     Raises:
-    - ValueError: If conversion is not in VALID_DTYPE_CONVERSIONS
+    - ValueError: If conversion violates same-family or non-decreasing order
     """
-    source_dtype_np = np.dtype(source_dtype)
-    dest_dtype_np = np.dtype(dest_dtype)
-
-    # Normalize dtype names to simple strings (e.g., 'uint32', 'float64')
-    source_dtype_str = source_dtype_np.name
-    dest_dtype_str = dest_dtype_np.name
-
-    # Check if conversion is valid
-    if (source_dtype_str, dest_dtype_str) not in VALID_DTYPE_CONVERSIONS:
+    # Determine family/order and enforce same-family upscaling
+    family_orders = [INT_ORDER, FLOAT_ORDER]
+    for order in family_orders:
+        if source_dtype in order and dest_dtype in order:
+            if order.index(dest_dtype) < order.index(source_dtype):
+                raise ValueError(f"Downscaling not allowed: {source_dtype} → {dest_dtype}.")
+            break
+    else:
         raise ValueError(
-            (
-                f"Unsupported dtype conversion: {source_dtype_str} → {dest_dtype_str}. "
-                "Only lossless, safe conversions are permitted. "
-                "Allowed: uint upscaling (uint8→uint16→uint32→uint64), "
-                "float upscaling (float16→float32→float64), "
-                "and safe uint→float (uint8/16→float32, uint8/16/32→float64)."
-            )
+            f"Unsupported dtype conversion: {source_dtype} → {dest_dtype}. Only same-family upscaling allowed."
         )
+    # Resolve dtypes once (native endianness) and sizes
+    sd = np.dtype(source_dtype).newbyteorder("=")
+    dd = np.dtype(dest_dtype).newbyteorder("=")
+    src_item = sd.itemsize
+    dst_item = dd.itemsize
 
-    # Calculate number of elements that fit in buffer (prefer >=8 bytes per iteration)
-    elements_per_chunk = max(1, buffer_size_b // source_dtype_np.itemsize)
+    # Elements per chunk
+    min_bytes = 8
+    elements_per_chunk = max(1, max(buffer_size_b, min_bytes) // src_item)
 
-    # Get source file size and calculate number of elements
+    # Source sizing
     size2 = os.path.getsize(second)
-    num_elements = (size2 - offset) // source_dtype_np.itemsize
+    remaining = size2 - offset
+    if remaining % src_item != 0:
+        raise ValueError(
+            f"Source size minus offset ({remaining} bytes) not divisible by source dtype size ({src_item})."
+        )
+    num_elements = remaining // src_item
 
-    # Pre-extend destination to final size, then write in-place with explicit positions
-    extend_bytes = num_elements * dest_dtype_np.itemsize
+    # Pre-extend destination to final size
+    extend_bytes = num_elements * dst_item
     size1 = os.path.getsize(first)
     with open(first, "r+b") as f_dest:
-        # Resize file1 to the final size to accommodate converted bytes
         if extend_bytes > 0:
             f_dest.seek(size1 + extend_bytes - 1)
             f_dest.write(b"\0")
 
         write_position = size1
 
+        # Reusable output buffer
+        out_buf = bytearray(elements_per_chunk * dst_item)
+
         with open(second, "rb") as f_source:
-            # Position source at the requested offset
             if offset > 0:
                 f_source.seek(offset)
 
             elements_processed = 0
             while elements_processed < num_elements:
-                # Read chunk in units of source dtype
                 chunk_elements = min(elements_per_chunk, num_elements - elements_processed)
-                bytes_to_read = chunk_elements * source_dtype_np.itemsize
+                bytes_to_read = chunk_elements * src_item
 
                 chunk_bytes = f_source.read(bytes_to_read)
                 if not chunk_bytes:
                     break
 
-                source_array = np.frombuffer(memoryview(chunk_bytes), dtype=source_dtype_np)
+                # Zero-copy view of source and writable view of prealloc'd dest buffer
+                src = np.frombuffer(chunk_bytes, dtype=sd, count=chunk_elements)
+                dst_mv = memoryview(out_buf)[: chunk_elements * dst_item]
+                dst = np.frombuffer(dst_mv, dtype=dd, count=chunk_elements)
 
-                # Convert to destination dtype (upscaling) and write in-place
-                dest_array = source_array.astype(dest_dtype_np)
+                # Single-pass safe upcast into dst buffer
+                np.copyto(dst, src, casting="safe")
+
+                # Write the exact slice
                 f_dest.seek(write_position)
-                f_dest.write(dest_array.tobytes())
-                write_position += dest_array.nbytes
+                f_dest.write(dst_mv)
+                write_position += chunk_elements * dst_item
 
-                elements_processed += len(source_array)
+                elements_processed += src.size
 
     if delete_file2_on_complete:
         os.remove(second)

@@ -186,31 +186,6 @@ class NeighborSamplingStrategy(str, Enum):
     FIRST = "first"
 
 
-# Valid dtype conversions for lossless upscaling
-# Format: (source_dtype, dest_dtype)
-# Valid dtype conversions for lossless upscaling
-VALID_DTYPE_CONVERSIONS = (
-    frozenset(
-        # All uint upscaling
-        (("uint8", t) for t in ("uint16", "uint32", "uint64"))
-    )
-    .union((("uint16", t) for t in ("uint32", "uint64")))
-    .union({("uint32", "uint64")})
-    .union(
-        # All float upscaling
-        (("float16", t) for t in ("float32", "float64"))
-    )
-    .union({("float32", "float64")})
-    .union(
-        # uint to float (only safe cases)
-        {
-            ("uint8", "float32"),
-            ("uint8", "float64"),
-            ("uint16", "float32"),
-            ("uint16", "float64"),
-            ("uint32", "float32"),
-            ("uint32", "float64"),
-            ("uint64", "float64"),
-        }
-    )
-)
+# Centralized dtype family orderings, for use in upscaling/validation across modules
+INT_ORDER = ["uint8", "uint16", "uint32", "uint64"]
+FLOAT_ORDER = ["float16", "float32", "float64"]

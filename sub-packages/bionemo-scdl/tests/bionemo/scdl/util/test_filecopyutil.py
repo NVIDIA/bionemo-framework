@@ -20,15 +20,25 @@ import numpy as np
 import pytest
 
 from bionemo.scdl.util.filecopyutil import extend_files
-from bionemo.scdl.util.scdl_constants import VALID_DTYPE_CONVERSIONS
+from bionemo.scdl.util.scdl_constants import FLOAT_ORDER, INT_ORDER
 
 
-# Precompute all dtypes present in conversions (used across tests)
-_ALL_DTYPES = sorted({t for pair in VALID_DTYPE_CONVERSIONS for t in pair})
+# All supported dtypes (order preserved)
+_ALL_DTYPES = list(INT_ORDER + FLOAT_ORDER)
 _BUFFER_SIZES = [8, 64, 1024, 4096, 65536]
 
-# Precompute all valid source→destination pairs from VALID_DTYPE_CONVERSIONS
-SOURCE_DEST_PAIRS = sorted(VALID_DTYPE_CONVERSIONS)
+
+def _same_family_upscale_pairs(order):
+    pairs = []
+    for i, s in enumerate(order):
+        for j, d in enumerate(order):
+            if j > i:  # strict upscaling only; same-dtype covered by a separate test
+                pairs.append((s, d))
+    return pairs
+
+
+# All valid source→dest pairs within same family (no cross-family, no same-dtype)
+SOURCE_DEST_PAIRS = _same_family_upscale_pairs(INT_ORDER) + _same_family_upscale_pairs(FLOAT_ORDER)
 
 
 @pytest.mark.parametrize("dtype", _ALL_DTYPES)
