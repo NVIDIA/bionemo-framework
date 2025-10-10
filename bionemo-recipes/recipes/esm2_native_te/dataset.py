@@ -67,7 +67,7 @@ def create_dataloader(
         mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
 
     Returns:
-        A dataloader that just infinitely loops over the dataset.
+        A dataloader that can be used for training.
     """
     logger.info(f"Loading dataset with kwargs: {load_dataset_kwargs}")
     dataset = datasets.load_dataset(**load_dataset_kwargs)

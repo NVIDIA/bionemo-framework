@@ -119,9 +119,9 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW2901
 
-        # Forward pass with mixed precision.
-        with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
-            outputs = model(**batch)
+            # Forward pass with mixed precision.
+            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+                outputs = model(**batch)
 
             # Backward pass.
             loss = outputs.loss
