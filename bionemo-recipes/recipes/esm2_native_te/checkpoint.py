@@ -82,7 +82,6 @@ def load_checkpoint_ddp(
     ckpt_path: str | os.PathLike,
     dist_config: DistributedConfig,
     dataloader: StatefulDataLoader | None = None,
-    load_dataloader_by_step: bool = False,  # primarily used for testing --> can put it into a config.
 ) -> tuple[
     torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int, StatefulDataLoader | None, int
 ]:
@@ -110,9 +109,7 @@ def load_checkpoint_ddp(
         load_dataloader(
             dataloader=dataloader,
             ckpt_path=checkpoint_path,
-            step=step,
             dist_config=dist_config,
-            load_by_step=load_dataloader_by_step,
             num_workers=dataloader_num_workers,
         )
         logger.info(f"Loaded DDP dataloader from step {step} from {checkpoint_path}")
@@ -241,10 +238,8 @@ def load_checkpoint_mfsdp(
         load_dataloader(
             dataloader=dataloader,
             ckpt_path=checkpoint_path,
-            step=step,
             dist_config=dist_config,
             num_workers=dataloader_num_workers,
-            load_by_step=False,
         )
 
     # Increment the step by one to avoid re-running the previous step.
@@ -438,8 +433,6 @@ def load_checkpoint_fsdp2(
         load_dataloader(
             dataloader=dataloader,
             ckpt_path=checkpoint_path,
-            step=app_state.step,
-            load_by_step=False,
             dist_config=dist_config,
             num_workers=dataloader_num_workers,
         )

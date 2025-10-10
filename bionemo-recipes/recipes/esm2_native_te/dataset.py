@@ -18,7 +18,6 @@ import os
 import warnings
 from collections import defaultdict
 from pathlib import Path
-from typing import Optional
 
 import datasets
 import datasets.distributed
@@ -170,8 +169,6 @@ def load_dataloader(
     ckpt_path: str | os.PathLike,
     dist_config: DistributedConfig,
     num_workers: int,
-    step: Optional[int] = None,
-    load_by_step: bool = False,
 ):
     """Load the dataloader state from a file.
 
@@ -182,8 +179,6 @@ def load_dataloader(
         ckpt_path: The path to load the dataloader state from.
         dist_config: The distributed configuration.
         num_workers: The number of workers to load the dataloader state for.
-        step: The step to load the dataloader state at. Used if load_by_step is True.
-        load_by_step: Whether to load the dataloader state from the step number or to load the latest checkpoint.
     """
     # First we check to see if the checkpoint folder exists.
     ckpt_path = Path(ckpt_path)
@@ -218,13 +213,8 @@ def load_dataloader(
         )
         return
 
-    if load_by_step and step is not None:
-        dataloader_path = (
-            ckpt_path / f"dataloader_step_{step}_rank_{dist_config.rank}_num_workers_{dataloader.num_workers}.pt"
-        )
-    else:
-        rank_files = dataloader_files_by_rank[dist_config.rank]
-        dataloader_path = max(rank_files, key=lambda x: int(x.stem.split("_")[2]))
+    rank_files = dataloader_files_by_rank[dist_config.rank]
+    dataloader_path = max(rank_files, key=lambda x: int(x.stem.split("_")[2]))
 
     dataloader_state = torch.load(dataloader_path)
     dataloader.load_state_dict(dataloader_state)

@@ -71,10 +71,8 @@ def test_stateful_dataloader_load_fails_if_num_workers_mismatch(tmp_path):
         load_dataloader(
             dataloader=reference_dataloader,
             ckpt_path=dataloader_path,
-            step=None,
             num_workers=2,
             dist_config=rank0_dist_config,
-            load_by_step=False,
         )
 
 
@@ -128,10 +126,8 @@ def test_stateful_dataloader_load_fails_if_rank_mismatch(tmp_path):
         load_dataloader(
             dataloader=reference_dataloader,
             ckpt_path=dataloader_path,
-            step=None,
             num_workers=1,
             dist_config=rank1_dist_config,
-            load_by_step=False,
         )
 
 
@@ -183,10 +179,8 @@ def test_load_dataset_state_from_latest_checkpoint(tmp_path):
     new_dataloader = load_dataloader(
         dataloader=new_dataloader,
         ckpt_path=dataloader_path,
-        step=None,
         dist_config=dist_config,
         num_workers=1,
-        load_by_step=False,
     )
     assert new_dataloader.state_dict()["_snapshot"]["_snapshot_step"] == 10
     shutil.rmtree(dataloader_path)
@@ -234,6 +228,11 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):  # no
         mlm_probability=0,
     )
 
+    dataloader_path_step_4 = dataloader_path / "step_4"
+    dataloader_path_step_5 = dataloader_path / "step_5"
+    os.makedirs(dataloader_path_step_4, exist_ok=True)
+    os.makedirs(dataloader_path_step_5, exist_ok=True)
+
     # Run 10 batches, save state at step 5
     reference_rank0_batches = []
     for i, batch in enumerate(rank0_dataloader):
@@ -241,7 +240,7 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):  # no
         if i == 5:
             save_dataloader(
                 dataloader=rank0_dataloader,
-                ckpt_path=dataloader_path,
+                ckpt_path=dataloader_path_step_5,
                 step=5,
                 dist_config=rank0_config,
             )
@@ -256,7 +255,7 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):  # no
         if i == 4:
             save_dataloader(
                 dataloader=rank1_dataloader,
-                ckpt_path=dataloader_path,
+                ckpt_path=dataloader_path_step_4,
                 step=4,
                 dist_config=rank1_config,
             )
@@ -275,11 +274,9 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):  # no
 
     rank0_dataloader_reloaded = load_dataloader(
         dataloader=rank0_dataloader_info_reloaded,
-        ckpt_path=dataloader_path,
-        step=5,
+        ckpt_path=dataloader_path_step_5,
         num_workers=1,
         dist_config=rank0_config,
-        load_by_step=True,
     )
 
     # Load rank1 dataloader state at step 4
@@ -294,11 +291,9 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):  # no
 
     rank1_dataloader_reloaded = load_dataloader(
         dataloader=rank1_dataloader_info_reloaded,
-        ckpt_path=dataloader_path,
-        step=4,
+        ckpt_path=dataloader_path_step_4,
         num_workers=1,
         dist_config=rank1_config,
-        load_by_step=True,
     )
 
     # Run 3 more steps on loaded_rank0_dataloader and save the batches
@@ -367,6 +362,10 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):  # noq
         num_workers=1,
         mlm_probability=0,
     )
+    dataloader_path_step_4 = dataloader_path / "step_4"
+    dataloader_path_step_5 = dataloader_path / "step_5"
+    os.makedirs(dataloader_path_step_4, exist_ok=True)
+    os.makedirs(dataloader_path_step_5, exist_ok=True)
 
     # Run 10 batches, save state at step 5
     reference_rank0_batches = []
@@ -375,7 +374,7 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):  # noq
         if i == 5:
             save_dataloader(
                 dataloader=rank0_dataloader_info,
-                ckpt_path=dataloader_path,
+                ckpt_path=dataloader_path_step_5,
                 step=5,
                 dist_config=rank0_config,
             )
@@ -390,7 +389,7 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):  # noq
         if i == 4:
             save_dataloader(
                 dataloader=rank1_dataloader_info,
-                ckpt_path=dataloader_path,
+                ckpt_path=dataloader_path_step_4,
                 step=4,
                 dist_config=rank1_config,
             )
@@ -409,11 +408,9 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):  # noq
 
     rank0_dataloader_reloaded = load_dataloader(
         dataloader=rank0_dataloader_reloaded,
-        ckpt_path=dataloader_path,
-        step=5,
+        ckpt_path=dataloader_path_step_5,
         num_workers=1,
         dist_config=rank0_config,
-        load_by_step=True,
     )
 
     # Load rank1 dataloader state at step 4
@@ -428,11 +425,9 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):  # noq
 
     rank1_dataloader_reloaded = load_dataloader(
         dataloader=rank1_dataloader_reloaded,
-        ckpt_path=dataloader_path,
-        step=4,
+        ckpt_path=dataloader_path_step_4,
         num_workers=1,
         dist_config=rank1_config,
-        load_by_step=True,
     )
 
     # Run 3 more steps on loaded_rank0_dataloader and save the batches
@@ -516,10 +511,8 @@ def test_stateful_dataloader_works_save_dataloader_and_load_dataloader_single_pr
     new_dataloader = load_dataloader(
         dataloader=new_dataloader_info,
         ckpt_path=dataloader_path,
-        step=5,
         num_workers=1,
         dist_config=dist_config,
-        load_by_step=True,
     )
 
     loaded_batches = []
@@ -666,10 +659,8 @@ def test_stateful_dataloader_with_multiple_workers(tmp_path):
     load_dataloader(
         dataloader=new_dataloader,
         ckpt_path=dataloader_path,
-        step=5,
         num_workers=4,
         dist_config=dist_config,
-        load_by_step=True,
     )
 
     loaded_batches = []
