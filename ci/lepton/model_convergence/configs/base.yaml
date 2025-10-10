@@ -33,6 +33,8 @@ environment_variables:
     value_from: LEP_LOGIN_CREDENTIALS
   - name: HF_HOME
     value: /data/esm2/cache
+  - name: HF_TOKEN
+    value_from: HUGGING_FACE_HUB_TOKEN.jwilber
 
 ############################################################
 # Lepton Cluster Selection & Node Group
@@ -54,7 +56,7 @@ mount_from: node-nfs:fs1
 
 mounts:
   - path: /BioNeMo
-    mount_path: /BioNeMo
+    mount_path: /data
     from_: ${mount_from}
 
 ############################################################
