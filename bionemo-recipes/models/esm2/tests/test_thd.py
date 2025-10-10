@@ -85,7 +85,7 @@ def test_thd_from_collator_output(te_model_checkpoint, input_data_thd):
     model_thd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
     model_thd.to("cuda")
     input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
-    with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.bfloat16):
+    with torch.no_grad():
         outputs = model_thd(**input_data_thd, output_hidden_states=True)
 
     assert outputs.loss < 3.0
@@ -161,9 +161,8 @@ def test_thd_logits_match_with_bf16_autocast(te_model_checkpoint, input_data, in
     input_data_bshd = {k: v.to("cuda") for k, v in input_data.items()}
     input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
 
-    with torch.amp.autocast("cuda", dtype=torch.bfloat16):
-        thd_outputs = model_thd(**input_data_thd, output_hidden_states=True)
-        bshd_outputs = model_bshd(**input_data_bshd, output_hidden_states=True)
+    thd_outputs = model_thd(**input_data_thd, output_hidden_states=True)
+    bshd_outputs = model_bshd(**input_data_bshd, output_hidden_states=True)
 
     for i, (bshd_hidden, thd_hidden) in enumerate(zip(bshd_outputs.hidden_states, thd_outputs.hidden_states)):
         torch.testing.assert_close(

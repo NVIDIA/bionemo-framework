@@ -17,16 +17,15 @@ NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, librarie
 > <summary><b>(Click to expand) <code>bionemo-recipes</code> support matrix </b></summary>
 > <small>
 >
-> | Directory                                      | Description                                        | Support Status       | 5D Parallel | Megatron-FSDP | TE     | Sequence Packing | FP8    | Context Parallelism |
-> | ---------------------------------------------- | -------------------------------------------------- | -------------------- | ----------- | ------------- | ------ | ---------------- | ------ | ------------------- |
-> | `models/`<br>`amplify`                         | TE accelerated protein BERT, pushed to HuggingFace | ✅ Active            | ❌          | ✅            | ✅     | 🚧 WIP           | ✅     | 🚧 WIP              |
-> | `models/`<br>`esm2`                            | TE accelerated protein BERT, pushed to HuggingFace | ✅ Active            | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
-> | `models/`<br>`geneformer`                      | TE accelerated single-cell BERT                    | 🚧 WIP               | ❌          | ✅            | 🚧 WIP | 🚧 WIP           | 🚧 WIP | 🚧 WIP              |
-> | `recipes/`<br>`esm2_accelerate_te`             | Recipe for ESM2 TE + HF Accelerate                 | ✅ Active            | ❌          | 🚧 WIP        | ✅     | ❌               | ✅     | 🚧 WIP              |
-> | `recipes/`<br>`esm2_native_te`                 | Recipe for ESM2 TE + native PyTorch                | ✅ Active            | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
-> | `recipes/`<br>`esm2_native_te_mfsdp_thd`       | Recipe for ESM2 TE + megatron-FSDP + seq packing   | ☠️ EOL<sup>[1]</sup> | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
-> | `recipes/`<br>`geneformer_native_te_mfsdp_fp8` | Recipe for Geneformer HF model                     | 🚧 WIP               | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
-> | `recipes/`<br>`vit`                            | Recipe for Vision Transformer                      | 🚧 WIP               | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
+> | Directory                                      | Description                                        | Support Status | 5D Parallel | Megatron-FSDP | TE     | Sequence Packing | FP8    | Context Parallelism |
+> | ---------------------------------------------- | -------------------------------------------------- | -------------- | ----------- | ------------- | ------ | ---------------- | ------ | ------------------- |
+> | `models/`<br>`amplify`                         | TE accelerated protein BERT, pushed to HuggingFace | ✅ Active      | ❌          | ✅            | ✅     | 🚧 WIP           | ✅     | 🚧 WIP              |
+> | `models/`<br>`esm2`                            | TE accelerated protein BERT, pushed to HuggingFace | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
+> | `models/`<br>`geneformer`                      | TE accelerated single-cell BERT                    | 🚧 WIP         | ❌          | ✅            | 🚧 WIP | 🚧 WIP           | 🚧 WIP | 🚧 WIP              |
+> | `recipes/`<br>`esm2_accelerate_te`             | Recipe for ESM2 TE + HF Accelerate                 | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ❌               | ✅     | 🚧 WIP              |
+> | `recipes/`<br>`esm2_native_te`                 | Recipe for ESM2 TE + native PyTorch                | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
+> | `recipes/`<br>`geneformer_native_te_mfsdp_fp8` | Recipe for Geneformer HF model                     | 🚧 WIP         | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
+> | `recipes/`<br>`vit`                            | Recipe for Vision Transformer                      | 🚧 WIP         | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
 >
 > \[1\]: End-of-life; to be merged with `esm2_native_te` recipe. <br/>
 > </small>
