@@ -85,9 +85,9 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
     device = torch.device(f"cuda:{dist_config.local_rank}")
     model = model.to(device=device)
 
-    step5_path_reference = f"{tmp_path}_step_5"
-    step10_path_reference = f"{tmp_path}_step_10"
-    step5_path_reloaded = f"{tmp_path}_step_5_reloaded"
+    step5_path_reference = f"{tmp_path}step_5"
+    step10_path_reference = f"{tmp_path}step_10"
+    step5_path_reloaded = f"{tmp_path}step_5_reloaded"
     if os.path.exists(step5_path_reference):
         shutil.rmtree(step5_path_reference)
     if os.path.exists(step10_path_reference):
@@ -179,7 +179,6 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
         ckpt_path=step5_path_reference,
         dist_config=dist_config,
         dataloader=new_dataloader,
-        load_dataloader_by_step=True,
     )
 
     # Now train for 3 more steps. Which are like training step 6-9 of the reference dataloader.
