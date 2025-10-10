@@ -44,11 +44,9 @@ fully_shard_kwargs:
 # supported formats.
 fp8_config:
   enabled: false
-  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
-  fp8_format: "HYBRID"
-  fp8_recipe_kwargs:
-    amax_history_len: 16
-    amax_compute_algo: "max"
+  fp8_recipe: transformer_engine.common.recipe.Float8CurrentScaling
+  fp8_format: HYBRID
+  fp8_recipe_kwargs: {}
 
 # Optimizer config
 adamw_kwargs:

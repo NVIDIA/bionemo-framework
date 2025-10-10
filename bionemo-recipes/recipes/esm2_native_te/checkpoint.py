@@ -22,6 +22,10 @@ import torch
 import torch.distributed.checkpoint as dcp
 import transformers
 from safetensors.torch import save_file
+from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
+from torch.distributed.checkpoint.metadata import TensorStorageMetadata
+from torch.distributed.checkpoint.planner import LoadPlan
+from torch.distributed.checkpoint.planner_helpers import _create_read_items
 from torch.distributed.checkpoint.state_dict import (
     StateDictOptions,
     get_model_state_dict,
@@ -29,6 +33,7 @@ from torch.distributed.checkpoint.state_dict import (
     set_state_dict,
 )
 from torch.distributed.checkpoint.stateful import Stateful
+from torch.distributed.tensor import DTensor
 
 from distributed_config import DistributedConfig
 
@@ -268,6 +273,66 @@ def save_final_model_mfsdp(
 # ============================================================================
 
 
+class FP8ExtraStateLoadPlanner(DefaultLoadPlanner):
+    """Custom LoadPlanner that handles FP8 _extra_state tensor shape mismatches.
+
+    FP8 _extra_state tensors can change shape during training as the model accumulates statistics. This planner allows
+    loading these tensors even when their shapes differ from the current model state, by reallocating tensors with the
+    checkpoint's shape.
+
+    For all other tensors, it delegates to the default load behavior with strict shape validation.
+    """
+
+    def create_local_plan(self) -> LoadPlan:
+        """Create a local load plan that handles _extra_state shape mismatches.
+
+        This method overrides the default behavior to skip strict shape validation for keys ending with '_extra_state'.
+        For these keys, if a shape mismatch is detected, the tensor is reallocated to match the checkpoint's shape.
+
+        This function largely mirrors create_default_local_save_plan in torch/distributed/checkpoint/default_planner.py,
+        except for the _extra_state re-allocation.
+        """
+        assert self.metadata is not None
+        requests = []
+
+        for fqn, obj in self.state_dict.items():
+            # Skip keys not in checkpoint metadata
+            if fqn not in self.metadata.state_dict_metadata:
+                if not self.allow_partial_load:
+                    raise RuntimeError(f"Missing key in checkpoint state_dict: {fqn}.")
+                else:
+                    continue
+
+            md = self.metadata.state_dict_metadata[fqn]
+
+            # Handle shape mismatch for _extra_state tensors
+            tensor_obj = obj
+            if (
+                isinstance(md, TensorStorageMetadata)
+                and getattr(obj, "size", None) is not None
+                and md.size != obj.size()
+            ):
+                if fqn.endswith("_extra_state"):
+                    # For FP8 extra state, reallocate tensor with checkpoint's shape
+                    logger.debug(f"Reallocating {fqn} from shape {obj.size()} to checkpoint shape {md.size}")
+                    # Create a new tensor with the checkpoint's shape
+                    tensor_obj = torch.empty(md.size, dtype=obj.dtype, device=obj.device)
+                    # Replace in state_dict
+                    self.state_dict[fqn] = tensor_obj
+                else:
+                    # For non-extra-state tensors, raise error as usual
+                    raise ValueError(f"Size mismatch between saved {md.size} and current: {obj.size()} for {fqn}")
+
+            # Create read items for this tensor
+            if isinstance(tensor_obj, DTensor):
+                if tensor_obj.device_mesh.get_coordinate() is not None:
+                    requests += _create_read_items(fqn, md, tensor_obj)
+            else:
+                requests += _create_read_items(fqn, md, tensor_obj)
+
+        return LoadPlan(requests)
+
+
 @dataclass
 class AppState(Stateful):
     """AppState for FSDP2 checkpoint.
@@ -333,7 +398,8 @@ def load_checkpoint_fsdp2(
     app_state = AppState(model=model, optimizer=optimizer, scheduler=scheduler)
 
     state_dict = {"app": app_state}
-    dcp.load(state_dict, checkpoint_id=checkpoint_path)
+    # Use custom planner that handles FP8 _extra_state shape mismatches
+    dcp.load(state_dict, checkpoint_id=checkpoint_path, planner=FP8ExtraStateLoadPlanner())
 
     # Increment the step by one to avoid re-running the previous step.
     step = app_state.step + 1
@@ -386,7 +452,6 @@ def save_final_model_fsdp2(
     os.makedirs(save_directory, exist_ok=True)
 
     # Save just the weights using safetensors
-
     save_file(model_state_dict, os.path.join(save_directory, "model.safetensors"))
 
     # Save the config

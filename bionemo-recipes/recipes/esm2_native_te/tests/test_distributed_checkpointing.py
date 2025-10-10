@@ -35,6 +35,7 @@ import subprocess
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
+from transformer_engine.pytorch.fp8 import check_fp8_support
 
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
@@ -50,7 +51,16 @@ requires_multi_gpu = pytest.mark.skipif(
 )
 
 
-def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
+requires_fp8 = pytest.mark.skipif(
+    not check_fp8_support()[0],
+    reason=f"FP8 is not supported on this GPU: {check_fp8_support()[1]}",
+)
+
+
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path, fp8):
     """Test checkpoint save/resume functionality for DDP with single process.
 
     This test validates:
@@ -76,6 +86,7 @@ def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
+                f"fp8_config.enabled={fp8}",
             ],
         )
 
@@ -103,6 +114,7 @@ def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+                "fp8_config.enabled=true",
             ],
         )
 
@@ -117,7 +129,10 @@ def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
 
 
 @requires_multi_gpu
-def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path, fp8):
     """Test checkpoint save/resume functionality for DDP with two processes.
 
     This test validates:
@@ -149,6 +164,7 @@ def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=false",  # Start fresh
+        f"fp8_config.enabled={fp8}",
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -175,6 +191,7 @@ def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
         "num_train_steps=15",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+        f"fp8_config.enabled={fp8}",
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -187,7 +204,10 @@ def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
         assert expected in final_checkpoint_files, f"Missing checkpoint: {expected}"
 
 
-def test_checkpoint_save_and_load_single_process_mfsdp(recipe_path, tmp_path):
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_checkpoint_save_and_load_single_process_mfsdp(recipe_path, tmp_path, fp8):
     """Test checkpoint save/resume functionality for mFSDP with single process.
 
     This test validates:
@@ -213,6 +233,7 @@ def test_checkpoint_save_and_load_single_process_mfsdp(recipe_path, tmp_path):
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
+                f"fp8_config.enabled={fp8}",
             ],
         )
 
@@ -242,6 +263,7 @@ def test_checkpoint_save_and_load_single_process_mfsdp(recipe_path, tmp_path):
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+                f"fp8_config.enabled={fp8}",
             ],
         )
 
@@ -257,7 +279,10 @@ def test_checkpoint_save_and_load_single_process_mfsdp(recipe_path, tmp_path):
 
 
 @requires_multi_gpu
-def test_checkpoint_save_and_load_two_processes_mfsdp(recipe_path, tmp_path):
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_checkpoint_save_and_load_two_processes_mfsdp(recipe_path, tmp_path, fp8):
     """Test checkpoint save/resume functionality for mFSDP with two processes.
 
     This test validates:
@@ -289,6 +314,7 @@ def test_checkpoint_save_and_load_two_processes_mfsdp(recipe_path, tmp_path):
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=false",  # Start fresh
+        f"fp8_config.enabled={fp8}",
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -317,6 +343,7 @@ def test_checkpoint_save_and_load_two_processes_mfsdp(recipe_path, tmp_path):
         "num_train_steps=15",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+        f"fp8_config.enabled={fp8}",
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -331,7 +358,10 @@ def test_checkpoint_save_and_load_two_processes_mfsdp(recipe_path, tmp_path):
         assert expected in final_checkpoint_dirs, f"Missing checkpoint: {expected}"
 
 
-def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path, fp8):
     """Test checkpoint save/resume functionality for FSDP2 with single process.
 
     This test validates:
@@ -358,6 +388,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
+                f"fp8_config.enabled={fp8}",
             ],
         )
 
@@ -387,6 +418,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+                f"fp8_config.enabled={fp8}",
             ],
         )
 
@@ -402,7 +434,10 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
 
 
 @requires_multi_gpu
-def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path, fp8):
     """Test checkpoint save/resume functionality for FSDP2 with two processes.
 
     This test validates:
@@ -433,6 +468,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=false",  # Start fresh
+        f"fp8_config.enabled={fp8}",
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -461,6 +497,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
         "num_train_steps=15",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+        f"fp8_config.enabled={fp8}",
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -475,7 +512,10 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
         assert expected in final_checkpoint_dirs, f"Missing checkpoint: {expected}"
 
 
-def test_final_model_save_ddp(recipe_path, tmp_path):
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_final_model_save_ddp(recipe_path, tmp_path, fp8):
     """Test final model saving for DDP.
 
     Validates that DDP saves the final model correctly with:
@@ -493,6 +533,7 @@ def test_final_model_save_ddp(recipe_path, tmp_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 "checkpoint.save_final_model=true",
                 "num_train_steps=3",
+                f"fp8_config.enabled={fp8}",
             ],
         )
 
@@ -510,7 +551,10 @@ def test_final_model_save_ddp(recipe_path, tmp_path):
         assert os.path.getsize(file_path) > 0, f"File {file} is empty"
 
 
-def test_final_model_save_mfsdp(recipe_path, tmp_path):
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_final_model_save_mfsdp(recipe_path, tmp_path, fp8):
     """Test final model saving for mFSDP.
 
     Validates that mFSDP gathers parameters and saves the final model with:
@@ -528,6 +572,7 @@ def test_final_model_save_mfsdp(recipe_path, tmp_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 "num_train_steps=3",
                 "checkpoint.save_final_model=true",
+                f"fp8_config.enabled={fp8}",
             ],
         )
 
@@ -545,7 +590,10 @@ def test_final_model_save_mfsdp(recipe_path, tmp_path):
         assert os.path.getsize(file_path) > 0, f"File {file} is empty"
 
 
-def test_final_model_save_fsdp2(recipe_path, tmp_path):
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_final_model_save_fsdp2(recipe_path, tmp_path, fp8):
     """Test final model saving for FSDP2.
 
     Validates that FSDP2 gathers full state dict and saves the final model with:
@@ -562,6 +610,7 @@ def test_final_model_save_fsdp2(recipe_path, tmp_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 "checkpoint.save_final_model=true",
                 "num_train_steps=3",
+                f"fp8_config.enabled={fp8}",
             ],
         )
 
@@ -579,7 +628,10 @@ def test_final_model_save_fsdp2(recipe_path, tmp_path):
         assert os.path.getsize(file_path) > 0, f"File {file} is empty"
 
 
-def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_scheduler_resume_single_gpu(recipe_path, tmp_path, fp8):
     """Test that learning rate scheduler resumes from correct state after checkpoint load.
 
     This test validates:
@@ -608,6 +660,7 @@ def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh, don't look for checkpoints
                 "lr_scheduler_kwargs.num_warmup_steps=20",  # Warmup over 20 steps
                 "lr_scheduler_kwargs.num_training_steps=100",  # Total 100 steps
+                f"fp8_config.enabled={fp8}",
             ],
         )
 
@@ -625,6 +678,7 @@ def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
                 "lr_scheduler_kwargs.num_warmup_steps=20",
                 "lr_scheduler_kwargs.num_training_steps=100",
+                f"fp8_config.enabled={fp8}",
             ],
         )
 
@@ -641,7 +695,10 @@ def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
 
 
 @requires_multi_gpu
-def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
+@pytest.mark.parametrize(
+    "fp8", [pytest.param(True, marks=requires_fp8, id="use_fp8"), pytest.param(False, id="no_fp8")]
+)
+def test_scheduler_resume_two_gpu(recipe_path, tmp_path, fp8):
     """Test that learning rate scheduler resumes correctly with multi-GPU training.
 
     This test validates:
@@ -673,6 +730,7 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
         "checkpoint.resume_from_checkpoint=false",  # Start fresh, don't look for checkpoints
         "lr_scheduler_kwargs.num_warmup_steps=20",
         "lr_scheduler_kwargs.num_training_steps=100",
+        f"fp8_config.enabled={fp8}",
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -696,6 +754,7 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         "lr_scheduler_kwargs.num_warmup_steps=20",
         "lr_scheduler_kwargs.num_training_steps=100",
+        f"fp8_config.enabled={fp8}",
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
