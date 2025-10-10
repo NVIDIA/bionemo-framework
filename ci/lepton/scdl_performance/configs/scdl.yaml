@@ -97,8 +97,6 @@ checkout_script: |
 # The `script` section combines the checkout step with the run step.
 ############################################################
 run_script: |
-  echo "ls ../../../../data: $(ls -la ../../../../data)"
-  echo "ls ../../../../data/scdl_performance: $(ls -la ../../../../data/scdl_performance)"
   python simple-benchmark/scdl_speedtest.py \
     --json /workspace/benchmark.json \
     --max-time 120 \
