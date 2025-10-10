@@ -16,7 +16,7 @@ The ESM-2 implementation natively supports the following TransformerEngine-provi
 | **Sequence Packing / THD input format** | ✅ Supported                                                                     |
 | **FP8 with THD input format**           | ✅ Supported where FP8 is supported                                              |
 | **Import from HuggingFace checkpoints** | ✅ Supported                                                                     |
-| **Export to HuggingFace checkpoints**   | 🚧 Under development                                                             |
+| **Export to HuggingFace checkpoints**   | ✅ Supported                                                                     |
 
 See [BioNemo Recipes](../../recipes/README.md) for more details on how to use these features to accelerate model
 training and inference.
@@ -70,24 +70,53 @@ Training recipes are available in the `bionemo-recipes/recipes/` directory:
 - **[esm2_accelerate_te](../../recipes/esm2_accelerate_te/)** - Trains the model using HuggingFace
   [Accelerate](https://huggingface.co/docs/accelerate/index).
 
-## Commands for converting checkpoints
+## Converting Between Model Formats
 
-### HF Transformers to TE conversion
+This section explains how to convert between Hugging Face Transformers and Transformer Engine (TE) ESM2 model formats.
+The process demonstrates bidirectional conversion: from Transformers to TE format for optimized inference, and back to
+Hugging Face Transformers format for sharing and deployment. The workflow involves several key steps:
 
-Generate converted ESM-2 checkpoints from existing HuggingFace transformers checkpoints:
+### Converting from HF Transformers to TE
 
-```bash
-mkdir -p checkpoint_export
-docker build -t esm2 .
-docker run --rm -it --gpus all \
-  -v $PWD/checkpoint_export/:/workspace/bionemo/checkpoint_export \
-  -v $HOME/.cache/huggingface/:/root/.cache/huggingface \
-  esm2 python export.py
+```python
+from transformers import AutoModelForMaskedLM
+
+from esm.convert import convert_esm_hf_to_te
+
+hf_model = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+te_model = convert_esm_hf_to_te(hf_model)
+te_model.save_pretrained("/path/to/te_checkpoint")
 ```
 
-### TE to HF Transformers conversion
+This loads the pre-trained ESM2 model that will serve as our reference for comparison.
 
-(Coming soon)
+### Converting from TE back to HF Transformers
+
+```python
+from esm.convert import convert_esm_te_to_hf
+from esm.modeling_esm_te import NVEsmForMaskedLM
+
+te_model = NVEsmForMaskedLM.from_pretrained("/path/to/te_checkpoint")
+hf_model = convert_esm_te_to_hf(te_model)
+hf_model.save_pretrained("/path/to/hf_checkpoint")
+```
+
+Load and Test the Exported Model
+
+Load the exported model and perform validation:
+
+```python
+from transformers import AutoTokenizer
+
+model_hf_exported = AutoModelForMaskedLM.from_pretrained("/path/to/hf_checkpoint")
+tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
+```
+
+### Validating Converted Models
+
+See the commands in [Inference Examples](#inference-examples) above to load and test both the original and converted
+models to ensure loss and logit values are similar. See also the golden value tests in
+[test_modeling_esm_te.py](tests/test_modeling_esm_te.py) and [test_convert.py](tests/test_convert.py).
 
 ## Developer Guide
 
@@ -107,8 +136,18 @@ editable mode with `pip install -e .`, then run `pytest -v .` in the model direc
 
 ### Deploying converted checkpoints to HuggingFace Hub
 
-After running the checkpoint conversion steps listed in [Commands for converting checkpoints](#commands-for-converting-checkpoints),
-you can deploy the converted checkpoints to the HuggingFace Hub by running the following command:
+First, generate converted ESM-2 checkpoints from existing HuggingFace transformers checkpoints:
+
+```bash
+mkdir -p checkpoint_export
+docker build -t esm2 .
+docker run --rm -it --gpus all \
+  -v $PWD/checkpoint_export/:/workspace/bionemo/checkpoint_export \
+  -v $HOME/.cache/huggingface/:/root/.cache/huggingface \
+  esm2 python export.py
+```
+
+Now deploy the converted checkpoints to the HuggingFace Hub by running the following command for each model:
 
 ```bash
 huggingface-cli upload nvidia/${MODEL_NAME} $PWD/checkpoint_export/${MODEL_NAME}

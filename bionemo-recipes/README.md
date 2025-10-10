@@ -1,20 +1,48 @@
-# BioNemo Recipes
+# BioNeMo Recipes
 
-BioNemo Recipes provides an easy path for the biological foundation model training community to scale up transformer-based models efficiently. Rather than offering a batteries-included training framework, we provide **model checkpoints** with TransformerEngine layers and **training recipes** that demonstrate how to achieve maximum throughput with popular open-source frameworks.
+BioNeMo Recipes provides an easy path for the biological foundation model training community to scale up transformer-based models efficiently. Rather than offering a batteries-included training framework, we provide **model checkpoints** with TransformerEngine (TE) layers and **training recipes** that demonstrate how to achieve maximum throughput with popular open-source frameworks and fully sharded data parallel (FSDP) scale-out.
 
 ## Overview
 
-The biological AI community is actively prototyping model architectures and needs tooling that prioritizes extensibility, interoperability, and ease-of-use alongside performance. BioNemo Recipes addresses this by offering:
+The biological AI community is actively prototyping model architectures and needs tooling that prioritizes extensibility, interoperability, and ease-of-use alongside performance. BioNeMo Recipes addresses this by offering:
 
 - **Flexible scaling**: Scale from single-GPU prototyping to multi-node training without complex parallelism configurations
 - **Framework compatibility**: Works with popular frameworks like HuggingFace Accelerate, PyTorch Lightning, and vanilla PyTorch
-- **Performance optimization**: Leverages TransformerEngine and megatron-fsdp for state-of-the-art training efficiency
+- **Performance optimization**: Leverages TransformerEngine and megatron-FSDP for state-of-the-art training efficiency
 - **Research-friendly**: Hackable, readable code that researchers can easily adapt for their experiments
 
 ### Use Cases
 
 - **Foundation Model Developers**: AI researchers and ML engineers developing novel biological foundation models who need to scale up prototypes efficiently
 - **Foundation Model Customizers**: Domain scientists looking to fine-tune existing models with proprietary data for drug discovery and biological research
+
+## Supported Recipes and Models
+
+| Directory                                                                                        | Description                                                                                       | FSDP         | BF16 | FP8<sup>[1]</sup> | THD | FP8 + THD | MXFP8<sup>[2]</sup> | NVFP4<sup>[2]</sup> | CP  |
+| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | ------------ | ---- | ----------------- | --- | --------- | ------------------- | ------------------- | --- |
+| `models/amplify`,<br> [available on Hugging Face](https://huggingface.co/nvidia/AMPLIFY_350M)    | TE accelerated protein BERT, [Amgen](https://www.biorxiv.org/content/10.1101/2024.09.23.614603v1) | ✅           | ✅   | ❌                | ❌  | 🚧        | ❌                  | ❌                  | ❌  |
+| `models/esm2`,<br> [available on Hugging Face](https://huggingface.co/nvidia/esm2_t48_15B_UR50D) | TE accelerated protein BERT, [Meta](https://www.biorxiv.org/content/10.1101/2022.07.20.500902v1)  | ✅           | ✅   | ✅                | ✅  | ✅        | ✅                  | 🚧                  | 🚧  |
+| `recipes/`<br>`esm2_accelerate_te`                                                               | Recipe for `esm2/amplify` TE + HF Accelerate                                                      | 🚧           | ✅   | ✅                | 🚧  | ❌        | 🚧                  | 🚧                  | 🚧  |
+| `recipes/`<br>`esm2_native_te`                                                                   | Recipe for `esm2/amplify` + native PyTorch                                                        | mFSDP, FSDP2 | ✅   | ✅                | ✅  | ✅        | ✅                  | 🚧                  | 🚧  |
+| `recipes/`<br>`geneformer_native_te_mfsdp_fp8`                                                   | Recipe for geneformer HF model                                                                    | mFSDP        | ✅   | 🚧                | 🚧  | 🚧        | 🚧                  | 🚧                  | 🚧  |
+| `recipes/`<br>`vit`                                                                              | Recipe for vision transformer                                                                     | mFSDP        | ✅   | 🚧                | 🚧  | 🚧        | 🚧                  | 🚧                  | 🚧  |
+
+✅: Supported <br/>
+🚧: Under development, will be supported soon <br/>
+❌: Not supported <br/>
+
+Abbreviations:
+
+- FSDP: Fully sharded data parallel. In `bionemo-recipes`, we focus on pytorch native [FSDP2](<(https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html)>) and [megatron-FSDP](<(https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src)>)(mFSDP) support.
+- BF16: [brain-float 16](https://en.wikipedia.org/wiki/Bfloat16_floating-point_format), a common 16 bit float format for deep learning.
+- FP8<sup>[1]</sup>: [8-bit floating point](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html), a compact format for weights allowing for faster training and inference.
+- MXFP8<sup>[2]</sup>: [Multi Scale 8-bit floating point](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html), as compact as FP8 but with better numerical precision.
+- NVFP4<sup>[2]</sup>: [NVIDIA 4-bit floating point](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html#Beyond-FP8---training-with-NVFP4), faster than FP8, retaining accuracy via multi-scale.
+- THD: **T**otal **H**eads **D**imension, also known as ["sequence packing"](https://docs.nvidia.com/nemo-framework/user-guide/24.07/nemotoolkit/features/optimizations/sequence_packing.html#sequence-packing-for-sft-peft). A way to construct a batch with sequences of different length so there are no pads, therefore no compute is wasted on computing attention for padding tokens. This is in contract so **B**atch **S**equence **H**ead **D**imension (BSHD) format, which uses pads to create a rectangular batch.
+- CP: Context parallel, also known as sequence parallel. A way to distribute the memory required to process long sequences across multiple GPUs.
+
+\[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
+\[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
 
 ## Repository Structure
 
@@ -35,7 +63,7 @@ Example models include ESM-2, Geneformer, and AMPLIFY.
 Self-contained training examples demonstrating best practices for scaling biological foundation models. Each recipe is a complete Docker container with:
 
 - **Framework examples**: Vanilla PyTorch, HuggingFace Accelerate, PyTorch Lightning
-- **Feature demonstrations**: FP8 training, megatron-fsdp, context parallelism, sequence packing
+- **Feature demonstrations**: FP8 training, megatron-FSDP, context parallelism, sequence packing
 - **Scaling strategies**: Single-GPU to multi-node training patterns
 - **Benchmarked performance**: Validated throughput and convergence metrics
 
@@ -48,7 +76,7 @@ Recipes are **not pip-installable packages** but serve as reference implementati
 ```python
 from transformers import AutoModel, AutoTokenizer
 
-# Load a BioNemo model directly from Hugging Face
+# Load a BioNeMo model directly from Hugging Face
 model = AutoModel.from_pretrained("nvidia/AMPLIFY_120M")
 tokenizer = AutoTokenizer.from_pretrained("nvidia/AMPLIFY_120M")
 ```
@@ -191,4 +219,4 @@ For technical support and questions:
 
 - Check existing issues before opening a new one
 - Review our training recipes for implementation examples
-- Consult the TransformerEngine and megatron-fsdp documentation for underlying technologies
+- Consult the TransformerEngine and megatron-FSDP documentation for underlying technologies

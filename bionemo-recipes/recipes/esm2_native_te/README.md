@@ -24,8 +24,8 @@ bionemo-framework repository. You can download a zipped directory of this folder
 🚧: Under development <br/>
 ❌: Not supported <br/>
 
-\[1\]: Requires compute capacity 9.0 and above (Hopper+) <br/>
-\[2\]: Requires compute capacity 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
+\[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
+\[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
 
 ### Distributed Training
 
@@ -34,7 +34,7 @@ entrypoints:
 
 - [Distributed Data Parallel (DDP)](https://docs.pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html), shown in `train_ddp.py`
 - [Fully Sharded Data Parallel 2 (FSDP2)](https://docs.pytorch.org/docs/stable/distributed.fsdp.fully_shard.html), shown in `train_fsdp2.py`
-- [Megatron-FSDP (mFSDP)](hhttps://pypi.org/project/megatron-fsdp/), shown in `train_mfsdp.py`
+- [Megatron-FSDP (mFSDP)](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src), shown in `train_mfsdp.py`
 
 ## Commands to Launch Training
 
@@ -81,6 +81,15 @@ python train_fsdp2.py --config-name L0_sanity \
   fp8_config.enabled=true \
   dataset.use_sequence_packing=true \
   dataset.sequence_packing_pad_to_multiple_of=16
+```
+
+### Comparing Against the HF Transformers Reference Implementation
+
+To launch training with the ESM-2 model as implemented in HF Transformers, pass a `facebook/esm2` checkpoint as the
+model tag:
+
+```bash
+python train_fsdp2.py --config-name L0_sanity model_tag=facebook/esm2_t6_8M_UR50D
 ```
 
 ## Saving and Loading Checkpoints

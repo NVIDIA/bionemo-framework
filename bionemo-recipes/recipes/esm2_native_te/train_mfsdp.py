@@ -116,6 +116,12 @@ def main(args: DictConfig) -> float | None:
     else:
         fp8_recipe = None
 
+    if args.use_torch_compile:
+        logger.warning(
+            "BIONEMO-2977: Using torch.compile with mfsdp is currently not supported. `use_torch_compile` was set to "
+            "true, but will be ignored."
+        )
+
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_mfsdp" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
@@ -138,9 +144,8 @@ def main(args: DictConfig) -> float | None:
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
         # Forward pass with mixed precision.
-        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
-                outputs = model(**batch)
+        with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+            outputs = model(**batch)
 
         # Backward pass.
         loss = outputs.loss

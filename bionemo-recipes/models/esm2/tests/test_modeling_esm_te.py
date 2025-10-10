@@ -177,9 +177,8 @@ def test_golden_values(input_data):
     input_data = {k: v.to("cuda") for k, v in input_data.items()}
 
     with torch.no_grad():
-        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-            te_outputs = model_te(**input_data, output_hidden_states=True)
-            hf_outputs = model_hf(**input_data, output_hidden_states=True)
+        te_outputs = model_te(**input_data, output_hidden_states=True)
+        hf_outputs = model_hf(**input_data, output_hidden_states=True)
 
     torch.testing.assert_close(te_outputs.loss, hf_outputs.loss, atol=1e-2, rtol=1e-3)
     torch.testing.assert_close(
