@@ -139,7 +139,6 @@ def save_checkpoint_ddp(
         save_dataloader(
             dataloader=dataloader,
             ckpt_path=checkpoint_path,
-            step=step,
             dist_config=dist_config,
         )
         logger.info(f"Saved DDP dataloader to {checkpoint_path}")
@@ -282,7 +281,6 @@ def save_checkpoint_mfsdp(
         save_dataloader(
             dataloader=dataloader,
             ckpt_path=checkpoint_path,
-            step=step,
             dist_config=dist_config,
         )
         logger.info(f"Saved mFSDP dataloader to {checkpoint_path}")
@@ -473,7 +471,6 @@ def save_checkpoint_fsdp2(
         save_dataloader(
             dataloader=dataloader,
             ckpt_path=checkpoint_path,
-            step=step,
             dist_config=dist_config,
         )
         logger.info(f"Saved FSDP2 dataloader to {ckpt_path}")

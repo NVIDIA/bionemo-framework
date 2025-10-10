@@ -141,7 +141,6 @@ def create_dataloader(
 def save_dataloader(
     dataloader: StatefulDataLoader,
     ckpt_path: str | os.PathLike,
-    step: int,
     dist_config: DistributedConfig,
 ):
     """Save the dataloader state to a file.
@@ -151,13 +150,12 @@ def save_dataloader(
     Args:
         dataloader: The dataloader to save the state of.
         ckpt_path: The path to save the dataloader state to.
-        step: The step to save the dataloader state at.
         dist_config: The distributed configuration.
     """
     num_workers = dataloader.num_workers
     ckpt_path = Path(ckpt_path)
     ckpt_path.mkdir(parents=True, exist_ok=True)
-    dataloader_path = ckpt_path / f"dataloader_step_{step}_rank_{dist_config.rank}_num_workers_{num_workers}.pt"
+    dataloader_path = ckpt_path / f"dataloader_rank_{dist_config.rank}_num_workers_{num_workers}.pt"
 
     dataloader_state = dataloader.state_dict()
     torch.save(dataloader_state, dataloader_path)
@@ -187,7 +185,7 @@ def load_dataloader(
         return
 
     # Then we check to see if there are any dataloader files in the checkpoint path.
-    dataloader_files = [f for f in ckpt_path.iterdir() if f.name.startswith("dataloader_step_")]
+    dataloader_files = [f for f in ckpt_path.iterdir() if f.name.startswith("dataloader_rank_")]
 
     if not dataloader_files:
         logger.info("No Dataloader checkpoint found, starting from scratch")
@@ -196,7 +194,7 @@ def load_dataloader(
     # Parse the files by rank and step.
     dataloader_files_by_rank = defaultdict(list)
     for file in dataloader_files:
-        rank = int(file.stem.split("_")[4])
+        rank = int(file.stem.split("_")[2])
         dataloader_files_by_rank[rank].append(file)
 
     if dist_config.rank not in dataloader_files_by_rank:
@@ -213,8 +211,7 @@ def load_dataloader(
         )
         return
 
-    rank_files = dataloader_files_by_rank[dist_config.rank]
-    dataloader_path = max(rank_files, key=lambda x: int(x.stem.split("_")[2]))
+    dataloader_path = ckpt_path / f"dataloader_rank_{dist_config.rank}_num_workers_{dataloader.num_workers}.pt"
 
     dataloader_state = torch.load(dataloader_path)
     dataloader.load_state_dict(dataloader_state)
