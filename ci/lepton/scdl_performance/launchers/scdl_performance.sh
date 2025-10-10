@@ -156,7 +156,7 @@ else
             --arg time "$TIMESTAMP" \
             --arg source "bionemo-data-performance" \
             --arg type "scdl-benchmark-metrics" \
-            --arg subject "scdl_performance" \
+            --arg subject "scdl_performance_v0.0.1" \
             --argjson data "$COMBINED_JSON" \
             '{
               "specversion": "1.0",
