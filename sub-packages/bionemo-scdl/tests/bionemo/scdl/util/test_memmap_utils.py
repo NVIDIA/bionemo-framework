@@ -37,8 +37,8 @@ def test_determine_dtype():
     assert determine_dtype([np.uint64, np.uint16, np.uint32, np.uint8]) == "uint64"
 
     # mix order for mixed family (should raise to float32)
-    assert determine_dtype(["float32", "float16"]) == "float32"
+    assert determine_dtype(["float32", "float64"]) == "float64"
     with pytest.raises(ValueError):
-        determine_dtype([np.uint8, np.uint16, np.uint32, np.uint64, np.float16, np.float32, np.float64])
+        determine_dtype([np.uint8, np.uint16, np.uint32, np.uint64, np.float32, np.float64])
     with pytest.raises(ValueError):
-        determine_dtype([np.uint8, np.uint16, np.uint32, np.uint64, np.float16, np.float32, np.float64])
+        determine_dtype([np.uint8, np.uint16, np.uint32, np.uint64, np.float32, np.float64])

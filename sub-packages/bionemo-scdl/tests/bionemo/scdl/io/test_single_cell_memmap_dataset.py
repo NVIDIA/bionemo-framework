@@ -41,6 +41,9 @@ def generate_dataset(tmp_path, test_directory) -> SingleCellMemMapDataset:
     ds.save()
     del ds
     reloaded = SingleCellMemMapDataset(tmp_path / "scy")
+    assert np.array_equal(np.array(reloaded.row_index), ad.read_h5ad(test_directory / "adata_sample0.h5ad").X.indptr)
+    assert np.array_equal(np.array(reloaded.col_index), ad.read_h5ad(test_directory / "adata_sample0.h5ad").X.indices)
+    assert np.array_equal(np.array(reloaded.data), ad.read_h5ad(test_directory / "adata_sample0.h5ad").X.data)
     return reloaded
 
 
@@ -80,12 +83,26 @@ def compare_fn():
         assert dns.number_nonzero_values() == dt.number_nonzero_values()
         assert dns.number_of_variables() == dt.number_of_variables()
         assert dns.number_of_rows() == dt.number_of_rows()
-        for row_idx in range(len(dns)):
-            assert (dns[row_idx][0] == dt[row_idx][0]).all()
-            assert (dns[row_idx][1] == dt[row_idx][1]).all()
+        assert np.array_equal(np.array(dns.row_index), np.array(dt.row_index))
+        assert np.array_equal(np.array(dns.col_index), np.array(dt.col_index))
+        assert np.array_equal(np.array(dns.data), np.array(dt.data))
         assert dns.dtypes == dt.dtypes, f"Dtype mismatch: {dns.dtypes} != {dt.dtypes}"
 
     return _compare
+
+
+@pytest.fixture
+def big_dtype_h5ad(tmp_path):
+    """Create and return the path to an h5ad with large values/columns for dtype promotion tests."""
+    n_rows, n_cols = 2, 70_000
+    data = np.array([1.0, 70_000.0, 10.0], dtype="float32")
+    indices = np.array([0, 10, 65_537], dtype=np.int64)
+    indptr = np.array([0, 1, 3], dtype=np.int64)
+    X = sp.csr_matrix((data, indices, indptr), shape=(n_rows, n_cols))
+    a = ad.AnnData(X=X)
+    h5ad_path = tmp_path / "big_dtype.h5ad"
+    a.write_h5ad(h5ad_path)
+    return h5ad_path
 
 
 def test_empty_dataset_save_and_reload(tmp_path):
@@ -114,9 +131,9 @@ def test_load_h5ad(tmp_path, test_directory):
     assert len(ds) == 8
     assert ds.number_of_values() == 80
     assert ds.number_nonzero_values() == 5
-    np.isclose(ds.sparsity(), 0.9375, rtol=1e-6)
+    assert np.isclose(ds.sparsity(), 0.9375, rtol=1e-6)
+    assert np.array_equal(ds.data, [6.0, 19.0, 12.0, 16.0, 1.0])
     assert len(ds) == 8
-    # Dtype expectations: integer-valued counts in 0-255, 10 columns, 5 nnz
     assert ds.dtypes["data.npy"] == "float32"
     assert ds.dtypes["col_ptr.npy"] == "uint8"
     assert ds.dtypes["row_ptr.npy"] == "uint8"
@@ -269,23 +286,74 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
     compare_fn(ds_regular, ds_lazy)
 
 
-def test_load_h5ad_properly_converted_dtypes(tmp_path):
-    """Create an h5ad with large values/columns to force dtype promotion."""
-    n_rows, n_cols = 2, 70_000
-    data = np.array([1.0, 70_000.0, 10.0], dtype=np.float32)
-    indices = np.array([0, 10, 65_537], dtype=np.int64)
-    indptr = np.array([0, 1, 3], dtype=np.int64)
-    X = sp.csr_matrix((data, indices, indptr), shape=(n_rows, n_cols))
+@pytest.mark.parametrize("dtype", [None, "uint32", "uint64", "float32", "float64"])
+def test_load_h5ad_properly_converted_dtypes(tmp_path, test_directory, big_dtype_h5ad, dtype):
+    """Use shared big-dtype h5ad to force dtype promotion and verify results."""
+    ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_dtype_h5ad, data_dtype=dtype)
 
-    a = ad.AnnData(X=X)
-    h5ad_path = tmp_path / "big_dtype.h5ad"
-    a.write_h5ad(h5ad_path)
+    assert ds.dtypes["data.npy"] == dtype if dtype is not None else "float32"
+    assert ds.dtypes["col_ptr.npy"] == "uint32"
+    assert ds.dtypes["row_ptr.npy"] == "uint8"
+    assert np.array_equal(ds.data, [1, 70_000, 10])
+    assert np.array_equal(ds.col_index, [0, 10, 65_537])
+    assert np.array_equal(ds.row_index, [0, 1, 3])
 
-    ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=h5ad_path)
 
-    assert ds.dtypes["data.npy"] == "float32"
+@pytest.mark.parametrize("dtype", ["uint8", "uint16"])
+def test_load_h5ad_overflows_on_loading_dtypes(tmp_path, test_directory, big_dtype_h5ad, dtype):
+    """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
+    ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_dtype_h5ad, data_dtype=dtype)
+
+    assert not np.array_equal(ds.data, [1, 70_000, 10])
+    assert ds.dtypes["data.npy"] == dtype
     assert ds.dtypes["col_ptr.npy"] == "uint32"
     assert ds.dtypes["row_ptr.npy"] == "uint8"
 
 
-# TODO: add tests to specify memmap format
+def test_concat_SingleCellMemMapDatasets_raises_diff_dtypes(tmp_path, test_directory):
+    ds_float = SingleCellMemMapDataset(
+        tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", data_dtype="float32"
+    )
+    dt_int = SingleCellMemMapDataset(
+        tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad", data_dtype="uint8"
+    )
+    with pytest.raises(ValueError, match="mix of int and float dtypes"):
+        ds_float.concat(dt_int)
+
+    with pytest.raises(ValueError, match="mix of int and float dtypes"):
+        dt_int.concat(ds_float)
+
+
+def test_concat_rowptr_dtype_boundary_changes(tmp_path):
+    """Each nnz < 225 individually; combined > 255 → row_ptr switches to uint16."""
+
+    def make_zero_csr(total_nnz: int, n_cols: int):
+        indptr = np.arange(total_nnz + 1, dtype=np.int64)
+        indices = np.random.randint(0, n_cols, total_nnz)
+        data = np.ones(total_nnz, dtype=np.float64)
+        X = sp.csr_matrix((data, indices, indptr), shape=(total_nnz, n_cols))
+        return X
+
+    X1 = make_zero_csr(total_nnz=224, n_cols=200)
+    X2 = make_zero_csr(total_nnz=224, n_cols=200)
+    # Persist to disk as h5ad
+    h1 = tmp_path / "var1.h5ad"
+    h2 = tmp_path / "var2.h5ad"
+    ad.AnnData(X=X1).write_h5ad(h1)
+    ad.AnnData(X=X2).write_h5ad(h2)
+
+    ds1 = SingleCellMemMapDataset(tmp_path / "var_ds1", h5ad_path=h1, data_dtype="float32")
+    ds2 = SingleCellMemMapDataset(tmp_path / "var_ds2", h5ad_path=h2, data_dtype="float32")
+
+    expected_row_ptr = np.concatenate([X1.indptr, X2.indptr[1:] + int(X1.nnz)])
+
+    ds1.concat(ds2)
+
+    assert ds1.dtypes["row_ptr.npy"] == "uint16"
+    assert ds1.dtypes["data.npy"] == "float32"
+    assert ds1.dtypes["col_ptr.npy"] == "uint8"
+    np.testing.assert_array_equal(np.array(ds1.row_index), expected_row_ptr)
+    expected_cols = np.concatenate([X1.indices, X2.indices])
+    expected_data = np.concatenate([X1.data, X2.data])
+    np.testing.assert_array_equal(np.array(ds1.col_index), expected_cols)
+    np.testing.assert_allclose(np.array(ds1.data), expected_data, rtol=0, atol=0)

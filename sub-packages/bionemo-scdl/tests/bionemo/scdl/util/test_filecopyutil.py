@@ -16,6 +16,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-Apache2
 
+from itertools import chain, combinations
+
 import numpy as np
 import pytest
 
@@ -25,35 +27,32 @@ from bionemo.scdl.util.scdl_constants import FLOAT_ORDER, INT_ORDER
 
 # All supported dtypes (order preserved)
 _ALL_DTYPES = list(INT_ORDER + FLOAT_ORDER)
-_BUFFER_SIZES = [8, 64, 1024, 4096, 65536]
+_ELEMENTS_PER_CHUNK = [1, 2, 64]
 
 
-def _same_family_upscale_pairs(order):
-    pairs = []
-    for i, s in enumerate(order):
-        for j, d in enumerate(order):
-            if j > i:  # strict upscaling only; same-dtype covered by a separate test
-                pairs.append((s, d))
-    return pairs
-
-
-# All valid source→dest pairs within same family (no cross-family, no same-dtype)
-SOURCE_DEST_PAIRS = _same_family_upscale_pairs(INT_ORDER) + _same_family_upscale_pairs(FLOAT_ORDER)
+# All possible changes of dtype that are supported by the filecopyutil
+SOURCE_DEST_PAIRS = list(
+    chain(
+        combinations(INT_ORDER, 2),
+        combinations(FLOAT_ORDER, 2),
+    )
+)
 
 
 @pytest.mark.parametrize("dtype", _ALL_DTYPES)
-@pytest.mark.parametrize("buffer_size_b", _BUFFER_SIZES)
-def test_extend_files_same_dtype(tmp_path, dtype, buffer_size_b):
+@pytest.mark.parametrize("elements_per_chunk", _ELEMENTS_PER_CHUNK)
+@pytest.mark.parametrize("add_value", [None, 7])
+def test_extend_files_same_dtype(tmp_path, dtype, elements_per_chunk, add_value):
     """Extend first file with second when both share the same dtype, using memmap files.
 
     Uses small integer values for uint types and fractional values for float types.
     """
     if dtype.startswith("float"):
         a = np.array([0.0, 1.5, -2.0, 3.25], dtype=dtype)
-        b = np.array([-1.25, 2.75], dtype=dtype)
+        b = np.array([-1.25, 4.0, 5.0, 2.75], dtype=dtype)
     else:
         a = np.array([1, 2, 3, 4, 5], dtype=dtype)
-        b = np.array([10, 20, 30], dtype=dtype)
+        b = np.array([10, 20, 4, 100, 30], dtype=dtype)
 
     f1 = tmp_path / "first.npy"
     f2 = tmp_path / "second.npy"
@@ -69,12 +68,21 @@ def test_extend_files_same_dtype(tmp_path, dtype, buffer_size_b):
     mm2.flush()
     del mm2
 
-    # Extend without dtype parameters (fast byte-copy path)
-    extend_files(str(f1), str(f2), buffer_size_b=buffer_size_b, delete_file2_on_complete=False)
+    # Extend with optional add_value applied to appended segment
+    extend_files(
+        str(f1),
+        str(f2),
+        source_dtype=dtype,
+        dest_dtype=dtype,
+        elements_per_chunk=elements_per_chunk,
+        delete_file2_on_complete=False,
+        offset=0,
+        add_value=add_value,
+    )
 
     # Read back and validate
     merged = np.fromfile(f1, dtype=dtype)
-    expected = np.concatenate([a, b])
+    expected = np.concatenate([a, b + (0 if add_value is None else add_value)])
     np.testing.assert_array_equal(merged, expected)
 
     # Ensure the second file is unchanged if delete flag was False
@@ -87,8 +95,9 @@ def test_extend_files_same_dtype(tmp_path, dtype, buffer_size_b):
     SOURCE_DEST_PAIRS,
     ids=[f"{s}->{d}" for (s, d) in SOURCE_DEST_PAIRS],
 )
-@pytest.mark.parametrize("buffer_size_b", _BUFFER_SIZES)
-def test_extend_files_all_valid_source_pairs_memmap(tmp_path, src_dtype, dest_dtype, buffer_size_b):
+@pytest.mark.parametrize("elements_per_chunk", _ELEMENTS_PER_CHUNK)
+@pytest.mark.parametrize("add_value", [None, 7])
+def test_extend_files_all_valid_source_pairs_memmap(tmp_path, src_dtype, dest_dtype, elements_per_chunk, add_value):
     """Verify each valid source→destination conversion with memmap append and dtype conversion."""
     # Representative source values per family
     if src_dtype.startswith("uint"):
@@ -98,31 +107,32 @@ def test_extend_files_all_valid_source_pairs_memmap(tmp_path, src_dtype, dest_dt
 
     # Small initial destination to verify append semantics
     if dest_dtype.startswith("uint"):
-        dest_initial = np.array([11, 22], dtype=dest_dtype)
+        dest_initial = np.array([11, 22, 4, 100, 30], dtype=dest_dtype)
     else:
-        dest_initial = np.array([1.25, -0.5], dtype=dest_dtype)
+        dest_initial = np.array([1.25, -0.5, 4.0, 100.0, 30.0], dtype=dest_dtype)
 
     f1 = tmp_path / f"dest_{dest_dtype}.npy"
     f2 = tmp_path / f"src_{src_dtype}.npy"
 
     mm_dest = np.memmap(f1, dtype=dest_dtype, mode="w+", shape=(dest_initial.size,))
-    mm_dest[:] = dest_initial
+    mm_dest[:] = dest_initial.copy()
     mm_dest.flush()
     del mm_dest
 
     mm_src = np.memmap(f2, dtype=src_dtype, mode="w+", shape=(src_vals.size,))
-    mm_src[:] = src_vals
+    mm_src[:] = src_vals.copy()
     mm_src.flush()
     del mm_src
 
     extend_files(
         str(f1),
         str(f2),
-        buffer_size_b=buffer_size_b,
+        elements_per_chunk=elements_per_chunk,
         delete_file2_on_complete=False,
         source_dtype=src_dtype,
         dest_dtype=dest_dtype,
+        add_value=add_value,
     )
-    expected = np.concatenate([dest_initial, src_vals.astype(dest_dtype)])
+    expected = np.concatenate([dest_initial, src_vals + (0 if add_value is None else add_value)])
     merged = np.fromfile(f1, dtype=dest_dtype)
     np.testing.assert_allclose(merged, expected, rtol=0, atol=0)

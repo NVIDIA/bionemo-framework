@@ -82,7 +82,7 @@ def test_sccollection_multi(tmp_path, test_directory):
 
 def test_sccollection_serialization(tmp_path, test_directory):
     coll = SingleCellCollection(tmp_path / "sccy")
-    coll.load_h5ad_multi(test_directory / "", max_workers=4, use_processes=False)
+    coll.load_h5ad_multi(test_directory / "", max_workers=4, use_processes=False, data_dtype="float32")
     assert coll.number_of_rows() == 114
     assert coll.number_of_values() == 2092
     assert coll.number_nonzero_values() == 57
@@ -158,7 +158,7 @@ def test_sccollection_dtype_changes_on_concatenation(tmp_path):
 
     # Large (uint32 via integer-valued with large magnitude), 3 rows with empty middle row
     n_rows_large, n_cols_large = 3, 70_000
-    data_large = np.array([70_000.0, 1.0], dtype=np.float32)
+    data_large = np.array([70_000.0, 1.0], dtype=np.float64)
     indices_large = np.array([10, 65_537], dtype=np.int64)
     indptr_large = np.array([0, 1, 1, 2], dtype=np.int64)
     X_large = ad.AnnData(

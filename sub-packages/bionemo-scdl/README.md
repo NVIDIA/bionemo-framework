@@ -169,6 +169,28 @@ The runtime is examined on the Tahoe 100M dataset, which containes over 100 mill
 
 To replicate this on your machine, see: [Tahoe 100M Profiling](https://github.com/NVIDIA/bionemo-framework/blob/main/sub-packages/bionemo-scdl/simple-benchmark/README.md#tahoe-100m) section.
 
+## Data Compression
+
+Further data compression with SCDL is possible by casting the data in AnnData .X to a given format. This must be one of "uint8", "uint16", "uint32", "uint64", "float32", "float64". This is passed in when loading the dataset from an AnnData file with
+
+```python
+from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
+
+data = SingleCellMemMapDataset(
+    "97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad", data_dtype="uint64"
+)
+```
+
+SCDL does not check that there is no loss while doing this.
+
+During dataset concatenation, it is assumed that all of the data types are either floats or ints, and all of the entries are upscaled to the largest data size. If there is a combination of floats and ints when concatenating the data, and error is thrown.
+
+To convert multiple files with a given data format, the user can run:
+
+```bash
+convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset --data-dtype float 16
+```
+
 ## Using Neighbor Information in Single Cell Datasets
 
 SCDL now supports loading and utilizing neighbor information from AnnData objects. This is particularly useful for tasks that require knowledge of cell neighborhoods, trajectory analysis, or spatial relationships.

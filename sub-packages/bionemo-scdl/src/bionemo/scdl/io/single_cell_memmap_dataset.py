@@ -94,9 +94,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         neighbor_key: str = "next_cell_ids",
         neighbor_sampling_strategy: str = NeighborSamplingStrategy.RANDOM,
         fallback_to_identity: bool = True,
-        data_dtype: Optional[
-            str
-        ] = None,  # Must be one of: "uint8", "uint16", "uint32", "uint64", "float16", "float32", "float64", "string", "fixed_string"
+        data_dtype: Optional[str] = None,  # Must be one of INT_ORDER or FLOAT_ORDER in scdl_constants
     ) -> None:
         """Instantiate the class.
 
@@ -117,7 +115,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             fallback_to_identity (bool, optional): If a cell has no neighbors, whether to use the cell itself as its neighbor.
             data_dtype (str | None, optional): Desired dtype for `data.npy` when creating
                 new datasets; if None, defaults to 'float32'. Must be one of
-                'uint8','uint16','uint32','uint64','float16','float32','float64','string','fixed_string'.
+                'uint8','uint16','uint32','uint64','float32','float64','string','fixed_string'.
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
@@ -138,7 +136,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # the original AnnData features (e.g., gene names)
         # and allows us to store ragged arrays in our SCMMAP structure.
         self._feature_index: RowFeatureIndex = RowFeatureIndex()
-
+        # Validate data_dtype: must be in INT_ORDER or FLOAT_ORDER in scdl_constants
+        if data_dtype is not None and data_dtype not in INT_ORDER + FLOAT_ORDER:
+            allowed_dtypes = list(INT_ORDER + FLOAT_ORDER)
+            raise ValueError(f"Invalid data_dtype '{data_dtype}'. Must be one of: {', '.join(allowed_dtypes)}")
         # Variables for int packing / reduced precision
         self.dtypes: Dict[FileNames, str] = {
             f"{FileNames.DATA.value}": "float32" if data_dtype is None else data_dtype,
@@ -698,17 +699,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Currently, anndata is assumed to be sparse
         self.dtypes[f"{FileNames.ROWPTR.value}"] = smallest_uint_dtype(num_elements_stored)
         self.dtypes[f"{FileNames.COLPTR.value}"] = smallest_uint_dtype(num_cols - 1)
-
         # Create the arrays.
         self._init_arrs(num_elements_stored, num_rows)
         # Store data
         self.data[0:num_elements_stored] = count_data.data.astype(self.dtypes[f"{FileNames.DATA.value}"])
 
         # Store the col idx array
-        self.col_index[0:num_elements_stored] = count_data.indices.astype(int)
+        self.col_index[0:num_elements_stored] = count_data.indices.astype(self.dtypes[f"{FileNames.COLPTR.value}"])
 
         # Store the row idx array
-        self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
+        self.row_index[0 : num_rows + 1] = count_data.indptr.astype(self.dtypes[f"{FileNames.ROWPTR.value}"])
 
         vars = adata.var
         file_handle = getattr(adata, "file", None)
@@ -1183,41 +1183,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         return self.number_of_rows(), self.number_of_variables()
 
-    def concat(
-        self,
-        other_dataset: Union[list["SingleCellMemMapDataset"], "SingleCellMemMapDataset"],
-        extend_copy_size: int = 10 * 1_024 * 1_024,
-        output_path: str | None = None,
-        destroy_on_copy: bool = False,
+    def _verify_concat_compatibility_and_types(
+        self, other_dataset: Union[list["SingleCellMemMapDataset"], "SingleCellMemMapDataset"]
     ) -> None:
-        """Concatenates one or a list of SingleCellMemMapDatasest to the existing one.
-
-        The data is stored in the same place as for the original data set or at output_path
-        if it is set. Then, at output_path or at self.data_path, there would be a saved
-        SingleCellMemmpDataset, which can be read in with SingleCellMemmpDataset(output_path).
-
-        Args:
-            other_dataset: A SingleCellMemMapDataset or a list of
-            SingleCellMemMapDatasets
-            extend_copy_size: how much to copy in memory at once
-            output_path: location to store new dataset
-            destroy_on_copy: Whether to remove the current data_path
-
-        Raises:
-           ValueError if the other dataset(s) are not of the same version or
-           something of another type is passed in.
-        """
-        # Verify the other dataset or datasets are of the same type.
-        match other_dataset:
-            case self.__class__():
-                other_dataset = [other_dataset]
-            case list():
-                pass
-            case _:
-                raise ValueError(
-                    f"Expecting either a {SingleCellMemMapDataset} or a list thereof. Actually got: {type(other_dataset)}"
-                )
-
         cumulative_elements = self.number_nonzero_values()
         column_dtypes = {self.dtypes[FileNames.COLPTR.value]}
         data_dtypes = {self.dtypes[FileNames.DATA.value]}
@@ -1243,16 +1211,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             FileNames.DATA.value: determine_dtype(data_dtypes),
             FileNames.ROWPTR.value: smallest_uint_dtype(cumulative_elements),
         }
+        return new_dtypes
 
-        # Set our mode:
-        self.mode: Mode = Mode.READ_APPEND
-        if output_path is not None:
-            if destroy_on_copy:
-                shutil.move(self.data_path, output_path)
-            else:
-                shutil.copytree(self.data_path, output_path)
-            self.data_path = output_path
-
+    def _convert_dataset_to_new_dtypes(
+        self, new_dtypes: Dict[str, str], extend_copy_size: int = 1_024 * 1_024
+    ) -> None:
         # If any dtype is changing, convert the file in-place to the new dtype using extend_files.
         # This ensures that after this block, self.dtypes and the on-disk files are updated to the new dtype.
         for key in [FileNames.COLPTR.value, FileNames.DATA.value, FileNames.ROWPTR.value]:
@@ -1270,7 +1233,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 extend_files(
                     src_file,
                     tmp_file,
-                    buffer_size_b=extend_copy_size,
+                    elements_per_chunk=extend_copy_size,
                     delete_file2_on_complete=True,
                     source_dtype=current_dtype,
                     dest_dtype=target_dtype,
@@ -1278,38 +1241,72 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 # Update dtype in self.dtypes
                 self.dtypes[key] = target_dtype
 
+    def concat(
+        self,
+        other_dataset: Union[list["SingleCellMemMapDataset"], "SingleCellMemMapDataset"],
+        extend_copy_size: int = 1_024 * 1_024,
+        output_path: str | None = None,
+        destroy_on_copy: bool = False,
+    ) -> None:
+        """Concatenates one or a list of SingleCellMemMapDatasest to the existing one.
+
+        The data is stored in the same place as for the original data set or at output_path
+        if it is set. Then, at output_path or at self.data_path, there would be a saved
+        SingleCellMemmpDataset, which can be read in with SingleCellMemmpDataset(output_path).
+
+        Args:
+            other_dataset: A SingleCellMemMapDataset or a list of
+            SingleCellMemMapDatasets
+            extend_copy_size: how much to copy in memory at once
+            output_path: location to store new dataset
+            destroy_on_copy: Whether to remove the current data_path
+
+        Raises:
+           ValueError if the other dataset(s) are not of the same version or
+           something of another type is passed in.
+        """
+        match other_dataset:
+            case self.__class__():
+                other_dataset = [other_dataset]
+            case list():
+                pass
+            case _:
+                raise ValueError(
+                    f"Expecting either a {SingleCellMemMapDataset} or a list thereof. Actually got: {type(other_dataset)}"
+                )
+
+        # Verify the other dataset or datasets are of the same type.
+        new_dtypes = self._verify_concat_compatibility_and_types(other_dataset)
+
+        # Set our mode:
+        self.mode: Mode = Mode.READ_APPEND
+        if output_path is not None:
+            if destroy_on_copy:
+                shutil.move(self.data_path, output_path)
+            else:
+                shutil.copytree(self.data_path, output_path)
+            self.data_path = output_path
+
+        self._convert_dataset_to_new_dtypes(new_dtypes)
         # Copy the data from self and other into the new arrays.
         element_counter = self.number_nonzero_values()
         row_counter = self.number_of_rows()
         for mmap in other_dataset:
-            destination_memmap = np.memmap(
-                f"{mmap.data_path}/{FileNames.ROWPTR.value}_copy",
-                dtype=self.dtypes[f"{FileNames.ROWPTR.value}"],
-                mode="w+",
-                shape=mmap.row_index.shape,
-            )
-            destination_memmap[:] = mmap.row_index[:]
-
-            destination_memmap += int(element_counter)
-
-            destination_memmap.flush()
-            if destroy_on_copy:
-                os.remove(f"{mmap.data_path}/{FileNames.ROWPTR.value}")
-
             extend_files(
                 f"{self.data_path}/{FileNames.ROWPTR.value}",
-                f"{mmap.data_path}/{FileNames.ROWPTR.value}_copy",
-                buffer_size_b=extend_copy_size,
-                delete_file2_on_complete=True,
-                offset=np.dtype(self.dtypes[f"{FileNames.ROWPTR.value}"]).itemsize,
+                f"{mmap.data_path}/{FileNames.ROWPTR.value}",
+                elements_per_chunk=extend_copy_size,
+                delete_file2_on_complete=destroy_on_copy,
+                offset=np.dtype(mmap.dtypes[f"{FileNames.ROWPTR.value}"]).itemsize,
                 source_dtype=mmap.dtypes[f"{FileNames.ROWPTR.value}"],
                 dest_dtype=new_dtypes[f"{FileNames.ROWPTR.value}"],
+                add_value=element_counter,
             )
 
             extend_files(
                 f"{self.data_path}/{FileNames.DATA.value}",
                 f"{mmap.data_path}/{FileNames.DATA.value}",
-                buffer_size_b=extend_copy_size,
+                elements_per_chunk=extend_copy_size,
                 delete_file2_on_complete=destroy_on_copy,
                 source_dtype=mmap.dtypes[f"{FileNames.DATA.value}"],
                 dest_dtype=new_dtypes[f"{FileNames.DATA.value}"],
@@ -1317,7 +1314,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             extend_files(
                 f"{self.data_path}/{FileNames.COLPTR.value}",
                 f"{mmap.data_path}/{FileNames.COLPTR.value}",
-                buffer_size_b=extend_copy_size,
+                elements_per_chunk=extend_copy_size,
                 delete_file2_on_complete=destroy_on_copy,
                 source_dtype=mmap.dtypes[f"{FileNames.COLPTR.value}"],
                 dest_dtype=new_dtypes[f"{FileNames.COLPTR.value}"],
