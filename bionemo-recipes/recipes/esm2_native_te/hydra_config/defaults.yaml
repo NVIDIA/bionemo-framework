@@ -1,11 +1,14 @@
 # Training config
-model_tag: ???
+model_tag: ??? # E.g., nvidia/esm2_t6_8M_UR50D, facebook/esm2_t6_8M_UR50D, or a local path (e.g ./example_8m_checkpoint)
 num_train_steps: ???
-save_every_n_steps: 50
 
 # TODO: Once BIONEMO-2583 and BIONEMO-2719 are fixed, enable this by default and simplify training scripts to remove the
 # meta-device conditional.
 use_meta_device: false
+
+# Whether to wrap the model in torch.compile. Note, this is currently not supported with mfsdp (BIONEMO-2977).
+# We leave this off by default since we don't see much of a performance improvement with TE layers.
+use_torch_compile: false
 
 dataset:
   tokenizer_name: ${model_tag}
@@ -14,6 +17,7 @@ dataset:
   max_seq_length: 1024
   use_sequence_packing: false
   sequence_packing_pad_to_multiple_of: null
+  mlm_probability: 0.15
   load_dataset_kwargs:
     path: "nvidia/esm2_uniref_pretraining_data"
     split: "train"

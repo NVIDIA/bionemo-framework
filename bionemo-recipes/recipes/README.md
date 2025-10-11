@@ -2,7 +2,7 @@
 
 This directory contains self-contained training examples that demonstrate best practices for scaling
 biological foundation models using [TransformerEngine](https://github.com/NVIDIA/TransformerEngine)
-and [megatron-fsdp](https://pypi.org/project/megatron-fsdp/). Each recipe is a complete Docker environment with
+and [megatron-FSDP](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src)). Each recipe is a complete Docker environment with
 benchmarked training scripts that users can learn from and adapt for their own research.
 
 ## Philosophy
