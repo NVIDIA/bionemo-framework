@@ -49,7 +49,8 @@ class FileNames(str, Enum):
     ROWPTR = "row_ptr.npy"
     METADATA = "metadata.json"
     DTYPE = "dtypes.json"
-    FEATURES = "features"
+    ROW_FEATURES = "row_features"
+    COL_FEATURES = "col_features"
     VERSION = "version.json"
     NEIGHBOR_INDICES = "neighbor_indices.npy"
     NEIGHBOR_INDICES_PTR = "neighbor_indptr.npy"
@@ -763,8 +764,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         if os.path.exists(f"{self.data_path}/{FileNames.ROW_FEATURES.value}"):
             self._row_feature_index = FeatureIndex.load(f"{self.data_path}/{FileNames.ROW_FEATURES.value}")
-        if os.path.exists(f"{self.data_path}/{FileNames.COL_FEATURES.value}"):
-            self._col_feature_index = FeatureIndex.load(f"{self.data_path}/{FileNames.COL_FEATURES.value}")
+        # if os.path.exists(f"{self.data_path}/{FileNames.COL_FEATURES.value}"):
+        #    self._col_feature_index = FeatureIndex.load(f"{self.data_path}/{FileNames.COL_FEATURES.value}")
 
         if os.path.exists(f"{self.data_path}/{FileNames.DTYPE.value}"):
             with open(f"{self.data_path}/{FileNames.DTYPE.value}") as dfi:
@@ -988,7 +989,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             features = {self.feature_index_name: features_df.index.values}
         else:
             features = {}
-        self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
+        self._row_feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
         self.save()
 
     def _write_header(self):
@@ -1022,11 +1023,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             # Default to STRING_ARRAY if we cannot determine more specific type.
             feature_array_dtype = ArrayDType.STRING_ARRAY
             # Attempt to infer dtype from first feature array, if present
-            if len(self._feature_index) > 0:
+            if len(self._row_feature_index) > 0:
                 # Access the first available feature ndarray via lookup of row 0
                 # This returns list[np.ndarray] and a label; pick the first array if any
                 try:
-                    feature_values, _ = self._feature_index.lookup(0)
+                    feature_values, _ = self._row_feature_index.lookup(0)
                     if feature_values and hasattr(feature_values[0], "dtype"):
                         feature_array_dtype = ArrayDType.from_numpy_dtype(feature_values[0].dtype)
                 except Exception:
@@ -1041,7 +1042,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 f"{features_rel_path}/version.npy",
             ]
             # Parquet files are named dataframe_000.parquet, etc.
-            num_frames = len(self._feature_index)
+            num_frames = len(self._row_feature_index)
             if num_frames > 0:
                 num_digits = len(str(num_frames))
                 for i in range(num_frames):
@@ -1049,7 +1050,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
             fi_info = FeatureIndexInfo(
                 name=FileNames.FEATURES.value,
-                length=self._feature_index.number_of_rows(),
+                length=self._row_feature_index.number_of_rows(),
                 dtype=feature_array_dtype,
                 index_files=index_files,
                 shape=None,
@@ -1412,7 +1413,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 delete_file2_on_complete=destroy_on_copy,
             )
             self._row_feature_index.concat(mmap._row_feature_index)
-            self._col_feature_index.concat(mmap._col_feature_index)
+            # self._col_feature_index.concat(mmap._col_feature_index)
             # Update counters
             cumulative_elements += mmap.number_nonzero_values()
             cumulative_rows += mmap.number_of_rows()
