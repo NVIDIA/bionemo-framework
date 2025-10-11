@@ -133,6 +133,10 @@ def test_extend_files_all_valid_source_pairs_memmap(tmp_path, src_dtype, dest_dt
         dest_dtype=dest_dtype,
         add_value=add_value,
     )
-    expected = np.concatenate([dest_initial, src_vals + (0 if add_value is None else add_value)])
+    # Cast source to dest dtype first, then add (matching implementation behavior)
+    src_as_dest = src_vals.astype(dest_dtype)
+    if add_value is not None:
+        src_as_dest = src_as_dest + add_value
+    expected = np.concatenate([dest_initial, src_as_dest])
     merged = np.fromfile(f1, dtype=dest_dtype)
     np.testing.assert_allclose(merged, expected, rtol=0, atol=0)
