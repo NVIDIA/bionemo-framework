@@ -19,15 +19,20 @@ import argparse
 import io
 import os
 import shlex
+import subprocess
 from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from typing import Tuple
 
 import pytest
 import torch
+import yaml
 from nemo import lightning as nl
 from transformer_engine.pytorch.fp8 import check_fp8_support
 
+from bionemo.evo2.data.preprocess import Evo2Preprocessor
 from bionemo.evo2.run.train import parse_args, train
+from bionemo.evo2.utils.config import Evo2PreprocessingConfig
 from bionemo.testing.assert_optimizer_grads_match import assert_optimizer_states_match
 from bionemo.testing.lightning import extract_global_steps_from_log
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
@@ -489,6 +494,110 @@ def test_train_evo2_stop_at_max_steps_and_continue(tmp_path, additional_args):
     )
 
 
+def download_and_preprocess_training_data():
+    """Download and preprocess training data for tests.
+
+    This function downloads chromosomes 20, 21, and 22 from UCSC and preprocesses them
+    for training. Returns paths to the preprocessed data directory and config.
+    """
+
+    # Use the directory of this test file
+    test_dir = Path(__file__).parent
+    concat_path = test_dir / "chr20_21_22.fa"
+
+    # Check if preprocessed data already exists
+    preprocessed_dir = test_dir / "preprocessed_data"
+    if preprocessed_dir.exists():
+        return {
+            "dataset_dir": str(preprocessed_dir),
+            "training_config": os.path.abspath(Path(preprocessed_dir) / "training_data_config.yaml"),
+        }
+
+    print(f"Downloading and preprocessing training data to {test_dir}")
+    if not concat_path.exists():
+        # Download chromosome files
+        subprocess.run(
+            ["wget", "https://hgdownload.soe.ucsc.edu/goldenpath/hg38/chromosomes/chr20.fa.gz"],
+            cwd=test_dir,
+            check=True,
+        )
+        subprocess.run(
+            ["wget", "https://hgdownload.soe.ucsc.edu/goldenpath/hg38/chromosomes/chr21.fa.gz"],
+            cwd=test_dir,
+            check=True,
+        )
+        subprocess.run(
+            ["wget", "https://hgdownload.soe.ucsc.edu/goldenpath/hg38/chromosomes/chr22.fa.gz"],
+            cwd=test_dir,
+            check=True,
+        )
+
+        # Decompress files
+        subprocess.run(["zcat", "chr20.fa.gz"], stdout=open(test_dir / "chr20.fa", "w"), cwd=test_dir, check=True)
+        subprocess.run(["zcat", "chr21.fa.gz"], stdout=open(test_dir / "chr21.fa", "w"), cwd=test_dir, check=True)
+        subprocess.run(["zcat", "chr22.fa.gz"], stdout=open(test_dir / "chr22.fa", "w"), cwd=test_dir, check=True)
+
+        # Concatenate files
+        subprocess.run(
+            ["cat", "chr20.fa", "chr21.fa", "chr22.fa"], stdout=open(concat_path, "w"), cwd=test_dir, check=True
+        )
+
+    full_fasta_path = os.path.abspath(concat_path)
+    output_dir = os.path.abspath(test_dir / "preprocessed_data")
+    os.makedirs(output_dir, exist_ok=True)
+
+    preprocess_config = {
+        "datapaths": [full_fasta_path],
+        "output_dir": output_dir,
+        "output_prefix": "chr20_21_22_uint8_distinct",
+        "train_split": 0.9,
+        "valid_split": 0.05,
+        "test_split": 0.05,
+        "overwrite": True,
+        "embed_reverse_complement": True,
+        "random_reverse_complement": 0.0,
+        "random_lineage_dropout": 0.0,
+        "include_sequence_id": False,
+        "transcribe": "back_transcribe",
+        "force_uppercase": False,
+        "indexed_dataset_dtype": "uint8",
+        "tokenizer_type": "Byte-Level",
+        "vocab_file": None,
+        "vocab_size": None,
+        "merges_file": None,
+        "pretrained_tokenizer_model": None,
+        "special_tokens": None,
+        "fast_hf_tokenizer": True,
+        "append_eod": True,
+        "enforce_sample_length": None,
+        "ftfy": False,
+        "workers": 1,
+        "preproc_concurrency": 100000,
+        "chunksize": 25,
+        "drop_empty_sequences": True,
+        "nnn_filter": False,
+        "seed": 12342,
+    }
+    evo2_preproc_config = Evo2PreprocessingConfig(**preprocess_config)
+    evo2_preprocessor = Evo2Preprocessor(evo2_preproc_config)
+    evo2_preprocessor.preprocess_offline(evo2_preproc_config)
+
+    output_pfx = str(Path(output_dir) / "chr20_21_22_uint8_distinct_byte-level")
+    output_yaml = [
+        {"dataset_prefix": f"{output_pfx}_train", "dataset_split": "train", "dataset_weight": 1.0},
+        {"dataset_prefix": f"{output_pfx}_val", "dataset_split": "validation", "dataset_weight": 1.0},
+        {"dataset_prefix": f"{output_pfx}_test", "dataset_split": "test", "dataset_weight": 1.0},
+    ]
+    with open(Path(output_dir) / "training_data_config.yaml", "w") as f:
+        yaml.dump(output_yaml, f)
+
+    print(f"Preprocessed data downloaded and saved to {output_dir}")
+    return {
+        "dataset_dir": output_dir,
+        "training_config": os.path.abspath(Path(output_dir) / "training_data_config.yaml"),
+    }
+
+
 @pytest.fixture(scope="session")
 def dataset_config(request):
     """Get dataset directory and training config from command line options or environment variables.
@@ -509,7 +618,11 @@ def dataset_config(request):
     if not training_config:
         training_config = os.environ.get("TRAINING_CONFIG")
 
-    return {"dataset_dir": dataset_dir, "training_config": training_config}
+    return (
+        {"dataset_dir": dataset_dir, "training_config": training_config}
+        if dataset_dir and training_config
+        else download_and_preprocess_training_data()
+    )
 
 
 @pytest.fixture(scope="session")
