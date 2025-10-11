@@ -19,7 +19,6 @@ import logging
 import os
 import shutil
 import warnings
-from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -34,152 +33,19 @@ from bionemo.scdl.index.row_feature_index import RowFeatureIndex
 from bionemo.scdl.schema.header import ArrayDType, ArrayInfo, Backend, FeatureIndexInfo, SCDLHeader
 from bionemo.scdl.schema.version import CurrentSCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
+from bionemo.scdl.util.memmap_utils import (
+    _create_compressed_sparse_row_memmaps,
+    _create_row_memmaps,
+    _pad_sparse_array,
+    determine_dtype,
+    smallest_uint_dtype,
+)
+from bionemo.scdl.util.scdl_constants import FLOAT_ORDER, INT_ORDER, FileNames, Mode, NeighborSamplingStrategy
 
 
 # Set up logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-
-class FileNames(str, Enum):
-    """Names of files that are generated in SingleCellCollection."""
-
-    DATA = "data.npy"
-    COLPTR = "col_ptr.npy"
-    ROWPTR = "row_ptr.npy"
-    METADATA = "metadata.json"
-    DTYPE = "dtypes.json"
-    FEATURES = "features"
-    VERSION = "version.json"
-    NEIGHBOR_INDICES = "neighbor_indices.npy"
-    NEIGHBOR_INDICES_PTR = "neighbor_indptr.npy"
-    NEIGHBOR_VALUES = "neighbor_values.npy"
-    HEADER = "header.sch"
-
-
-class Mode(str, Enum):
-    """Valid modes for the single cell memory mapped dataset.
-
-    The write append mode is 'w+' while the read append mode is 'r+'.
-    """
-
-    CREATE_APPEND = "w+"
-    READ_APPEND = "r+"
-    READ = "r"
-    CREATE = "w"
-
-
-class METADATA(str, Enum):
-    """Stored metadata."""
-
-    NUM_ROWS = "num_rows"
-
-
-class NeighborSamplingStrategy(str, Enum):
-    """Valid sampling strategies for neighbor selection."""
-
-    RANDOM = "random"
-    FIRST = "first"
-
-
-def _pad_sparse_array(row_values, row_col_ptr, n_cols: int) -> np.ndarray:
-    """Creates a conventional array from a sparse one.
-
-    Convert a sparse matrix representation of a 1d matrix to a conventional
-    numpy representation.
-
-    Args:
-        row_values: The row indices of the entries
-        row_col_ptr: The corresponding column pointers
-        n_cols: The number of columns in the dataset.
-
-    Returns:
-        The full 1d numpy array representation.
-    """
-    ret = np.zeros(n_cols)
-    for row_ptr in range(0, len(row_values)):
-        col = row_col_ptr[row_ptr]
-        ret[col] = row_values[row_ptr]
-    return ret
-
-
-def _create_row_memmaps(
-    num_rows: int,
-    memmap_dir_path: Path,
-    mode: Mode,
-    dtypes: Dict[FileNames, str],
-) -> np.ndarray:
-    """Records a pointer into the data and column arrays."""
-    return np.memmap(
-        f"{str(memmap_dir_path.absolute())}/{FileNames.ROWPTR.value}",
-        dtype=dtypes[f"{FileNames.ROWPTR.value}"],
-        shape=(num_rows + 1,),
-        mode=mode.value,
-    )
-
-
-def _create_data_col_memmaps(
-    num_elements: int,
-    memmap_dir_path: Path,
-    mode: Mode,
-    dtypes: Dict[FileNames, str],
-) -> tuple[np.ndarray, np.ndarray]:
-    """Records a pointer into the data and column arrays."""
-    # Records the value at index[i]
-    data_arr = np.memmap(
-        f"{memmap_dir_path}/{FileNames.DATA.value}",
-        dtype=dtypes[f"{FileNames.DATA.value}"],
-        shape=(num_elements,),
-        mode=mode.value,
-    )
-    # Records the column the data resides in at index [i]
-    col_arr = np.memmap(
-        f"{memmap_dir_path}/{FileNames.COLPTR.value}",
-        dtype=dtypes[f"{FileNames.COLPTR.value}"],
-        shape=(num_elements,),
-        mode=mode.value,
-    )
-    return data_arr, col_arr
-
-
-def _create_compressed_sparse_row_memmaps(
-    num_elements: int,
-    num_rows: int,
-    memmap_dir_path: Path,
-    mode: Mode,
-    dtypes: Dict[FileNames, str],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Create a set of CSR-format numpy arrays.
-
-    They are saved to memmap_dir_path. This is an efficient way of indexing
-    into a sparse matrix. Only non- zero values of the data are stored.
-
-    To get the data for a specific row, slice row_idx[idx, idx+1]
-    and then get the elements in data[row_idx[idx]:row_idx[idx+1]]
-    which are in the corresponding columns col_index[row_idx[idx], row_idx[row_idx+1]]
-
-    """
-    if num_elements <= 0:
-        raise ValueError(f"n_elements is set to {num_elements}. It must be postive to create CSR matrices.")
-
-    if num_rows <= 0:
-        raise ValueError(f"num_rows is set to {num_rows}. It must be postive to create CSR matrices.")
-
-    memmap_dir_path.mkdir(parents=True, exist_ok=True)
-    data_arr, col_arr = _create_data_col_memmaps(
-        num_elements,
-        memmap_dir_path,
-        mode,
-        dtypes,
-    )
-
-    row_arr = _create_row_memmaps(
-        num_rows,
-        memmap_dir_path,
-        mode,
-        dtypes,
-    )
-    return data_arr, col_arr, row_arr
 
 
 class SingleCellMemMapDataset(SingleCellRowDataset):
@@ -228,6 +94,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         neighbor_key: str = "next_cell_ids",
         neighbor_sampling_strategy: str = NeighborSamplingStrategy.RANDOM,
         fallback_to_identity: bool = True,
+        data_dtype: Optional[str] = None,  # Must be one of INT_ORDER or FLOAT_ORDER in scdl_constants
     ) -> None:
         """Instantiate the class.
 
@@ -246,6 +113,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             neighbor_key (str, optional): The key in AnnData's .obsp containing neighbor information.
             neighbor_sampling_strategy (str, optional): Sampling strategy for neighbors.
             fallback_to_identity (bool, optional): If a cell has no neighbors, whether to use the cell itself as its neighbor.
+            data_dtype (str | None, optional): Desired dtype for `data.npy` when creating
+                new datasets; if None, defaults to 'float32'. Must be one of
+                'uint8','uint16','uint32','uint64','float32','float64','string','fixed_string'.
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
@@ -266,10 +136,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # the original AnnData features (e.g., gene names)
         # and allows us to store ragged arrays in our SCMMAP structure.
         self._feature_index: RowFeatureIndex = RowFeatureIndex()
-
+        # Validate data_dtype: must be in INT_ORDER or FLOAT_ORDER in scdl_constants
+        if data_dtype is not None and data_dtype not in INT_ORDER + FLOAT_ORDER:
+            allowed_dtypes = list(INT_ORDER + FLOAT_ORDER)
+            raise ValueError(f"Invalid data_dtype '{data_dtype}'. Must be one of: {', '.join(allowed_dtypes)}")
         # Variables for int packing / reduced precision
         self.dtypes: Dict[FileNames, str] = {
-            f"{FileNames.DATA.value}": "float32",
+            f"{FileNames.DATA.value}": "float32" if data_dtype is None else data_dtype,
             f"{FileNames.COLPTR.value}": "uint32",
             f"{FileNames.ROWPTR.value}": "uint64",
             f"{FileNames.NEIGHBOR_INDICES.value}": "uint32",
@@ -742,6 +615,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         else:
             warnings.warn(f"SCDL header missing at {self.header_path}; continuing without header.")
             self.header = None
+        # If header is loaded, extract dtypes from header and set self.dtypes accordingly
+        if self.header is not None and hasattr(self.header, "arrays"):
+            # Map from FileNames.value to dtype string
+            for array_info in self.header.arrays:
+                if FileNames[array_info.name].value not in self.dtypes:
+                    raise ValueError(f"Array name {FileNames[array_info.name].value} not found in dtypes")
+                self.dtypes[FileNames[array_info.name].value] = array_info.dtype.numpy_dtype_string
 
         # Metadata is required, so we must check if it exists and fail if not.
         if not os.path.exists(f"{self.data_path}/{FileNames.METADATA.value}"):
@@ -754,11 +634,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         if os.path.exists(f"{self.data_path}/{FileNames.FEATURES.value}"):
             self._feature_index = RowFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES.value}")
-
-        if os.path.exists(f"{self.data_path}/{FileNames.DTYPE.value}"):
-            with open(f"{self.data_path}/{FileNames.DTYPE.value}") as dfi:
-                self.dtypes = json.load(dfi)
-
         # mmap the existing arrays
         self.data = self._load_mmap_file_if_exists(
             f"{self.data_path}/{FileNames.DATA.value}", self.dtypes[f"{FileNames.DATA.value}"]
@@ -795,6 +670,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         """
         adata = ad.read_h5ad(anndata_path)  # slow
+        num_genes, num_cells = adata.shape
 
         # Check and load neighbor data
         # NOTE: More clear to have a check here and not call _extract_neighbor_data() if there no neighbors
@@ -817,23 +693,22 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         if count_data is None:
             raise ValueError("This file does not have count data")
 
-        shape = count_data.shape
-        num_rows = shape[0]
+        num_rows, num_cols = count_data.shape
 
         num_elements_stored = count_data.nnz
-
-        self.dtypes[f"{FileNames.DATA.value}"] = count_data.dtype
-
+        # Currently, anndata is assumed to be sparse
+        self.dtypes[f"{FileNames.ROWPTR.value}"] = smallest_uint_dtype(num_elements_stored)
+        self.dtypes[f"{FileNames.COLPTR.value}"] = smallest_uint_dtype(num_cols - 1)
         # Create the arrays.
         self._init_arrs(num_elements_stored, num_rows)
         # Store data
-        self.data[0:num_elements_stored] = count_data.data
+        self.data[0:num_elements_stored] = count_data.data.astype(self.dtypes[f"{FileNames.DATA.value}"])
 
         # Store the col idx array
-        self.col_index[0:num_elements_stored] = count_data.indices.astype(int)
+        self.col_index[0:num_elements_stored] = count_data.indices.astype(self.dtypes[f"{FileNames.COLPTR.value}"])
 
         # Store the row idx array
-        self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
+        self.row_index[0 : num_rows + 1] = count_data.indptr.astype(self.dtypes[f"{FileNames.ROWPTR.value}"])
 
         vars = adata.var
         file_handle = getattr(adata, "file", None)
@@ -869,14 +744,15 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         if not isinstance(adata.X, ad.experimental.CSRDataset):
             raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
-        num_rows = adata.X.shape[0]
-
+        num_rows, num_cols = adata.X.shape
+        n_elements = adata.X._indptr[-1]
         self.dtypes[f"{FileNames.DATA.value}"] = adata.X.dtype
-
+        self.dtypes[f"{FileNames.COLPTR.value}"] = smallest_uint_dtype(num_cols - 1)
+        self.dtypes[f"{FileNames.ROWPTR.value}"] = smallest_uint_dtype(n_elements)
         # Read the row indices into a memory map.
         mode = Mode.CREATE_APPEND
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
-        self.row_index[:] = adata.X._indptr.astype(int)
+        self.row_index[:] = adata.X._indptr.astype(self.dtypes[f"{FileNames.ROWPTR.value}"])
 
         # The data from each column and data chunk of the original anndata file is read in. This is saved into the final
         # location of the memmap file. In this step, it is saved in the binary file format.
@@ -885,16 +761,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             open(f"{memmap_dir_path}/{FileNames.COLPTR.value}", "wb") as col_file,
             open(f"{memmap_dir_path}/{FileNames.DATA.value}", "wb") as data_file,
         ):
-            n_elements = 0
             for row_start in range(0, num_rows, self.load_block_row_size):
                 # Write each array's data to the file in binary format
-                col_block = adata.X[row_start : row_start + self.load_block_row_size].indices
+                col_block = adata.X[row_start : row_start + self.load_block_row_size].indices.astype(
+                    self.dtypes[f"{FileNames.COLPTR.value}"]
+                )
                 col_file.write(col_block.tobytes())
 
-                data_block = adata.X[row_start : row_start + self.load_block_row_size].data
+                data_block = adata.X[row_start : row_start + self.load_block_row_size].data.astype(
+                    self.dtypes[f"{FileNames.DATA.value}"]
+                )
                 data_file.write(data_block.tobytes())
-
-                n_elements += len(data_block)
 
         # The column and data files are re-opened as memory-mapped arrays with the final shape
         mode = Mode.READ_APPEND
@@ -1071,8 +948,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
            NotImplementedError if output_path is not None.
         """
         self._write_header()
-        if f"{METADATA.NUM_ROWS.value}" not in self.metadata:
-            self.metadata[f"{METADATA.NUM_ROWS.value}"] = self.number_of_rows()
+        if "num_rows" not in self.metadata:
+            self.metadata["num_rows"] = self.number_of_rows()
 
         self._write_metadata()
         # Write the feature index. This may not exist.
@@ -1306,10 +1183,68 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         return self.number_of_rows(), self.number_of_variables()
 
+    def _verify_concat_compatibility_and_types(
+        self, other_dataset: Union[list["SingleCellMemMapDataset"], "SingleCellMemMapDataset"]
+    ) -> None:
+        cumulative_elements = self.number_nonzero_values()
+        column_dtypes = {self.dtypes[FileNames.COLPTR.value]}
+        data_dtypes = {self.dtypes[FileNames.DATA.value]}
+
+        for dataset in other_dataset:
+            if self.version() != dataset.version():
+                raise ValueError(
+                    f"""Incompatable versions: input version: {dataset.version()},
+            this version:  {self.version}"""
+                )
+            column_dtypes.add(str(dataset.dtypes[FileNames.COLPTR.value]))
+            data_dtypes.add(str(dataset.dtypes[FileNames.DATA.value]))
+            cumulative_elements += dataset.number_nonzero_values()
+
+        if not (
+            all(np.dtype(dt).name in FLOAT_ORDER for dt in data_dtypes)
+            or all(np.dtype(dt).name in INT_ORDER for dt in data_dtypes)
+        ):
+            raise ValueError(f"Cannot merge datasets with a mix of int and float dtypes for data: {data_dtypes}")
+
+        new_dtypes = {
+            FileNames.COLPTR.value: determine_dtype(column_dtypes),
+            FileNames.DATA.value: determine_dtype(data_dtypes),
+            FileNames.ROWPTR.value: smallest_uint_dtype(cumulative_elements),
+        }
+        return new_dtypes
+
+    def _convert_dataset_to_new_dtypes(
+        self, new_dtypes: Dict[str, str], extend_copy_size: int = 1_024 * 1_024
+    ) -> None:
+        # If any dtype is changing, convert the file in-place to the new dtype using extend_files.
+        # This ensures that after this block, self.dtypes and the on-disk files are updated to the new dtype.
+        for key in [FileNames.COLPTR.value, FileNames.DATA.value, FileNames.ROWPTR.value]:
+            current_dtype = self.dtypes[key]
+            target_dtype = new_dtypes[key]
+            if current_dtype != target_dtype:
+                # Convert the file in-place to the new dtype using a temporary file
+                src_file = f"{self.data_path}/{key}"
+                tmp_file = f"{self.data_path}/{key}.tmp"
+                # Move the original file to tmp_file
+                os.rename(src_file, tmp_file)
+                # Create an empty destination file for extend_files to append into
+                open(src_file, "wb").close()
+                # Use extend_files to convert from tmp_file to src_file (now as the new dtype)
+                extend_files(
+                    src_file,
+                    tmp_file,
+                    elements_per_chunk=extend_copy_size,
+                    delete_file2_on_complete=True,
+                    source_dtype=current_dtype,
+                    dest_dtype=target_dtype,
+                )
+                # Update dtype in self.dtypes
+                self.dtypes[key] = target_dtype
+
     def concat(
         self,
         other_dataset: Union[list["SingleCellMemMapDataset"], "SingleCellMemMapDataset"],
-        extend_copy_size: int = 10 * 1_024 * 1_024,
+        extend_copy_size: int = 1_024 * 1_024,
         output_path: str | None = None,
         destroy_on_copy: bool = False,
     ) -> None:
@@ -1330,7 +1265,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
            ValueError if the other dataset(s) are not of the same version or
            something of another type is passed in.
         """
-        # Verify the other dataset or datasets are of the same type.
         match other_dataset:
             case self.__class__():
                 other_dataset = [other_dataset]
@@ -1341,12 +1275,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     f"Expecting either a {SingleCellMemMapDataset} or a list thereof. Actually got: {type(other_dataset)}"
                 )
 
-        for dataset in other_dataset:
-            if self.version() != dataset.version():
-                raise ValueError(
-                    f"""Incompatable versions: input version: {dataset.version()},
-            this version:  {self.version}"""
-                )
+        # Verify the other dataset or datasets are of the same type.
+        new_dtypes = self._verify_concat_compatibility_and_types(other_dataset)
 
         # Set our mode:
         self.mode: Mode = Mode.READ_APPEND
@@ -1357,69 +1287,60 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 shutil.copytree(self.data_path, output_path)
             self.data_path = output_path
 
-        mmaps = []
-        mmaps.extend(other_dataset)
-
+        self._convert_dataset_to_new_dtypes(new_dtypes)
         # Copy the data from self and other into the new arrays.
-        cumulative_elements = self.number_nonzero_values()
-        cumulative_rows = self.number_of_rows()
-        for mmap in mmaps:
-            destination_memmap = np.memmap(
-                f"{mmap.data_path}/{FileNames.ROWPTR.value}_copy",
-                dtype=self.dtypes[f"{FileNames.ROWPTR.value}"],
-                mode="w+",
-                shape=mmap.row_index.shape,
-            )
-            destination_memmap[:] = mmap.row_index[:]
-
-            destination_memmap += int(cumulative_elements)
-
-            destination_memmap.flush()
-            if destroy_on_copy:
-                os.remove(f"{mmap.data_path}/{FileNames.ROWPTR.value}")
-
+        element_counter = self.number_nonzero_values()
+        row_counter = self.number_of_rows()
+        for mmap in other_dataset:
             extend_files(
                 f"{self.data_path}/{FileNames.ROWPTR.value}",
-                f"{mmap.data_path}/{FileNames.ROWPTR.value}_copy",
-                buffer_size_b=extend_copy_size,
-                delete_file2_on_complete=True,
-                offset=np.dtype(self.dtypes[f"{FileNames.ROWPTR.value}"]).itemsize,
+                f"{mmap.data_path}/{FileNames.ROWPTR.value}",
+                elements_per_chunk=extend_copy_size,
+                delete_file2_on_complete=destroy_on_copy,
+                offset=np.dtype(mmap.dtypes[f"{FileNames.ROWPTR.value}"]).itemsize,
+                source_dtype=mmap.dtypes[f"{FileNames.ROWPTR.value}"],
+                dest_dtype=new_dtypes[f"{FileNames.ROWPTR.value}"],
+                add_value=element_counter,
             )
 
             extend_files(
                 f"{self.data_path}/{FileNames.DATA.value}",
                 f"{mmap.data_path}/{FileNames.DATA.value}",
-                buffer_size_b=extend_copy_size,
+                elements_per_chunk=extend_copy_size,
                 delete_file2_on_complete=destroy_on_copy,
+                source_dtype=mmap.dtypes[f"{FileNames.DATA.value}"],
+                dest_dtype=new_dtypes[f"{FileNames.DATA.value}"],
             )
             extend_files(
                 f"{self.data_path}/{FileNames.COLPTR.value}",
                 f"{mmap.data_path}/{FileNames.COLPTR.value}",
-                buffer_size_b=extend_copy_size,
+                elements_per_chunk=extend_copy_size,
                 delete_file2_on_complete=destroy_on_copy,
+                source_dtype=mmap.dtypes[f"{FileNames.COLPTR.value}"],
+                dest_dtype=new_dtypes[f"{FileNames.COLPTR.value}"],
             )
             self._feature_index.concat(mmap._feature_index)
             # Update counters
-            cumulative_elements += mmap.number_nonzero_values()
-            cumulative_rows += mmap.number_of_rows()
+            element_counter += mmap.number_nonzero_values()
+            row_counter += mmap.number_of_rows()
 
         # Reopen the data, colptr, and rowptr arrays
         self.data = np.memmap(
             f"{self.data_path}/{FileNames.DATA.value}",
             dtype=self.dtypes[f"{FileNames.DATA.value}"],
-            shape=(cumulative_elements,),
+            shape=(element_counter,),
             mode=Mode.READ_APPEND.value,
         )
         self.row_index = np.memmap(
             f"{self.data_path}/{FileNames.ROWPTR.value}",
             dtype=self.dtypes[f"{FileNames.ROWPTR.value}"],
-            shape=(cumulative_rows + 1,),
+            shape=(row_counter + 1,),
             mode=Mode.READ_APPEND.value,
         )
         self.col_index = np.memmap(
             f"{self.data_path}/{FileNames.COLPTR.value}",
             dtype=self.dtypes[f"{FileNames.COLPTR.value}"],
-            shape=(cumulative_elements,),
+            shape=(element_counter,),
             mode=Mode.READ_APPEND.value,
         )
         self.save()
