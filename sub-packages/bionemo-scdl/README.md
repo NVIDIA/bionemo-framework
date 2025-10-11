@@ -188,7 +188,7 @@ During dataset concatenation, it is assumed that all of the data types are eithe
 To convert multiple files with a given data format, the user can run:
 
 ```bash
-convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset --data-dtype float 16
+convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset --data-dtype float64
 ```
 
 ## Using Neighbor Information in Single Cell Datasets
