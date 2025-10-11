@@ -46,6 +46,7 @@ def run_train_cmd(cmd, recipe_path):
         pytest.fail(f"Command:\n{' '.join(cmd)}\nfailed with exit code {result.returncode}")
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 def test_multi_gpu_train_te_ddp(tmp_path, recipe_path):
     # Run 'accelerate launch train.py' as a subprocess
@@ -64,6 +65,7 @@ def test_multi_gpu_train_te_ddp(tmp_path, recipe_path):
     )
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 def test_multi_gpu_train_te_mfsdp(tmp_path, recipe_path):
     # Run 'accelerate launch train.py' as a subprocess
@@ -82,6 +84,7 @@ def test_multi_gpu_train_te_mfsdp(tmp_path, recipe_path):
     )
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 def test_multi_gpu_train_te_fsdp2(tmp_path, recipe_path):
     # Run 'accelerate launch train.py' as a subprocess
@@ -100,6 +103,7 @@ def test_multi_gpu_train_te_fsdp2(tmp_path, recipe_path):
     )
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 def test_multi_gpu_train_eager_fsdp2_meta_device(tmp_path, recipe_path):
     # Run 'accelerate launch train.py' as a subprocess
