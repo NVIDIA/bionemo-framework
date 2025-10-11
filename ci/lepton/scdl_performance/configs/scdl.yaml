@@ -4,7 +4,8 @@
 # - convergence_tests: for convergence tests
 # - scdl_performance: for SCDL performance tests
 ############################################################
-template_type: convergence_tests
+job_name: scdl-performance-test
+template_type: scdl_performance
 
 ############################################################
 # Container Runtime
@@ -31,10 +32,6 @@ environment_variables:
     value_from: KRATOS_SSA_SECRET
   - name: LEP_LOGIN_CREDENTIALS
     value_from: LEP_LOGIN_CREDENTIALS
-  - name: HF_HOME
-    value: /data/esm2/cache
-  - name: HF_TOKEN
-    value_from: HUGGING_FACE_HUB_TOKEN.jwilber
 
 ############################################################
 # Lepton Cluster Selection & Node Group
@@ -42,6 +39,7 @@ environment_variables:
 # - h100: yo-bom-lepton-001
 # - h200: nv-int-multiteam-nebius-h200-01
 # - a100: az-sat-lepton-001
+# all clusters have cpu.small, cpu.medium, and cpu.large
 ############################################################
 node_group: yo-bom-lepton-001
 
@@ -59,13 +57,8 @@ mounts:
     mount_path: /data
     from_: ${mount_from}
 
-############################################################
-# W&B Initialization
-# Configure how runs are logged to Weights & Biases.
-############################################################
-wandb_init_args:
-  group: "model_convergence__recipes"
-  mode: "online"
+num_nodes: 1
+resource_shape: "my.cpu.large-40gb-mem"
 
 ############################################################
 # Git Checkout Options
@@ -83,7 +76,9 @@ commit_sha: ""
 # inherit and reuse this logic without modification.
 ############################################################
 checkout_script: |
-  set -euo pipefail
+  echo "pwd: $(pwd)"
+  echo "ls ..: $(ls -la ..)"
+  echo "ls ../data: $(ls -la ../data)"
   git clone https://github.com/NVIDIA/bionemo-framework.git
   cd bionemo-framework
   if [ -n "${commit_sha}" ]; then
@@ -93,16 +88,22 @@ checkout_script: |
     echo "Checking out branch: ${branch}"
     git checkout "${branch}"
   fi
-  cd bionemo-recipes/recipes/${recipe_subdir}
-  pip install -r requirements.txt
+  cd sub-packages/bionemo-scdl
+  pip install -e .
 
 ############################################################
 # Runtime Commands
-# `run_script` is meant to be overridden by child configs to define
-# the actual training or evaluation commands. By default, this is empty.
+# `run_script` runs after the checkout step.
 # The `script` section combines the checkout step with the run step.
 ############################################################
-run_script: ""
+run_script: |
+  python simple-benchmark/scdl_speedtest.py \
+    --json /workspace/benchmark.json \
+    --max-time 120 \
+    --warmup-time 30 \
+    --generate-baseline \
+    -i ../../../../data/scdl_performance/tahoe_data \
+    --scdl-path ../../../../data/scdl_performance/all_tahoe_memmap
 
 script: |
   ${checkout_script}
