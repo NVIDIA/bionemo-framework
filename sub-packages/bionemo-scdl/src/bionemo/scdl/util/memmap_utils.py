@@ -179,11 +179,10 @@ def _create_compressed_sparse_row_memmaps(
         ValueError: If num_elements or num_rows is not positive
     """
     if num_elements <= 0:
-        raise ValueError(f"n_elements is set to {num_elements}. It must be postive to create CSR matrices.")
+        raise ValueError(f"n_elements is set to {num_elements}. It must be positive to create CSR matrices.")
 
     if num_rows <= 0:
-        raise ValueError(f"num_rows is set to {num_rows}. It must be postive to create CSR matrices.")
-
+        raise ValueError(f"num_rows is set to {num_rows}. It must be positive to create CSR matrices.")
     memmap_dir_path.mkdir(parents=True, exist_ok=True)
     data_arr, col_arr = _create_data_col_memmaps(
         num_elements,
