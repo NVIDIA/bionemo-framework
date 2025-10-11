@@ -126,12 +126,7 @@ class ArrayDType(IntEnum):
                 return cls.FLOAT64_ARRAY
             elif "2" in dtype_str:
                 return cls.FLOAT16_ARRAY
-        elif (
-            dtype_str.startswith("<i")
-            or dtype_str.startswith(">i")
-            or dtype_str.startswith("<u")
-            or dtype_str.startswith(">u")
-        ):
+        elif dtype_str.startswith(("<u", ">u")):
             if "1" in dtype_str:
                 return cls.UINT8_ARRAY
             elif "2" in dtype_str:
@@ -140,6 +135,8 @@ class ArrayDType(IntEnum):
                 return cls.UINT32_ARRAY
             elif "8" in dtype_str:
                 return cls.UINT64_ARRAY
+        elif dtype_str.startswith(("<i", ">i")):
+            raise ValueError(f"Signed integer dtypes are not supported: {dtype_str}")
 
         # Try direct mapping
         if dtype_str in dtype_map:
@@ -150,10 +147,9 @@ class ArrayDType(IntEnum):
             return cls.FLOAT32_ARRAY
         elif "float64" in dtype_str or "f8" in dtype_str:
             return cls.FLOAT64_ARRAY
-        elif "int32" in dtype_str or "i4" in dtype_str:
-            return cls.UINT32_ARRAY
-        elif "int64" in dtype_str or "i8" in dtype_str:
-            return cls.UINT64_ARRAY
+        # Do not silently map signed ints; require explicit handling upstream
+        elif "int32" in dtype_str or "i4" in dtype_str or "int64" in dtype_str or "i8" in dtype_str:
+            raise ValueError(f"Signed integer dtypes are not supported: {dtype_str}")
 
         raise ValueError(f"Unsupported numpy dtype: {dtype_str} (original: {dtype})")
 
