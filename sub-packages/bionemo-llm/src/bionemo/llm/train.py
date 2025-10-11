@@ -120,7 +120,7 @@ def setup_trainer(
             check_for_nan_in_grad=True,
             overlap_grad_reduce=True,
             overlap_param_gather=False,  # TODO waiting for NeMo fix
-            average_in_collective=True,
+            average_in_collective=False,
             use_distributed_optimizer=parallel_config.use_distributed_optimizer,
         ),
         find_unused_parameters=True,

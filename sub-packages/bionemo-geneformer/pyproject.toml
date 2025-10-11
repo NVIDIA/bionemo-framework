@@ -32,6 +32,7 @@ te = [
 bionemo-geneformer-train= "bionemo.geneformer.run.main:main"
 bionemo-geneformer-recipe= "bionemo.geneformer.run.recipes:main"
 infer_geneformer = "bionemo.geneformer.scripts.infer_geneformer:geneformer_infer_entrypoint"
+infer_geneformer_scmap = "bionemo.geneformer.scripts.infer_geneformer_scmap:geneformer_infer_scmap_entrypoint"
 train_geneformer = "bionemo.geneformer.scripts.train_geneformer:entrypoint"
 geneformer_mlm_loss_eval = "bionemo.geneformer.scripts.geneformer_mlm_loss_eval:entrypoint"
 

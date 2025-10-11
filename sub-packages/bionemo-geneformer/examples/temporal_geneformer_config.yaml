@@ -1,0 +1,127 @@
+# Temporal Geneformer Training Configuration
+# This config demonstrates how to continue training from a geneformer checkpoint
+# with temporal/next-cell training using the config-driven approach
+
+# Model Configuration - Uses existing GeneformerConfig with checkpoint resumption
+bionemo_model_config:
+  # Core model parameters (inherited from BioBertConfig)
+  # seq_length: 2048
+  # num_layers: 12
+  # hidden_size: 768
+  # ffn_hidden_size: 3072
+  # num_attention_heads: 12
+  calculate_per_token_loss: True  # Enable per-token loss calculation
+
+  # 10M model
+  seq_length: 2048
+  num_layers: 6
+  hidden_size: 256
+  ffn_hidden_size: 512
+  num_attention_heads: 4
+  attention_dropout: 0.0
+  hidden_dropout: 0.0
+  
+  # Required dtype fields
+  params_dtype: "bf16-mixed"
+  pipeline_dtype: "bf16-mixed"
+  autocast_dtype: "bf16-mixed"
+  
+  # 🔑 KEY: Resume from pretrained geneformer checkpoint
+  initial_ckpt_path: "/home/ubuntu/.cache/bionemo/a27061ee347f453b1bf175e288df31e9813903ebcb4924a77ac50dccc730889d-geneformer_10M_240530_nemo2.tar.gz.untar"
+  
+  # Optional: Skip certain layers if needed (useful for fine-tuning)
+  initial_ckpt_skip_keys_with_these_prefixes: []
+
+# Data Configuration - Uses TemporalGeneformerDataConfig with separate dataset paths
+data_config:
+  # Core data paths - Updated with custom train/val/test splits
+  # train_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/train/scdl_processed/train_merged_dataset"
+  # val_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/val/scdl_processed/val_merged_dataset"
+  # test_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/test/scdl_processed/test_merged_dataset"
+  train_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/lina_dataset_splits/train"
+  val_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/lina_dataset_splits/val"
+  test_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/lina_dataset_splits/test"
+  
+  # Alternative: For prediction-only workflow (uncomment and comment above):
+  # predict_dataset_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/scdl_processed"
+  
+  # Note: tokenizer and median files will be generated/downloaded into train_dataset_path during preprocessing
+  tokenizer_vocab_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/train/scdl_processed/train_merged_dataset/geneformer.vocab"
+  median_dict_path: "/workspaces/bionemo-framework/sub-packages/bionemo-geneformer/src/bionemo/geneformer/test_data/mar_por_datasets_splits/train/scdl_processed/train_merged_dataset/medians.json"
+  result_dir: "./temporal_geneformer_custom_splits_results"
+  
+  # Training parameters
+  micro_batch_size: 8
+  seq_length: 2048
+  num_dataset_workers: 4
+  
+  # Temporal-specific parameters
+  mask_prob: 0.15
+  mask_token_prob: 0.8
+  random_token_prob: 0.1
+  neighbor_key: "next_cell_ids"
+  seed: 42
+  
+  # Neighbor handling
+  only_cells_with_neighbors: true
+  no_neighbor_policy: "identity"  # "skip", "identity", or "random"
+  token_selection_policy: "identity"  # "identity", "intersection", or "union"
+  
+  # Gene expression normalization
+  normalize_gene_expression: true
+  target_sum: 10000
+
+# Training Configuration
+training_config:
+  max_steps: 20000
+  val_check_interval: 500  # Validate every 1000 steps
+  limit_val_batches: 200    # Use more validation batches for better estimates
+  log_every_n_steps: 50     # Log every 50 steps to reduce noise
+  enable_checkpointing: true
+  create_checkpoint_callback: true
+  # gradient_clip_val: 1.0    # 🔧 ADDED: Gradient clipping to prevent exploding gradients
+
+# Parallel Configuration
+parallel_config:
+  tensor_model_parallel_size: 1
+  pipeline_model_parallel_size: 1
+  sequence_parallel: false
+  num_devices: 2
+  average_in_collective: false 
+
+# Optimizer Configuration
+optim_config:
+  lr: 0.00005  # 🔧 REDUCED LEARNING RATE - this is where you change it!
+  optimizer: "adam"  # 🔧 FIXED: Changed from "adamw" to "adam" - Megatron Core only supports "adam" and "sgd"
+  adam_eps: 1.0e-8
+  weight_decay: 0.1
+  lr_scheduler: "cosine"
+  cosine_rampup_frac: 0.025  # 🔧 FIXED: Set to 0 to disable warmup and start immediately at target LR
+  cosine_hold_frac: 0.0
+  interval: "step"
+  monitor: "val_loss"
+
+# Experiment Configuration
+experiment_config:
+  experiment_name: "temporal_geneformer_test"
+  experiment_version: "v1.0"
+  save_top_k: 3
+  monitor: "val_loss"
+  mode: "min"
+  # Required fields
+  save_every_n_steps: 2000  # Save checkpoint every 2000 steps
+  result_dir: "./temporal_geneformer_custom_splits_results_test"
+  restore_from_checkpoint_path: null
+
+# Weights & Biases Configuration (optional)
+wandb_config:
+  entity: "clara-discovery"
+  project: "temporal_geneformer"
+  name: "next_cell_training_lina_dataset_gpus2_batch8_epochsampler_lr0.00005"
+  tags: ["temporal", "geneformer", "next-cell", "custom-splits"]
+  # Required fields
+  group: "temporal_geneformer_test_lina_dataset"
+  offline: false
+  id: null
+  anonymous: false
+  log_model: false 
