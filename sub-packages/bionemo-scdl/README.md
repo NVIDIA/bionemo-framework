@@ -171,7 +171,7 @@ To replicate this on your machine, see: [Tahoe 100M Profiling](https://github.co
 
 ## Data Compression
 
-Further data compression with SCDL is possible by casting the data in AnnData .X to a given format. This must be one of "uint8", "uint16", "uint32", "uint64", "float32", "float64". This is passed in when loading the dataset from an AnnData file with
+Further data compression with SCDL is possible by casting the data in AnnData .X to a given format. This must be one of "uint8", "uint16", "uint32", "uint64", "float16", "float32", "float64". This is passed in when loading the dataset from an AnnData file with
 
 ```python
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
