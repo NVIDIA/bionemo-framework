@@ -59,8 +59,8 @@ def test_sccollection_multi(tmp_path, test_directory):
         for fn in [
             "col_ptr.npy",
             "data.npy",
-            "row_features",
-            "col_features",
+            "obs_features",
+            "var_features",
             "metadata.json",
             "row_ptr.npy",
             "version.json",
@@ -97,8 +97,8 @@ def test_sccollection_serialization(tmp_path, test_directory):
     for fn in [
         "col_ptr.npy",
         "data.npy",
-        "row_features",
-        "col_features",
+        "obs_features",
+        "var_features",
         "metadata.json",
         "row_ptr.npy",
         "version.json",

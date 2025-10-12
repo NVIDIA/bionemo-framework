@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from bionemo.scdl.index.feature_index import FeatureIndex, are_dicts_equal
+from bionemo.scdl.index.feature_index import VariableFeatureIndex, are_dicts_equal
 
 
 def test_equal_dicts():
@@ -49,7 +49,7 @@ def test_different_lengths():
 
 
 @pytest.fixture
-def create_first_FeatureIndex() -> FeatureIndex:
+def create_first_FeatureIndex() -> VariableFeatureIndex:
     """
     Instantiate a FeatureIndex.
 
@@ -57,13 +57,13 @@ def create_first_FeatureIndex() -> FeatureIndex:
         A FeatureIndex with known values.
     """
     one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    index = FeatureIndex()
+    index = VariableFeatureIndex()
     index.append_features(12, one_feats)
     return index
 
 
 @pytest.fixture
-def create_same_features_first_FeatureIndex() -> FeatureIndex:
+def create_same_features_first_FeatureIndex() -> VariableFeatureIndex:
     """
     Instantiate a FeatureIndex.
 
@@ -71,13 +71,13 @@ def create_same_features_first_FeatureIndex() -> FeatureIndex:
         A FeatureIndex with known values.
     """
     one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    index = FeatureIndex()
+    index = VariableFeatureIndex()
     index.append_features(6, one_feats)
     return index
 
 
 @pytest.fixture
-def create_second_FeatureIndex() -> FeatureIndex:
+def create_second_FeatureIndex() -> VariableFeatureIndex:
     """
     Instantiate another FeatureIndex.
 
@@ -90,7 +90,7 @@ def create_second_FeatureIndex() -> FeatureIndex:
         "spare": np.array([None, None, None, None, None]),
     }
 
-    index2 = FeatureIndex()
+    index2 = VariableFeatureIndex()
     index2.append_features(8, two_feats, "MY_DATAFRAME")
     return index2
 
@@ -103,14 +103,14 @@ def test_dataframe_results_in_error():
             "spare": [None, None, None, None, None],
         }
     )
-    index = FeatureIndex()
+    index = VariableFeatureIndex()
     with pytest.raises(TypeError) as error_info:
         index.append_features(8, two_feats, "MY_DATAFRAME")
         assert "Expected a dictionary, but received a Pandas DataFrame." in str(error_info.value)
 
 
 def test_feature_index_internals_on_empty_index():
-    index = FeatureIndex()
+    index = VariableFeatureIndex()
     assert len(index) == 0
     assert index.number_of_rows() == 0
 
@@ -126,7 +126,7 @@ def test_feature_index_internals_on_single_index(create_first_FeatureIndex):
 
 
 def test_feature_index_internals_on_append_empty_features(create_first_FeatureIndex):
-    index = FeatureIndex()
+    index = VariableFeatureIndex()
     index.append_features(10, {})
     create_first_FeatureIndex.concat(index)
     assert len(create_first_FeatureIndex) == 2
@@ -239,7 +239,7 @@ def test_concat_lookup_results(
 
 
 def test_feature_lookup_empty():
-    index = FeatureIndex()
+    index = VariableFeatureIndex()
     with pytest.raises(IndexError, match=r"There are no features to lookup"):
         index.lookup(row=1)
 
@@ -259,7 +259,7 @@ def test_feature_lookup_too_large(create_first_FeatureIndex):
 def test_save_reload_row_feature_index_identical(tmp_path, create_first_FeatureIndex, create_second_FeatureIndex):
     create_first_FeatureIndex.concat(create_second_FeatureIndex)
     create_first_FeatureIndex.save(tmp_path / "features")
-    index_reload = FeatureIndex.load(tmp_path / "features")
+    index_reload = VariableFeatureIndex.load(tmp_path / "features")
     assert len(create_first_FeatureIndex) == len(index_reload)
     assert create_first_FeatureIndex.column_dims() == index_reload.column_dims()
     assert create_first_FeatureIndex.number_of_rows() == index_reload.number_of_rows()
