@@ -24,6 +24,8 @@ import struct
 from enum import Enum
 from typing import List, Tuple, Union
 
+from bionemo.scdl.index.feature_index import FeatureIndex
+
 
 class Endianness(Enum):
     """Byte order specifications for binary data serialization."""
@@ -483,3 +485,49 @@ if __name__ == '__main__':
     print(f"Magic: 0x{magic:08x}, Version: {ver}, Flags: 0x{flgs:04x}")
     print(f"Data offset: {data_off}, Filename: '{fname}'")
 """
+
+
+def build_feature_index_info(index_obj: FeatureIndex, base_path_name: str):
+    """Build a FeatureIndexInfo entry for a given FeatureIndex and base path.
+
+    Args:
+        index_obj: FeatureIndex instance (row or column) to describe.
+        base_path_name: Directory name in the archive (e.g., 'row_features').
+
+    Returns:
+        FeatureIndexInfo if successful; None if something unexpected occurs.
+    """
+    try:
+        # Deferred import to avoid circular dependency: header -> headerutil -> header
+        from bionemo.scdl.schema.header import ArrayDType, FeatureIndexInfo
+
+        feature_array_dtype = ArrayDType.STRING_ARRAY
+        if len(index_obj) > 0:
+            try:
+                feature_values, _ = index_obj.lookup(0)
+                if feature_values and hasattr(feature_values[0], "dtype"):
+                    feature_array_dtype = ArrayDType.from_numpy_dtype(feature_values[0].dtype)
+            except Exception:
+                pass
+
+        features_rel_path = base_path_name
+        index_files: List[str] = [
+            f"{features_rel_path}/cumulative_sum_index.npy",
+            f"{features_rel_path}/labels.npy",
+            f"{features_rel_path}/version.npy",
+        ]
+        num_frames = len(index_obj)
+        if num_frames > 0:
+            num_digits = len(str(num_frames))
+            for i in range(num_frames):
+                index_files.append(f"{features_rel_path}/dataframe_{i:0{num_digits}d}.parquet")
+
+        return FeatureIndexInfo(
+            name=base_path_name,
+            length=index_obj.number_of_rows(),
+            dtype=feature_array_dtype,
+            index_files=index_files,
+            shape=None,
+        )
+    except Exception:
+        return None

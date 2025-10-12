@@ -25,7 +25,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 
-__all__: Sequence[str] = ("FeatureIndex",)
+__all__: Sequence[str] = ("FeatureIndex", "ObservedFeatureIndex", "VariableFeatureIndex")
 
 
 def are_dicts_equal(dict1: dict[str, np.ndarray], dict2: dict[str, np.ndarray]) -> bool:
@@ -78,12 +78,48 @@ class FeatureIndex:
         Returns:
             An int representing the dataset id the row belongs to.
         """
+        if row < 0:
+            raise IndexError(f"Row index {row} is not valid. It must be non-negative.")
+        if len(self._cumulative_sum_index) < 2:
+            raise IndexError("There are no features to lookup.")
+        if row > self._cumulative_sum_index[-1]:
+            raise IndexError(
+                f"Row index {row} is larger than number of rows in FeatureIndex ({self._cumulative_sum_index[-1]})."
+            )
+
         # creates a mask for values where cumulative sum > row
         mask = ~(self._cumulative_sum_index > row)
         # Sum these to get the index of the first range > row
         # Subtract one to get the range containing row.
         d_id = sum(mask) - 1
         return d_id
+
+    @staticmethod
+    def _load_common(datapath: str, instance: "FeatureIndex") -> "FeatureIndex":
+        parquet_data_paths = sorted(Path(datapath).rglob("*.parquet"))
+        data_tables = [pq.read_table(csv_path) for csv_path in parquet_data_paths]
+        instance._feature_arr = [
+            {column: table[column].to_numpy() for column in table.column_names} for table in data_tables
+        ]
+        instance._num_genes_per_row = [
+            len(feats[next(iter(feats.keys()))]) if len(feats) > 0 else 0 for feats in instance._feature_arr
+        ]
+        instance._cumulative_sum_index = np.load(Path(datapath) / "cumulative_sum_index.npy")
+        instance._labels = np.load(Path(datapath) / "labels.npy", allow_pickle=True)
+        instance._version = np.load(Path(datapath) / "version.npy").item()
+        return instance
+
+    def _filter_features(
+        self, features_dict: dict[str, np.ndarray], select_features: Optional[list[str]]
+    ) -> list[np.ndarray]:
+        if select_features is not None:
+            features: list[np.ndarray] = []
+            for feature in select_features:
+                if feature not in features_dict:
+                    raise ValueError(f"Provided feature column {feature} in select_features not present in dataset.")
+                features.append(features_dict[feature])
+            return features
+        return [features_dict[f] for f in features_dict]
 
     def version(self) -> str:
         """Returns a version number.
@@ -127,61 +163,13 @@ class FeatureIndex:
             self._num_genes_per_row.append(num_genes)
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
-        """Find the features at a given row.
-
-        It is assumed that the row is
-        non-zero._cumulative_sum_index contains pointers to which rows correspond
-        to given dictionaries. To obtain a specific row, we determine where it is
-        located in _cumulative_sum_index and then look up that dictionary in
-        _feature_arr
-        Args:
-            row (int): The row in the feature index.
-            select_features (list[str]): a list of features to select
-        Returns
-            list[np.ndarray]: list of np arrays with the feature values in that row of the specified features
-            str: optional label for the row
-        Raises:
-            IndexError: An error occured due to input row being negative or it
-            exceeding the larger row of the rows in the index. It is also raised
-            if there are no entries in the index yet.
-        """
-        if row < 0:
-            raise IndexError(f"Row index {row} is not valid. It must be non-negative.")
-        if len(self._cumulative_sum_index) < 2:
-            raise IndexError("There are no features to lookup.")
-
-        if row > self._cumulative_sum_index[-1]:
-            raise IndexError(
-                f"Row index {row} is larger than number of rows in FeatureIndex ({self._cumulative_sum_index[-1]})."
-            )
-        d_id = self._get_dataset_id(row)
-
-        # Retrieve the features for the identified value.
-        features_dict = self._feature_arr[d_id]
-
-        # If specific features are to be selected, filter the features.
-        if select_features is not None:
-            features = []
-            for feature in select_features:
-                if feature not in features_dict:
-                    raise ValueError(f"Provided feature column {feature} in select_features not present in dataset.")
-                features.append(features_dict[feature])
-        else:
-            features = [features_dict[f] for f in features_dict]
-
-        # Return the features for the identified range.
-        return features, self._labels[d_id]
+        """Abstract lookup; implemented in subclasses."""
+        raise NotImplementedError("lookup must be implemented by subclasses")
 
     def number_vars_at_row(self, row: int) -> int:
-        """Return number of variables in a given row.
-
-        Args:
-            row (int): The row in the feature index.
-
-        Returns:
-            The length of the features at the row
-        """
-        return self._num_genes_per_row[self._get_dataset_id(row)]
+        """Return number of variables in a given row (base: uses stored per-dataset counts)."""
+        dataset_idx = self._get_dataset_id(row)
+        return self._num_genes_per_row[dataset_idx]
 
     def column_dims(self) -> list[int]:
         """Return the number of columns in all rows.
@@ -238,12 +226,11 @@ class FeatureIndex:
             ValueError if an empty FeatureIndex is passed and the function is
             set to fail in this case.
         """
-        match other_row_index:
-            case self.__class__():
-                pass
-            case _:
-                raise TypeError("Error: trying to concatenate something that's not a FeatureIndex.")
-
+        # Require the exact same concrete subclass to ensure semantic compatibility
+        if not isinstance(other_row_index, FeatureIndex):
+            raise TypeError("Error: trying to concatenate something that's not a FeatureIndex.")
+        if type(self) is not type(other_row_index):
+            raise TypeError("Error: cannot concatenate FeatureIndex instances of different kinds.")
         if fail_on_empty_index and not len(other_row_index._feature_arr) > 0:
             raise ValueError("Error: Cannot append empty FeatureIndex.")
         for i, feats in enumerate(list(other_row_index._feature_arr)):
@@ -270,26 +257,44 @@ class FeatureIndex:
         np.save(Path(datapath) / "labels.npy", self._labels)
         np.save(Path(datapath) / "version.npy", np.array(self._version))
 
+
+class ObservedFeatureIndex(FeatureIndex):
+    """This gives features for a specific cell (.obs)."""
+
+    def __init__(self) -> None:
+        """Create an observed (row) feature index."""
+        super().__init__()
+
+    def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
+        """Lookup features at a given row (cell)."""
+        d_id = self._get_dataset_id(row)
+        features_dict = self._feature_arr[d_id]
+        row_idx_in_block = row - (self._cumulative_sum_index[d_id - 1] if d_id > 0 else 0)
+        features_dict = {feat: arr[row_idx_in_block] for feat, arr in features_dict.items()}
+        features = self._filter_features(features_dict, select_features)
+        return features, self._labels[d_id]
+
     @staticmethod
-    def load(datapath: str) -> FeatureIndex:
-        """Loads the data from datapath.
+    def load(datapath: str) -> "ObservedFeatureIndex":
+        """Load an observed (row) feature index from a directory."""
+        return FeatureIndex._load_common(datapath, ObservedFeatureIndex())
 
-        Args:
-            datapath: the path to load from
-        Returns:
-            An instance of FeatureIndex
-        """
-        new_row_feat_index = FeatureIndex()
-        parquet_data_paths = sorted(Path(datapath).rglob("*.parquet"))
-        data_tables = [pq.read_table(csv_path) for csv_path in parquet_data_paths]
-        new_row_feat_index._feature_arr = [
-            {column: table[column].to_numpy() for column in table.column_names} for table in data_tables
-        ]
-        new_row_feat_index._num_genes_per_row = [
-            len(feats[next(iter(feats.keys()))]) for feats in new_row_feat_index._feature_arr
-        ]
 
-        new_row_feat_index._cumulative_sum_index = np.load(Path(datapath) / "cumulative_sum_index.npy")
-        new_row_feat_index._labels = np.load(Path(datapath) / "labels.npy", allow_pickle=True)
-        new_row_feat_index._version = np.load(Path(datapath) / "version.npy").item()
-        return new_row_feat_index
+class VariableFeatureIndex(FeatureIndex):
+    """This gives features for genes in a given row (.var)."""
+
+    def __init__(self) -> None:
+        """Create a variable (column) feature index."""
+        super().__init__()
+
+    @staticmethod
+    def load(datapath: str) -> "VariableFeatureIndex":
+        """Load a variable (column) feature index from a directory."""
+        return FeatureIndex._load_common(datapath, VariableFeatureIndex())
+
+    def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
+        """Lookup features at a given row, returning full arrays for that span."""
+        d_id = self._get_dataset_id(row)
+        features_dict = self._feature_arr[d_id]
+        features = self._filter_features(features_dict, select_features)
+        return features, self._labels[d_id]
