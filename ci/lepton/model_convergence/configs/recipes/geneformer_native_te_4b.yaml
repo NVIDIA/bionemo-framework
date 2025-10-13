@@ -9,7 +9,7 @@ defaults:
 node_group: yo-bom-lepton-001
 num_nodes: 1
 device_type: gpu
-num_devices: 2
+num_devices: 8
 gpu_type: h100-sxm
 resource_shape: "${device_type}.${num_devices}x${gpu_type}"
 
