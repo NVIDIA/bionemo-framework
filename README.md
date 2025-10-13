@@ -1,9 +1,9 @@
 <div align="center">
-  
-BioNeMo Framework
-===========================
-<h4>GPU-optimized recipes & toolkits for training transformer models at scale with biological data</h4>
+  <h1>BioNeMo Framework</h1>
+  <h4>GPU-optimized recipes & toolkits for training transformer models at scale with biological data</h4>
+</div>
 
+<div align="left">
 
 [![Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU)
 [![Docs Build](https://img.shields.io/github/actions/workflow/status/NVIDIA/bionemo-framework/pages/pages-build-deployment?label=docs-build)](https://nvidia.github.io/bionemo-framework)
