@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 import shutil
 from dataclasses import dataclass
@@ -711,3 +712,124 @@ def test_lazy_tokenization_returns_batch():
 
     batch = next(iter(dataloader))
     assert batch is not None
+
+
+def test_stateful_dataloader_load_fails_if_num_workers_mismatch(tmp_path, caplog):
+    dataloader_path = tmp_path / "dl_test_num_workers_mismatch"
+    shutil.rmtree(dataloader_path, ignore_errors=True)
+    os.makedirs(dataloader_path, exist_ok=True)
+    tokenizer_name = "facebook/esm2_t6_8M_UR50D"
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "split": "train",
+        "data_files": "train.parquet",
+        "streaming": False,
+    }
+
+    rank0_dist_config = MockDistributedConfig(
+        rank=0,
+        local_rank=0,
+        world_size=1,
+    )
+
+    reference_dataloader, _ = create_dataloader(
+        distributed_config=rank0_dist_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=4,
+        num_workers=1,
+        mlm_probability=0,
+    )
+
+    save_dataloader(
+        dataloader=reference_dataloader,
+        ckpt_path=dataloader_path,
+        dist_config=rank0_dist_config,
+    )
+
+    del reference_dataloader
+
+    reference_dataloader, _ = create_dataloader(
+        distributed_config=rank0_dist_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=4,
+        num_workers=2,
+        mlm_probability=0,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        load_dataloader(
+            dataloader=reference_dataloader,
+            ckpt_path=dataloader_path,
+            dist_config=rank0_dist_config,
+        )
+
+    assert (
+        "Dataloader num_workers mismatch: 2 != 1 or num_ranks mismatch: 1 != 1, starting dataloader from scratch."
+        in caplog.text
+    )
+
+
+def test_stateful_dataloader_load_fails_if_num_ranks_mismatch(tmp_path, caplog):
+    dataloader_path = tmp_path / "dl_test_num_workers_mismatch"
+    shutil.rmtree(dataloader_path, ignore_errors=True)
+    os.makedirs(dataloader_path, exist_ok=True)
+    tokenizer_name = "facebook/esm2_t6_8M_UR50D"
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "split": "train",
+        "data_files": "train.parquet",
+        "streaming": False,
+    }
+
+    rank0_dist_config = MockDistributedConfig(
+        rank=0,
+        local_rank=0,
+        world_size=1,
+    )
+
+    reference_dataloader, _ = create_dataloader(
+        distributed_config=rank0_dist_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=4,
+        num_workers=1,
+        mlm_probability=0,
+    )
+
+    save_dataloader(
+        dataloader=reference_dataloader,
+        ckpt_path=dataloader_path,
+        dist_config=rank0_dist_config,
+    )
+
+    del reference_dataloader
+    del rank0_dist_config
+
+    rank2_dist_config = MockDistributedConfig(
+        rank=0,
+        local_rank=0,
+        world_size=2,
+    )
+
+    reference_dataloader, _ = create_dataloader(
+        distributed_config=rank2_dist_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=4,
+        num_workers=1,
+        mlm_probability=0,
+    )
+
+    with caplog.at_level(logging.WARNING):
+        load_dataloader(
+            dataloader=reference_dataloader,
+            ckpt_path=dataloader_path,
+            dist_config=rank2_dist_config,
+        )
+
+    assert (
+        "Dataloader num_workers mismatch: 1 != 1 or num_ranks mismatch: 2 != 1, starting dataloader from scratch."
+        in caplog.text
+    )
