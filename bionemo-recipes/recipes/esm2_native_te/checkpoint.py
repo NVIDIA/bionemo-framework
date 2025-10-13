@@ -29,7 +29,9 @@ from torch.distributed.checkpoint.state_dict import (
     set_state_dict,
 )
 from torch.distributed.checkpoint.stateful import Stateful
+from torchdata.stateful_dataloader import StatefulDataLoader
 
+from dataset import load_dataloader, save_dataloader
 from distributed_config import DistributedConfig
 
 
@@ -79,25 +81,43 @@ def load_checkpoint_ddp(
     scheduler: torch.optim.lr_scheduler.LRScheduler,
     ckpt_path: str | os.PathLike,
     dist_config: DistributedConfig,
-) -> tuple[torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int]:
+    dataloader: StatefulDataLoader | None = None,
+) -> tuple[
+    torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int, StatefulDataLoader | None, int
+]:
     """Load DDP checkpoint."""
     checkpoint_path, _ = get_latest_checkpoint(ckpt_path)
+
     if not checkpoint_path:
         logger.info("No DDP checkpoint found, starting from scratch")
-        return model, optimizer, scheduler, 0
+        return model, optimizer, scheduler, 0, dataloader, 0
 
-    checkpoint = torch.load(checkpoint_path, map_location=f"cuda:{dist_config.local_rank}", weights_only=False)
+    checkpoint = torch.load(
+        checkpoint_path / "checkpoint.pt", map_location=f"cuda:{dist_config.local_rank}", weights_only=False
+    )
     model.load_state_dict(checkpoint["model"])
     optimizer.load_state_dict(checkpoint["optimizer"])
     scheduler.load_state_dict(checkpoint["scheduler"])
-
-    # Increment the step by one to avoid re-running the previous step.
-    step = checkpoint["step"] + 1
+    dataloader_num_workers = checkpoint.get("dataloader_num_workers", None)
+    step = checkpoint.get("step", None)
+    epoch = checkpoint.get("epoch", None)
 
     if dist_config.is_main_process():
         logger.info(f"Loaded DDP checkpoint from step {step}")
 
-    return model, optimizer, scheduler, step
+    if dataloader is not None:
+        load_dataloader(
+            dataloader=dataloader,
+            ckpt_path=checkpoint_path,
+            dist_config=dist_config,
+            num_workers=dataloader_num_workers,
+        )
+        logger.info(f"Loaded DDP dataloader from step {step} from {checkpoint_path}")
+
+    # Increment the step by one to avoid re-running the previous step.
+    step += 1
+
+    return model, optimizer, scheduler, step, dataloader, epoch
 
 
 def save_checkpoint_ddp(
@@ -106,15 +126,25 @@ def save_checkpoint_ddp(
     scheduler: torch.optim.lr_scheduler.LRScheduler,
     ckpt_path: str | os.PathLike,
     step: int,
+    epoch: int,
     dist_config: DistributedConfig,
+    dataloader: StatefulDataLoader | None = None,
 ) -> None:
-    """Save DDP checkpoint - only on main process."""
+    """Saves the Dataloader state and the DDP checkpoint."""
+    ckpt_path = Path(ckpt_path)
+    checkpoint_path = ckpt_path / f"step_{step}"
+    checkpoint_path.mkdir(parents=True, exist_ok=True)
+
+    if dataloader is not None:
+        save_dataloader(
+            dataloader=dataloader,
+            ckpt_path=checkpoint_path,
+            dist_config=dist_config,
+        )
+        logger.info(f"Saved DDP dataloader to {checkpoint_path}")
+
     if not dist_config.is_main_process():
         return
-
-    ckpt_path = Path(ckpt_path)
-    ckpt_path.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = ckpt_path / f"step_{step}.pt"
 
     torch.save(
         {
@@ -122,8 +152,10 @@ def save_checkpoint_ddp(
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict(),
             "step": step,
+            "epoch": epoch,
+            "dataloader_num_workers": dataloader.num_workers if dataloader is not None else None,
         },
-        checkpoint_path,
+        checkpoint_path / "checkpoint.pt",
     )
     logger.info(f"Saved DDP checkpoint to {checkpoint_path}")
 
@@ -155,7 +187,11 @@ def load_checkpoint_mfsdp(
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LRScheduler,
     ckpt_path: str | os.PathLike,
-) -> tuple[torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int]:
+    dist_config: DistributedConfig,
+    dataloader: StatefulDataLoader | None = None,
+) -> tuple[
+    torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int, StatefulDataLoader | None, int
+]:
     """Load mFSDP distributed checkpoint.
 
     Args:
@@ -163,6 +199,8 @@ def load_checkpoint_mfsdp(
         optimizer: The optimizer to load.
         scheduler: The LR scheduler to load.
         ckpt_path: The directory containing checkpoints.
+        dist_config: The distributed configuration.
+        dataloader: The dataloader to load.
 
     Returns:
         Tuple of (model, optimizer, scheduler, step).
@@ -170,13 +208,19 @@ def load_checkpoint_mfsdp(
     checkpoint_path, step = get_latest_checkpoint(ckpt_path)
     if not checkpoint_path:
         logger.info("No mFSDP checkpoint found, starting from scratch")
-        return model, optimizer, scheduler, 0
+        return model, optimizer, scheduler, 0, dataloader, 0
 
     ckpt_state_dict = {
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "scheduler": scheduler.state_dict(),
-        "metadata": {},
+        "metadata": {
+            "step": step,  # Initialize with current step from filename
+            "epoch": 0,  # Initialize with default epoch
+            "dataloader_num_workers": dataloader.num_workers
+            if dataloader is not None
+            else 1,  # Initialize with current or default
+        },
     }
     torch.distributed.checkpoint.load(state_dict=ckpt_state_dict, checkpoint_id=checkpoint_path)
 
@@ -185,9 +229,17 @@ def load_checkpoint_mfsdp(
     scheduler.load_state_dict(ckpt_state_dict["scheduler"])
 
     # Get step from metadata if available, otherwise from filename
-    metadata_step = ckpt_state_dict.get("metadata", {}).get("step")
-    if metadata_step is not None:
-        step = metadata_step
+    step = ckpt_state_dict.get("metadata").get("step")
+    epoch = ckpt_state_dict.get("metadata").get("epoch")
+    dataloader_num_workers = ckpt_state_dict.get("metadata").get("dataloader_num_workers")
+
+    if dataloader is not None:
+        load_dataloader(
+            dataloader=dataloader,
+            ckpt_path=checkpoint_path,
+            dist_config=dist_config,
+            num_workers=dataloader_num_workers,
+        )
 
     # Increment the step by one to avoid re-running the previous step.
     step += 1
@@ -196,7 +248,7 @@ def load_checkpoint_mfsdp(
     torch.distributed.barrier()
 
     logger.info(f"Loaded mFSDP checkpoint from step {step}")
-    return model, optimizer, scheduler, step
+    return model, optimizer, scheduler, step, dataloader, epoch
 
 
 def save_checkpoint_mfsdp(
@@ -205,6 +257,9 @@ def save_checkpoint_mfsdp(
     scheduler: torch.optim.lr_scheduler.LRScheduler,
     ckpt_path: str | os.PathLike,
     step: int,
+    dist_config: DistributedConfig,
+    dataloader: StatefulDataLoader | None = None,
+    epoch: int = 0,
 ) -> None:
     """Save mFSDP distributed checkpoint.
 
@@ -214,16 +269,32 @@ def save_checkpoint_mfsdp(
         scheduler: The LR scheduler to save.
         ckpt_path: The directory to save the checkpoint.
         step: The step number to save the checkpoint.
+        dist_config: The distributed configuration.
+        dataloader: The dataloader to save.
+        epoch: The epoch number to save the checkpoint.
     """
-    checkpoint_path = os.path.join(ckpt_path, f"step_{step}")
-    os.makedirs(ckpt_path, exist_ok=True)
+    ckpt_path = Path(ckpt_path)
+    checkpoint_path = ckpt_path / f"step_{step}"
+    checkpoint_path.mkdir(parents=True, exist_ok=True)
+
+    if dataloader is not None:
+        save_dataloader(
+            dataloader=dataloader,
+            ckpt_path=checkpoint_path,
+            dist_config=dist_config,
+        )
+        logger.info(f"Saved mFSDP dataloader to {checkpoint_path}")
 
     # Save model, optimizer, scheduler state, and metadata
     state_dict = {
         "model": model.state_dict(),
         "optimizer": optimizer.state_dict(),
         "scheduler": scheduler.state_dict(),
-        "metadata": {"step": step},
+        "metadata": {
+            "step": step,
+            "epoch": epoch,
+            "dataloader_num_workers": dataloader.num_workers if dataloader is not None else None,
+        },
     }
 
     torch.distributed.checkpoint.save(
@@ -279,6 +350,8 @@ class AppState(Stateful):
     optimizer: torch.optim.Optimizer
     scheduler: torch.optim.lr_scheduler.LRScheduler
     step: int = 0
+    dataloader_num_workers: int | None = None
+    epoch: int = 0
     state_dict_options: StateDictOptions = field(
         default_factory=lambda: StateDictOptions(
             full_state_dict=False,
@@ -296,6 +369,8 @@ class AppState(Stateful):
             "optim": optimizer_state_dict,
             "scheduler": self.scheduler.state_dict(),
             "step": self.step,
+            "epoch": self.epoch,
+            "dataloader_num_workers": self.dataloader_num_workers,
         }
 
     def load_state_dict(self, state_dict: dict):
@@ -309,6 +384,8 @@ class AppState(Stateful):
         )
         self.scheduler.load_state_dict(state_dict["scheduler"])
         self.step = state_dict["step"]
+        self.epoch = state_dict["epoch"]
+        self.dataloader_num_workers = state_dict["dataloader_num_workers"]
 
 
 def load_checkpoint_fsdp2(
@@ -316,7 +393,11 @@ def load_checkpoint_fsdp2(
     optimizer: torch.optim.Optimizer,
     scheduler: torch.optim.lr_scheduler.LRScheduler,
     ckpt_path: str | os.PathLike,
-) -> tuple[torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int]:
+    dist_config: DistributedConfig,
+    dataloader: StatefulDataLoader | None = None,
+) -> tuple[
+    torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler, int, StatefulDataLoader | None, int
+]:
     """Load FSDP2 checkpoint.
 
     Args:
@@ -324,22 +405,40 @@ def load_checkpoint_fsdp2(
         optimizer: The optimizer to load.
         scheduler: The LR scheduler to load.
         ckpt_path: The directory containing checkpoints.
+        dist_config: The distributed configuration.
+        dataloader: The dataloader to load.
     """
     checkpoint_path, _ = get_latest_checkpoint(ckpt_path)
     if not checkpoint_path:
         logger.info("No FSDP2 checkpoint found, starting from scratch")
-        return model, optimizer, scheduler, 0
+        return model, optimizer, scheduler, 0, dataloader, 0
 
-    app_state = AppState(model=model, optimizer=optimizer, scheduler=scheduler)
+    app_state = AppState(
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        dataloader_num_workers=dataloader.num_workers if dataloader is not None else None,
+    )
 
     state_dict = {"app": app_state}
     dcp.load(state_dict, checkpoint_id=checkpoint_path)
 
+    # Note: Is this how i do it?
+    dataloader_num_workers = app_state.dataloader_num_workers
+    epoch = app_state.epoch
+
+    if dataloader is not None:
+        load_dataloader(
+            dataloader=dataloader,
+            ckpt_path=checkpoint_path,
+            dist_config=dist_config,
+            num_workers=dataloader_num_workers,
+        )
     # Increment the step by one to avoid re-running the previous step.
     step = app_state.step + 1
 
     logger.info(f"Loaded distributed FSDP2 checkpoint from step {app_state.step}")
-    return model, optimizer, scheduler, step
+    return model, optimizer, scheduler, step, dataloader, epoch
 
 
 def save_checkpoint_fsdp2(
@@ -348,6 +447,9 @@ def save_checkpoint_fsdp2(
     scheduler: torch.optim.lr_scheduler.LRScheduler,
     ckpt_path: str | os.PathLike,
     step: int,
+    epoch: int,
+    dist_config: DistributedConfig,
+    dataloader: StatefulDataLoader | None = None,
 ) -> None:
     """Save FSDP2 checkpoint.
 
@@ -357,11 +459,34 @@ def save_checkpoint_fsdp2(
         scheduler: The LR scheduler to save.
         ckpt_path: The directory to save the checkpoint.
         step: The step number to save the checkpoint.
+        epoch: The epoch number to save the checkpoint.
+        dist_config: The distributed configuration.
+        dataloader: The dataloader to save.
     """
-    checkpoint_dir = Path(ckpt_path) / f"step_{step}"
-    state_dict = {"app": AppState(model=model, optimizer=optimizer, scheduler=scheduler, step=step)}
-    dcp.save(state_dict=state_dict, checkpoint_id=checkpoint_dir)
-    logger.info(f"Saved distributed FSDP2 checkpoint to {checkpoint_dir}")
+    ckpt_path = Path(ckpt_path)
+    checkpoint_path = ckpt_path / f"step_{step}"
+    checkpoint_path.mkdir(parents=True, exist_ok=True)
+
+    if dataloader is not None:
+        save_dataloader(
+            dataloader=dataloader,
+            ckpt_path=checkpoint_path,
+            dist_config=dist_config,
+        )
+        logger.info(f"Saved FSDP2 dataloader to {ckpt_path}")
+
+    state_dict = {
+        "app": AppState(
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            step=step,
+            dataloader_num_workers=dataloader.num_workers if dataloader is not None else None,
+            epoch=epoch,
+        )
+    }
+    dcp.save(state_dict=state_dict, checkpoint_id=checkpoint_path)
+    logger.info(f"Saved distributed FSDP2 checkpoint to {checkpoint_path}")
 
 
 def save_final_model_fsdp2(

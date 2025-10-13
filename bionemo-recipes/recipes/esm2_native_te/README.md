@@ -118,6 +118,17 @@ directory within the checkpoint directory.
 
 Checkpointing is implemented for all three strategies, see [`checkpoint.py`](checkpoint.py) for more details.
 
+## Stateful dataloading
+
+We now offer the ability to resume your dataloader exactly where it left off.
+
+Known limitations:
+
+- When loading the dataloader from a saved checkpoint, you must provide the same `num_workers` that you used to save the dataloader state, because state is saved at the worker-level.
+- Moreover, dataloader state is saved on a per-rank basis. So if you resume training and load the dataloaders with a different amount of nodes / gpus that was used when you saved the dataloader the state will not resume perfectly.
+
+For references on Stateful Dataloaders please see [hf](https://huggingface.co/docs/datasets/en/stream#save-a-dataset-checkpoint-and-resume-iteration) and [example][https://github.com/meta-pytorch/data/tree/main/torchdata/stateful_dataloader]
+
 ## Running Inference with the Trained Model
 
 Models can be loaded from the final checkpoint directory using the `AutoModel.from_pretrained` method. For example:
