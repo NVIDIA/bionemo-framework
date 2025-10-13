@@ -144,10 +144,6 @@ class FeatureIndex:
         """Abstract method to extend the number of entries per row."""
         raise NotImplementedError("extend_num_entries_per_row must be implemented by subclasses")
 
-    def _check_and_append(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> bool:
-        """Abstract method to check if the features are equal and append them if they are."""
-        raise NotImplementedError("check_and_append must be implemented by subclasses")
-
     def number_vars_at_row(self, row: int) -> int:
         """Return number of variables in a given row (base: uses stored per-dataset counts)."""
         dataset_idx = self._get_dataset_id(row)
@@ -182,29 +178,9 @@ class FeatureIndex:
         vals = [n_rows * self._num_entries_per_row[i] for i, n_rows in enumerate(rows)]
         return vals
 
-    def append_features(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
-        """Updates the index with the given features.
-
-        The dict is inserted into the feature array by adding a
-        new span to the row lookup index. Additionally, we update the number of genes for the newly added row.
-
-        Args:
-            n_obs (int): The number of times that these feature occur in the
-            class.
-            features (dict): Corresponding features.
-            label (str): Label for the features.
-        """
-        if isinstance(features, pd.DataFrame):
-            raise TypeError("Expected a dictionary, but received a Pandas DataFrame.")
-        total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
-        # If the new feature array is identical to the last one, it is not appended. Instead, the last array accounts
-        # for the additional n_obs also.
-        if not self._check_and_append(n_obs, features, total_csum):
-            self._cumulative_sum_index = np.append(self._cumulative_sum_index, total_csum)
-            self._feature_arr.append(features)
-            self._labels.append(label)
-
-            self._extend_num_entries_per_row(features)
+    def append_features(self, n_obs: int, features: object, label: Optional[str] = None) -> None:
+        """Abstract append; implemented by subclasses."""
+        raise NotImplementedError("append_features must be implemented by subclasses")
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
         """Abstract lookup; implemented in subclasses."""
@@ -270,47 +246,117 @@ class FeatureIndex:
 
 
 class ObservedFeatureIndex(FeatureIndex):
-    """This gives features for a specific cell (.obs)."""
+    """This gives features for a specific cell (.obs). This is implemented with pandas data frames. Indexing is supported."""
 
     def __init__(self) -> None:
         """Create an observed (row) feature index."""
         super().__init__()
 
+    def append_features(self, n_obs: int, features: object, label: Optional[str] = None) -> None:
+        """Append observed features as a pandas DataFrame (or convert dict to DataFrame).
+
+        Args:
+            n_obs: Number of observations (rows) being appended.
+            features: pandas.DataFrame of observed fields; dict is converted to DataFrame.
+            label: Optional label for the block.
+        """
+        if isinstance(features, pd.DataFrame):
+            df = features
+        elif isinstance(features, dict):
+            df = pd.DataFrame(features)
+        else:
+            raise TypeError("ObservedFeatureIndex.append_features expects a pandas DataFrame or a dict of arrays")
+
+        if n_obs != len(df):
+            raise ValueError(f"Number of observations {n_obs} does not match the number of .obs entries {len(df)}")
+
+        total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
+        # If last block has the same schema, merge row-wise
+        if len(self._feature_arr) > 0 and isinstance(self._feature_arr[-1], pd.DataFrame):
+            last_df: pd.DataFrame = self._feature_arr[-1]
+            if last_df.columns.equals(df.columns):
+                self._feature_arr[-1] = pd.concat([last_df, df], ignore_index=True)
+                self._cumulative_sum_index[-1] = total_csum
+                return
+
+        # Otherwise start a new block
+        self._cumulative_sum_index = np.append(self._cumulative_sum_index, total_csum)
+        self._feature_arr.append(df)
+        self._labels.append(label)
+        self._extend_num_entries_per_row(df)
+
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
         """Lookup features at a given row (cell)."""
         d_id = self._get_dataset_id(row)
-        features_dict = self._feature_arr[d_id]
-        row_idx_in_block = row - (self._cumulative_sum_index[d_id] if d_id > 0 else 0)
-        features_dict = {feat: arr[row_idx_in_block] for feat, arr in features_dict.items()}
-        features = self._filter_features(features_dict, select_features)
-        return features, self._labels[d_id]
-
-    def _extend_num_entries_per_row(self, features: dict[str, np.ndarray]) -> None:
-        if len(features) == 0:
-            num_entries = 0
+        df: pd.DataFrame = self._feature_arr[d_id]
+        start = self._cumulative_sum_index[d_id] if d_id > 0 else 0
+        row_idx_in_block = row - start
+        if select_features is not None:
+            vals = df.loc[row_idx_in_block, select_features].tolist()
         else:
-            num_entries = len(features)
-        self._num_entries_per_row.append(num_entries)
+            vals = df.iloc[row_idx_in_block].tolist()
+        return vals, self._labels[d_id]
 
-    def _check_and_append(self, n_obs: int, features: dict[str, np.ndarray], total_csum: Optional[str] = None) -> bool:
-        n_obs_in_features = 0
-        if len(features) > 0:
-            n_obs_in_features = len(features[next(iter(features.keys()))])
-        if n_obs != n_obs_in_features:
-            raise ValueError(
-                f"Number of observations {n_obs} does not match the number of .obs entries {n_obs_in_features}"
-            )
-        if len(self._feature_arr) > 0 and self._feature_arr[-1].keys() == features.keys():
-            concatenated_features = {k: np.concatenate([self._feature_arr[-1][k], features[k]]) for k in features}
-            self._cumulative_sum_index[-1] = total_csum
-            self._feature_arr[-1] = concatenated_features
-            return True
-        return False
+    def __getitem__(self, idx):
+        """Access one row or a slice of rows for observed features (.obs).
+
+        - int: returns (features, label) for that row
+        - slice: returns list of (features, label) per row in the slice
+        """
+        if isinstance(idx, slice):
+            n = self.number_of_rows()
+            start, stop, step = idx.indices(n)
+            if step == 0:
+                raise ValueError("slice step cannot be zero")
+            rows = list(range(start, stop, step))
+            if not rows:
+                return []
+            ends = self._cumulative_sum_index[1:]
+            by_block: dict[int, list[int]] = {}
+            for r in rows:
+                d_id = int(np.searchsorted(ends, r, side="right"))
+                by_block.setdefault(d_id, []).append(r)
+            out = []
+            labels = []
+            for d_id, rs in by_block.items():
+                rs.sort()
+                prev_end = self._cumulative_sum_index[d_id] if d_id > 0 else 0
+                relative_indices = [r - prev_end for r in rs]
+                df: pd.DataFrame = self._feature_arr[d_id]
+                sub = df.iloc[relative_indices]
+                lbl = self._labels[d_id]
+                out.append(sub)
+                labels.append(lbl)
+            return out, labels
+
+        if isinstance(idx, int):
+            n = self.number_of_rows()
+            if idx < 0:
+                idx += n
+            return self.lookup(idx)
+        raise TypeError("Index must be int or slice")
+
+    def _extend_num_entries_per_row(self, features: object) -> None:
+        if isinstance(features, pd.DataFrame):
+            num_entries = int(features.shape[1])
+        elif isinstance(features, dict):
+            num_entries = len(features)
+        else:
+            num_entries = 0
+        self._num_entries_per_row.append(num_entries)
 
     @staticmethod
     def load(datapath: str) -> "ObservedFeatureIndex":
         """Load an observed (row) feature index from a directory."""
-        return FeatureIndex._load_common(datapath, ObservedFeatureIndex())
+        instance = ObservedFeatureIndex()
+        parquet_data_paths = sorted(Path(datapath).rglob("*.parquet"))
+        data_frames = [pq.read_table(csv_path).to_pandas() for csv_path in parquet_data_paths]
+        instance._feature_arr = data_frames  # type: ignore[assignment]
+        instance._num_entries_per_row = [int(df.shape[1]) for df in data_frames]
+        instance._cumulative_sum_index = np.load(Path(datapath) / "cumulative_sum_index.npy")
+        instance._labels = np.load(Path(datapath) / "labels.npy", allow_pickle=True)
+        instance._version = np.load(Path(datapath) / "version.npy").item()
+        return instance
 
 
 class VariableFeatureIndex(FeatureIndex):
@@ -332,6 +378,17 @@ class VariableFeatureIndex(FeatureIndex):
         else:
             num_entries = len(features[next(iter(features.keys()))])
         self._num_entries_per_row.append(num_entries)
+
+    def append_features(self, n_obs: int, features: object, label: Optional[str] = None) -> None:
+        """Append variable features as a dict[str, ndarray]."""
+        if not isinstance(features, dict):
+            raise TypeError("VariableFeatureIndex.append_features expects a dict of arrays")
+        total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
+        if not self._check_and_append(n_obs, features, total_csum):
+            self._cumulative_sum_index = np.append(self._cumulative_sum_index, total_csum)
+            self._feature_arr.append(features)
+            self._labels.append(label)
+            self._extend_num_entries_per_row(features)
 
     @staticmethod
     def load(datapath: str) -> "VariableFeatureIndex":

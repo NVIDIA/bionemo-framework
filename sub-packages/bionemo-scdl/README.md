@@ -142,7 +142,7 @@ For some applications, we might want to also use the .var features. These can be
 
 ```
 for index in range(len(data)):
-    model(data.get_row(index,return_features = True))
+    model(ds.get_row(index,return_features = True))
 ```
 
 Similarly, the data corresponding to this row in .obs (per-cell features) can be accessed with get_row(index, return_obs_vals = True). The specified values to return can be specified with obs_value_vars.
@@ -150,6 +150,21 @@ Similarly, the data corresponding to this row in .obs (per-cell features) can be
 ```
 for index in range(len(data)):
     model(data.get_row(index,return_obs_vals = True))
+```
+
+### Examining the Data
+
+The counts (corresponding to the AnnData.X). This will return the data in a CSR format. (row_indices (data, column_indices))
+
+```python
+data[4:400]
+```
+
+Similarly, the observation features (corresponding to .obs) can be accessed with slicing. This will return a list of pandas dataframes or a single data frame corresponding to the entries in order. The several dataframes may be necessary since the feature array can be created from different anndata
+files with different .obs columns.
+
+```python
+data.obs_features[5:10]
 ```
 
 ## Examples

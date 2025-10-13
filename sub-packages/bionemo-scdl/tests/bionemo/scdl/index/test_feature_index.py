@@ -136,7 +136,7 @@ def test_dataframe_results_in_error():
             "spare": [None, None, None, None, None],
         }
     )
-    index = FeatureIndex()
+    index = VariableFeatureIndex()
     with pytest.raises(TypeError) as error_info:
         index.append_features(8, two_feats, "MY_DATAFRAME")
         assert "Expected a dictionary, but received a Pandas DataFrame." in str(error_info.value)
@@ -402,3 +402,44 @@ def test_save_reload_ObservedFeatureIndex_identical(
         features_reload, labels_reload = index_reload.lookup(row=row, select_features=None)
         assert labels_one == labels_reload
         assert np.all(np.array(features_one) == np.array(features_reload))
+
+
+def test_observed_getitem_slice_contiguous_across_blocks():
+    df1_feats = {
+        "feature_name": np.array(["FF", "GG", "HH"]),
+        "feature_int": np.array([1, 2, 3]),
+    }
+    df2_feats = {
+        "f_name": np.array(["A", "B", "C", "D", "E"]),
+        "f_int": np.array([10, 11, 12, 13, 14]),
+        "f_spare": np.array([None, None, None, None, None]),
+    }
+    obs = ObservedFeatureIndex()
+    obs.append_features(3, df1_feats)
+    obs.append_features(5, df2_feats, label="blk2")
+
+    out, labels = obs[1:7]
+    assert labels == [None, "blk2"]
+    assert isinstance(out, list)
+    assert len(out) == 2
+    pd.testing.assert_frame_equal(out[0], pd.DataFrame(df1_feats).iloc[1:])
+    pd.testing.assert_frame_equal(out[1], pd.DataFrame(df2_feats).iloc[:4])
+
+
+def test_observed_getitem_slice_with_step_and_order_preserved():
+    df1_feats = {
+        "x": np.array([0, 1, 2, 3]),
+    }
+    df2_feats = {
+        "y": np.array([10, 11, 12]),
+    }
+    obs = ObservedFeatureIndex()
+    obs.append_features(4, df1_feats)
+    obs.append_features(3, df2_feats, label="b2")
+
+    out, labels = obs[0:7:2]
+    assert labels == [None, "b2"]
+    assert isinstance(out, list)
+    assert len(out) == 2
+    (pd.testing.assert_frame_equal(out[0].reset_index(drop=True), pd.DataFrame({"x": [0, 2]})),)
+    pd.testing.assert_frame_equal(out[1].reset_index(drop=True), pd.DataFrame({"y": [10, 12]}))

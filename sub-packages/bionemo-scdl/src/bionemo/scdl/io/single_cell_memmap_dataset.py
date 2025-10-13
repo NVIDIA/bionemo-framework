@@ -527,6 +527,24 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         logger.info("Neighbor data extracted to memory-mapped arrays using chunked approach")
         return True
 
+    def _get_X_value(self, index: int | slice) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Get the X values at index (int) or a stack of rows if index is a slice. Only step size 1 is supported for slices."""
+        if isinstance(index, int):
+            start_idx = index
+            end_idx = index
+        elif isinstance(index, slice):
+            start_idx, end_idx, step = index.indices(len(self) - 1)
+            if step != 1:
+                raise ValueError("Only a step size of 1 is supported in slice indexing.")
+        else:
+            raise TypeError(f"Invalid index type: {type(index)}")
+        start = self.row_index[start_idx]
+        end = self.row_index[end_idx + 1]
+        values = self.data[start:end]
+        columns = self.col_index[start:end]
+        rows = self.row_index[start_idx : end_idx + 1] - self.row_index[start_idx]
+        return rows, values, columns
+
     def get_row(
         self,
         index: int,
@@ -538,7 +556,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """Returns a given row in the dataset along with optional features.
 
         Args:
-             index: The row to be returned. This is in the range of [0, num_rows)
+            index: The row to be returned. This is in the range of [0, num_rows)
             return_features: boolean that indicates whether to return features
             feature_vars: Optional, feature variables to extract
             return_obs_vals: boolean that indicates whether to return observed values
@@ -547,18 +565,14 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             [Tuple[np.ndarray, np.ndarray]: data values and column pointes
             List[np.ndarray]: optional, corresponding features.
         """
-        start = self.row_index[index]
-        end = self.row_index[index + 1]
-        values = self.data[start:end]
-        columns = self.col_index[start:end]
-        ret = (values, columns)
+        _, values, columns = self._get_X_value(index)
         var_features = (
             self._var_feature_index.lookup(index, select_features=feature_vars)[0] if return_features else None
         )
         obs_features = (
             self._obs_feature_index.lookup(index, select_features=obs_value_vars)[0] if return_obs_vals else None
         )
-        return ret, var_features, obs_features
+        return (values, columns), var_features, obs_features
 
     def get_row_with_neighbor(
         self,
@@ -1287,11 +1301,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             ValueError if the length of the number of rows in the feature
             index does not correspond to the number of stored rows.
         """
-        if len(self._var_feature_index) > 0 and self._var_feature_index.number_of_rows() != self.row_index.size - 1:
-            raise ValueError(
-                f"""The nuber of rows in the feature index {self._var_feature_index.number_of_rows()}
-                             does not correspond to the number of rows in the row_index {self.row_index.size - 1}"""
-            )
+        # Simplified version: only do checks if feature indices exist, and error if inconsistent.
+        for feats, name in [
+            (getattr(self, "_var_feature_index", None), "var_feature_index"),
+            (getattr(self, "_obs_feature_index", None), "obs_feature_index"),
+        ]:
+            if feats is not None and len(feats) > 0 and feats.number_of_rows() != self.row_index.size - 1:
+                raise ValueError(
+                    f"Number of rows in {name} ({feats.number_of_rows()}) does not match row_index ({self.row_index.size - 1})"
+                )
+
         return self._var_feature_index.number_of_rows()
 
     def number_nonzero_values(self) -> int:
@@ -1302,9 +1321,23 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """Return the number of rows."""
         return self.number_of_rows()
 
-    def __getitem__(self, idx: int) -> torch.Tensor:
-        """Get the row values located and index idx."""
-        return torch.from_numpy(np.stack(self.get_row(idx)[0]))
+    def __getitem__(self, idx) -> torch.Tensor:
+        """Get the row values at index idx (int) or a stack of rows if idx is a slice.
+
+        Args:
+            idx: int or slice
+
+        Returns:
+            torch.Tensor: Tensor of row(s) values
+        """
+        rows, values, columns = self._get_X_value(idx)
+        if isinstance(idx, int):
+            # Single row
+            return torch.from_numpy(np.stack((values, columns)))
+        elif isinstance(idx, slice):
+            return rows, torch.from_numpy(np.stack((values, columns)))
+        else:
+            raise TypeError(f"Invalid index type: {type(idx)}")
 
     def number_of_variables(self) -> List[int]:
         """Get the number of features in every entry in the dataset.
