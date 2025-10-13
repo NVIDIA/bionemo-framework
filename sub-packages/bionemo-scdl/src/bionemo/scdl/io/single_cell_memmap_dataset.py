@@ -538,7 +538,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """Returns a given row in the dataset along with optional features.
 
         Args:
-            index: The row  to be returned. This is in the range of [0, num_rows)
+             index: The row to be returned. This is in the range of [0, num_rows)
             return_features: boolean that indicates whether to return features
             feature_vars: Optional, feature variables to extract
             return_obs_vals: boolean that indicates whether to return observed values
