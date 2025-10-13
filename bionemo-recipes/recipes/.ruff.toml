@@ -52,7 +52,7 @@ exclude = [
 [lint.per-file-ignores]
 "esm_nv.py" = ["C901"]
 "__init__.py" = ["D104", "E402", "F401", "F403", "F811"]
-"test_*.py" = ["D"]
+"test_*.py" = ["C", "D"]
 "conftest.py" = ["D"]
 "scripts/*.py" = ["D"]
 "**/*.ipynb" = ["D"]
