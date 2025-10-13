@@ -552,13 +552,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         values = self.data[start:end]
         columns = self.col_index[start:end]
         ret = (values, columns)
-        row_features = (
+        var_features = (
             self._var_feature_index.lookup(index, select_features=feature_vars)[0] if return_features else None
         )
-        col_features = (
+        obs_features = (
             self._obs_feature_index.lookup(index, select_features=obs_value_vars)[0] if return_obs_vals else None
         )
-        return ret, row_features, col_features
+        return ret, var_features, obs_features
 
     def get_row_with_neighbor(
         self,
@@ -607,7 +607,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             next_cell_data = current_cell_data
         else:
             # Get neighbor cell data using the get_row function
-            next_cell_data, _ = self.get_row(neighbor_index, False, None, False, None)
+            next_cell_data, _, _ = self.get_row(neighbor_index, False, None, False, None)
 
         # Return all data in a dictionary format
         return {
@@ -645,13 +645,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             List[np.ndarray]: optional, corresponding row features.
             List[np.ndarray]: optional, corresponding column features.
         """
-        (row_values, row_column_pointer), row_features, col_features = self.get_row(
+        (row_values, row_column_pointer), var_features, obs_features = self.get_row(
             index, return_features, feature_vars, return_obs_vals, obs_value_vars
         )
         return (
             _pad_sparse_array(row_values, row_column_pointer, self._var_feature_index.number_vars_at_row(index)),
-            row_features,
-            col_features,
+            var_features,
+            obs_features,
         )
 
     def get_row_padded_with_neighbor(
@@ -695,7 +695,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         result = self.get_row_with_neighbor(index, return_features, feature_vars, return_obs_vals, obs_value_vars)
 
         # Get current cell padded array using get_row_padded
-        curr_padded, _ = self.get_row_padded(index, False, None, False, None)
+        curr_padded, _, _ = self.get_row_padded(index, False, None, False, None)
 
         # For neighbor, get the padded array
         next_idx = result["next_cell_index"]
@@ -704,7 +704,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             next_padded = curr_padded
         else:
             # Otherwise get the neighbor's padded array
-            next_padded, _ = self.get_row_padded(next_idx, False, None, False, None)
+            next_padded, _, _ = self.get_row_padded(next_idx, False, None, False, None)
 
         # Return in dictionary format
         return {
@@ -740,11 +740,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                         break
             return 0.0 if impute_missing_zeros else None
 
-    def row_features(self) -> Optional[VariableFeatureIndex]:
+    def var_features(self) -> Optional[VariableFeatureIndex]:
         """Return the corresponding VariableFeatureIndex."""
         return self._var_feature_index
 
-    def col_features(self) -> Optional[ObservedFeatureIndex]:
+    def obs_features(self) -> Optional[ObservedFeatureIndex]:
         """Return the corresponding ColFeatureIndex."""
         return self._obs_feature_index
 

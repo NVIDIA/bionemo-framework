@@ -280,7 +280,14 @@ def test_get_row_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
 
     # Validate structure and content
     assert isinstance(result, dict)
-    assert set(result.keys()) == {"current_cell", "next_cell", "current_cell_index", "next_cell_index", "features"}
+    assert set(result.keys()) == {
+        "current_cell",
+        "next_cell",
+        "current_cell_index",
+        "next_cell_index",
+        "features",
+        "obs_vals",
+    }
     assert result["current_cell_index"] == 0
     assert result["next_cell_index"] == 2
 
@@ -365,7 +372,14 @@ def test_get_row_padded_with_neighbor(tmp_path, monkeypatch, test_neighbor_direc
 
     # Validate structure and content
     assert isinstance(result, dict)
-    assert set(result.keys()) == {"current_cell", "next_cell", "current_cell_index", "next_cell_index", "features"}
+    assert set(result.keys()) == {
+        "current_cell",
+        "next_cell",
+        "current_cell_index",
+        "next_cell_index",
+        "features",
+        "obs_vals",
+    }
     assert result["current_cell_index"] == 0
     assert result["next_cell_index"] == 2
 

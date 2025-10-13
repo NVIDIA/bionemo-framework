@@ -74,9 +74,9 @@ class SingleCellCollection(SingleCellRowDatasetCore):
     Attributes:
         _version: The version of the dataset
         data_path: The directory where the colleection of datasets is stored.
-        row_feature_index: The corresponding FeatureIndex where features are
+        _var_feature_index: The corresponding FeatureIndex where features are
         stored.
-        col_feature_index: The corresponding FeatureIndex where features are
+        _obs_feature_index: The corresponding FeatureIndex where features are
         stored
         fname_to_mmap:  dictionary to hold each SingleCellMemMapDataset object.
         This maps from the path to the dataset.
@@ -127,7 +127,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
             h5ad_path=h5ad_path, base_directory_path=self.data_path
         )
         self._var_feature_index.concat(self.fname_to_mmap[mmap_path]._var_feature_index)
-        # self._col_feature_index.concat(self.fname_to_mmap[mmap_path]._col_feature_index)
+        self._obs_feature_index.concat(self.fname_to_mmap[mmap_path]._obs_feature_index)
 
     def load_h5ad_multi(self, directory_path: str, max_workers: int = 5, use_processes: bool = False) -> None:
         """Loads one or more AnnData files and adds them to the collection.

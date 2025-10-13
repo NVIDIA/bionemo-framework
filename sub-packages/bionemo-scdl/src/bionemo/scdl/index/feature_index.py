@@ -28,6 +28,14 @@ import pyarrow.parquet as pq
 __all__: Sequence[str] = ("FeatureIndex", "ObservedFeatureIndex", "VariableFeatureIndex")
 
 
+def _to_arrow_array(vals):
+    """Convert a list of values to an Arrow array."""
+    try:
+        return pa.array(vals, from_pandas=True)
+    except pa.ArrowInvalid:
+        return pa.array(vals, type=pa.string(), from_pandas=True)
+
+
 def are_dicts_equal(dict1: dict[str, np.ndarray], dict2: dict[str, np.ndarray]) -> bool:
     """Compare two dictionaries with string keys and numpy.ndarray values.
 
@@ -103,7 +111,7 @@ class FeatureIndex:
         ]
         instance._num_entries_per_row = []
         for features in instance._feature_arr:
-            instance.extend_num_entries_per_row(features)
+            instance._extend_num_entries_per_row(features)
         instance._cumulative_sum_index = np.load(Path(datapath) / "cumulative_sum_index.npy")
         instance._labels = np.load(Path(datapath) / "labels.npy", allow_pickle=True)
         instance._version = np.load(Path(datapath) / "version.npy").item()
@@ -191,12 +199,12 @@ class FeatureIndex:
         total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
         # If the new feature array is identical to the last one, it is not appended. Instead, the last array accounts
         # for the additional n_obs also.
-        if not self.check_and_append(n_obs, features, total_csum):
+        if not self._check_and_append(n_obs, features, total_csum):
             self._cumulative_sum_index = np.append(self._cumulative_sum_index, total_csum)
             self._feature_arr.append(features)
             self._labels.append(label)
 
-            self.extend_num_entries_per_row(features)
+            self._extend_num_entries_per_row(features)
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
         """Abstract lookup; implemented in subclasses."""
@@ -253,10 +261,9 @@ class FeatureIndex:
         Path(datapath).mkdir(parents=True, exist_ok=True)
         num_digits = len(str(len(self._feature_arr)))
         for index, feature_dict in enumerate(self._feature_arr):
-            table = pa.table({column: pa.array(values) for column, values in feature_dict.items()})
+            table = pa.table({col: _to_arrow_array(vals) for col, vals in feature_dict.items()})
             dataframe_str_index = f"{index:0{num_digits}d}"
             pq.write_table(table, f"{datapath}/dataframe_{dataframe_str_index}.parquet")
-
         np.save(Path(datapath) / "cumulative_sum_index.npy", self._cumulative_sum_index)
         np.save(Path(datapath) / "labels.npy", self._labels)
         np.save(Path(datapath) / "version.npy", np.array(self._version))

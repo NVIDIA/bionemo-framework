@@ -115,8 +115,13 @@ def test_sc_concat_in_flatten_cellxval(tmp_path, create_cellx_val_data):
     data = SingleCellMemMapDataset(memmap_data)
     assert np.array(data.row_index)[2] != 2  # regression test for bug
     assert np.array(data.row_index)[3] != 1149  # regression test for bug
-
     assert all(data.row_index == np.array([0, 440, 972, 2119]))
+
+    # Check the obs features
+    assert data.obs_features().column_dims() == [26]
+    assert data.obs_features().number_of_values() == [78]
+    assert len(data.obs_features()) == 1
+    assert data.obs_features().number_of_rows() == 3
 
 
 def test_sc_empty_directory_error(tmp_path):
