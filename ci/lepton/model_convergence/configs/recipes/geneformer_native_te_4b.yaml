@@ -69,12 +69,12 @@ resume_from_checkpoint: false
 # config-specific arguments. Must have a wandb_name`.
 ############################################################
 products:
-  - config: 106m
+  - config: 4b
     use_mfsdp: false
     parallelism_strategy: ddp
     wandb_name: "${config}__${parallelism_strategy}__${now:%Y%m%d-%H%M%S}__${gitsha:}"
     job_name: "${sanitize:geneformer-nat-${config}}-ddp"
-  - config: 106m
+  - config: 4b
     use_mfsdp: true
     parallelism_strategy: mfsdp
     wandb_name: "${config}__${parallelism_strategy}__${now:%Y%m%d-%H%M%S}__${gitsha:}"
