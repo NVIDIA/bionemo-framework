@@ -139,8 +139,7 @@ def test_dataframe_results_in_error():
     index = VariableFeatureIndex()
     with pytest.raises(TypeError) as error_info:
         index.append_features(8, two_feats, "MY_DATAFRAME")
-        assert "Expected a dictionary, but received a Pandas DataFrame." in str(error_info.value)
-
+        assert "expects a dict of arrays" in str(error_info.value)
 
 def test_feature_index_internals_on_empty_index():
     index = FeatureIndex()
