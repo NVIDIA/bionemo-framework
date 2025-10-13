@@ -796,6 +796,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             self._var_feature_index = VariableFeatureIndex.load(
                 f"{self.data_path}/{FileNames.VARIABLE_FEATURES.value}"
             )
+        # For backward compatability
+        elif os.path.exists(f"{self.data_path}/{FileNames.FEATURES.value}"):
+            self._var_feature_index = VariableFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES.value}")
         if os.path.exists(f"{self.data_path}/{FileNames.OBSERVED_FEATURES.value}"):
             self._obs_feature_index = ObservedFeatureIndex.load(
                 f"{self.data_path}/{FileNames.OBSERVED_FEATURES.value}"
