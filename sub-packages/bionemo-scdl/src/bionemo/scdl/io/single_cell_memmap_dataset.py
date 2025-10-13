@@ -639,7 +639,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             feature_vars: Optional, feature variables to extract
             return_obs_vals: boolean that indicates whether to return observed values
             obs_value_vars: Optional, observed value variables to extract
-            feature_vars: Optional, feature variables to extract
         Return:
             np.ndarray: conventional row representation
             List[np.ndarray]: optional, corresponding row features.
