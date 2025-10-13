@@ -92,13 +92,26 @@ def compare_fn():
 
 
 @pytest.fixture
-def big_int_h5ad(tmp_path):
-    """Create and return the path to an h5ad with large values/columns for dtype promotion tests."""
+def big_h5ad_data():
+    """Fixture providing large CSR matrix test data for dtype promotion tests (integer-approximate)."""
     n_rows, n_cols = 2, 70_000
-    data = np.array([1.0, 70_000.0, 10.0], dtype="float32")
+    data = np.array([1.5, 70_000.5345, 10.0], dtype="float32")
     indices = np.array([0, 10, 65_537], dtype=np.int64)
     indptr = np.array([0, 1, 3], dtype=np.int64)
-    X = sp.csr_matrix((data, indices, indptr), shape=(n_rows, n_cols))
+    return {
+        "n_rows": n_rows,
+        "n_cols": n_cols,
+        "data": data,
+        "indices": indices,
+        "indptr": indptr,
+    }
+
+
+@pytest.fixture
+def big_int_h5ad(tmp_path, big_h5ad_data):
+    """Create and return the path to an h5ad with large values/columns for dtype promotion tests."""
+    d = big_h5ad_data
+    X = sp.csr_matrix((d["data"].astype(np.uint32), d["indices"], d["indptr"]), shape=(d["n_rows"], d["n_cols"]))
     a = ad.AnnData(X=X)
     h5ad_path = tmp_path / "big_dtype.h5ad"
     a.write_h5ad(h5ad_path)
@@ -106,13 +119,10 @@ def big_int_h5ad(tmp_path):
 
 
 @pytest.fixture
-def big_float_h5ad(tmp_path):
+def big_float_h5ad(tmp_path, big_h5ad_data):
     """Create and return the path to an h5ad with large values/columns for dtype promotion tests."""
-    n_rows, n_cols = 2, 70_000
-    data = np.array([1.5, 70_000.5345, 10.0], dtype="float32")
-    indices = np.array([0, 10, 65_537], dtype=np.int64)
-    indptr = np.array([0, 1, 3], dtype=np.int64)
-    X = sp.csr_matrix((data, indices, indptr), shape=(n_rows, n_cols))
+    d = big_h5ad_data
+    X = sp.csr_matrix((d["data"].astype("float32"), d["indices"], d["indptr"]), shape=(d["n_rows"], d["n_cols"]))
     a = ad.AnnData(X=X)
     h5ad_path = tmp_path / "big_dtype.h5ad"
     a.write_h5ad(h5ad_path)
@@ -301,29 +311,28 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
 
 
 @pytest.mark.parametrize("dtype", [None, "uint32", "uint64", "float32", "float64"])
-def test_load_h5ad_properly_converted_dtypes_int(tmp_path, test_directory, big_int_h5ad, dtype):
+def test_load_h5ad_properly_converted_dtypes_int(tmp_path, test_directory, big_int_h5ad, big_h5ad_data, dtype):
     """Use shared big-dtype h5ad to force dtype promotion and verify results."""
     ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_int_h5ad, data_dtype=dtype)
-
     assert ds.dtypes["data.npy"] == dtype if dtype is not None else "float32"
     assert ds.dtypes["col_ptr.npy"] == "uint32"
     assert ds.dtypes["row_ptr.npy"] == "uint8"
-    assert np.array_equal(ds.data, [1, 70_000, 10])
-    assert np.array_equal(ds.col_index, [0, 10, 65_537])
-    assert np.array_equal(ds.row_index, [0, 1, 3])
+    assert np.array_equal(ds.data, big_h5ad_data["data"].astype(int))
+    assert np.array_equal(ds.col_index, big_h5ad_data["indices"])
+    assert np.array_equal(ds.row_index, big_h5ad_data["indptr"])
 
 
 @pytest.mark.parametrize("dtype", ["float32", "float64"])
-def test_load_h5ad_properly_converted_dtypes_float(tmp_path, test_directory, big_int_h5ad, dtype):
+def test_load_h5ad_properly_converted_dtypes_float(tmp_path, test_directory, big_int_h5ad, big_h5ad_data, dtype):
     """Use shared big-dtype h5ad to force dtype promotion and verify results."""
     ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_int_h5ad, data_dtype=dtype)
 
     assert ds.dtypes["data.npy"] == dtype if dtype is not None else "float32"
     assert ds.dtypes["col_ptr.npy"] == "uint32"
     assert ds.dtypes["row_ptr.npy"] == "uint8"
-    assert np.array_equal(ds.data, [1, 70_000, 10])
-    assert np.array_equal(ds.col_index, [0, 10, 65_537])
-    assert np.array_equal(ds.row_index, [0, 1, 3])
+    assert np.array_equal(ds.data, big_h5ad_data["data"].astype(int))
+    assert np.array_equal(ds.col_index, big_h5ad_data["indices"])
+    assert np.array_equal(ds.row_index, big_h5ad_data["indptr"])
 
 
 @pytest.mark.parametrize(
@@ -397,12 +406,12 @@ def test_load_h5ad_overflows_on_loading_dtypes_paginated_float(tmp_path, test_di
         "uint64",
     ],
 )
-def test_load_h5ad_does_not_overflow_on_high_tolerance(tmp_path, test_directory, big_float_h5ad, dtype):
+def test_load_h5ad_does_not_overflow_on_high_tolerance(tmp_path, test_directory, big_float_h5ad, big_h5ad_data, dtype):
     """Verify that high tolerance does not lead to overflow."""
     ds = SingleCellMemMapDataset(
         tmp_path / "scy_big", h5ad_path=big_float_h5ad, data_dtype=dtype, data_dtype_tolerance=1
     )
-    assert np.array_equal(ds.data, [1, 70_000, 10])
+    assert np.array_equal(ds.data, big_h5ad_data["data"].astype(dtype))
 
 
 def test_concat_SingleCellMemMapDatasets_raises_diff_dtypes(tmp_path, test_directory):

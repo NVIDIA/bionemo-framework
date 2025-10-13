@@ -183,7 +183,7 @@ data = SingleCellMemMapDataset(
 
 SCDL checks that there is minimal loss while doing this. The amount of tolerated loss in the data is set through the `data_dtype_tolerance` parameter.
 
-During dataset concatenation, it is assumed that all of the data types are either floats or ints, and all of the entries are upscaled to the largest data size. If there is a combination of floats and ints when concatenating the data, and an error is thrown.
+During dataset concatenation, it is assumed that all of the data types are either floats or ints, and all of the entries are upscaled to the largest data size. If there is a combination of floats and ints when concatenating the data, an error is thrown.
 
 To convert multiple files with a given data format, the user can run:
 
