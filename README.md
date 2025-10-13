@@ -1,4 +1,9 @@
-# BioNeMo Framework
+<div align="center">
+  
+BioNeMo Framework
+===========================
+<h4>GPU-optimized recipes & toolkits for training transformer models at scale with biological data</h4>
+
 
 [![Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU)
 [![Docs Build](https://img.shields.io/github/actions/workflow/status/NVIDIA/bionemo-framework/pages/pages-build-deployment?label=docs-build)](https://nvidia.github.io/bionemo-framework)
@@ -6,7 +11,9 @@
 [![Latest Tag](https://img.shields.io/github/v/tag/NVIDIA/bionemo-framework?label=latest-version)](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework/tags)
 [![codecov](https://codecov.io/gh/NVIDIA/bionemo-framework/branch/main/graph/badge.svg?token=XqhegdZRqB)](https://codecov.io/gh/NVIDIA/bionemo-framework)
 
-NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for computational drug discovery. It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources with state-of-the-art performance.
+<div align="left">
+
+NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for digital biology. It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized model recipes and tooling that are easily integrated into GPU-based computational resources with state-of-the-art performance.
 
 > [!NOTE]
 > A core use-case of the BioNeMo Framework is to help digital biology scientists accelerate and scale their model training onto a compute cluster. This repository contains 3 categories of modules for this use-case:
