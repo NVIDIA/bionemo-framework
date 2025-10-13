@@ -61,6 +61,8 @@ def determine_dtype(dtypes: Iterable[object]) -> str:
     - If all source dtypes are floats: return the widest float
     - Otherwise: raise (mixed families not allowed)
     """
+    if len(dtypes) == 0:
+        raise ValueError("No dtypes provided")
     canonical = [np.dtype(dt).name for dt in dtypes]
     if all(dt in INT_ORDER for dt in canonical):
         return max(set(canonical), key=lambda dt: INT_ORDER.index(dt))
