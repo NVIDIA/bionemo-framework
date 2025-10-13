@@ -137,6 +137,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # and allows us to store ragged arrays in our SCMMAP structure.
         self._feature_index: RowFeatureIndex = RowFeatureIndex()
         # Validate data_dtype: must be in INT_ORDER or FLOAT_ORDER in scdl_constants
+
         if data_dtype is not None and data_dtype not in INT_ORDER + FLOAT_ORDER:
             allowed_dtypes = list(INT_ORDER + FLOAT_ORDER)
             raise ValueError(f"Invalid data_dtype '{data_dtype}'. Must be one of: {', '.join(allowed_dtypes)}")
@@ -149,7 +150,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             f"{FileNames.NEIGHBOR_INDICES_PTR.value}": "uint64",
             f"{FileNames.NEIGHBOR_VALUES.value}": "float32",
         }
-
         # Neighbor configuration
         self.load_neighbors = load_neighbors
         self._has_neighbors = False
@@ -702,8 +702,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Create the arrays.
         self._init_arrs(num_elements_stored, num_rows)
         # Store data
-        self.data[0:num_elements_stored] = count_data.data.astype(self.dtypes[f"{FileNames.DATA.value}"])
-
+        count_data_downcast = count_data.data.astype(self.dtypes[f"{FileNames.DATA.value}"])
+        if not np.allclose(count_data_downcast, count_data.data, rtol=1e-05, atol=1e-08):
+            raise ValueError(
+                f"Downcasted data values for '{FileNames.DATA.value}' are not close to original values. "
+                f"Max abs diff: {np.max(np.abs(count_data_downcast - count_data.data))}"
+            )
+        self.data[0:num_elements_stored] = count_data_downcast
         # Store the col idx array
         self.col_index[0:num_elements_stored] = count_data.indices.astype(self.dtypes[f"{FileNames.COLPTR.value}"])
 
@@ -746,7 +751,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
         num_rows, num_cols = adata.X.shape
         n_elements = adata.X._indptr[-1]
-        self.dtypes[f"{FileNames.DATA.value}"] = adata.X.dtype
         self.dtypes[f"{FileNames.COLPTR.value}"] = smallest_uint_dtype(num_cols - 1)
         self.dtypes[f"{FileNames.ROWPTR.value}"] = smallest_uint_dtype(n_elements)
         # Read the row indices into a memory map.
@@ -767,10 +771,15 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     self.dtypes[f"{FileNames.COLPTR.value}"]
                 )
                 col_file.write(col_block.tobytes())
+                count_data = adata.X[row_start : row_start + self.load_block_row_size]
+                count_data_downcast = count_data.data.astype(self.dtypes[f"{FileNames.DATA.value}"])
+                if not np.allclose(count_data_downcast, count_data.data, rtol=1e-05, atol=1e-08):
+                    raise ValueError(
+                        f"Downcasted data values for '{FileNames.DATA.value}' are not close to original values. "
+                        f"Max abs diff: {np.max(np.abs(count_data_downcast - count_data.data))}"
+                    )
 
-                data_block = adata.X[row_start : row_start + self.load_block_row_size].data.astype(
-                    self.dtypes[f"{FileNames.DATA.value}"]
-                )
+                data_block = count_data_downcast.astype(self.dtypes[f"{FileNames.DATA.value}"])
                 data_file.write(data_block.tobytes())
 
         # The column and data files are re-opened as memory-mapped arrays with the final shape

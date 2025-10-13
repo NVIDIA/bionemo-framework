@@ -299,15 +299,30 @@ def test_load_h5ad_properly_converted_dtypes(tmp_path, test_directory, big_dtype
     assert np.array_equal(ds.row_index, [0, 1, 3])
 
 
-@pytest.mark.parametrize("dtype", ["uint8", "uint16"])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        "uint8",
+        "uint16",
+    ],
+)
 def test_load_h5ad_overflows_on_loading_dtypes(tmp_path, test_directory, big_dtype_h5ad, dtype):
     """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
-    ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_dtype_h5ad, data_dtype=dtype)
+    with pytest.raises(ValueError, match="Downcasted data values for 'data.npy' are not close to original values."):
+        SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_dtype_h5ad, data_dtype=dtype)
 
-    assert not np.array_equal(ds.data, [1, 70_000, 10])
-    assert ds.dtypes["data.npy"] == dtype
-    assert ds.dtypes["col_ptr.npy"] == "uint32"
-    assert ds.dtypes["row_ptr.npy"] == "uint8"
+
+@pytest.mark.parametrize("dtype", ["uint8", "uint16"])
+def test_load_h5ad_overflows_on_loading_dtypes_paginated(tmp_path, test_directory, big_dtype_h5ad, dtype):
+    """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
+    with pytest.raises(ValueError, match="Downcasted data values for 'data.npy' are not close to original values."):
+        SingleCellMemMapDataset(
+            tmp_path / "scy_big",
+            h5ad_path=big_dtype_h5ad,
+            data_dtype=dtype,
+            paginated_load_cutoff=0,
+            load_block_row_size=2,
+        )
 
 
 def test_concat_SingleCellMemMapDatasets_raises_diff_dtypes(tmp_path, test_directory):
@@ -327,15 +342,16 @@ def test_concat_SingleCellMemMapDatasets_raises_diff_dtypes(tmp_path, test_direc
 def test_concat_rowptr_dtype_boundary_changes(tmp_path):
     """Each nnz < 225 individually; combined > 255 → row_ptr switches to uint16."""
 
-    def make_zero_csr(total_nnz: int, n_cols: int):
+    def make_random_csr(total_nnz: int, n_cols: int, seed: int = 42):
+        rng = np.random.default_rng(seed)
         indptr = np.arange(total_nnz + 1, dtype=np.int64)
-        indices = np.random.randint(0, n_cols, total_nnz)
+        indices = rng.integers(0, n_cols, total_nnz)
         data = np.ones(total_nnz, dtype=np.float64)
         X = sp.csr_matrix((data, indices, indptr), shape=(total_nnz, n_cols))
         return X
 
-    X1 = make_zero_csr(total_nnz=224, n_cols=200)
-    X2 = make_zero_csr(total_nnz=224, n_cols=200)
+    X1 = make_random_csr(total_nnz=224, n_cols=200)
+    X2 = make_random_csr(total_nnz=224, n_cols=200)
     # Persist to disk as h5ad
     h1 = tmp_path / "var1.h5ad"
     h2 = tmp_path / "var2.h5ad"
