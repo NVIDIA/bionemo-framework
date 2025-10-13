@@ -515,6 +515,8 @@ def save_dataloader(
     dataloader_path = ckpt_path / f"dataloader_rank_{dist_config.rank}.pt"
 
     dataloader_state = dataloader.state_dict()
+    dataloader_state["num_workers"] = dataloader.num_workers
+    dataloader_state["num_ranks"] = dist_config.world_size
     torch.save(dataloader_state, dataloader_path)
     if dist_config.is_main_process():
         logger.info(f"Saved dataloader state to {dataloader_path}")
@@ -545,6 +547,18 @@ def load_dataloader(
         return dataloader
 
     dataloader_state = torch.load(dataloader_path)
+
+    if (
+        dataloader.num_workers != dataloader_state["num_workers"]
+        or dist_config.world_size != dataloader_state["num_ranks"]
+    ):
+        logger.warning(
+            f"Dataloader num_workers mismatch: {dataloader.num_workers} != {dataloader_state['num_workers']} or "
+            f"num_ranks mismatch: {dist_config.world_size} != {dataloader_state['num_ranks']}, "
+            "starting dataloader from scratch."
+        )
+        return dataloader
+
     dataloader.load_state_dict(dataloader_state)
     if dist_config.is_main_process():
         logger.info(f"Loaded dataloader state from {dataloader_path}")
