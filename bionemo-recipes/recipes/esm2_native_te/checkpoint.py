@@ -111,9 +111,9 @@ def load_checkpoint_ddp(
     model.load_state_dict(checkpoint["model"])
     optimizer.load_state_dict(checkpoint["optimizer"])
     scheduler.load_state_dict(checkpoint["scheduler"])
-    step = checkpoint.get("step", None)
-    epoch = checkpoint.get("epoch", None)
     dataloader = load_dataloader(dataloader, checkpoint_path, dist_config)
+    step = checkpoint["step"]
+    epoch = checkpoint["epoch"]
 
     if dist_config.is_main_process():
         logger.info(f"Loaded DDP checkpoint from step {step}")
@@ -517,7 +517,7 @@ def save_dataloader(
     dataloader_state = dataloader.state_dict()
     torch.save(dataloader_state, dataloader_path)
     if dist_config.is_main_process():
-        logger.info(f"Saved DDP dataloader state to {dataloader_path}")
+        logger.info(f"Saved dataloader state to {dataloader_path}")
 
 
 def load_dataloader(
@@ -535,18 +535,18 @@ def load_dataloader(
         dist_config: The distributed configuration.
     """
     if dataloader is None:
-        return
+        return dataloader
 
     dataloader_path = Path(ckpt_path) / f"dataloader_rank_{dist_config.rank}.pt"
     if not dataloader_path.exists():
         logger.warning(
             f"No dataloader checkpoint found for rank {dist_config.rank}, starting dataloader from scratch."
         )
-        return
+        return dataloader
 
     dataloader_state = torch.load(dataloader_path)
     dataloader.load_state_dict(dataloader_state)
     if dist_config.is_main_process():
-        logger.info(f"Loaded DDP dataloader state from {dataloader_path}")
+        logger.info(f"Loaded dataloader state from {dataloader_path}")
 
     return dataloader
