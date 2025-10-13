@@ -626,7 +626,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         feature_vars: Optional[List[str]] = None,
         return_obs_vals: bool = False,
         obs_value_vars: Optional[List[str]] = None,
-    ) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
+    ) -> Tuple[np.ndarray, Optional[List[np.ndarray]], Optional[List[np.ndarray]]]:
         """Returns a padded version of a row in the dataset.
 
         A padded version is one where the a sparse array representation is
