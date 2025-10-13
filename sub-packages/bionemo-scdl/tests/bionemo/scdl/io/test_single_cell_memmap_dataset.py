@@ -129,7 +129,6 @@ def test_SingleCellMemMapDataset_constructor(generate_dataset):
     assert generate_dataset.number_nonzero_values() == 5
     assert np.isclose(generate_dataset.sparsity(), 0.9375, rtol=1e-6)
     assert len(generate_dataset) == 8
-
     assert generate_dataset.shape() == (8, [10])
 
 
@@ -254,7 +253,7 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
     compare_fn(ds_regular, ds_lazy)
 
 
-def test_SingleCellMemMapDataset_obs_features(tmp_path, create_cellx_val_data):
+def test_SingleCellMemMapDataset_var_and_obs_features(tmp_path, create_cellx_val_data):
     memmap_data = tmp_path / "out"
     ds = SingleCellMemMapDataset(memmap_data, h5ad_path=create_cellx_val_data / "sidx_40575621_2_0.h5ad")
     adata = ad.read_h5ad(create_cellx_val_data / "sidx_40575621_2_0.h5ad")

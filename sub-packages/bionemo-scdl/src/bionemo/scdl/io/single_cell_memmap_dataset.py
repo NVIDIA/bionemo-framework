@@ -743,6 +743,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """Return the corresponding ObservedFeatureIndex."""
         return self._obs_feature_index
 
+    def var_features(self) -> Optional[VariableFeatureIndex]:
+        """Return the corresponding VariableFeatureIndex."""
+        return self._var_feature_index
+
     def _load_mmap_file_if_exists(self, file_path, dtype):
         if os.path.exists(file_path):
             return np.memmap(file_path, dtype=dtype, mode=self.mode.value)
