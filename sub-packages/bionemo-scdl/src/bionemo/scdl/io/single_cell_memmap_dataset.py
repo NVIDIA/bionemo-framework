@@ -530,19 +530,19 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
     def get_row(
         self,
         index: int,
-        return_row_features: bool = False,
-        row_feature_vars: Optional[List[str]] = None,
-        return_col_features: bool = False,
-        col_feature_vars: Optional[List[str]] = None,
+        return_features: bool = False,
+        feature_vars: Optional[List[str]] = None,
+        return_obs_vals: bool = False,
+        obs_value_vars: Optional[List[str]] = None,
     ) -> Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray], List[np.ndarray]]:
         """Returns a given row in the dataset along with optional features.
 
         Args:
             index: The row  to be returned. This is in the range of [0, num_rows)
-            return_row_features: boolean that indicates whether to return row features
-            row_feature_vars: Optional, row feature variables to extract
-            return_col_features: boolean that indicates whether to return column features
-            col_feature_vars: Optional, column feature variables to extract
+            return_features: boolean that indicates whether to return features
+            feature_vars: Optional, feature variables to extract
+            return_obs_vals: boolean that indicates whether to return observed values
+            obs_value_vars: Optional, observed value variables to extract
         Return:
             [Tuple[np.ndarray, np.ndarray]: data values and column pointes
             List[np.ndarray]: optional, corresponding features.
@@ -553,29 +553,29 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         columns = self.col_index[start:end]
         ret = (values, columns)
         row_features = (
-            self._var_feature_index.lookup(index, select_features=row_feature_vars)[0] if return_row_features else None
+            self._var_feature_index.lookup(index, select_features=feature_vars)[0] if return_features else None
         )
         col_features = (
-            self._obs_feature_index.lookup(index, select_features=col_feature_vars)[0] if return_col_features else None
+            self._obs_feature_index.lookup(index, select_features=obs_value_vars)[0] if return_obs_vals else None
         )
         return ret, row_features, col_features
 
     def get_row_with_neighbor(
         self,
         index: int,
-        return_row_features: bool = False,
-        row_feature_vars: Optional[List[str]] = None,
-        return_col_features: bool = False,
-        col_feature_vars: Optional[List[str]] = None,
+        return_features: bool = False,
+        feature_vars: Optional[List[str]] = None,
+        return_obs_vals: bool = False,
+        obs_value_vars: Optional[List[str]] = None,
     ) -> Dict[str, Union[Tuple[np.ndarray, np.ndarray], int, Optional[List[np.ndarray]]]]:
         """Returns a given row in the dataset along with optional features and neighbor data.
 
         Args:
             index: The row to be returned. This is in the range of [0, num_rows)
-            return_row_features: Boolean that indicates whether to return row features
-            row_feature_vars: Optional, row feature variables to extract
-            return_col_features: Boolean that indicates whether to return column features
-            col_feature_vars: Optional, column feature variables to extract
+            return_features: Boolean that indicates whether to return features
+            feature_vars: Optional, feature variables to extract
+            return_obs_vals: Boolean that indicates whether to return observed values
+            obs_value_vars: Optional, observed value variables to extract
 
         Returns:
             Dict with keys:
@@ -595,8 +595,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
 
         # Get current cell data using the existing get_row function
-        current_cell_data, row_features, col_features = self.get_row(
-            index, return_row_features, row_feature_vars, return_col_features, col_feature_vars
+        current_cell_data, features, obs_vals = self.get_row(
+            index, return_features, feature_vars, return_obs_vals, obs_value_vars
         )
 
         # Sample neighbor and get its data
@@ -607,7 +607,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             next_cell_data = current_cell_data
         else:
             # Get neighbor cell data using the get_row function
-            next_cell_data, _ = self.get_row(neighbor_index, False, None)
+            next_cell_data, _ = self.get_row(neighbor_index, False, None, False, None)
 
         # Return all data in a dictionary format
         return {
@@ -615,17 +615,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             "next_cell": next_cell_data,
             "current_cell_index": index,
             "next_cell_index": neighbor_index,
-            "row_features": row_features,
-            "col_features": col_features,
+            "features": features,
+            "obs_vals": obs_vals,
         }
 
     def get_row_padded(
         self,
         index: int,
-        return_row_features: bool = False,
-        row_feature_vars: Optional[List[str]] = None,
-        return_col_features: bool = False,
-        col_feature_vars: Optional[List[str]] = None,
+        return_features: bool = False,
+        feature_vars: Optional[List[str]] = None,
+        return_obs_vals: bool = False,
+        obs_value_vars: Optional[List[str]] = None,
     ) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
         """Returns a padded version of a row in the dataset.
 
@@ -635,10 +635,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         Args:
             index: The row to be returned
-            return_row_features: boolean that indicates whether to return row features
-            row_feature_vars: Optional, row feature variables to extract
-            return_col_features: boolean that indicates whether to return column features
-            col_feature_vars: Optional, column feature variables to extract
+            return_features: boolean that indicates whether to return features
+            feature_vars: Optional, feature variables to extract
+            return_obs_vals: boolean that indicates whether to return observed values
+            obs_value_vars: Optional, observed value variables to extract
             feature_vars: Optional, feature variables to extract
         Return:
             np.ndarray: conventional row representation
@@ -646,7 +646,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             List[np.ndarray]: optional, corresponding column features.
         """
         (row_values, row_column_pointer), row_features, col_features = self.get_row(
-            index, return_row_features, row_feature_vars, return_col_features, col_feature_vars
+            index, return_features, feature_vars, return_obs_vals, obs_value_vars
         )
         return (
             _pad_sparse_array(row_values, row_column_pointer, self._var_feature_index.number_vars_at_row(index)),
@@ -659,6 +659,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         index: int,
         return_features: bool = False,
         feature_vars: Optional[List[str]] = None,
+        return_obs_vals: bool = False,
+        obs_value_vars: Optional[List[str]] = None,
     ) -> Dict[str, Union[np.ndarray, int, List[np.ndarray]]]:
         """Returns a padded version of a row with optional neighbor data.
 
@@ -666,9 +668,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         missing values are filled with zeros.
 
         Args:
-            index: The row to be returned
-            return_features: Boolean that indicates whether to return features
-            feature_vars: Optional, feature variables to extract
+            index: The row to be returned.
+            return_features: Whether to return feature arrays.
+            feature_vars: Optional list of feature variable names to extract.
+            return_obs_vals: Whether to return observed value arrays.
+            obs_value_vars: Optional list of observed value variable names to extract.
 
         Returns:
             Dict with keys:
@@ -688,10 +692,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
 
         # Get both current cell and neighbor data
-        result = self.get_row_with_neighbor(index, return_features, feature_vars)
+        result = self.get_row_with_neighbor(index, return_features, feature_vars, return_obs_vals, obs_value_vars)
 
         # Get current cell padded array using get_row_padded
-        curr_padded, _ = self.get_row_padded(index, False, None)
+        curr_padded, _ = self.get_row_padded(index, False, None, False, None)
 
         # For neighbor, get the padded array
         next_idx = result["next_cell_index"]
@@ -700,7 +704,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             next_padded = curr_padded
         else:
             # Otherwise get the neighbor's padded array
-            next_padded, _ = self.get_row_padded(next_idx, False, None)
+            next_padded, _ = self.get_row_padded(next_idx, False, None, False, None)
 
         # Return in dictionary format
         return {
@@ -709,6 +713,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             "current_cell_index": result["current_cell_index"],
             "next_cell_index": result["next_cell_index"],
             "features": result["features"],
+            "obs_vals": result["obs_vals"],
         }
 
     def get_row_column(self, index: int, column: int, impute_missing_zeros: bool = True) -> Optional[float]:
@@ -722,7 +727,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Return:
             A float that is the value in the array or None.
         """
-        (row_values, row_column_pointer), _, _ = self.get_row(index)
+        (row_values, row_column_pointer), _, _ = self.get_row(index, False, None, False, None)
         if column is not None:
             for col_index, col in enumerate(row_column_pointer):
                 if col == column:

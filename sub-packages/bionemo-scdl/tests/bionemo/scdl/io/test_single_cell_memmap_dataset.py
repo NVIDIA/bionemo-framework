@@ -157,7 +157,7 @@ def test_SingleCellMemMapDataset_get_row_colum(generate_dataset):
 
 def test_SingleCellMemMapDataset_get_row_padded(generate_dataset):
     padded_row, row_feats, col_feats = generate_dataset.get_row_padded(
-        0, return_row_features=True, row_feature_vars=["feature_name"]
+        0, return_features=True, feature_vars=["feature_name"]
     )
     assert len(padded_row) == 10
     assert padded_row[2] == 6.0
