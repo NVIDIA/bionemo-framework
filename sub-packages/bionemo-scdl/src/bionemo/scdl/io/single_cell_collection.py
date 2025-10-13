@@ -162,9 +162,8 @@ class SingleCellCollection(SingleCellRowDatasetCore):
 
             self.fname_to_mmap[mmap_path] = mmap
             self._var_feature_index.concat(self.fname_to_mmap[mmap_path]._var_feature_index)
-            self._obs_feature_index.concat(
-                self.fname_to_mmap[mmap_path]._obs_feature_index, fail_on_empty_index=False
-            )
+            self._obs_feature_index.concat(self.fname_to_mmap[mmap_path]._obs_feature_index, fail_on_empty_index=False)
+
     def number_nonzero_values(self) -> int:
         """Sum of the number of non zero entries in each dataset."""
         return sum([self.fname_to_mmap[mmap_path].number_nonzero_values() for mmap_path in self.fname_to_mmap])
