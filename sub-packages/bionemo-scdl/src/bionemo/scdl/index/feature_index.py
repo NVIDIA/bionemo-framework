@@ -360,7 +360,7 @@ class ObservedFeatureIndex(FeatureIndex):
 
 
 class VariableFeatureIndex(FeatureIndex):
-    """This gives features for genes in a given row (.var)."""
+    """This gives features for genes in a given row (.var). This is stored in a list of dictionaries. """
 
     def __init__(self) -> None:
         """Create a variable (column) feature index."""
