@@ -92,10 +92,24 @@ def compare_fn():
 
 
 @pytest.fixture
-def big_dtype_h5ad(tmp_path):
+def big_int_h5ad(tmp_path):
     """Create and return the path to an h5ad with large values/columns for dtype promotion tests."""
     n_rows, n_cols = 2, 70_000
     data = np.array([1.0, 70_000.0, 10.0], dtype="float32")
+    indices = np.array([0, 10, 65_537], dtype=np.int64)
+    indptr = np.array([0, 1, 3], dtype=np.int64)
+    X = sp.csr_matrix((data, indices, indptr), shape=(n_rows, n_cols))
+    a = ad.AnnData(X=X)
+    h5ad_path = tmp_path / "big_dtype.h5ad"
+    a.write_h5ad(h5ad_path)
+    return h5ad_path
+
+
+@pytest.fixture
+def big_float_h5ad(tmp_path):
+    """Create and return the path to an h5ad with large values/columns for dtype promotion tests."""
+    n_rows, n_cols = 2, 70_000
+    data = np.array([1.5, 70_000.5345, 10.0], dtype="float32")
     indices = np.array([0, 10, 65_537], dtype=np.int64)
     indptr = np.array([0, 1, 3], dtype=np.int64)
     X = sp.csr_matrix((data, indices, indptr), shape=(n_rows, n_cols))
@@ -287,9 +301,22 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
 
 
 @pytest.mark.parametrize("dtype", [None, "uint32", "uint64", "float32", "float64"])
-def test_load_h5ad_properly_converted_dtypes(tmp_path, test_directory, big_dtype_h5ad, dtype):
+def test_load_h5ad_properly_converted_dtypes_int(tmp_path, test_directory, big_int_h5ad, dtype):
     """Use shared big-dtype h5ad to force dtype promotion and verify results."""
-    ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_dtype_h5ad, data_dtype=dtype)
+    ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_int_h5ad, data_dtype=dtype)
+
+    assert ds.dtypes["data.npy"] == dtype if dtype is not None else "float32"
+    assert ds.dtypes["col_ptr.npy"] == "uint32"
+    assert ds.dtypes["row_ptr.npy"] == "uint8"
+    assert np.array_equal(ds.data, [1, 70_000, 10])
+    assert np.array_equal(ds.col_index, [0, 10, 65_537])
+    assert np.array_equal(ds.row_index, [0, 1, 3])
+
+
+@pytest.mark.parametrize("dtype", ["float32", "float64"])
+def test_load_h5ad_properly_converted_dtypes_float(tmp_path, test_directory, big_int_h5ad, dtype):
+    """Use shared big-dtype h5ad to force dtype promotion and verify results."""
+    ds = SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_int_h5ad, data_dtype=dtype)
 
     assert ds.dtypes["data.npy"] == dtype if dtype is not None else "float32"
     assert ds.dtypes["col_ptr.npy"] == "uint32"
@@ -306,23 +333,76 @@ def test_load_h5ad_properly_converted_dtypes(tmp_path, test_directory, big_dtype
         "uint16",
     ],
 )
-def test_load_h5ad_overflows_on_loading_dtypes(tmp_path, test_directory, big_dtype_h5ad, dtype):
+def test_load_h5ad_overflows_on_loading_dtypes_int(tmp_path, test_directory, big_int_h5ad, dtype):
     """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
     with pytest.raises(ValueError, match="Downcasted data values for 'data.npy' are not close to original values."):
-        SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_dtype_h5ad, data_dtype=dtype)
+        SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_int_h5ad, data_dtype=dtype)
 
 
 @pytest.mark.parametrize("dtype", ["uint8", "uint16"])
-def test_load_h5ad_overflows_on_loading_dtypes_paginated(tmp_path, test_directory, big_dtype_h5ad, dtype):
+def test_load_h5ad_overflows_on_loading_dtypes_paginated_int(tmp_path, test_directory, big_int_h5ad, dtype):
     """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
     with pytest.raises(ValueError, match="Downcasted data values for 'data.npy' are not close to original values."):
         SingleCellMemMapDataset(
             tmp_path / "scy_big",
-            h5ad_path=big_dtype_h5ad,
+            h5ad_path=big_int_h5ad,
             data_dtype=dtype,
             paginated_load_cutoff=0,
             load_block_row_size=2,
         )
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float16",
+    ],
+)
+def test_load_h5ad_overflows_on_loading_dtypes_float(tmp_path, test_directory, big_float_h5ad, dtype):
+    """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
+    with pytest.raises(ValueError, match="Downcasted data values for 'data.npy' are not close to original values."):
+        SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_float_h5ad, data_dtype=dtype)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        "uint8",
+        "uint16",
+        "uint32",
+        "uint64",
+        "float16",
+    ],
+)
+def test_load_h5ad_overflows_on_loading_dtypes_paginated_float(tmp_path, test_directory, big_float_h5ad, dtype):
+    """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
+    with pytest.raises(ValueError, match="Downcasted data values for 'data.npy' are not close to original values."):
+        SingleCellMemMapDataset(
+            tmp_path / "scy_big",
+            h5ad_path=big_float_h5ad,
+            data_dtype=dtype,
+            paginated_load_cutoff=0,
+            load_block_row_size=2,
+        )
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        "uint32",
+        "uint64",
+    ],
+)
+def test_load_h5ad_does_not_overflow_on_high_tolerance(tmp_path, test_directory, big_float_h5ad, dtype):
+    """Verify that high tolerance does not lead to overflow."""
+    ds = SingleCellMemMapDataset(
+        tmp_path / "scy_big", h5ad_path=big_float_h5ad, data_dtype=dtype, data_dtype_tolerance=1
+    )
+    assert np.array_equal(ds.data, [1, 70_000, 10])
 
 
 def test_concat_SingleCellMemMapDatasets_raises_diff_dtypes(tmp_path, test_directory):

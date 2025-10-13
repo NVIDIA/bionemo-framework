@@ -95,6 +95,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         neighbor_sampling_strategy: str = NeighborSamplingStrategy.RANDOM,
         fallback_to_identity: bool = True,
         data_dtype: Optional[str] = None,  # Must be one of INT_ORDER or FLOAT_ORDER in scdl_constants
+        data_dtype_tolerance: float = 1e-08,
     ) -> None:
         """Instantiate the class.
 
@@ -115,7 +116,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             fallback_to_identity (bool, optional): If a cell has no neighbors, whether to use the cell itself as its neighbor.
             data_dtype (str | None, optional): Desired dtype for `data.npy` when creating
                 new datasets; if None, defaults to 'float32'. Must be one of
-                'uint8','uint16','uint32','uint64','float32','float64','string','fixed_string'.
+                'uint8','uint16','uint32','uint64','float16','float32','float64'.
+            data_dtype_tolerance (float, optional): Tolerance for data type conversion. Defaults to 1e-08.
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
@@ -150,6 +152,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             f"{FileNames.NEIGHBOR_INDICES_PTR.value}": "uint64",
             f"{FileNames.NEIGHBOR_VALUES.value}": "float32",
         }
+        self.data_dtype_tolerance = data_dtype_tolerance
         # Neighbor configuration
         self.load_neighbors = load_neighbors
         self._has_neighbors = False
@@ -703,7 +706,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self._init_arrs(num_elements_stored, num_rows)
         # Store data
         count_data_downcast = count_data.data.astype(self.dtypes[f"{FileNames.DATA.value}"])
-        if not np.allclose(count_data_downcast, count_data.data, rtol=1e-05, atol=1e-08):
+        if not np.allclose(count_data_downcast, count_data.data, rtol=0, atol=self.data_dtype_tolerance):
             raise ValueError(
                 f"Downcasted data values for '{FileNames.DATA.value}' are not close to original values. "
                 f"Max abs diff: {np.max(np.abs(count_data_downcast - count_data.data))}"
@@ -773,7 +776,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 col_file.write(col_block.tobytes())
                 count_data = adata.X[row_start : row_start + self.load_block_row_size]
                 count_data_downcast = count_data.data.astype(self.dtypes[f"{FileNames.DATA.value}"])
-                if not np.allclose(count_data_downcast, count_data.data, rtol=1e-05, atol=1e-08):
+                if not np.allclose(count_data_downcast, count_data.data, rtol=0, atol=self.data_dtype_tolerance):
                     raise ValueError(
                         f"Downcasted data values for '{FileNames.DATA.value}' are not close to original values. "
                         f"Max abs diff: {np.max(np.abs(count_data_downcast - count_data.data))}"
@@ -1223,7 +1226,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         return new_dtypes
 
     def _convert_dataset_to_new_dtypes(
-        self, new_dtypes: Dict[str, str], extend_copy_size: int = 1_024 * 1_024
+        self, new_dtypes: Dict[str, str], extend_copy_size: int = 10 * 1_024 * 1_024
     ) -> None:
         # If any dtype is changing, convert the file in-place to the new dtype using extend_files.
         # This ensures that after this block, self.dtypes and the on-disk files are updated to the new dtype.
@@ -1253,7 +1256,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
     def concat(
         self,
         other_dataset: Union[list["SingleCellMemMapDataset"], "SingleCellMemMapDataset"],
-        extend_copy_size: int = 1_024 * 1_024,
+        extend_copy_size: int = 10 * 1_024 * 1_024,
         output_path: str | None = None,
         destroy_on_copy: bool = False,
     ) -> None:

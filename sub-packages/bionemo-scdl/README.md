@@ -171,7 +171,7 @@ To replicate this on your machine, see: [Tahoe 100M Profiling](https://github.co
 
 ## Data Compression
 
-Further data compression with SCDL is possible by casting the data in AnnData .X to a given format. This must be one of "uint8", "uint16", "uint32", "uint64", "float16", "float32", "float64". This is passed in when loading the dataset from an AnnData file with
+SCDL allows you to specify the data type for the values stored from AnnData `.X` to manage storage size and precision. You can choose from "uint8", "uint16", "uint32", "uint64", "float16", "float32", or "float64". Smaller types (like "uint8" or "float16") enable data compression, while higher-precision types (like "float64") use more space but preserve full precision. The data type is set when loading the dataset from an AnnData file with
 
 ```python
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
@@ -181,9 +181,9 @@ data = SingleCellMemMapDataset(
 )
 ```
 
-SCDL does not check that there is no loss while doing this.
+SCDL checks that there is minimal loss while doing this. The amount of tolerated loss in the data is set through the `data_dtype_tolerance` parameter.
 
-During dataset concatenation, it is assumed that all of the data types are either floats or ints, and all of the entries are upscaled to the largest data size. If there is a combination of floats and ints when concatenating the data, and error is thrown.
+During dataset concatenation, it is assumed that all of the data types are either floats or ints, and all of the entries are upscaled to the largest data size. If there is a combination of floats and ints when concatenating the data, and an error is thrown.
 
 To convert multiple files with a given data format, the user can run:
 
