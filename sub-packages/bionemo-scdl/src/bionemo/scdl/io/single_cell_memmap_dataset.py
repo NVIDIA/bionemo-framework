@@ -740,12 +740,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                         break
             return 0.0 if impute_missing_zeros else None
 
-    def var_features(self) -> Optional[VariableFeatureIndex]:
-        """Return the corresponding VariableFeatureIndex."""
-        return self._var_feature_index
-
     def obs_features(self) -> Optional[ObservedFeatureIndex]:
-        """Return the corresponding ColFeatureIndex."""
+        """Return the corresponding ObservedFeatureIndex."""
         return self._obs_feature_index
 
     def _load_mmap_file_if_exists(self, file_path, dtype):
