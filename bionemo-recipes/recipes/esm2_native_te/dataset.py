@@ -14,14 +14,9 @@
 # limitations under the License.
 
 import logging
-import os
-import warnings
-from collections import defaultdict
-from pathlib import Path
 
 import datasets
 import datasets.distributed
-import torch
 from torch.utils.data import DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
@@ -136,84 +131,3 @@ def create_dataloader(
     )
 
     return train_dataloader, dataset if sampler is None else sampler
-
-
-def save_dataloader(
-    dataloader: StatefulDataLoader,
-    ckpt_path: str | os.PathLike,
-    dist_config: DistributedConfig,
-):
-    """Save the dataloader state to a file.
-
-    Here we save the dataloader state based on global rank.
-
-    Args:
-        dataloader: The dataloader to save the state of.
-        ckpt_path: The path to save the dataloader state to.
-        dist_config: The distributed configuration.
-    """
-    num_workers = dataloader.num_workers
-    ckpt_path = Path(ckpt_path)
-    ckpt_path.mkdir(parents=True, exist_ok=True)
-    dataloader_path = ckpt_path / f"dataloader_rank_{dist_config.rank}_num_workers_{num_workers}.pt"
-
-    dataloader_state = dataloader.state_dict()
-    torch.save(dataloader_state, dataloader_path)
-    logger.info(f"Saved DDP dataloader state to {dataloader_path}")
-
-
-def load_dataloader(
-    dataloader: StatefulDataLoader,
-    ckpt_path: str | os.PathLike,
-    dist_config: DistributedConfig,
-    num_workers: int,
-):
-    """Load the dataloader state from a file.
-
-    Here we load the dataloader state based on global rank.
-
-    Args:
-        dataloader: The dataloader to load the state of.
-        ckpt_path: The path to load the dataloader state from.
-        dist_config: The distributed configuration.
-        num_workers: The number of workers to load the dataloader state for.
-    """
-    # First we check to see if the checkpoint folder exists.
-    ckpt_path = Path(ckpt_path)
-    if not ckpt_path.exists():
-        logger.info("No checkpoint folder found, starting from scratch")
-        return
-
-    # Then we check to see if there are any dataloader files in the checkpoint path.
-    dataloader_files = [f for f in ckpt_path.iterdir() if f.name.startswith("dataloader_rank_")]
-
-    if not dataloader_files:
-        logger.info("No Dataloader checkpoint found, starting from scratch")
-        return
-
-    # Parse the files by rank and step.
-    dataloader_files_by_rank = defaultdict(list)
-    for file in dataloader_files:
-        rank = int(file.stem.split("_")[2])
-        dataloader_files_by_rank[rank].append(file)
-
-    if dist_config.rank not in dataloader_files_by_rank:
-        raise ValueError(
-            f"No dataloader checkpoint found for rank {dist_config.rank}, available ranks: {list(dataloader_files_by_rank.keys())}"
-        )
-
-    # Check to see if the num_workers matches the num_workers in the checkpoint.
-    if dataloader.num_workers != num_workers:
-        warnings.warn(
-            f"No dataloader checkpoint found for num_workers {num_workers}, saved num_workers from ckpt: {dataloader.num_workers}",
-            UserWarning,
-            stacklevel=2,
-        )
-        return
-
-    dataloader_path = ckpt_path / f"dataloader_rank_{dist_config.rank}_num_workers_{dataloader.num_workers}.pt"
-
-    dataloader_state = torch.load(dataloader_path)
-    dataloader.load_state_dict(dataloader_state)
-    logger.info(f"Loaded DDP dataloader state from {dataloader_path}")
-    return dataloader

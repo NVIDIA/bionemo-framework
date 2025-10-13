@@ -61,20 +61,13 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         mesh_dim_names=("dp",),
     )
 
-    # Create an empty ESM-2 model with a masked language model head.
+    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.dataset.use_sequence_packing:
         config.attn_input_format = "thd"
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
     logger.info("Initialized Model:\n%s", model)
-
-    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
-    # avoid errors with unused parameters.
-    try:
-        del model.esm.contact_head
-    except AttributeError:
-        pass
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
@@ -110,7 +103,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
-        model, optimizer, scheduler, start_step, train_dataloader, epoch = load_checkpoint_fsdp2(
+        model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_fsdp2(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
@@ -121,6 +114,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     else:
         start_step = 0
         epoch = 0
+
     perf_logger = PerfLogger(dist_config, args)
 
     # Training loop
@@ -145,6 +139,14 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
             scheduler.step()
             optimizer.zero_grad()
 
+            perf_logger.log_step(
+                step=step,
+                batch=batch,
+                outputs=outputs,
+                grad_norm=total_norm,
+                lr=optimizer.param_groups[0]["lr"],
+            )
+
             if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                 save_checkpoint_fsdp2(
                     model=model,
@@ -157,13 +159,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     dataloader=train_dataloader,
                 )
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
             step += 1
             if step >= args.num_train_steps:
                 break

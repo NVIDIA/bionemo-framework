@@ -39,7 +39,7 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
-def main(args: DictConfig) -> float | None:  # noqa: C901
+def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using mfsdp.
 
     Model names are valid ESM-2 model sizes, e.g.:
@@ -65,20 +65,13 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         mesh_dim_names=("dp", "tp"),
     )
 
-    # Create an empty ESM-2 model with a masked language model head.
+    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.dataset.use_sequence_packing:
         config.attn_input_format = "thd"
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
     logger.info("Initialized Model:\n%s", model)
-
-    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
-    # avoid errors with unused parameters.
-    try:
-        del model.esm.contact_head
-    except AttributeError:
-        pass
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
@@ -125,7 +118,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_mfsdp" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
-        model, optimizer, scheduler, start_step, train_dataloader, epoch = load_checkpoint_mfsdp(
+        model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_mfsdp(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
@@ -161,6 +154,14 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
             scheduler.step()
             optimizer.zero_grad()
 
+            perf_logger.log_step(
+                step=step,
+                batch=batch,
+                outputs=outputs,
+                grad_norm=total_norm,
+                lr=optimizer.param_groups[0]["lr"],
+            )
+
             if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                 save_checkpoint_mfsdp(
                     model=model,
@@ -173,13 +174,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     epoch=epoch,
                 )
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
             step += 1
             if step >= args.num_train_steps:
                 break
