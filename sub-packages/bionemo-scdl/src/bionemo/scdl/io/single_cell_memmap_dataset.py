@@ -534,7 +534,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         feature_vars: Optional[List[str]] = None,
         return_obs_vals: bool = False,
         obs_value_vars: Optional[List[str]] = None,
-    ) -> Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray], List[np.ndarray]]:
+    ) -> Tuple[Tuple[np.ndarray, np.ndarray], Optional[List[np.ndarray]], Optional[List[np.ndarray]]]:
         """Returns a given row in the dataset along with optional features.
 
         Args:
