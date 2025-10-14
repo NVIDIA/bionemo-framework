@@ -507,7 +507,7 @@ def build_feature_index_info(index_obj: FeatureIndex, base_path_name: str):
                 feature_values, _ = index_obj.lookup(0)
                 if feature_values and hasattr(feature_values[0], "dtype"):
                     feature_array_dtype = ArrayDType.from_numpy_dtype(feature_values[0].dtype)
-            except Exception:
+            except (AttributeError, IndexError, KeyError, TypeError, ValueError):
                 pass
 
         features_rel_path = base_path_name
@@ -529,5 +529,5 @@ def build_feature_index_info(index_obj: FeatureIndex, base_path_name: str):
             index_files=index_files,
             shape=None,
         )
-    except Exception:
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError):
         return None

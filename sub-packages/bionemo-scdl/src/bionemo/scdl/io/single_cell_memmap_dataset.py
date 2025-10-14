@@ -1334,7 +1334,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         rows, values, columns = self._get_X_value(idx)
         if isinstance(idx, int):
-            # Single row
             return torch.from_numpy(np.stack((values, columns)))
         elif isinstance(idx, slice):
             return rows, torch.from_numpy(np.stack((values, columns)))
