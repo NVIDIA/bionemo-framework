@@ -277,18 +277,6 @@ jobs:
           chmod +x ./ci/scripts/pytest_runner.sh
           ./ci/scripts/pytest_runner.sh --no-nbval --skip-slow --only-multi-gpu --allow-no-tests
 
-      - name: Upload coverage to Codecov
-        if: github.event_name != 'merge_group' && github.event_name != 'schedule'
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Upload test results to Codecov
-        if: ${{ !cancelled() && github.event_name != 'merge_group' && github.event_name != 'schedule' }}
-        uses: codecov/test-results-action@v1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-
   run-tests-slow-single-gpu:
     needs:
       - build-bionemo-image
