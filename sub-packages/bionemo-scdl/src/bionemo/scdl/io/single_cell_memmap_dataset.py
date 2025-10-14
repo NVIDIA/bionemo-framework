@@ -656,6 +656,15 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         with open(f"{self.data_path}/{FileNames.METADATA.value}", f"{Mode.CREATE.value}") as mfi:
             json.dump(self.metadata, mfi)
 
+    def _check_data_downcast(self, count_data: scipy.sparse.spmatrix, warning_prefix: str = "Warning") -> None:
+        count_data_downcast = count_data.data.astype(self.dtypes[f"{FileNames.DATA.value}"])
+        if not np.allclose(count_data_downcast, count_data.data, rtol=0, atol=self.data_dtype_tolerance):
+            warnings.warn(
+                f"{warning_prefix}: Downcasted data values for '{FileNames.DATA.value}' are not close to original values. "
+                f"Max abs diff: {np.max(np.abs(count_data_downcast - count_data.data))}"
+            )
+        return count_data_downcast
+
     def regular_load_h5ad(
         self,
         anndata_path: str,
@@ -673,15 +682,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         """
         adata = ad.read_h5ad(anndata_path)  # slow
+        if not isinstance(adata.X, scipy.sparse.spmatrix):
+            raise NotImplementedError("Error: dense matrix loading not yet implemented.")
+
+        self._check_data_downcast(adata.X, "First 1000 rows of the dataset")
+
         num_genes, num_cells = adata.shape
 
         # Check and load neighbor data
         # NOTE: More clear to have a check here and not call _extract_neighbor_data() if there no neighbors
         if self.load_neighbors:
             self._has_neighbors = self._extract_neighbor_data(adata)
-
-        if not isinstance(adata.X, scipy.sparse.spmatrix):
-            raise NotImplementedError("Error: dense matrix loading not yet implemented.")
 
         # Check if raw data is present
         raw = getattr(adata, "raw", None)
@@ -704,13 +715,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.dtypes[f"{FileNames.COLPTR.value}"] = smallest_uint_dtype(num_cols - 1)
         # Create the arrays.
         self._init_arrs(num_elements_stored, num_rows)
+
         # Store data
-        count_data_downcast = count_data.data.astype(self.dtypes[f"{FileNames.DATA.value}"])
-        if not np.allclose(count_data_downcast, count_data.data, rtol=0, atol=self.data_dtype_tolerance):
-            raise ValueError(
-                f"Downcasted data values for '{FileNames.DATA.value}' are not close to original values. "
-                f"Max abs diff: {np.max(np.abs(count_data_downcast - count_data.data))}"
-            )
+        count_data_downcast = self._check_data_downcast(count_data, "Full Dataset")
         self.data[0:num_elements_stored] = count_data_downcast
         # Store the col idx array
         self.col_index[0:num_elements_stored] = count_data.indices.astype(self.dtypes[f"{FileNames.COLPTR.value}"])
@@ -752,6 +759,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         if not isinstance(adata.X, ad.experimental.CSRDataset):
             raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
+        count_data = adata.X[:1_000]
+        self._check_data_downcast(count_data, "First 1000 rows of the dataset")
+
         num_rows, num_cols = adata.X.shape
         n_elements = adata.X._indptr[-1]
         self.dtypes[f"{FileNames.COLPTR.value}"] = smallest_uint_dtype(num_cols - 1)
@@ -775,15 +785,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 )
                 col_file.write(col_block.tobytes())
                 count_data = adata.X[row_start : row_start + self.load_block_row_size]
-                count_data_downcast = count_data.data.astype(self.dtypes[f"{FileNames.DATA.value}"])
-                if not np.allclose(count_data_downcast, count_data.data, rtol=0, atol=self.data_dtype_tolerance):
-                    raise ValueError(
-                        f"Downcasted data values for '{FileNames.DATA.value}' are not close to original values. "
-                        f"Max abs diff: {np.max(np.abs(count_data_downcast - count_data.data))}"
-                    )
+                count_data_downcast = self._check_data_downcast(
+                    count_data, f"Rows {row_start} to {row_start + self.load_block_row_size - 1} of the dataset"
+                )
 
-                data_block = count_data_downcast.astype(self.dtypes[f"{FileNames.DATA.value}"])
-                data_file.write(data_block.tobytes())
+                data_file.write(count_data_downcast.tobytes())
 
         # The column and data files are re-opened as memory-mapped arrays with the final shape
         mode = Mode.READ_APPEND

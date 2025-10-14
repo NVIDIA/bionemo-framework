@@ -169,7 +169,7 @@ The runtime is examined on the Tahoe 100M dataset, which containes over 100 mill
 
 To replicate this on your machine, see: [Tahoe 100M Profiling](https://github.com/NVIDIA/bionemo-framework/blob/main/sub-packages/bionemo-scdl/simple-benchmark/README.md#tahoe-100m) section.
 
-## Data Compression
+## Data Type Casting
 
 SCDL allows you to specify the data type for the values stored from AnnData `.X` to manage storage size and precision. You can choose from "uint8", "uint16", "uint32", "uint64", "float16", "float32", or "float64". Smaller types (like "uint8" or "float16") enable data compression, while higher-precision types (like "float64") use more space but preserve full precision. The data type is set when loading the dataset from an AnnData file with
 

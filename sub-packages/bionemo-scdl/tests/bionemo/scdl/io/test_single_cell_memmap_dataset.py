@@ -344,14 +344,14 @@ def test_load_h5ad_properly_converted_dtypes_float(tmp_path, test_directory, big
 )
 def test_load_h5ad_overflows_on_loading_dtypes_int(tmp_path, test_directory, big_int_h5ad, dtype):
     """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
-    with pytest.raises(ValueError, match="Downcasted data values for 'data.npy' are not close to original values."):
+    with pytest.warns(UserWarning, match="Downcasted data values for 'data.npy' are not close to original values."):
         SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_int_h5ad, data_dtype=dtype)
 
 
 @pytest.mark.parametrize("dtype", ["uint8", "uint16"])
 def test_load_h5ad_overflows_on_loading_dtypes_paginated_int(tmp_path, test_directory, big_int_h5ad, dtype):
     """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
-    with pytest.raises(ValueError, match="Downcasted data values for 'data.npy' are not close to original values."):
+    with pytest.warns(UserWarning, match="Downcasted data values for 'data.npy' are not close to original values."):
         SingleCellMemMapDataset(
             tmp_path / "scy_big",
             h5ad_path=big_int_h5ad,
@@ -373,7 +373,7 @@ def test_load_h5ad_overflows_on_loading_dtypes_paginated_int(tmp_path, test_dire
 )
 def test_load_h5ad_overflows_on_loading_dtypes_float(tmp_path, test_directory, big_float_h5ad, dtype):
     """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
-    with pytest.raises(ValueError, match="Downcasted data values for 'data.npy' are not close to original values."):
+    with pytest.warns(UserWarning, match="Downcasted data values for 'data.npy' are not close to original values."):
         SingleCellMemMapDataset(tmp_path / "scy_big", h5ad_path=big_float_h5ad, data_dtype=dtype)
 
 
@@ -389,7 +389,7 @@ def test_load_h5ad_overflows_on_loading_dtypes_float(tmp_path, test_directory, b
 )
 def test_load_h5ad_overflows_on_loading_dtypes_paginated_float(tmp_path, test_directory, big_float_h5ad, dtype):
     """Verify that requesting too-small data dtype leads to overflow and loss of precision."""
-    with pytest.raises(ValueError, match="Downcasted data values for 'data.npy' are not close to original values."):
+    with pytest.warns(UserWarning, match="Downcasted data values for 'data.npy' are not close to original values."):
         SingleCellMemMapDataset(
             tmp_path / "scy_big",
             h5ad_path=big_float_h5ad,
