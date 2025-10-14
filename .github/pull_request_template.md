@@ -27,11 +27,10 @@ Configure CI behavior by applying the relevant labels. By default, only basic un
 - [ciflow:skip](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/main/contributing/contributing.md#ciflow:skip) - Skip all CI tests for this PR
 - [ciflow:notebooks](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/main/contributing/contributing.md#ciflow:notebooks) - Run Jupyter notebooks execution tests for bionemo2
 - [ciflow:slow](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/main/contributing/contributing.md#ciflow:slow) - Run slow single GPU integration tests marked as @pytest.mark.slow for bionemo2
-- [ciflow:multi-gpu](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/main/contributing/contributing.md#ciflow:multi-gpu) - Run fast multi-GPU tests for bionemo2. Combine with ciflow:slow to also run slow multi-GPU tests
-- [ciflow:all](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/main/contributing/contributing.md#ciflow:all) - Run all tests (unit tests, slow tests, multi-GPU tests, and notebooks) for bionemo2. This label can be used to enforce running tests for all bionemo2.
+- [ciflow:all](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/main/contributing/contributing.md#ciflow:all) - Run all tests (unit tests, slow tests, and notebooks) for bionemo2. This label can be used to enforce running tests for all bionemo2.
 - [ciflow:all-recipes](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/main/contributing/contributing.md#ciflow:all-recipes) - Run tests for all recipes (under bionemo-recipes). This label can be used to enforce running tests for all recipes.
 
-By default, multi-GPU tests (marked with `@pytest.mark.multi_gpu`) are not run in PR CI. Use the `ciflow:multi-gpu` label to enable them.
+Multi-GPU tests (marked with `@pytest.mark.multi_gpu`) are not run in PR CI. They run automatically in nightly builds after single-GPU tests pass.
 
 For more details, see [CONTRIBUTING](CONTRIBUTING.md)
 

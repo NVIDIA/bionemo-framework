@@ -20,5 +20,5 @@
   color: B60205  # Red
 
 - name: ciflow:multi-gpu
-  description: Run all multi GPU tests (unit tests, slow tests) for bionemo2
+  description: (Reserved for future use) Run all multi GPU tests (unit tests, slow tests) for bionemo2
   color: 12F5AE  # Teal

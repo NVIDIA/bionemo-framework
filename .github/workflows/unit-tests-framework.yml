@@ -20,18 +20,18 @@
 # 3. get-pr-labels: Retrieves PR labels for conditional job execution
 # 4. build-bionemo-image: Builds Docker image (conditional on triggers/labels)
 # 5. run-tests-single-gpu: Runs fast single-GPU unit tests (when image build succeeds)
-# 6. run-tests-multi-gpu: Runs fast multi-GPU tests (when image succeeds + ciflow:all/ciflow:multi-gpu label OR schedule/merge_group)
+# 6. run-tests-multi-gpu: Runs fast multi-GPU tests (nightly only, after single-GPU tests pass)
 # 7. run-tests-slow-single-gpu: Runs slow single-GPU tests (when image succeeds + ciflow:slow/ciflow:all label OR schedule/merge_group)
-# 8. run-tests-slow-multi-gpu: Runs slow multi-GPU tests (when image succeeds + ciflow:all OR (ciflow:multi-gpu AND ciflow:slow) OR schedule/merge_group)
+# 8. run-tests-slow-multi-gpu: Runs slow multi-GPU tests (nightly only, after slow single-GPU tests pass)
 # 9. run-tests-notebooks: Runs notebook tests (when image succeeds + ciflow:notebooks/ciflow:all label OR schedule/merge_group)
 # 10. verify-tests-status: Verifies all test jobs completed successfully
 #
 # CONDITIONAL EXECUTION:
 # - build-bionemo-image runs on: schedule, ciflow:all label, (no ciflow:skip + modified files), (merge_group + modified files)
 # - run-tests-single-gpu runs when: build-bionemo-image succeeds
-# - run-tests-multi-gpu runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:multi-gpu)
+# - run-tests-multi-gpu runs when: build-bionemo-image succeeds AND run-tests-single-gpu succeeds AND schedule (nightly only)
 # - run-tests-slow-single-gpu runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
-# - run-tests-slow-multi-gpu runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR (ciflow:multi-gpu AND ciflow:slow))
+# - run-tests-slow-multi-gpu runs when: build-bionemo-image succeeds AND run-tests-slow-single-gpu succeeds AND schedule (nightly only)
 # - run-tests-notebooks runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:notebooks)
 
 name: "BioNeMo Framework CI"
@@ -254,7 +254,7 @@ jobs:
   run-tests-multi-gpu:
     needs:
       - build-bionemo-image
-      - get-pr-labels
+      - run-tests-single-gpu
     runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
@@ -263,12 +263,8 @@ jobs:
         password: ${{ secrets.DOCKER_PASSWORD }}
     if: |
         (needs.build-bionemo-image.result == 'success') &&
-        (
-          (github.event_name == 'schedule') ||
-          (github.event_name == 'merge_group') ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
-        )
+        (needs.run-tests-single-gpu.result == 'success') &&
+        (github.event_name == 'schedule')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -325,7 +321,7 @@ jobs:
   run-tests-slow-multi-gpu:
     needs:
       - build-bionemo-image
-      - get-pr-labels
+      - run-tests-slow-single-gpu
     runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
@@ -334,15 +330,8 @@ jobs:
         password: ${{ secrets.DOCKER_PASSWORD }}
     if: |
         (needs.build-bionemo-image.result == 'success') &&
-        (
-          (github.event_name == 'schedule') ||
-          (github.event_name == 'merge_group') ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
-          (
-            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu') &&
-            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
-          )
-        )
+        (needs.run-tests-slow-single-gpu.result == 'success') &&
+        (github.event_name == 'schedule')
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
