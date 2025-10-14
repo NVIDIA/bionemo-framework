@@ -139,7 +139,8 @@ def test_dataframe_results_in_error():
     index = VariableFeatureIndex()
     with pytest.raises(TypeError) as error_info:
         index.append_features(8, two_feats, "MY_DATAFRAME")
-        assert "expects a dict of arrays" in str(error_info.value)
+        assert "VariableFeatureIndex.append_features expects a dict of arrays" in str(error_info.value)
+
 
 def test_feature_index_internals_on_empty_index():
     index = FeatureIndex()
@@ -180,10 +181,10 @@ def test_feature_index_internals_on_append_empty_features(
 
 def test_obs_feature_index_internals_on_append_incompatible_features_observed(create_first_ObservedFeatureIndex):
     index = ObservedFeatureIndex()
-    with pytest.raises(ValueError, match=r"Number of observations 10 does not match the number of .obs entries 0"):
+    with pytest.raises(ValueError, match=r"Provided empty features but n_obs > 0"):
         index.append_features(10, {})
 
-    with pytest.raises(ValueError, match=r"Number of observations 10 does not match the number of .obs entries 3"):
+    with pytest.raises(ValueError, match=r"Number of observations 10 does not match feature array length 3"):
         index.append_features(10, {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])})
 
 
@@ -421,8 +422,13 @@ def test_observed_getitem_slice_contiguous_across_blocks():
     assert labels == [None, "blk2"]
     assert isinstance(out, list)
     assert len(out) == 2
-    pd.testing.assert_frame_equal(out[0], pd.DataFrame(df1_feats).iloc[1:])
-    pd.testing.assert_frame_equal(out[1], pd.DataFrame(df2_feats).iloc[:4])
+    assert set(out[0].keys()) == set(df1_feats.keys())
+    assert np.array_equal(out[0]["feature_name"], np.array(["GG", "HH"]))
+    assert np.array_equal(out[0]["feature_int"], np.array([2, 3]))
+    assert set(out[1].keys()) == set(df2_feats.keys())
+    assert np.array_equal(out[1]["f_name"], np.array(["A", "B", "C", "D"]))
+    assert np.array_equal(out[1]["f_int"], np.array([10, 11, 12, 13]))
+    assert np.array_equal(out[1]["f_spare"], np.array([None, None, None, None], dtype=object))
 
 
 def test_observed_getitem_slice_with_step_and_order_preserved():
@@ -440,5 +446,7 @@ def test_observed_getitem_slice_with_step_and_order_preserved():
     assert labels == [None, "b2"]
     assert isinstance(out, list)
     assert len(out) == 2
-    (pd.testing.assert_frame_equal(out[0].reset_index(drop=True), pd.DataFrame({"x": [0, 2]})),)
-    pd.testing.assert_frame_equal(out[1].reset_index(drop=True), pd.DataFrame({"y": [10, 12]}))
+    assert set(out[0].keys()) == {"x"}
+    assert np.array_equal(out[0]["x"], np.array([0, 2]))
+    assert set(out[1].keys()) == {"y"}
+    assert np.array_equal(out[1]["y"], np.array([10, 12]))

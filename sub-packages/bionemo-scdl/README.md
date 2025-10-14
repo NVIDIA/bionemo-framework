@@ -164,7 +164,7 @@ Similarly, the observation features (corresponding to .obs) can be accessed with
 files with different .obs columns.
 
 ```python
-data.obs_features[5:10]
+data.obs_features()[5:10]
 ```
 
 ## Examples

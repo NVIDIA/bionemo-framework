@@ -567,15 +567,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         _, values, columns = self._get_X_value(index)
         var_features = (
-            self._var_feature_index.lookup(index, select_features=feature_vars)[0]
-            if return_features else None
+            self._var_feature_index.lookup(index, select_features=feature_vars)[0] if return_features else None
         )
         obs_features = (
             self._obs_feature_index.lookup(index, select_features=obs_value_vars)[0]
             if return_obs_vals and len(self._obs_feature_index) > 0
             else None
         )
-        return ret, var_features, obs_features
         return (values, columns), var_features, obs_features
 
     def get_row_with_neighbor(
