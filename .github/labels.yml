@@ -18,3 +18,7 @@
 - name: ciflow:skip
   description: Skip all CI tests for this PR
   color: B60205  # Red
+
+- name: ciflow:multi-gpu
+  description: Run all multi GPU tests (unit tests, slow tests) for bionemo2
+  color: 12F5AE  # Teal

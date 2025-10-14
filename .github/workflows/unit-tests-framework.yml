@@ -19,15 +19,19 @@
 # 2. pre-commit: Runs static code checks and linting
 # 3. get-pr-labels: Retrieves PR labels for conditional job execution
 # 4. build-bionemo-image: Builds Docker image (conditional on triggers/labels)
-# 5. run-tests: Runs unit tests (when image build succeeds)
-# 6. run-tests-slow: Runs slow tests (when image succeeds + ciflow:slow label OR schedule/merge_group/ciflow:all)
-# 7. run-tests-notebooks: Runs notebook tests (when image succeeds + ciflow:notebooks label OR schedule/merge_group/ciflow:all)
-# 8. verify-tests-status: Verifies all test jobs completed successfully
+# 5. run-tests-single-gpu: Runs fast single-GPU unit tests (when image build succeeds)
+# 6. run-tests-multi-gpu: Runs fast multi-GPU tests (when image succeeds + ciflow:all/ciflow:multi-gpu label OR schedule/merge_group)
+# 7. run-tests-slow-single-gpu: Runs slow single-GPU tests (when image succeeds + ciflow:slow/ciflow:all label OR schedule/merge_group)
+# 8. run-tests-slow-multi-gpu: Runs slow multi-GPU tests (when image succeeds + ciflow:all OR (ciflow:multi-gpu AND ciflow:slow) OR schedule/merge_group)
+# 9. run-tests-notebooks: Runs notebook tests (when image succeeds + ciflow:notebooks/ciflow:all label OR schedule/merge_group)
+# 10. verify-tests-status: Verifies all test jobs completed successfully
 #
 # CONDITIONAL EXECUTION:
 # - build-bionemo-image runs on: schedule, ciflow:all label, (no ciflow:skip + modified files), (merge_group + modified files)
-# - run-tests runs when: build-bionemo-image succeeds
-# - run-tests-slow runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
+# - run-tests-single-gpu runs when: build-bionemo-image succeeds
+# - run-tests-multi-gpu runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:multi-gpu)
+# - run-tests-slow-single-gpu runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
+# - run-tests-slow-multi-gpu runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR (ciflow:multi-gpu AND ciflow:slow))
 # - run-tests-notebooks runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:notebooks)
 
 name: "BioNeMo Framework CI"
@@ -257,7 +261,14 @@ jobs:
       credentials:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
-    if: needs.build-bionemo-image.result == 'success'
+    if: |
+        (needs.build-bionemo-image.result == 'success') &&
+        (
+          (github.event_name == 'schedule') ||
+          (github.event_name == 'merge_group') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
+        )
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -327,7 +338,10 @@ jobs:
           (github.event_name == 'schedule') ||
           (github.event_name == 'merge_group') ||
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
+          (
+            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu') &&
+            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
+          )
         )
     steps:
       - name: Checkout repository

@@ -129,6 +129,13 @@ By default, CI pipeline is enabled for all PRs and only unit tests are run. To s
 - Use when modifying core functionalities and require extensive moderate complexity testing on a single GPU
 - Disabled by default
 
+#### **ciflow:multi-gpu**
+
+- Run fast multi-GPU tests for bionemo2
+- Use when modifying distributed training code or multi-GPU functionality
+- Combine with `ciflow:slow` to also run slow multi-GPU tests
+- Disabled by default for PRs (automatically runs on nightly and merge queue)
+
 #### **ciflow:notebooks**
 
 - Enables Jupyter notebooks validation tests under `./docs` subfolder and `./sub-packages/*`
