@@ -18,4 +18,4 @@
 # Enable strict mode with better error handling
 set -euox pipefail
 
-ci/scripts/pytest_runner.sh --no-nbval --only-slow --allow-no-tests
+ci/scripts/pytest_runner.sh --no-nbval --only-slow --skip-multi-gpu --allow-no-tests
