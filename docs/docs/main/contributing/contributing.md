@@ -144,7 +144,7 @@ By default, CI pipeline is enabled for all PRs and only unit tests are run. To s
 
 #### **ciflow:all**
 
-- Run all tests (unit tests, slow tests, and notebooks) for bionemo2.
+- Run all tests (unit tests, slow tests, multi-GPU tests, and notebooks) for bionemo2.
 - Without this label, unit tests for bionemo2 in PR CI are run only on when the bionemo2 codebase has been modified
 - Use when introducing significant codebase changes for comprehensive testing
 - Disabled by default
