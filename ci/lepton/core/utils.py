@@ -21,20 +21,29 @@ from pathlib import Path
 from omegaconf import OmegaConf
 
 
-TEMPLATE_PATH = Path(__file__).parent / "wrap_template.sh"
-
-
-def render_wrapper_string(script: str, all_config_json: str) -> str:
+def render_launcher_string(script: str, all_config_json: str, template: str = "convergence_tests") -> str:
     """Renders the wrapper shell script template with the provided script and config JSON.
 
     Args:
         script (str): The shell script to be embedded into the template.
         all_config_json (str): The full configuration in JSON format to be injected into the template.
+        template (str): Template style - "convergence_tests" or "scdl_performance".
 
     Returns:
         str: The rendered shell script with the script and config JSON substituted in place.
     """
-    tpl = TEMPLATE_PATH.read_text(encoding="utf-8")
+    # Map template names to their launcher directories
+    template_paths = {
+        "convergence_tests": Path(__file__).parent.parent / "model_convergence" / "launchers" / "convergence_tests.sh",
+        "scdl_performance": Path(__file__).parent.parent / "scdl_performance" / "launchers" / "scdl_performance.sh",
+    }
+
+    template_path = template_paths.get(template)
+
+    if not template_path or not template_path.exists():
+        raise ValueError(f"Template not found: {template}. Valid options: 'convergence_tests', 'scdl_performance'")
+
+    tpl = template_path.read_text(encoding="utf-8")
     script_indented = textwrap.indent(script.rstrip("\n"), "  ")
     return tpl.replace("__SCRIPT__", script_indented).replace("__ALL_CONFIG_JSON__", all_config_json)
 
@@ -53,7 +62,7 @@ def register_resolvers():
 
     def sanitize(value: str) -> str:
         # Replace all forbidden characters `/ \ # ? % :` with '-'
-        return re.sub(r"[\/\\#\?\%:]", "-", value)
+        return re.sub(r"[\/\\#\?\%:_]", "-", value).lower()
 
     def gitsha():
         try:

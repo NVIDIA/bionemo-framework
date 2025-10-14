@@ -13,67 +13,110 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
-from transformers import DataCollatorForTokenClassification
+import os
 
-from esm.collator import DataCollatorWithFlattening
-from esm.modeling_esm_te import NVEsmForMaskedLM
+import pytest
+import torch
+from transformer_engine.pytorch.attention.dot_product_attention import _attention_backends
+
+from esm.collator import MLMDataCollatorWithFlattening
+from esm.modeling_esm_te import NVEsmConfig, NVEsmEmbeddings, NVEsmForMaskedLM
+
+
+compute_capability = torch.cuda.get_device_capability()
+
+
+@pytest.fixture
+def input_data_thd(tokenizer, tokenized_proteins):
+    data_collator = MLMDataCollatorWithFlattening(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        seed=42,
+        bshd_equivalent=True,
+        bshd_pad_to_multiple_of=32,
+    )
+    return data_collator(tokenized_proteins)
+
+
+@pytest.mark.parametrize("use_token_dropout", [True, False])
+def test_nv_esm_embeddings_random_init(te_model_checkpoint, input_data_thd, input_data, use_token_dropout):
+    config = NVEsmConfig.from_pretrained(te_model_checkpoint)
+    assert config.token_dropout is True
+    embedding = NVEsmEmbeddings(config)
+    embedding.token_dropout = use_token_dropout
+    embedding.to("cuda")
+
+    input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
+    input_data_thd.pop("labels")
+    outputs_thd = embedding(**input_data_thd)
+
+    input_data_bshd = {k: v.to("cuda") for k, v in input_data.items()}
+    input_data_bshd.pop("labels")
+    outputs_bshd = embedding(**input_data_bshd)
+
+    # Reshape outputs_bshd to match outputs_thd
+    outputs_bshd = outputs_bshd[input_data_bshd["attention_mask"].to(bool)].unsqueeze(0)
+    torch.testing.assert_close(outputs_thd, outputs_bshd, atol=1e-8, rtol=1e-8)
+
+
+@pytest.mark.parametrize("use_token_dropout", [True, False])
+def test_nv_esm_embeddings_from_model(te_model_checkpoint, input_data_thd, input_data, use_token_dropout):
+    model = NVEsmForMaskedLM.from_pretrained(
+        te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16, token_dropout=use_token_dropout
+    )
+    embedding = model.esm.embeddings
+    assert embedding.token_dropout == use_token_dropout
+    embedding.to("cuda")
+
+    input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
+    input_data_thd.pop("labels")
+    outputs_thd = embedding(**input_data_thd)
+
+    input_data_bshd = {k: v.to("cuda") for k, v in input_data.items()}
+    input_data_bshd.pop("labels")
+    outputs_bshd = embedding(**input_data_bshd)
+
+    # Reshape outputs_bshd to match outputs_thd
+    outputs_bshd = outputs_bshd[input_data_bshd["attention_mask"].to(bool)].unsqueeze(0)
+    torch.testing.assert_close(outputs_thd, outputs_bshd, atol=1e-8, rtol=1e-8)
 
 
 def test_thd_from_collator_output(te_model_checkpoint, input_data_thd):
     model_thd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
     model_thd.to("cuda")
     input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
-    with torch.no_grad(), torch.amp.autocast("cuda", dtype=torch.bfloat16):
+    with torch.no_grad():
         outputs = model_thd(**input_data_thd, output_hidden_states=True)
 
     assert outputs.loss < 3.0
 
 
-def test_thd_values_match(te_model_checkpoint, tokenizer):
-    # Manually masked input tokens so that both BSHD and THD models have the same mask pattern
+@pytest.fixture(params=["flash_attn", "fused_attn"])
+def attn_impl(request, monkeypatch):
+    if request.param == "flash_attn":
+        os.environ["NVTE_FUSED_ATTN"] = "0"
+        os.environ["NVTE_FLASH_ATTN"] = "1"
+        _attention_backends["backend_selection_requires_update"] = True
 
-    proteins = [
-        "MLSATEKLSDYISSLFASVSIINSISTEDLFFLKLTCQTFSKDSEEYKAAYRILRGVQRGKVQIIEEALVS",
-        "MFVFFAGTLVNQDTLNFRDQLNINVVGTVRGIAQDASKYLEYAIDSV",
-        "MAATGSLILSDEEQAELIALAVRIVLACAGGSQNKELAAQLGVIETTVGEWRRRFAQNRVEGLRDEARPGAPSDDQ",
-        "MSAVLSAVASDDWTAFAKLVHPYVHWTADGITTRGRTRVMARLSGHDGVKPASSYELRDGQVYRWTS",
-        "MSDPAAEPPADTSGIAWRKSSYSGPNGNCVELAQISGDHVGIRNSRDLHGSVLTCTRAEFAALLCDIKAGRFDSLIL",
-        "MRRPKLRRSGVLMSHPARGQPIKDASTEAAAERRPHVTSSERQDVSDQDTR",
-        "MQTITVAGGNLFQIAAQYLGDATQWIRIAQLNGLADPVLSGVVTLTIPQPNPLAGGGVVGQ",
-        "MVFSLEQFVRGQGWQSITSNSDNEVPKPRQVYEVKAVCHPGAWRVKARVFGTSQGIPFDYSQASMERRVAQDECDRRPQ",
-        "AGDGTGCNPTLSKAAGVELDNSDSGEVFVIYLHIIIAIIVLISINLIGFLYF",
-        "MKVGVDPSVCEAHGACMSILPEVFDLDDDEVLQIRDGELAPSEEESAERAVASCPMGALRLSR",
-        "MWISERPPSRMALGSQSQMSLPGIPARCLHS",
-        "MIDNSIRLFDADDSELFSLAEVPLDNKPIQRDTDSLSQWGDTWLREIQHS",
-        "MVKNLFFNKIKNATLKVANISRCYLPFPPPPCPPPEPLEPPEPPAPLEPAPDPPPLPPFPVPDILPAI",
-        "MSYINDITQSNSSILNVNVKINDHNSDEMYRNETKWYGEQFRYQSNPRFSRSSTSKNEKGFVQKKT",
-        "MQILILPIPDQLQNPNKISQHLICITFVSEQTLPI",
-    ]
+    else:
+        os.environ["NVTE_FUSED_ATTN"] = "1"
+        os.environ["NVTE_FLASH_ATTN"] = "0"
+        _attention_backends["backend_selection_requires_update"] = True
 
-    sequences = [tokenizer(protein) for protein in proteins]
-    sequences = [
-        {
-            "input_ids": seq["input_ids"],
-            "attention_mask": seq["attention_mask"],
-            "labels": seq["input_ids"],
-        }
-        for seq in sequences
-    ]
+    return request.param
 
-    bshd_collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding=True)
-    thd_collator = DataCollatorWithFlattening()
 
-    input_data_bshd = bshd_collator(sequences)
-    input_data_thd = thd_collator(sequences)
+def test_thd_losses_match(te_model_checkpoint, input_data, input_data_thd, attn_impl):
+    if attn_impl == "fused_attn" and torch.cuda.get_device_capability()[0] == 8:
+        pytest.xfail("On Ada and Ampere, no THD implementation is available for fused attn.")
 
     torch.testing.assert_close(
-        input_data_bshd["input_ids"][input_data_bshd["attention_mask"].to(bool)],
+        input_data["input_ids"][input_data["attention_mask"].to(bool)],
         input_data_thd["input_ids"].flatten(0),
     )
 
     torch.testing.assert_close(
-        input_data_bshd["labels"][input_data_bshd["attention_mask"].to(bool)],
+        input_data["labels"][input_data["attention_mask"].to(bool)],
         input_data_thd["labels"].flatten(0),
     )
 
@@ -82,7 +125,7 @@ def test_thd_values_match(te_model_checkpoint, tokenizer):
     model_bshd.to("cuda")
     model_thd.to("cuda")
 
-    input_data_bshd = {k: v.to("cuda") for k, v in input_data_bshd.items()}
+    input_data_bshd = {k: v.to("cuda") for k, v in input_data.items()}
     input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
 
     bshd_outputs = model_bshd(**input_data_bshd)
@@ -90,19 +133,109 @@ def test_thd_values_match(te_model_checkpoint, tokenizer):
 
     torch.testing.assert_close(bshd_outputs.loss, thd_outputs.loss)
 
-    # bshd_logits = bshd_outputs.logits[input_data_bshd["attention_mask"].to(bool)]
-    # TODO(BIONEMO-2801): Investigate why these are not close on sm89 but pass on sm120.
-    # torch.testing.assert_close(bshd_logits, thd_outputs.logits)
+
+def test_thd_logits_match_with_bf16_autocast(te_model_checkpoint, input_data, input_data_thd, attn_impl):
+    if attn_impl == "fused_attn" and torch.cuda.get_device_capability()[0] == 8:
+        pytest.xfail("On Ada and Ampere, no THD implementation is available for fused attn.")
+    elif attn_impl == "flash_attn" and torch.cuda.get_device_capability()[0] == 8:
+        pytest.xfail("BIONEMO-2801: On Ada and Ampere, the flash attention logits don't seem to match.")
+
+    # Ensure the input data is the same
+    torch.testing.assert_close(
+        input_data["input_ids"][input_data["attention_mask"].to(bool)],
+        input_data_thd["input_ids"].flatten(0),
+    )
+
+    torch.testing.assert_close(
+        input_data["labels"][input_data["attention_mask"].to(bool)],
+        input_data_thd["labels"].flatten(0),
+    )
+
+    # Create models
+    model_bshd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
+    model_thd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
+
+    model_bshd.to("cuda")
+    model_thd.to("cuda")
+
+    input_data_bshd = {k: v.to("cuda") for k, v in input_data.items()}
+    input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
+
+    thd_outputs = model_thd(**input_data_thd, output_hidden_states=True)
+    bshd_outputs = model_bshd(**input_data_bshd, output_hidden_states=True)
+
+    for i, (bshd_hidden, thd_hidden) in enumerate(zip(bshd_outputs.hidden_states, thd_outputs.hidden_states)):
+        torch.testing.assert_close(
+            bshd_hidden[input_data_bshd["attention_mask"].to(bool)],
+            thd_hidden.squeeze(0),
+            msg=lambda msg: "Hidden states do not match going into layer " + str(i + 1) + ": " + msg,
+            atol=1e-1 if compute_capability[0] == 8 else 1e-5,
+            rtol=1.6e-2,
+        )
+
+        if compute_capability[0] == 8:
+            break  # On Ada and Ampere, we see much larger numerical errors so we stop after the first layer
+
+    bshd_logits = bshd_outputs.logits[input_data_bshd["attention_mask"].to(bool)]
+    torch.testing.assert_close(bshd_logits, thd_outputs.logits, atol=1e-8, rtol=1e-8)
 
 
-def test_thd_backwards(te_model_checkpoint, input_data_thd, monkeypatch):
-    if torch.cuda.get_device_capability() == (12, 0):
-        # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
-        # but it's missing this THD implementation.
-        monkeypatch.setenv("NVTE_FUSED_ATTN", "0")
+def test_thd_backwards_works(te_model_checkpoint, input_data_thd, attn_impl):
+    if attn_impl == "fused_attn" and torch.cuda.get_device_capability() == (12, 0):
+        pytest.xfail("BIONEMO-2840: On sm120 the THD backwards implementation is not available for fused attn.")
+    elif attn_impl == "fused_attn" and torch.cuda.get_device_capability()[0] == 8:
+        pytest.xfail("On Ada and Ampere, no THD implementation is available for fused attn.")
 
     model_thd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
     model_thd.to("cuda")
     input_data = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
     outputs = model_thd(**input_data)
     outputs.loss.backward()
+
+
+def test_thd_backwards_passes_match(te_model_checkpoint, input_data, input_data_thd, attn_impl):
+    if attn_impl == "fused_attn" and torch.cuda.get_device_capability() == (12, 0):
+        pytest.xfail("BIONEMO-2840: On sm120 the THD backwards implementation is not available for fused attn.")
+    elif attn_impl == "fused_attn" and torch.cuda.get_device_capability()[0] == 8:
+        pytest.xfail("On Ada and Ampere, no THD implementation is available for fused attn.")
+
+    torch.testing.assert_close(
+        input_data["input_ids"][input_data["attention_mask"].to(bool)],
+        input_data_thd["input_ids"].flatten(0),
+    )
+
+    torch.testing.assert_close(
+        input_data["labels"][input_data["attention_mask"].to(bool)],
+        input_data_thd["labels"].flatten(0),
+    )
+
+    model_bshd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
+    model_thd = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, attn_input_format="thd", dtype=torch.bfloat16)
+    model_bshd.to("cuda")
+    model_thd.to("cuda")
+
+    input_data_bshd = {k: v.to("cuda") for k, v in input_data.items()}
+    input_data_thd = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd.items()}
+
+    bshd_outputs = model_bshd(**input_data_bshd)
+    thd_outputs = model_thd(**input_data_thd)
+
+    thd_outputs.loss.backward()
+    bshd_outputs.loss.backward()
+
+    thd_grads = {name: p.grad for name, p in model_thd.named_parameters() if p.grad is not None}
+    bshd_grads = {name: p.grad for name, p in model_bshd.named_parameters() if p.grad is not None}
+
+    # max_diff_by_layer = {key: (thd_grads[key] - bshd_grads[key]).abs().max().item() for key in thd_grads.keys()}
+
+    # For some reason, the word embeddings grads have a slightly higher numerical error.
+    thd_word_embeddings_grad = thd_grads.pop("esm.embeddings.word_embeddings.weight")
+    bshd_word_embeddings_grad = bshd_grads.pop("esm.embeddings.word_embeddings.weight")
+    torch.testing.assert_close(
+        thd_grads,
+        bshd_grads,
+        atol=1e-2 if compute_capability[0] == 8 else 1e-5,
+        rtol=1.6e-2,
+    )
+
+    torch.testing.assert_close(thd_word_embeddings_grad, bshd_word_embeddings_grad, atol=1e-2, rtol=1e-5)

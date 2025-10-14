@@ -17,7 +17,8 @@ import logging
 
 import datasets
 import datasets.distributed
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DistributedSampler
+from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
@@ -26,21 +27,6 @@ from distributed_config import DistributedConfig
 
 
 logger = logging.getLogger(__name__)
-
-
-def infinite_dataloader(dataloader, dataset_or_sampler):
-    """Create an infinite iterator that automatically restarts at the end of each epoch.
-
-    Args:
-        dataloader: The DataLoader to loop through.
-        dataset_or_sampler: The dataset or sampler to set epochs for.
-    """
-    epoch = 0
-    while True:
-        dataset_or_sampler.set_epoch(epoch)  # Update epoch for proper shuffling
-        for batch in dataloader:
-            yield batch
-        epoch += 1  # Increment epoch counter after completing one full pass
 
 
 def create_dataloader(
@@ -55,6 +41,7 @@ def create_dataloader(
     sequence_packing_pad_to_multiple_of: int | None = None,
     buffer_size: int = 10_000,
     use_lazy_tokenization: bool = True,
+    mlm_probability: float = 0.15,
 ):
     """Create a dataloader for the dataset.
 
@@ -71,9 +58,10 @@ def create_dataloader(
         buffer_size: The buffer size to use for the distributed sampler.
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization if the dataset is a
             non-streaming datasets.Dataset. Defaults to True.
+        mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
 
     Returns:
-        A dataloader that just infinitely loops over the dataset.
+        A dataloader that can be used for training.
     """
     logger.info(f"Loading dataset with kwargs: {load_dataset_kwargs}")
     dataset = datasets.load_dataset(**load_dataset_kwargs)
@@ -120,19 +108,19 @@ def create_dataloader(
     if use_sequence_packing:
         data_collator = MLMDataCollatorWithFlattening(
             tokenizer=tokenizer,
-            mlm_probability=0.15,
+            mlm_probability=mlm_probability,
             pad_to_multiple_of=sequence_packing_pad_to_multiple_of,
             seed=seed,
         )
     else:
         data_collator = DataCollatorForLanguageModeling(
             tokenizer=tokenizer,
-            mlm_probability=0.15,
+            mlm_probability=mlm_probability,
             pad_to_multiple_of=max_seq_length,
             seed=seed,
         )
 
-    train_dataloader = DataLoader(
+    train_dataloader = StatefulDataLoader(
         tokenized_dataset,
         sampler=sampler,
         batch_size=micro_batch_size,
@@ -142,7 +130,4 @@ def create_dataloader(
         persistent_workers=True,
     )
 
-    # Create the infinite iterator
-    train_iterator = infinite_dataloader(train_dataloader, dataset if sampler is None else sampler)
-
-    return train_iterator
+    return train_dataloader, dataset if sampler is None else sampler

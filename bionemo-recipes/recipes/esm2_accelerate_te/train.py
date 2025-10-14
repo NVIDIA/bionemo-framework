@@ -38,9 +38,6 @@ logger = logging.getLogger(__name__)
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig):
     """Entrypoint."""
-    # add wandb logging on main process
-    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        wandb.init(config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True), **args.wandb_init_args)
     # Initialize Accelerate's distributed state early so torch device is set per process
     state = PartialState()
     logger.info(
@@ -49,6 +46,10 @@ def main(args: DictConfig):
         state.num_processes,
         state.device,
     )
+
+    # add wandb logging on main process
+    if state.is_main_process:
+        wandb.init(config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True), **args.wandb_init_args)
 
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True, dtype=torch.bfloat16)

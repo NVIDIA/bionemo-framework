@@ -4,19 +4,19 @@ target-version = "py312"
 [lint]
 ignore = ["D100", "E501", "N811", "N814"]
 select = [
-    "C",   # Pylint conventions
-    "D",   # Documentation formatting
-    "E",   # style stuff, whitespaces
-    "F",   # important pyflakes lints
-    "I",   # import sorting
-    "RUF", # Some Ruff-specific lints, unused noqas, etc.
-    "W",   # Pylint warnings
+    "C",    # Pylint conventions
+    "D",    # Documentation formatting
+    "E",    # style stuff, whitespaces
+    "F",    # important pyflakes lints
+    "FURB",
+    "I",    # import sorting
     "N",
     "NPY",
     "PERF",
     "PLE",
     "PLW",
-    "FURB",
+    "RUF",  # Some Ruff-specific lints, unused noqas, etc.
+    "W",    # Pylint warnings
 ]
 
 # Allow fix for all enabled rules (when `--fix`) is provided.
@@ -50,8 +50,9 @@ exclude = [
 
 # Ignore import violations in all `__init__.py` files.
 [lint.per-file-ignores]
+"esm_nv.py" = ["C901"]
 "__init__.py" = ["D104", "E402", "F401", "F403", "F811"]
-"test_*.py" = ["D"]
+"test_*.py" = ["C", "D"]
 "conftest.py" = ["D"]
 "scripts/*.py" = ["D"]
 "**/*.ipynb" = ["D"]

@@ -1,5 +1,10 @@
 scope: partial-conv
 time_limit: 14400
+# artifacts:
+#   # Artifact data mount paths for script execution, specified as mount_path: artifact_tag pairs.
+#   # See Confluence Onboarding Guide section 5.4 for more details on locating this data.
+#   # Needs update of script_args.data_path: /data-jetart/evo2. Cannot be enabled since Evo2 does not work with read-only folders as data mount.
+#   /data-jetart/evo2/data : text/opengenome2/processed/2025-01
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   data_path: False

@@ -24,8 +24,8 @@ bionemo-framework repository. You can download a zipped directory of this folder
 🚧: Under development <br/>
 ❌: Not supported <br/>
 
-\[1\]: Requires compute capacity 9.0 and above (Hopper+) <br/>
-\[2\]: Requires compute capacity 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
+\[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
+\[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
 
 ### Distributed Training
 
@@ -34,7 +34,7 @@ entrypoints:
 
 - [Distributed Data Parallel (DDP)](https://docs.pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html), shown in `train_ddp.py`
 - [Fully Sharded Data Parallel 2 (FSDP2)](https://docs.pytorch.org/docs/stable/distributed.fsdp.fully_shard.html), shown in `train_fsdp2.py`
-- [Megatron-FSDP (mFSDP)](hhttps://pypi.org/project/megatron-fsdp/), shown in `train_mfsdp.py`
+- [Megatron-FSDP (mFSDP)](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src), shown in `train_mfsdp.py`
 
 ## Commands to Launch Training
 
@@ -83,6 +83,15 @@ python train_fsdp2.py --config-name L0_sanity \
   dataset.sequence_packing_pad_to_multiple_of=16
 ```
 
+### Comparing Against the HF Transformers Reference Implementation
+
+To launch training with the ESM-2 model as implemented in HF Transformers, pass a `facebook/esm2` checkpoint as the
+model tag:
+
+```bash
+python train_fsdp2.py --config-name L0_sanity model_tag=facebook/esm2_t6_8M_UR50D
+```
+
 ## Saving and Loading Checkpoints
 
 To enable checkpoint saving, ensure that `checkpoint.ckpt_dir` is set to a writable directory. Checkpointing frequency is
@@ -108,6 +117,17 @@ or for local inference as a more durable format than torch distributed checkpoin
 directory within the checkpoint directory.
 
 Checkpointing is implemented for all three strategies, see [`checkpoint.py`](checkpoint.py) for more details.
+
+## Stateful dataloading
+
+We now offer the ability to resume your dataloader exactly where it left off.
+
+Known limitations:
+
+- When loading the dataloader from a saved checkpoint, you must provide the same `num_workers` that you used to save the dataloader state, because state is saved at the worker-level.
+- Moreover, dataloader state is saved on a per-rank basis. So if you resume training and load the dataloaders with a different amount of nodes / gpus that was used when you saved the dataloader the state will not resume perfectly.
+
+For references on Stateful Dataloaders please see [hf](https://huggingface.co/docs/datasets/en/stream#save-a-dataset-checkpoint-and-resume-iteration) and [example][https://github.com/meta-pytorch/data/tree/main/torchdata/stateful_dataloader]
 
 ## Running Inference with the Trained Model
 
