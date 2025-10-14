@@ -23,6 +23,7 @@ import pytest
 from bionemo.scdl.index.row_feature_index import VariableFeatureIndex, are_dicts_equal
 
 
+# Testing dictionary equality function
 def test_equal_dicts():
     dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
     dict2 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
@@ -48,54 +49,7 @@ def test_different_lengths():
     assert are_dicts_equal(dict1, smaller_dict) is False
 
 
-@pytest.fixture
-def create_first_VariableFeatureIndex() -> VariableFeatureIndex:
-    """
-    Instantiate a VariableFeatureIndex.
-
-    Returns:
-        A VariableFeatureIndex with known values.
-    """
-    one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    index = VariableFeatureIndex()
-    index.append_features(12, one_feats)
-    return index
-
-
-@pytest.fixture
-def create_same_features_first_VariableFeatureIndex() -> VariableFeatureIndex:
-    """
-    Instantiate a VariableFeatureIndex.
-
-    Returns:
-        A VariableFeatureIndex with known values.
-    """
-    one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    index = VariableFeatureIndex()
-    index.append_features(6, one_feats)
-    return index
-
-
-@pytest.fixture
-def create_second_VariableFeatureIndex() -> VariableFeatureIndex:
-    """
-    Instantiate another VariableFeatureIndex.
-
-    Returns:
-        A VariableFeatureIndex with known values.
-    """
-    two_feats = {
-        "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
-        "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
-        "spare": np.array([None, None, None, None, None]),
-    }
-
-    index2 = VariableFeatureIndex()
-    index2.append_features(8, two_feats, "MY_DATAFRAME")
-    return index2
-
-
-def test_dataframe_results_in_error():
+def test_appending_dataframe_results_in_error():
     two_feats = pd.DataFrame(
         {
             "feature_name": ["FF", "GG", "HH", "II", "ZZ"],
@@ -109,170 +63,198 @@ def test_dataframe_results_in_error():
         assert "Expected a dictionary, but received a Pandas DataFrame." in str(error_info.value)
 
 
-def test_feature_index_internals_on_empty_index():
+def test_VariableFeatureIndex_internals_on_empty_index():
     index = VariableFeatureIndex()
     assert len(index) == 0
     assert index.number_of_rows() == 0
-
-
-def test_feature_index_internals_on_single_index(create_first_VariableFeatureIndex):
-    assert len(create_first_VariableFeatureIndex) == 1
-    assert [3] == create_first_VariableFeatureIndex.column_dims()
-    assert create_first_VariableFeatureIndex.number_of_rows() == 12
-
-    vals = create_first_VariableFeatureIndex.number_of_values()
-    assert vals == [12 * 3]
-    assert len(vals) == 1
-
-
-def test_feature_index_internals_on_append_empty_features(create_first_VariableFeatureIndex):
-    index = VariableFeatureIndex()
-    index.append_features(10, {})
-    create_first_VariableFeatureIndex.concat(index)
-    assert len(create_first_VariableFeatureIndex) == 2
-    assert [3, 0] == create_first_VariableFeatureIndex.column_dims()
-    assert create_first_VariableFeatureIndex.number_of_rows() == 22
-
-    vals = create_first_VariableFeatureIndex.number_of_values()
-    assert vals == [12 * 3, 0]
-    assert len(vals) == 2
-
-
-def test_feature_index_internals_on_append_different_features(
-    create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
-):
-    one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    two_feats = {
-        "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
-        "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
-        "spare": np.array([None, None, None, None, None]),
-    }
-    create_first_VariableFeatureIndex.concat(create_second_VariableFeatureIndex)
-    assert len(create_first_VariableFeatureIndex) == 2
-    assert create_first_VariableFeatureIndex.number_vars_at_row(1) == 3
-    assert create_first_VariableFeatureIndex.number_vars_at_row(13) == 5
-    assert create_first_VariableFeatureIndex.number_vars_at_row(19) == 5
-    assert create_first_VariableFeatureIndex.number_vars_at_row(2) == 3
-    assert sum(create_first_VariableFeatureIndex.number_of_values()) == (12 * 3) + (8 * 5)
-    assert create_first_VariableFeatureIndex.number_of_values()[1] == (8 * 5)
-    assert create_first_VariableFeatureIndex.number_of_rows() == 20
-    feats, label = create_first_VariableFeatureIndex.lookup(row=3, select_features=None)
-    assert np.all(feats[0] == one_feats["feature_name"])
-    assert np.all(feats[1] == one_feats["feature_int"])
-    assert label is None
-    feats, label = create_first_VariableFeatureIndex.lookup(row=15, select_features=None)
-    assert np.all(feats[0] == two_feats["feature_name"])
-    assert np.all(feats[1] == two_feats["gene_name"])
-    assert np.all(feats[2] == two_feats["spare"])
-    assert label == "MY_DATAFRAME"
-
-
-def test_feature_index_internals_on_append_same_features(create_first_VariableFeatureIndex):
-    one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    create_first_VariableFeatureIndex.concat(create_first_VariableFeatureIndex)
-    assert len(create_first_VariableFeatureIndex) == 1
-    assert create_first_VariableFeatureIndex.number_vars_at_row(1) == 3
-    assert create_first_VariableFeatureIndex.number_vars_at_row(13) == 3
-    assert create_first_VariableFeatureIndex.number_vars_at_row(19) == 3
-    assert create_first_VariableFeatureIndex.number_vars_at_row(2) == 3
-    assert sum(create_first_VariableFeatureIndex.number_of_values()) == 2 * (12 * 3)
-    assert create_first_VariableFeatureIndex.number_of_values()[0] == 2 * (12 * 3)
-    assert create_first_VariableFeatureIndex.number_of_rows() == 24
-    feats, label = create_first_VariableFeatureIndex.lookup(row=3, select_features=None)
-    assert np.all(feats[0] == one_feats["feature_name"])
-    assert np.all(feats[1] == one_feats["feature_int"])
-    assert label is None
-    feats, label = create_first_VariableFeatureIndex.lookup(row=15, select_features=None)
-    assert np.all(feats[0] == one_feats["feature_name"])
-    assert np.all(feats[1] == one_feats["feature_int"])
-    assert label is None
-
-
-def test_concat_length(
-    create_first_VariableFeatureIndex,
-    create_second_VariableFeatureIndex,
-):
-    create_first_VariableFeatureIndex.concat(create_second_VariableFeatureIndex)
-    assert len(create_first_VariableFeatureIndex) == 2
-
-
-def test_concat_number_variables_at_each_row(
-    create_first_VariableFeatureIndex,
-    create_second_VariableFeatureIndex,
-):
-    create_first_VariableFeatureIndex.concat(create_second_VariableFeatureIndex)
-    assert create_first_VariableFeatureIndex.number_vars_at_row(1) == 3
-    assert create_first_VariableFeatureIndex.number_vars_at_row(13) == 5
-    assert create_first_VariableFeatureIndex.number_vars_at_row(19) == 5
-    assert create_first_VariableFeatureIndex.number_vars_at_row(2) == 3
-
-
-def test_concat_number_values(
-    create_first_VariableFeatureIndex,
-    create_second_VariableFeatureIndex,
-):
-    create_first_VariableFeatureIndex.concat(create_second_VariableFeatureIndex)
-
-    assert sum(create_first_VariableFeatureIndex.number_of_values()) == (12 * 3) + (8 * 5)
-    assert create_first_VariableFeatureIndex.number_of_values()[1] == (8 * 5)
-    assert create_first_VariableFeatureIndex.number_of_rows() == 20
-
-
-def test_concat_lookup_results(
-    create_first_VariableFeatureIndex,
-    create_second_VariableFeatureIndex,
-):
-    one_feats = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    two_feats = {
-        "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
-        "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
-        "spare": np.array([None, None, None, None, None]),
-    }
-    create_first_VariableFeatureIndex.concat(create_second_VariableFeatureIndex)
-    feats, label = create_first_VariableFeatureIndex.lookup(row=3, select_features=None)
-    assert np.all(feats[0] == one_feats["feature_name"])
-    assert np.all(feats[1] == one_feats["feature_int"])
-    assert label is None
-    feats, label = create_first_VariableFeatureIndex.lookup(row=15, select_features=None)
-    assert np.all(feats[0] == two_feats["feature_name"])
-    assert np.all(feats[1] == two_feats["gene_name"])
-    assert np.all(feats[2] == two_feats["spare"])
-    assert label == "MY_DATAFRAME"
-
-
-def test_feature_lookup_empty():
-    index = VariableFeatureIndex()
     with pytest.raises(IndexError, match=r"There are no features to lookup"):
-        index.lookup(row=1)
+        index.lookup(row=0)
 
 
 def test_feature_lookup_negative(create_first_VariableFeatureIndex):
+    first_index, _, _, _ = create_first_VariableFeatureIndex
     with pytest.raises(IndexError, match=r"Row index -1 is not valid. It must be non-negative."):
-        create_first_VariableFeatureIndex.lookup(row=-1)
+        first_index.lookup(row=-1)
 
 
 def test_feature_lookup_too_large(create_first_VariableFeatureIndex):
+    first_index, _, num_rows, _ = create_first_VariableFeatureIndex
+    lookup_row = num_rows + 1
     with pytest.raises(
-        IndexError, match=re.escape("Row index 12544 is larger than number of rows in FeatureIndex (12).")
+        IndexError,
+        match=re.escape(
+            f"Row index {lookup_row} is larger than number of rows in FeatureIndex ({first_index.number_of_rows()})."
+        ),
     ):
-        create_first_VariableFeatureIndex.lookup(row=12544)
+        first_index.lookup(row=lookup_row)
 
 
-def test_save_reload_row_feature_index_identical(
+def test_concat_empty_index_correct_length(create_first_VariableFeatureIndex, create_empty_VariableFeatureIndex):
+    """
+    After concatenating an index with empty features, index should have two sets of features.
+    """
+    first_index, _, _, _ = create_first_VariableFeatureIndex
+    empty_index, _ = create_empty_VariableFeatureIndex
+    first_index.concat(empty_index)
+    assert len(first_index) == 2
+
+
+def test_concat_empty_index_column_dims(create_first_VariableFeatureIndex, create_empty_VariableFeatureIndex):
+    """
+    The column_dims after concatenating empty features should be [original_cols, 0].
+    """
+    first_index, _, _, _ = create_first_VariableFeatureIndex
+    original_num_cols = first_index.column_dims()[0]
+    empty_index, _ = create_empty_VariableFeatureIndex
+    first_index.concat(empty_index)
+    assert first_index.column_dims() == [original_num_cols, 0]
+
+
+def test_concat_empty_index_row_count(create_first_VariableFeatureIndex, create_empty_VariableFeatureIndex):
+    """
+    number_of_rows() should be updated by the number of empty rows appended.
+    """
+    first_index, _, num_rows, _ = create_first_VariableFeatureIndex
+    empty_index, num_empty_rows = create_empty_VariableFeatureIndex
+    first_index.concat(empty_index)
+    assert first_index.number_of_rows() == num_rows + num_empty_rows
+
+
+def test_concat_empty_index_value_counts(create_first_VariableFeatureIndex, create_empty_VariableFeatureIndex):
+    """
+    number_of_values() after concatenation of empty should match expected [original*original_cols, 0].
+    """
+    first_index, _, num_rows, _ = create_first_VariableFeatureIndex
+    original_num_cols = first_index.column_dims()[0]
+    empty_index, _ = create_empty_VariableFeatureIndex
+    first_index.concat(empty_index)
+    vals = first_index.number_of_values()
+    assert vals == [num_rows * original_num_cols, 0]
+
+
+def test_concat_different_feature_indices_structure(
+    create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
+):
+    """
+    Test that concatenating two different VariableFeatureIndices results in a new index with the correct structure.
+    """
+    # Get the actual feature values directly from the test indices
+    first_index, _, first_num_rows, _ = create_first_VariableFeatureIndex
+    second_index, _, second_num_rows, _ = create_second_VariableFeatureIndex
+    first_columns = first_index.column_dims()[0]
+    second_columns = second_index.column_dims()[0]
+    first_index.concat(second_index)
+    assert len(first_index) == 2
+
+    # Column dimension unchanged
+    assert first_index.column_dims() == [first_columns, second_columns]
+    # Row count doubled
+    assert first_index.number_of_rows() == first_num_rows + second_num_rows
+    # Number of values doubled
+    assert first_index.number_of_values() == [(first_num_rows * first_columns), (second_num_rows * second_columns)]
+
+
+def test_concat_different_feature_indices_number_vars(
+    create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
+):
+    """
+    After concatenation, every row in index should still return the same number of variables.
+    """
+    first_index, _, first_num_rows, _ = create_first_VariableFeatureIndex
+    second_index, _, second_num_rows, _ = create_second_VariableFeatureIndex
+    original_num_cols = first_index.column_dims()[0]
+    second_num_cols = second_index.column_dims()[0]
+    first_index.concat(second_index)
+    for row_index in range(first_num_rows):
+        assert first_index.number_vars_at_row(row_index) == original_num_cols
+    for row_index in range(first_num_rows, first_index.number_of_rows()):
+        assert first_index.number_vars_at_row(row_index) == second_num_cols
+
+
+def test_concat_different_feature_indices_correct_feature_values(
+    create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
+):
+    """
+    Features and labels should be identical for every row before and after the concatenation.
+    """
+    first_index, first_seed_features, first_num_rows, label = create_first_VariableFeatureIndex
+    second_index, second_seed_features, _, second_label = create_second_VariableFeatureIndex
+    first_index.concat(second_index)
+
+    # Check first set of rows (before concat)
+    for row_index in range(len(first_index)):
+        feats, label = first_index.lookup(row=row_index, select_features=None)
+        assert np.all(feats == np.stack(list(first_seed_features.values())))
+        assert label == label
+
+    # Check second set of rows (after concat)
+    for row_index in range(first_num_rows, first_index.number_of_rows()):
+        feats, label = first_index.lookup(row=row_index, select_features=None)
+        assert np.all(feats == np.stack(list(second_seed_features.values())))
+        assert label == second_label
+
+
+def test_concat_same_feature_index_twice_structure(create_first_VariableFeatureIndex):
+    """
+    Test that concatenating the same VariableFeatureIndex twice does not increase the number of index types,
+    and doubles the number of rows, keeping feature column counts correct.
+    """
+    first_index, _, num_rows, _ = create_first_VariableFeatureIndex
+    original_num_cols = first_index.column_dims()[0]
+    original_num_rows = num_rows
+    first_index.concat(first_index)
+    # Should still be a single feature type, not two
+    assert len(first_index) == 1
+    # Column dimension unchanged
+    assert first_index.column_dims() == [original_num_cols]
+    # Row count doubled
+    assert first_index.number_of_rows() == 2 * original_num_rows
+    # Number of values doubled
+    assert first_index.number_of_values() == [2 * (original_num_rows * original_num_cols)]
+
+
+def test_concat_same_feature_index_twice_number_vars(create_first_VariableFeatureIndex):
+    """
+    After concatenation, every row in index should still return the same number of variables.
+    """
+    first_index, _, num_rows, _ = create_first_VariableFeatureIndex
+    original_num_cols = first_index.column_dims()[0]
+    first_index.concat(first_index)
+    for row_index in range(first_index.number_of_rows()):
+        assert first_index.number_vars_at_row(row_index) == original_num_cols
+
+
+def test_concat_same_feature_index_twice_correct_feature_values(create_first_VariableFeatureIndex):
+    """
+    Features and labels should be identical for every row before and after the concatenation.
+    """
+    first_index, seed_features, _, label = create_first_VariableFeatureIndex
+    first_index.concat(first_index)
+
+    # Check first set of rows (before concat)
+    for row_index in range(len(first_index)):
+        feats, label = first_index.lookup(row=row_index, select_features=None)
+        assert np.all(feats == np.stack(list(seed_features.values())))
+        assert label == label
+
+
+def test_save_reload_row_VariableFeatureIndex_same_feature_indices(
     tmp_path, create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
 ):
-    create_first_VariableFeatureIndex.concat(create_second_VariableFeatureIndex)
-    create_first_VariableFeatureIndex.save(tmp_path / "features")
+    first_index, _, _, _ = create_first_VariableFeatureIndex
+    second_index, _, _, _ = create_second_VariableFeatureIndex
+    first_index.concat(second_index)
+    first_index.save(tmp_path / "features")
     index_reload = VariableFeatureIndex.load(tmp_path / "features")
-    assert len(create_first_VariableFeatureIndex) == len(index_reload)
-    assert create_first_VariableFeatureIndex.column_dims() == index_reload.column_dims()
-    assert create_first_VariableFeatureIndex.number_of_rows() == index_reload.number_of_rows()
-    assert create_first_VariableFeatureIndex.version() == index_reload.version()
+    assert len(first_index) == len(index_reload)
+    assert first_index.column_dims() == index_reload.column_dims()
+    assert first_index.number_of_rows() == index_reload.number_of_rows()
+    assert first_index.version() == index_reload.version()
 
-    assert create_first_VariableFeatureIndex.number_of_values() == index_reload.number_of_values()
+    assert first_index.number_of_values() == index_reload.number_of_values()
 
-    for row in range(create_first_VariableFeatureIndex.number_of_rows()):
-        features_one, labels_one = create_first_VariableFeatureIndex.lookup(row=row, select_features=None)
+    for row in range(first_index.number_of_rows()):
+        features_one, labels_one = first_index.lookup(row=row, select_features=None)
         features_reload, labels_reload = index_reload.lookup(row=row, select_features=None)
         assert labels_one == labels_reload
         assert np.all(np.array(features_one, dtype=object) == np.array(features_reload))

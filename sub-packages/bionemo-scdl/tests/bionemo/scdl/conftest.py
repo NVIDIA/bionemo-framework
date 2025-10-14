@@ -17,9 +17,11 @@
 import shutil
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from bionemo.scdl.data.load import load
+from bionemo.scdl.index.row_feature_index import VariableFeatureIndex
 
 
 @pytest.fixture
@@ -65,3 +67,52 @@ def create_cellx_val_data(tmpdir) -> Path:
     shutil.copy(file1, collated_dir)
     shutil.copy(file2, collated_dir)
     return collated_dir
+
+
+# ==== Fixtures for VariableFeatureIndex ======
+@pytest.fixture
+def create_first_VariableFeatureIndex() -> VariableFeatureIndex:
+    """
+    Instantiate a FeatureIndex.
+    Returns:
+        A FeatureIndex with known values.
+    """
+    index = VariableFeatureIndex()
+    seed_features = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
+    num_rows = 12
+    label = None
+    index.append_features(num_rows, seed_features, label)
+    return index, seed_features, num_rows, label
+
+
+@pytest.fixture
+def create_second_VariableFeatureIndex() -> VariableFeatureIndex:
+    """
+    Instantiate another FeatureIndex.
+    Returns:
+        A FeatureIndex with known values.
+    """
+
+    index = VariableFeatureIndex()
+    seed_features = {
+        "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
+        "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
+        "spare": np.array([None, None, None, None, None]),
+    }
+    num_rows = 8
+    label = "MY_DATAFRAME"
+    index.append_features(num_rows, seed_features, label)
+    return index, seed_features, num_rows, label
+
+
+@pytest.fixture
+def create_empty_VariableFeatureIndex() -> VariableFeatureIndex:
+    """
+    Instantiate an empty FeatureIndex.
+    Returns:
+        A FeatureIndex with no features.
+    """
+    num_empty_rows = 10
+    index_with_empty_features = VariableFeatureIndex()
+    index_with_empty_features.append_features(num_empty_rows, {})
+    return index_with_empty_features, num_empty_rows
