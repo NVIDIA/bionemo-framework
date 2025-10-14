@@ -9,8 +9,8 @@ notifications:
         channels:
           - id: ${{ vars.BIONEMO_FW_CI_ALERTS_SLACK_ID }} # bionemo-fw-ci-alerts
     match: >
-      workflow_run.conclusion = "failure" 
-      and workflow_run.name = "BioNeMo Framework CI" 
+      workflow_run.conclusion = "failure"
+      and workflow_run.name = "BioNeMo Framework CI"
       and workflow_run.event = "schedule"
     message:
       body: |
@@ -28,8 +28,8 @@ notifications:
         channels:
           - id: ${{ vars.BIONEMO_FW_CI_ALERTS_SLACK_ID }}
     match: >
-      workflow_run.conclusion = "failure" 
-      and workflow_run.name = "BioNeMo Recipes CI" 
+      workflow_run.conclusion = "failure"
+      and workflow_run.name = "BioNeMo Recipes CI"
       and workflow_run.event = "schedule"
     message:
       body: |
