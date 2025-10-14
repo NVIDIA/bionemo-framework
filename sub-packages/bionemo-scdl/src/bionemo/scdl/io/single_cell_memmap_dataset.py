@@ -531,15 +531,15 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """Get the X values at index (int) or a stack of rows if index is a slice. Only step size 1 is supported for slices."""
         if isinstance(index, int):
             start_idx = index
-            end_idx = index
+            end_idx = index + 1
         elif isinstance(index, slice):
-            start_idx, end_idx, step = index.indices(len(self) - 1)
+            start_idx, end_idx, step = index.indices(len(self))
             if step != 1:
                 raise ValueError("Only a step size of 1 is supported in slice indexing.")
         else:
             raise TypeError(f"Invalid index type: {type(index)}")
         start = self.row_index[start_idx]
-        end = self.row_index[end_idx + 1]
+        end = self.row_index[end_idx]
         values = self.data[start:end]
         columns = self.col_index[start:end]
         rows = self.row_index[start_idx : end_idx + 1] - self.row_index[start_idx]

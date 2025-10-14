@@ -18,6 +18,7 @@ from typing import Tuple
 import anndata as ad
 import numpy as np
 import pytest
+import torch
 
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 
@@ -156,15 +157,20 @@ def test_SingleCellMemMapDataset_get_row_colum(generate_dataset):
 
 
 def test_direct_indexing_slice(generate_dataset):
-    rows = generate_dataset[0:3]
+    rows = generate_dataset[:3]
     assert len(rows) == 2
     assert np.array_equal(rows[0], np.array([0, 1, 1, 2]))
-    assert np.array_equal(rows[1], np.array([[6.0, 19.0, 12.0], [2.0, 2.0, 2.0]]))
-    rows2 = generate_dataset[6:]
-    assert len(rows2) == 2
+    assert np.array_equal(rows[1], np.array([[6.0, 19.0], [2.0, 2.0]]))
 
-    assert np.array_equal(rows2[0], np.array([0, 1]))
-    assert np.array_equal(rows2[1], np.array([[16, 1], [3, 8]]))
+    rows2 = generate_dataset[1:2]
+    assert len(rows2) == 2
+    assert np.array_equal(rows2[0], np.array([0, 0]))
+    assert torch.equal(rows2[1], torch.empty((2, 0)))
+
+    rows3 = generate_dataset[6:]
+
+    assert np.array_equal(rows3[0], np.array([0, 1, 2]))
+    assert np.array_equal(rows3[1], np.array([[16, 1], [3, 8]]))
 
 
 def test_SingleCellMemMapDataset_get_row_padded(generate_dataset):
