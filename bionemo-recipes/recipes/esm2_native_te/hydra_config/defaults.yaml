@@ -1,6 +1,7 @@
 # Training config
 model_tag: ??? # E.g., nvidia/esm2_t6_8M_UR50D, facebook/esm2_t6_8M_UR50D, or a local path (e.g ./example_8m_checkpoint)
 num_train_steps: ???
+grad_acc_steps: 1
 
 # TODO: Once BIONEMO-2583 and BIONEMO-2719 are fixed, enable this by default and simplify training scripts to remove the
 # meta-device conditional.
