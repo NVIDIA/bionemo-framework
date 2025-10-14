@@ -108,7 +108,7 @@ jobs:
                   "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
                 else
                   # "nvcr.io/nvidia/pytorch:25.09-py3"
-                  "svcbionemo023/bionemo-framework:pytorch25.09-py3-squashed-zstd"
+                  "svcbionemo023/bionemo-framework:pytorch25.09-py3-squashed"
                 end
               )
             })
