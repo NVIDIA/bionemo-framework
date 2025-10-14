@@ -81,7 +81,7 @@ def make_feat_dictionary():
     def _make(num_cols: int, width: int, *, key_prefix: str = "f") -> dict[str, np.ndarray]:
         feats: dict[str, np.ndarray] = {}
         for c in range(num_cols):
-            # some random values ehre
+            # some random values here
             feats[f"{key_prefix}{c}"] = np.random.randint(0, 100, size=width)
         return feats
 

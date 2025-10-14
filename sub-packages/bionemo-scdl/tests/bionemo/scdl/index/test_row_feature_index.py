@@ -218,12 +218,14 @@ def test_save_reload_row_VariableFeatureIndex_same_feature_indices(tmp_path, mak
     first_index.concat(first_index)
     first_index.save(tmp_path / "features")
     index_reload = VariableFeatureIndex.load(tmp_path / "features")
-    assert len(first_index) == len(index_reload)
-    assert first_index.column_dims() == index_reload.column_dims()
-    assert first_index.number_of_rows() == index_reload.number_of_rows()
+    assert_index_state(
+        index_reload,
+        length=len(first_index),
+        col_widths=first_index.column_dims(),
+        rows=first_index.number_of_rows(),
+        values=first_index.number_of_values(),
+    )
     assert first_index.version() == index_reload.version()
-
-    assert first_index.number_of_values() == index_reload.number_of_values()
 
     for row in range(first_index.number_of_rows()):
         features_one, labels_one = first_index.lookup(row=row, select_features=None)
