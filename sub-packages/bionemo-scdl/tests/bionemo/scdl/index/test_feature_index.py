@@ -20,9 +20,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from bionemo.scdl.index.feature_index import FeatureIndex, ObservedFeatureIndex, VariableFeatureIndex, are_dicts_equal
+from bionemo.scdl.index.feature_index import ObservedFeatureIndex, VariableFeatureIndex, are_dicts_equal
 
 
+# ===== Test dictionares are equal =====
 def test_equal_dicts():
     dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
     dict2 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
@@ -48,101 +49,69 @@ def test_different_lengths():
     assert are_dicts_equal(dict1, smaller_dict) is False
 
 
-@pytest.fixture
-def create_first_VariableFeatureIndex() -> VariableFeatureIndex:
-    """
-    Instantiate a FeatureIndex.
-
-    Returns:
-        A FeatureIndex with known values.
-    """
-    index = VariableFeatureIndex()
-    index.seed_features = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    index.append_features(12, index.seed_features)
-    return index
+# Test FeatureIndex empty behaviour
+@pytest.mark.parametrize("index_cls", [VariableFeatureIndex, ObservedFeatureIndex])
+def test_feature_index_internals_on_empty_index(index_cls):
+    index = index_cls()
+    assert len(index) == 0
+    assert index.number_of_rows() == 0
+    with pytest.raises(IndexError, match=r"There are no features to lookup"):
+        index.lookup(row=1)
 
 
-@pytest.fixture
-def create_same_features_first_VariableFeatureIndex() -> VariableFeatureIndex:
-    """
-    Instantiate a FeatureIndex.
-
-    Returns:
-        A FeatureIndex with known values.
-    """
-    index = VariableFeatureIndex()
-    index.seed_features = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    index.append_features(6, index.seed_features)
-    return index
-
-
-@pytest.fixture
-def create_second_VariableFeatureIndex() -> VariableFeatureIndex:
-    """
-    Instantiate another FeatureIndex.
-
-    Returns:
-        A FeatureIndex with known values.
-    """
-    index2 = VariableFeatureIndex()
-    index2.seed_features = {
-        "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
-        "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
-        "spare": np.array([None, None, None, None, None]),
-    }
-    index2.append_features(8, index2.seed_features, "MY_DATAFRAME")
-    return index2
+@pytest.mark.parametrize(
+    "index_cls",
+    [
+        "create_first_VariableFeatureIndex",
+        "create_first_ObservedFeatureIndex",
+    ],
+)
+def test_feature_index_lookup_too_large(index_cls):
+    index = index_cls()
+    with pytest.raises(
+        IndexError, match=re.escape("Row index 12544 is larger than number of rows in FeatureIndex (12).")
+    ):
+        index.lookup(row=12544)
 
 
-@pytest.fixture
-def create_first_ObservedFeatureIndex() -> ObservedFeatureIndex:
-    """
-    Instantiate a FeatureIndex.
-
-    Returns:
-        A FeatureIndex with known values.
-    """
-    index = ObservedFeatureIndex()
-    index.seed_features = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    index.append_features(3, index.seed_features)
-    return index
-
-
-@pytest.fixture
-def create_second_ObservedFeatureIndex() -> ObservedFeatureIndex:
-    """
-    Instantiate another FeatureIndex.
-
-    Returns:
-        A FeatureIndex with known values.
-    """
-    index2 = ObservedFeatureIndex()
-    index2.seed_features = {
-        "f_name": np.array(["FDDF", "GG", "HdfH", "II", "ZZ"]),
-        "f_int": np.array([1, 2, 3, 4, 5]),
-        "f_spare": np.array([None, None, None, None, None]),
-    }
-    index2.append_features(5, index2.seed_features, "MY_DATAFRAME")
-    return index2
-
-
-def test_dataframe_results_in_error():
-    two_feats = pd.DataFrame(
+@pytest.mark.parametrize("index_cls", [VariableFeatureIndex, ObservedFeatureIndex])
+def test_appending_dictionary_to_feature_index_results_in_error(index_cls):
+    dictionary_feats = pd.DataFrame(
         {
             "feature_name": ["FF", "GG", "HH", "II", "ZZ"],
             "gene_name": ["RET", "NTRK", "PPARG", "TSHR", "EGFR"],
             "spare": [None, None, None, None, None],
         }
     )
-    index = VariableFeatureIndex()
-    with pytest.raises(TypeError, match="VariableFeatureIndex.append_features expects a dict of arrays"):
-        index.append_features(8, two_feats, "MY_DATAFRAME")
+    index = index_cls()
+    with pytest.raises(TypeError, match="FeatureIndex.append_features expects a dict of arrays"):
+        index.append_features(8, dictionary_feats, "MY_DATAFRAME")
 
 
-def test_feature_index_internals_on_empty_index():
-    index = FeatureIndex()
-    assert len(index) == 0
-    assert index.number_of_rows() == 0
+@pytest.mark.parametrize(
+    "index_one,index_two,index_cls",
+    [
+        ("create_first_VariableFeatureIndex", "create_second_VariableFeatureIndex", VariableFeatureIndex),
+        ("create_first_ObservedFeatureIndex", "create_second_ObservedFeatureIndex", ObservedFeatureIndex),
+    ],
+)
+def test_save_reload_FeatureIndex_identical(tmp_path, index_one, index_two, index_cls):
+    index_one.concat(index_two)
+    index_one.save(tmp_path / "features")
+    index_reload = index_cls.load(tmp_path / "features")
+
+    assert len(index_one) == len(index_reload)
+    assert index_one.column_dims() == index_reload.column_dims()
+    assert index_one.number_of_rows() == index_reload.number_of_rows()
+    assert index_one.version() == index_reload.version()
+
+    assert index_one.number_of_values() == index_reload.number_of_values()
+
+    for row in range(index_one.number_of_rows()):
+        features_one, labels_one = index_one.lookup(row=row, select_features=None)
+        features_reload, labels_reload = index_reload.lookup(row=row, select_features=None)
+        assert labels_one == labels_reload
+        assert np.all(np.array(features_one, dtype=object) == np.array(features_reload, dtype=object))
 
 
 def test_feature_index_internals_on_single_index_both_variable_and_observed(
@@ -187,7 +156,7 @@ def testObeservedFetureIndex_on_append_incompatible_features_observed(create_fir
         index.append_features(10, {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])})
 
 
-def testVariableFeatureIndex_on_append_different_features__concat_and_basic_counts(
+def testVariableFeatureIndex_on_append_different_features_concat_and_basic_counts(
     create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
 ):
     create_first_VariableFeatureIndex.concat(create_second_VariableFeatureIndex)
@@ -198,19 +167,46 @@ def testVariableFeatureIndex_on_append_different_features__number_vars(
     create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
 ):
     create_first_VariableFeatureIndex.concat(create_second_VariableFeatureIndex)
-    assert create_first_VariableFeatureIndex.number_vars_at_row(1) == 3
-    assert create_first_VariableFeatureIndex.number_vars_at_row(13) == 5
-    assert create_first_VariableFeatureIndex.number_vars_at_row(19) == 5
-    assert create_first_VariableFeatureIndex.number_vars_at_row(2) == 3
+    assert create_first_VariableFeatureIndex.number_vars_at_row(1) == len(
+        create_first_VariableFeatureIndex.seed_features
+    )
+    assert create_first_VariableFeatureIndex.number_vars_at_row(13) == len(
+        create_second_VariableFeatureIndex.seed_features
+    )
+    assert create_first_VariableFeatureIndex.number_vars_at_row(19) == len(
+        create_second_VariableFeatureIndex.seed_features
+    )
+    assert create_first_VariableFeatureIndex.number_vars_at_row(2) == len(
+        create_first_VariableFeatureIndex.seed_features
+    )
 
 
 def testVariableFeatureIndex_on_append_different_features__number_of_values(
     create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
 ):
     create_first_VariableFeatureIndex.concat(create_second_VariableFeatureIndex)
-    assert sum(create_first_VariableFeatureIndex.number_of_values()) == (12 * 3) + (8 * 5)
-    assert create_first_VariableFeatureIndex.number_of_values()[1] == (8 * 5)
-    assert create_first_VariableFeatureIndex.number_of_rows() == 20
+    assert sum(create_first_VariableFeatureIndex.number_of_values()) == (
+        len(create_first_VariableFeatureIndex.seed_features) * len(create_first_VariableFeatureIndex.seed_features)
+    ) + (len(create_second_VariableFeatureIndex.seed_features) * len(create_second_VariableFeatureIndex.seed_features))
+    assert create_first_VariableFeatureIndex.number_of_values()[1] == (
+        len(create_second_VariableFeatureIndex.seed_features) * len(create_second_VariableFeatureIndex.seed_features)
+    )
+    assert create_first_VariableFeatureIndex.number_of_rows() == len(
+        create_first_VariableFeatureIndex.seed_features
+    ) + len(create_second_VariableFeatureIndex.seed_features)
+
+
+@pytest.mark.parametrize(
+    "index_cls",
+    [
+        "VariableFeatureIndex",
+        "ObservedFeatureIndex",
+    ],
+)
+def test_feature_index_lookup_negative(index_cls):
+    index = index_cls()
+    with pytest.raises(IndexError, match=r"Row index -1 is not valid. It must be non-negative."):
+        index.lookup(row=-1)
 
 
 def testVariableFeatureIndex_on_append_different_features__lookup_first(
@@ -244,12 +240,20 @@ def testObeservedFetureIndex_on_append_different_features_observed(
     create_first_ObservedFeatureIndex.concat(create_second_ObservedFeatureIndex)
     assert len(create_first_ObservedFeatureIndex) == 2
     for row in range(3):
-        assert create_first_ObservedFeatureIndex.number_vars_at_row(row) == 2
+        assert create_first_ObservedFeatureIndex.number_vars_at_row(row) == len(
+            create_first_ObservedFeatureIndex.seed_features
+        )
     for row in range(3, 8):
-        assert create_first_ObservedFeatureIndex.number_vars_at_row(row) == 3
+        assert create_first_ObservedFeatureIndex.number_vars_at_row(row) == len(
+            create_second_ObservedFeatureIndex.seed_features
+        )
     vals = create_first_ObservedFeatureIndex.number_of_values()
-    assert vals[0] == 3 * 2
-    assert vals[1] == 3 * 5
+    assert vals[0] == len(create_first_ObservedFeatureIndex.seed_features) * len(
+        create_first_ObservedFeatureIndex.seed_features
+    )
+    assert vals[1] == len(create_second_ObservedFeatureIndex.seed_features) * len(
+        create_second_ObservedFeatureIndex.seed_features
+    )
     assert create_first_ObservedFeatureIndex.number_of_rows() == 8
     for j in range(3):
         feats, label = create_first_ObservedFeatureIndex.lookup(row=j, select_features=None)
@@ -266,19 +270,23 @@ def testVariableFeatureIndex_on_append_features_twice_length(create_first_Variab
     assert len(create_first_VariableFeatureIndex) == 1
 
 
-def testVariableFeatureIndex_on_append_features_twice_number_vars(create_first_VariableFeatureIndex):
+def testVariableFeatureIndex_on_append_features_twice_number_vars_and_values(create_first_VariableFeatureIndex):
     create_first_VariableFeatureIndex.concat(create_first_VariableFeatureIndex)
-    assert create_first_VariableFeatureIndex.number_vars_at_row(1) == 3
-    assert create_first_VariableFeatureIndex.number_vars_at_row(13) == 3
-    assert create_first_VariableFeatureIndex.number_vars_at_row(19) == 3
-    assert create_first_VariableFeatureIndex.number_vars_at_row(2) == 3
+    for j in range(len(create_first_VariableFeatureIndex.seed_features)):
+        assert create_first_VariableFeatureIndex.number_vars_at_row(j) == len(
+            create_first_VariableFeatureIndex.seed_features
+        )
 
-
-def testVariableFeatureIndex_on_append_features_twice_number_of_values(create_first_VariableFeatureIndex):
     create_first_VariableFeatureIndex.concat(create_first_VariableFeatureIndex)
-    assert sum(create_first_VariableFeatureIndex.number_of_values()) == 2 * (12 * 3)
-    assert create_first_VariableFeatureIndex.number_of_values()[0] == 2 * (12 * 3)
-    assert create_first_VariableFeatureIndex.number_of_rows() == 24
+    assert sum(create_first_VariableFeatureIndex.number_of_values()) == 2 * (
+        len(create_first_VariableFeatureIndex.seed_features) * len(create_first_VariableFeatureIndex.seed_features)
+    )
+    assert create_first_VariableFeatureIndex.number_of_values()[0] == 2 * (
+        len(create_first_VariableFeatureIndex.seed_features) * len(create_first_VariableFeatureIndex.seed_features)
+    )
+    assert create_first_VariableFeatureIndex.number_of_rows() == 2 * len(
+        create_first_VariableFeatureIndex.seed_features
+    )
 
 
 def testVariableFeatureIndex_on_append_features_twice_lookup(create_first_VariableFeatureIndex):
@@ -328,69 +336,6 @@ def testObeservedFetureIndex_on_append_features_twice_lookup_out_of_bounds(creat
     create_first_ObservedFeatureIndex.concat(create_first_ObservedFeatureIndex)
     with pytest.raises(IndexError, match=re.escape("Row index 6 is larger than number of rows in FeatureIndex (6).")):
         create_first_ObservedFeatureIndex.lookup(row=6)
-
-
-@pytest.mark.parametrize("index_cls", [VariableFeatureIndex, ObservedFeatureIndex])
-def test_feature_index_lookup_empty(index_cls):
-    index = index_cls()
-    with pytest.raises(IndexError, match=r"There are no features to lookup"):
-        index.lookup(row=1)
-
-
-@pytest.mark.parametrize(
-    "fixture_name",
-    [
-        "create_first_VariableFeatureIndex",
-        "create_first_ObservedFeatureIndex",
-    ],
-)
-def test_feature_index_lookup_negative(request, fixture_name):
-    index = request.getfixturevalue(fixture_name)
-    with pytest.raises(IndexError, match=r"Row index -1 is not valid. It must be non-negative."):
-        index.lookup(row=-1)
-
-
-@pytest.mark.parametrize(
-    "fixture_name",
-    [
-        "create_first_VariableFeatureIndex",
-        "create_first_ObservedFeatureIndex",
-    ],
-)
-def test_feature_index_lookup_too_large(request, fixture_name):
-    index = request.getfixturevalue(fixture_name)
-    with pytest.raises(
-        IndexError, match=re.escape("Row index 12544 is larger than number of rows in FeatureIndex (12).")
-    ):
-        index.lookup(row=12544)
-
-
-@pytest.mark.parametrize(
-    "first_fixture,second_fixture,index_cls",
-    [
-        ("create_first_VariableFeatureIndex", "create_second_VariableFeatureIndex", VariableFeatureIndex),
-        ("create_first_ObservedFeatureIndex", "create_second_ObservedFeatureIndex", ObservedFeatureIndex),
-    ],
-)
-def test_save_reload_FeatureIndex_identical(tmp_path, request, first_fixture, second_fixture, index_cls):
-    index_one = request.getfixturevalue(first_fixture)
-    index_two = request.getfixturevalue(second_fixture)
-    index_one.concat(index_two)
-    index_one.save(tmp_path / "features")
-    index_reload = index_cls.load(tmp_path / "features")
-
-    assert len(index_one) == len(index_reload)
-    assert index_one.column_dims() == index_reload.column_dims()
-    assert index_one.number_of_rows() == index_reload.number_of_rows()
-    assert index_one.version() == index_reload.version()
-
-    assert index_one.number_of_values() == index_reload.number_of_values()
-
-    for row in range(index_one.number_of_rows()):
-        features_one, labels_one = index_one.lookup(row=row, select_features=None)
-        features_reload, labels_reload = index_reload.lookup(row=row, select_features=None)
-        assert labels_one == labels_reload
-        assert np.all(np.array(features_one, dtype=object) == np.array(features_reload, dtype=object))
 
 
 def testObeservedFetureIndex_getitem_slice_contiguous_across_blocks():

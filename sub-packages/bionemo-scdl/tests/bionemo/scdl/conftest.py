@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from bionemo.scdl.data.load import load
+from bionemo.scdl.index.feature_index import ObservedFeatureIndex, VariableFeatureIndex
 
 
 @pytest.fixture
@@ -65,3 +66,82 @@ def create_cellx_val_data(tmpdir) -> Path:
     shutil.copy(file1, collated_dir)
     shutil.copy(file2, collated_dir)
     return collated_dir
+
+
+# ===== Variables that are used to create sample FeatureIndex Objects ======
+@pytest.fixture
+def seed_features_first():
+    """
+    Shared seed features used by both Variable and Observed first-index fixtures.
+    """
+    return {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
+
+
+@pytest.fixture
+def seed_features_second():
+    """
+    Seed features for the second VariableFeatureIndex fixture.
+    """
+    return {
+        "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
+        "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
+        "spare": np.array([None, None, None, None, None]),
+    }
+
+
+# ==== Fixtures for VariableFeatureIndex ======
+@pytest.fixture
+def create_first_VariableFeatureIndex(seed_features_first) -> VariableFeatureIndex:
+    """
+    Instantiate a FeatureIndex.
+
+    Returns:
+        A FeatureIndex with known values.
+    """
+    index = VariableFeatureIndex()
+    index.seed_features = seed_features_first
+    index.append_features(12, index.seed_features)
+    return index
+
+
+@pytest.fixture
+def create_second_VariableFeatureIndex(seed_features_second) -> VariableFeatureIndex:
+    """
+    Instantiate another FeatureIndex.
+
+    Returns:
+        A FeatureIndex with known values.
+    """
+    index2 = VariableFeatureIndex()
+    index2.seed_features = seed_features_second
+    index2.append_features(8, index2.seed_features, "MY_DATAFRAME")
+    return index2
+
+
+# ==== Fixtures for ObservedFeatureIndex ======
+@pytest.fixture
+def create_first_ObservedFeatureIndex(seed_features_first) -> ObservedFeatureIndex:
+    """
+    Instantiate a FeatureIndex.
+
+    Returns:
+        A FeatureIndex with known values.
+    """
+    index = ObservedFeatureIndex()
+    index.seed_features = seed_features_first
+    index.append_features(3, index.seed_features)
+    return index
+
+
+@pytest.fixture
+def create_second_ObservedFeatureIndex(seed_features_first) -> ObservedFeatureIndex:
+    """
+    Instantiate another FeatureIndex.
+
+    Returns:
+        A FeatureIndex with known values.
+    """
+    index2 = ObservedFeatureIndex()
+    index2.seed_features = seed_features_first
+    index2.append_features(5, index2.seed_features, "MY_DATAFRAME")
+    return index2
