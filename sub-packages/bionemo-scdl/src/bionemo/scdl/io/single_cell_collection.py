@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDatasetCore
-from bionemo.scdl.index.row_feature_index import RowFeatureIndex
+from bionemo.scdl.index.row_feature_index import VariableFeatureIndex
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.async_worker_queue import AsyncWorkQueue
 
@@ -74,7 +74,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
     Attributes:
         _version: The version of the dataset
         data_path: The directory where the colleection of datasets is stored.
-        _feature_index: The corresponding RowFeatureIndex where features are
+        _feature_index: The corresponding VariableFeatureIndex where features are
         stored.
         fname_to_mmap:  dictionary to hold each SingleCellMemMapDataset object.
         This maps from the path to the dataset.
@@ -93,7 +93,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         self.data_path: str = data_path
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.metadata: Dict[str, int] = {}
-        self._feature_index: RowFeatureIndex = RowFeatureIndex()
+        self._var_feature_index: VariableFeatureIndex = VariableFeatureIndex()
         self.fname_to_mmap: Dict[str, SingleCellMemMapDataset] = {}
 
         Path(self.data_path).mkdir(parents=True, exist_ok=True)
@@ -123,7 +123,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         self.fname_to_mmap[mmap_path] = _create_single_cell_memmap_dataset_from_h5ad(
             h5ad_path=h5ad_path, base_directory_path=self.data_path
         )
-        self._feature_index.concat(self.fname_to_mmap[mmap_path]._feature_index)
+        self._var_feature_index.concat(self.fname_to_mmap[mmap_path]._var_feature_index)
 
     def load_h5ad_multi(self, directory_path: str, max_workers: int = 5, use_processes: bool = False) -> None:
         """Loads one or more AnnData files and adds them to the collection.
@@ -157,7 +157,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
                 raise RuntimeError(f"Error in processing file {mmap_path}: {mmap}") from mmap
 
             self.fname_to_mmap[mmap_path] = mmap
-            self._feature_index.concat(self.fname_to_mmap[mmap_path]._feature_index)
+            self._var_feature_index.concat(self.fname_to_mmap[mmap_path]._var_feature_index)
 
     def number_nonzero_values(self) -> int:
         """Sum of the number of non zero entries in each dataset."""
@@ -179,9 +179,9 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         row_sum_from_datasets = sum(
             [self.fname_to_mmap[mmap_path].number_of_rows() for mmap_path in self.fname_to_mmap]
         )
-        if len(self._feature_index) > 0 and self._feature_index.number_of_rows() != row_sum_from_datasets:
+        if len(self._var_feature_index) > 0 and self._var_feature_index.number_of_rows() != row_sum_from_datasets:
             raise ValueError(
-                f"""The nuber of rows in the feature index {self._feature_index.number_of_rows()}
+                f"""The nuber of rows in the feature index {self._var_feature_index.number_of_rows()}
                              does not correspond to the number of rows in the datasets {row_sum_from_datasets}"""
             )
 
@@ -193,10 +193,10 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         If not ragged, returns a list with one entry. A ragged
         collection is one where the datasets have different lengths.
         """
-        if len(self._feature_index) == 0:
+        if len(self._var_feature_index) == 0:
             return [0]
         else:
-            num_vars = self._feature_index.column_dims()
+            num_vars = self._var_feature_index.column_dims()
             return num_vars
 
     def shape(self) -> Tuple[int, List[int]]:
@@ -208,7 +208,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         Returns:
             The total number of elements across dataset
             A list containing the number of variables for each entry in the
-                RowFeatureIndex.
+                VariableFeatureIndex.
         """
         return self.number_of_rows(), self.number_of_variables()
 

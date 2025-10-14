@@ -30,7 +30,7 @@ import scipy
 import torch
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
-from bionemo.scdl.index.row_feature_index import RowFeatureIndex
+from bionemo.scdl.index.row_feature_index import VariableFeatureIndex
 from bionemo.scdl.schema.header import ArrayDType, ArrayInfo, Backend, FeatureIndexInfo, SCDLHeader
 from bionemo.scdl.schema.version import CurrentSCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
@@ -198,7 +198,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         row_index: A numpy array of row pointers
         col_index: A numpy array of column values
         metadata: Various metadata about the dataset.
-        _feature_index: The corresponding RowFeatureIndex where features are
+        _feature_index: The corresponding VariableFeatureIndex where features are
         stored
         dtypes: A dictionary containing the datatypes of the data, row_index,
         and col_index arrays.
@@ -265,7 +265,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Stores the Feature Index, which tracks
         # the original AnnData features (e.g., gene names)
         # and allows us to store ragged arrays in our SCMMAP structure.
-        self._feature_index: RowFeatureIndex = RowFeatureIndex()
+        self._var_feature_index: VariableFeatureIndex = VariableFeatureIndex()
 
         # Variables for int packing / reduced precision
         self.dtypes: Dict[FileNames, str] = {
@@ -541,7 +541,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         columns = self.col_index[start:end]
         ret = (values, columns)
         if return_features:
-            return ret, self._feature_index.lookup(index, select_features=feature_vars)[0]
+            return ret, self._var_feature_index.lookup(index, select_features=feature_vars)[0]
         else:
             return ret, None
 
@@ -619,7 +619,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         (row_values, row_column_pointer), features = self.get_row(index, return_features, feature_vars)
         return (
-            _pad_sparse_array(row_values, row_column_pointer, self._feature_index.number_vars_at_row(index)),
+            _pad_sparse_array(row_values, row_column_pointer, self._var_feature_index.number_vars_at_row(index)),
             features,
         )
 
@@ -704,9 +704,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                         break
             return 0.0 if impute_missing_zeros else None
 
-    def features(self) -> Optional[RowFeatureIndex]:
-        """Return the corresponding RowFeatureIndex."""
-        return self._feature_index
+    def features(self) -> Optional[VariableFeatureIndex]:
+        """Return the corresponding VariableFeatureIndex."""
+        return self._var_feature_index
 
     def _load_mmap_file_if_exists(self, file_path, dtype):
         if os.path.exists(file_path):
@@ -753,7 +753,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             self.metadata = json.load(mfi)
 
         if os.path.exists(f"{self.data_path}/{FileNames.FEATURES.value}"):
-            self._feature_index = RowFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES.value}")
+            self._var_feature_index = VariableFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES.value}")
 
         if os.path.exists(f"{self.data_path}/{FileNames.DTYPE.value}"):
             with open(f"{self.data_path}/{FileNames.DTYPE.value}") as dfi:
@@ -977,7 +977,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             features = {self.feature_index_name: features_df.index.values}
         else:
             features = {}
-        self._feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
+        self._var_feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
         self.save()
 
     def _write_header(self):
@@ -1011,11 +1011,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             # Default to STRING_ARRAY if we cannot determine more specific type.
             feature_array_dtype = ArrayDType.STRING_ARRAY
             # Attempt to infer dtype from first feature array, if present
-            if len(self._feature_index) > 0:
+            if len(self._var_feature_index) > 0:
                 # Access the first available feature ndarray via lookup of row 0
                 # This returns list[np.ndarray] and a label; pick the first array if any
                 try:
-                    feature_values, _ = self._feature_index.lookup(0)
+                    feature_values, _ = self._var_feature_index.lookup(0)
                     if feature_values and hasattr(feature_values[0], "dtype"):
                         feature_array_dtype = ArrayDType.from_numpy_dtype(feature_values[0].dtype)
                 except Exception:
@@ -1030,7 +1030,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 f"{features_rel_path}/version.npy",
             ]
             # Parquet files are named dataframe_000.parquet, etc.
-            num_frames = len(self._feature_index)
+            num_frames = len(self._var_feature_index)
             if num_frames > 0:
                 num_digits = len(str(num_frames))
                 for i in range(num_frames):
@@ -1038,7 +1038,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
             fi_info = FeatureIndexInfo(
                 name=FileNames.FEATURES.value,
-                length=self._feature_index.number_of_rows(),
+                length=self._var_feature_index.number_of_rows(),
                 dtype=feature_array_dtype,
                 index_files=index_files,
                 shape=None,
@@ -1076,7 +1076,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         self._write_metadata()
         # Write the feature index. This may not exist.
-        self._feature_index.save(f"{self.data_path}/{FileNames.FEATURES.value}")
+        self._var_feature_index.save(f"{self.data_path}/{FileNames.FEATURES.value}")
 
         # Ensure the object is in a valid state. These are saved at creation!
         for postfix in [
@@ -1252,7 +1252,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Returns:
             The sum of lengths of the features in every row
         """
-        return sum(self._feature_index.number_of_values())
+        return sum(self._var_feature_index.number_of_values())
 
     def number_of_rows(self) -> int:
         """The number of rows in the dataset.
@@ -1263,12 +1263,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             ValueError if the length of the number of rows in the feature
             index does not correspond to the number of stored rows.
         """
-        if len(self._feature_index) > 0 and self._feature_index.number_of_rows() != self.row_index.size - 1:
+        if len(self._var_feature_index) > 0 and self._var_feature_index.number_of_rows() != self.row_index.size - 1:
             raise ValueError(
-                f"""The nuber of rows in the feature index {self._feature_index.number_of_rows()}
+                f"""The nuber of rows in the feature index {self._var_feature_index.number_of_rows()}
                              does not correspond to the number of rows in the row_index {self.row_index.size - 1}"""
             )
-        return self._feature_index.number_of_rows()
+        return self._var_feature_index.number_of_rows()
 
     def number_nonzero_values(self) -> int:
         """Number of non zero entries in the dataset."""
@@ -1288,7 +1288,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Returns:
             A list containing the lengths of the features in every row
         """
-        feats = self._feature_index
+        feats = self._var_feature_index
         if len(feats) == 0:
             return [0]
         num_vars = feats.column_dims()
@@ -1398,7 +1398,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 buffer_size_b=extend_copy_size,
                 delete_file2_on_complete=destroy_on_copy,
             )
-            self._feature_index.concat(mmap._feature_index)
+            self._var_feature_index.concat(mmap._var_feature_index)
             # Update counters
             cumulative_elements += mmap.number_nonzero_values()
             cumulative_rows += mmap.number_of_rows()
