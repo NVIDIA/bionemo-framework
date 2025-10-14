@@ -233,7 +233,7 @@ class RowFeatureIndex(ABC):
         if fail_on_empty_index and not len(other_row_index._feature_arr) > 0:
             raise ValueError("Error: Cannot append empty FeatureIndex.")
         for i, feats in enumerate(list(other_row_index._feature_arr)):
-            c_span = other_row_index._cumulative_sum_index[i + 1]
+            c_span = other_row_index._cumulative_sum_index[i + 1] - max(0, other_row_index._cumulative_sum_index[i])
             label = other_row_index._labels[i]
             self.append_features(c_span, feats, label)
 

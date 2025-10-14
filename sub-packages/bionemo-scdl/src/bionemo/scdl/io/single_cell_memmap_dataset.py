@@ -36,6 +36,9 @@ from bionemo.scdl.schema.version import CurrentSCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
 
 
+# from bionemo.scdl.util.header_utils import build_feature_index_info
+
+
 # Set up logger
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -222,7 +225,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         mode: Mode = Mode.READ_APPEND,
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
-        feature_index_name="feature_id",
+        var_feature_index_name="feature_id",
         # --- Neighbor Args ---
         load_neighbors: bool = False,
         neighbor_key: str = "next_cell_ids",
@@ -240,7 +243,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             mode: Whether to read or write from the data_path.
             paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
             load_block_row_size: Number of rows to load into memory with paginated load
-            feature_index_name: The name of the features if the features are only stored in features_df.index.values
+            var_feature_index_name: The name of the features if the features are only stored in features_df.index.values
             # --- New Neighbor Args ---
             load_neighbors (bool, optional): Boolean to control to control whether to load and utilize neighbor information
             neighbor_key (str, optional): The key in AnnData's .obsp containing neighbor information.
@@ -253,7 +256,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.mode: Mode = mode
         self.paginated_load_cutoff = paginated_load_cutoff
         self.load_block_row_size = load_block_row_size
-        self.feature_index_name = feature_index_name
+        self.var_feature_index_name = var_feature_index_name
         # Backing arrays
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
@@ -265,7 +268,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Stores the Feature Index, which tracks
         # the original AnnData features (e.g., gene names)
         # and allows us to store ragged arrays in our SCMMAP structure.
-        self._var_feature_index: VariableFeatureIndex = VariableFeatureIndex()
+        self._varfeature_index: VariableFeatureIndex = VariableFeatureIndex()
 
         # Variables for int packing / reduced precision
         self.dtypes: Dict[FileNames, str] = {
@@ -541,7 +544,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         columns = self.col_index[start:end]
         ret = (values, columns)
         if return_features:
-            return ret, self._var_feature_index.lookup(index, select_features=feature_vars)[0]
+            return ret, self._varfeature_index.lookup(index, select_features=feature_vars)[0]
         else:
             return ret, None
 
@@ -619,7 +622,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         (row_values, row_column_pointer), features = self.get_row(index, return_features, feature_vars)
         return (
-            _pad_sparse_array(row_values, row_column_pointer, self._var_feature_index.number_vars_at_row(index)),
+            _pad_sparse_array(row_values, row_column_pointer, self._varfeature_index.number_vars_at_row(index)),
             features,
         )
 
@@ -706,7 +709,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
     def features(self) -> Optional[VariableFeatureIndex]:
         """Return the corresponding VariableFeatureIndex."""
-        return self._var_feature_index
+        return self._varfeature_index
 
     def _load_mmap_file_if_exists(self, file_path, dtype):
         if os.path.exists(file_path):
@@ -968,16 +971,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         file_size_MB = os.path.getsize(anndata_path) / (1_024**2)
 
         if file_size_MB < self.paginated_load_cutoff:
-            features_df, num_rows = self.regular_load_h5ad(anndata_path)
+            var_features_df, num_rows = self.regular_load_h5ad(anndata_path)
         else:
-            features_df, num_rows = self.paginated_load_h5ad(anndata_path)
-        if len(features_df.columns) > 0:
-            features = {col: np.array(features_df[col].values) for col in features_df.columns}
-        elif len(features_df.index) > 0:
-            features = {self.feature_index_name: features_df.index.values}
+            var_features_df, num_rows = self.paginated_load_h5ad(anndata_path)
+        if len(var_features_df.columns) > 0:
+            var_features = {col: np.array(var_features_df[col].values) for col in var_features_df.columns}
+        elif len(var_features_df.index) > 0:
+            var_features = {self.var_feature_index_name: var_features_df.index.values}
         else:
-            features = {}
-        self._var_feature_index.append_features(n_obs=num_rows, features=features, label=anndata_path)
+            var_features = {}
+        self._var_feature_index.append_features(n_obs=num_rows, features=var_features, label=anndata_path)
         self.save()
 
     def _write_header(self):
