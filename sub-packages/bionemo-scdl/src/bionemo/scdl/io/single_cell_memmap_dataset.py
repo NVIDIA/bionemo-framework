@@ -268,7 +268,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # Stores the Feature Index, which tracks
         # the original AnnData features (e.g., gene names)
         # and allows us to store ragged arrays in our SCMMAP structure.
-        self._varfeature_index: VariableFeatureIndex = VariableFeatureIndex()
+        self._var_feature_index: VariableFeatureIndex = VariableFeatureIndex()
 
         # Variables for int packing / reduced precision
         self.dtypes: Dict[FileNames, str] = {
@@ -544,7 +544,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         columns = self.col_index[start:end]
         ret = (values, columns)
         if return_features:
-            return ret, self._varfeature_index.lookup(index, select_features=feature_vars)[0]
+            return ret, self._var_feature_index.lookup(index, select_features=feature_vars)[0]
         else:
             return ret, None
 
@@ -622,7 +622,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         (row_values, row_column_pointer), features = self.get_row(index, return_features, feature_vars)
         return (
-            _pad_sparse_array(row_values, row_column_pointer, self._varfeature_index.number_vars_at_row(index)),
+            _pad_sparse_array(row_values, row_column_pointer, self._var_feature_index.number_vars_at_row(index)),
             features,
         )
 
@@ -709,7 +709,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
     def features(self) -> Optional[VariableFeatureIndex]:
         """Return the corresponding VariableFeatureIndex."""
-        return self._varfeature_index
+        return self._var_feature_index
 
     def _load_mmap_file_if_exists(self, file_path, dtype):
         if os.path.exists(file_path):
@@ -1009,31 +1009,25 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Populate FeatureIndexInfo entries for the feature index directory
         indexes: List[FeatureIndexInfo] = []
-        try:
-            # Determine an appropriate dtype for the feature index entries.
-            # Default to STRING_ARRAY if we cannot determine more specific type.
-            feature_array_dtype = ArrayDType.STRING_ARRAY
-            # Attempt to infer dtype from first feature array, if present
-            if len(self._var_feature_index) > 0:
-                # Access the first available feature ndarray via lookup of row 0
-                # This returns list[np.ndarray] and a label; pick the first array if any
-                try:
-                    feature_values, _ = self._var_feature_index.lookup(0)
-                    if feature_values and hasattr(feature_values[0], "dtype"):
-                        feature_array_dtype = ArrayDType.from_numpy_dtype(feature_values[0].dtype)
-                except Exception:
-                    # Fall back to default if lookup not available yet
-                    pass
+        for feature_index in [self._var_feature_index]:
+            # If feature index is None, it is not recorded in the header
+            if feature_index is None:
+                continue
 
-            # Build the list of index files that constitute the feature index
+            try:
+                num_frames = len(feature_index)
+                num_rows = feature_index.number_of_rows()
+            except Exception as e:
+                warnings.warn(f"Unable to determine length or number_of_rows of feature index: {e}")
+                continue
+
+            feature_array_dtype = ArrayDType.STRING_ARRAY
             features_rel_path = f"{FileNames.FEATURES.value}"
             index_files: List[str] = [
                 f"{features_rel_path}/cumulative_sum_index.npy",
                 f"{features_rel_path}/labels.npy",
                 f"{features_rel_path}/version.npy",
             ]
-            # Parquet files are named dataframe_000.parquet, etc.
-            num_frames = len(self._var_feature_index)
             if num_frames > 0:
                 num_digits = len(str(num_frames))
                 for i in range(num_frames):
@@ -1041,15 +1035,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
             fi_info = FeatureIndexInfo(
                 name=FileNames.FEATURES.value,
-                length=self._var_feature_index.number_of_rows(),
+                length=num_rows,
                 dtype=feature_array_dtype,
                 index_files=index_files,
                 shape=None,
             )
             indexes.append(fi_info)
-        except Exception:
-            # If any unexpected error occurs, fall back to no feature index entries
-            indexes = []
 
         header = (
             self.header
