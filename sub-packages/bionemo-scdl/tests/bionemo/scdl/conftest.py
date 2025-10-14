@@ -70,49 +70,43 @@ def create_cellx_val_data(tmpdir) -> Path:
 
 
 # ==== Fixtures for VariableFeatureIndex ======
-@pytest.fixture
-def create_first_VariableFeatureIndex() -> VariableFeatureIndex:
-    """
-    Instantiate a FeatureIndex.
-    Returns:
-        A FeatureIndex with known values.
-    """
-    index = VariableFeatureIndex()
-    seed_features = {"feature_name": np.array(["FF", "GG", "HH"]), "feature_int": np.array([1, 2, 3])}
-    num_rows = 12
-    label = None
-    index.append_features(num_rows, seed_features, label)
-    return index, seed_features, num_rows, label
 
 
 @pytest.fixture
-def create_second_VariableFeatureIndex() -> VariableFeatureIndex:
-    """
-    Instantiate another FeatureIndex.
-    Returns:
-        A FeatureIndex with known values.
-    """
+def make_feat_dictionary():
+    """Create a simple dictionary with num_cols columns of identical length num_rows. This will be used to create a
+    VariableFeatureIndex. num_cols is the number of columns in the dictionary, width is the length of the columns, and
+    key_prefix is the prefix of the keys in the dictionary."""
 
-    index = VariableFeatureIndex()
-    seed_features = {
-        "feature_name": np.array(["FF", "GG", "HH", "II", "ZZ"]),
-        "gene_name": np.array(["RET", "NTRK", "PPARG", "TSHR", "EGFR"]),
-        "spare": np.array([None, None, None, None, None]),
-    }
-    num_rows = 8
-    label = "MY_DATAFRAME"
-    index.append_features(num_rows, seed_features, label)
-    return index, seed_features, num_rows, label
+    def _make(num_cols: int, width: int, *, key_prefix: str = "f") -> dict[str, np.ndarray]:
+        feats: dict[str, np.ndarray] = {}
+        for c in range(num_cols):
+            # some random values ehre
+            feats[f"{key_prefix}{c}"] = np.random.randint(0, 100, size=width)
+        return feats
+
+    return _make
 
 
 @pytest.fixture
-def create_empty_VariableFeatureIndex() -> VariableFeatureIndex:
-    """
-    Instantiate an empty FeatureIndex.
-    Returns:
-        A FeatureIndex with no features.
-    """
-    num_empty_rows = 10
-    index_with_empty_features = VariableFeatureIndex()
-    index_with_empty_features.append_features(num_empty_rows, {})
-    return index_with_empty_features, num_empty_rows
+def assert_index_state():
+    """Assert properties of a VariableFeatureIndex are what is expected."""
+
+    def _assert(
+        idx: VariableFeatureIndex,
+        *,
+        length: int | None = None,
+        rows: int | None = None,
+        col_widths: list[int] | None = None,
+        values: list[int] | None = None,
+    ) -> None:
+        if length is not None:
+            assert len(idx) == length
+        if rows is not None:
+            assert idx.number_of_rows() == rows
+        if col_widths is not None:
+            assert idx.column_dims() == col_widths
+        if values is not None:
+            assert idx.number_of_values() == values
+
+    return _assert

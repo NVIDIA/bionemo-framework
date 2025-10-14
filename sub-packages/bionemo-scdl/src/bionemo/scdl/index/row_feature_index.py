@@ -180,6 +180,11 @@ class RowFeatureIndex(ABC):
         if not isinstance(features, dict):
             raise TypeError(f"{self.__class__.__name__}.append_features expects a dict of arrays")
 
+        if len(features) > 0:
+            first_length = len(next(iter(features.values())))
+            if any(len(v) != first_length for v in features.values()):
+                raise ValueError("All feature arrays must have the same length")
+
         total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
 
         # Optionally merge into previous block

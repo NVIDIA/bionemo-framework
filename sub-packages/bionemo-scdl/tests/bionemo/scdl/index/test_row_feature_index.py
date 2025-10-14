@@ -13,9 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
-import re
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -49,54 +46,68 @@ def test_different_lengths():
     assert are_dicts_equal(dict1, smaller_dict) is False
 
 
+#  Testing VariableFeatureIndex functionality
+
+
 def test_appending_dataframe_results_in_error():
-    two_feats = pd.DataFrame(
-        {
-            "feature_name": ["FF", "GG", "HH", "II", "ZZ"],
-            "gene_name": ["RET", "NTRK", "PPARG", "TSHR", "EGFR"],
-            "spare": [None, None, None, None, None],
-        }
-    )
+    two_feats = pd.DataFrame({"feature_name": ["FF", "GG"], "gene_name": ["RET", "NTRK"]})
     index = VariableFeatureIndex()
     with pytest.raises(TypeError) as error_info:
         index.append_features(8, two_feats, "MY_DATAFRAME")
         assert "Expected a dictionary, but received a Pandas DataFrame." in str(error_info.value)
 
 
-def test_VariableFeatureIndex_internals_on_empty_index():
+def test_append_features_mismatched_lengths_raises():
     index = VariableFeatureIndex()
-    assert len(index) == 0
-    assert index.number_of_rows() == 0
+    bad_features = {
+        "feature_name": np.array(["A", "B", "C"]),
+        "feature_int": np.array([1, 2]),
+    }
+    with pytest.raises(ValueError, match="All feature arrays must have the same length"):
+        index.append_features(5, bad_features, label="BAD")
+
+
+def test_VariableFeatureIndex_behaviour_on_empty_index(assert_index_state):
+    index = VariableFeatureIndex()
+    assert_index_state(index, length=0, rows=0, col_widths=[], values=[0])
     with pytest.raises(IndexError, match=r"There are no features to lookup"):
         index.lookup(row=0)
 
 
-def test_feature_lookup_negative(create_first_VariableFeatureIndex):
-    first_index, _, _, _ = create_first_VariableFeatureIndex
+def test_feature_lookup_negative(make_feat_dictionary):
+    idx = VariableFeatureIndex()
+    num_rows = 2
+    cols = 3
+    col_widths = 2
+    idx.append_features(num_rows, make_feat_dictionary(cols, col_widths), None)
     with pytest.raises(IndexError, match=r"Row index -1 is not valid. It must be non-negative."):
-        first_index.lookup(row=-1)
+        idx.lookup(row=-1)
 
 
-def test_feature_lookup_too_large(create_first_VariableFeatureIndex):
-    first_index, _, num_rows, _ = create_first_VariableFeatureIndex
-    lookup_row = num_rows + 1
-    with pytest.raises(
-        IndexError,
-        match=re.escape(
-            f"Row index {lookup_row} is larger than number of rows in FeatureIndex ({first_index.number_of_rows()})."
-        ),
-    ):
-        first_index.lookup(row=lookup_row)
+def test_feature_lookup_too_large(make_feat_dictionary):
+    idx = VariableFeatureIndex()
+    num_rows = 2
+    cols = 3
+    col_widths = 2
+    idx.append_features(num_rows, make_feat_dictionary(cols, col_widths), None)
+    with pytest.raises(IndexError):
+        idx.lookup(row=num_rows)
 
 
-def test_select_features_behavior(create_second_VariableFeatureIndex):
-    index, seed_features, _, expected_label = create_second_VariableFeatureIndex
+def test_select_features_behavior(make_feat_dictionary):
+    """lookup(select_features=...) returns requested columns in order; errors on missing names."""
+    index = VariableFeatureIndex()
+    num_rows = 5
+    cols = 3
+    col_widths = 2
+    seed_features = make_feat_dictionary(cols, col_widths, key_prefix="c")
+    index.append_features(num_rows, seed_features, expected_label := None)
 
     feats, label = index.lookup(0, select_features=[])
     assert feats == []
     assert label == expected_label
 
-    feats, label = index.lookup(0, select_features=seed_features.keys())
+    feats, label = index.lookup(0, select_features=list(seed_features.keys()))
     assert label == expected_label
     selected = {k: seed_features[k] for k in seed_features.keys()}
     assert np.all(feats == np.stack(list(selected.values())))
@@ -107,136 +118,104 @@ def test_select_features_behavior(create_second_VariableFeatureIndex):
         index.lookup(0, select_features=["does_not_exist"])  # missing feature name should raise
 
 
-def test_concat_empty_index_correct_length(create_first_VariableFeatureIndex, create_empty_VariableFeatureIndex):
-    """
-    After concatenating an index with empty features, index should have two sets of features.
-    """
-    first_index, _, _, _ = create_first_VariableFeatureIndex
-    empty_index, _ = create_empty_VariableFeatureIndex
-    first_index.concat(empty_index)
-    assert len(first_index) == 2
+def test_concat_non_empty_with_empty_index_structure(make_feat_dictionary, assert_index_state):
+    base = VariableFeatureIndex()
+    num_rows, cols, col_widths = 3, 3, 2
+    base.append_features(num_rows, make_feat_dictionary(cols, col_widths), None)
+    empty = VariableFeatureIndex()
+    empty_num_rows = 4
+    empty.append_features(empty_num_rows, make_feat_dictionary(0, 0), label="empty")
+    base.concat(empty)
+    assert_index_state(
+        base, rows=empty_num_rows + num_rows, col_widths=[col_widths, 0], values=[num_rows * col_widths, 0], length=2
+    )
 
 
-def test_concat_empty_index_column_dims(create_first_VariableFeatureIndex, create_empty_VariableFeatureIndex):
-    """
-    The column_dims after concatenating empty features should be [original_cols, 0].
-    """
-    first_index, _, _, _ = create_first_VariableFeatureIndex
-    original_num_cols = first_index.column_dims()[0]
-    empty_index, _ = create_empty_VariableFeatureIndex
-    first_index.concat(empty_index)
-    assert first_index.column_dims() == [original_num_cols, 0]
+def test_concat_two_blocks_structure(make_feat_dictionary, assert_index_state):
+    idx = VariableFeatureIndex()
+    num_rows_a, cols_a, col_widths_a = 2, 2, 2
+    idx.append_features(num_rows_a, make_feat_dictionary(cols_a, col_widths_a), label="A")
+    other = VariableFeatureIndex()
+    num_rows_b, cols_b, col_widths_b = 3, 3, 3
+    other.append_features(num_rows_b, make_feat_dictionary(cols_b, col_widths_b), label="B")
+    idx.concat(other)
+    assert_index_state(idx, rows=num_rows_a + num_rows_b, col_widths=[cols_a, cols_b], length=2)
 
 
-def test_concat_empty_index_row_count(create_first_VariableFeatureIndex, create_empty_VariableFeatureIndex):
-    """
-    number_of_rows() should be updated by the number of empty rows appended.
-    """
-    first_index, _, num_rows, _ = create_first_VariableFeatureIndex
-    empty_index, num_empty_rows = create_empty_VariableFeatureIndex
-    first_index.concat(empty_index)
-    assert first_index.number_of_rows() == num_rows + num_empty_rows
-
-
-def test_concat_empty_index_value_counts(create_first_VariableFeatureIndex, create_empty_VariableFeatureIndex):
-    """
-    number_of_values() after concatenation of empty should match expected [original*original_cols, 0].
-    """
-    first_index, _, num_rows, _ = create_first_VariableFeatureIndex
-    original_num_cols = first_index.column_dims()[0]
-    empty_index, _ = create_empty_VariableFeatureIndex
-    first_index.concat(empty_index)
-    vals = first_index.number_of_values()
-    assert vals == [num_rows * original_num_cols, 0]
-
-
-def test_concat_different_feature_indices_structure(
-    create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
-):
-    """
-    Test that concatenating two different VariableFeatureIndices results in a new index with the correct structure.
-    """
-    # Get the actual feature values directly from the test indices
-    first_index, _, first_num_rows, _ = create_first_VariableFeatureIndex
-    second_index, _, second_num_rows, _ = create_second_VariableFeatureIndex
-    first_columns = first_index.column_dims()[0]
-    second_columns = second_index.column_dims()[0]
-    first_index.concat(second_index)
-    assert len(first_index) == 2
-
-    # Column dimension unchanged
-    assert first_index.column_dims() == [first_columns, second_columns]
-    # Row count doubled
-    assert first_index.number_of_rows() == first_num_rows + second_num_rows
-    # Number of values doubled
-    assert first_index.number_of_values() == [(first_num_rows * first_columns), (second_num_rows * second_columns)]
-
-
-def test_concat_different_feature_indices_number_vars(
-    create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
-):
-    """
-    After concatenation, every row in index should still return the same number of variables.
-    """
-    first_index, _, first_num_rows, _ = create_first_VariableFeatureIndex
-    second_index, _, second_num_rows, _ = create_second_VariableFeatureIndex
-    original_num_cols = first_index.column_dims()[0]
-    second_num_cols = second_index.column_dims()[0]
-    first_index.concat(second_index)
-    for row_index in range(first_num_rows):
-        assert first_index.number_vars_at_row(row_index) == original_num_cols
-    for row_index in range(first_num_rows, first_index.number_of_rows()):
-        assert first_index.number_vars_at_row(row_index) == second_num_cols
-
-
-def test_concat_different_feature_indices_correct_feature_values(
-    create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
-):
-    """
-    Features and labels should be identical for every row before and after the concatenation.
-    """
-    first_index, first_seed_features, first_num_rows, label = create_first_VariableFeatureIndex
-    second_index, second_seed_features, _, second_label = create_second_VariableFeatureIndex
-    first_index.concat(second_index)
-
-    # Check first set of rows (before concat)
-    for row_index in range(len(first_index)):
-        feats, label = first_index.lookup(row=row_index, select_features=None)
-        assert np.all(feats == np.stack(list(first_seed_features.values())))
-        assert label == label
-
-    # Check second set of rows (after concat)
-    for row_index in range(first_num_rows, first_index.number_of_rows()):
-        feats, label = first_index.lookup(row=row_index, select_features=None)
-        assert np.all(feats == np.stack(list(second_seed_features.values())))
-        assert label == second_label
-
-
-def test_concat_same_feature_index_twice_structure(create_first_VariableFeatureIndex):
+def test_concat_same_feature_index_twice_structure(make_feat_dictionary, assert_index_state):
     """
     Test that concatenating the same VariableFeatureIndex twice does not increase the number of index types,
     and doubles the number of rows, keeping feature column counts correct.
     """
-    first_index, _, num_rows, _ = create_first_VariableFeatureIndex
-    original_num_cols = first_index.column_dims()[0]
-    original_num_rows = num_rows
+    first_index = VariableFeatureIndex()
+    num_rows, cols, col_widths = 4, 3, 2
+    seed_features = make_feat_dictionary(cols, col_widths)
+
+    first_index.append_features(num_rows, seed_features, None)
     first_index.concat(first_index)
     # Should still be a single feature type, not two
-    assert len(first_index) == 1
-    # Column dimension unchanged
-    assert first_index.column_dims() == [original_num_cols]
-    # Row count doubled
-    assert first_index.number_of_rows() == 2 * original_num_rows
-    # Number of values doubled
-    assert first_index.number_of_values() == [2 * (original_num_rows * original_num_cols)]
+    assert_index_state(
+        first_index, length=1, rows=2 * num_rows, col_widths=[col_widths], values=[2 * (num_rows * col_widths)]
+    )
 
 
-def test_save_reload_row_VariableFeatureIndex_same_feature_indices(
-    tmp_path, create_first_VariableFeatureIndex, create_second_VariableFeatureIndex
-):
-    first_index, _, _, _ = create_first_VariableFeatureIndex
-    second_index, _, _, _ = create_second_VariableFeatureIndex
-    first_index.concat(second_index)
+def test_concat_multiblock_source_adds_rows_correctly(make_feat_dictionary, assert_index_state):
+    source = VariableFeatureIndex()
+    num_rows_a = 3
+    cols_a = 3
+    col_widths_a = 3
+    feats_a = make_feat_dictionary(cols_a, col_widths_a)
+    num_rows_b = 4
+    cols_b = 2
+    col_widths_b = 2
+    feats_b = make_feat_dictionary(cols_b, col_widths_b)
+    source.append_features(num_rows_a, feats_a, label="A")
+    source.append_features(num_rows_b, feats_b, label="B")
+
+    target = VariableFeatureIndex()
+    target.concat(source)
+    assert_index_state(
+        target,
+        rows=7,
+        col_widths=[col_widths_a, col_widths_b],
+        values=[num_rows_a * col_widths_a, num_rows_b * col_widths_b],
+        length=2,
+    )
+
+
+def test_concat_multiblock_number_vars_at_rows_correct_values(make_feat_dictionary):
+    """Lookup returns correct features for each row, and number_vars_at_row reflects the block-specific feature col_widths across boundaries."""
+    idx = VariableFeatureIndex()
+    num_rows_a = 3
+    cols_a = 3
+    col_widths_a = 3
+    feats_a = make_feat_dictionary(cols_a, col_widths_a)
+    num_rows_b = 2
+    cols_b = 2
+    col_widths_b = 2
+    feats_b = make_feat_dictionary(cols_b, col_widths_b)
+    idx.append_features(num_rows_a, feats_a, label="A")
+    idx.append_features(num_rows_b, feats_b, label="B")
+
+    # Rows in first block
+    for r in range(0, num_rows_a):
+        assert idx.number_vars_at_row(r) == col_widths_a
+        feats, label = idx.lookup(row=r, select_features=None)
+        assert np.all(feats == np.stack(list(feats_a.values())))
+        assert label == "A"
+    # Rows in second block
+    for r in range(num_rows_a, num_rows_a + num_rows_b):
+        assert idx.number_vars_at_row(r) == col_widths_b
+        feats, label = idx.lookup(row=r, select_features=None)
+        assert np.all(feats == np.stack(list(feats_b.values())))
+        assert label == "B"
+
+
+def test_save_reload_row_VariableFeatureIndex_same_feature_indices(tmp_path, make_feat_dictionary, assert_index_state):
+    first_index = VariableFeatureIndex()
+    num_rows, cols, col_widths = 3, 3, 2
+    first_index.append_features(num_rows, make_feat_dictionary(cols, col_widths), None)
+    first_index.concat(first_index)
     first_index.save(tmp_path / "features")
     index_reload = VariableFeatureIndex.load(tmp_path / "features")
     assert len(first_index) == len(index_reload)
@@ -251,18 +230,3 @@ def test_save_reload_row_VariableFeatureIndex_same_feature_indices(
         features_reload, labels_reload = index_reload.lookup(row=row, select_features=None)
         assert labels_one == labels_reload
         assert np.all(np.array(features_one, dtype=object) == np.array(features_reload))
-
-
-def test_concat_multiblock_source_adds_rows_correctly():
-    source = VariableFeatureIndex()
-    feats_a = {"x": np.array([1, 2, 3])}
-    feats_b = {"x": np.array([10, 20])}
-    source.append_features(3, feats_a, label="A")
-    source.append_features(4, feats_b, label="B")
-
-    target = VariableFeatureIndex()
-    target.concat(source)
-
-    assert target.number_of_rows() == 7
-    assert len(target) == 2
-    assert target.column_dims() == [len(feats_a["x"]), len(feats_b["x"])]
