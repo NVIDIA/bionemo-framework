@@ -30,7 +30,7 @@ import scipy
 import torch
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
-from bionemo.scdl.index.row_feature_index import VariableFeatureIndex, ObservedFeatureIndex
+from bionemo.scdl.index.row_feature_index import ObservedFeatureIndex, VariableFeatureIndex
 from bionemo.scdl.schema.header import ArrayDType, ArrayInfo, Backend, FeatureIndexInfo, SCDLHeader
 from bionemo.scdl.schema.version import CurrentSCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
@@ -541,9 +541,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             index: The row to be returned. This is in the range of [0, num_rows)
             return_features: boolean that indicates whether to return features
             feature_vars: Optional, feature variables to extract
+            return_obs_features: boolean indicating whether to return observed (row) features
+            obs_feature_vars: Optional, observed feature variables to extract
         Return:
             [Tuple[np.ndarray, np.ndarray]: data values and column pointes
-            List[np.ndarray]: optional, corresponding features.
+            List[np.ndarray]: optional, corresponding variable (column) features.
+            List[np.ndarray]: optional, corresponding observed (row) features.
         """
         start = self.row_index[index]
         end = self.row_index[index + 1]
@@ -572,6 +575,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             index: The row to be returned. This is in the range of [0, num_rows)
             return_features: Boolean that indicates whether to return features
             feature_vars: Optional, feature variables to extract
+            return_obs_features: Boolean that indicates whether to return observed features
+            obs_feature_vars: Optional, observed feature variables to extract
 
         Returns:
             Dict with keys:
@@ -579,7 +584,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             - 'next_cell': Tuple[np.ndarray, np.ndarray] - (values, columns) for neighbor cell
             - 'current_cell_index': int - Index of current cell
             - 'next_cell_index': int - Index of neighbor cell
-            - 'features': List[np.ndarray] - Features if return_features is True, else None
+            - 'var_features': List[np.ndarray] - Variable features if return_features is True, else None
+            - 'obs_features': List[np.ndarray] - Observed features if return_obs_features is True, else None
 
         Raises:
             ValueError: If neighbor functionality is disabled or no neighbor data is available
@@ -591,7 +597,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
 
         # Get current cell data using the existing get_row function
-        current_cell_data, var_features, obs_features = self.get_row(index, return_features, feature_vars, return_obs_features, obs_feature_vars)
+        current_cell_data, var_features, obs_features = self.get_row(
+            index, return_features, feature_vars, return_obs_features, obs_feature_vars
+        )
 
         # Sample neighbor and get its data
         neighbor_index = self.sample_neighbor_index(index)
@@ -601,7 +609,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             next_cell_data = current_cell_data
         else:
             # Get neighbor cell data using the get_row function
-            next_cell_data, _,_= self.get_row(neighbor_index, False, None)
+            next_cell_data, _, _ = self.get_row(neighbor_index, False, None)
 
         # Return all data in a dictionary format
         return {
@@ -631,11 +639,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             index: The row to be returned
             return_features: boolean that indicates whether to return features
             feature_vars: Optional, feature variables to extract
+            return_obs_features: Boolean that indicates whether to return observed features
+            obs_feature_vars: Optional, observed feature variables to extract
         Return:
             np.ndarray: conventional row representation
-            List[np.ndarray]: optional, corresponding features.
+            List[np.ndarray]: optional, corresponding variable (column) features.
+            List[np.ndarray]: optional, corresponding observed (row) features.
         """
-        (row_values, row_column_pointer), var_features, obs_features = self.get_row(index, return_features, feature_vars, return_obs_features, obs_feature_vars)
+        (row_values, row_column_pointer), var_features, obs_features = self.get_row(
+            index, return_features, feature_vars, return_obs_features, obs_feature_vars
+        )
         return (
             _pad_sparse_array(row_values, row_column_pointer, self._var_feature_index.number_vars_at_row(index)),
             var_features,
@@ -659,6 +672,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             index: The row to be returned
             return_features: Boolean that indicates whether to return features
             feature_vars: Optional, feature variables to extract
+            return_obs_features: Boolean that indicates whether to return observed features
+            obs_feature_vars: Optional, observed feature variables to extract
 
         Returns:
             Dict with keys:
@@ -666,7 +681,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             - 'next_cell': np.ndarray - Padded array for neighbor cell
             - 'current_cell_index': int - Index of current cell
             - 'next_cell_index': int - Index of neighbor cell
-            - 'features': List[np.ndarray] - Features if return_features is True, else None
+            - 'features': List[np.ndarray] - Variable features if return_features is True, else None
 
         Raises:
             ValueError: If neighbor functionality is disabled or no neighbor data is available
@@ -678,10 +693,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
 
         # Get both current cell and neighbor data
-        result = self.get_row_with_neighbor(index, return_features, feature_vars, return_obs_features, obs_feature_vars)
+        result = self.get_row_with_neighbor(
+            index, return_features, feature_vars, return_obs_features, obs_feature_vars
+        )
 
         # Get current cell padded array using get_row_padded
-        curr_padded, _,_ = self.get_row_padded(index, False, None, False, None)
+        curr_padded, _, _ = self.get_row_padded(index, False, None, False, None)
 
         # For neighbor, get the padded array
         next_idx = result["next_cell_index"]
@@ -690,7 +707,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             next_padded = curr_padded
         else:
             # Otherwise get the neighbor's padded array
-            next_padded, _,_ = self.get_row_padded(next_idx, False, None)
+            next_padded, _, _ = self.get_row_padded(next_idx, False, None)
 
         # Return in dictionary format
         return {
@@ -726,9 +743,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                         break
             return 0.0 if impute_missing_zeros else None
 
-    def features(self) -> Optional[VariableFeatureIndex]:
+    def var_features(self) -> Optional[VariableFeatureIndex]:
         """Return the corresponding VariableFeatureIndex."""
         return self._var_feature_index
+
     def obs_features(self) -> Optional[ObservedFeatureIndex]:
         """Return the corresponding ObservedFeatureIndex."""
         return self._obs_feature_index
@@ -998,7 +1016,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         if file_size_MB < self.paginated_load_cutoff:
             var_features_df, obs_features_df, num_rows = self.regular_load_h5ad(anndata_path)
         else:
-            var_features_df, obs_features_df,num_rows = self.paginated_load_h5ad(anndata_path)
+            var_features_df, obs_features_df, num_rows = self.paginated_load_h5ad(anndata_path)
         if len(var_features_df.columns) > 0:
             var_features = {col: np.array(var_features_df[col].values) for col in var_features_df.columns}
         elif len(var_features_df.index) > 0:
@@ -1013,7 +1031,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             obs_features = {}
 
         self._var_feature_index.append_features(n_obs=num_rows, features=var_features, label=anndata_path)
-        print("NUM ROWS", num_rows, "ANNDATA PATH", anndata_path, len(obs_features), obs_features_df.shape)        
+        print("NUM ROWS", num_rows, "ANNDATA PATH", anndata_path, len(obs_features), obs_features_df.shape)
         self._obs_feature_index.append_features(n_obs=num_rows, features=obs_features, label=anndata_path)
         self.save()
 
@@ -1043,7 +1061,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Populate FeatureIndexInfo entries for the feature index directory
         indexes: List[FeatureIndexInfo] = []
-        for feature_index, feature_index_path in [(self._var_feature_index, FileNames.VAR_FEATURES.value), (self._obs_feature_index, FileNames.OBS_FEATURES.value)]:
+        for feature_index, feature_index_path in [
+            (self._var_feature_index, FileNames.VAR_FEATURES.value),
+            (self._obs_feature_index, FileNames.OBS_FEATURES.value),
+        ]:
             # If feature index is None, it is not recorded in the header
             if feature_index is None:
                 continue

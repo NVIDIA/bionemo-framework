@@ -15,6 +15,7 @@
 
 from typing import Tuple
 
+import anndata as ad
 import numpy as np
 import pytest
 
@@ -251,21 +252,26 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
     )
     compare_fn(ds_regular, ds_lazy)
 
-def test_SingleCellMemMapDataset_obs_features_golden_values(tmp_path, create_cellx_val_data):
+
+def test_SingleCellMemMapDataset_obs_features_identical_to_anndata_source(
+    tmp_path, create_cellx_val_data, assert_index_state
+):
     memmap_data = tmp_path / "out"
     ds = SingleCellMemMapDataset(memmap_data, h5ad_path=create_cellx_val_data / "sidx_40575621_2_0.h5ad")
     adata = ad.read_h5ad(create_cellx_val_data / "sidx_40575621_2_0.h5ad")
-    assert len(ds.var_features()) == 1
-    assert len(ds.obs_features()) == 1
-    assert ds.var_features().number_of_rows() == 2
-    assert ds.obs_features().number_of_rows() == 2
-    assert ds.var_features().column_dims() == [adata.var.shape[0]]
-    assert ds.obs_features().column_dims() == [adata.obs.shape[1]]
-    _, var_feats0, obs_feats0 = ds.get_row(index=0, return_features=True, return_obs_vals=True)
-    assert len(var_feats0) == adata.var.shape[1]
-    assert len(obs_feats0) == adata.obs.shape[1]
-    _, var_feats1, obs_feats1 = ds.get_row(index=1, return_features=True, return_obs_vals=True)
-    assert len(var_feats1) == adata.var.shape[1]
-    assert len(obs_feats1) == adata.obs.shape[1]
-    assert np.array_equal(var_feats0, var_feats1)
-    assert not np.array_equal(obs_feats0, obs_feats1)f
+    assert_index_state(ds.obs_features(), length=1, rows=adata.obs.shape[0], col_widths=[adata.obs.shape[1]])
+    obs_feats0 = ds.get_row(index=0, return_obs_features=True)[2]
+    obs_feats1 = ds.get_row(index=1, return_obs_features=True)[2]
+    assert np.array_equal(obs_feats0, adata.obs.iloc[0].tolist())
+    assert np.array_equal(obs_feats1, adata.obs.iloc[1].tolist())
+
+
+def test_SingleCellMemMapDataset_var_features_identical_to_anndata_source(
+    tmp_path, create_cellx_val_data, assert_index_state
+):
+    memmap_data = tmp_path / "out"
+    ds = SingleCellMemMapDataset(memmap_data, h5ad_path=create_cellx_val_data / "sidx_40575621_2_0.h5ad")
+    adata = ad.read_h5ad(create_cellx_val_data / "sidx_40575621_2_0.h5ad")
+    assert_index_state(ds.var_features(), length=1, rows=adata.shape[0], col_widths=[adata.var.shape[0]])
+    var_feats0 = ds.get_row(index=0, return_features=True)[1]
+    assert np.array_equal(np.stack([adata.var[c].to_numpy() for c in adata.var.columns]), np.stack(var_feats0))
