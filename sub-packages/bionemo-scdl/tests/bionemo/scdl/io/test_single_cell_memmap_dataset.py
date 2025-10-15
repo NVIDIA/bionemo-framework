@@ -156,10 +156,12 @@ def test_SingleCellMemMapDataset_get_row_colum(generate_dataset):
 
 
 def test_SingleCellMemMapDataset_get_row_padded(generate_dataset):
-    padded_row, feats = generate_dataset.get_row_padded(0, return_features=True, feature_vars=["feature_name"])
+    padded_row, var_feats, obs_feats = generate_dataset.get_row_padded(
+        0, return_features=True, feature_vars=["feature_name"]
+    )
     assert len(padded_row) == 10
     assert padded_row[2] == 6.0
-    assert len(feats[0]) == 10
+    assert len(var_feats[0]) == 10
     assert generate_dataset.get_row_padded(0)[0][0] == 0.0
     assert generate_dataset.data[0] == 6.0
     assert generate_dataset.data[1] == 19.0
@@ -248,3 +250,22 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
         load_block_row_size=3,
     )
     compare_fn(ds_regular, ds_lazy)
+
+def test_SingleCellMemMapDataset_obs_features_golden_values(tmp_path, create_cellx_val_data):
+    memmap_data = tmp_path / "out"
+    ds = SingleCellMemMapDataset(memmap_data, h5ad_path=create_cellx_val_data / "sidx_40575621_2_0.h5ad")
+    adata = ad.read_h5ad(create_cellx_val_data / "sidx_40575621_2_0.h5ad")
+    assert len(ds.var_features()) == 1
+    assert len(ds.obs_features()) == 1
+    assert ds.var_features().number_of_rows() == 2
+    assert ds.obs_features().number_of_rows() == 2
+    assert ds.var_features().column_dims() == [adata.var.shape[0]]
+    assert ds.obs_features().column_dims() == [adata.obs.shape[1]]
+    _, var_feats0, obs_feats0 = ds.get_row(index=0, return_features=True, return_obs_vals=True)
+    assert len(var_feats0) == adata.var.shape[1]
+    assert len(obs_feats0) == adata.obs.shape[1]
+    _, var_feats1, obs_feats1 = ds.get_row(index=1, return_features=True, return_obs_vals=True)
+    assert len(var_feats1) == adata.var.shape[1]
+    assert len(obs_feats1) == adata.obs.shape[1]
+    assert np.array_equal(var_feats0, var_feats1)
+    assert not np.array_equal(obs_feats0, obs_feats1)f

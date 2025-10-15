@@ -56,7 +56,15 @@ def test_sccollection_multi(tmp_path, test_directory):
         Path(tmp_path / "adata_sample2"),
     ]
     for dir_path in coll.fname_to_mmap:
-        for fn in ["col_ptr.npy", "data.npy", "features", "metadata.json", "row_ptr.npy", "version.json"]:
+        for fn in [
+            "col_ptr.npy",
+            "data.npy",
+            "obs_features",
+            "var_features",
+            "metadata.json",
+            "row_ptr.npy",
+            "version.json",
+        ]:
             assert os.path.exists(f"{dir_path}/{fn}")
 
     assert len(coll.fname_to_mmap) == 3
@@ -86,8 +94,16 @@ def test_sccollection_serialization(tmp_path, test_directory):
     assert dat.number_nonzero_values() == 57
     assert np.isclose(dat.sparsity(), 0.972753346080306, rtol=1e-6)
 
-    for fn in ["col_ptr.npy", "data.npy", "features", "metadata.json", "row_ptr.npy", "version.json"]:
-        assert os.path.exists(tmp_path / "flattened" / fn)
+    for fn in [
+        "col_ptr.npy",
+        "data.npy",
+        "obs_features",
+        "var_features",
+        "metadata.json",
+        "row_ptr.npy",
+        "version.json",
+    ]:
+         assert os.path.exists(tmp_path / "flattened" / fn)
 
 
 def test_sc_concat_in_flatten_cellxval(tmp_path, create_cellx_val_data):
@@ -101,7 +117,10 @@ def test_sc_concat_in_flatten_cellxval(tmp_path, create_cellx_val_data):
     assert np.array(data.row_index)[3] != 1149  # regression test for bug
 
     assert all(data.row_index == np.array([0, 440, 972, 2119]))
-
+    assert data.obs_features().column_dims() == [26]
+    assert data.obs_features().number_of_values() == [78]
+    assert len(data.obs_features()) == 1
+    assert data.obs_features().number_of_rows() == 3
 
 def test_sc_empty_directory_error(tmp_path):
     coll = SingleCellCollection(tmp_path)

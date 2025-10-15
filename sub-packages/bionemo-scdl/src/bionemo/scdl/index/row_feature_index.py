@@ -25,7 +25,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 
-__all__: Sequence[str] = ("RowFeatureIndex",)
+__all__: Sequence[str] = (
+    "VariableFeatureIndex",
+    "ObservedFeatureIndex",
+    "are_dicts_equal",
+)
 
 
 def are_dicts_equal(dict1: dict[str, np.ndarray], dict2: dict[str, np.ndarray]) -> bool:
@@ -67,7 +71,7 @@ class RowFeatureIndex(ABC):
         self._feature_arr: list[dict[str, np.ndarray]] = []
         self._num_entries_per_row: list[int] = []
         self._version = importlib.metadata.version("bionemo.scdl")
-        self._labels: list[str] = []
+        self._labels: list[Optional[str]] = []
 
     def _get_dataset_id(self, row) -> int:
         """Gets the dataset id for a specified row index.
@@ -137,7 +141,7 @@ class RowFeatureIndex(ABC):
         """Extend the number of entries per row for a concrete index implementation."""
         ...
 
-    def _check_and_append(self, n_obs: int, features: dict[str, np.ndarray], total_csum: Optional[str] = None) -> bool:
+    def _check_and_append(self, features: dict[str, np.ndarray], total_csum: Optional[int] = None) -> bool:
         """Subclass hook to optionally merge with last block. Return True if merged."""
         return False
 
@@ -156,6 +160,13 @@ class RowFeatureIndex(ABC):
             A list containing the lengths of the features in every row
         """
         return self._num_entries_per_row
+    def _validate_features(self, n_obs: int, features: dict[str, np.ndarray]) -> None:
+        """Validate the features."""
+        if len(features) > 0:
+            first_length = len(next(iter(features.values())))
+            if any(len(v) != first_length for v in features.values()):
+                raise ValueError("All feature arrays must have the same length")
+
 
     def number_of_values(self) -> list[int]:
         """Get the total number of values in the array.
@@ -175,20 +186,15 @@ class RowFeatureIndex(ABC):
         vals = [n_rows * self._num_entries_per_row[i] for i, n_rows in enumerate(rows)]
         return vals
 
-    def append_features(self, n_obs: int, features: object, label: Optional[str] = None) -> None:
+    def append_features(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
         """Append features, delegating validation and merge behavior to subclasses."""
         if not isinstance(features, dict):
             raise TypeError(f"{self.__class__.__name__}.append_features expects a dict of arrays")
-
-        if len(features) > 0:
-            first_length = len(next(iter(features.values())))
-            if any(len(v) != first_length for v in features.values()):
-                raise ValueError("All feature arrays must have the same length")
-
+        self._validate_features(n_obs, features)
         total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
 
         # Optionally merge into previous block
-        if self._check_and_append(n_obs, features, total_csum):
+        if self._check_and_append(features, total_csum):
             return
 
         # Otherwise start a new block
@@ -198,12 +204,12 @@ class RowFeatureIndex(ABC):
         self._extend_num_entries_per_row(features)
 
     @abstractmethod
-    def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
+    def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
         """Lookup features at a given row; must be implemented by subclasses."""
         ...
 
     def number_of_rows(self) -> int:
-        """The number of rows in the index"".
+        """The number of rows in the index.
 
         Returns:
             An integer corresponding to the number or rows in the index
@@ -268,7 +274,7 @@ class VariableFeatureIndex(RowFeatureIndex):
         """Create a variable (column) feature index."""
         super().__init__()
 
-    def _check_and_append(self, n_obs: int, features: dict[str, np.ndarray], total_csum: Optional[str] = None) -> bool:
+    def _check_and_append(self, features: dict[str, np.ndarray], total_csum: Optional[int] = None) -> bool:
         """Check if the features are the same as the last features in the index and if so, merge the current block with the last block."""
         if len(self._feature_arr) > 0 and are_dicts_equal(self._feature_arr[-1], features):
             self._cumulative_sum_index[-1] = total_csum
@@ -288,9 +294,67 @@ class VariableFeatureIndex(RowFeatureIndex):
         """Load a variable (column) feature index from a directory."""
         return RowFeatureIndex._load_common(datapath, VariableFeatureIndex())
 
-    def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:
+    def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
         """Lookup features at a given row, returning full arrays for that span."""
         d_id = self._get_dataset_id(row)
         features_dict = self._feature_arr[d_id]
         features = self._filter_features(features_dict, select_features)
         return features, self._labels[d_id]
+
+class ObservedFeatureIndex(RowFeatureIndex):
+    """This gives features for a specific cell (.obs).
+    Implemented as dict[str, np.ndarray] blocks (column name -> column values).
+    """
+
+    def __init__(self) -> None:
+        """Create an observed (row) feature index."""
+        super().__init__()
+
+    def _check_and_append(self, features: dict[str, np.ndarray], total_csum: Optional[int] = None) -> bool:
+        """If last block has same schema (keys), merge row-wise by concatenating columns.
+        Returns True if merged into existing block; False otherwise.
+        """
+        if len(self._feature_arr) > 0:
+            last_features = self._feature_arr[-1]
+            if last_features.keys() == features.keys():
+                merged = {k: np.concatenate([last_features[k], np.asarray(features[k])]) for k in features}
+                self._feature_arr[-1] = merged
+                self._cumulative_sum_index[-1] = total_csum
+                return True
+        return False
+
+    def _validate_features(self, n_obs: int, features: dict[str, np.ndarray]) -> None:
+        """Observed: require non-empty or n_obs==0, and equal per-column lengths matching n_obs."""
+        super()._validate_features(n_obs, features)
+        lengths = {k: len(v) for k, v in features.items()}
+        if len(lengths) == 0:
+            if n_obs != 0:
+                raise ValueError("Provided empty features but n_obs > 0")
+            return
+        first_len = next(iter(lengths.values()))
+        if n_obs != first_len:
+            raise ValueError(f"Number of observations {n_obs} does not match feature array length {first_len}")
+
+    def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
+        """Lookup features at a given row (cell).
+        Returns a list of scalar values (one per selected feature) and the label.
+        """
+        d_id = self._get_dataset_id(row)
+        features_dict: dict[str, np.ndarray] = self._feature_arr[d_id]
+        start = self._cumulative_sum_index[d_id] if d_id > 0 else 0
+        row_idx_in_block = row - start
+        if select_features is not None:
+            vals = [np.asarray(features_dict[f])[row_idx_in_block] for f in select_features]
+        else:
+            vals = [np.asarray(features_dict[f])[row_idx_in_block] for f in features_dict]
+        return vals, self._labels[d_id]
+
+
+    def _extend_num_entries_per_row(self, features: dict[str, np.ndarray]) -> None:
+        num_entries = len(features)
+        self._num_entries_per_row.append(num_entries)
+
+    @staticmethod
+    def load(datapath: str) -> "ObservedFeatureIndex":
+        """Load an observed (row) feature index from a directory."""
+        return RowFeatureIndex._load_common(datapath, ObservedFeatureIndex())

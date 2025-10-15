@@ -30,7 +30,7 @@ import scipy
 import torch
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
-from bionemo.scdl.index.row_feature_index import VariableFeatureIndex
+from bionemo.scdl.index.row_feature_index import VariableFeatureIndex, ObservedFeatureIndex
 from bionemo.scdl.schema.header import ArrayDType, ArrayInfo, Backend, FeatureIndexInfo, SCDLHeader
 from bionemo.scdl.schema.version import CurrentSCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
@@ -52,7 +52,8 @@ class FileNames(str, Enum):
     ROWPTR = "row_ptr.npy"
     METADATA = "metadata.json"
     DTYPE = "dtypes.json"
-    FEATURES = "features"
+    VAR_FEATURES = "var_features"
+    OBS_FEATURES = "obs_features"
     VERSION = "version.json"
     NEIGHBOR_INDICES = "neighbor_indices.npy"
     NEIGHBOR_INDICES_PTR = "neighbor_indptr.npy"
@@ -226,6 +227,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
         var_feature_index_name="feature_id",
+        obs_feature_index_name="feature_id",
         # --- Neighbor Args ---
         load_neighbors: bool = False,
         neighbor_key: str = "next_cell_ids",
@@ -244,6 +246,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             paginated_load_cutoff: MB size on disk at which to load the h5ad structure with paginated load.
             load_block_row_size: Number of rows to load into memory with paginated load
             var_feature_index_name: The name of the features if the features are only stored in features_df.index.values
+            obs_feature_index_name: The name of the obs features if the features are only stored in features_df.index.values
             # --- New Neighbor Args ---
             load_neighbors (bool, optional): Boolean to control to control whether to load and utilize neighbor information
             neighbor_key (str, optional): The key in AnnData's .obsp containing neighbor information.
@@ -257,6 +260,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.paginated_load_cutoff = paginated_load_cutoff
         self.load_block_row_size = load_block_row_size
         self.var_feature_index_name = var_feature_index_name
+        self.obs_feature_index_name = obs_feature_index_name
         # Backing arrays
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
@@ -269,6 +273,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # the original AnnData features (e.g., gene names)
         # and allows us to store ragged arrays in our SCMMAP structure.
         self._var_feature_index: VariableFeatureIndex = VariableFeatureIndex()
+        self._obs_feature_index: ObservedFeatureIndex = ObservedFeatureIndex()
 
         # Variables for int packing / reduced precision
         self.dtypes: Dict[FileNames, str] = {
@@ -527,7 +532,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         index: int,
         return_features: bool = False,
         feature_vars: Optional[List[str]] = None,
-    ) -> Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]]:
+        return_obs_features: bool = False,
+        obs_feature_vars: Optional[List[str]] = None,
+    ) -> Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray], List[np.ndarray]]:
         """Returns a given row in the dataset along with optional features.
 
         Args:
@@ -543,16 +550,21 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         values = self.data[start:end]
         columns = self.col_index[start:end]
         ret = (values, columns)
-        if return_features:
-            return ret, self._var_feature_index.lookup(index, select_features=feature_vars)[0]
-        else:
-            return ret, None
+        var_features = (
+            self._var_feature_index.lookup(index, select_features=feature_vars)[0] if return_features else None
+        )
+        obs_features = (
+            self._obs_feature_index.lookup(index, select_features=obs_feature_vars)[0] if return_obs_features else None
+        )
+        return ret, var_features, obs_features
 
     def get_row_with_neighbor(
         self,
         index: int,
         return_features: bool = False,
         feature_vars: Optional[List[str]] = None,
+        return_obs_features: bool = False,
+        obs_feature_vars: Optional[List[str]] = None,
     ) -> Dict[str, Union[Tuple[np.ndarray, np.ndarray], int, Optional[List[np.ndarray]]]]:
         """Returns a given row in the dataset along with optional features and neighbor data.
 
@@ -579,7 +591,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
 
         # Get current cell data using the existing get_row function
-        current_cell_data, features = self.get_row(index, return_features, feature_vars)
+        current_cell_data, var_features, obs_features = self.get_row(index, return_features, feature_vars, return_obs_features, obs_feature_vars)
 
         # Sample neighbor and get its data
         neighbor_index = self.sample_neighbor_index(index)
@@ -589,7 +601,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             next_cell_data = current_cell_data
         else:
             # Get neighbor cell data using the get_row function
-            next_cell_data, _ = self.get_row(neighbor_index, False, None)
+            next_cell_data, _,_= self.get_row(neighbor_index, False, None)
 
         # Return all data in a dictionary format
         return {
@@ -597,7 +609,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             "next_cell": next_cell_data,
             "current_cell_index": index,
             "next_cell_index": neighbor_index,
-            "features": features,
+            "var_features": var_features,
+            "obs_features": obs_features,
         }
 
     def get_row_padded(
@@ -605,7 +618,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         index: int,
         return_features: bool = False,
         feature_vars: Optional[List[str]] = None,
-    ) -> Tuple[np.ndarray, List[np.ndarray]]:
+        return_obs_features: bool = False,
+        obs_feature_vars: Optional[List[str]] = None,
+    ) -> Tuple[np.ndarray, List[np.ndarray], List[np.ndarray]]:
         """Returns a padded version of a row in the dataset.
 
         A padded version is one where the a sparse array representation is
@@ -620,10 +635,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             np.ndarray: conventional row representation
             List[np.ndarray]: optional, corresponding features.
         """
-        (row_values, row_column_pointer), features = self.get_row(index, return_features, feature_vars)
+        (row_values, row_column_pointer), var_features, obs_features = self.get_row(index, return_features, feature_vars, return_obs_features, obs_feature_vars)
         return (
             _pad_sparse_array(row_values, row_column_pointer, self._var_feature_index.number_vars_at_row(index)),
-            features,
+            var_features,
+            obs_features,
         )
 
     def get_row_padded_with_neighbor(
@@ -631,6 +647,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         index: int,
         return_features: bool = False,
         feature_vars: Optional[List[str]] = None,
+        return_obs_features: bool = False,
+        obs_feature_vars: Optional[List[str]] = None,
     ) -> Dict[str, Union[np.ndarray, int, List[np.ndarray]]]:
         """Returns a padded version of a row with optional neighbor data.
 
@@ -660,10 +678,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
 
         # Get both current cell and neighbor data
-        result = self.get_row_with_neighbor(index, return_features, feature_vars)
+        result = self.get_row_with_neighbor(index, return_features, feature_vars, return_obs_features, obs_feature_vars)
 
         # Get current cell padded array using get_row_padded
-        curr_padded, _ = self.get_row_padded(index, False, None)
+        curr_padded, _,_ = self.get_row_padded(index, False, None, False, None)
 
         # For neighbor, get the padded array
         next_idx = result["next_cell_index"]
@@ -672,7 +690,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             next_padded = curr_padded
         else:
             # Otherwise get the neighbor's padded array
-            next_padded, _ = self.get_row_padded(next_idx, False, None)
+            next_padded, _,_ = self.get_row_padded(next_idx, False, None)
 
         # Return in dictionary format
         return {
@@ -680,7 +698,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             "next_cell": next_padded,
             "current_cell_index": result["current_cell_index"],
             "next_cell_index": result["next_cell_index"],
-            "features": result["features"],
+            "var_features": result["var_features"],
+            "obs_features": result["obs_features"],
         }
 
     def get_row_column(self, index: int, column: int, impute_missing_zeros: bool = True) -> Optional[float]:
@@ -694,7 +713,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         Return:
             A float that is the value in the array or None.
         """
-        (row_values, row_column_pointer), _ = self.get_row(index)
+        (row_values, row_column_pointer), _, _ = self.get_row(index)
         if column is not None:
             for col_index, col in enumerate(row_column_pointer):
                 if col == column:
@@ -710,6 +729,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
     def features(self) -> Optional[VariableFeatureIndex]:
         """Return the corresponding VariableFeatureIndex."""
         return self._var_feature_index
+    def obs_features(self) -> Optional[ObservedFeatureIndex]:
+        """Return the corresponding ObservedFeatureIndex."""
+        return self._obs_feature_index
 
     def _load_mmap_file_if_exists(self, file_path, dtype):
         if os.path.exists(file_path):
@@ -755,8 +777,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         with open(f"{self.data_path}/{FileNames.METADATA.value}", Mode.READ_APPEND.value) as mfi:
             self.metadata = json.load(mfi)
 
-        if os.path.exists(f"{self.data_path}/{FileNames.FEATURES.value}"):
-            self._var_feature_index = VariableFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES.value}")
+        if os.path.exists(f"{self.data_path}/{FileNames.VAR_FEATURES.value}"):
+            self._var_feature_index = VariableFeatureIndex.load(f"{self.data_path}/{FileNames.VAR_FEATURES.value}")
+        if os.path.exists(f"{self.data_path}/{FileNames.OBS_FEATURES.value}"):
+            self._obs_feature_index = ObservedFeatureIndex.load(f"{self.data_path}/{FileNames.OBS_FEATURES.value}")
 
         if os.path.exists(f"{self.data_path}/{FileNames.DTYPE.value}"):
             with open(f"{self.data_path}/{FileNames.DTYPE.value}") as dfi:
@@ -839,14 +863,14 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(int)
 
         vars = adata.var
+        obs = adata.obs
         file_handle = getattr(adata, "file", None)
         if file_handle is not None:
             try:
                 file_handle.close()
             except Exception:
                 pass
-
-        return vars, num_rows
+        return vars, obs, num_rows
 
     def paginated_load_h5ad(
         self,
@@ -914,6 +938,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             shape=(n_elements,),
         )
         vars = adata.var
+        obs = adata.obs
         file_handle = getattr(adata, "file", None)
         if file_handle is not None:
             try:
@@ -921,7 +946,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             except Exception:
                 pass
 
-        return vars, num_rows
+        return vars, obs, num_rows
 
     def _load_neighbor_memmaps(self):
         try:
@@ -971,16 +996,25 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         file_size_MB = os.path.getsize(anndata_path) / (1_024**2)
 
         if file_size_MB < self.paginated_load_cutoff:
-            var_features_df, num_rows = self.regular_load_h5ad(anndata_path)
+            var_features_df, obs_features_df, num_rows = self.regular_load_h5ad(anndata_path)
         else:
-            var_features_df, num_rows = self.paginated_load_h5ad(anndata_path)
+            var_features_df, obs_features_df,num_rows = self.paginated_load_h5ad(anndata_path)
         if len(var_features_df.columns) > 0:
             var_features = {col: np.array(var_features_df[col].values) for col in var_features_df.columns}
         elif len(var_features_df.index) > 0:
             var_features = {self.var_feature_index_name: var_features_df.index.values}
         else:
             var_features = {}
+        if len(obs_features_df.columns) > 0:
+            obs_features = {col: np.array(obs_features_df[col].values) for col in obs_features_df.columns}
+        elif len(obs_features_df.index) > 0:
+            obs_features = {self.obs_feature_index_name: obs_features_df.index.values}
+        else:
+            obs_features = {}
+
         self._var_feature_index.append_features(n_obs=num_rows, features=var_features, label=anndata_path)
+        print("NUM ROWS", num_rows, "ANNDATA PATH", anndata_path, len(obs_features), obs_features_df.shape)        
+        self._obs_feature_index.append_features(n_obs=num_rows, features=obs_features, label=anndata_path)
         self.save()
 
     def _write_header(self):
@@ -1009,7 +1043,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Populate FeatureIndexInfo entries for the feature index directory
         indexes: List[FeatureIndexInfo] = []
-        for feature_index in [self._var_feature_index]:
+        for feature_index, feature_index_path in [(self._var_feature_index, FileNames.VAR_FEATURES.value), (self._obs_feature_index, FileNames.OBS_FEATURES.value)]:
             # If feature index is None, it is not recorded in the header
             if feature_index is None:
                 continue
@@ -1022,7 +1056,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 continue
 
             feature_array_dtype = ArrayDType.STRING_ARRAY
-            features_rel_path = f"{FileNames.FEATURES.value}"
+            features_rel_path = f"{feature_index_path}"
             index_files: List[str] = [
                 f"{features_rel_path}/cumulative_sum_index.npy",
                 f"{features_rel_path}/labels.npy",
@@ -1034,7 +1068,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     index_files.append(f"{features_rel_path}/dataframe_{i:0{num_digits}d}.parquet")
 
             fi_info = FeatureIndexInfo(
-                name=FileNames.FEATURES.value,
+                name=feature_index_path,
                 length=num_rows,
                 dtype=feature_array_dtype,
                 index_files=index_files,
@@ -1069,16 +1103,17 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             self.metadata[f"{METADATA.NUM_ROWS.value}"] = self.number_of_rows()
 
         self._write_metadata()
-        # Write the feature index. This may not exist.
-        self._var_feature_index.save(f"{self.data_path}/{FileNames.FEATURES.value}")
-
+        # Write the var and obsfeature index. This may not exist.
+        self._var_feature_index.save(f"{self.data_path}/{FileNames.VAR_FEATURES.value}")
+        self._obs_feature_index.save(f"{self.data_path}/{FileNames.OBS_FEATURES.value}")
         # Ensure the object is in a valid state. These are saved at creation!
         for postfix in [
             f"{FileNames.VERSION.value}",
             f"{FileNames.DATA.value}",
             f"{FileNames.COLPTR.value}",
             f"{FileNames.ROWPTR.value}",
-            f"{FileNames.FEATURES.value}",
+            f"{FileNames.VAR_FEATURES.value}",
+            f"{FileNames.OBS_FEATURES.value}",
         ]:
             if not os.path.exists(f"{self.data_path}/{postfix}"):
                 raise FileNotFoundError(f"This file should exist from object creation: {self.data_path}/{postfix}")
@@ -1393,6 +1428,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 delete_file2_on_complete=destroy_on_copy,
             )
             self._var_feature_index.concat(mmap._var_feature_index)
+            self._obs_feature_index.concat(mmap._obs_feature_index)
             # Update counters
             cumulative_elements += mmap.number_nonzero_values()
             cumulative_rows += mmap.number_of_rows()
