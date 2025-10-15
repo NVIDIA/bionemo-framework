@@ -48,6 +48,7 @@ def extend_files(
     - delete_file2_on_complete (bool): Whether to delete the source after completion.
     - offset (int): Byte offset to start reading within the source file.
     - add_value (int | None): Optional scalar added to each converted element (after casting).
+    - allow_downscaling (bool): Whether to allow downscaling of the data dtype.
 
     Raises:
     - ValueError: If conversion is not a safe upscaling operation.
@@ -57,7 +58,6 @@ def extend_files(
         raise ValueError(
             f"Offset {offset} must be non-negative and divisible by source dtype size {np.dtype(source_dtype).itemsize}"
         )
-
     if not allow_downscaling:
         if source_dtype in INT_ORDER and dest_dtype in INT_ORDER:
             order = INT_ORDER
@@ -67,8 +67,8 @@ def extend_files(
             raise ValueError(
                 f"Unsupported dtype conversion: {source_dtype} → {dest_dtype}. Only same-family upscaling allowed."
             )
-    if order.index(dest_dtype) < order.index(source_dtype):
-        raise ValueError(f"Downscaling not allowed: {source_dtype} → {dest_dtype}.")
+        if order.index(dest_dtype) < order.index(source_dtype):
+            raise ValueError(f"Downscaling not allowed: {source_dtype} → {dest_dtype}.")
 
     # Resolve dtypes once (native endianness) and sizes
     source_dtype = np.dtype(source_dtype).newbyteorder("=")
@@ -122,7 +122,8 @@ def extend_files(
                     if add_scalar is not None:
                         np.add(src.astype(dest_dtype, copy=False), add_scalar, out=dst)
                     else:
-                        np.copyto(dst, src, casting="safe")
+                        safe_casting = "unsafe" if allow_downscaling else "safe"
+                        np.copyto(dst, src, casting=safe_casting)
 
                 f_dest.seek(write_position)
                 f_dest.write(dst_mv)

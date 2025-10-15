@@ -36,10 +36,10 @@ def test_determine_dtype_finds_correct_dtype():
     # scatter the order of the input dtypes for more robust tests
 
     # mix order for integer types
-    assert determine_dtype(names=None, dtypes=[np.uint64, np.uint16, np.uint32, np.uint8]) == "uint64"
+    assert determine_dtype(dtypes=[np.uint64, np.uint16, np.uint32, np.uint8]) == "uint64"
 
     # mix order for mixed family (should raise to float32)
-    assert determine_dtype(names=None, dtypes=["float32", "float64"]) == "float64"
+    assert determine_dtype(dtypes=["float32", "float64"]) == "float64"
 
 
 def test_determine_dtype_raises_error_for_mixed_families():
@@ -49,11 +49,11 @@ def test_determine_dtype_raises_error_for_mixed_families():
             "Mixed float and integer dtype families not allowed: ['float32', 'float64', 'uint16', 'uint32', 'uint64', 'uint8']"
         ),
     ):
-        determine_dtype(names=None, dtypes=[np.uint8, np.uint16, np.uint32, np.uint64, np.float32, np.float64])
+        determine_dtype(dtypes=[np.uint8, np.uint16, np.uint32, np.uint64, np.float32, np.float64])
     with pytest.raises(
         ValueError,
         match=re.escape(
             "Mixed float and integer dtype families not allowed: ['float32', 'float64', 'uint16', 'uint32', 'uint64', 'uint8']"
         ),
     ):
-        determine_dtype(names=None, dtypes=[np.uint8, np.uint16, np.uint32, np.uint64, np.float32, np.float64])
+        determine_dtype(dtypes=[np.uint8, np.uint16, np.uint32, np.uint64, np.float32, np.float64])
