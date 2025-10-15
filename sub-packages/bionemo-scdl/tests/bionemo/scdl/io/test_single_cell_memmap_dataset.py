@@ -428,29 +428,35 @@ def test_concat_SingleCellMemMapDatasets_raises_diff_dtypes(tmp_path, test_direc
         dt_int.concat(ds_float)
 
 
-def test_concat_rowptr_dtype_boundary_changes(tmp_path):
+def test_cast_data_dtype_updates_dtype_and_preserves_values(tmp_path, test_directory):
+    ds = SingleCellMemMapDataset(
+        tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", data_dtype="float32"
+    )
+    original = np.array(ds.data, copy=True)
+
+    ds.cast_data_to_dtype("float64")
+
+    reloaded = SingleCellMemMapDataset(tmp_path / "scy")
+    assert reloaded.dtypes["data.npy"] == "float64"
+    np.testing.assert_allclose(np.array(reloaded.data, dtype=np.float64), original.astype(np.float64), rtol=0, atol=0)
+
+
+def test_cast_data_dtype_downscales_dtype_and_preserves_values(tmp_path, test_directory):
+    ds = SingleCellMemMapDataset(
+        tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", data_dtype="float32"
+    )
+    original = np.array(ds.data, copy=True)
+
+    ds.cast_data_to_dtype("uint16")
+
+    reloaded = SingleCellMemMapDataset(tmp_path / "scy")
+    assert reloaded.dtypes["data.npy"] == "uint16"
+    np.testing.assert_allclose(np.array(reloaded.data, dtype=np.float64), original.astype(np.float64), rtol=0, atol=0)
+
+
+def test_concat_rowptr_dtype_changes_on_concatenation(tmp_path, make_two_datasets):
     """Each nnz < 225 individually; combined > 255 → row_ptr switches to uint16."""
-
-    def make_random_csr(total_nnz: int, n_cols: int, seed: int = 42):
-        rng = np.random.default_rng(seed)
-        indptr = np.arange(total_nnz + 1, dtype=np.int64)
-        indices = rng.integers(0, n_cols, total_nnz)
-        data = np.ones(total_nnz, dtype=np.float64)
-        X = sp.csr_matrix((data, indices, indptr), shape=(total_nnz, n_cols))
-        return X
-
-    X1 = make_random_csr(total_nnz=224, n_cols=200)
-    X2 = make_random_csr(total_nnz=224, n_cols=200)
-    # Persist to disk as h5ad
-    h1 = tmp_path / "var1.h5ad"
-    h2 = tmp_path / "var2.h5ad"
-    ad.AnnData(X=X1).write_h5ad(h1)
-    ad.AnnData(X=X2).write_h5ad(h2)
-
-    ds1 = SingleCellMemMapDataset(tmp_path / "var_ds1", h5ad_path=h1, data_dtype="float32")
-    ds2 = SingleCellMemMapDataset(tmp_path / "var_ds2", h5ad_path=h2, data_dtype="float32")
-
-    expected_row_ptr = np.concatenate([X1.indptr, X2.indptr[1:] + int(X1.nnz)])
+    ds1, ds2, expected_row_ptr, expected_cols, expected_data = make_two_datasets(tmp_path, "float32", "float32")
 
     ds1.concat(ds2)
 
@@ -458,7 +464,12 @@ def test_concat_rowptr_dtype_boundary_changes(tmp_path):
     assert ds1.dtypes["data.npy"] == "float32"
     assert ds1.dtypes["col_ptr.npy"] == "uint8"
     np.testing.assert_array_equal(np.array(ds1.row_index), expected_row_ptr)
-    expected_cols = np.concatenate([X1.indices, X2.indices])
-    expected_data = np.concatenate([X1.data, X2.data])
     np.testing.assert_array_equal(np.array(ds1.col_index), expected_cols)
     np.testing.assert_allclose(np.array(ds1.data), expected_data, rtol=0, atol=0)
+
+
+def test_concat_rowptr_dtype_error_on_data_mismatch_on_concatenation(tmp_path, make_two_datasets):
+    """Each nnz < 225 individually; combined > 255 → row_ptr switches to uint16."""
+    ds1, ds2, _, _, _ = make_two_datasets(tmp_path, "float32", "uint8")
+    with pytest.raises(ValueError, match="Cannot merge datasets with a mix of int and float dtypes for data: "):
+        ds1.concat(ds2)

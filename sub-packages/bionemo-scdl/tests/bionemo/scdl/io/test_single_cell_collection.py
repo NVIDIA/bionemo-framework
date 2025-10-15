@@ -20,7 +20,6 @@ from pathlib import Path
 import anndata as ad
 import numpy as np
 import pytest
-import scipy.sparse as sp
 
 from bionemo.scdl.io.single_cell_collection import SingleCellCollection
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
@@ -144,33 +143,19 @@ def test_sc_failed_process(tmp_path):
         coll.load_h5ad_multi(adata_path, max_workers=4, use_processes=False)
 
 
-def test_sccollection_dtype_changes_on_concatenation(tmp_path):
-    # Small (float32 non-integers), 4 rows with empty first and third rows
-    n_rows_small, n_cols_small = 4, 12
-    data_small = np.array([0.5, -1.25, 3.75, 2.0], dtype=np.float32)
-    indices_small = np.array([0, 11, 5, 7], dtype=np.int64)
-    indptr_small = np.array([0, 0, 2, 2, 4], dtype=np.int64)
-    X_small = ad.AnnData(
-        X=sp.csr_matrix((data_small, indices_small, indptr_small), shape=(n_rows_small, n_cols_small))
-    )
-    small_path = tmp_path / "small.h5ad"
-    X_small.write_h5ad(small_path)
+@pytest.mark.parametrize("order", [("large", "small"), ("small", "large")])
+def test_sccollection_concatenation_dtype_and_values(tmp_path, make_small_and_large_h5ads, order):
+    small_path, large_path, small_parameters, large_parameters = make_small_and_large_h5ads(tmp_path)
 
-    # Large (uint32 via integer-valued with large magnitude), 3 rows with empty middle row
-    n_rows_large, n_cols_large = 3, 70_000
-    data_large = np.array([70_000.0, 1.0], dtype=np.float64)
-    indices_large = np.array([10, 65_537], dtype=np.int64)
-    indptr_large = np.array([0, 1, 1, 2], dtype=np.int64)
-    X_large = ad.AnnData(
-        X=sp.csr_matrix((data_large, indices_large, indptr_large), shape=(n_rows_large, n_cols_large))
-    )
-    large_path = tmp_path / "large.h5ad"
-    X_large.write_h5ad(large_path)
+    first, second = order
+    coll = SingleCellCollection(tmp_path / f"coll_{first}_{second}")
+    if first == "large":
+        coll.load_h5ad(large_path)
+        coll.load_h5ad(small_path)
+    else:
+        coll.load_h5ad(small_path)
+        coll.load_h5ad(large_path)
 
-    # Forward order: large then small
-    coll = SingleCellCollection(tmp_path / "coll_forward")
-    coll.load_h5ad(large_path)
-    coll.load_h5ad(small_path)
     # Assert original per-dataset dtypes before flatten
     datasets = list(coll.fname_to_mmap.values())
     ds_small = min(datasets, key=lambda ds: ds.number_of_variables()[0])
@@ -182,32 +167,39 @@ def test_sccollection_dtype_changes_on_concatenation(tmp_path):
     assert ds_large.dtypes["col_ptr.npy"] == "uint32"
     assert ds_large.dtypes["row_ptr.npy"] == "uint8"
 
-    # Flatten datasets and load new dataset
-    out_path = tmp_path / "flattened_forward"
+    out_path = tmp_path / f"flattened_{first}_{second}"
     coll.flatten(out_path)
     merged = SingleCellMemMapDataset(out_path)
-
     # Dtypes: float32 data (common), col_ptr upscaled to uint32 due to large columns
     assert merged.dtypes["data.npy"] == "float32"
     assert merged.dtypes["col_ptr.npy"] == "uint32"
     assert merged.dtypes["row_ptr.npy"] == "uint8"
 
-    assert np.array_equal(np.array(merged.data), np.array([70_000.0, 1.0, 0.5, -1.25, 3.75, 2.0]))
-    assert np.array_equal(np.array(merged.col_index), np.array([10, 65_537, 0, 11, 5, 7]))
-    assert np.array_equal(np.array(merged.row_index), np.array([0, 1, 1, 2, 2, 4, 4, 6]))
-
-    # Reverse order: small then large
-    coll_rev = SingleCellCollection(tmp_path / "coll_reverse")
-    coll_rev.load_h5ad(small_path)
-    coll_rev.load_h5ad(large_path)
-    out_path_rev = tmp_path / "flattened_reverse"
-    coll_rev.flatten(out_path_rev)
-    merged_rev = SingleCellMemMapDataset(out_path_rev)
-
-    assert merged_rev.dtypes["data.npy"] == "float32"
-    assert merged_rev.dtypes["col_ptr.npy"] == "uint32"
-    assert merged_rev.dtypes["row_ptr.npy"] == "uint8"
-
-    assert np.array_equal(np.array(merged_rev.data), np.array([0.5, -1.25, 3.75, 2.0, 70_000.0, 1.0]))
-    assert np.array_equal(np.array(merged_rev.col_index), np.array([0, 11, 5, 7, 10, 65_537]))
-    assert np.array_equal(np.array(merged_rev.row_index), np.array([0, 0, 2, 2, 4, 5, 5, 6]))
+    if first == "large":
+        assert np.array_equal(
+            np.array(merged.data), np.append(large_parameters["data_vals"], small_parameters["data_vals"])
+        )
+        assert np.array_equal(
+            np.array(merged.col_index), np.append(large_parameters["indices_vals"], small_parameters["indices_vals"])
+        )
+        assert np.array_equal(
+            np.array(merged.row_index),
+            np.append(
+                large_parameters["indptr_vals"],
+                small_parameters["indptr_vals"][1:] + large_parameters["indptr_vals"][-1],
+            ),
+        )
+    else:
+        assert np.array_equal(
+            np.array(merged.data), np.append(small_parameters["data_vals"], large_parameters["data_vals"])
+        )
+        assert np.array_equal(
+            np.array(merged.col_index), np.append(small_parameters["indices_vals"], large_parameters["indices_vals"])
+        )
+        assert np.array_equal(
+            np.array(merged.row_index),
+            np.append(
+                small_parameters["indptr_vals"],
+                large_parameters["indptr_vals"][1:] + small_parameters["indptr_vals"][-1],
+            ),
+        )

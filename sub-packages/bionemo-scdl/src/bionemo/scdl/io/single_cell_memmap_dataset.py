@@ -139,9 +139,9 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         # and allows us to store ragged arrays in our SCMMAP structure.
         self._feature_index: RowFeatureIndex = RowFeatureIndex()
         # Validate data_dtype: must be in INT_ORDER or FLOAT_ORDER in scdl_constants
+        allowed_dtypes = list(INT_ORDER + FLOAT_ORDER)
 
-        if data_dtype is not None and data_dtype not in INT_ORDER + FLOAT_ORDER:
-            allowed_dtypes = list(INT_ORDER + FLOAT_ORDER)
+        if data_dtype is not None and data_dtype not in allowed_dtypes:
             raise ValueError(f"Invalid data_dtype '{data_dtype}'. Must be one of: {', '.join(allowed_dtypes)}")
         # Variables for int packing / reduced precision
         self.dtypes: Dict[FileNames, str] = {
@@ -314,6 +314,22 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         logger.info("Neighbor data extracted to memory-mapped arrays")
         return True
+
+    def cast_data_to_dtype(self, dtype: str) -> None:
+        """Casts the data dtype of the dataset to the given dtype. This will convert the data memory map in-place on the disk.
+
+        Args:
+            dtype: The dtype to cast the data to. Must be one of INT_ORDER + FLOAT_ORDER.
+        """
+        allowed_dtypes = list(INT_ORDER + FLOAT_ORDER)
+
+        if dtype is None or dtype not in allowed_dtypes:
+            raise ValueError(f"Invalid data_dtype '{dtype}'. Must be one of: {', '.join(allowed_dtypes)}")
+
+        # writes the new dtype to the disk
+        self._convert_dataset_to_new_dtypes(new_dtypes={FileNames.DATA.value: dtype}, allow_downscaling=True)
+        # Save the updated header (with a new data dtype to the disk)
+        self._write_header()
 
     def _extract_neighbor_data_paginated(self, adata) -> bool:
         """Extracts neighbor data using paginated approach for large datasets.
@@ -1205,8 +1221,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self, other_dataset: Union[list["SingleCellMemMapDataset"], "SingleCellMemMapDataset"]
     ) -> None:
         cumulative_elements = self.number_nonzero_values()
-        column_dtypes = {self.dtypes[FileNames.COLPTR.value]}
-        data_dtypes = {self.dtypes[FileNames.DATA.value]}
+        column_dtypes = [self.dtypes[FileNames.COLPTR.value]]
+        data_dtypes = [self.dtypes[FileNames.DATA.value]]
 
         for dataset in other_dataset:
             if self.version() != dataset.version():
@@ -1214,15 +1230,34 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     f"""Incompatable versions: input version: {dataset.version()},
             this version:  {self.version}"""
                 )
-            column_dtypes.add(str(dataset.dtypes[FileNames.COLPTR.value]))
-            data_dtypes.add(str(dataset.dtypes[FileNames.DATA.value]))
+            column_dtypes.append(str(dataset.dtypes[FileNames.COLPTR.value]))
+            data_dtypes.append(str(dataset.dtypes[FileNames.DATA.value]))
             cumulative_elements += dataset.number_nonzero_values()
 
         if not (
             all(np.dtype(dt).name in FLOAT_ORDER for dt in data_dtypes)
             or all(np.dtype(dt).name in INT_ORDER for dt in data_dtypes)
         ):
-            raise ValueError(f"Cannot merge datasets with a mix of int and float dtypes for data: {data_dtypes}")
+            float_file_names = []
+            int_file_names = []
+            for dt, name in zip(
+                data_dtypes, [self.data_path.name] + [dataset.data_path.name for dataset in other_dataset]
+            ):
+                dtype_name = np.dtype(dt).name
+                if dtype_name in FLOAT_ORDER:
+                    float_file_names.append(name)
+                elif dtype_name in INT_ORDER:
+                    int_file_names.append(name)
+
+            raise ValueError(f"""Cannot merge datasets with a mix of int and float dtypes for data: {data_dtypes};
+            Float Data datasets: {", ".join(float_file_names)};
+            Int Data datasets: {", ".join(int_file_names)}
+            Cast all of the datasets to either int dtypes or to float dtypes before concatenation.
+            For example for a dataset with data_dtype "uint8", you can cast it to "float32" with:
+            ds = load(data_set_path)
+            ds.cast_data_to_dtype("float32")
+            This will allow downscaling of the data dtype so it is advisable to examine the data if downcasting.
+            """)
 
         new_dtypes = {
             FileNames.COLPTR.value: determine_dtype(column_dtypes),
@@ -1232,11 +1267,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         return new_dtypes
 
     def _convert_dataset_to_new_dtypes(
-        self, new_dtypes: Dict[str, str], extend_copy_size: int = 10 * 1_024 * 1_024
+        self, new_dtypes: Dict[str, str], extend_copy_size: int = 10 * 1_024 * 1_024, allow_downscaling: bool = False
     ) -> None:
         # If any dtype is changing, convert the file in-place to the new dtype using extend_files.
         # This ensures that after this block, self.dtypes and the on-disk files are updated to the new dtype.
         for key in [FileNames.COLPTR.value, FileNames.DATA.value, FileNames.ROWPTR.value]:
+            if key not in new_dtypes:
+                continue
             current_dtype = self.dtypes[key]
             target_dtype = new_dtypes[key]
             if current_dtype != target_dtype:
@@ -1255,6 +1292,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                     delete_file2_on_complete=True,
                     source_dtype=current_dtype,
                     dest_dtype=target_dtype,
+                    allow_downscaling=allow_downscaling,
                 )
                 # Update dtype in self.dtypes
                 self.dtypes[key] = target_dtype

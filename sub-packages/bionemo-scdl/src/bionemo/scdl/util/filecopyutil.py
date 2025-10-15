@@ -29,6 +29,7 @@ def extend_files(
     delete_file2_on_complete: bool = False,
     offset: int = 0,
     add_value: int | None = None,
+    allow_downscaling: bool = False,
 ):
     """Concatenates the contents of `second` into `first` using memory-efficient operations.
 
@@ -57,14 +58,15 @@ def extend_files(
             f"Offset {offset} must be non-negative and divisible by source dtype size {np.dtype(source_dtype).itemsize}"
         )
 
-    if source_dtype in INT_ORDER and dest_dtype in INT_ORDER:
-        order = INT_ORDER
-    elif source_dtype in FLOAT_ORDER and dest_dtype in FLOAT_ORDER:
-        order = FLOAT_ORDER
-    else:
-        raise ValueError(
-            f"Unsupported dtype conversion: {source_dtype} → {dest_dtype}. Only same-family upscaling allowed."
-        )
+    if not allow_downscaling:
+        if source_dtype in INT_ORDER and dest_dtype in INT_ORDER:
+            order = INT_ORDER
+        elif source_dtype in FLOAT_ORDER and dest_dtype in FLOAT_ORDER:
+            order = FLOAT_ORDER
+        else:
+            raise ValueError(
+                f"Unsupported dtype conversion: {source_dtype} → {dest_dtype}. Only same-family upscaling allowed."
+            )
     if order.index(dest_dtype) < order.index(source_dtype):
         raise ValueError(f"Downscaling not allowed: {source_dtype} → {dest_dtype}.")
 
