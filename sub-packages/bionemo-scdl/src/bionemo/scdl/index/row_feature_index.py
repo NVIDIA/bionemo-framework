@@ -206,9 +206,6 @@ class RowFeatureIndex(ABC):
         self._labels.append(label)
         self._extend_num_entries_per_row(features)
 
-    @abstractmethod
-    def _rows_added(self, n_obs: int, features: dict[str, np.ndarray]) -> int: ...
-
     def number_vars_at_row(self, row: int) -> int:
         """Return the number of variables for the block that contains `row`."""
         dataset_idx = self._get_dataset_id(row)
