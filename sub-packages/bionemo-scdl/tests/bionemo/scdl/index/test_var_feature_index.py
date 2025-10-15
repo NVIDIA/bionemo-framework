@@ -24,9 +24,8 @@ from bionemo.scdl.index.row_feature_index import VariableFeatureIndex
 def test_appending_dataframe_results_in_error():
     two_feats = pd.DataFrame({"feature_name": ["FF", "GG"], "gene_name": ["RET", "NTRK"]})
     index = VariableFeatureIndex()
-    with pytest.raises(TypeError) as error_info:
+    with pytest.raises(TypeError, match="Expected a dictionary, but received a Pandas DataFrame."):
         index.append_features(8, two_feats, "MY_DATAFRAME")
-        assert "Expected a dictionary, but received a Pandas DataFrame." in str(error_info.value)
 
 
 def test_append_features_mismatched_lengths_raises():
@@ -203,4 +202,6 @@ def test_save_reload_row_VariableFeatureIndex_same_feature_indices(tmp_path, mak
         features_one, labels_one = first_index.lookup(row=row, select_features=None)
         features_reload, labels_reload = index_reload.lookup(row=row, select_features=None)
         assert labels_one == labels_reload
-        assert np.all(np.array(features_one, dtype=object) == np.array(features_reload))
+        assert len(features_one) == len(features_reload)
+        for f_one, f_reload in zip(features_one, features_reload):
+            assert np.array_equal(f_one, f_reload)
