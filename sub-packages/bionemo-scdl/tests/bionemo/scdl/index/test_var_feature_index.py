@@ -103,7 +103,7 @@ def test_concat_non_empty_with_empty_index_structure(make_feat_dictionary, asser
     )
 
 
-def test_concat_two_blocks_structure(make_feat_dictionary, assert_index_state):
+def test_concat_two_indices_structure(make_feat_dictionary, assert_index_state):
     idx = VariableFeatureIndex()
     num_rows_a, cols_a, col_widths_a = 2, 2, 2
     idx.append_features(num_rows_a, make_feat_dictionary(cols_a, col_widths_a), label="A")
