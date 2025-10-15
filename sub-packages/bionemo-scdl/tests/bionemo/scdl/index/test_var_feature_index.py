@@ -17,38 +17,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from bionemo.scdl.index.row_feature_index import VariableFeatureIndex, are_dicts_equal
-
-
-# Testing dictionary equality function
-def test_equal_dicts():
-    dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
-    dict2 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
-    assert are_dicts_equal(dict1, dict2) is True
-
-
-def test_unequal_values():
-    dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
-    dict3 = {"a": np.array([1, 2, 3]), "b": np.array([7, 8, 9])}
-
-    assert are_dicts_equal(dict1, dict3) is False
-
-
-def test_unequal_keys():
-    dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
-    dict4 = {"a": np.array([1, 2, 3]), "c": np.array([4, 5, 6])}
-    assert are_dicts_equal(dict1, dict4) is False
-
-
-def test_different_lengths():
-    dict1 = {"a": np.array([1, 2, 3]), "b": np.array([4, 5, 6])}
-    smaller_dict = {"a": np.array([1, 2, 3])}
-    assert are_dicts_equal(dict1, smaller_dict) is False
+from bionemo.scdl.index.row_feature_index import VariableFeatureIndex
 
 
 #  Testing VariableFeatureIndex functionality
-
-
 def test_appending_dataframe_results_in_error():
     two_feats = pd.DataFrame({"feature_name": ["FF", "GG"], "gene_name": ["RET", "NTRK"]})
     index = VariableFeatureIndex()
