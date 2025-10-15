@@ -16,7 +16,7 @@
 """Utility functions for memory-mapped dataset operations.
 
 This module contains helper functions for:
-- Data type optimization and compression
+- Data type casting
 - Sparse array manipulation
 - Memory-mapped array creation
 """

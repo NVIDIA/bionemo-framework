@@ -171,7 +171,7 @@ To replicate this on your machine, see: [Tahoe 100M Profiling](https://github.co
 
 ## Data Type Casting
 
-SCDL allows you to specify the data type for the values stored from AnnData `.X` to manage storage size and precision. You can choose from "uint8", "uint16", "uint32", "uint64", "float16", "float32", or "float64". Smaller types (like "uint8" or "float16") enable data compression, while higher-precision types (like "float64") use more space but preserve full precision. The data type is set when loading the dataset from an AnnData file with
+SCDL lets you control both storage size and numerical precision by specifying the data type for values loaded from AnnData `.X`. Supported types include "uint8", "uint16", "uint32", "uint64", "float16", "float32", and "float64". Choosing a smaller type (like "uint8" or "float16") results in more compact storage, while selecting a higher-precision type (such as "float64") uses more space but preserves maximum accuracy. You set the data type at the time of dataset creation from an AnnData file using:
 
 ```python
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
