@@ -110,7 +110,7 @@ def test_select_features_behavior(make_feat_dictionary):
     feats, label = index.lookup(0, select_features=list(seed_features.keys()))
     assert label == expected_label
     selected = {k: seed_features[k] for k in seed_features.keys()}
-    assert np.all(feats == np.stack(list(selected.values())))
+    assert np.array_equal(np.stack(feats), np.stack(list(selected.values())))
 
     with pytest.raises(
         ValueError, match="Provided feature column does_not_exist in select_features not present in dataset."
@@ -201,13 +201,13 @@ def test_concat_multiblock_number_vars_at_rows_correct_values(make_feat_dictiona
     for r in range(0, num_rows_a):
         assert idx.number_vars_at_row(r) == col_widths_a
         feats, label = idx.lookup(row=r, select_features=None)
-        assert np.all(feats == np.stack(list(feats_a.values())))
+        assert np.array_equal(np.stack(feats), np.stack(list(feats_a.values())))
         assert label == "A"
     # Rows in second block
     for r in range(num_rows_a, num_rows_a + num_rows_b):
         assert idx.number_vars_at_row(r) == col_widths_b
         feats, label = idx.lookup(row=r, select_features=None)
-        assert np.all(feats == np.stack(list(feats_b.values())))
+        assert np.array_equal(np.stack(feats), np.stack(list(feats_b.values())))
         assert label == "B"
 
 
