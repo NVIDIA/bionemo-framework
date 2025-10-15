@@ -13,6 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Feature index abstractions for SCDL.
+
+This module defines an abstract base `RowFeatureIndex` and two concrete
+implementations:
+
+- `ObservedFeatureIndex`: row-oriented features, where a lookup returns one
+  scalar per selected feature for a given row.
+- `VariableFeatureIndex`: column-oriented features, where a lookup returns full
+  feature arrays for the block containing a given row.
+
+Data are stored in blocks (feature dictionaries), and `_cumulative_sum_index`
+tracks row boundaries between blocks.
+"""
+
 from __future__ import annotations
 
 import importlib.metadata
@@ -32,6 +46,14 @@ __all__: Sequence[str] = (
 )
 
 
+def _to_arrow_array(vals):
+    """Convert a list of values to an Arrow array."""
+    try:
+        return pa.array(vals, from_pandas=True)
+    except pa.ArrowInvalid:
+        return pa.array(vals, type=pa.string(), from_pandas=True)
+
+
 def are_dicts_equal(dict1: dict[str, np.ndarray], dict2: dict[str, np.ndarray]) -> bool:
     """Compare two dictionaries with string keys and numpy.ndarray values.
 
@@ -47,22 +69,21 @@ def are_dicts_equal(dict1: dict[str, np.ndarray], dict2: dict[str, np.ndarray]) 
 
 
 class RowFeatureIndex(ABC):
-    """Maintains a mapping between a row or column and its features.
+    """Abstract base for ragged feature indices.
 
-    This is a ragged dataset, where the number and dimension of features
-    can be different at every row.
+    Represents datasets where the number and/or shape of features can differ per
+    row. Data are organized in blocks (feature dictionaries), with a cumulative
+    sum index delineating block boundaries.
 
     Attributes:
-        _cumulative_sum_index: Pointer that deliniates which entries
-        correspond to a given row. For examples if the array is [-1, 200, 201],
-        rows 0 to 199 correspond to _feature_arr[0] and 200 corresponds to
-        _feature_arr[1]
-        _feature_arr: list of feature dictionaries for each dataset
-        _num_entries_per_row: list that tracks the feature length (number of genes) for each dataset.
-        Extracting this information repeatedly from self._feature_arr would be cumbersome which is why we
-        add this attribute.
-        _labels: list of labels
-        _version: The version of the dataset
+        _cumulative_sum_index: Cumulative row counts that delineate block
+            boundaries. For example, with `[-1, 200, 350]`, rows `0..199` are in
+            block 0 and rows `200..349` are in block 1.
+        _feature_arr: List of feature dictionaries, one per block.
+        _num_entries_per_row: Per-block counts used by `number_vars_at_row` and
+            `column_dims`.
+        _labels: Optional label per block (e.g., dataset ID or name).
+        _version: Version string for the dataset.
     """
 
     def __init__(self) -> None:
@@ -100,6 +121,18 @@ class RowFeatureIndex(ABC):
 
     @staticmethod
     def _load_common(datapath: str, instance: "RowFeatureIndex") -> "RowFeatureIndex":
+        """Load state common to all concrete indices from a directory.
+
+        Reads block data from Parquet files under `datapath`, plus the saved
+        cumulative sum index, labels, and version.
+
+        Args:
+            datapath: Directory containing saved index files.
+            instance: An empty instance of the concrete subclass to populate.
+
+        Returns:
+            The populated `instance`.
+        """
         parquet_data_paths = sorted(Path(datapath).rglob("*.parquet"))
         data_tables = [pq.read_table(csv_path) for csv_path in parquet_data_paths]
         instance._feature_arr = [
@@ -116,6 +149,12 @@ class RowFeatureIndex(ABC):
     def _filter_features(
         self, features_dict: dict[str, np.ndarray], select_features: Optional[list[str]]
     ) -> list[np.ndarray]:
+        """Select and order features by name from a feature dictionary.
+
+        If `select_features` is None, all features are returned in dictionary
+        iteration order. Otherwise, features are returned in the provided order,
+        and a ValueError is raised if any name is missing.
+        """
         if select_features is not None:
             features: list[np.ndarray] = []
             for feature in select_features:
@@ -133,7 +172,7 @@ class RowFeatureIndex(ABC):
         return self._version
 
     def __len__(self) -> int:
-        """The length is the number of rows or FeatureIndex length."""
+        """Return the number of blocks (feature dictionaries)."""
         return len(self._feature_arr)
 
     @abstractmethod
@@ -141,31 +180,53 @@ class RowFeatureIndex(ABC):
         """Extend the number of entries per row for a concrete index implementation."""
         ...
 
+    @abstractmethod
     def _check_and_append(self, features: dict[str, np.ndarray], total_csum: Optional[int] = None) -> bool:
-        """Subclass hook to optionally merge with last block. Return True if merged."""
-        return False
+        """Optionally merge a new block into the last block.
 
-    def _rows_added(self, n_obs: int, features: dict[str, np.ndarray]) -> int:
-        raise NotImplementedError("_rows_added must be implemented in subclass")
+        Subclasses may coalesce compatible blocks and update `_cumulative_sum_index`.
+        Return True if merged; False otherwise.
+        """
+        ...
+
+    def _append_block(self, features: dict[str, np.ndarray], label: Optional[str], total_csum: int) -> None:
+        """Append a new block after merge check, updating internal state.
+
+        This centralizes the common append path used by concrete subclasses.
+        """
+        # Optionally merge into previous block
+        if self._check_and_append(features, total_csum):
+            return
+
+        # Otherwise start a new block
+        self._cumulative_sum_index = np.append(self._cumulative_sum_index, total_csum)
+        self._feature_arr.append(features)
+        self._labels.append(label)
+        self._extend_num_entries_per_row(features)
+
+    @abstractmethod
+    def _rows_added(self, n_obs: int, features: dict[str, np.ndarray]) -> int: ...
 
     def number_vars_at_row(self, row: int) -> int:
-        """Return number of variables in a given row (base: uses stored per-dataset counts)."""
+        """Return the number of variables for the block that contains `row`."""
         dataset_idx = self._get_dataset_id(row)
         return self._num_entries_per_row[dataset_idx]
 
     def column_dims(self) -> list[int]:
-        """Return the number of columns in all rows.
+        """Return per-block feature counts.
 
-        Args:
-            length of features at every row is returned.
-
-        Returns:
-            A list containing the lengths of the features in every row
+        For `ObservedFeatureIndex`, this is the number of feature columns per
+        block. For `VariableFeatureIndex`, this is the per-row array length per
+        block.
         """
         return self._num_entries_per_row
 
     def _validate_features_get_length(self, features: dict[str, np.ndarray]) -> None:
-        """Validate the features."""
+        """Validate feature input and return the expected per-row length.
+
+        Ensures `features` is a dictionary with arrays of equal length. Returns
+        the common length (0 if empty).
+        """
         if not isinstance(features, dict):
             raise TypeError(f"{self.__class__.__name__}.append_features expects a dict of arrays")
 
@@ -178,12 +239,10 @@ class RowFeatureIndex(ABC):
             return 0
 
     def number_of_values(self) -> list[int]:
-        """Get the total number of values in the array.
+        """Return total value counts per block.
 
-        For each row, the number of genes is counted.
-
-        Returns:
-            A list containing the lengths of the features in every block of rows
+        For each block, `(rows in block) * (per-block feature count)`. Returns
+        `[0]` when there are no blocks.
         """
         if len(self._feature_arr) == 0:
             return [0]
@@ -235,7 +294,7 @@ class RowFeatureIndex(ABC):
         Path(datapath).mkdir(parents=True, exist_ok=True)
         num_digits = len(str(len(self._feature_arr)))
         for index, feature_dict in enumerate(self._feature_arr):
-            table = pa.table({col: pa.array(vals) for col, vals in feature_dict.items()})
+            table = pa.table({col: _to_arrow_array(vals) for col, vals in feature_dict.items()})
             dataframe_str_index = f"{index:0{num_digits}d}"
             pq.write_table(table, f"{datapath}/dataframe_{dataframe_str_index}.parquet")
         np.save(Path(datapath) / "cumulative_sum_index.npy", self._cumulative_sum_index)
@@ -243,94 +302,13 @@ class RowFeatureIndex(ABC):
         np.save(Path(datapath) / "version.npy", np.array(self._version))
 
 
-class VariableFeatureIndex(RowFeatureIndex):
-    """This gives features for genes in a given row (.var). This is stored in a list of dictionaries."""
-
-    def __init__(self) -> None:
-        """Create a variable (column) feature index."""
-        super().__init__()
-
-    def _check_and_append(self, features: dict[str, np.ndarray], total_csum: Optional[int] = None) -> bool:
-        """Check if the features are the same as the last features in the index and if so, merge the current block with the last block."""
-        if len(self._feature_arr) > 0 and are_dicts_equal(self._feature_arr[-1], features):
-            self._cumulative_sum_index[-1] = total_csum
-            return True
-        return False
-
-    def _extend_num_entries_per_row(self, features: dict[str, np.ndarray]) -> None:
-        """Extend the number of entries per row by the number of features in the dictionary."""
-        if len(features) == 0:
-            num_entries = 0
-        else:
-            num_entries = len(features[next(iter(features.keys()))])
-        self._num_entries_per_row.append(num_entries)
-
-    @staticmethod
-    def load(datapath: str) -> "VariableFeatureIndex":
-        """Load a variable (column) feature index from a directory."""
-        return RowFeatureIndex._load_common(datapath, VariableFeatureIndex())
-
-    def _rows_added(self, n_obs: int, features: dict[str, np.ndarray]) -> int:
-        """Observed rows advance by the observation count."""
-        return len(features)
-
-    def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
-        """Lookup features at a given row, returning full arrays for that span."""
-        d_id = self._get_dataset_id(row)
-        features_dict = self._feature_arr[d_id]
-        features = self._filter_features(features_dict, select_features)
-        return features, self._labels[d_id]
-
-    def append_features(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
-        """Append features, delegating validation and merge behavior to subclasses."""
-        self._validate_features_get_length(features)
-        total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
-        # Optionally merge into previous block
-        if self._check_and_append(features, total_csum):
-            return
-
-        # Otherwise start a new block
-        self._cumulative_sum_index = np.append(self._cumulative_sum_index, total_csum)
-        self._feature_arr.append(features)
-        self._labels.append(label)
-        self._extend_num_entries_per_row(features)
-
-    def concat(self, other_row_index: RowFeatureIndex) -> RowFeatureIndex:
-        """Concatenates the other FeatureIndex to this one.
-
-        Returns the new, updated index. Warning: modifies this index in-place.
-
-        Args:
-            other_row_index: another FeatureIndex
-            error if an empty row index is passed in.
-
-        Returns:
-            self, the RowIndexFeature after the concatenations.
-
-        Raises:
-            TypeError if other_row_index is not a FeatureIndex
-            ValueError if an empty FeatureIndex is passed and the function is
-            set to fail in this case.
-        """
-        # Require the exact same concrete subclass to ensure semantic compatibility
-        if not isinstance(other_row_index, RowFeatureIndex):
-            raise TypeError("Error: trying to concatenate something that's not a FeatureIndex.")
-        if type(self) is not type(other_row_index):
-            raise TypeError(
-                f"Error: cannot concatenate FeatureIndex instances of different kinds: {type(self)} and {type(other_row_index)}."
-            )
-        for i, feats in enumerate(list(other_row_index._feature_arr)):
-            c_span = other_row_index._cumulative_sum_index[i + 1] - max(0, other_row_index._cumulative_sum_index[i])
-            label = other_row_index._labels[i]
-            self.append_features(c_span, feats, label)
-
-        return self
-
-
 class ObservedFeatureIndex(RowFeatureIndex):
-    """This gives features for a specific cell (.obs).
+    """Feature index for observed (row) features.
 
-    Implemented as dict[str, np.ndarray] blocks (column name -> column values).
+    Each block is a dictionary mapping feature name to the full column array. A
+    lookup at a row returns one scalar per selected feature and the block label.
+    Successive blocks with identical schemas (same keys) are merged by
+    concatenating column arrays.
     """
 
     def __init__(self) -> None:
@@ -338,9 +316,13 @@ class ObservedFeatureIndex(RowFeatureIndex):
         super().__init__()
 
     def _check_and_append(self, features: dict[str, np.ndarray], total_csum: Optional[int] = None) -> bool:
-        """If last block has same schema (keys), merge row-wise by concatenating columns.
+        """Merge into last block when schemas match.
 
-        Returns True if merged into existing block; False otherwise.
+        If the last block has the same set of keys, concatenate each column to
+        extend the block and update the cumulative sum index.
+
+        Returns:
+            True if merged into the last block; False otherwise.
         """
         if len(self._feature_arr) > 0:
             last_features = self._feature_arr[-1]
@@ -356,10 +338,7 @@ class ObservedFeatureIndex(RowFeatureIndex):
         return len(features)
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
-        """Lookup features at a given row (cell).
-
-        Returns a list of scalar values (one per selected feature) and the label.
-        """
+        """Return scalar feature values and block label for a given row."""
         d_id = self._get_dataset_id(row)
         features_dict: dict[str, np.ndarray] = self._feature_arr[d_id]
         start = self._cumulative_sum_index[d_id] if d_id > 0 else 0
@@ -383,17 +362,13 @@ class ObservedFeatureIndex(RowFeatureIndex):
     def __getitem__(self, idx):
         """Access one row or a slice of rows for observed features (.obs).
 
-        - int: returns (features, label) for that row
-        - slice: returns (list of feature dicts per block, list of labels)
-        With int, it will return the features and label for that row.
-        With a slice, it will return a list of feature dictionaries and labels. Each feature dictionary corresponds to a block of rows. (a single entry in the _feature_arr)
-
-        Returns (for int):
-            list[np.ndarray]: list of np arrays with the feature values in that row of the specified features
-            str: optional label for the row
-        or Returns (for slice):
-            list[dict[str, np.ndarray]]: list of feature dictionaries per block
-            list[str]: list of labels per block
+        - If `idx` is an int, returns `(values, label)` for that row:
+            - `values` is a list of scalar values (one per selected feature)
+            - `label` is the block label
+        - If `idx` is a slice, returns `(blocks, labels)`:
+            - `blocks` is a list of feature dictionaries, one per intersected
+              block, with arrays sliced to the selected rows for that block.
+            - `labels` is a list of block labels in the same order.
         """
         if isinstance(idx, int):
             n = self.number_of_rows()
@@ -448,12 +423,8 @@ class ObservedFeatureIndex(RowFeatureIndex):
             set to fail in this case.
         """
         # Require the exact same concrete subclass to ensure semantic compatibility
-        if not isinstance(other_row_index, RowFeatureIndex):
-            raise TypeError("Error: trying to concatenate something that's not a FeatureIndex.")
-        if type(self) is not type(other_row_index):
-            raise TypeError(
-                f"Error: cannot concatenate FeatureIndex instances of different kinds: {type(self)} and {type(other_row_index)}."
-            )
+        if not isinstance(other_row_index, ObservedFeatureIndex):
+            raise TypeError("Error: trying to concatenate something that's not a ObservedFeatureIndex.")
         for i, feats in enumerate(list(other_row_index._feature_arr)):
             label = other_row_index._labels[i]
             self.append_features(feats, label)
@@ -466,12 +437,81 @@ class ObservedFeatureIndex(RowFeatureIndex):
             return
         feature_size = self._validate_features_get_length(features)
         total_csum = max(self._cumulative_sum_index[-1], 0) + feature_size
-        # Optionally merge into previous block
-        if self._check_and_append(features, total_csum):
-            return
+        self._append_block(features, label, total_csum)
 
-        # Otherwise start a new block
-        self._cumulative_sum_index = np.append(self._cumulative_sum_index, total_csum)
-        self._feature_arr.append(features)
-        self._labels.append(label)
-        self._extend_num_entries_per_row(features)
+
+class VariableFeatureIndex(RowFeatureIndex):
+    """Feature index for variables (columns).
+
+    Lookup returns full arrays for the block that contains a given row. When
+    successive blocks have identical feature dictionaries, they are merged and
+    only `_cumulative_sum_index` advances.
+    """
+
+    def __init__(self) -> None:
+        """Create a variable (column) feature index."""
+        super().__init__()
+
+    def _check_and_append(self, features: dict[str, np.ndarray], total_csum: Optional[int] = None) -> bool:
+        """Check if the features are the same as the last features in the index and if so, merge the current block with the last block."""
+        if len(self._feature_arr) > 0 and are_dicts_equal(self._feature_arr[-1], features):
+            self._cumulative_sum_index[-1] = total_csum
+            return True
+        return False
+
+    def _extend_num_entries_per_row(self, features: dict[str, np.ndarray]) -> None:
+        """Record per-row array length for this block."""
+        if len(features) == 0:
+            num_entries = 0
+        else:
+            num_entries = len(features[next(iter(features.keys()))])
+        self._num_entries_per_row.append(num_entries)
+
+    @staticmethod
+    def load(datapath: str) -> "VariableFeatureIndex":
+        """Load a variable (column) feature index from a directory."""
+        return RowFeatureIndex._load_common(datapath, VariableFeatureIndex())
+
+    def _rows_added(self, n_obs: int, features: dict[str, np.ndarray]) -> int:
+        """Observed rows advance by the observation count."""
+        return len(features)
+
+    def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
+        """Return feature arrays and the block label for the block containing `row`."""
+        d_id = self._get_dataset_id(row)
+        features_dict = self._feature_arr[d_id]
+        features = self._filter_features(features_dict, select_features)
+        return features, self._labels[d_id]
+
+    def append_features(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
+        """Append a new block, or merge into the last block when possible."""
+        self._validate_features_get_length(features)
+        total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
+        self._append_block(features, label, total_csum)
+
+    def concat(self, other_row_index: RowFeatureIndex) -> RowFeatureIndex:
+        """Concatenates the other FeatureIndex to this one.
+
+        Returns the new, updated index. Warning: modifies this index in-place.
+
+        Args:
+            other_row_index: another FeatureIndex
+            error if an empty row index is passed in.
+
+        Returns:
+            self, the RowIndexFeature after the concatenations.
+
+        Raises:
+            TypeError if other_row_index is not a FeatureIndex
+            ValueError if an empty FeatureIndex is passed and the function is
+            set to fail in this case.
+        """
+        # Require the exact same concrete subclass to ensure semantic compatibility
+        if not isinstance(other_row_index, VariableFeatureIndex):
+            raise TypeError("Error: trying to concatenate something that's not a VariableFeatureIndex.")
+        for i, feats in enumerate(list(other_row_index._feature_arr)):
+            c_span = other_row_index._cumulative_sum_index[i + 1] - max(0, other_row_index._cumulative_sum_index[i])
+            label = other_row_index._labels[i]
+            self.append_features(c_span, feats, label)
+
+        return self

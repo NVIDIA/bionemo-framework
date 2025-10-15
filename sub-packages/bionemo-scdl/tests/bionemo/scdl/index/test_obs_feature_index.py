@@ -206,11 +206,11 @@ def test_ObservedFeatureIndex_getitem_int_returns_row_values_and_label(make_feat
     vals0, label0 = idx[0]
     assert label0 == "LBL"
     # The keys
-    assert vals0 == [features["feat_0"][0], features["feat_1"][0]]
+    assert np.array_equal(vals0, np.array([features["feat_0"][0], features["feat_1"][0]]))
 
     vals_last, label_last = idx[-1]
     assert label_last == "LBL"
-    assert vals_last == [features["feat_0"][-1], features["feat_1"][-1]]
+    assert np.array_equal(vals_last, np.array([features["feat_0"][-1], features["feat_1"][-1]]))
 
 
 def testObeservedFetureIndex_getitem_contiguous_slice(make_feat_dictionary):

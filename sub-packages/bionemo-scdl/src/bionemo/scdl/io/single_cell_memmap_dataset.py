@@ -54,6 +54,7 @@ class FileNames(str, Enum):
     DTYPE = "dtypes.json"
     VAR_FEATURES = "var_features"
     OBS_FEATURES = "obs_features"
+    FEATURES = "features"
     VERSION = "version.json"
     NEIGHBOR_INDICES = "neighbor_indices.npy"
     NEIGHBOR_INDICES_PTR = "neighbor_indptr.npy"
@@ -144,6 +145,16 @@ def _create_data_col_memmaps(
         mode=mode.value,
     )
     return data_arr, col_arr
+
+
+def _extract_features(df, feature_index_name):
+    """Helper to convert a DataFrame into a features dict."""
+    if df.columns.size > 0:
+        return {col: np.array(df[col].values) for col in df.columns}
+    elif df.index.size > 0:
+        return {feature_index_name: df.index.values}
+    else:
+        return {}
 
 
 def _create_compressed_sparse_row_memmaps(
@@ -797,6 +808,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         if os.path.exists(f"{self.data_path}/{FileNames.VAR_FEATURES.value}"):
             self._var_feature_index = VariableFeatureIndex.load(f"{self.data_path}/{FileNames.VAR_FEATURES.value}")
+        elif os.path.exists(
+            f"{self.data_path}/{FileNames.FEATURES.value}"
+        ):  # Backward compatibility with old features file
+            self._var_feature_index = VariableFeatureIndex.load(f"{self.data_path}/{FileNames.FEATURES.value}")
         if os.path.exists(f"{self.data_path}/{FileNames.OBS_FEATURES.value}"):
             self._obs_feature_index = ObservedFeatureIndex.load(f"{self.data_path}/{FileNames.OBS_FEATURES.value}")
 
@@ -1017,21 +1032,11 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             var_features_df, obs_features_df, num_rows = self.regular_load_h5ad(anndata_path)
         else:
             var_features_df, obs_features_df, num_rows = self.paginated_load_h5ad(anndata_path)
-        if len(var_features_df.columns) > 0:
-            var_features = {col: np.array(var_features_df[col].values) for col in var_features_df.columns}
-        elif len(var_features_df.index) > 0:
-            var_features = {self.var_feature_index_name: var_features_df.index.values}
-        else:
-            var_features = {}
-        if len(obs_features_df.columns) > 0:
-            obs_features = {col: np.array(obs_features_df[col].values) for col in obs_features_df.columns}
-        elif len(obs_features_df.index) > 0:
-            obs_features = {self.obs_feature_index_name: obs_features_df.index.values}
-        else:
-            obs_features = {}
+
+        var_features = _extract_features(var_features_df, self.var_feature_index_name)
+        obs_features = _extract_features(obs_features_df, self.obs_feature_index_name)
 
         self._var_feature_index.append_features(n_obs=num_rows, features=var_features, label=anndata_path)
-        print("NUM ROWS", num_rows, "ANNDATA PATH", anndata_path, len(obs_features), obs_features_df.shape)
         self._obs_feature_index.append_features(features=obs_features, label=anndata_path)
         self.save()
 
@@ -1060,7 +1065,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             arrays.append(info)
 
         # Populate FeatureIndexInfo entries for the feature index directory
-        indexes: List[FeatureIndexInfo] = []
+        indices: List[FeatureIndexInfo] = []
         for feature_index, feature_index_path in [
             (self._var_feature_index, FileNames.VAR_FEATURES.value),
             (self._obs_feature_index, FileNames.OBS_FEATURES.value),
@@ -1095,7 +1100,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 index_files=index_files,
                 shape=None,
             )
-            indexes.append(fi_info)
+            indices.append(fi_info)
 
         header = (
             self.header
@@ -1104,7 +1109,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 CurrentSCDLVersion(),
                 Backend.MEMMAP_V0,
                 arrays,
-                indexes,
+                indices,
             )
         )
         header.save(self.header_path)
