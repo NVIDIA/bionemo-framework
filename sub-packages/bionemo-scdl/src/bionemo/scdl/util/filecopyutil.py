@@ -106,19 +106,27 @@ def extend_files(
             if offset > 0:
                 f_source.seek(offset)
 
-            for elements_processed in range(0, num_elements, elements_per_chunk):
-                chunk_elements = min(elements_per_chunk, num_elements - elements_processed)
-                bytes_to_read = chunk_elements * src_item
+            elements_processed = 0
+            while elements_processed < num_elements:
+                target_elements = min(elements_per_chunk, num_elements - elements_processed)
+                bytes_to_read = target_elements * src_item
 
                 chunk_bytes = f_source.read(bytes_to_read)
                 if not chunk_bytes:
-                    break
-                if source_dtype == dest_dtype and add_scalar is None:
+                    # Unexpected EOF
+                    raise OSError(f"Short read at element {elements_processed}: expected {bytes_to_read} bytes, got 0")
+
+                # Derive actual elements from bytes read to tolerate partial reads
+                actual_elements = len(chunk_bytes) // src_item
+                if actual_elements == 0:
+                    continue
+
+                if source_dtype == dest_dtype and add_scalar is None and len(chunk_bytes) == bytes_to_read:
                     dst_mv = chunk_bytes
                 else:
-                    src = np.frombuffer(chunk_bytes, dtype=source_dtype, count=chunk_elements)
-                    dst_mv = memoryview(out_buf)[: chunk_elements * dst_item]
-                    dst = np.frombuffer(dst_mv, dtype=dest_dtype, count=chunk_elements)
+                    src = np.frombuffer(chunk_bytes, dtype=source_dtype, count=actual_elements)
+                    dst_mv = memoryview(out_buf)[: actual_elements * dst_item]
+                    dst = np.frombuffer(dst_mv, dtype=dest_dtype, count=actual_elements)
                     if add_scalar is not None:
                         np.add(src.astype(dest_dtype, copy=False), add_scalar, out=dst)
                     else:
@@ -128,6 +136,7 @@ def extend_files(
                 f_dest.seek(write_position)
                 f_dest.write(dst_mv)
                 write_position += len(dst_mv)
+                elements_processed += actual_elements
 
     if delete_file2_on_complete:
         os.remove(second)

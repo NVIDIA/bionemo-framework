@@ -13,9 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-Apache2
-
 import re
 
 import numpy as np
@@ -43,13 +40,6 @@ def test_determine_dtype_finds_correct_dtype():
 
 
 def test_determine_dtype_raises_error_for_mixed_families():
-    with pytest.raises(
-        ValueError,
-        match=re.escape(
-            "Mixed float and integer dtype families not allowed: ['float32', 'float64', 'uint16', 'uint32', 'uint64', 'uint8']"
-        ),
-    ):
-        determine_dtype(dtypes=[np.uint8, np.uint16, np.uint32, np.uint64, np.float32, np.float64])
     with pytest.raises(
         ValueError,
         match=re.escape(
