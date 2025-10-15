@@ -26,8 +26,8 @@ import pyarrow.parquet as pq
 
 
 __all__: Sequence[str] = (
-    "VariableFeatureIndex",
     "ObservedFeatureIndex",
+    "VariableFeatureIndex",
     "are_dicts_equal",
 )
 
@@ -145,6 +145,9 @@ class RowFeatureIndex(ABC):
         """Subclass hook to optionally merge with last block. Return True if merged."""
         return False
 
+    def _rows_added(self, n_obs: int, features: dict[str, np.ndarray]) -> int:
+        raise NotImplementedError("_rows_added must be implemented in subclass")
+
     def number_vars_at_row(self, row: int) -> int:
         """Return number of variables in a given row (base: uses stored per-dataset counts)."""
         dataset_idx = self._get_dataset_id(row)
@@ -160,13 +163,19 @@ class RowFeatureIndex(ABC):
             A list containing the lengths of the features in every row
         """
         return self._num_entries_per_row
-    def _validate_features(self, n_obs: int, features: dict[str, np.ndarray]) -> None:
+
+    def _validate_features_get_length(self, features: dict[str, np.ndarray]) -> None:
         """Validate the features."""
+        if not isinstance(features, dict):
+            raise TypeError(f"{self.__class__.__name__}.append_features expects a dict of arrays")
+
         if len(features) > 0:
             first_length = len(next(iter(features.values())))
             if any(len(v) != first_length for v in features.values()):
                 raise ValueError("All feature arrays must have the same length")
-
+            return first_length
+        else:
+            return 0
 
     def number_of_values(self) -> list[int]:
         """Get the total number of values in the array.
@@ -186,26 +195,27 @@ class RowFeatureIndex(ABC):
         vals = [n_rows * self._num_entries_per_row[i] for i, n_rows in enumerate(rows)]
         return vals
 
-    def append_features(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
-        """Append features, delegating validation and merge behavior to subclasses."""
-        if not isinstance(features, dict):
-            raise TypeError(f"{self.__class__.__name__}.append_features expects a dict of arrays")
-        self._validate_features(n_obs, features)
-        total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
+    @abstractmethod
+    def concat(self, other_row_index: "RowFeatureIndex") -> "RowFeatureIndex":
+        """Concatenate another FeatureIndex to this one.
 
-        # Optionally merge into previous block
-        if self._check_and_append(features, total_csum):
-            return
+        Args:
+            other_row_index: another FeatureIndex
 
-        # Otherwise start a new block
-        self._cumulative_sum_index = np.append(self._cumulative_sum_index, total_csum)
-        self._feature_arr.append(features)
-        self._labels.append(label)
-        self._extend_num_entries_per_row(features)
+        Returns:
+            self (updated).
+
+        Raises:
+            TypeError or ValueError
+        """
+        ...
 
     @abstractmethod
-    def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
-        """Lookup features at a given row; must be implemented by subclasses."""
+    def append_features(self, *args, **kwargs) -> None:
+        """Append features, delegating validation and merge behavior to subclasses.
+
+        May or may not have n_obs as an argument, depending on subclass.
+        """
         ...
 
     def number_of_rows(self) -> int:
@@ -215,40 +225,6 @@ class RowFeatureIndex(ABC):
             An integer corresponding to the number or rows in the index
         """
         return int(max(self._cumulative_sum_index[-1], 0))
-
-    def concat(self, other_row_index: RowFeatureIndex, fail_on_empty_index: bool = True) -> RowFeatureIndex:
-        """Concatenates the other FeatureIndex to this one.
-
-        Returns the new, updated index. Warning: modifies this index in-place.
-
-        Args:
-            other_row_index: another FeatureIndex
-            fail_on_empty_index: A boolean flag that sets whether to raise an
-            error if an empty row index is passed in.
-
-        Returns:
-            self, the RowIndexFeature after the concatenations.
-
-        Raises:
-            TypeError if other_row_index is not a FeatureIndex
-            ValueError if an empty FeatureIndex is passed and the function is
-            set to fail in this case.
-        """
-        # Require the exact same concrete subclass to ensure semantic compatibility
-        if not isinstance(other_row_index, RowFeatureIndex):
-            raise TypeError("Error: trying to concatenate something that's not a FeatureIndex.")
-        if type(self) is not type(other_row_index):
-            raise TypeError(
-                f"Error: cannot concatenate FeatureIndex instances of different kinds: {type(self)} and {type(other_row_index)}."
-            )
-        if fail_on_empty_index and not len(other_row_index._feature_arr) > 0:
-            raise ValueError("Error: Cannot append empty FeatureIndex.")
-        for i, feats in enumerate(list(other_row_index._feature_arr)):
-            c_span = other_row_index._cumulative_sum_index[i + 1] - max(0, other_row_index._cumulative_sum_index[i])
-            label = other_row_index._labels[i]
-            self.append_features(c_span, feats, label)
-
-        return self
 
     def save(self, datapath: str) -> None:
         """Saves the FeatureIndex to a given path.
@@ -294,6 +270,10 @@ class VariableFeatureIndex(RowFeatureIndex):
         """Load a variable (column) feature index from a directory."""
         return RowFeatureIndex._load_common(datapath, VariableFeatureIndex())
 
+    def _rows_added(self, n_obs: int, features: dict[str, np.ndarray]) -> int:
+        """Observed rows advance by the observation count."""
+        return len(features)
+
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
         """Lookup features at a given row, returning full arrays for that span."""
         d_id = self._get_dataset_id(row)
@@ -301,8 +281,55 @@ class VariableFeatureIndex(RowFeatureIndex):
         features = self._filter_features(features_dict, select_features)
         return features, self._labels[d_id]
 
+    def append_features(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
+        """Append features, delegating validation and merge behavior to subclasses."""
+        self._validate_features_get_length(features)
+        total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
+        # Optionally merge into previous block
+        if self._check_and_append(features, total_csum):
+            return
+
+        # Otherwise start a new block
+        self._cumulative_sum_index = np.append(self._cumulative_sum_index, total_csum)
+        self._feature_arr.append(features)
+        self._labels.append(label)
+        self._extend_num_entries_per_row(features)
+
+    def concat(self, other_row_index: RowFeatureIndex) -> RowFeatureIndex:
+        """Concatenates the other FeatureIndex to this one.
+
+        Returns the new, updated index. Warning: modifies this index in-place.
+
+        Args:
+            other_row_index: another FeatureIndex
+            error if an empty row index is passed in.
+
+        Returns:
+            self, the RowIndexFeature after the concatenations.
+
+        Raises:
+            TypeError if other_row_index is not a FeatureIndex
+            ValueError if an empty FeatureIndex is passed and the function is
+            set to fail in this case.
+        """
+        # Require the exact same concrete subclass to ensure semantic compatibility
+        if not isinstance(other_row_index, RowFeatureIndex):
+            raise TypeError("Error: trying to concatenate something that's not a FeatureIndex.")
+        if type(self) is not type(other_row_index):
+            raise TypeError(
+                f"Error: cannot concatenate FeatureIndex instances of different kinds: {type(self)} and {type(other_row_index)}."
+            )
+        for i, feats in enumerate(list(other_row_index._feature_arr)):
+            c_span = other_row_index._cumulative_sum_index[i + 1] - max(0, other_row_index._cumulative_sum_index[i])
+            label = other_row_index._labels[i]
+            self.append_features(c_span, feats, label)
+
+        return self
+
+
 class ObservedFeatureIndex(RowFeatureIndex):
     """This gives features for a specific cell (.obs).
+
     Implemented as dict[str, np.ndarray] blocks (column name -> column values).
     """
 
@@ -312,6 +339,7 @@ class ObservedFeatureIndex(RowFeatureIndex):
 
     def _check_and_append(self, features: dict[str, np.ndarray], total_csum: Optional[int] = None) -> bool:
         """If last block has same schema (keys), merge row-wise by concatenating columns.
+
         Returns True if merged into existing block; False otherwise.
         """
         if len(self._feature_arr) > 0:
@@ -323,20 +351,13 @@ class ObservedFeatureIndex(RowFeatureIndex):
                 return True
         return False
 
-    def _validate_features(self, n_obs: int, features: dict[str, np.ndarray]) -> None:
-        """Observed: require non-empty or n_obs==0, and equal per-column lengths matching n_obs."""
-        super()._validate_features(n_obs, features)
-        lengths = {k: len(v) for k, v in features.items()}
-        if len(lengths) == 0:
-            if n_obs != 0:
-                raise ValueError("Provided empty features but n_obs > 0")
-            return
-        first_len = next(iter(lengths.values()))
-        if n_obs != first_len:
-            raise ValueError(f"Number of observations {n_obs} does not match feature array length {first_len}")
+    def _rows_added(self, n_obs: int, features: dict[str, np.ndarray]) -> int:
+        """Observed rows advance by the observation count."""
+        return len(features)
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
         """Lookup features at a given row (cell).
+
         Returns a list of scalar values (one per selected feature) and the label.
         """
         d_id = self._get_dataset_id(row)
@@ -344,11 +365,11 @@ class ObservedFeatureIndex(RowFeatureIndex):
         start = self._cumulative_sum_index[d_id] if d_id > 0 else 0
         row_idx_in_block = row - start
         if select_features is not None:
-            vals = [np.asarray(features_dict[f])[row_idx_in_block] for f in select_features]
+            arrays = self._filter_features(features_dict, select_features)
         else:
-            vals = [np.asarray(features_dict[f])[row_idx_in_block] for f in features_dict]
+            arrays = [features_dict[f] for f in features_dict]
+        vals = [np.asarray(arr)[row_idx_in_block] for arr in arrays]
         return vals, self._labels[d_id]
-
 
     def _extend_num_entries_per_row(self, features: dict[str, np.ndarray]) -> None:
         num_entries = len(features)
@@ -358,3 +379,99 @@ class ObservedFeatureIndex(RowFeatureIndex):
     def load(datapath: str) -> "ObservedFeatureIndex":
         """Load an observed (row) feature index from a directory."""
         return RowFeatureIndex._load_common(datapath, ObservedFeatureIndex())
+
+    def __getitem__(self, idx):
+        """Access one row or a slice of rows for observed features (.obs).
+
+        - int: returns (features, label) for that row
+        - slice: returns (list of feature dicts per block, list of labels)
+        With int, it will return the features and label for that row.
+        With a slice, it will return a list of feature dictionaries and labels. Each feature dictionary corresponds to a block of rows. (a single entry in the _feature_arr)
+
+        Returns (for int):
+            list[np.ndarray]: list of np arrays with the feature values in that row of the specified features
+            str: optional label for the row
+        or Returns (for slice):
+            list[dict[str, np.ndarray]]: list of feature dictionaries per block
+            list[str]: list of labels per block
+        """
+        if isinstance(idx, int):
+            n = self.number_of_rows()
+            if idx < 0:
+                idx += n
+            return self.lookup(idx)
+
+        if isinstance(idx, slice):
+            n = self.number_of_rows()
+            start, stop, step = idx.indices(n)
+            if step == 0:
+                raise ValueError("slice step cannot be zero")
+            rows = list(range(start, stop, step))
+            if not rows:
+                return [], []
+            ends = self._cumulative_sum_index[1:]
+            by_block: dict[int, list[int]] = {}
+            for r in rows:
+                d_id = int(np.searchsorted(ends, r, side="right"))
+                by_block.setdefault(d_id, []).append(r)
+            out = []
+            labels = []
+            for d_id, rs in by_block.items():
+                rs.sort()
+                prev_end = self._cumulative_sum_index[d_id] if d_id > 0 else 0
+                relative_indices = [r - prev_end for r in rs]
+                sub = {k: np.asarray(v)[relative_indices] for k, v in self._feature_arr[d_id].items()}
+                out.append(sub)
+                labels.append(self._labels[d_id])
+            return out, labels
+
+        raise TypeError("Index must be int or slice")
+
+    def concat(
+        self,
+        other_row_index: RowFeatureIndex,
+    ) -> RowFeatureIndex:
+        """Concatenates the other FeatureIndex to this one.
+
+        Returns the new, updated index. Warning: modifies this index in-place.
+
+        Args:
+            other_row_index: another FeatureIndex
+            error if an empty row index is passed in.
+
+        Returns:
+            self, the RowIndexFeature after the concatenations.
+
+        Raises:
+            TypeError if other_row_index is not a FeatureIndex
+            ValueError if an empty FeatureIndex is passed and the function is
+            set to fail in this case.
+        """
+        # Require the exact same concrete subclass to ensure semantic compatibility
+        if not isinstance(other_row_index, RowFeatureIndex):
+            raise TypeError("Error: trying to concatenate something that's not a FeatureIndex.")
+        if type(self) is not type(other_row_index):
+            raise TypeError(
+                f"Error: cannot concatenate FeatureIndex instances of different kinds: {type(self)} and {type(other_row_index)}."
+            )
+        for i, feats in enumerate(list(other_row_index._feature_arr)):
+            label = other_row_index._labels[i]
+            self.append_features(feats, label)
+
+        return self
+
+    def append_features(self, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
+        """Append features, delegating validation and merge behavior to subclasses."""
+        if len(features) == 0:
+            return
+        feature_size = self._validate_features_get_length(features)
+        total_csum = max(self._cumulative_sum_index[-1], 0) + feature_size
+        # Optionally merge into previous block
+        if self._check_and_append(features, total_csum):
+            return
+
+        # Otherwise start a new block
+        self._cumulative_sum_index = np.append(self._cumulative_sum_index, total_csum)
+        self._feature_arr.append(features)
+        self._labels.append(label)
+        self._extend_num_entries_per_row(features)

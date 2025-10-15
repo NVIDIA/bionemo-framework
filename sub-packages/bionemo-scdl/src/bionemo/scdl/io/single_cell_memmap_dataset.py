@@ -226,8 +226,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         mode: Mode = Mode.READ_APPEND,
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
-        var_feature_index_name="feature_id",
-        obs_feature_index_name="feature_id",
+        var_feature_index_name="var_feature_id",
+        obs_feature_index_name="obs_feature_id",
         # --- Neighbor Args ---
         load_neighbors: bool = False,
         neighbor_key: str = "next_cell_ids",
@@ -1032,7 +1032,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         self._var_feature_index.append_features(n_obs=num_rows, features=var_features, label=anndata_path)
         print("NUM ROWS", num_rows, "ANNDATA PATH", anndata_path, len(obs_features), obs_features_df.shape)
-        self._obs_feature_index.append_features(n_obs=num_rows, features=obs_features, label=anndata_path)
+        self._obs_feature_index.append_features(features=obs_features, label=anndata_path)
         self.save()
 
     def _write_header(self):
