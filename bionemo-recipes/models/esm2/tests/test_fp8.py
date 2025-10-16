@@ -18,9 +18,10 @@ import torch
 import transformer_engine
 from transformer_engine.common.recipe import DelayedScaling, MXFP8BlockScaling
 from transformer_engine.pytorch.fp8 import check_fp8_support, check_mxfp8_support
+from transformer_engine.pytorch.tensor.float8_tensor import Float8Tensor
 
 from esm.collator import MLMDataCollatorWithFlattening
-from esm.modeling_esm_te import NVEsmForMaskedLM
+from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
 
 def requires_fp8(func):
@@ -117,3 +118,50 @@ def test_mxfp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd
     outputs_fp8.loss.backward()
 
     torch.testing.assert_close(outputs_fp8.loss, outputs.loss)
+
+
+@requires_fp8
+def test_fp8_model_init_forward_and_backward(te_model_checkpoint, input_data):
+    fp8_recipe = DelayedScaling()
+    config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
+    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
+        model_te = NVEsmForMaskedLM(config)
+
+    assert isinstance(model_te.lm_head.dense.weight, Float8Tensor)
+
+    model_te.to("cuda")
+    input_data = {k: v.to("cuda") for k, v in input_data.items()}
+
+    with transformer_engine.pytorch.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
+        outputs_fp8 = model_te(**input_data)
+
+    outputs_fp8.loss.backward()
+
+
+@requires_fp8
+@pytest.mark.xfail(reason="BIONEMO-3055: fp8 model init and pretrained loading is not currently supported.")
+def test_fp8_model_init_from_pretrained(te_model_checkpoint, input_data):
+    fp8_recipe = DelayedScaling()
+
+    # TODO: this will be renamed to quantized_model_init in the future, fp8_model_init will be removed in 3.0
+    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
+        model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint)
+
+    assert isinstance(model_te.esm.encoder.layers[0].layernorm_mlp.fc2_weight, Float8Tensor)
+    assert isinstance(model_te.lm_head.dense.weight, Float8Tensor)
+
+
+@requires_fp8
+@pytest.mark.xfail(reason="BIONEMO-3055: fp8 model init and pretrained saving is not currently supported.")
+def test_fp8_model_init_save_pretrained(te_model_checkpoint, tmp_path, input_data):
+    fp8_recipe = DelayedScaling()
+    config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
+    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
+        model_fp8 = NVEsmForMaskedLM(config)
+
+    assert isinstance(model_fp8.esm.encoder.layers[0].layernorm_mlp.fc2_weight, Float8Tensor)
+    assert isinstance(model_fp8.lm_head.dense.weight, Float8Tensor)
+
+    model_fp8.save_pretrained(tmp_path / "fp8_checkpoint")
+    del model_fp8
+    NVEsmForMaskedLM.from_pretrained(tmp_path / "fp8_checkpoint", dtype=torch.bfloat16)
