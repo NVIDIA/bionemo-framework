@@ -121,7 +121,7 @@ class SingleCellDataset(Dataset):
         """Performs a lookup and the required transformation for the model."""
         rng = np.random.default_rng([self._seed, index.epoch, index.idx])
         values, feature_ids = self.scdl.get_row(
-            index.idx, return_var_features=True, var_feature_names=["feature_name"]
+            index.idx, return_var_features=True, var_feature_names=["feature_id"]
         )
         assert (
             len(feature_ids) == 1
