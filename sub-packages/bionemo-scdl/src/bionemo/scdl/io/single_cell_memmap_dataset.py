@@ -413,14 +413,14 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self,
         index: int,
         return_var_features: bool = False,
-        feature_names: Optional[List[str]] = None,
+        var_feature_names: Optional[List[str]] = None,
     ) -> Tuple[Tuple[np.ndarray, np.ndarray], List[np.ndarray]]:
         """Returns a given row in the dataset along with optional features.
 
         Args:
             index: The row to be returned. This is in the range of [0, num_rows)
             return_var_features: boolean that indicates whether to return features
-            feature_names: Optional, feature names to extract
+            var_feature_names: Optional, feature names to extract
         Return:
             [Tuple[np.ndarray, np.ndarray]: data values and column pointes
             List[np.ndarray]: optional, corresponding features.
@@ -431,7 +431,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         columns = self.col_index[start:end]
         ret = (values, columns)
         if return_var_features:
-            return ret, self._var_feature_index.lookup(index, select_features=feature_names)[0]
+            return ret, self._var_feature_index.lookup(index, select_features=var_feature_names)[0]
         else:
             return ret, None
 
@@ -439,14 +439,14 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self,
         index: int,
         return_var_features: bool = False,
-        feature_names: Optional[List[str]] = None,
+        var_feature_names: Optional[List[str]] = None,
     ) -> Dict[str, Union[Tuple[np.ndarray, np.ndarray], int, Optional[List[np.ndarray]]]]:
         """Returns a given row in the dataset along with optional features and neighbor data.
 
         Args:
             index: The row to be returned. This is in the range of [0, num_rows)
             return_var_features: Boolean that indicates whether to return variable features
-            feature_names: Optional, variable feature names to extract
+            var_feature_names: Optional, variable feature names to extract
 
         Returns:
             Dict with keys:
@@ -466,7 +466,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             )
 
         # Get current cell data using the existing get_row function
-        current_cell_data, features = self.get_row(index, return_var_features, feature_names)
+        current_cell_data, features = self.get_row(index, return_var_features, var_feature_names)
 
         # Sample neighbor and get its data
         neighbor_index = self.sample_neighbor_index(index)
@@ -1165,7 +1165,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         if len(self._var_feature_index) > 0 and self._var_feature_index.number_of_rows() != self.row_index.size - 1:
             raise ValueError(
-                f"""The nuber of rows in the feature index {self._var_feature_index.number_of_rows()}
+                f"""The number of rows in the feature index {self._var_feature_index.number_of_rows()}
                              does not correspond to the number of rows in the row_index {self.row_index.size - 1}"""
             )
         return self._var_feature_index.number_of_rows()
