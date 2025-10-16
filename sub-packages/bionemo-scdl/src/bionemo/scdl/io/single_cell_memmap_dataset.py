@@ -1026,7 +1026,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             self.metadata["num_rows"] = self.number_of_rows()
 
         self._write_metadata()
-        # Write the var and obsfeature index. This may not exist.
+        # Write the var and obs feature index. This may not exist.
         self._var_feature_index.save(f"{self.data_path}/{FileNames.VAR_FEATURES.value}")
         self._obs_feature_index.save(f"{self.data_path}/{FileNames.OBS_FEATURES.value}")
         # Ensure the object is in a valid state. These are saved at creation!

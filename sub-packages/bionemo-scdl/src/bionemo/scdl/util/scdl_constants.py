@@ -43,7 +43,6 @@ class FileNames(str, Enum):
     FEATURES = "features"
     VAR_FEATURES = "var_features"
     OBS_FEATURES = "obs_features"
-
     VERSION = "version.json"
     HEADER = "header.sch"
 
