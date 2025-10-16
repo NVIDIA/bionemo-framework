@@ -220,8 +220,8 @@ class RowFeatureIndex(ABC):
         """
         return self._num_entries_per_row
 
-    def _validate_features_get_length(self, features: dict[str, np.ndarray]) -> int:
-        """Validate feature input and return the expected per-row length.
+    def _validate_features_get_entries_count(self, features: dict[str, np.ndarray]) -> int:
+        """Validate feature input and return the expected number of entries for each value in the feature dictionary.
 
         Ensures `features` is a dictionary with arrays of equal length. Returns
         the common length (0 if empty).
@@ -354,7 +354,7 @@ class ObservedFeatureIndex(RowFeatureIndex):
 
     def _extend_num_entries_per_row(self, features: dict[str, np.ndarray]) -> None:
         """Extend the number of entries per row for the observed feature index."""
-        num_entries = self._validate_features_get_length(features)
+        num_entries = len(features)
         self._num_entries_per_row.append(num_entries)
 
     @staticmethod
@@ -434,7 +434,7 @@ class ObservedFeatureIndex(RowFeatureIndex):
 
     def append_features(self, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
         """Append features, delegating validation and merge behavior to subclasses."""
-        feature_size = self._validate_features_get_length(features)
+        feature_size = self._validate_features_get_entries_count(features)
         """ There are no features to append, so we return early."""
         if feature_size == 0:
             return
@@ -463,7 +463,7 @@ class VariableFeatureIndex(RowFeatureIndex):
 
     def _extend_num_entries_per_row(self, features: dict[str, np.ndarray]) -> None:
         """Record per-row array length for this block."""
-        if self._validate_features_get_length(features) == 0:
+        if self._validate_features_get_entries_count(features) == 0:
             num_entries = 0
         else:
             num_entries = len(features[next(iter(features.keys()))])
@@ -471,7 +471,7 @@ class VariableFeatureIndex(RowFeatureIndex):
 
     @staticmethod
     def load(datapath: str) -> "VariableFeatureIndex":
-        """Load a variable (column) feature index from a directory."""
+        """Load a variable (column) feature index from a directory. This will  load the parquet files in sorted order. In the SCDL use case, this expects a directory with parquet files named dataframe_<index>.parquet."""
         return RowFeatureIndex._load_common(datapath, VariableFeatureIndex())
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
@@ -483,7 +483,7 @@ class VariableFeatureIndex(RowFeatureIndex):
 
     def append_features(self, n_obs: int, features: dict[str, np.ndarray], label: Optional[str] = None) -> None:
         """Append a new block, or merge into the last block when possible."""
-        self._validate_features_get_length(features)
+        self._validate_features_get_entries_count(features)
         total_csum = max(self._cumulative_sum_index[-1], 0) + n_obs
         self._append_block(features, label, total_csum)
 

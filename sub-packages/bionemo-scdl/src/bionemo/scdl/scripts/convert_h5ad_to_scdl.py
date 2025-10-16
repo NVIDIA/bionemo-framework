@@ -40,11 +40,20 @@ def main():
     parser.add_argument(
         "--save-path", required=True, type=str, help="An output path where an SCDataset will be stored."
     )
+
+    parser.add_argument(
+        "--data-dtype",
+        type=str,
+        default=None,
+        help="The data type to use for the SCDataset. Must be one of 'uint8', 'uint16', 'uint32', 'uint64', 'float32', 'float64'.",
+    )
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as temp_dir:
         coll = SingleCellCollection(temp_dir)
-        coll.load_h5ad_multi(args.data_path, max_workers=args.num_workers, use_processes=args.use_mp)
+        coll.load_h5ad_multi(
+            args.data_path, max_workers=args.num_workers, use_processes=args.use_mp, data_dtype=args.data_dtype
+        )
         coll.flatten(args.save_path, destroy_on_copy=True)
 
 
