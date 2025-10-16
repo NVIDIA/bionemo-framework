@@ -22,7 +22,6 @@ import torchmetrics.text
 import wandb
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
-from transformers.modeling_outputs import MaskedLMOutput
 
 from distributed_config import DistributedConfig
 
@@ -68,12 +67,25 @@ class PerfLogger:
             # Log the entire args object to wandb for experiment tracking and reproducibility.
             wandb.init(**args.wandb_init_args, config=self._run_config)
             self._progress_bar = tqdm(total=args.num_train_steps, desc="Training")
+        self.num_tokens = 0
+        self.num_unpadded_tokens = 0
+        self.running_loss = 0
+        self.grad_acc_step_count = 0
+
+    def log_micro_step(self, batch, outputs):
+        """Store data on micro step for accumulation metrics."""
+        self.grad_acc_step_count += 1
+        self.num_tokens += batch["input_ids"].numel()
+        self.num_unpadded_tokens += batch["input_ids"][batch["input_ids"] != 1].numel()
+        self.running_loss += outputs.loss.item()
+        # Handle sequence packing for torchmetrics calculation.
+        if outputs.logits.dim() < 3:
+            outputs.logits = outputs.logits.unsqueeze(0)
+        self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
 
     def log_step(
         self,
         step: int,
-        batch: dict[str, torch.Tensor],
-        outputs: MaskedLMOutput,
         grad_norm: float,
         lr: float,
     ):
@@ -81,30 +93,21 @@ class PerfLogger:
 
         Args:
             step: The step number.
-            batch: The batch of data for the step.
-            outputs: The outputs of the step.
             grad_norm: The gradient norm of the step.
             lr: The learning rate of the step.
         """
-        num_tokens = batch["input_ids"].numel()
-        # 1 is the padding token for ESM-2.
-        num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != 1].numel()
-
-        self.min_loss = min(self.min_loss, outputs.loss.item())
+        assert self.grad_acc_step_count > 0, (
+            f"Gradient accumulation steps ({self.grad_acc_step_count}) must be greater than 0, and can be incremented by log_micro_step()."
+        )
+        self.min_loss = min(self.min_loss, self.running_loss / self.grad_acc_step_count)
         step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
 
-        self.metrics["train/loss"].update(outputs.loss)
+        self.metrics["train/loss"].update(self.running_loss / self.grad_acc_step_count)
         self.metrics["train/learning_rate"].update(lr)
         self.metrics["train/grad_norm"].update(grad_norm)
         self.metrics["train/step_time"].update(step_time)
-        self.metrics["train/tokens_per_second"].update(num_tokens / step_time)
-        self.metrics["train/unpadded_tokens_per_second"].update(num_unpadded_tokens / step_time)
-
-        # Handle sequence packing for torchmetrics calculation.
-        if outputs.logits.dim() < 3:
-            outputs.logits = outputs.logits.unsqueeze(0)
-
-        self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
+        self.metrics["train/tokens_per_second"].update(self.num_tokens / step_time)
+        self.metrics["train/unpadded_tokens_per_second"].update(self.num_unpadded_tokens / step_time)
 
         if step % self.logging_frequency == 0 and step > 0:
             metrics = self.metrics.compute()
@@ -114,10 +117,16 @@ class PerfLogger:
             if self._dist_config.is_main_process():
                 wandb.log(metrics, step=step)
                 self._progress_bar.update(self.logging_frequency)
-                self._progress_bar.set_postfix({"loss": outputs.loss.item()})
+                self._progress_bar.set_postfix({"loss": self.running_loss / self.grad_acc_step_count})
 
             if self._dist_config.local_rank == 0:
                 logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
+
+        # Reset counters.
+        self.num_tokens = 0
+        self.num_unpadded_tokens = 0
+        self.running_loss = 0
+        self.grad_acc_step_count = 0
 
     def finish(self):
         """Finish the logger and close the progress bar."""
