@@ -9,6 +9,7 @@ description = "ESM TE Model"
 requires-python = ">=3.8"
 dependencies = [
     "accelerate",
+    "cloudpickle",
     "datasets",
     "fiddle",
     "hydra-core",
