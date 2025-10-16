@@ -24,7 +24,7 @@ from bionemo.scdl.index.row_feature_index import VariableFeatureIndex
 def test_appending_dataframe_results_in_error():
     two_feats = pd.DataFrame({"feature_name": ["FF", "GG"], "gene_name": ["RET", "NTRK"]})
     index = VariableFeatureIndex()
-    with pytest.raises(TypeError, match="Expected a dictionary, but received a Pandas DataFrame."):
+    with pytest.raises(TypeError, match="VariableFeatureIndex.append_features expects a dict of arrays"):
         index.append_features(8, two_feats, "MY_DATAFRAME")
 
 

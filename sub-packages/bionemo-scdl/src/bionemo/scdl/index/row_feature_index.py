@@ -285,7 +285,7 @@ class VariableFeatureIndex(RowFeatureIndex):
 
     @staticmethod
     def load(datapath: str) -> "VariableFeatureIndex":
-        """Load a variable (column) feature index from a directory."""
+        """Load a variable (column) feature index from a directory. This will  load the parquet files in sorted order. In the SCDL use case, this expects a directory with parquet files named dataframe_<index>.parquet."""
         return RowFeatureIndex._load_common(datapath, VariableFeatureIndex())
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], str]:

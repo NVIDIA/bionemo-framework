@@ -140,13 +140,15 @@ def test_empty_gene_data_input(tmp_path, test_directory_feat_ids):
 def test_lookup_row(tmp_path, cellx_small_directory):
     tokenizer = MagicMock()
     dataset = SingleCellDataset(str(tmp_path / cellx_small_directory / "val"), tokenizer)
-    values, feature_ids = dataset.scdl.get_row(0, return_features=True, feature_vars=["feature_id"])
+    values, feature_ids = dataset.scdl.get_row(0, return_var_features=True, feature_names=["feature_id"])
     gene_data, col_idxs = values[0], values[1]
     assert len(gene_data) == 440
     assert len(col_idxs) == 440
     assert len(feature_ids[0]) == 60664
 
-    values, feature_ids = dataset.scdl.get_row(len(dataset) - 1, return_features=True, feature_vars=["feature_id"])
+    values, feature_ids = dataset.scdl.get_row(
+        len(dataset) - 1, return_var_features=True, feature_names=["feature_id"]
+    )
     gene_data, col_idxs = values[0], values[1]
     assert len(gene_data) == 1147
     assert len(col_idxs) == 1147

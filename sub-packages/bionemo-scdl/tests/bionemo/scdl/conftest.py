@@ -17,11 +17,14 @@
 import shutil
 from pathlib import Path
 
+import anndata as ad
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 from bionemo.scdl.data.load import load
 from bionemo.scdl.index.row_feature_index import VariableFeatureIndex
+from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 
 
 @pytest.fixture
@@ -110,3 +113,80 @@ def assert_index_state():
             assert idx.number_of_values() == values
 
     return _assert
+
+
+# ==== Creating H5ad files to check downcasting performance ======
+@pytest.fixture
+def make_random_csr():
+    def _make_random_csr(total_nnz: int, n_cols: int, seed: int = 42, fn_prefix: str = "random_csr"):
+        rng = np.random.default_rng(seed)
+        indptr = np.arange(total_nnz + 1, dtype=np.int64)
+        indices = rng.integers(0, n_cols, total_nnz)
+        data = np.ones(total_nnz, dtype=np.float64)
+        X = sp.csr_matrix((data, indices, indptr), shape=(total_nnz, n_cols))
+
+        return X
+
+    return _make_random_csr
+
+
+@pytest.fixture
+def make_two_datasets(make_random_csr):
+    """Factory to create two datasets and expected arrays for concatenation tests."""
+
+    def _make(tmp_path, dtype1: str, dtype2: str):
+        X1 = make_random_csr(total_nnz=224, n_cols=200)
+        X2 = make_random_csr(total_nnz=224, n_cols=200)
+
+        h1 = tmp_path / "var1.h5ad"
+        h2 = tmp_path / "var2.h5ad"
+        ad.AnnData(X=X1).write_h5ad(h1)
+        ad.AnnData(X=X2).write_h5ad(h2)
+
+        ds1 = SingleCellMemMapDataset(tmp_path / "var_ds1", h5ad_path=h1, data_dtype=dtype1)
+        ds2 = SingleCellMemMapDataset(tmp_path / "var_ds2", h5ad_path=h2, data_dtype=dtype2)
+
+        expected_row_ptr = np.concatenate([X1.indptr, X2.indptr[1:] + int(X1.nnz)])
+        expected_cols = np.concatenate([X1.indices, X2.indices])
+        expected_data = np.concatenate([X1.data, X2.data])
+        return ds1, ds2, expected_row_ptr, expected_cols, expected_data
+
+    return _make
+
+
+@pytest.fixture
+def make_small_and_large_h5ads():
+    """Factory to create small/large h5ads and expected arrays for collection tests."""
+
+    def _make(tmp_path):
+        # Small (float32 non-integers), 4 rows with empty first and third rows
+        n_rows_small, n_cols_small = 4, 12
+        small_data_vals = np.array([0.5, -1.25, 3.75, 2.0], dtype=np.float32)
+        indices_small_vals = np.array([0, 11, 5, 7], dtype=np.int64)
+        indptr_small_vals = np.array([0, 0, 2, 2, 4], dtype=np.int64)
+        X_small = ad.AnnData(
+            X=sp.csr_matrix(
+                (small_data_vals, indices_small_vals, indptr_small_vals), shape=(n_rows_small, n_cols_small)
+            )
+        )
+        small_path = tmp_path / "small.h5ad"
+        X_small.write_h5ad(small_path)
+
+        # Large (uint32 via integer-valued with large magnitude), 3 rows with empty middle row
+        n_rows_large, n_cols_large = 3, 70_000
+        large_data_vals = np.array([70_000.0, 1.0], dtype=np.uint32)
+        indices_large_vals = np.array([10, 65_537], dtype=np.int64)
+        indptr_large_vals = np.array([0, 1, 1, 2], dtype=np.int64)
+        X_large = ad.AnnData(
+            X=sp.csr_matrix(
+                (large_data_vals, indices_large_vals, indptr_large_vals), shape=(n_rows_large, n_cols_large)
+            )
+        )
+        large_path = tmp_path / "large.h5ad"
+        X_large.write_h5ad(large_path)
+
+        small = {"data_vals": small_data_vals, "indices_vals": indices_small_vals, "indptr_vals": indptr_small_vals}
+        large = {"data_vals": large_data_vals, "indices_vals": indices_large_vals, "indptr_vals": indptr_large_vals}
+        return small_path, large_path, small, large
+
+    return _make

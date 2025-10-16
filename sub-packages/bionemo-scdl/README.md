@@ -101,7 +101,7 @@ import numpy as np
 ds = SingleCellMemMapDataset("97e_scmm")
 index = 0
 values, feature_ids = ds.get_row(
-    index, return_features=True, feature_vars=["feature_id"]
+    index, return_var_features=True, var_feature_names=["feature_id"]
 )
 assert (
     len(feature_ids) == 1
@@ -138,11 +138,11 @@ for e in range(n_epochs):
         model(batch)
 ```
 
-For some applications, we might want to also use the features. These can be specified with get_row(index, return_features = True). By default, all features are returned, but the features can be specified with the feature_vars argument in get_row, which corresponds to a list of the feature names to return.
+For some applications, we might want to also use the features. These can be specified with get_row(index, return_var_features = True). By default, all features are returned, but the features can be specified with the var_feature_names argument in get_row, which corresponds to a list of the feature names to return.
 
 ```
 for index in range(len(data)):
-    model(data.get_row(index,return_features = True))
+    model(data.get_row(index, return_var_features=True))
 ```
 
 ## Examples
@@ -168,6 +168,28 @@ The runtime is examined on the Tahoe 100M dataset, which containes over 100 mill
 ![Throughput](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/pbinder/scdl_add_to_edawson/sub-packages/bionemo-scdl/assets/tahoe_throughput.png)
 
 To replicate this on your machine, see: [Tahoe 100M Profiling](https://github.com/NVIDIA/bionemo-framework/blob/main/sub-packages/bionemo-scdl/simple-benchmark/README.md#tahoe-100m) section.
+
+## Data Type Casting
+
+SCDL lets you control both storage size and numerical precision by specifying the data type for values loaded from AnnData `.X`. Supported types include "uint8", "uint16", "uint32", "uint64", "float16", "float32", and "float64". Choosing a smaller type (like "uint8" or "float16") results in more compact storage, while selecting a higher-precision type (such as "float64") uses more space but preserves maximum accuracy. You set the data type at the time of dataset creation from an AnnData file using:
+
+```python
+from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
+
+data = SingleCellMemMapDataset(
+    "97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad", data_dtype="uint64"
+)
+```
+
+SCDL checks that there is minimal loss while doing this. The amount of tolerated loss in the data is set through the `data_dtype_tolerance` parameter.
+
+During dataset concatenation, it is assumed that all of the data types are either floats or ints, and all of the entries are upscaled to the largest data size. If there is a combination of floats and ints when concatenating the data, an error is thrown.
+
+To convert multiple files with a given data format, the user can run:
+
+```bash
+convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset --data-dtype float64
+```
 
 ## Using Neighbor Information in Single Cell Datasets
 

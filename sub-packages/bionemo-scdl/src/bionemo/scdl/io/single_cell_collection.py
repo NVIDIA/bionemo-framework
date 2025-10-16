@@ -38,7 +38,9 @@ logger.setLevel(logging.INFO)
 logging.basicConfig(format="%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] - %(message)s")
 
 
-def _create_single_cell_memmap_dataset_from_h5ad(h5ad_path: str, base_directory_path: str) -> SingleCellMemMapDataset:
+def _create_single_cell_memmap_dataset_from_h5ad(
+    h5ad_path: str, base_directory_path: str, data_dtype: str | None = None
+) -> SingleCellMemMapDataset:
     """The SingleCellMemMapDataset is loaded from h5ad_path.
 
     The data is stored in the base_data_path directory.
@@ -48,9 +50,14 @@ def _create_single_cell_memmap_dataset_from_h5ad(h5ad_path: str, base_directory_
         base_directory_path: the base directory path where the dataset will be stored
     Returns:
         The created SingleCellMemMapDataset
+
+    Args:
+        data_dtype: Optional dtype string for `data.npy` (e.g., 'uint8','float16','float32','float64')
     """
     fname = Path(h5ad_path).stem
-    obj = SingleCellMemMapDataset(data_path=Path(base_directory_path) / fname, h5ad_path=h5ad_path)
+    obj = SingleCellMemMapDataset(
+        data_path=Path(base_directory_path) / fname, h5ad_path=h5ad_path, data_dtype=data_dtype
+    )
     return obj
 
 
@@ -125,7 +132,9 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         )
         self._var_feature_index.concat(self.fname_to_mmap[mmap_path]._var_feature_index)
 
-    def load_h5ad_multi(self, directory_path: str, max_workers: int = 5, use_processes: bool = False) -> None:
+    def load_h5ad_multi(
+        self, directory_path: str, max_workers: int = 5, use_processes: bool = False, data_dtype: str | None = None
+    ) -> None:
         """Loads one or more AnnData files and adds them to the collection.
 
         Args:
@@ -136,6 +145,9 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         Raises:
             FileNotFoundError: If no h5ad files are found in the directory.
             RuntimeError: If an error occurs in the loading of any of the h5ad files.
+
+        Args:
+            data_dtype: Optional dtype string propagated to dataset creation
         """
         directory_path = Path(directory_path)
         ann_data_paths = sorted(directory_path.rglob("*.h5ad"))
@@ -144,7 +156,12 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         mmap_paths = [Path(self.data_path) / Path(ann_datapath).stem for ann_datapath in ann_data_paths]
         queue = AsyncWorkQueue(max_workers=max_workers, use_processes=use_processes)
         for ann in ann_data_paths:
-            queue.submit_task(_create_single_cell_memmap_dataset_from_h5ad, ann, base_directory_path=self.data_path)
+            queue.submit_task(
+                _create_single_cell_memmap_dataset_from_h5ad,
+                ann,
+                base_directory_path=self.data_path,
+                data_dtype=data_dtype,
+            )
         queue.wait()
         mmaps = queue.get_task_results()
 
