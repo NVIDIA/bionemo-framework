@@ -23,8 +23,8 @@ implementations:
 - `VariableFeatureIndex`: column-oriented features, where a lookup returns full
   feature arrays for the block containing a given row.
 
-Data are stored in blocks (feature dictionaries), and `_cumulative_sum_index`
-tracks row boundaries between blocks.
+Data are stored in blocks of feature dictionaries. `_cumulative_sum_index`
+tracks row boundaries between blocks. The feature dictionarires are stroed in `_feature_arr`.
 """
 
 from __future__ import annotations
@@ -78,7 +78,8 @@ class RowFeatureIndex(ABC):
     Attributes:
         _cumulative_sum_index: Cumulative row counts that delineate block
             boundaries. For example, with `[-1, 200, 350]`, rows `0..199` are in
-            block 0 and rows `200..349` are in block 1.
+            block 0, which is in _feature_arr[0], and rows `200..349` are in block 1,
+            which is in _feature_arr[1].
         _feature_arr: List of feature dictionaries, one per block.
         _num_entries_per_row: Per-block counts used by `number_vars_at_row` and
             `column_dims`.
@@ -359,7 +360,11 @@ class ObservedFeatureIndex(RowFeatureIndex):
 
     @staticmethod
     def load(datapath: str) -> "ObservedFeatureIndex":
-        """Load an observed (row) feature index from a directory."""
+        """Load a observed (row) feature index from a directory.
+
+        This will  load the parquet files in sorted order. In the SCDL use case, this expects a directory with
+        parquet files named dataframe_<index>.parquet.
+        """
         return RowFeatureIndex._load_common(datapath, ObservedFeatureIndex())
 
     def __getitem__(self, idx):
@@ -471,7 +476,11 @@ class VariableFeatureIndex(RowFeatureIndex):
 
     @staticmethod
     def load(datapath: str) -> "VariableFeatureIndex":
-        """Load a variable (column) feature index from a directory. This will  load the parquet files in sorted order. In the SCDL use case, this expects a directory with parquet files named dataframe_<index>.parquet."""
+        """Load a variable (column) feature index from a directory.
+
+        This will  load the parquet files in sorted order. In the SCDL use case, this expects a directory with
+        parquet files named dataframe_<index>.parquet.
+        """
         return RowFeatureIndex._load_common(datapath, VariableFeatureIndex())
 
     def lookup(self, row: int, select_features: Optional[list[str]] = None) -> Tuple[list[np.ndarray], Optional[str]]:
