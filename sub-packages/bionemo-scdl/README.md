@@ -64,7 +64,7 @@ data.number_nonzero_values()
 ## 26947275
 ```
 
-### Saving SCDL (Single Cell Dataloader) datasets to disk
+### Saving SCDL (Single Cell DataLoader) datasets to disk
 
 When you open a SCDL dataset, you *must* choose a path where the backing
 data structures are stored. However, these structures are not guaranteed
@@ -93,34 +93,55 @@ SCDL implements the required functions of the PyTorch Dataset abstract class.
 
 #### Tokenization
 
-A common use case for the single-cell dataloader is tokenizing data using a predefined vocabulary with a defined tokenizer function.
+A common use case for the single-cell dataloader is tokenizing data using a predefined vocabulary with a defined
+tokenizer function. These features (that in anndata are stored in .var) can be accessed with `return_var_features`
+and setting `var_feature_names` to the desired feature names. Similarly, row-wise features (thost thare in the .obs,)
+can be accessed with `return_obs_features` and setting `obs_feature_names`.
 
 ```python
 import numpy as np
 
 ds = SingleCellMemMapDataset("97e_scmm")
 index = 0
-values, feature_ids = ds.get_row(
-    index, return_features=True, feature_vars=["feature_id"]
+values, var_feature_ids, obs_feature_ids = ds.get_row(
+    index,
+    return_var_features=True,
+    var_feature_names=["feature_id"],
+    return_obs_features=True,
+    obs_feature_names=["cell_line"],
 )
 assert (
     len(feature_ids) == 1
 )  # we expect feature_ids to be a list containing one np.array with the row's feature ids
 gene_data, col_idxs = np.array(values[0]), np.array(values[1])
-tokenizer_function = lambda x, y, z: x
-tokenizer_function(
-    gene_data,
-    col_idxs,
-    feature_ids[0],
-)
+tokenizer_function = lambda x, y, z, w: x
+tokenizer_function(gene_data, col_idxs, var_feature_ids[0], obs_feature_ids[0])
 ```
 
-#### Loading directly with Pytorch-compatible Dataloaders
+#### Observed (.obs) features
+
+Observed (row-level, per-cell) features can be accessed using the `.obs_features()` method on your dataset instance. This
+method allows you to retrieve per-cell metadata stored in the `.obs` of underlying AnnData files, either as a single dictionary
+(if your SCDL archive came from a single AnnData file) or as a list of dictionaries (if multiple input files were concatenated and their `.obs` columns differ).
+
+You can use integer indexing to get the features for a single cell, or slicing to get features for a range of cells:
+
+```python
+# Get .obs features for cells 5 through 9
+df = data.obs_features()[5:10]
+
+# Get .obs features for cell 3
+row = data.obs_features()[3]
+```
+
+#### Loading directly with PyTorch-compatible DataLoaders
 
 You can use PyTorch-compatible DataLoaders to load batches of data from a SCDL class.
-With a batch size of 1 this can be run without a collating function. With a batch size
-greater than 1, there is a collation function (`collate_sparse_matrix_batch`), that will
-collate several sparse arrays into the CSR (Compressed Sparse Row) torch tensor format.
+With a batch size of 1, this can be run without a collation function. With a batch size
+greater than 1, there is a collation function (`collate_sparse_matrix_batch`) that will
+collate several sparse arrays into the CSR (Compressed Sparse Row) PyTorch tensor format.
+
+Tip: If including `.obs` in training, the highest‑throughput pattern is to pre‑encode `.obs` to a single float32 tensor (numeric cols cast; categorical cols factorized/one‑hot) aligned to row order, return `(X, idx)` from the DataLoader, and gather `obs[idx]` inside the model. This avoids large host‑to‑device copies every batch while still conditioning on per‑cell metadata (e.g., cell type, donor, batch).
 
 ```python
 from torch.utils.data import DataLoader
@@ -138,18 +159,54 @@ for e in range(n_epochs):
         model(batch)
 ```
 
-For some applications, we might want to also use the features. These can be specified with get_row(index, return_features = True). By default, all features are returned, but the features can be specified with the feature_vars argument in get_row, which corresponds to a list of the feature names to return.
+## Data Type Casting
 
+SCDL lets you control both storage size and numerical precision by specifying the data type for values loaded from AnnData `.X`. Supported types include "uint8", "uint16", "uint32", "uint64", "float16", "float32", and "float64". Choosing a smaller type (like "uint8" or "float16") results in more compact storage, while selecting a higher-precision type (such as "float64") uses more space but preserves maximum accuracy. You set the data type at the time of dataset creation from an AnnData file using:
+
+```python
+from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
+
+data = SingleCellMemMapDataset(
+    "97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad", data_dtype="uint64"
+)
 ```
-for index in range(len(data)):
-    model(data.get_row(index,return_features = True))
+
+SCDL checks for minimal loss when doing this. The amount of tolerated loss in the data is set through the `data_dtype_tolerance` parameter.
+
+During dataset concatenation, it is assumed that all of the data types are either floats or ints, and all of the entries are upscaled to the largest data size. If there is a combination of floats and ints when concatenating the data, an error is thrown.
+
+To convert multiple files with a given data format, the user can run:
+
+```bash
+convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset --data-dtype float64
 ```
+
+### Changing data dtype after creation (in-place)
+
+If you need to change the on-disk data dtype after a dataset has been created, you can cast it in place:
+
+```python
+from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
+
+ds = SingleCellMemMapDataset("97e_scmm")
+ds.cast_data_to_dtype("float64")  # or "uint16", "float32", etc.
+
+# Optionally reopen to verify
+reloaded = SingleCellMemMapDataset("97e_scmm")
+assert reloaded.dtypes["data.npy"] == "float64"
+```
+
+Notes:
+
+- Casting is done in place and updates the on-disk arrays and dtype registry.
+- Upcasting (e.g., float32 → float64) preserves values exactly; downscaling may incur small differences and is checked for minimal loss.
+- Avoid mixing integer and floating‑point families across datasets you plan to concatenate; SCDL raises an error when families differ.
 
 ## Examples
 
 The examples directory contains various examples for utilizing SCDL.
 
-### Converting existing Cell x Gene data to SCDL
+### Converting existing CellxGene data to SCDL
 
 If there are multiple AnnData files, they can be converted into a single `SingleCellMemMapDataset`. If the hdf5 directory has one or more AnnData files, the `SingleCellCollection` class crawls the filesystem to recursively find AnnData files (with the h5ad extension).
 
@@ -163,33 +220,11 @@ convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
 
 ## Runtimes with SCDL
 
-The runtime is examined on the Tahoe 100M dataset, which containes over 100 million rows. On this dataset, there is either a 12x or 53x speed up depending on the machine used.
+The runtime is examined on the Tahoe 100M dataset, which contains over 100 million rows. On this dataset, there is either a 12× or 53× speedup depending on the machine used.
 
 ![Throughput](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/pbinder/scdl_add_to_edawson/sub-packages/bionemo-scdl/assets/tahoe_throughput.png)
 
 To replicate this on your machine, see: [Tahoe 100M Profiling](https://github.com/NVIDIA/bionemo-framework/blob/main/sub-packages/bionemo-scdl/simple-benchmark/README.md#tahoe-100m) section.
-
-## Data Type Casting
-
-SCDL lets you control both storage size and numerical precision by specifying the data type for values loaded from AnnData `.X`. Supported types include "uint8", "uint16", "uint32", "uint64", "float16", "float32", and "float64". Choosing a smaller type (like "uint8" or "float16") results in more compact storage, while selecting a higher-precision type (such as "float64") uses more space but preserves maximum accuracy. You set the data type at the time of dataset creation from an AnnData file using:
-
-```python
-from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
-
-data = SingleCellMemMapDataset(
-    "97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad", data_dtype="uint64"
-)
-```
-
-SCDL checks that there is minimal loss while doing this. The amount of tolerated loss in the data is set through the `data_dtype_tolerance` parameter.
-
-During dataset concatenation, it is assumed that all of the data types are either floats or ints, and all of the entries are upscaled to the largest data size. If there is a combination of floats and ints when concatenating the data, an error is thrown.
-
-To convert multiple files with a given data format, the user can run:
-
-```bash
-convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset --data-dtype float64
-```
 
 ## Using Neighbor Information in Single Cell Datasets
 
@@ -307,3 +342,32 @@ To run a specific test:
 ```bash
 python -m pytest tests/test_<test name>.py
 ```
+
+### Troubleshooting
+
+- Mixed data types at concat (ValueError: mix of int and float dtypes)
+
+  - Cause: attempting to concatenate datasets whose data arrays are from different dtype families (e.g., one integer, one floating‑point).
+  - Fixes:
+    - Recast all input archives to a common dtype family. You can do this in place with `ds.cast_data_to_dtype("float32")`, then rerun concatenation.
+    - Alternatively, rebuild inputs using `convert_h5ad_to_scdl --data-dtype <dtype>` so they share the same family.
+
+- Slow DataLoader throughput when returning rich Python structures
+
+  - Cause: returning dicts or strings from `Dataset`/`collate_fn` prevents fast vectorized collation.
+  - Fixes:
+    - Return tensors only; prefer a tuple `(X, idx)` and gather `.obs` inside the model from a pre‑encoded tensor aligned to row order.
+    - Use `num_workers>0`, `pin_memory=True`, `persistent_workers=True` in `DataLoader`.
+
+- Dense padding is unexpectedly large or OOM
+
+  - Cause: `get_row_padded` materializes a dense row of length `number_of_variables()[0]`.
+  - Fixes:
+    - Prefer sparse CSR batches via `collate_sparse_matrix_batch` for training.
+    - Use smaller batches when dense padding is required.
+
+- Downcasting warnings (data precision loss)
+
+  - Cause: requested `data_dtype` is narrower than the source values allow.
+  - Fixes:
+    - Choose a wider dtype (e.g., `float32`/`float64`, or a larger unsigned int), or raise `data_dtype_tolerance` as appropriate.
