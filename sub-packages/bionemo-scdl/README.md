@@ -95,7 +95,7 @@ SCDL implements the required functions of the PyTorch Dataset abstract class.
 
 A common use case for the single-cell dataloader is tokenizing data using a predefined vocabulary with a defined
 tokenizer function. These features (that in anndata are stored in .var) can be accessed with `return_var_features`
-and setting `var_feature_names` to the desired feature names. Similarly, row-wise features (thost thare in the .obs,)
+and setting `var_feature_names` to the desired feature names. Similarly, row-wise features (that are in the .obs,)
 can be accessed with `return_obs_features` and setting `obs_feature_names`.
 
 ```python
