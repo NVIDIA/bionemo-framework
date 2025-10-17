@@ -349,7 +349,7 @@ python -m pytest tests/test_<test name>.py
     - Recast all input archives to a common dtype family. You can do this in place with `ds.cast_data_to_dtype("float32")`, then rerun concatenation.
     - Alternatively, rebuild inputs using `convert_h5ad_to_scdl --data-dtype <dtype>` so they share the same family.
       
-- OOM during dataset intantiation or concatenation from h5ad files. 
+- OOM during dataset instantiation or concatenation from h5ad files.
 
   - Cause: Likely due to overly large chunks of the anndata file being read into memory. 
   - Fixes: Set a lower paginated_load_cutoff, load_block_row_size, or number of workers during concatenation. 
