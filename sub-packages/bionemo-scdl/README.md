@@ -141,8 +141,6 @@ With a batch size of 1, this can be run without a collation function. With a bat
 greater than 1, there is a collation function (`collate_sparse_matrix_batch`) that will
 collate several sparse arrays into the CSR (Compressed Sparse Row) PyTorch tensor format.
 
-Tip: If including `.obs` in training, the highest‑throughput pattern is to pre‑encode `.obs` to a single float32 tensor (numeric cols cast; categorical cols factorized/one‑hot) aligned to row order, return `(X, idx)` from the DataLoader, and gather `obs[idx]` inside the model. This avoids large host‑to‑device copies every batch while still conditioning on per‑cell metadata (e.g., cell type, donor, batch).
-
 ```python
 from torch.utils.data import DataLoader
 from bionemo.scdl.util.torch_dataloader_utils import collate_sparse_matrix_batch
@@ -199,7 +197,6 @@ assert reloaded.dtypes["data.npy"] == "float64"
 Notes:
 
 - Casting is done in place and updates the on-disk arrays and dtype registry.
-- Upcasting (e.g., float32 → float64) preserves values exactly; downscaling may incur small differences and is checked for minimal loss.
 - Avoid mixing integer and floating‑point families across datasets you plan to concatenate; SCDL raises an error when families differ.
 
 ## Examples
@@ -210,7 +207,7 @@ The examples directory contains various examples for utilizing SCDL.
 
 If there are multiple AnnData files, they can be converted into a single `SingleCellMemMapDataset`. If the hdf5 directory has one or more AnnData files, the `SingleCellCollection` class crawls the filesystem to recursively find AnnData files (with the h5ad extension).
 
-To convert existing AnnData files, you can either write your own script using the SCDL API or utilize the convenience script `convert_h5ad_to_scdl`.
+To convert existing AnnData files, you can either write your own script using the SCDL API or utilize the convenience script `convert_h5ad_to_scdl`. 
 
 Here's an example:
 
@@ -362,7 +359,6 @@ python -m pytest tests/test_<test name>.py
   - Cause: returning dicts or strings from `Dataset`/`collate_fn` prevents fast vectorized collation.
   - Fixes:
     - Return tensors only; prefer a tuple `(X, idx)` and gather `.obs` inside the model from a pre‑encoded tensor aligned to row order.
-    - Use `num_workers>0`, `pin_memory=True`, `persistent_workers=True` in `DataLoader`.
 
 - Downcasting warnings (data precision loss)
 
