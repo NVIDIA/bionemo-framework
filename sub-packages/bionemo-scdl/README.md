@@ -178,7 +178,7 @@ During dataset concatenation, it is assumed that all of the data types are eithe
 To convert multiple files with a given data format, the user can run:
 
 ```bash
-convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset --data-dtype float64
+convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset [--data-dtype float64 -- paginated_load_cutoff 10_000 --load-block-row-size 1_000_000]
 ```
 
 ### Changing data dtype after creation (in-place)
@@ -351,20 +351,18 @@ python -m pytest tests/test_<test name>.py
   - Fixes:
     - Recast all input archives to a common dtype family. You can do this in place with `ds.cast_data_to_dtype("float32")`, then rerun concatenation.
     - Alternatively, rebuild inputs using `convert_h5ad_to_scdl --data-dtype <dtype>` so they share the same family.
+      
+- OOM during dataset intantiation or concatenation from h5ad files. 
 
+  - Cause: Likely due to overly large chunks of the anndata file being read into memory. 
+  - Fixes: Set a lower paginated_load_cutoff, load_block_row_size, or number of workers during concatenation. 
+    
 - Slow DataLoader throughput when returning rich Python structures
 
   - Cause: returning dicts or strings from `Dataset`/`collate_fn` prevents fast vectorized collation.
   - Fixes:
     - Return tensors only; prefer a tuple `(X, idx)` and gather `.obs` inside the model from a pre‑encoded tensor aligned to row order.
     - Use `num_workers>0`, `pin_memory=True`, `persistent_workers=True` in `DataLoader`.
-
-- Dense padding is unexpectedly large or OOM
-
-  - Cause: `get_row_padded` materializes a dense row of length `number_of_variables()[0]`.
-  - Fixes:
-    - Prefer sparse CSR batches via `collate_sparse_matrix_batch` for training.
-    - Use smaller batches when dense padding is required.
 
 - Downcasting warnings (data precision loss)
 
