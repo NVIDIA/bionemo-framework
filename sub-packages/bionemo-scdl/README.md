@@ -111,9 +111,7 @@ values, var_feature_ids, obs_feature_ids = ds.get_row(
     obs_feature_names=["cell_line"],
 )
 assert (
-assert (
     len(var_feature_ids) == 1 and len(obs_feature_ids) == 1
-)  # we expect feature_ids to be a list containing one np.array with the row's feature ids
 )  # we expect feature_ids to be a list containing one np.array with the row's feature ids
 gene_data, col_idxs = np.array(values[0]), np.array(values[1])
 tokenizer_function = lambda x, y, z, w: x
@@ -173,14 +171,6 @@ data = SingleCellMemMapDataset(
 
 SCDL checks for minimal loss when doing this. The amount of tolerated loss in the data is set through the `data_dtype_tolerance` parameter.
 
-During dataset concatenation, it is assumed that all of the data types are either floats or ints, and all of the entries are upscaled to the largest data size. If there is a combination of floats and ints when concatenating the data, an error is thrown.
-
-To convert multiple files with a given data format, the user can run:
-
-```bash
-convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset [--data-dtype float64 -- paginated_load_cutoff 10_000 --load-block-row-size 1_000_000]
-```
-
 ### Changing data dtype after creation (in-place)
 
 If you need to change the on-disk data dtype after a dataset has been created, you can cast it in place:
@@ -209,12 +199,14 @@ The examples directory contains various examples for utilizing SCDL.
 
 If there are multiple AnnData files, they can be converted into a single `SingleCellMemMapDataset`. If the hdf5 directory has one or more AnnData files, the `SingleCellCollection` class crawls the filesystem to recursively find AnnData files (with the h5ad extension).
 
-To convert existing AnnData files, you can either write your own script using the SCDL API or utilize the convenience script `convert_h5ad_to_scdl`. 
+To convert existing AnnData files, you can either write your own script using the SCDL API or utilize the convenience script `convert_h5ad_to_scdl`.
 
-Here's an example:
+During dataset concatenation, it is assumed that all of the data types are either floats or ints, and all of the entries are upscaled to the largest data size. If there is a combination of floats and ints when concatenating the data, an error is thrown.
+
+To convert multiple files with a given data format, the user can run:
 
 ```bash
-convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset
+convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset [--data-dtype float64 --paginated_load_cutoff 10_000 --load-block-row-size 1_000_000]
 ```
 
 ## Runtimes with SCDL
@@ -350,12 +342,12 @@ python -m pytest tests/test_<test name>.py
   - Fixes:
     - Recast all input archives to a common dtype family. You can do this in place with `ds.cast_data_to_dtype("float32")`, then rerun concatenation.
     - Alternatively, rebuild inputs using `convert_h5ad_to_scdl --data-dtype <dtype>` so they share the same family.
-      
+
 - OOM during dataset instantiation or concatenation from h5ad files.
 
-  - Cause: Likely due to overly large chunks of the anndata file being read into memory. 
-  - Fixes: Set a lower paginated_load_cutoff, load_block_row_size, or number of workers during concatenation. 
-    
+  - Cause: Likely due to overly large chunks of the anndata file being read into memory.
+  - Fixes: Set a lower paginated_load_cutoff, load_block_row_size, or number of workers during concatenation.
+
 - Slow DataLoader throughput when returning rich Python structures
 
   - Cause: returning dicts or strings from `Dataset`/`collate_fn` prevents fast vectorized collation.
