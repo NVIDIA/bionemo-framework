@@ -208,12 +208,12 @@ def test_SingleCellMemMapDataset_get_row_colum(generate_dataset):
 
 
 def test_SingleCellMemMapDataset_get_row_padded(generate_dataset):
-    padded_row, feats = generate_dataset.get_row_padded(
+    padded_row, var_feats, _ = generate_dataset.get_row_padded(
         0, return_var_features=True, var_feature_names=["feature_name"]
     )
     assert len(padded_row) == 10
     assert padded_row[2] == 6.0
-    assert len(feats[0]) == 10
+    assert len(var_feats[0]) == 10
     assert generate_dataset.get_row_padded(0)[0][0] == 0.0
     assert generate_dataset.data[0] == 6.0
     assert generate_dataset.data[1] == 19.0
@@ -475,3 +475,27 @@ def test_concat_rowptr_dtype_error_on_data_mismatch_on_concatenation(tmp_path, m
     ds1, ds2, _, _, _ = make_two_datasets(tmp_path, "float32", "uint8")
     with pytest.raises(ValueError, match="Cannot merge datasets with a mix of int and float dtypes for data: "):
         ds1.concat(ds2)
+
+
+def test_SingleCellMemMapDataset_obs_features_identical_to_anndata_source(
+    tmp_path, create_cellx_val_data, assert_index_state
+):
+    memmap_data = tmp_path / "out"
+    ds = SingleCellMemMapDataset(memmap_data, h5ad_path=create_cellx_val_data / "sidx_40575621_2_0.h5ad")
+    adata = ad.read_h5ad(create_cellx_val_data / "sidx_40575621_2_0.h5ad")
+    assert_index_state(ds.obs_features(), length=1, rows=adata.obs.shape[0], col_widths=[adata.obs.shape[1]])
+    obs_feats0 = ds.get_row(index=0, return_obs_features=True)[2]
+    obs_feats1 = ds.get_row(index=1, return_obs_features=True)[2]
+    assert np.array_equal(obs_feats0, adata.obs.iloc[0].tolist())
+    assert np.array_equal(obs_feats1, adata.obs.iloc[1].tolist())
+
+
+def test_SingleCellMemMapDataset_var_features_identical_to_anndata_source(
+    tmp_path, create_cellx_val_data, assert_index_state
+):
+    memmap_data = tmp_path / "out"
+    ds = SingleCellMemMapDataset(memmap_data, h5ad_path=create_cellx_val_data / "sidx_40575621_2_0.h5ad")
+    adata = ad.read_h5ad(create_cellx_val_data / "sidx_40575621_2_0.h5ad")
+    assert_index_state(ds.var_features(), length=1, rows=adata.shape[0], col_widths=[adata.var.shape[0]])
+    var_feats0 = ds.get_row(index=0, return_var_features=True)[1]
+    assert np.array_equal(np.stack([adata.var[c].to_numpy() for c in adata.var.columns]), np.stack(var_feats0))

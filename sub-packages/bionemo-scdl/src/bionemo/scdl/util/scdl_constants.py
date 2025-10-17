@@ -41,6 +41,8 @@ class FileNames(str, Enum):
     NEIGHBOR_VALUES = "neighbor_values.npy"
     METADATA = "metadata.json"
     FEATURES = "features"
+    VAR_FEATURES = "var_features"
+    OBS_FEATURES = "obs_features"
     VERSION = "version.json"
     HEADER = "header.sch"
 

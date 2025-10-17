@@ -39,7 +39,11 @@ logging.basicConfig(format="%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] 
 
 
 def _create_single_cell_memmap_dataset_from_h5ad(
-    h5ad_path: str, base_directory_path: str, data_dtype: str | None = None
+    h5ad_path: str,
+    base_directory_path: str,
+    data_dtype: str | None = None,
+    paginated_load_cutoff: int = 10_000,
+    load_block_row_size: int = 1_000_000,
 ) -> SingleCellMemMapDataset:
     """The SingleCellMemMapDataset is loaded from h5ad_path.
 
@@ -48,6 +52,10 @@ def _create_single_cell_memmap_dataset_from_h5ad(
     Args:
         h5ad_path: the path to the dataset
         base_directory_path: the base directory path where the dataset will be stored
+        data dtype: Optional dtype string for `data.npy` (e.g., 'uint8','float16','float32','float64')
+        paginated_load_cutoff: The cutoff in MB for paginated loading of the AnnData files.
+        load_block_row_size: The number of rows to load into memory at a time for paginated loading of the AnnData files.
+
     Returns:
         The created SingleCellMemMapDataset
 
@@ -56,7 +64,11 @@ def _create_single_cell_memmap_dataset_from_h5ad(
     """
     fname = Path(h5ad_path).stem
     obj = SingleCellMemMapDataset(
-        data_path=Path(base_directory_path) / fname, h5ad_path=h5ad_path, data_dtype=data_dtype
+        data_path=Path(base_directory_path) / fname,
+        h5ad_path=h5ad_path,
+        data_dtype=data_dtype,
+        paginated_load_cutoff=paginated_load_cutoff,
+        load_block_row_size=load_block_row_size,
     )
     return obj
 
@@ -117,7 +129,9 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         """
         return self._version
 
-    def load_h5ad(self, h5ad_path: str) -> None:
+    def load_h5ad(
+        self, h5ad_path: str, paginated_load_cutoff: int = 10_000, load_block_row_size: int = 1_000_000
+    ) -> None:
         """Loads data from an existing AnnData archive.
 
         This creates and saves a new backing data structure.
@@ -125,15 +139,26 @@ class SingleCellCollection(SingleCellRowDatasetCore):
 
         Args:
             h5ad_path: the path to AnnData archive
+            paginated_load_cutoff: The cutoff in MB for paginated loading of the AnnData files.
+            load_block_row_size: The number of rows to load into memory at a time for paginated loading of the AnnData files.
         """
         mmap_path = Path(self.data_path) / Path(h5ad_path).stem
         self.fname_to_mmap[mmap_path] = _create_single_cell_memmap_dataset_from_h5ad(
-            h5ad_path=h5ad_path, base_directory_path=self.data_path
+            h5ad_path=h5ad_path,
+            base_directory_path=self.data_path,
+            paginated_load_cutoff=paginated_load_cutoff,
+            load_block_row_size=load_block_row_size,
         )
         self._var_feature_index.concat(self.fname_to_mmap[mmap_path]._var_feature_index)
 
     def load_h5ad_multi(
-        self, directory_path: str, max_workers: int = 5, use_processes: bool = False, data_dtype: str | None = None
+        self,
+        directory_path: str,
+        max_workers: int = 5,
+        use_processes: bool = False,
+        data_dtype: str | None = None,
+        paginated_load_cutoff: int = 10_000,
+        load_block_row_size: int = 1_000_000,
     ) -> None:
         """Loads one or more AnnData files and adds them to the collection.
 
@@ -142,6 +167,9 @@ class SingleCellCollection(SingleCellRowDatasetCore):
             max_workers: the maximal number of workers to use
             use_processes: If True, use ProcessPoolExecutor; otherwise, use
                 ThreadPoolExecutor
+            paginated_load_cutoff: The cutoff in MB for paginated loading of the AnnData files.
+            load_block_row_size: The number of rows to load into memory at a time for paginated loading of the AnnData files.
+            data_dtype: Optional dtype string propagated to dataset creation
         Raises:
             FileNotFoundError: If no h5ad files are found in the directory.
             RuntimeError: If an error occurs in the loading of any of the h5ad files.
@@ -161,6 +189,8 @@ class SingleCellCollection(SingleCellRowDatasetCore):
                 ann,
                 base_directory_path=self.data_path,
                 data_dtype=data_dtype,
+                paginated_load_cutoff=paginated_load_cutoff,
+                load_block_row_size=load_block_row_size,
             )
         queue.wait()
         mmaps = queue.get_task_results()

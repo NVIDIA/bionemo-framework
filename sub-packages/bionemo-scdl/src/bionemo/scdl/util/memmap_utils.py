@@ -216,3 +216,13 @@ def _extract_features(feature_df, feature_index_name: str) -> Dict[str, np.ndarr
     except Exception:
         pass
     return {}
+
+
+def _extract_features(df, feature_index_name):
+    """Helper to convert a DataFrame into a features dict."""
+    if df.columns.size > 0:
+        return {col: np.array(df[col].values) for col in df.columns}
+    elif df.index.size > 0:
+        return {feature_index_name: df.index.values}
+    else:
+        return {}
