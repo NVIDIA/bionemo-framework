@@ -111,7 +111,9 @@ values, var_feature_ids, obs_feature_ids = ds.get_row(
     obs_feature_names=["cell_line"],
 )
 assert (
-    len(feature_ids) == 1
+assert (
+    len(var_feature_ids) == 1 and len(obs_feature_ids) == 1
+)  # we expect feature_ids to be a list containing one np.array with the row's feature ids
 )  # we expect feature_ids to be a list containing one np.array with the row's feature ids
 gene_data, col_idxs = np.array(values[0]), np.array(values[1])
 tokenizer_function = lambda x, y, z, w: x
