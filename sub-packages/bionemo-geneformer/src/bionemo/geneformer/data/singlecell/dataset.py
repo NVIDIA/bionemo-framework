@@ -120,7 +120,9 @@ class SingleCellDataset(Dataset):
     def __getitem__(self, index: EpochIndex) -> types.BertSample:
         """Performs a lookup and the required transformation for the model."""
         rng = np.random.default_rng([self._seed, index.epoch, index.idx])
-        values, feature_ids = self.scdl.get_row(index.idx, return_var_features=True, var_feature_names=["feature_id"])
+        values, feature_ids, _ = self.scdl.get_row(
+            index.idx, return_var_features=True, var_feature_names=["feature_id"]
+        )
         assert (
             len(feature_ids) == 1
         )  # we expect feature_ids to be a list containing one np.array with the row's feature ids
