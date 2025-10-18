@@ -345,7 +345,7 @@ class Evo2Preprocessor:
             "val": preproc_config.valid_split > 0,
             "test": preproc_config.test_split > 0,
         }
-        splits_needed = {k for k, v in split_assignments.items() if v}
+        splits_list = [k for k, v in split_assignments.items() if v]
 
         # Instantiate multiprocessing pool. Use semaphore to limit the amount of sequences to read into memory.
         semaphore = Semaphore(preproc_config.preproc_concurrency + preproc_config.workers)
@@ -364,13 +364,17 @@ class Evo2Preprocessor:
 
         # Preprocess data and split results into train, test, and split.
         with self.preprocessing_context_manager(preproc_config.seed if preproc_config.seed is not None else None):
+            # Use random.sample() for deterministic, seeded randomness instead of set.pop()
+            # This is inside the context manager so it uses the configured seed
+            splits_needed = random.sample(splits_list, len(splits_list)) if splits_list else []
+
             for result, elapsed_time in preproc_tasks:
                 # Release semaphore for the task associated with the result.
                 semaphore.release()
                 # If we still need to ensure splits are assigned
                 if splits_needed:
-                    # Force assign to a needed split
-                    split = splits_needed.pop()
+                    # Force assign to a needed split (pop from front for deterministic order)
+                    split = splits_needed.pop(0)
                 else:
                     # Regular random assignment
                     split = self._train_val_test_split(
