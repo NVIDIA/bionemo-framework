@@ -202,17 +202,11 @@ def _create_compressed_sparse_row_memmaps(
     return data_arr, col_arr, row_arr
 
 
-def _extract_features(feature_df, feature_index_name: str) -> Dict[str, np.ndarray]:
-    """Normalize a feature dataframe/index into a dict for FeatureIndex.append_features.
-
-    If the dataframe has columns, use them; otherwise use the index under feature_index_name.
-    Returns an empty dict when neither is present.
-    """
-    try:
-        if hasattr(feature_df, "columns") and len(feature_df.columns) > 0:
-            return {col: np.array(feature_df[col].values) for col in feature_df.columns}
-        if hasattr(feature_df, "index") and len(feature_df.index) > 0:
-            return {feature_index_name: feature_df.index.values}
-    except Exception:
-        pass
-    return {}
+def _extract_features(df, feature_index_name):
+    """Helper to convert a DataFrame into a features dict."""
+    if df.columns.size > 0:
+        return {col: np.array(df[col].values) for col in df.columns}
+    elif df.index.size > 0:
+        return {feature_index_name: df.index.values}
+    else:
+        return {}

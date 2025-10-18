@@ -23,6 +23,7 @@ import pytest
 import scipy.sparse as sp
 
 from bionemo.scdl.data.load import load
+from bionemo.scdl.index.row_feature_index import ObservedFeatureIndex, VariableFeatureIndex
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 
 
@@ -71,6 +72,48 @@ def create_cellx_val_data(tmpdir) -> Path:
     return collated_dir
 
 
+# ==== Fixtures for VariableFeatureIndex and ObservedFeatureIndex ======
+@pytest.fixture
+def make_feat_dictionary():
+    """Create a simple dictionary with num_cols columns of identical length num_rows. This will be used to create a
+    VariableFeatureIndex or ObservedFeatureIndex. num_cols is the number of columns in the dictionary, width is the length of the columns, and
+    key_prefix is the prefix of the keys in the dictionary."""
+
+    def _make(num_cols: int, width: int, *, key_prefix: str = "f") -> dict[str, np.ndarray]:
+        feats: dict[str, np.ndarray] = {}
+        for c in range(num_cols):
+            # some random values here
+            feats[f"{key_prefix}{c}"] = np.random.randint(0, 100, size=width)
+        return feats
+
+    return _make
+
+
+@pytest.fixture
+def assert_index_state():
+    """Assert properties of a VariableFeatureIndex or ObservedFeatureIndex are what is expected."""
+
+    def _assert(
+        idx: VariableFeatureIndex | ObservedFeatureIndex,
+        *,
+        length: int | None = None,
+        rows: int | None = None,
+        col_widths: list[int] | None = None,
+        values: list[int] | None = None,
+    ) -> None:
+        if length is not None:
+            assert len(idx) == length
+        if rows is not None:
+            assert idx.number_of_rows() == rows
+        if col_widths is not None:
+            assert idx.column_dims() == col_widths
+        if values is not None:
+            assert idx.number_of_values() == values
+
+    return _assert
+
+
+# ==== Creating H5ad files to check downcasting performance ======
 @pytest.fixture
 def make_random_csr():
     def _make_random_csr(total_nnz: int, n_cols: int, seed: int = 42, fn_prefix: str = "random_csr"):
