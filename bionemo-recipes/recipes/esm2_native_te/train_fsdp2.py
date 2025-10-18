@@ -61,12 +61,23 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         mesh_dim_names=("dp",),
     )
 
+    # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
+    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+    )
+
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.dataset.use_sequence_packing:
         config.attn_input_format = "thd"
-    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+
+    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
+    # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
+    # versions of weights are kept.
+    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
+        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+
     logger.info("Initialized Model:\n%s", model)
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
@@ -84,14 +95,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         for module in model.modules():
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
-
-    # Create an FP8 recipe
-    if args.fp8_config.enabled:
-        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-        )
-    else:
-        fp8_recipe = None
 
     # Create a dataloader that just infinitely loops over the dataset.
     train_dataloader, dataset_or_sampler = create_dataloader(dist_config, **args.dataset)
