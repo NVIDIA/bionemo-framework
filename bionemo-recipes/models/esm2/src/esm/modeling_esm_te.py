@@ -149,7 +149,9 @@ class NVEsmEncoder(nn.Module):
                 for i in range(config.num_hidden_layers)
             ]
         )
-        self.emb_layer_norm_after = transformer_engine.pytorch.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.emb_layer_norm_after = transformer_engine.pytorch.LayerNorm(
+            config.hidden_size, eps=config.layer_norm_eps, params_dtype=config.dtype
+        )
         if config.position_embedding_type == "rotary":
             self.rotary_embeddings = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
 
@@ -264,6 +266,11 @@ class NVEsmPreTrainedModel(PreTrainedModel):
             module.layer_norm_weight.data.fill_(1.0)
             if module.layer_norm_bias is not None:
                 module.layer_norm_bias.data.zero_()
+
+    @classmethod
+    def get_init_context(cls, is_quantized: bool, _is_ds_init_called: bool):
+        """Override the default get_init_context method to allow for fp8 model initialization."""
+        return []
 
 
 class NVEsmModel(NVEsmPreTrainedModel):
@@ -493,13 +500,18 @@ class NVEsmLMHead(nn.Module):
             config (NVEsmConfig): The configuration of the model.
         """
         super().__init__()
-        self.dense = transformer_engine.pytorch.Linear(config.hidden_size, config.hidden_size)
+        self.dense = transformer_engine.pytorch.Linear(
+            config.hidden_size,
+            config.hidden_size,
+            params_dtype=config.dtype,
+        )
 
         self.decoder = transformer_engine.pytorch.LayerNormLinear(
             config.hidden_size,
             config.padded_vocab_size if config.padded_vocab_size is not None else config.vocab_size,
             bias=True,
             eps=config.layer_norm_eps,
+            params_dtype=config.dtype,
         )
 
     def forward(self, features, **kwargs):
@@ -522,7 +534,10 @@ class NVEsmEmbeddings(nn.Module):
         """Initialize a NVEsmEmbeddings."""
         super().__init__()
         self.word_embeddings = nn.Embedding(
-            config.padded_vocab_size, config.hidden_size, padding_idx=config.pad_token_id
+            config.padded_vocab_size,
+            config.hidden_size,
+            padding_idx=config.pad_token_id,
+            dtype=config.dtype,
         )
 
         self.layer_norm = (
