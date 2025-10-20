@@ -15,7 +15,7 @@ on:
       model_config:
         description: "Model configuration to use"
         required: true
-        default: "esm2_native_te"
+        default: "esm2_native_te_650m"
         type: choice
         options:
           - esm2_native_te_650m
@@ -31,11 +31,15 @@ on:
         required: false
         type: string
   schedule:
-    - cron: "0 8 * * *" # everyday at 12am PST
+    - cron: "0 8 * * *" # everyday at 1am PST
 
 jobs:
   submit-lepton-jobs:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model_config: ${{ github.event_name == 'schedule' && fromJSON('["esm2_native_te_650m", "esm2_native_te_3b", "esm2_native_te_15b"]') || fromJSON(format('["{0}"]', github.event.inputs.model_config)) }}
+      fail-fast: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -56,10 +60,10 @@ jobs:
       - name: Submit Lepton Jobs
         env:
           LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
-          GPU_TYPE: ${{ github.event.inputs.gpu_type      || 'h100-sxm' }}
-          BRANCH: ${{ github.event.inputs.branch        || 'main' }}
-          COMMIT_SHA: ${{ github.event.inputs.commit_sha    || '' }}
-          MODEL_CONFIG: ${{ github.event.inputs.model_config  || 'esm2_native_te' }}
+          GPU_TYPE: ${{ github.event.inputs.gpu_type || 'h100-sxm' }}
+          BRANCH: ${{ github.event.inputs.branch || 'main' }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha || '' }}
+          MODEL_CONFIG: ${{ matrix.model_config }}
         run: |
           set -euo pipefail
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
