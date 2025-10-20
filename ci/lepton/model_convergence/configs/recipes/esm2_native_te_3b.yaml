@@ -129,7 +129,7 @@ run_script: |
     wandb_init_args.name=${wandb_name} \
     num_train_steps=${num_train_steps} \
     dataset.micro_batch_size=${micro_batch_size} \
-    dataset.use_sequence_packing=${thd_enabled} \
+    use_sequence_packing=${thd_enabled} \
     dataset.load_dataset_kwargs.path=${load_dataset_kwargs_path} \
     dataset.load_dataset_kwargs.streaming=${load_dataset_kwargs_streaming} \
     +dataset.load_dataset_kwargs.revision=${load_dataset_kwargs_revision} \

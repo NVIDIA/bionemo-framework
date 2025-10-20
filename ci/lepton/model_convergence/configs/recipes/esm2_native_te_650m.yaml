@@ -64,7 +64,6 @@ micro_batch_size: 16
 load_dataset_kwargs_path: nvidia/esm2_uniref_pretraining_data
 load_dataset_kwargs_streaming: true
 load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma: allowlist secret
-sequence_packing_pad_to_multiple_of: 16
 num_workers: 1
 
 # lr commands
@@ -127,8 +126,7 @@ run_script: |
     wandb_init_args.name=${wandb_name} \
     num_train_steps=${num_train_steps} \
     dataset.micro_batch_size=${micro_batch_size} \
-    dataset.use_sequence_packing=${thd_enabled} \
-    dataset.sequence_packing_pad_to_multiple_of=${sequence_packing_pad_to_multiple_of} \
+    use_sequence_packing=${thd_enabled} \
     dataset.load_dataset_kwargs.path=${load_dataset_kwargs_path} \
     dataset.load_dataset_kwargs.streaming=${load_dataset_kwargs_streaming} \
     +dataset.load_dataset_kwargs.revision=${load_dataset_kwargs_revision} \
