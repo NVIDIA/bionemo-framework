@@ -18,13 +18,9 @@ on:
         default: "esm2_native_te"
         type: choice
         options:
-          - esm2_accelerate_te.yaml
-          - esm2_native_te
-          - geneformer_native_te_mfsdp_fp8
-      config_override:
-        description: "Optional: run only these product configs (CSV). Examples: 10m  or  10m,4b. Leave blank to run all."
-        required: false
-        type: string
+          - esm2_native_te_650m
+          - esm2_native_te_3b
+          - esm2_native_te_15b
       branch:
         description: "Branch to use (ignored if commit SHA is provided)"
         required: true
@@ -64,7 +60,6 @@ jobs:
           BRANCH: ${{ github.event.inputs.branch        || 'main' }}
           COMMIT_SHA: ${{ github.event.inputs.commit_sha    || '' }}
           MODEL_CONFIG: ${{ github.event.inputs.model_config  || 'esm2_native_te' }}
-          CONFIG_OVERRIDE: ${{ github.event.inputs.config_override || '' }}
         run: |
           set -euo pipefail
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
@@ -81,15 +76,9 @@ jobs:
             exit 1
           fi
 
-          RUN_ONLY_ARGS=""
-          if [ -n "$CONFIG_OVERRIDE" ]; then
-            RUN_ONLY_ARGS="+run_only=$CONFIG_OVERRIDE"
-          fi
-
           python ci/lepton/core/launch_job.py \
             --config-path ../model_convergence/configs \
             --config-name "recipes/$MODEL_CONFIG" \
-            $RUN_ONLY_ARGS \
             branch="$BRANCH" \
             commit_sha=$COMMIT_SHA \
             node_group=$NODE_GROUP \

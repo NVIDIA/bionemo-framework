@@ -108,7 +108,10 @@ if [ -n "${COMMIT_SHA:-}" ]; then
 fi
 
 # Extract values from config (with sensible defaults)
-RECIPE_SUBDIR="$(printf '%s' "$ALL_CONFIG_JSON_UPDATED" | jq -r '.recipe_subdir // "esm2_native_te_mfsdp"')"
+RECIPE_SUBDIR="$(printf '%s' "$ALL_CONFIG_JSON_UPDATED" | jq -r '.recipe_subdir // "esm2_native_te"')"
+KRATOS_SUBJECT="$(printf '%s' "$ALL_CONFIG_JSON_UPDATED" | jq -r '.kratos_subject // "convergence_tests_v0.0.1"')"
+
+
 
 # ---------------------------
 # Collect NVIDIA SMI as JSON (no cuda_version in --query-gpu)
@@ -246,7 +249,7 @@ if [ "$WANDB_FOUND" = "1" ] && [ -n "$WANDB_SUMMARY" ]; then
                 --arg time "$TIMESTAMP" \
                 --arg source "bionemo-wandb-logs" \
                 --arg type "wandb-training-metrics" \
-                --arg subject "$JOB_NAME" \
+                --arg subject "$KRATOS_SUBJECT" \
                 --argjson data "$COMBINED_JSON" \
                 '{
                   "specversion": "1.0",
