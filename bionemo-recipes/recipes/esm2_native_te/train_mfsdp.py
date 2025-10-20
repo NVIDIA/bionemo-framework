@@ -28,7 +28,7 @@ from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 
 from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp, should_save_checkpoint
-from dataset import create_dataloader
+from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
@@ -73,7 +73,7 @@ def main(args: DictConfig) -> float | None:
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
-    if args.dataset.use_sequence_packing:
+    if args.use_sequence_packing:
         config.attn_input_format = "thd"
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
@@ -108,8 +108,12 @@ def main(args: DictConfig) -> float | None:
     # after the optimizer gets wrapped in FSDP. Here we use a warmup and linear decay scheduler.
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    # Create a dataloader that just infinitely loops over the dataset.
-    train_dataloader, dataset_or_sampler = create_dataloader(dist_config, **args.dataset)
+    # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
+    train_dataloader, dataset_or_sampler = (
+        create_thd_dataloader(dist_config, **args.dataset)
+        if args.use_sequence_packing
+        else create_bshd_dataloader(dist_config, **args.dataset)
+    )
 
     if args.use_torch_compile:
         logger.warning(

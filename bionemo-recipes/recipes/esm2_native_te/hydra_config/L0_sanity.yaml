@@ -9,13 +9,12 @@ num_train_steps: 250
 # We want this on in CI/CD to validate that the script runs successfully with torch.compile.
 use_torch_compile: true
 
+use_sequence_packing: false
 dataset:
   tokenizer_name: ${model_tag}
   micro_batch_size: 2
   num_workers: 1
   max_seq_length: 1024
-  use_sequence_packing: false
-  sequence_packing_pad_to_multiple_of: null
   load_dataset_kwargs:
     path: "parquet"
     split: "train"
