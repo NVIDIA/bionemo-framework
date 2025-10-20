@@ -5,6 +5,6 @@ torch
 torchmetrics
 torchdata
 tqdm
-transformer_engine
+transformer_engine[pytorch]
 transformers
 wandb
