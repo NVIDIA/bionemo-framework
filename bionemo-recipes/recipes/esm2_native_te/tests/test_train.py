@@ -197,6 +197,61 @@ def test_sanity_convergence_fsdp2_fp8(tmp_path, recipe_path):
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
+@requires_fp8
+@pytest.mark.xfail(reason="MFSDP doesn't seem to support fp8_model_init (BIONEMO-3012)")
+def test_sanity_mfsdp_fp8_and_model_init(tmp_path, recipe_path):
+    # For MFSDP, we only check that the script can run successfully with FP8, not convergence.
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "fp8_config.fp8_model_init_kwargs.enabled=true",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "num_train_steps=4",
+            ],
+        )
+
+    main_mfsdp(sanity_config)
+
+
+@requires_fp8
+def test_sanity_ddp_fp8_and_model_init(tmp_path, recipe_path):
+    # For DDP, we only check that the script can run successfully with FP8, not convergence.
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "fp8_config.fp8_model_init_kwargs.enabled=true",
+                "num_train_steps=4",
+            ],
+        )
+
+    main_ddp(sanity_config)
+
+
+@requires_fp8
+def test_sanity_convergence_fsdp2_fp8_and_model_init(tmp_path, recipe_path):
+    """For FSDP2, we check that the script can run successfully with FP8 and check convergence."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "fp8_config.fp8_model_init_kwargs.enabled=true",
+                f"checkpoint.ckpt_dir={tmp_path}",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    assert final_loss < 3.0, f"Final loss {final_loss} is too high"
+
+
 def test_sanity_convergence_fsdp2_thd(tmp_path, monkeypatch, recipe_path):
     """For FSDP2, we check that the script can run successfully with FP8 and check convergence."""
     if torch.cuda.get_device_capability() == (12, 0):
