@@ -38,16 +38,21 @@ def recipe_path() -> Path:
 def device_mesh():
     """Create a re-usable device mesh for testing.
 
+    This is a "auto-use", session-scope fixture so that a single device mesh is created and used in all tests.
+
     Megatron-FSDP throws issues when re-creating the torch device mesh in the same process, starting in the 25.09 NGC
     pytorch container release. To work around this, we create a re-usable device mesh that use in all single-process
     tests.
     """
+    # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
     device_mesh = init_device_mesh("cuda", mesh_shape=(1, 1), mesh_dim_names=("dp", "tp"))
 
+    # Mock these torch.distributed functions so that we re-use the same device mesh, and don't re-create or destroy the
+    # global process group.
     with (
         mock.patch("torch.distributed.device_mesh.init_device_mesh", return_value=device_mesh),
         mock.patch("torch.distributed.init_process_group", return_value=None),
@@ -55,6 +60,7 @@ def device_mesh():
     ):
         yield
 
+    # At the end of all tests, destroy the process group and clear the device mesh resources.
     torch.distributed.destroy_process_group()
     _mesh_resources.mesh_stack.clear()
     _mesh_resources.child_to_root_mapping.clear()
