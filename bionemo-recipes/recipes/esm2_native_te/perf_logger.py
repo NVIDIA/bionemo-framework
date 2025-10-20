@@ -60,7 +60,7 @@ class PerfLogger:
             "train/unpadded_tokens_per_second": torchmetrics.MeanMetric(),
             "train/perplexity": torchmetrics.text.Perplexity(ignore_index=-100),
             "train/gpu_memory_allocated_max_gb": torchmetrics.MaxMetric(),
-                    "train/gpu_memory_allocated_mean_gb": torchmetrics.MeanMetric(),
+            "train/gpu_memory_allocated_mean_gb": torchmetrics.MeanMetric(),
         }
 
         self.metrics = torchmetrics.MetricCollection(metrics_dict)
