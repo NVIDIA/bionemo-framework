@@ -65,6 +65,7 @@ load_dataset_kwargs_path: nvidia/esm2_uniref_pretraining_data
 load_dataset_kwargs_streaming: true
 load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma: allowlist secret
 num_workers: 1
+track_memory: true
 
 # lr commands
 num_warmup_steps: 2_000
@@ -137,4 +138,5 @@ run_script: |
     checkpoint.resume_from_checkpoint=${resume_from_checkpoint} \
     +checkpoint.save_checkpoints=${save_checkpoints} \
     +checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2} \
-    fp8_config.enabled=${fp8_enabled}
+    fp8_config.enabled=${fp8_enabled} \
+    logger.track_memory=${track_memory}
