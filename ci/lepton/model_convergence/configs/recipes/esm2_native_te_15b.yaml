@@ -68,7 +68,7 @@ load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma:
 num_workers: 1
 
 # lr commands
-num_warmup_steps: 1_000
+num_warmup_steps: 20_000
 # checkpoint controls
 ckpt_dir: ""
 save_checkpoints: false
