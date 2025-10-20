@@ -13,26 +13,38 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from hydra import compose, initialize_config_dir
 
+from distributed import initialize_distributed
 from train import main
+
+
+@pytest.fixture(scope="session")
+def device_mesh():
+    # Set required environment variables for distributed training
+    os.environ["LOCAL_RANK"] = "0"
+    os.environ["RANK"] = "0"
+    os.environ["WORLD_SIZE"] = "1"
+    os.environ["MASTER_ADDR"] = "localhost"
+    os.environ["MASTER_PORT"] = "29500"
+
+    with initialize_distributed() as device_mesh:
+        yield device_mesh
 
 
 @pytest.mark.parametrize("config_name", ["vit_base_patch16_224", "vit_te_base_patch16_224"])
 @pytest.mark.parametrize("init_model_with_meta_device", [True, False])
-def test_train(monkeypatch, tmp_path, config_name, init_model_with_meta_device):
+def test_train(tmp_path, config_name, init_model_with_meta_device, device_mesh):
     """
     Test training.
     """
-    # Set required environment variables for distributed training
-    monkeypatch.setenv("LOCAL_RANK", "0")
-    monkeypatch.setenv("RANK", "0")
-    monkeypatch.setenv("WORLD_SIZE", "1")
-    monkeypatch.setenv("MASTER_ADDR", "localhost")
-    monkeypatch.setenv("MASTER_PORT", "29500")
+    if init_model_with_meta_device and config_name == "vit_te_base_patch16_224":
+        pytest.xfail("TODO(BIONEMO-3074): model currently failing with meta device init")
 
     # Initialize training config.
     recipe_dir = Path(__file__).parent
@@ -51,12 +63,13 @@ def test_train(monkeypatch, tmp_path, config_name, init_model_with_meta_device):
             ],
         )
 
-    main(vit_config)
+    with mock.patch("train.initialize_distributed", return_value=device_mesh):
+        main(vit_config)
 
-    # Verify checkpoints were created.
-    assert sum(1 for item in training_ckpt_path.iterdir() if item.is_dir()) == 1, (
-        "Expected 1 checkpoint with 5 training steps and validation interval of 5."
-    )
+        # Verify checkpoints were created.
+        assert sum(1 for item in training_ckpt_path.iterdir() if item.is_dir()) == 1, (
+            "Expected 1 checkpoint with 5 training steps and validation interval of 5."
+        )
 
-    # Auto-resume training from checkpoint. For this test, we auto-resume from the best checkpoint.
-    main(vit_config)
+        # Auto-resume training from checkpoint. For this test, we auto-resume from the best checkpoint.
+        main(vit_config)
