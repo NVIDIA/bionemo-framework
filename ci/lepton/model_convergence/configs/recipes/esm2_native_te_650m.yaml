@@ -17,7 +17,7 @@ resource_shape: "${device_type}.${num_devices}x${gpu_type}"
 ############################################################
 # kratos info: where to log data
 ############################################################
-kratos_subject: "convergence_tests_v0.0.1" # testing as test_subject2
+kratos_subject: "convergence_tests_v0.0.2"
 
 ############################################################
 # recipe identifiers
