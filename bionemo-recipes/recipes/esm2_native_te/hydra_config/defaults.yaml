@@ -72,3 +72,4 @@ checkpoint:
 
 logger:
   frequency: 100
+  track_memory: false # Set to true to enable GPU memory tracking
