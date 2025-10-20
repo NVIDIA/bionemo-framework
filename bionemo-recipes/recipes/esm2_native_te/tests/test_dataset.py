@@ -21,7 +21,7 @@ from dataclasses import dataclass
 import torch
 
 from checkpoint import load_dataloader, save_dataloader
-from dataset import create_dataloader
+from dataset import create_bshd_dataloader, create_thd_dataloader
 
 
 @dataclass
@@ -51,7 +51,7 @@ def test_load_dataset_state_from_latest_checkpoint(tmp_path):
         world_size=1,
     )
 
-    reference_dataloader, _ = create_dataloader(
+    reference_dataloader, _ = create_bshd_dataloader(
         distributed_config=dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -72,7 +72,7 @@ def test_load_dataset_state_from_latest_checkpoint(tmp_path):
         if i == 9:
             break
 
-    new_dataloader, _ = create_dataloader(
+    new_dataloader, _ = create_bshd_dataloader(
         distributed_config=dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -114,7 +114,7 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):
 
     # Based on local rank.
     # Create dataloader for process 0
-    rank0_dataloader, _ = create_dataloader(
+    rank0_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank0_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -123,7 +123,7 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):
         mlm_probability=0,
     )
 
-    rank1_dataloader, _ = create_dataloader(
+    rank1_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank1_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -165,7 +165,7 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):
             break
 
     # Load rank0 dataloader state at step 5
-    rank0_dataloader_info_reloaded, _ = create_dataloader(
+    rank0_dataloader_info_reloaded, _ = create_bshd_dataloader(
         distributed_config=rank0_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -181,7 +181,7 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):
     )
 
     # Load rank1 dataloader state at step 4
-    rank1_dataloader_info_reloaded, _ = create_dataloader(
+    rank1_dataloader_info_reloaded, _ = create_bshd_dataloader(
         distributed_config=rank1_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -245,21 +245,19 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):
 
     # Based on local rank.
     # Create dataloader for process 0
-    rank0_dataloader_info, _ = create_dataloader(
+    rank0_dataloader_info, _ = create_thd_dataloader(
         distributed_config=rank0_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=4,
-        num_workers=1,
         mlm_probability=0,
     )
 
-    rank1_dataloader_info, _ = create_dataloader(
+    rank1_dataloader_info, _ = create_thd_dataloader(
         distributed_config=rank1_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=4,
-        num_workers=1,
         mlm_probability=0,
     )
     dataloader_path_step_4 = dataloader_path / "step_4"
@@ -295,12 +293,11 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):
             break
 
     # Load rank0 dataloader state at step 5
-    rank0_dataloader_reloaded, _ = create_dataloader(
+    rank0_dataloader_reloaded, _ = create_thd_dataloader(
         distributed_config=rank0_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=4,
-        num_workers=1,
         mlm_probability=0,
     )
 
@@ -311,12 +308,11 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):
     )
 
     # Load rank1 dataloader state at step 4
-    rank1_dataloader_reloaded, _ = create_dataloader(
+    rank1_dataloader_reloaded, _ = create_thd_dataloader(
         distributed_config=rank1_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=4,
-        num_workers=1,
         mlm_probability=0,
     )
 
@@ -370,7 +366,7 @@ def test_stateful_dataloader_works_save_dataloader_and_load_dataloader_single_pr
     )
 
     # First, collect reference batches from a fresh dataloader
-    reference_dataloader_info, _ = create_dataloader(
+    reference_dataloader_info, _ = create_bshd_dataloader(
         distributed_config=dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -394,7 +390,7 @@ def test_stateful_dataloader_works_save_dataloader_and_load_dataloader_single_pr
             break
 
     # Now test checkpoint/restore
-    new_dataloader_info, _ = create_dataloader(
+    new_dataloader_info, _ = create_bshd_dataloader(
         distributed_config=dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -448,7 +444,7 @@ def test_stateful_dataloader():
     )
 
     # First, collect reference batches from a fresh dataloader
-    reference_dataloader_info, _ = create_dataloader(
+    reference_dataloader_info, _ = create_bshd_dataloader(
         distributed_config=dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -468,7 +464,7 @@ def test_stateful_dataloader():
             break
 
     # Now test checkpoint/restore
-    new_dataloader_info, _ = create_dataloader(
+    new_dataloader_info, _ = create_bshd_dataloader(
         distributed_config=dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -516,7 +512,7 @@ def test_stateful_dataloader_with_multiple_workers(tmp_path):
     )
 
     # First, collect reference batches from a fresh dataloader
-    reference_dataloader, _ = create_dataloader(
+    reference_dataloader, _ = create_bshd_dataloader(
         distributed_config=dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -542,7 +538,7 @@ def test_stateful_dataloader_with_multiple_workers(tmp_path):
             break
 
     # Now test checkpoint/restore
-    new_dataloader, _ = create_dataloader(
+    new_dataloader, _ = create_bshd_dataloader(
         distributed_config=dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -588,7 +584,7 @@ def test_iterable_dataloader_yields_different_values_per_rank():
         world_size=2,
     )
 
-    rank1_dataloader, _ = create_dataloader(
+    rank1_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank1_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -596,7 +592,7 @@ def test_iterable_dataloader_yields_different_values_per_rank():
         num_workers=1,
     )
 
-    rank1_duplicate_dataloader, _ = create_dataloader(
+    rank1_duplicate_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank1_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -610,7 +606,7 @@ def test_iterable_dataloader_yields_different_values_per_rank():
         world_size=2,
     )
 
-    rank2_dataloader, _ = create_dataloader(
+    rank2_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank2_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -645,7 +641,7 @@ def test_map_dataset_dataloader_yields_different_values_per_rank():
         world_size=2,
     )
 
-    rank1_dataloader, _ = create_dataloader(
+    rank1_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank1_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -653,7 +649,7 @@ def test_map_dataset_dataloader_yields_different_values_per_rank():
         num_workers=1,
     )
 
-    rank1_duplicate_dataloader, _ = create_dataloader(
+    rank1_duplicate_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank1_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -667,7 +663,7 @@ def test_map_dataset_dataloader_yields_different_values_per_rank():
         world_size=2,
     )
 
-    rank2_dataloader, _ = create_dataloader(
+    rank2_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank2_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -701,7 +697,7 @@ def test_lazy_tokenization_returns_batch():
         world_size=2,
     )
 
-    dataloader, _ = create_dataloader(
+    dataloader, _ = create_bshd_dataloader(
         distributed_config=config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -732,7 +728,7 @@ def test_stateful_dataloader_load_fails_if_num_workers_mismatch(tmp_path, caplog
         world_size=1,
     )
 
-    reference_dataloader, _ = create_dataloader(
+    reference_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank0_dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -749,7 +745,7 @@ def test_stateful_dataloader_load_fails_if_num_workers_mismatch(tmp_path, caplog
 
     del reference_dataloader
 
-    reference_dataloader, _ = create_dataloader(
+    reference_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank0_dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -789,7 +785,7 @@ def test_stateful_dataloader_load_fails_if_num_ranks_mismatch(tmp_path, caplog):
         world_size=1,
     )
 
-    reference_dataloader, _ = create_dataloader(
+    reference_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank0_dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -813,7 +809,7 @@ def test_stateful_dataloader_load_fails_if_num_ranks_mismatch(tmp_path, caplog):
         world_size=2,
     )
 
-    reference_dataloader, _ = create_dataloader(
+    reference_dataloader, _ = create_bshd_dataloader(
         distributed_config=rank2_dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -833,3 +829,32 @@ def test_stateful_dataloader_load_fails_if_num_ranks_mismatch(tmp_path, caplog):
         "Dataloader num_workers mismatch: 1 != 1 or num_ranks mismatch: 2 != 1, starting dataloader from scratch."
         in caplog.text
     )
+
+
+def test_token_packing_dataloader():
+    """Test that the token packing dataloader works."""
+
+    tokenizer_name = "facebook/esm2_t6_8M_UR50D"
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "split": "train",
+        "data_files": "train.parquet",
+        "streaming": True,
+    }
+
+    dist_config = MockDistributedConfig(
+        rank=0,
+        local_rank=0,
+        world_size=1,
+    )
+
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=dist_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        token_micro_batch_size=8 * 1024,
+    )
+
+    batch = next(iter(dataloader))
+    assert batch["input_ids"].shape[1] == 8 * 1024
+    assert batch["labels"].shape[1] == 8 * 1024

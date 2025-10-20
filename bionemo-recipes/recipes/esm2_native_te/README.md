@@ -64,23 +64,22 @@ python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true
 ### Sequence Packing (THD input format)
 
 Sequence packing is handled via a padding-free collator (in `collator.py`) that provides input arguments (e.g.
-`cu_seq_lens_q`) needed for padding-free attention. To enable sequence packing, set `dataset.use_sequence_packing=true`
+`cu_seq_lens_q`) needed for padding-free attention. To enable sequence packing, set `use_sequence_packing=true`
 in the hydra configuration.
 
 ```bash
-python train_fsdp2.py --config-name L0_sanity dataset.use_sequence_packing=true
+python train_fsdp2.py --config-name L0_sanity use_sequence_packing=true
 ```
 
 ### FP8 and Sequence Packing
 
-To combine FP8 training with sequence packing, the number of unpadded input tokens must be a multiple of 16. This can be
-set via the `dataset.sequence_packing_pad_to_multiple_of=16` configuration parameter.
+To combine FP8 training with sequence packing, the number of unpadded input tokens must be a multiple of 16. The data
+collator will automatically pad packed sequences to the maximum number of tokens per batch.
 
 ```bash
 python train_fsdp2.py --config-name L0_sanity \
   fp8_config.enabled=true \
-  dataset.use_sequence_packing=true \
-  dataset.sequence_packing_pad_to_multiple_of=16
+  use_sequence_packing=true
 ```
 
 ### Comparing Against the HF Transformers Reference Implementation
