@@ -77,6 +77,7 @@ def _convert_llama_state_dict_to_nv_llama(hf_state_dict: dict, layer_prefix_patt
             hf_state_dict[layer_prefix + "self_attention.layernorm_qkv.layer_norm_weight"] = hf_state_dict[layer_prefix + "input_layernorm.weight"]
             del hf_state_dict[layer_prefix + "input_layernorm.weight"]
 
+        # Map QKV weights separately (fuse_qkv_params=False means separate parameters)
         if layer_prefix + "self_attn.q_proj.weight" in hf_state_dict:
             hf_state_dict[layer_prefix + "self_attention.layernorm_qkv.query_weight"] = hf_state_dict[layer_prefix + "self_attn.q_proj.weight"]
             del hf_state_dict[layer_prefix + "self_attn.q_proj.weight"]
@@ -185,7 +186,9 @@ class NVLlamaPreTrainedModel(LlamaPreTrainedModel):
         model = super().from_pretrained(
             pretrained_model_name_or_path, *model_args, config=config, state_dict=state_dict, **kwargs
         )
-        model = model.cuda()
+        # Only move to CUDA if CUDA is available and not explicitly using CPU
+        if torch.cuda.is_available() and kwargs.get('device_map') != 'cpu':
+            model = model.cuda()
 
         # Needed for the cases when using TELlamaForCausalLM
         model.config.use_cache = False
@@ -228,7 +231,9 @@ class NVLlamaModel(NVLlamaPreTrainedModel, LlamaModel):
             rotary_base=config.rope_theta,
         )
         # ESM-2 style: Keep both pre-computed (for efficiency) and dynamic computation capability
-        self.te_rope_emb = self.decoder_rotary_emb(max_seq_len=config.max_position_embeddings).cuda()
+        # Important: Compute RoPE in FP32 to avoid precision issues (see PR #1221)
+        with torch.amp.autocast(device_type='cuda', enabled=False):
+            self.te_rope_emb = self.decoder_rotary_emb(max_seq_len=config.max_position_embeddings).cuda()
         self._cached_max_seq_len = config.max_position_embeddings
 
         # For the rotary_emb we just do a NoOp since we don't use its outputs.
@@ -258,9 +263,11 @@ class NVLlamaModel(NVLlamaPreTrainedModel, LlamaModel):
             return self.te_rope_emb[:seq_len]
         else:
             # Compute dynamically for longer sequences (ESM-2 approach)
-            dynamic_rope_emb = self.decoder_rotary_emb(max_seq_len=seq_len).to(
-                device=self.te_rope_emb.device, dtype=self.te_rope_emb.dtype
-            )
+            # Important: Compute RoPE in FP32 to avoid precision issues (see PR #1221)
+            with torch.amp.autocast(device_type='cuda', enabled=False):
+                dynamic_rope_emb = self.decoder_rotary_emb(max_seq_len=seq_len).to(
+                    device=self.te_rope_emb.device, dtype=self.te_rope_emb.dtype
+                )
             return dynamic_rope_emb
 
     def forward(self, input_ids=None, attention_mask=None, position_ids=None, **kwargs):
