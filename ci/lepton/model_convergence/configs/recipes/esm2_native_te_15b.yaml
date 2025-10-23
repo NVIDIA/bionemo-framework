@@ -90,13 +90,13 @@ products:
     wandb_name: "esm2_native_15b__fsdp2__${now:%Y%m%d-%H%M%S}__${gitsha:}"
     job_name: "esm2-native-15b-fsdp2"
   # TE thd perf, FSDP2
-  - config: L1_15B_perf_test
-    task_cmd: train_fsdp2
-    parallelism_strategy: fsdp2
-    thd_enabled: true
-    micro_batch_size: 8
-    wandb_name: "esm2_native_15b__fsdp2__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2-native-15b-fsdp2-thd"
+  # - config: L1_15B_perf_test
+  #   task_cmd: train_fsdp2
+  #   parallelism_strategy: fsdp2
+  #   thd_enabled: true
+  #   micro_batch_size: 8
+  #   wandb_name: "esm2_native_15b__fsdp2__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2-native-15b-fsdp2-thd"
   # TE bshd perf, MFSDP
   - config: L1_15B_perf_test
     task_cmd: train_mfsdp
@@ -110,19 +110,19 @@ products:
     task_cmd: train_mfsdp
     parallelism_strategy: mfsdp
     thd_enabled: true
-    micro_batch_size: 8
+    micro_batch_size: 4
     wandb_name: "esm2_native_15b__mfsdp__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
     job_name: "esm2-native-15b-mfsdp-thd"
   # OSS performance baseline, until torch.compile is figured out
-  - config: L1_15B_perf_test
-    model_tag: facebook/esm2_t48_15B_UR50D
-    task_cmd: train_fsdp2
-    parallelism_strategy: fsdp2
-    thd_enabled: false
-    use_torch_compile: false
-    micro_batch_size: 4
-    wandb_name: "esm2_native_15b__fsdp2__baseline__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2-native-15b-fsdp2-baseline"
+  # - config: L1_15B_perf_test
+  #   model_tag: facebook/esm2_t48_15B_UR50D
+  #   task_cmd: train_fsdp2
+  #   parallelism_strategy: fsdp2
+  #   thd_enabled: false
+  #   use_torch_compile: false
+  #   micro_batch_size: 4
+  #   wandb_name: "esm2_native_15b__fsdp2__baseline__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2-native-15b-fsdp2-baseline"
 
 ############################################################
 # run script
