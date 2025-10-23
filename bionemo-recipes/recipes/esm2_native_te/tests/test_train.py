@@ -75,7 +75,7 @@ def test_sanity_convergence_mfsdp_meta_device(tmp_path, recipe_path):
 
 
 @pytest.mark.xfail(reason="Meta-device init seems to be having some issues with convergence (BIONEMO-2719)")
-def test_sanity_convergence_mfsdp_eager_meta_device(tmp_path, recipe_path):
+def test_sanity_convergence_mfsdp_huggingface_model_meta_device(tmp_path, recipe_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
@@ -401,7 +401,7 @@ def test_sanity_convergence_fsdp2_meta_device(tmp_path, recipe_path):
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_mfsdp_eager(tmp_path, recipe_path):
+def test_sanity_convergence_mfsdp_huggingface_model(tmp_path, recipe_path):
     """Test that the main function can be invoked with the correct arguments."""
 
     # Run the training script with Hydra configuration overrides
@@ -418,7 +418,7 @@ def test_sanity_convergence_mfsdp_eager(tmp_path, recipe_path):
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_ddp_eager(tmp_path, recipe_path):
+def test_sanity_convergence_ddp_huggingface_model(tmp_path, recipe_path):
     """Test that the main function can be invoked wrapping the model in DDP."""
 
     # Run the training script with Hydra configuration overrides
@@ -437,7 +437,7 @@ def test_sanity_convergence_ddp_eager(tmp_path, recipe_path):
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_fsdp2_eager(tmp_path, recipe_path):
+def test_sanity_convergence_fsdp2_huggingface_model(tmp_path, recipe_path):
     """Test that the main function can be invoked wrapping the model in FSDP2."""
 
     # Run the training script with Hydra configuration overrides
@@ -457,7 +457,7 @@ def test_sanity_convergence_fsdp2_eager(tmp_path, recipe_path):
 
 
 @pytest.mark.xfail(reason="Meta-device init seems to be having some issues with convergence (BIONEMO-2719)")
-def test_sanity_convergence_fsdp2_eager_meta_device(tmp_path, recipe_path):
+def test_sanity_convergence_fsdp2_huggingface_model_meta_device(tmp_path, recipe_path):
     """Test that the main function can be invoked wrapping the model in FSDP2 and using meta-device init."""
 
     # Run the training script with Hydra configuration overrides
@@ -536,3 +536,19 @@ def test_sanity_fsdp2_thd_token_packing(tmp_path, monkeypatch, recipe_path):
         )
 
     main_fsdp2(sanity_config)
+
+
+def test_sanity_ddp_thd_token_packing_huggingface_model(tmp_path, recipe_path):
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "use_sequence_packing=true",
+                "model_tag=facebook/esm2_t6_8M_UR50D",
+                "num_train_steps=4",
+            ],
+        )
+
+    main_ddp(sanity_config)
