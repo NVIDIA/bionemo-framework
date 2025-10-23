@@ -12,15 +12,11 @@ on:
           - h200
           - h100-sxm
           - a100-80gb
-      model_config:
-        description: "Model configuration to use"
-        required: true
-        default: "esm2_native_te_650m"
-        type: choice
-        options:
-          - esm2_native_te_650m
-          - esm2_native_te_3b
-          - esm2_native_te_15b
+      model_configs:
+        description: "Model config(s) - comma-separated (e.g. 'recipes/esm2_native_te_15b' or 'recipes/esm2_native_te_15b,recipes/esm2_native_te_3b'). Leave blank for all defaults."
+        required: false
+        default: ""
+        type: string
       branch:
         description: "Branch to use (ignored if commit SHA is provided)"
         required: true
@@ -36,10 +32,15 @@ on:
 jobs:
   submit-lepton-jobs:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        model_config: ${{ github.event_name == 'schedule' && fromJSON('["esm2_native_te_650m", "esm2_native_te_3b", "esm2_native_te_15b"]') || fromJSON(format('["{0}"]', github.event.inputs.model_config)) }}
-      fail-fast: false
+  strategy:
+    matrix:
+      model_config: >-
+        ${{
+          github.event_name == 'schedule' && fromJSON('["esm2_native_te_650m", "esm2_native_te_3b", "esm2_native_te_15b"]') ||
+          github.event.inputs.model_configs != '' && fromJSON(format('["{0}"]', join(split(github.event.inputs.model_configs, ','), '","'))) ||
+          fromJSON('["esm2_native_te_650m", "esm2_native_te_3b", "esm2_native_te_15b"]')
+        }}
+    fail-fast: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
