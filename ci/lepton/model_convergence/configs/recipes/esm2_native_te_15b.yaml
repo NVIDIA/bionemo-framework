@@ -102,17 +102,17 @@ products:
     task_cmd: train_mfsdp
     parallelism_strategy: mfsdp
     thd_enabled: false
-    micro_batch_size: 4
+    micro_batch_size: 6
     wandb_name: "esm2_native_15b__mfsdp__${now:%Y%m%d-%H%M%S}__${gitsha:}"
     job_name: "esm2-native-15b-mfsdp"
   # TE thd perf, MFSDP
-  # - config: L1_15B_perf_test
-  #   task_cmd: train_mfsdp
-  #   parallelism_strategy: mfsdp
-  #   thd_enabled: true
-  #   micro_batch_size: 4
-  #   wandb_name: "esm2_native_15b__mfsdp__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-  #   job_name: "esm2-native-15b-mfsdp-thd"
+  - config: L1_15B_perf_test
+    task_cmd: train_mfsdp
+    parallelism_strategy: mfsdp
+    thd_enabled: true
+    micro_batch_size: 6
+    wandb_name: "esm2_native_15b__mfsdp__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "esm2-native-15b-mfsdp-thd"
   # OSS performance baseline, until torch.compile is figured out
   # - config: L1_15B_perf_test
   #   model_tag: facebook/esm2_t48_15B_UR50D
