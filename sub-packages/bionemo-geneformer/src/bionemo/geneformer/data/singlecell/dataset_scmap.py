@@ -295,8 +295,8 @@ class SingleCellDatasetSCMAP(Dataset):
                 # Get neighbor cell data
                 neighbor_idx, neighbor_gene_data, neighbor_gene_indices, neighbor_metadata = self.lookup_neighbor_by_idx(cell_idx, rng)
                 
-                Use process_item_ncp for temporal prediction
-                Note: Assuming metadata is shared between current and next cells (from same AnnData)
+                # Use process_item_ncp for temporal prediction
+                # Note: Assuming metadata is shared between current and next cells (from same AnnData)
                 return process_item_ncp(
                     cell_gene_data,
                     cell_gene_indices,

@@ -824,16 +824,30 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         if self.load_neighbors:
             self._has_neighbors = self._extract_neighbor_data_paginated(adata)
 
-        if not isinstance(adata.X, ad.experimental.CSRDataset):
-            raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
-        num_rows = adata.X.shape[0]
+        # Check if raw data is present (same logic as regular_load_h5ad)
+        raw = getattr(adata, "raw", None)
+        count_data = None
+        if raw is not None:
+            # If it is, attempt to get the counts in the raw data.
+            count_data = getattr(raw, "X", None)
+        
+        if count_data is None:
+            # No raw counts were present, resort to normalized
+            count_data = adata.X
+        
+        if count_data is None:
+            raise ValueError("This file does not have count data")
 
-        self.dtypes[f"{FileNames.DATA.value}"] = adata.X.dtype
+        if not isinstance(count_data, ad.experimental.CSRDataset):
+            raise NotImplementedError(f"Non-sparse format cannot be loaded: {type(count_data)}.")
+        num_rows = count_data.shape[0]
+
+        self.dtypes[f"{FileNames.DATA.value}"] = count_data.dtype
 
         # Read the row indices into a memory map.
         mode = Mode.CREATE_APPEND
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
-        self.row_index[:] = adata.X._indptr.astype(int)
+        self.row_index[:] = count_data._indptr.astype(int)
 
         # The data from each column and data chunk of the original anndata file is read in. This is saved into the final
         # location of the memmap file. In this step, it is saved in the binary file format.
@@ -845,10 +859,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             n_elements = 0
             for row_start in range(0, num_rows, self.load_block_row_size):
                 # Write each array's data to the file in binary format
-                col_block = adata.X[row_start : row_start + self.load_block_row_size].indices
+                col_block = count_data[row_start : row_start + self.load_block_row_size].indices
                 col_file.write(col_block.tobytes())
 
-                data_block = adata.X[row_start : row_start + self.load_block_row_size].data
+                data_block = count_data[row_start : row_start + self.load_block_row_size].data
                 data_file.write(data_block.tobytes())
 
                 n_elements += len(data_block)
