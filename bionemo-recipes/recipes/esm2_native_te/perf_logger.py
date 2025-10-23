@@ -61,6 +61,8 @@ class PerfLogger:
             "train/perplexity": torchmetrics.text.Perplexity(ignore_index=-100),
             "train/gpu_memory_allocated_max_gb": torchmetrics.MaxMetric(),
             "train/gpu_memory_allocated_mean_gb": torchmetrics.MeanMetric(),
+            "train/avg_sequence_length_unpadded": torchmetrics.MeanMetric(),
+            "train/avg_sequence_length_padded": torchmetrics.MeanMetric(),
         }
 
         self.metrics = torchmetrics.MetricCollection(metrics_dict)
@@ -94,6 +96,12 @@ class PerfLogger:
         # 1 is the padding token for ESM-2.
         num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != 1].numel()
 
+        # debugging tflops
+        batch_size = batch["input_ids"].shape[0]
+        avg_seq_length_unpadded = num_unpadded_tokens / batch_size
+        avg_seq_length_padded = num_tokens / batch_size
+   
+
         self.min_loss = min(self.min_loss, outputs.loss.item())
         step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
 
@@ -103,6 +111,9 @@ class PerfLogger:
         self.metrics["train/step_time"].update(step_time)
         self.metrics["train/tokens_per_second"].update(num_tokens / step_time)
         self.metrics["train/unpadded_tokens_per_second"].update(num_unpadded_tokens / step_time)
+        # log tflops
+        self.metrics["train/avg_sequence_length_unpadded"].update(avg_seq_length_unpadded)
+        self.metrics["train/avg_sequence_length_padded"].update(avg_seq_length_padded)
 
         # Handle sequence packing for torchmetrics calculation.
         if outputs.logits.dim() < 3:
