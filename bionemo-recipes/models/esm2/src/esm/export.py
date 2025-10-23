@@ -23,6 +23,7 @@ from jinja2 import Template
 from transformers import AutoModel, AutoModelForMaskedLM, AutoTokenizer
 
 from esm.convert import convert_esm_hf_to_te
+from esm.modeling_esm_te import AUTO_MAP
 
 
 BENCHMARK_RESULTS = {
@@ -70,11 +71,7 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     with open(export_path / tag / "config.json", "r") as f:
         config = json.load(f)
 
-    config["auto_map"] = {
-        "AutoConfig": "esm_nv.NVEsmConfig",
-        "AutoModel": "esm_nv.NVEsmModel",
-        "AutoModelForMaskedLM": "esm_nv.NVEsmForMaskedLM",
-    }
+    config["auto_map"] = AUTO_MAP
 
     with open(export_path / tag / "config.json", "w") as f:
         json.dump(config, f, indent=2, sort_keys=True)

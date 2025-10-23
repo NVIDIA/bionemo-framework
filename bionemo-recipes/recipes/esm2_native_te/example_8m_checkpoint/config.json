@@ -8,7 +8,8 @@
   "auto_map": {
     "AutoConfig": "esm_nv.NVEsmConfig",
     "AutoModel": "esm_nv.NVEsmModel",
-    "AutoModelForMaskedLM": "esm_nv.NVEsmForMaskedLM"
+    "AutoModelForMaskedLM": "esm_nv.NVEsmForMaskedLM",
+    "AutoModelForTokenClassification": "esm_nv.NVEsmForTokenClassification"
   },
   "classifier_dropout": null,
   "dtype": "float32",
