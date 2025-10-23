@@ -281,7 +281,13 @@ class BasePredictor(LightningPassthroughPredictionMixin):
             ).squeeze(-1)
             log_prob_per_token = logprobs * loss_mask_gathered[:, 1:].float()
             if self.log_prob_collapse_option == "per_token":
-                return to_cpu_fn({"log_probs_seqs": log_prob_per_token, "seq_idx": batch["seq_idx"]})
+                return to_cpu_fn(
+                    {
+                        "log_probs_seqs": log_prob_per_token,
+                        "seq_idx": batch["seq_idx"],
+                        "loss_mask": loss_mask_gathered[:, 1:],
+                    }
+                )
             else:
                 log_prob_seqs = torch.sum(log_prob_per_token, dim=1)
                 if self.log_prob_collapse_option == "mean":

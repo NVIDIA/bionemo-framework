@@ -110,7 +110,6 @@ def test_predict_does_not_instantiate_optimizer(tmp_path: Path, checkpoint_1b_8k
             num_nodes=1,
             devices=1,
             model_size="1b",
-            model_type="hyena",
             ckpt_format="torch_dist",
             fp8=False,
             full_fp8=False,
