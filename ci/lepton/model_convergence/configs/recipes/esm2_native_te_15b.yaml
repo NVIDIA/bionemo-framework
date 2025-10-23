@@ -140,6 +140,7 @@ run_script: |
     --master_addr=$MASTER_ADDR \
     --master_port=$MASTER_PORT \
     ${task_cmd}.py \
+    --config-name ${config}.yaml \
     wandb_init_args.mode=${wandb_init_args.mode} \
     +wandb_init_args.project=${wandb_init_args.project} \
     +wandb_init_args.group=${wandb_init_args.group} \
