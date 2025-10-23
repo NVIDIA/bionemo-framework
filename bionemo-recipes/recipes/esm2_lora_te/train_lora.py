@@ -27,19 +27,21 @@ from transformers import (
 
 ss_dataset = load_dataset("lamm-mit/protein_secondary_structure_from_PDB", split="train", streaming=True)
 ss_tokenizer = PreTrainedTokenizerFast(tokenizer_file="ss_tokenizer.json")
-aa_tokenizer = AutoTokenizer.from_pretrained("example_8m_checkpoint")
+aa_tokenizer = AutoTokenizer.from_pretrained("example_8m_checkpoint", use_fast=True)
 
 tokenizer_args = {
-    "max_length": 1024,
+    "max_length": 128,
     "truncation": True,
-    # "stride": 100,  # TODO: figure this out later
-    # "return_overflowing_tokens": True,
+    "stride": 16,  # TODO: figure this out later
+    "return_overflowing_tokens": True,
+    "return_offsets_mapping": True,
 }
 
 
 def tokenize(example):
     """Tokenize both the input protein sequence and the secondary structure labels."""
     result = {}
+    breakpoint()
     result["input_ids"] = aa_tokenizer(example["Sequence"], **tokenizer_args)["input_ids"]
     tokenized_labels = ss_tokenizer(example["Secondary_structure"], **tokenizer_args)["input_ids"]
     result["labels"] = [[ii if ii != 8 else -100 for ii in item] for item in tokenized_labels]
@@ -65,6 +67,7 @@ peft_config = peft.LoraConfig(
     inference_mode=False,
     r=16,
     lora_alpha=16,
+    # target_modules=["layernorm_qkv"],  # TODO: figure out if this could work?
     target_parameters=["layernorm_qkv.weight"],
     bias="none",
 )
