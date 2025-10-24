@@ -106,6 +106,7 @@ BioNeMo Framework is part of a larger ecosystem of NVIDIA Biopharma products. Ge
 - **🚧 In-Progress Documentation 🚧:** `bionemo-recipes` documentation is currently work in progress, however the recipes are meant to be self-documented and easy to understand—we suggest you throw them into your favorite genai code assistant!
 
 ## Getting Started with BioNeMo Framework - 5D Parallelism with NeMo/Megatron implementations
+
 :warning: **(This section is not relevant for bionemo-recipes)**  
 Full documentation on using the BioNeMo Framework is provided in our documentation:
 <https://docs.nvidia.com/bionemo-framework/latest/user-guide/>. To simplify the integration of optimized third-party dependencies, BioNeMo is primarily distributed as a containerized library. You can download the latest released container for the BioNeMo Framework from
