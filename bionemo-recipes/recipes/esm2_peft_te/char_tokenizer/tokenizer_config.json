@@ -1,0 +1,17 @@
+{
+  "added_tokens_decoder": {
+    "8": {
+      "content": "~",
+      "lstrip": false,
+      "normalized": false,
+      "rstrip": false,
+      "single_word": false,
+      "special": true
+    }
+  },
+  "clean_up_tokenization_spaces": false,
+  "extra_special_tokens": {},
+  "mask_token": "~",
+  "model_max_length": 1000000000000000019884624838656,
+  "tokenizer_class": "PreTrainedTokenizerFast"
+}

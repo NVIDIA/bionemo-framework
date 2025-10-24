@@ -36,6 +36,7 @@ from transformers.modeling_outputs import (
     BaseModelOutput,
     BaseModelOutputWithPooling,
     MaskedLMOutput,
+    TokenClassifierOutput,
 )
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.esm.configuration_esm import EsmConfig
@@ -44,6 +45,15 @@ from transformers.utils import logging
 
 
 logger = logging.get_logger(__name__)
+
+# Dictionary that gets inserted into config.json to map Auto** classes to our TE-optimized model classes defined below.
+# These should be prefixed with esm_nv., since we name the file esm_nv.py in our exported checkpoints.
+AUTO_MAP = {
+    "AutoConfig": "esm_nv.NVEsmConfig",
+    "AutoModel": "esm_nv.NVEsmModel",
+    "AutoModelForMaskedLM": "esm_nv.NVEsmForMaskedLM",
+    "AutoModelForTokenClassification": "esm_nv.NVEsmForTokenClassification",
+}
 
 
 class NVEsmConfig(EsmConfig):
@@ -616,3 +626,71 @@ class NVEsmEmbeddings(nn.Module):
             embeddings = (embeddings * attention_mask.unsqueeze(-1)).to(embeddings.dtype)
 
         return embeddings
+
+
+class NVEsmForTokenClassification(NVEsmPreTrainedModel):
+    """Adds a token classification head to the model.
+
+    Adapted from EsmForTokenClassification in Hugging Face Transformers `modeling_esm.py`.
+    """
+
+    def __init__(self, config):
+        """Initialize NVEsmForTokenClassification."""
+        super().__init__(config)
+        self.num_labels = config.num_labels
+
+        self.esm = NVEsmModel(config, add_pooling_layer=False)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.classifier = transformer_engine.pytorch.Linear(config.hidden_size, config.num_labels)
+
+        self.init_weights()
+        self.post_init()
+
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        output_hidden_states: Optional[bool] = None,
+        cu_seq_lens_q: torch.IntTensor | None = None,
+        cu_seq_lens_k: torch.IntTensor | None = None,
+        max_length_q: int | None = None,
+        max_length_k: int | None = None,
+    ) -> TokenClassifierOutput:
+        """Forward pass for the token classification head.
+
+        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+            Labels for computing the token classification loss. Indices should be in `[0, ..., config.num_labels - 1]`.
+        """
+        outputs = self.esm(
+            input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            inputs_embeds=inputs_embeds,
+            output_hidden_states=output_hidden_states,
+            cu_seq_lens_q=cu_seq_lens_q,
+            cu_seq_lens_k=cu_seq_lens_k,
+            max_length_q=max_length_q,
+            max_length_k=max_length_k,
+        )
+
+        sequence_output = outputs[0]
+
+        sequence_output = self.dropout(sequence_output)
+        logits = self.classifier(sequence_output)
+
+        loss = None
+        if labels is not None:
+            loss_fct = CrossEntropyLoss()
+
+            labels = labels.to(logits.device)
+            loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+
+        return TokenClassifierOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )

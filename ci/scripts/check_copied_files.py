@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     "bionemo-recipes/models/esm2/src/esm/modeling_esm_te.py": [
         "bionemo-recipes/recipes/esm2_native_te/example_8m_checkpoint/esm_nv.py",
+        "bionemo-recipes/recipes/esm2_lora_te/example_8m_checkpoint/esm_nv.py",
         "bionemo-recipes/recipes/esm2_accelerate_te/example_8m_checkpoint/esm_nv.py",
     ],
     "bionemo-recipes/models/esm2/src/esm/collator.py": [

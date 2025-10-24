@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "truncation": null,
+  "padding": null,
+  "added_tokens": [
+    {
+      "id": 8,
+      "content": "~",
+      "single_word": false,
+      "lstrip": false,
+      "rstrip": false,
+      "normalized": false,
+      "special": true
+    }
+  ],
+  "normalizer": null,
+  "pre_tokenizer": {
+    "type": "Split",
+    "pattern": {
+      "String": ""
+    },
+    "behavior": "Isolated",
+    "invert": false
+  },
+  "post_processor": null,
+  "decoder": null,
+  "model": {
+    "type": "WordLevel",
+    "vocab": {
+      "G": 0,
+      "H": 1,
+      "I": 2,
+      "E": 3,
+      "B": 4,
+      "T": 5,
+      "S": 6,
+      "C": 7,
+      "~": 8,
+      "<UNK>": 9
+    },
+    "unk_token": "<UNK>"
+  }
+}

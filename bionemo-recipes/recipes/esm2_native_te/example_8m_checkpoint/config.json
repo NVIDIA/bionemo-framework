@@ -8,7 +8,8 @@
   "auto_map": {
     "AutoConfig": "esm_nv.NVEsmConfig",
     "AutoModel": "esm_nv.NVEsmModel",
-    "AutoModelForMaskedLM": "esm_nv.NVEsmForMaskedLM"
+    "AutoModelForMaskedLM": "esm_nv.NVEsmForMaskedLM",
+    "AutoModelForTokenClassification": "esm_nv.NVEsmForTokenClassification"
   },
   "classifier_dropout": null,
   "dtype": "float32",
@@ -35,7 +36,7 @@
   "position_embedding_type": "rotary",
   "qkv_weight_interleaved": true,
   "token_dropout": true,
-  "transformers_version": "4.57.0",
+  "transformers_version": "4.57.1",
   "use_cache": true,
   "vocab_list": null,
   "vocab_size": 33

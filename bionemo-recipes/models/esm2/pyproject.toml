@@ -19,6 +19,7 @@ dependencies = [
     "megatron-fsdp",
     "nemo_toolkit[lightning]",                                     # tested with 2.3.1
     "omegaconf",
+    "peft",
     "pytest",
     "torch",
     "transformer_engine[pytorch]",
