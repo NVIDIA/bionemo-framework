@@ -24,13 +24,16 @@ import sys
 import tempfile
 from pathlib import Path
 
+import lightning as pl
 import pytest
 import torch
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 
 from bionemo.core.data.load import load
+from bionemo.evo2.run.predict import predict
 from bionemo.llm.lightning import batch_collator
 from bionemo.testing.data.fasta import ALU_SEQUENCE, create_fasta_file
+from bionemo.testing.megatron_parallel_state_utils import clean_parallel_state_context
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
 from bionemo.testing.torch import check_fp8_support
 
@@ -74,6 +77,58 @@ def checkpoint_7b_1m_path() -> Path:
         else:
             raise e
     yield checkpoint_path
+
+
+def test_predict_does_not_instantiate_optimizer(tmp_path: Path, checkpoint_1b_8k_bf16_path: Path):
+    output_dir = tmp_path / "test_output"
+    fasta_file_path = tmp_path / "test.fasta"
+    create_fasta_file(
+        fasta_file_path,
+        1,
+        sequence_lengths=[512],
+        repeating_dna_pattern=ALU_SEQUENCE,
+    )
+
+    class AssertNoOptimizerCallback(pl.Callback):
+        def on_predict_batch_start(self, trainer, pl_module, batch, batch_idx, dataloader_idx=0):
+            assert not trainer.optimizers, (
+                f"Optimizer should not be instantiated for prediction, got {trainer.optimizers}"
+            )
+            trainer_model_opt = getattr(trainer.model, "optim", None)
+            assert trainer_model_opt is None or not trainer_model_opt.state_dict(), (
+                f"Model optimizer found, got {trainer_model_opt} with state {trainer_model_opt.state_dict()}"
+            )
+
+    with clean_parallel_state_context():
+        predict(
+            fasta_path=fasta_file_path,
+            ckpt_dir=str(checkpoint_1b_8k_bf16_path),
+            output_dir=output_dir,
+            tensor_parallel_size=1,
+            pipeline_model_parallel_size=1,
+            context_parallel_size=1,
+            num_nodes=1,
+            devices=1,
+            model_size="1b",
+            ckpt_format="torch_dist",
+            fp8=False,
+            full_fp8=False,
+            work_dir=tmp_path,
+            micro_batch_size=1,
+            output_log_prob_seqs=True,
+            log_prob_collapse_option="mean",
+            write_interval="epoch",
+            prepend_bos=False,
+            no_sequence_parallel=False,
+            hybrid_override_pattern="SDH*",
+            num_layers=4,
+            seq_len_interpolation_factor=None,
+            files_per_subdir=None,
+            lora_checkpoint_path=None,
+            extra_callbacks=[
+                AssertNoOptimizerCallback(),
+            ],  # use this for making testing the loop easier.
+        )
 
 
 @pytest.mark.parametrize(

@@ -20,14 +20,15 @@
 import argparse
 import logging
 from pathlib import Path
+from typing import Type
 
+from nemo.collections.llm.gpt.model.base import GPTModel
+from nemo.collections.llm.gpt.model.hyena import (
+    HyenaModel,
+)
 from nemo.lightning import io, teardown
 
-from bionemo.evo2.models.mamba import (
-    MAMBA_MODEL_OPTIONS,
-    MambaModel,
-    NemotronHConfigBase,
-)
+from bionemo.evo2.models.mamba import MambaModel
 
 
 def parse_args():
@@ -42,20 +43,21 @@ def parse_args():
     )
     parser.add_argument("--output-dir", type=str, required=True, help="Output directory path for the converted model.")
     parser.add_argument(
-        "--model-size",
+        "--model-type",
         type=str,
-        choices=sorted(MAMBA_MODEL_OPTIONS.keys()),
-        default="hybrid_mamba_8b",
-        help="Model arch to use.",
+        choices=["hyena", "mamba", "llama"],
+        default="hyena",
+        help="Model architecture to use, choose between 'hyena', 'mamba', or 'llama'.",
     )
     return parser.parse_args()
 
 
-@io.model_importer(MambaModel, "pytorch")
-class MambaOptimizerRemover(io.ModelConnector["MambaModel", MambaModel]):
-    """Removes the optimizer state from a nemo2 format model checkpoint."""
+class _OptimizerRemoverBase:
+    MODEL_CLS: Type
 
-    def __new__(cls, path: str, model_config=None):
+    """Base class for optimizer remover importers."""
+
+    def __new__(cls, path: str | Path, model_config=None):
         """Creates a new importer instance.
 
         Args:
@@ -66,28 +68,31 @@ class MambaOptimizerRemover(io.ModelConnector["MambaModel", MambaModel]):
             PyTorchHyenaImporter instance
         """
         instance = super().__new__(cls, path)
+        if model_config is None:
+            model_config = io.load_context(path, subpath="model.config")
         instance.model_config = model_config
         return instance
 
-    def init(self) -> MambaModel:
+    def init(self):
         """Initializes a new HyenaModel instance.
 
         Returns:
             HyenaModel: Initialized model
         """
-        return MambaModel(self.config, tokenizer=self.tokenizer)
+        return self.MODEL_CLS(self.config, tokenizer=self.tokenizer)
 
     def get_source_model(self):
         """Returns the source model."""
         model, _ = self.nemo_load(self)
         return model
 
-    def apply(self, output_path: Path, checkpoint_format: str = "torch_dist") -> Path:
+    def apply(self, output_path: Path, checkpoint_format: str = "torch_dist", **kwargs) -> Path:
         """Applies the model conversion from PyTorch to NeMo format.
 
         Args:
             output_path: Path to save the converted model
             checkpoint_format: Format for saving checkpoints
+            **kwargs: Additional keyword arguments to pass to the nemo_setup and nemo_save methods
 
         Returns:
             Path: Path to the saved NeMo model
@@ -95,11 +100,11 @@ class MambaOptimizerRemover(io.ModelConnector["MambaModel", MambaModel]):
         source = self.get_source_model()
 
         target = self.init()
-        trainer = self.nemo_setup(target, ckpt_async_save=False, save_ckpt_format=checkpoint_format)
+        trainer = self.nemo_setup(target, ckpt_async_save=False, save_ckpt_format=checkpoint_format, **kwargs)
         source.to(self.config.params_dtype)
         target.to(self.config.params_dtype)
         self.convert_state(source, target)
-        self.nemo_save(output_path, trainer)
+        self.nemo_save(output_path, trainer, **kwargs)
 
         logging.info(f"Converted Hyena model to Nemo, model saved to {output_path}")
 
@@ -135,13 +140,13 @@ class MambaOptimizerRemover(io.ModelConnector["MambaModel", MambaModel]):
         from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 
         tokenizer = get_nmt_tokenizer(
-            library=self.model_config.tokenizer_library,
+            library=getattr(self.model_config, "tokenizer_library", "byte-level"),
         )
 
         return tokenizer
 
     @property
-    def config(self) -> NemotronHConfigBase:
+    def config(self):
         """Gets the model configuration.
 
         Returns:
@@ -150,14 +155,39 @@ class MambaOptimizerRemover(io.ModelConnector["MambaModel", MambaModel]):
         return self.model_config
 
 
+@io.model_importer(HyenaModel, "pytorch")
+class HyenaOptimizerRemover(_OptimizerRemoverBase, io.ModelConnector["HyenaModel", HyenaModel]):
+    """Removes the optimizer state from a nemo2 format model checkpoint."""
+
+    MODEL_CLS = HyenaModel
+
+
+@io.model_importer(GPTModel, "pytorch")
+class LlamaOptimizerRemover(_OptimizerRemoverBase, io.ModelConnector["GPTModel", GPTModel]):
+    """Removes the optimizer state from a nemo2 format model checkpoint."""
+
+    MODEL_CLS = GPTModel
+
+
+@io.model_importer(MambaModel, "pytorch")
+class MambaOptimizerRemover(_OptimizerRemoverBase, io.ModelConnector["MambaModel", MambaModel]):
+    """Removes the optimizer state from a nemo2 format model checkpoint."""
+
+    MODEL_CLS = MambaModel
+
+
 def main():
     """Convert a PyTorch Evo2 model checkpoint to a NeMo model checkpoint."""
     args = parse_args()
-
-    evo2_config = MAMBA_MODEL_OPTIONS[args.model_size]()
-    importer = MambaOptimizerRemover(args.model_path, model_config=evo2_config)
-    assert not args.model_path.startswith("hf://"), "Strip optimizer only works on local nemo2 format checkpoints."
-    importer.apply(args.output_dir)
+    if args.model_type == "hyena":
+        optimizer_remover = HyenaOptimizerRemover(args.model_path)
+    elif args.model_type == "mamba":
+        optimizer_remover = MambaOptimizerRemover(args.model_path)
+    elif args.model_type == "llama":
+        optimizer_remover = LlamaOptimizerRemover(args.model_path)
+    else:
+        raise ValueError(f"Invalid model type: {args.model_type}.")
+    optimizer_remover.apply(args.output_dir)
 
 
 if __name__ == "__main__":
