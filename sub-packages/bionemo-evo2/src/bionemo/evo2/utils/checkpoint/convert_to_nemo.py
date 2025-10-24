@@ -26,7 +26,6 @@ from nemo.collections.llm.gpt.model.hyena import (
 )
 
 from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS, HFEdenLlamaImporter
-from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS
 from bionemo.evo2.run.utils import infer_model_type
 
 
@@ -49,13 +48,11 @@ def parse_args():
     parser.add_argument(
         "--model-size",
         type=str,
-        choices=sorted(
-            set(HYENA_MODEL_OPTIONS.keys()) | set(MAMBA_MODEL_OPTIONS.keys()) | set(LLAMA_MODEL_OPTIONS.keys())
-        ),
+        choices=sorted(set(HYENA_MODEL_OPTIONS.keys()) | set(LLAMA_MODEL_OPTIONS.keys())),
         required=True,
         help="Model architecture to use, choose between 1b, 7b, 40b, or test (a sub-model of 4 layers, "
         "less than 1B parameters). '*_arc_longcontext' models have GLU / FFN dimensions that support 1M "
-        "context length when trained with TP>>8.",
+        "context length when trained with TP>>8. Note that Mamba models are not supported for conversion yet.",
     )
     return parser.parse_args()
 
