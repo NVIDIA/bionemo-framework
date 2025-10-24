@@ -30,7 +30,7 @@ cd bionemo-framework/bionemo-recipes/recipes/esm2_native_te/
 !curl -L -o transformer_engine_torch-2.8.0-cp312-cp312-linux_x86_64.whl "https://drive.google.com/uc?export=download&id=1Oz6dkkIMahv3LN_fQhhQRolZ3m-sr9SF"
 !pip install --no-build-isolation transformer-engine transformer_engine_torch-2.8.0-cp312-cp312-linux_x86_64.whl
 
-# Run ESM2 Native Recipes with TE + FSDP2
+# Run ESM2 Native Recipes with TE
 !python train_ddp.py
 ```
 
