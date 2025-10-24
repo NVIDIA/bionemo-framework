@@ -310,17 +310,6 @@ class BasePredictor(LightningPassthroughPredictionMixin):
             #  shifted_pad_mask = pad_mask[:, 1:]
             #  shifted_tokens = tokens[:, 1:]
             return to_cpu_fn(logprob_seqs_result)
-                "token_logits": forward_out_gathered,
-                "pad_mask": loss_mask_gathered,
-                "seq_idx": batch["seq_idx"],
-            }
-            if self.include_tokens_with_logprob_seqs:
-                logprob_seqs_restult["tokens"] = tokens_gathered
-            # Note, to match up tokens with logprobs, you need to offset by 1. Eg something like this:
-            #  shifted_token_logits = token_logits[:, :-1]
-            #  shifted_pad_mask = pad_mask[:, 1:]
-            #  shifted_tokens = tokens[:, 1:]
-            return to_cpu_fn(logprob_seqs_restult)
 
 
 class HyenaPredictor(BasePredictor, HyenaModel):
