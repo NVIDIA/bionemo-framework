@@ -21,13 +21,11 @@ from transformers import (
     AutoModelForTokenClassification,
     AutoTokenizer,
     DataCollatorForTokenClassification,
-    PreTrainedTokenizerFast,
 )
 
 
 ss_dataset = load_dataset("lamm-mit/protein_secondary_structure_from_PDB", split="train", streaming=True)
-ss_tokenizer = PreTrainedTokenizerFast(tokenizer_file="ss_tokenizer.json")
-aa_tokenizer = AutoTokenizer.from_pretrained("example_8m_checkpoint", use_fast=True)
+tokenizer = AutoTokenizer.from_pretrained("example_8m_checkpoint")
 
 tokenizer_args = {
     "max_length": 128,
@@ -40,11 +38,9 @@ tokenizer_args = {
 
 def tokenize(example):
     """Tokenize both the input protein sequence and the secondary structure labels."""
-    result = {}
+    result = tokenizer(example["Sequence"], **tokenizer_args)
     breakpoint()
-    result["input_ids"] = aa_tokenizer(example["Sequence"], **tokenizer_args)["input_ids"]
-    tokenized_labels = ss_tokenizer(example["Secondary_structure"], **tokenizer_args)["input_ids"]
-    result["labels"] = [[ii if ii != 8 else -100 for ii in item] for item in tokenized_labels]
+    # result["labels"] = [[ii if ii != 8 else -100 for ii in item] for item in tokenized_labels]
     return result
 
 
@@ -53,7 +49,7 @@ tokenized_dataset = ss_dataset.map(
 )
 
 # TODO: use THD / sequence packing.
-collator = DataCollatorForTokenClassification(tokenizer=aa_tokenizer, padding="max_length", max_length=1024)
+collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding="max_length", max_length=1024)
 dataloader = torch.utils.data.DataLoader(tokenized_dataset, batch_size=16, collate_fn=collator)
 
 
