@@ -46,6 +46,7 @@ def parse_args():
         "--model-type",
         type=str,
         choices=["hyena", "mamba", "llama"],
+        default="hyena",
         help="Model architecture to use, choose between 'hyena', 'mamba', or 'llama'.",
     )
     return parser.parse_args()
