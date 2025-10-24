@@ -271,6 +271,8 @@ class MNISTDataModule(pl.LightningDataModule):
         self.micro_batch_size = batch_size
         self.global_batch_size = global_batch_size or batch_size
         self.max_len = 1048
+        # We need to define a "seq_length" for OneLogger, but we just set it to max_len
+        self.seq_length = self.max_len
         self.rampup_batch_size = None
         self.num_workers = num_workers
         #  Note that this sampler is sequential, meaning it does not do any shuffling. Let's wrap our data in a shuffler.

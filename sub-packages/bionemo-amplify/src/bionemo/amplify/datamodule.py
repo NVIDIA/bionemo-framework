@@ -83,6 +83,8 @@ class AMPLIFYDataModule(MegatronDataModule):
         self._seed = seed
         self._min_seq_length = min_seq_length
         self._max_seq_length = max_seq_length
+        # We need to define a "seq_length" for OneLogger, but we just set it to max_len
+        self.seq_length = max_seq_length
         self._mask_prob = mask_prob
         self._mask_token_prob = mask_token_prob
         self._mask_random_prob = mask_random_prob

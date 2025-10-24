@@ -90,6 +90,8 @@ class ESM2FineTuneDataModule(MegatronDataModule):
         self._seed = seed
         self._min_seq_length = min_seq_length
         self._max_seq_length = max_seq_length
+        # seq_length needs to be implemented for OneLogger to use
+        self.seq_length = max_seq_length
         self._tokenizer = tokenizer
 
         self._micro_batch_size = micro_batch_size

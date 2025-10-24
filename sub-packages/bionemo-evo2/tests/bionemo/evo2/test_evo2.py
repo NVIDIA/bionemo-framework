@@ -505,6 +505,8 @@ def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: l
             }
 
             inference_wrapped_model.prep_model_for_inference(prompts_tokens=None)
+            # Ensure full-sequence logits are materialized for tests expecting [B, S, V]
+            inference_wrapped_model.inference_context.materialize_only_last_token_logits = False
             logits = inference_wrapped_model.run_one_forward_step(forward_args)
             inference_wrapped_model.inference_context.reset()
 
@@ -588,6 +590,8 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
         model = Float16Module(model_config, raw_megatron_model)
         if flash_decode:
             inference_context = HyenaInferenceContext(max_batch_size=1, max_sequence_length=8192)
+            # Ensure full-sequence logits are materialized for tests expecting [B, S, V]
+            inference_context.materialize_only_last_token_logits = False
             forward_kwargs = {"runtime_gather_output": True, "inference_context": inference_context}
         else:
             forward_kwargs = {}
