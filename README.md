@@ -15,6 +15,25 @@
 
 NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for digital biology. It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized model recipes and tooling that are easily integrated into GPU-based computational resources with state-of-the-art performance.
 
+## ⚡ Quick Start
+```bash
+# Try BioNeMo Recipes in Google Colab (Recommend A100, may be too slow or run out of memory on T4)
+# Copy paste into Google Colab cells
+
+!git clone https://github.com/NVIDIA/bionemo-framework.git
+cd bionemo-framework/bionemo-recipes/recipes/esm2_native_te/
+
+# Install dependencies
+!pip install -r requirements.txt
+
+# Install transformer_engine[pytorch] from source, it takes a long time to install from PYPI
+!curl -L -o transformer_engine_torch-2.8.0-cp312-cp312-linux_x86_64.whl "https://drive.google.com/uc?export=download&id=1Oz6dkkIMahv3LN_fQhhQRolZ3m-sr9SF"
+!pip install --no-build-isolation transformer-engine transformer_engine_torch-2.8.0-cp312-cp312-linux_x86_64.whl
+
+# Run ESM2 Native Recipes with TE + FSDP2
+!python train_ddp.py
+```
+
 > [!NOTE]
 > A core use-case of the BioNeMo Framework is to help digital biology scientists accelerate and scale their model training onto a compute cluster. This repository contains 3 categories of modules for this use-case:
 >
@@ -86,8 +105,8 @@ BioNeMo Framework is part of a larger ecosystem of NVIDIA Biopharma products. Ge
 
 - **🚧 In-Progress Documentation 🚧:** `bionemo-recipes` documentation is currently work in progress, however the recipes are meant to be self-documented and easy to understand—we suggest you throw them into your favorite genai code assistant!
 
-## Getting Started with BioNeMo Framework
-
+## Getting Started with BioNeMo Framework - 5D Parallelism with NeMo/Megatron implementations
+:warning: (This section is not relevant for bionemo-recipes)
 Full documentation on using the BioNeMo Framework is provided in our documentation:
 <https://docs.nvidia.com/bionemo-framework/latest/user-guide/>. To simplify the integration of optimized third-party dependencies, BioNeMo is primarily distributed as a containerized library. You can download the latest released container for the BioNeMo Framework from
 [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework). To launch a pre-built container, you can use the brev.dev launchable [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU) or execute the following command:
