@@ -63,7 +63,7 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     model_te = convert_esm_hf_to_te(model_hf_masked_lm)
     model_te.save_pretrained(export_path / tag)
 
-    tokenizer = AutoTokenizer.from_pretrained(f"facebook/{tag}")
+    tokenizer = AutoTokenizer.from_pretrained("esm_fast_tokenizer")  # Use our PreTrainedTokenizerFast implementation.
     tokenizer.save_pretrained(export_path / tag)
 
     # Patch the config
