@@ -35,7 +35,7 @@
   "position_embedding_type": "rotary",
   "qkv_weight_interleaved": true,
   "token_dropout": true,
-  "transformers_version": "4.57.0",
+  "transformers_version": "4.57.1",
   "use_cache": true,
   "vocab_list": null,
   "vocab_size": 33

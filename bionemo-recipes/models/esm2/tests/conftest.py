@@ -39,7 +39,7 @@ def use_te_debug(monkeypatch):
 
 @pytest.fixture
 def tokenizer():
-    return AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    return AutoTokenizer.from_pretrained("esm_fast_tokenizer")
 
 
 @pytest.fixture
