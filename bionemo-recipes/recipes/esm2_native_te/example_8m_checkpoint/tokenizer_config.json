@@ -52,5 +52,9 @@
   "model_max_length": 1000000000000000019884624838656,
   "tokenizer_class": "PreTrainedTokenizerFast",
   "add_bos_token": true,
-  "add_eos_token": true
+  "add_eos_token": true,
+  "model_input_names": [
+    "input_ids",
+    "attention_mask"
+  ]
 }

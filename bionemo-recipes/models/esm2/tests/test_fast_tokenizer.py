@@ -30,6 +30,7 @@ def test_tokenizer_tokenization_equivalence(test_proteins):
     fast_output = fast_tokenizer(test_proteins)
 
     assert len(original_output["input_ids"]) == len(fast_output["input_ids"])
+    assert set(original_output.keys()) == set(fast_output.keys())
 
     for original_input_id, fast_input_id in zip(original_output["input_ids"], fast_output["input_ids"]):
         assert len(original_input_id) == len(fast_input_id)
