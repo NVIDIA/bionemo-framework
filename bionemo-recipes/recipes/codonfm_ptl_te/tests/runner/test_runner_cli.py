@@ -284,7 +284,6 @@ def test_runner_finetune_transformer_engine_lora_conflict(monkeypatch):
             mod.main()
 
 
-@pytest.mark.xfail(reason="Not sure what behavior we want here")
 def test_runner_finetune_thd_not_supported_with_te(monkeypatch):
     """Test that using THD (sequence packing) with finetuning raises an error."""
     argv = [
