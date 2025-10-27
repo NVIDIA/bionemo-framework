@@ -829,7 +829,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             pd.DataFrame: var variables for features
             int: number of rows in the dataframe.
         """
-        print("Paginated load h5ad started")
         adata = ad.read_h5ad(anndata_path, backed=True)
         if self.load_neighbors:
             self._has_neighbors = self._extract_neighbor_data_paginated(adata)
