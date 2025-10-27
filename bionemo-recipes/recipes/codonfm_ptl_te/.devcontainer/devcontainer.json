@@ -1,0 +1,54 @@
+{
+	"name": "Codo AI Dev Container",
+	"runArgs": [
+		"--gpus=all",
+		"--ipc=host",
+		"--net=host"
+	],
+	"hostname": "localhost",
+	"mounts": [
+		"source=${localEnv:HOME}/.ssh,target=/home/${localEnv:USER}/.ssh,type=bind,readonly",
+		"source=${localEnv:HOME}/.aws,target=/home/${localEnv:USER}/.aws,type=bind,consistency=cached",
+		"source=${localEnv:HOME}/.ngc,target=/home/${localEnv:USER}/.ngc,type=bind,consistency=cached",
+		"source=${localEnv:HOME}/.cache,target=/home/${localEnv:USER}/.cache,type=bind,consistency=cached",
+		"source=${localEnv:HOME}/.netrc,target=/home/${localEnv:USER}/.netrc,readonly,type=bind,consistency=cached",
+		"source=${localEnv:HOME}/.bash_history_devcontainer,target=/home/${localEnv:USER}/.bash_history,type=bind,consistency=cached"
+	],
+	"forwardPorts": [8888],
+	"containerEnv": {
+		"TMPDIR": "/tmp",
+		"NUMBA_CACHE_DIR": "/tmp/"
+	},
+	"build": {
+		"context": "${localWorkspaceFolder}",
+		"dockerfile": "${localWorkspaceFolder}/Dockerfile",
+		"target": "development",
+		"args": {
+			// These values will be filled automatically at build time by devcontainer.
+			"USERNAME": "${localEnv:USER}",
+			"USER_UID": "${localEnv:USER_UID}",
+			"USER_GID": "${localEnv:USER_GID}"
+		}
+	},
+	"workspaceMount": "source=${localWorkspaceFolder},target=/workspace/codonfm,type=bind,consistency=cached",
+	"workspaceFolder": "/workspace/codonfm",
+	"postCreateCommand": "./.devcontainer/postCreateCommand.sh",
+	"remoteUser": "${localEnv:USER}",
+	"updateRemoteUserUID": true,
+	"initializeCommand": "./.devcontainer/initializeCommand.sh",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"eamodio.gitlens",
+				"streetsidesoftware.code-spell-checker",
+				"ms-azuretools.vscode-docker",
+				"charliermarsh.ruff",
+				"njpwerner.autodocstring",
+				"ms-toolsai.jupyter",
+				"tamasfe.even-better-toml"
+			]
+		}
+	}
+}
