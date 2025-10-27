@@ -13,6 +13,20 @@
 |                                   | [evo2/40b-1m-fp8-bf16:1.0](https://registry.ngc.nvidia.com/orgs/nvidia/teams/clara/models/evo2-40b-1m-fp8-bf16-nemo2) | A fine-tuned variant of [arcinstitute/savanna_evo2_40b](https://huggingface.co/arcinstitute/savanna_evo2_40b) with broader hardware support (fp8 or bf16 and ampere, hopper, and blackwell have all been tested).  The original model only has good accuracy on hopper fp8. |
 
 
+On the CLI you can access the resources in this table (and others) with:
+```bash
+CKPT_PATH=$(download_bionemo_data evo2/40b-1m-fp8-bf16:1.0)
+```
+
+In code these resources can be accessed with:
+```python
+from bionemo.core.data.load import load
+ckpt_path = load("evo2/40b-1m-fp8-bf16:1.0")
+```
+
+Or you can follow the links in the table above to the ngc registry and follow the download links from there.
+
+
 Note, in the following two sections, the model described as `ft1(step199)` is the model that was released above as `evo2/40b-1m-fp8-bf16:1.0`.
 ### Loss evaluation
 | device | model_size | is_finetune | fine_tune_desc |                               precision | ctx_length | average_nll | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
