@@ -1,0 +1,18 @@
+# Exclude heavy or local-only artifacts from image build context
+
+# Requested exclusions
+wandb/
+**/wandb/**
+checkpoints/
+**/checkpoints/**
+results/
+**/results/**
+.env
+**/.env/**
+Dockerfile
+README.md
+__pycache__
+.dockerignore
+
+./data
+./.git
