@@ -802,7 +802,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         Important: For slicing, callers must slice AnnData first and then access .raw.
 
-        If use_raw is None, decide automatically based on presence of adata_obj.raw.X.
+        Auto-detects use of raw based on presence of adata_obj.raw.X.
         """
         raw = getattr(adata_obj, "raw", None)
         if raw is not None and getattr(raw, "X", None) is not None:
