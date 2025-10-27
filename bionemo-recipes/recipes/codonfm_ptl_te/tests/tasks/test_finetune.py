@@ -136,7 +136,7 @@ def test_finetune_with_ckpt_loads_and_maybe_resumes(mock_exists, mock_trainer, m
 @patch("src.tasks.load_checkpoint")
 @patch("src.tasks.Trainer")
 @patch("src.tasks.os.path.exists", return_value=False)
-def test_finetune_without_pretrained_starts_from_scratch(mock_exists, mock_trainer, tmp_path):
+def test_finetune_without_pretrained_starts_from_scratch(mock_exists, mock_trainer, mock_load_checkpoint, tmp_path):
     config = _make_min_config()
     trainer = MagicMock()
     mock_trainer.return_value = trainer
