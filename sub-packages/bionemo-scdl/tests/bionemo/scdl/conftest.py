@@ -188,3 +188,17 @@ def make_small_and_large_h5ads():
         return small_path, large_path, small, large
 
     return _make
+
+
+@pytest.fixture
+def make_h5ad_with_raw(make_random_csr):
+    """Factory to create an h5ad with raw data."""
+
+    def _make(tmp_path):
+        X = make_random_csr(total_nnz=100, n_cols=50)
+        X_raw = make_random_csr(total_nnz=100, n_cols=50)
+        h = tmp_path / "var.h5ad"
+        ad.AnnData(X=X, raw=ad.AnnData(X=X_raw)).write_h5ad(h)
+        return h
+
+    return _make

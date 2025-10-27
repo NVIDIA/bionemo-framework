@@ -312,6 +312,18 @@ def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn
     compare_fn(ds_regular, ds_lazy)
 
 
+def test_lazy_load_SingleCellMemMapDatasets_with_raw(tmp_path, compare_fn, make_h5ad_with_raw):
+    h5ad_path = make_h5ad_with_raw(tmp_path)
+    ds_regular = SingleCellMemMapDataset(tmp_path / "regular_load", h5ad_path=h5ad_path)
+    ds_lazy = SingleCellMemMapDataset(
+        tmp_path / "lazy_load",
+        h5ad_path=h5ad_path,
+        paginated_load_cutoff=0,
+        load_block_row_size=2,
+    )
+    compare_fn(ds_regular, ds_lazy)
+
+
 @pytest.mark.parametrize("dtype", [None, "uint32", "uint64", "float32", "float64"])
 def test_load_h5ad_properly_converted_dtypes_int(tmp_path, test_directory, big_int_h5ad, big_h5ad_data, dtype):
     """Use shared big-dtype h5ad to force dtype promotion and verify results."""

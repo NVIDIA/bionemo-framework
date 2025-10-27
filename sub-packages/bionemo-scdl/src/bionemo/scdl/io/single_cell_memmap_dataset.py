@@ -797,6 +797,21 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 pass
         return vars, obs, num_rows
 
+    def _get_matrix_X(self, adata_obj: Optional[ad.AnnData] = None):
+        """Return the sparse matrix X from either adata_obj.raw or adata_obj.
+
+        Important: For slicing, callers must slice AnnData first and then access .raw.
+
+        If use_raw is None, decide automatically based on presence of adata_obj.raw.X.
+        """
+        raw = getattr(adata_obj, "raw", None)
+        if raw is not None and getattr(raw, "X", None) is not None:
+            return raw.X
+        x_data = adata_obj.X
+        if x_data is None:
+            raise ValueError("This file does not have count data")
+        return x_data
+
     def paginated_load_h5ad(
         self,
         anndata_path: str,
@@ -814,24 +829,31 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             pd.DataFrame: var variables for features
             int: number of rows in the dataframe.
         """
+        print("Paginated load h5ad started")
         adata = ad.read_h5ad(anndata_path, backed=True)
-
         if self.load_neighbors:
             self._has_neighbors = self._extract_neighbor_data_paginated(adata)
 
-        if not isinstance(adata.X, ad.experimental.CSRDataset):
-            raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
-        count_data = adata.X[:1_000]
-        self._check_data_downcast(count_data, "First 1000 rows of the dataset")
+        # Determine which matrix to use (raw or normalized) from the full AnnData
+        X_full = self._get_matrix_X(adata)
+        if not isinstance(X_full, ad.experimental.CSRDataset):
+            raise NotImplementedError("Error: dense matrix loading not yet implemented.")
 
-        num_rows, num_cols = adata.X.shape
-        n_elements = adata.X._indptr[-1]
+        # Use slice-then-raw when sampling rows
+        count_data = self._get_matrix_X(adata[:1_000])
+
+        # Use full matrix for pointers and shapes
+        n_elements = X_full._indptr[-1]
+        row_index = X_full._indptr.astype(self.dtypes[f"{FileNames.ROWPTR.value}"])
+
+        self._check_data_downcast(count_data, "First 1000 rows of the dataset")
+        num_rows, num_cols = X_full.shape
         self.dtypes[f"{FileNames.COLPTR.value}"] = smallest_uint_dtype(num_cols - 1)
         self.dtypes[f"{FileNames.ROWPTR.value}"] = smallest_uint_dtype(n_elements)
         # Read the row indices into a memory map.
         mode = Mode.CREATE_APPEND
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
-        self.row_index[:] = adata.X._indptr.astype(self.dtypes[f"{FileNames.ROWPTR.value}"])
+        self.row_index[:] = row_index
 
         # The data from each column and data chunk of the original anndata file is read in. This is saved into the final
         # location of the memmap file. In this step, it is saved in the binary file format.
@@ -841,14 +863,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             open(f"{memmap_dir_path}/{FileNames.DATA.value}", "wb") as data_file,
         ):
             for row_start in range(0, num_rows, self.load_block_row_size):
+                adata_block = adata[row_start : row_start + self.load_block_row_size]
+                adata_block_X = self._get_matrix_X(adata_block)
                 # Write each array's data to the file in binary format
-                col_block = adata.X[row_start : row_start + self.load_block_row_size].indices.astype(
-                    self.dtypes[f"{FileNames.COLPTR.value}"]
-                )
+                col_block = adata_block_X.indices.astype(self.dtypes[f"{FileNames.COLPTR.value}"])
                 col_file.write(col_block.tobytes())
-                count_data = adata.X[row_start : row_start + self.load_block_row_size]
                 count_data_downcast = self._check_data_downcast(
-                    count_data, f"Rows {row_start} to {row_start + self.load_block_row_size - 1} of the dataset"
+                    adata_block_X, f"Rows {row_start} to {row_start + self.load_block_row_size - 1} of the dataset"
                 )
 
                 data_file.write(count_data_downcast.tobytes())
