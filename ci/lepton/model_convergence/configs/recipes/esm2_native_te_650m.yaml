@@ -82,7 +82,7 @@ use_distributed_checkpoint_fsdp2: false
 products:
   # TE Convergence
   - config: L1_650M
-    num_nodes: 4
+    num_nodes: 8
     num_devices: 8
     task_cmd: train_fsdp2
     parallelism_strategy: fsdp2
