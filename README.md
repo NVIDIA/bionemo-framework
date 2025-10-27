@@ -16,6 +16,7 @@
 NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for digital biology. It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized model recipes and tooling that are easily integrated into GPU-based computational resources with state-of-the-art performance.
 
 ## ⚡ Quick Start
+
 ```bash
 # Try BioNeMo Recipes in Google Colab (Recommend A100, may be too slow or run out of memory on T4)
 # Copy paste into Google Colab cells
@@ -107,7 +108,7 @@ BioNeMo Framework is part of a larger ecosystem of NVIDIA Biopharma products. Ge
 
 ## Getting Started with BioNeMo Framework - 5D Parallelism with NeMo/Megatron implementations
 
-:warning: **(This section is not relevant for bionemo-recipes)**  
+:warning: **(This section is not relevant for bionemo-recipes)**
 Full documentation on using the BioNeMo Framework is provided in our documentation:
 <https://docs.nvidia.com/bionemo-framework/latest/user-guide/>. To simplify the integration of optimized third-party dependencies, BioNeMo is primarily distributed as a containerized library. You can download the latest released container for the BioNeMo Framework from
 [NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework). To launch a pre-built container, you can use the brev.dev launchable [![ Click here to deploy.](https://uohmivykqgnnbiouffke.supabase.co/storage/v1/object/public/landingpage/brevdeploynavy.svg)](https://console.brev.dev/launchable/deploy/now?launchableID=env-2pPDA4sJyTuFf3KsCv5KWRbuVlU) or execute the following command:
