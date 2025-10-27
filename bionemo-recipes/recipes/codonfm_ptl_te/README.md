@@ -179,6 +179,8 @@ The main entry point is `src/runner.py` which supports three modes:
 
 The explicit scripts used to train the released checkpoints are referenced in [Pre-trained Models](#pre-trained-models). Note: if `--use_transformer_engine` is added TransformerEngine will be used, otherwise it will default to PyTorchs Scaled Dot Product Attention (SDPA).
 
+Note. For some hardware devices, there may be issues with Transformer Engine's fused attention kernel and sequence packing (THD). To disable this kernel, please use `export NVTE_FUSED_ATTN=0`.
+
 ```bash
 python -m src.runner pretrain \
     --out_dir <output_dir> \

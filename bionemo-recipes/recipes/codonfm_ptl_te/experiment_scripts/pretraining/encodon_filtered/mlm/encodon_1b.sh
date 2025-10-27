@@ -11,6 +11,8 @@ val_batch_size=4
 effective_batch_size=$((train_batch_size * num_gpus * num_nodes))
 num_workers=12
 
+# Note if you would like to use WandB please add --enable_wandb, --project_name and --entity.
+
 # - run
 python -m src.runner pretrain \
     --exp_name encodon_1b_baseline_${learning_rate}_${effective_batch_size}_nopathogen \
@@ -30,4 +32,3 @@ python -m src.runner pretrain \
     --bf16 \
     --split_name_prefix nopathogen \
     --out_dir /workspace/codonfm/results \
-    --enable_wandb
