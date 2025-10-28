@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 
 
 def get_parser():  # noqa: D103
+    print("JARED WE ARE INSIDE THE GET_PARSER FUNCTION")
     parser = argparse.ArgumentParser(description="Codon-FM Runner Script")
     parser.add_argument("mode", choices=["pretrain", "finetune", "eval"], help="Mode to run.")
     # General arguments
@@ -183,6 +184,10 @@ def get_parser():  # noqa: D103
 
 
 def main():  # noqa: C901, D103
+    print("JARED WE ARE INSIDE THE MAIN FUNCTION")
+    print("JARED WE ARE INSIDE THE MAIN FUNCTION")
+    print("JARED WE ARE INSIDE THE MAIN FUNCTION")
+    print("JARED WE ARE INSIDE THE MAIN FUNCTION")
     parser = get_parser()
     args = parser.parse_args()
     if args.mode in ["eval"] and not args.checkpoint_path:
