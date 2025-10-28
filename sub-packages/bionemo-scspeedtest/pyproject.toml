@@ -19,8 +19,8 @@ dependencies = [
     "tqdm>=4.0.0",
     "scdataset",
     "anndata>=0.11.0",
-    "bionemo-scdl>=0.0.7"
-
+    "bionemo-scdl>=0.0.7",
+    "annbatch[zarrs,cupy-cuda13]@git+https://github.com/scverse/annbatch.git"
 ]
 
 [tool.setuptools.packages.find]
