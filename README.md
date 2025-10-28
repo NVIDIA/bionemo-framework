@@ -43,6 +43,7 @@ cd bionemo-framework/bionemo-recipes/recipes/esm2_native_te/
 
 ## Recent News
 
+- 10/27/2025 [CodonFM recipe](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/recipes/codonfm_ptl_te) released! This is an accelerated version of the original [research codebase](https://github.com/NVIDIA-Digital-Bio/CodonFM) with [scientific preprint](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/nv-codonfm-preprint.pdf).
 - 09/30/2025 Megatron/NeMo 5D parallel BioNeMo Framework image v2.7 [released on NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/clara/containers/bionemo-framework) for both x86 and ARM CPUs.
 - 09/01/2025 [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes) goes live! Lightweight and portable examples with state-of-the-art training performance you can riff on to meet your needs.
 
@@ -56,15 +57,16 @@ A core use-case of the BioNeMo Framework is to help digital biology scientists a
 <summary><b>(Click to expand) <code>bionemo-recipes</code> support matrix </b></summary>
 <small>
 
-| Directory                                      | Description                                        | Support Status | 5D Parallel | Megatron-FSDP | TE     | Sequence Packing | FP8    | Context Parallelism |
-| ---------------------------------------------- | -------------------------------------------------- | -------------- | ----------- | ------------- | ------ | ---------------- | ------ | ------------------- |
-| `models/`<br>`amplify`                         | TE accelerated protein BERT, pushed to HuggingFace | ✅ Active      | ❌          | ✅            | ✅     | 🚧 WIP           | ✅     | 🚧 WIP              |
-| `models/`<br>`esm2`                            | TE accelerated protein BERT, pushed to HuggingFace | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
-| `models/`<br>`geneformer`                      | TE accelerated single-cell BERT                    | 🚧 WIP         | ❌          | ✅            | 🚧 WIP | 🚧 WIP           | 🚧 WIP | 🚧 WIP              |
-| `recipes/`<br>`esm2_accelerate_te`             | Recipe for ESM2 TE + HF Accelerate                 | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ❌               | ✅     | 🚧 WIP              |
-| `recipes/`<br>`esm2_native_te`                 | Recipe for ESM2 TE + native PyTorch                | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
-| `recipes/`<br>`geneformer_native_te_mfsdp_fp8` | Recipe for Geneformer HF model                     | 🚧 WIP         | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
-| `recipes/`<br>`vit`                            | Recipe for Vision Transformer                      | 🚧 WIP         | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
+| Directory                                      | Description                                                                                                                   | Support Status | 5D Parallel | Megatron-FSDP | TE     | Sequence Packing | FP8    | Context Parallelism |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------- | ----------- | ------------- | ------ | ---------------- | ------ | ------------------- |
+| `models/`<br>`amplify`                         | TE accelerated protein BERT, pushed to HuggingFace                                                                            | ✅ Active      | ❌          | ✅            | ✅     | 🚧 WIP           | ✅     | 🚧 WIP              |
+| `models/`<br>`esm2`                            | TE accelerated protein BERT, pushed to HuggingFace                                                                            | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
+| `models/`<br>`geneformer`                      | TE accelerated single-cell BERT                                                                                               | 🚧 WIP         | ❌          | ✅            | 🚧 WIP | 🚧 WIP           | 🚧 WIP | 🚧 WIP              |
+| `recipes/`<br>`codonfm_ptl_te`                 | Recipe for [CodonFM](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/nv-codonfm-preprint.pdf)'s Encodon using TE | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | 🚧 WIP | 🚧 WIP              |
+| `recipes/`<br>`esm2_accelerate_te`             | Recipe for ESM2 TE + HF Accelerate                                                                                            | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ❌               | ✅     | 🚧 WIP              |
+| `recipes/`<br>`esm2_native_te`                 | Recipe for ESM2 TE + native PyTorch                                                                                           | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
+| `recipes/`<br>`geneformer_native_te_mfsdp_fp8` | Recipe for Geneformer HF model                                                                                                | 🚧 WIP         | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
+| `recipes/`<br>`vit`                            | Recipe for Vision Transformer                                                                                                 | 🚧 WIP         | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
 
 </small>
 
