@@ -80,6 +80,37 @@ use_distributed_checkpoint_fsdp2: false
 ############################################################
 
 ############################################################
+# Checkout Script
+# Standardized script to clone the BioNeMo repository and install
+# dependencies before the training run starts. Child configs can
+# inherit and reuse this logic without modification.
+############################################################
+checkout_script: |
+  echo "pwd: $(pwd)"
+
+  echo "python --version"
+  python --version
+  echo "nvcc --version"
+  nvcc --version
+  echo "nvidia-smi"
+  nvidia-smi
+  echo "ls /data/codonfm"
+  ls /data/codonfm
+
+  set -euo pipefail
+  git clone https://github.com/NVIDIA/bionemo-framework.git
+  cd bionemo-framework
+  if [ -n "${commit_sha}" ]; then
+    echo "Checking out commit: ${commit_sha}"
+    git checkout "${commit_sha}"
+  elif [ "${branch}" != "main" ]; then
+    echo "Checking out branch: ${branch}"
+    git checkout "${branch}"
+  fi
+  cd bionemo-recipes/recipes/${recipe_subdir}
+  pip install -r requirements.txt
+
+############################################################
 # run script
 # This gets called right after `checkout_script` in the base config.
 ############################################################
