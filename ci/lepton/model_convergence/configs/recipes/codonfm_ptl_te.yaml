@@ -18,6 +18,14 @@ job_name: "${sanitize:codonfm_ptl_test}"
 branch: jwilber/codon-fm-ci
 
 ############################################################
+# Container Runtime
+# Defines the base Docker image and registry auth needed
+############################################################
+container:
+  image: nvcr.io/nvidian/cvai_bnmo_trng/codon_fm_te_bnmo_10272025_github2
+  registry_auth: lepton-nvidia-nvcrio-jonathan
+
+############################################################
 # kratos info: where to log data
 ############################################################
 kratos_subject: "codonfm_test"
@@ -87,6 +95,7 @@ use_distributed_checkpoint_fsdp2: false
 ############################################################
 checkout_script: |
   echo "pwd: $(pwd)"
+  ls workspace
 
   echo "python --version"
   python --version
@@ -115,4 +124,37 @@ checkout_script: |
 # This gets called right after `checkout_script` in the base config.
 ############################################################
 run_script: |
-  ls /data/codonfm
+  cd /workspace/codonfm
+  pip install -e .
+
+  learning_rate=1e-4
+  num_nodes=$LEPTON_JOB_TOTAL_WORKERS
+  num_gpus=$LEPTON_RESOURCE_ACCELERATOR_NUM
+  train_batch_size=32
+  val_batch_size=32
+  gradient_accumulation_steps=4
+  effective_batch_size=$((train_batch_size * num_gpus * num_nodes*gradient_accumulation_steps))
+  num_workers=12
+
+
+  python -m src.runner pretrain \
+      --exp_name ci_test_jwilber_oct28_1 \
+      --model_name encodon_80m \
+      --data_path /data/codonfn/ \
+      --process_item mlm_memmap \
+      --dataset_name /data/jomitchell/codonfmnight/ \
+      --lr $learning_rate \
+      --num_gpus $num_gpus \
+      --num_nodes $num_nodes \
+      --train_batch_size $train_batch_size \
+      --val_batch_size $val_batch_size \
+      --num_workers $num_workers \
+      --bf16 \
+      --split_name_prefix nopathogen \
+      --attn_input_format thd \
+      --collate_fn thd \
+      --project_name jm_codonfm_bionemo_gitlab_test_oct28_1 \
+      --entity clara-discovery_test_oct28_1 \
+      --gradient_accumulation_steps $gradient_accumulation_steps \
+      --use_transformer_engine \
+      --enable_wandb
