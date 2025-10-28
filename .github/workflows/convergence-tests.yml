@@ -21,6 +21,7 @@ on:
           - esm2_native_te_650m
           - esm2_native_te_3b
           - esm2_native_te_15b
+          - codonfm_ptl_te
       branch:
         description: "Branch to use (ignored if commit SHA is provided)"
         required: true

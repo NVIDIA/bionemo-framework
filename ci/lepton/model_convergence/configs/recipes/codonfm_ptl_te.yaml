@@ -1,0 +1,92 @@
+# @package _global_
+defaults:
+  - /base
+  - _self_
+
+############################################################
+# lepton job info
+############################################################
+node_group: yo-bom-lepton-001
+mount_from: node-nfs:fs1
+num_nodes: 1
+device_type: gpu
+num_devices: 8
+gpu_type: h100-sxm
+resource_shape: "${device_type}.${num_devices}x${gpu_type}"
+
+############################################################
+# kratos info: where to log data
+############################################################
+kratos_subject: "codonfm_test"
+
+############################################################
+# recipe identifiers
+# mostly used for logging and observability
+############################################################
+recipe_subdir: codonfm_ptl_te # don't need
+model_type: codonfm
+variant: train # train, finetune
+
+# Core identifiers for filtering
+framework: ptl # native, accelerate
+precision: bf16 # likely bf16 or fp8
+te_enabled: true
+fp8_enabled: false
+thd_enabled: true
+
+# Catchall for additional features/configs
+extras: [] # e.g. [thd]
+
+############################################################
+# wandb info (total_gpus used for group name)
+############################################################
+# `total_gpus` calculated from lepton job info above
+total_gpus: ${multiply:${num_devices},${num_nodes}}
+
+wandb_init_args:
+  project: "test_convergence__recipes__${sanitize:${branch}}"
+  group: "${model_type}__${task_cmd}__${total_gpus}gpus__${sanitize:${gpu_type}}"
+  job_type: "${recipe_subdir}"
+  name: null
+
+############################################################
+# task commands
+# shared across all products (if not explicitly overridden)
+############################################################
+
+# script overrides
+# these should match the keys in the recipe's config file
+
+num_train_steps: 2_000
+# dataset commands
+micro_batch_size: 32
+num_warmup_steps: 2_000
+
+# checkpoint controls
+ckpt_dir: ""
+save_checkpoints: false
+save_final_model: false
+resume_from_checkpoint: false
+use_distributed_checkpoint_fsdp2: false
+
+############################################################
+# Each product is a different config to run, alongside
+# config-specific arguments. Must have a w`andb_name`.
+############################################################
+
+############################################################
+# run script
+# This gets called right after `checkout_script` in the base config.
+############################################################
+run_script: |
+  wget -O init.sh https://raw.githubusercontent.com/leptonai/scripts/main/lepton_env_to_pytorch.sh;
+  chmod +x init.sh;
+  source init.sh;
+
+  HYDRA_FULL_ERROR=1 torchrun \
+    --nnodes=$NNODES \
+    --nproc_per_node=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader | wc -l) \
+    --node_rank=$NODE_RANK \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+    ${task_cmd}.py \
