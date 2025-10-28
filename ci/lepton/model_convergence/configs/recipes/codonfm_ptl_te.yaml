@@ -10,11 +10,11 @@ node_group: yo-bom-lepton-001
 mount_from: node-nfs:fs1
 num_nodes: 1
 device_type: gpu
-num_devices: 2
+num_devices: 8
 gpu_type: h100-sxm
 resource_shape: "${device_type}.${num_devices}x${gpu_type}"
 
-job_name: "${sanitize:codonfm_ptl_test}"
+job_name: "${sanitize:codonfm_ptl_test}8gpu"
 branch: jwilber/codon-fm-ci
 
 ############################################################
