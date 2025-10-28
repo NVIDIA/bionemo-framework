@@ -183,6 +183,7 @@ def get_parser():  # noqa: D103
 
 
 def main():  # noqa: C901, D103
+    print("hey jared/jonathan and bruce, this is a test")
     parser = get_parser()
     args = parser.parse_args()
     if args.mode in ["eval"] and not args.checkpoint_path:

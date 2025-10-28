@@ -138,8 +138,6 @@ run_script: |
   effective_batch_size=$((train_batch_size * num_gpus * num_nodes*gradient_accumulation_steps))
   num_workers=12
 
-  sleep 1h
-
 
   python -m src.runner pretrain \
       --exp_name ci_test_jwilber_oct28_1 \
