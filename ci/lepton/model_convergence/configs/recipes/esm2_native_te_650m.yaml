@@ -82,12 +82,12 @@ use_distributed_checkpoint_fsdp2: false
 products:
   # TE Convergence
   - config: L1_650M
-    num_nodes: 8
+    num_nodes: 2
     num_devices: 8
     task_cmd: train_fsdp2
     parallelism_strategy: fsdp2
     thd_enabled: true
-    micro_batch_size: 32
+    micro_batch_size: 48
     wandb_name: "esm2_native_650m__fsdp2__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
     job_name: "esm2-native-650m-fsdp2-thd"
   # OSS Convergence Baseline
