@@ -156,7 +156,7 @@ run_script: |
       --attn_input_format thd \
       --collate_fn thd \
       --project_name jm_codonfm_bionemo_gitlab_test_oct28_1 \
-      --entity clara-discovery_test_oct28_1 \
+      --entity clara-discovery \
       --gradient_accumulation_steps $gradient_accumulation_steps \
       --use_transformer_engine \
       --enable_wandb
