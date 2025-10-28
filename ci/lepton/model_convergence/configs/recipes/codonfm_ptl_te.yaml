@@ -95,7 +95,7 @@ use_distributed_checkpoint_fsdp2: false
 ############################################################
 checkout_script: |
   echo "pwd: $(pwd)"
-  ls workspace
+  ls /workspace
 
   echo "python --version"
   python --version
@@ -107,6 +107,16 @@ checkout_script: |
   ls /data/codonfm
 
   set -euo pipefail
+
+############################################################
+# run script
+# This gets called right after `checkout_script` in the base config.
+############################################################
+run_script: |
+  cd /workspace/codonfm
+
+  ls /workspace/codonfm
+
   git clone https://github.com/NVIDIA/bionemo-framework.git
   cd bionemo-framework
   if [ -n "${commit_sha}" ]; then
@@ -117,14 +127,6 @@ checkout_script: |
     git checkout "${branch}"
   fi
   cd bionemo-recipes/recipes/${recipe_subdir}
-  pip install -r requirements.txt
-
-############################################################
-# run script
-# This gets called right after `checkout_script` in the base config.
-############################################################
-run_script: |
-  cd /workspace/codonfm
   pip install -e .
 
   learning_rate=1e-4
@@ -136,13 +138,15 @@ run_script: |
   effective_batch_size=$((train_batch_size * num_gpus * num_nodes*gradient_accumulation_steps))
   num_workers=12
 
+  sleep 1h
+
 
   python -m src.runner pretrain \
       --exp_name ci_test_jwilber_oct28_1 \
       --model_name encodon_80m \
-      --data_path /data/codonfn/ \
+      --data_path /data/jomitchell/codonfmnight/ \
       --process_item mlm_memmap \
-      --dataset_name /data/jomitchell/codonfmnight/ \
+      --dataset_name CodonMemmapDataset \
       --lr $learning_rate \
       --num_gpus $num_gpus \
       --num_nodes $num_nodes \
