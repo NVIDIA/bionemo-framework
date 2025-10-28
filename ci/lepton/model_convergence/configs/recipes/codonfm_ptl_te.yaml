@@ -10,9 +10,12 @@ node_group: yo-bom-lepton-001
 mount_from: node-nfs:fs1
 num_nodes: 1
 device_type: gpu
-num_devices: 8
+num_devices: 2
 gpu_type: h100-sxm
 resource_shape: "${device_type}.${num_devices}x${gpu_type}"
+
+job_name: "${sanitize:codonfm_ptl_test}"
+branch: jwilber/codon-fm-ci
 
 ############################################################
 # kratos info: where to log data
@@ -57,6 +60,8 @@ wandb_init_args:
 # script overrides
 # these should match the keys in the recipe's config file
 
+task_cmd: "train"
+
 num_train_steps: 2_000
 # dataset commands
 micro_batch_size: 32
@@ -79,14 +84,4 @@ use_distributed_checkpoint_fsdp2: false
 # This gets called right after `checkout_script` in the base config.
 ############################################################
 run_script: |
-  wget -O init.sh https://raw.githubusercontent.com/leptonai/scripts/main/lepton_env_to_pytorch.sh;
-  chmod +x init.sh;
-  source init.sh;
-
-  HYDRA_FULL_ERROR=1 torchrun \
-    --nnodes=$NNODES \
-    --nproc_per_node=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader | wc -l) \
-    --node_rank=$NODE_RANK \
-    --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT \
-    ${task_cmd}.py \
+  ls /data/codonfm
