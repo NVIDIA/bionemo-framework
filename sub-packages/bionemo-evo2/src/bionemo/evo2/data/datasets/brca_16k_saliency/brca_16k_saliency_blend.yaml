@@ -1,0 +1,9 @@
+- dataset_prefix: /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/data/datasets/brca_16k_saliency/brca_16k_saliency_byte-level_train
+  dataset_split: train
+  dataset_weight: 1.0
+- dataset_prefix: /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/data/datasets/brca_16k_saliency/brca_16k_saliency_byte-level_val
+  dataset_split: validation
+  dataset_weight: 1.0
+- dataset_prefix: /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/data/datasets/brca_16k_saliency/brca_16k_saliency_byte-level_test
+  dataset_split: test
+  dataset_weight: 1.0

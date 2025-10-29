@@ -1,0 +1,30 @@
+- datapaths: ["/workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/data/datasets/brca_16k_saliency/brca_16k_saliency.fa"]
+  output_dir: "/workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/data/datasets/brca_16k_saliency"
+  output_prefix: brca_16k_saliency
+  train_split: 1.0  # We're just going to dump everything into a single file and compare against the union of the 3 splits in the SoT.
+  valid_split: 0.0
+  test_split: 0.0
+  overwrite: True
+  embed_reverse_complement: false
+  random_reverse_complement: 0.0
+  random_lineage_dropout: 0.0
+  include_sequence_id: false
+  transcribe: null
+  force_uppercase: true
+  indexed_dataset_dtype: "uint8"
+  tokenizer_type: "Byte-Level"
+  vocab_file: null
+  vocab_size: null
+  merges_file: null
+  pretrained_tokenizer_model: null
+  special_tokens: null
+  fast_hf_tokenizer: true
+  append_eod: true
+  enforce_sample_length: null
+  ftfy: false
+  workers: 1
+  preproc_concurrency: 100000
+  chunksize: 25
+  drop_empty_sequences: true
+  nnn_filter: true
+  seed: null  # Not relevant because we are not using random reverse complement or lineage dropout.
