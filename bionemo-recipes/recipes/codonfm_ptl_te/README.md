@@ -205,6 +205,31 @@ Optional path overrides:
   --pretrained_ckpt_path <path>
 ```
 
+For multi-node execution please consider using `torchrun`.
+
+```bash
+export NUM_GPUS=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader | wc -l)
+torchrun \
+    --nnodes=$NNODES \
+    --nproc_per_node=$NUM_GPUS \
+    --node_rank=$NODE_RANK \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+  -m src.runner pretrain \
+    --out_dir <output_dir> \
+    --exp_name <experiment_name> \
+    --model_name <model_size> \
+    --data_path <path_to_data> \
+    --process_item mlm_memmap \
+    --dataset_name CodonMemmapDataset \
+    --lr <learning_rate> \
+    --num_gpus $NUM_GPUS \
+    --num_nodes $NNODES \
+    --collate_fn <thd/bshd> \
+    --attn_input_format <thd/bshd> \
+    [--use_transformer_engine]
+```
+
 **Available `--process_item` options:**
 
 - `mlm_memmap`: Constructs MLM training examples using memory-mapped data input format.
