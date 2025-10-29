@@ -1,3 +1,3 @@
 - [Home](index.md)
-- [BioNeMo Documentation](main/)
+- [BioNeMo Framework](main/)
 - [Models](models/)
