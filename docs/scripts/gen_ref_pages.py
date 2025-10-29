@@ -119,6 +119,62 @@ def get_subpackage_readmes(sub_package: Path, root: Path) -> None:
         mkdocs_gen_files.set_edit_path(dest_file, readme_file.relative_to(root))
 
 
+def get_recipes_readmes(recipes_dir: Path, root: Path) -> None:
+    """Copy README files from bionemo-recipes to the recipes directory.
+
+    Args:
+        recipes_dir (Path): The path to the bionemo-recipes directory.
+        root (Path): The root directory of the project.
+
+    Returns:
+        None
+    """
+    if not recipes_dir.exists():
+        return
+    print("jj recipes dir exists")
+
+    # Copy the main recipes README as index
+    main_readme = recipes_dir / "README.md"
+    if main_readme.exists():
+        dest_file = Path("main/recipes/index.md")
+        with mkdocs_gen_files.open(dest_file, "w") as fd:
+            fd.write(main_readme.read_text())
+        logger.info(f"Added recipes README: {dest_file}")
+        mkdocs_gen_files.set_edit_path(dest_file, main_readme.relative_to(root))
+
+    # Process both models and recipes subdirectories
+    for subdir in ["models", "recipes"]:
+        subdir_path = recipes_dir / subdir
+        print("jj subdir path exists", subdir_path)
+        if not subdir_path.exists():
+            continue
+        
+        # Copy subdirectory README if it exists
+        subdir_readme = subdir_path / "README.md"
+        print("jj subdir readme exists", subdir_readme)
+        if subdir_readme.exists():
+            dest_file = Path("main/recipes") / subdir / "index.md"
+            with mkdocs_gen_files.open(dest_file, "w") as fd:
+                fd.write(subdir_readme.read_text())
+            logger.info(f"Added recipes {subdir} README: {dest_file}")
+            mkdocs_gen_files.set_edit_path(dest_file, subdir_readme.relative_to(root))
+            
+        # Copy individual model/recipe READMEs
+        for item in subdir_path.iterdir():
+            if not item.is_dir():
+                continue
+                
+            readme_file = item / "README.md"
+            if readme_file.exists():
+                dest_dir = Path("main/recipes") / subdir / item.name
+                dest_file = dest_dir / f"{item.name}-Overview.md"
+
+                with mkdocs_gen_files.open(dest_file, "w") as fd:
+                    fd.write(readme_file.read_text())
+                logger.info(f"Added {subdir} README: {dest_file}")
+                mkdocs_gen_files.set_edit_path(dest_file, readme_file.relative_to(root))
+
+
 def get_subpackage_assets(sub_package: Path, root: Path) -> None:
     """Copy assets dir from a sub-package to the user guide's developer guide directory so that they are available for render.
 
@@ -146,26 +202,69 @@ def get_subpackage_assets(sub_package: Path, root: Path) -> None:
                 logger.info(f"Added asset: {dest_asset}")
 
 
+def get_recipes_assets(recipes_dir: Path, root: Path) -> None:
+    """Copy assets from bionemo-recipes to the recipes directory.
+
+    Args:
+        recipes_dir (Path): The path to the bionemo-recipes directory.
+        root (Path): The root directory of the project.
+
+    Returns:
+        None
+    """
+    if not recipes_dir.exists():
+        return
+
+    # Process both models and recipes subdirectories
+    for subdir in ["models", "recipes"]:
+        subdir_path = recipes_dir / subdir
+        if not subdir_path.exists():
+            continue
+            
+        for item in subdir_path.iterdir():
+            if not item.is_dir():
+                continue
+                
+            assets_dir = item / "assets"
+            if assets_dir.exists():
+                dest_dir = Path("main/recipes") / subdir / item.name
+                for asset_path in assets_dir.rglob("*"):
+                    if asset_path.is_file():
+                        relative_path = asset_path.relative_to(assets_dir)
+                        dest_asset = dest_dir / "assets" / relative_path
+                        # copy bytes bc images most likely
+                        with mkdocs_gen_files.open(dest_asset, "wb") as fd:
+                            fd.write(asset_path.read_bytes())
+                        logger.info(f"Added recipe asset: {dest_asset}")
+
+
 def generate_pages() -> None:
     """Generate pages for documentation.
 
     This function orchestrates the entire process of generating API references,
-    copying notebooks, and copying README files for all sub-packages.
+    copying notebooks, and copying README files for all sub-packages and recipes.
 
     Returns:
         None
     """
     root = Path(__file__).parent.parent.parent
     sub_packages_dir = root / "sub-packages"
+    recipes_dir = root / "bionemo-recipes"
 
-    # generate api docs
+    # generate api docs for sub-packages
     generate_api_reference()
 
+    # Process sub-packages
     for sub_package in sub_packages_dir.glob("bionemo-*"):
         if sub_package.is_dir():
             get_subpackage_assets(sub_package, root)
             get_subpackage_notebooks(sub_package, root)
             get_subpackage_readmes(sub_package, root)
+
+    # Process recipes
+    print("jj processing recipes")
+    # get_recipes_assets(recipes_dir, root)
+    get_recipes_readmes(recipes_dir, root)
 
 
 if __name__ in {"__main__", "<run_path>"}:
