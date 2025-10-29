@@ -17,7 +17,7 @@ resource_shape: "${device_type}.${num_devices}x${gpu_type}"
 ############################################################
 # kratos info: where to log data
 ############################################################
-kratos_subject: "convergence_tests_v0.0.3"
+kratos_subject: "convergence_tests_fp8_v0.0.3"
 
 ############################################################
 # recipe identifiers
@@ -55,24 +55,6 @@ wandb_init_args:
 
 # script overrides
 # these should match the keys in the recipe's config file
-model_tag: nvidia/esm2_t36_650M_UR50D
-# task_cmd: train_fsdp2 # mfsdp
-# dataset commands
-micro_batch_size: 16
-load_dataset_kwargs_path: nvidia/esm2_uniref_pretraining_data
-load_dataset_kwargs_streaming: true
-load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma: allowlist secret
-num_workers: 1
-
-# lr commands
-# checkpoint controls
-ckpt_dir: ""
-save_checkpoints: false
-save_final_model: false
-resume_from_checkpoint: false
-use_distributed_checkpoint_fsdp2: false
-
-# new
 config: L1_650M
 num_train_steps: 40_000
 num_warmup_steps: 2_000
@@ -83,16 +65,26 @@ micro_batch_size: 48
 thd_enabled: true
 use_torch_compile: false # already off in defaults.yaml
 
+model_tag: nvidia/esm2_t36_650M_UR50D
+# task_cmd: train_fsdp2 # mfsdp
+# dataset commands
+load_dataset_kwargs_path: nvidia/esm2_uniref_pretraining_data
+load_dataset_kwargs_streaming: true
+load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma: allowlist secret
+num_workers: 1
 
+# checkpoint controls
+ckpt_dir: ""
+save_checkpoints: false
+save_final_model: false
+resume_from_checkpoint: false
+use_distributed_checkpoint_fsdp2: false
 
 
 ############################################################
 # Each product is a different config to run, alongside
 # config-specific arguments. Must have a w`andb_name`.
 ############################################################
-
-fp8_recipe: todo
-fp8_format: todo
 
 products:
   # TE THD baseline (bf16)
@@ -103,47 +95,47 @@ products:
     fp8_model_init_kwargs_enabled: false
     fp8_format: null
   # TE THD delayed scaling
-  - wandb_name: "esm2_fp8_650m__thd__delayed_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2_fp8-650m-thd-delayed-scaling"
-    fp8_enabled: true
-    fp8_recipe: DelayedScaling
-    fp8_model_init_kwargs_enabled:
-    fp8_format: "HYBRID"
-  # TE THD current scaling
-  - wandb_name: "esm2_fp8_650m__thd__current_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2_fp8-650m-thd-current-scaling"
-    fp8_enabled: true
-    fp8_recipe: Float8CurrentScaling
-    fp8_model_init_kwargs_enabled: false
-    fp8_format: "HYBRID"
-  # TE THD block scaling
-  - wandb_name: "esm2_fp8_650m__thd__block_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2_fp8-650m-thd-block-scaling"
-    fp8_enabled: true
-    fp8_recipe: Float8BlockScaling
-    fp8_model_init_kwargs_enabled: false
-    fp8_format: "E4M3"
-  # TE THD delayed scaling (fp8 model init)
-  - wandb_name: "esm2_fp8_650m__thd__delayed_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2_fp8-650m-thd-delayed-scaling-fp8init"
-    fp8_enabled: true
-    fp8_recipe: DelayedScaling
-    fp8_model_init_kwargs_enabled: true
-    fp8_format: "HYBRID"
-  # TE THD current scaling (fp8 model init)
-  - wandb_name: "esm2_fp8_650m__thd__current_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2_fp8-650m-thd-current-scaling-fp8init"
-    fp8_enabled: true
-    fp8_recipe: Float8CurrentScaling
-    fp8_model_init_kwargs_enabled: true
-    fp8_format: "HYBRID"
-  # TE THD block scaling (fp8 model init)
-  - wandb_name: "esm2_fp8_650m__thd__block_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2_fp8-650m-thd-block-scaling-fp8init"
-    fp8_enabled: true
-    fp8_recipe: Float8BlockScaling
-    fp8_model_init_kwargs_enabled: true
-    fp8_format: "E4M3"
+  # - wandb_name: "esm2_fp8_650m__thd__delayed_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2_fp8-650m-thd-delayed-scaling"
+  #   fp8_enabled: true
+  #   fp8_recipe: DelayedScaling
+  #   fp8_model_init_kwargs_enabled:
+  #   fp8_format: "HYBRID"
+  # # TE THD current scaling
+  # - wandb_name: "esm2_fp8_650m__thd__current_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2_fp8-650m-thd-current-scaling"
+  #   fp8_enabled: true
+  #   fp8_recipe: Float8CurrentScaling
+  #   fp8_model_init_kwargs_enabled: false
+  #   fp8_format: "HYBRID"
+  # # TE THD block scaling
+  # - wandb_name: "esm2_fp8_650m__thd__block_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2_fp8-650m-thd-block-scaling"
+  #   fp8_enabled: true
+  #   fp8_recipe: Float8BlockScaling
+  #   fp8_model_init_kwargs_enabled: false
+  #   fp8_format: "E4M3"
+  # # TE THD delayed scaling (fp8 model init)
+  # - wandb_name: "esm2_fp8_650m__thd__delayed_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2_fp8-650m-thd-delayed-scaling-fp8init"
+  #   fp8_enabled: true
+  #   fp8_recipe: DelayedScaling
+  #   fp8_model_init_kwargs_enabled: true
+  #   fp8_format: "HYBRID"
+  # # TE THD current scaling (fp8 model init)
+  # - wandb_name: "esm2_fp8_650m__thd__current_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2_fp8-650m-thd-current-scaling-fp8init"
+  #   fp8_enabled: true
+  #   fp8_recipe: Float8CurrentScaling
+  #   fp8_model_init_kwargs_enabled: true
+  #   fp8_format: "HYBRID"
+  # # TE THD block scaling (fp8 model init)
+  # - wandb_name: "esm2_fp8_650m__thd__block_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2_fp8-650m-thd-block-scaling-fp8init"
+  #   fp8_enabled: true
+  #   fp8_recipe: Float8BlockScaling
+  #   fp8_model_init_kwargs_enabled: true
+  #   fp8_format: "E4M3"
 
 ############################################################
 # run script
@@ -181,4 +173,4 @@ run_script: |
     +checkpoint.save_checkpoints=${save_checkpoints} \
     +checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2} \
     fp8_config.enabled=${fp8_enabled} \
-    
+
