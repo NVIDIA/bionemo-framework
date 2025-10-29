@@ -15,7 +15,7 @@ CHECKPOINT_PATH=$1 # full path to the checkpoint, can be downloaded from https:/
 DATA_PATH=$2 # can be downloaded with ../../data_scripts/download_preprocess_codonbert_bench.py --dataset mRFP_Expression.csv --output-dir $DATA_PATH
 MODEL_NAME="encodon_80m"
 USE_TRANSFORMER_ENGINE="true"
-FINETUNE_STRATEGY="full" # choice between "full", "lora", "head_only_random", "head_only_pretrained". TE does not support LoRA finetuning right now.
+FINETUNE_STRATEGY="lora" # choice between "full", "lora", "head_only_random", "head_only_pretrained". TE does not support LoRA finetuning right now.
 USE_CROSS_ATTENTION="true"
 MAX_STEPS=100000
 
@@ -53,7 +53,8 @@ CMD=(
     "--log_every_n_steps" "1"
     "--checkpoint_every_n_train_steps" "5"
     "--bf16"
-    "--enable_wandb"
+    "--wandb_project" "yang_codonfm_finetuning"
+    "--entity" "clara-discovery"
 )
 if [[ "$USE_TRANSFORMER_ENGINE" == "true" ]]; then
     CMD+=("--use_transformer_engine")
@@ -83,13 +84,6 @@ case $FINETUNE_STRATEGY in
         exit 1
         ;;
 esac
-
-# use transformer engine can't be used with lora
-if [[ "$USE_TRANSFORMER_ENGINE" == "true" ]] && [[ "$FINETUNE_STRATEGY" == "lora" ]]; then
-    echo "Error: Transformer engine cannot be used with lora finetuning strategy"
-    exit 1
-fi
-
 
 echo "Executing: ${CMD[@]}"
 "${CMD[@]}"

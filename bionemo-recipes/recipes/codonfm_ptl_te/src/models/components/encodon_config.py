@@ -38,6 +38,7 @@ class EnCodonConfig:
         pad_token_id: int = 3,
         classifier_dropout: float = 0.1,
         gamma_init: float = 0.1,
+        model_type: str = "custom",
         rotary_theta: float = 1e5,
         use_return_dict: bool = False,
         max_position_embeddings: int = 2048,
@@ -73,6 +74,7 @@ class EnCodonConfig:
         if hidden_act not in ["gelu", "relu", "silu", "gelu_new"]:
             raise ValueError(f"hidden_act must be one of: gelu, relu, silu, gelu_new, got {hidden_act}")
 
+        self.model_type = model_type
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
         self.num_hidden_layers = num_hidden_layers

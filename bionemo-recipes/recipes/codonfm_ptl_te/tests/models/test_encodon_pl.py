@@ -719,16 +719,6 @@ class TestEncodonTEPL:
         assert model.hparams.attn_input_format == "bshd"
         assert model.model is None  # Model not configured yet
 
-    def test_te_model_with_lora_raises_error(self, base_config):
-        """Test that EncodonTEPL raises error when LoRA is enabled"""
-        if not torch.cuda.is_available():
-            pytest.skip("Transformer Engine requires CUDA")
-        base_config["finetune_strategy"] = "lora"
-        base_config["lora"] = True
-
-        with pytest.raises(ValueError, match="LoRA finetuning is not supported for EnCodonTE model"):
-            EncodonTEPL(**base_config)
-
     def test_te_model_with_downstream_head_regression(self, base_config, sample_regression_batch):
         """Test EncodonTEPL with downstream head for regression"""
         if not torch.cuda.is_available():
