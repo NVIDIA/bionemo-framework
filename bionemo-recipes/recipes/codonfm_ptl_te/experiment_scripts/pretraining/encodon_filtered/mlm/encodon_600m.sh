@@ -12,6 +12,8 @@ num_workers=12
 
 exp_name="encodon_600m_latest_${learning_rate}_${effective_batch_size}_nopathogen"
 
+# Note if you would like to use WandB please add --enable_wandb, --project_name and --entity.
+
 # - run
 python -m src.runner pretrain \
     --exp_name "$exp_name" \
@@ -31,4 +33,3 @@ python -m src.runner pretrain \
     --bf16 \
     --split_name_prefix nopathogen \
     --checkpoints_dir results/checkpoints/${exp_name} \
-    --enable_wandb

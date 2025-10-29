@@ -39,12 +39,12 @@ https://github.com/NVIDIA-Digital-Bio/CodonFM based on the paper [https://resear
 
 The table below summarizes the set of open source pre-trained weights currently made available. All of the training scripts are contained in the directory `experiment_scripts/pretraining/encodon_filtered/`.
 
-| Model              | Variant                        | Hidden size | Layers | Heads | Intermediate | Script                | Original Checkpoint                                                    | TransformerEngine Checkpoint                                           |
-| ------------------ | ------------------------------ | ----------- | ------ | ----- | ------------ | --------------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| EnCodon 80M        | MLM (random p=0.15)            | 1024        | 6      | 8     | 4096         | `mlm/encodon_80m.sh`  | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-80M-v1)        | [Link](https://huggingface.co/nvidia/NV-CodonFM-TE-Encodon-80M-v1)     |
-| EnCodon 600M       | MLM (random p=0.15)            | 2048        | 12     | 16    | 8192         | `mlm/encodon_600m.sh` | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-600M-v1)       | [Link](https://huggingface.co/nvidia/NV-CodonFM-TE-Encodon-600M-v1)    |
-| EnCodon 1B         | MLM (random p=0.15)            | 2048        | 18     | 16    | 8192         | `mlm/encodon_1b.sh`   | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-1B-v1)         | [Link](https://huggingface.co/nvidia/NV-CodonFM-TE-Encodon-1B-v1)      |
-| EnCodon 1B (CDSWT) | MLM (codon frequency-weighted) | 2048        | 18     | 16    | 8192         | `cdswt/encodon_1b.sh` | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-Cdwt-1B-v1-v1) | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-TE-Cdwt-1B-v1) |
+| Model              | Variant                        | Hidden size | Layers | Heads | Intermediate | Script                | Original Checkpoint                                                 | TransformerEngine Checkpoint                                           |
+| ------------------ | ------------------------------ | ----------- | ------ | ----- | ------------ | --------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| EnCodon 80M        | MLM (random p=0.15)            | 1024        | 6      | 8     | 4096         | `mlm/encodon_80m.sh`  | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-80M-v1)     | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-TE-80M-v1)     |
+| EnCodon 600M       | MLM (random p=0.15)            | 2048        | 12     | 16    | 8192         | `mlm/encodon_600m.sh` | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-600M-v1)    | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-TE-600M-v1)    |
+| EnCodon 1B         | MLM (random p=0.15)            | 2048        | 18     | 16    | 8192         | `mlm/encodon_1b.sh`   | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-1B-v1)      | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-TE-1B-v1)      |
+| EnCodon 1B (CDSWT) | MLM (codon frequency-weighted) | 2048        | 18     | 16    | 8192         | `cdswt/encodon_1b.sh` | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-Cdwt-1B-v1) | [Link](https://huggingface.co/nvidia/NV-CodonFM-Encodon-TE-Cdwt-1B-v1) |
 
 ## Repository Structure
 
@@ -178,6 +178,8 @@ The main entry point is `src/runner.py` which supports three modes:
 #### Pre-training
 
 The explicit scripts used to train the released checkpoints are referenced in [Pre-trained Models](#pre-trained-models). Note: if `--use_transformer_engine` is added TransformerEngine will be used, otherwise it will default to PyTorchs Scaled Dot Product Attention (SDPA).
+
+Note. For some hardware devices, there may be issues with Transformer Engine's fused attention kernel and sequence packing (THD). To disable this kernel, please use `export NVTE_FUSED_ATTN=0`.
 
 ```bash
 python -m src.runner pretrain \
