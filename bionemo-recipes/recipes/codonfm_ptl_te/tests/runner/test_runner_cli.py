@@ -46,7 +46,7 @@ def test_runner_main_finetune_dispatch(mock_finetune, mock_build, mock_get_confi
         "/pretrained/model.ckpt",
         "--resume_trainer_state",
         "--finetune_strategy",
-        "full",  # Use 'full' to avoid LoRA+TE conflict
+        "full",
     ]
     if use_te:
         argv.append("--use_transformer_engine")

@@ -117,6 +117,10 @@ class EncodonTEPL(LightningModule):
         # Best validation loss tracking (simplified for basic loss monitoring)
         self.best_val_loss = float("inf")
 
+        if use_downstream_head and lora_dropout != 0.0:
+            raise ValueError(
+                "Lora dropout must be 0.0 when using downstream head with TransformerEngine since ParamWrapper for LayerNormLinear does not support dropout"
+            )
         # Determine task type for metric calculation
         if use_downstream_head:
             if loss_type == "classification":
@@ -182,7 +186,6 @@ class EncodonTEPL(LightningModule):
                     )
                 self.init_downstream_heads()
         has_peft_params = any("lora" in k for k in state_dict.keys()) if state_dict else False
-
         # Load base model weights
         if state_dict and not has_peft_params:
             new_state_dict = {}
@@ -212,7 +215,7 @@ class EncodonTEPL(LightningModule):
                 task_type="SEQ_CLS",
                 r=self.hparams.lora_r,
                 lora_alpha=self.hparams.lora_alpha,
-                target_parameters=["layernorm_qkv.weight", "mlp_fc1.weight"],
+                target_parameters=["layernorm_qkv.weight", "mlp_fc1.weight", "mlp_fc2.weight"],
                 inference_mode=False,
             )
             self.model = get_peft_model(self.model, peft_config)

@@ -226,7 +226,7 @@ The publicly available checkpoints can be finetuned using the finetuning options
 
 See example script at `experiment_scripts/pretraining/encodon_filtered/finetuning/`
 
-- `lora`: Fine-tunes low-rank adapters within a pretrained model added to each transformer layer to reduce training cost and memory usage. Currently this does not work with TE and we are working to fix this.
+- `lora`: Fine-tunes low-rank adapters within a pretrained model added to each transformer layer to reduce training cost and memory usage.
 - `head_only_random`: Trains a randomly initialized output head while the remainder of the model is kept frozen.
 - `head_only_pretrained`: Trains a pretrained output head while the remainder of the model is kept frozen.
 - `full`: Fine-tunes all parameters of the model end-to-end
@@ -276,7 +276,6 @@ python -m src.runner eval \
 ### Checkpoint conversion between PyTorch and TE
 
 [codonfm_ckpt_te_conversion.py](codonfm_ckpt_te_conversion.py) will convert PyTorch-native Encodon checkpoint TE and back, see [Pre-trained Models](#pre-trained-models).
-Since PEFT LoRA is only supported for PyTorch models right now, please use the checkpoint conversion script to convert TE checkpoint to PyTorch if you want to do finetuning with LoRA.
 
 ## Using Weights and Biases with CodonFM
 

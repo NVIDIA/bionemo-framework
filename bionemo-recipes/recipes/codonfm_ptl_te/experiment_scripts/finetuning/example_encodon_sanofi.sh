@@ -14,8 +14,8 @@ function print_help {
 CHECKPOINT_PATH=$1 # full path to the checkpoint, can be downloaded from https://huggingface.co/nvidia/NV-CodonFM-Encodon-TE-80M-v1
 DATA_PATH=$2 # can be downloaded with ../../data_scripts/download_preprocess_codonbert_bench.py --dataset mRFP_Expression.csv --output-dir $DATA_PATH
 MODEL_NAME="encodon_80m"
-USE_TRANSFORMER_ENGINE="true"
-FINETUNE_STRATEGY="lora" # choice between "full", "lora", "head_only_random", "head_only_pretrained". TE does not support LoRA finetuning right now.
+USE_TRANSFORMER_ENGINE=${3:-"true"}
+FINETUNE_STRATEGY=${4:-"lora"} # choice between "full", "lora", "head_only_random", "head_only_pretrained".
 USE_CROSS_ATTENTION="true"
 MAX_STEPS=100000
 
@@ -23,8 +23,9 @@ MAX_STEPS=100000
 NUM_NODES=1
 NUM_GPUS=1
 LR="1e-5"
-TRAIN_BATCH_SIZE="4"
+TRAIN_BATCH_SIZE="8"
 VAL_BATCH_SIZE=$TRAIN_BATCH_SIZE
+GRAD_ACC_BATCHES=8
 
 EXP_NAME="sanofi_mRFP_Expression_Encodon_80m_${FINETUNE_STRATEGY}"
 if [[ "$USE_TRANSFORMER_ENGINE" == "true" ]]; then
@@ -43,6 +44,7 @@ CMD=(
     "--dataset_name" "CodonBertDataset"
     "--train_batch_size" "$TRAIN_BATCH_SIZE"
     "--val_batch_size" "$VAL_BATCH_SIZE"
+    "--gradient_accumulation_steps" "$GRAD_ACC_BATCHES"
     "--max_steps" "$MAX_STEPS"
     "--pretrained_ckpt_path" "$CHECKPOINT_PATH"
     "--model_name" "$MODEL_NAME"
@@ -53,8 +55,6 @@ CMD=(
     "--log_every_n_steps" "1"
     "--checkpoint_every_n_train_steps" "5"
     "--bf16"
-    "--wandb_project" "yang_codonfm_finetuning"
-    "--entity" "clara-discovery"
 )
 if [[ "$USE_TRANSFORMER_ENGINE" == "true" ]]; then
     CMD+=("--use_transformer_engine")
@@ -67,7 +67,12 @@ fi
 
 case $FINETUNE_STRATEGY in
     "lora")
-        CMD+=("--finetune_strategy" "lora" "--lora" "--lora_alpha" "32.0" "--lora_r" "32" "--lora_dropout" "0.1")
+        # Note: lora_dropout must be 0.0 when using TransformerEngine with LayerNormLinear targets
+        LORA_DROPOUT="0.0"
+        if [[ "$USE_TRANSFORMER_ENGINE" != "true" ]]; then
+            LORA_DROPOUT="0.1"
+        fi
+        CMD+=("--finetune_strategy" "lora" "--lora" "--lora_alpha" "32.0" "--lora_r" "32" "--lora_dropout" "$LORA_DROPOUT")
         ;;
     "head_only_random")
         CMD+=("--finetune_strategy" "head_only_random")
