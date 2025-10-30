@@ -54,7 +54,7 @@ def test_sparse_collate_function_with_all_empty_entries_correct():
 
 
 def test_dataloading_batch_size_one_work_without_collate(tmp_path, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample1.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample1.h5ad", use_X_not_raw=True)
     dataloader = DataLoader(ds, batch_size=1, shuffle=False)
     expected_tensors = [
         torch.tensor([[[8.0], [1.0]]]),
@@ -69,7 +69,7 @@ def test_dataloading_batch_size_one_work_without_collate(tmp_path, test_director
 
 
 def test_dataloading_batch_size_one_works_with_collate(tmp_path, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample1.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample1.h5ad", use_X_not_raw=True)
     dataloader = DataLoader(ds, batch_size=1, shuffle=False, collate_fn=collate_sparse_matrix_batch)
     expected_tensors = [
         torch.tensor([[[8.0], [1.0]]]),
@@ -87,7 +87,7 @@ def test_dataloading_batch_size_one_works_with_collate(tmp_path, test_directory)
 
 
 def test_dataloading_batch_size_three_works_with_collate(tmp_path, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample1.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample1.h5ad", use_X_not_raw=True)
     dataloader = DataLoader(ds, batch_size=3, shuffle=False, collate_fn=collate_sparse_matrix_batch)
     expected_tensor = torch.tensor([[0, 8], [0, 0], [7, 18]])
 
@@ -199,7 +199,11 @@ def test_dataloading_neighbor_batch_with_real_data(tmp_path, test_neighbor_direc
 
     # Create dataset with neighbors
     ds = SingleCellMemMapDataset(
-        tmp_path / "neighbor_test", h5ad_path=str(sample_path), load_neighbors=True, neighbor_key="next_cell_ids"
+        tmp_path / "neighbor_test",
+        h5ad_path=str(sample_path),
+        load_neighbors=True,
+        neighbor_key="next_cell_ids",
+        use_X_not_raw=True,
     )
 
     # Mock the sample_neighbor_index to return predictable neighbors
@@ -271,6 +275,7 @@ def test_dataloading_neighbor_batch_works_with_expected_output(tmp_path, monkeyp
         h5ad_path=str(sample_path),
         load_neighbors=True,
         neighbor_key="next_cell_ids",
+        use_X_not_raw=True,
     )
 
     # Mock the sample_neighbor_index to return predictable neighbors for testing

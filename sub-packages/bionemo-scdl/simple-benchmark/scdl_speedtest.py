@@ -868,7 +868,9 @@ def get_sampler(sampling_scheme: str, dataset: torch.utils.data.Dataset):
     return shuffle, sampler
 
 
-def create_dataloader_factory(input_path: str, sampling_scheme: str, batch_size: int = 32, use_anndata: bool = False):
+def create_dataloader_factory(
+    input_path: str, sampling_scheme: str, batch_size: int = 32, use_anndata: bool = False, use_X_not_raw: bool = False
+):
     """Create a factory function for the dataloader."""
     # Track conversion metrics globally to be accessible later
     conversion_metrics = {"time": 0.0, "performed": False}
@@ -924,7 +926,9 @@ def create_dataloader_factory(input_path: str, sampling_scheme: str, batch_size:
                     if input_path.endswith(".h5ad"):
                         print(f"Converting h5ad to SCDL format: {Path(input_path).name}")
                         conversion_start = time.perf_counter()
-                        dataset = SingleCellMemMapDataset(data_path=data_dir, h5ad_path=input_path)
+                        dataset = SingleCellMemMapDataset(
+                            data_path=data_dir, h5ad_path=input_path, use_X_not_raw=use_X_not_raw
+                        )
                         conversion_end = time.perf_counter()
                         conversion_time = conversion_end - conversion_start
                         conversion_metrics["time"] = conversion_time
@@ -934,7 +938,9 @@ def create_dataloader_factory(input_path: str, sampling_scheme: str, batch_size:
                         # Directory: convert all h5ad files in the directory
                         with tempfile.TemporaryDirectory() as temp_dir:
                             coll = SingleCellCollection(temp_dir)
-                            coll.load_h5ad_multi(input_path, max_workers=4, use_processes=False)
+                            coll.load_h5ad_multi(
+                                input_path, max_workers=4, use_processes=False, use_X_not_raw=use_X_not_raw
+                            )
                             coll.flatten(data_dir, destroy_on_copy=True)
 
                         conversion_start = time.perf_counter()
@@ -1269,7 +1275,11 @@ Examples:
 
     parser.add_argument("--num-epochs", type=int, default=1, help="Number of epochs (default: 1)")
     parser.add_argument("--num-runs", type=int, default=1, help="Number of benchmark runs to average (default: 1)")
-
+    parser.add_argument(
+        "--use-X-not-raw",
+        action="store_true",
+        help="Use .X instead of raw.X from the anndata file (only applicable when generating a SCDL dataset)",
+    )
     args = parser.parse_args()
 
     # Validate num_runs parameter
@@ -1347,7 +1357,11 @@ Examples:
             else:
                 scdl_path = str(input_path)
             scdl_factory = create_dataloader_factory(
-                str(scdl_path), args.sampling_scheme, args.batch_size, use_anndata=False
+                str(scdl_path),
+                args.sampling_scheme,
+                args.batch_size,
+                use_anndata=False,
+                use_X_not_raw=args.use_X_not_raw,
             )
 
             scdl_results = []

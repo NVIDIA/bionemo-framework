@@ -48,6 +48,19 @@ If the dataset is large, the AnnData file can be lazy-loaded and then read in ba
 - `paginated_load_cutoff`, which sets the minimal file size in megabytes at which an AnnData file will be read in in a paginated manner.
 - `load_block_row_size`, which is the number of rows that are read into memory at a given time.
 
+### Loading `raw.X` vs `.X` from the anndata file
+
+By default, SCDL will load the data from the `raw.X` in the anndata file. If using the `.X` is desired, set `use_X_not_raw = True`
+during the dataset creation:
+
+```python
+from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
+
+data = SingleCellMemMapDataset(
+    "97e_scmm", "hdf5s/97e96fb1-8caf-4f08-9174-27308eabd4ea.h5ad"
+)
+```
+
 ### Interrogating single cell datasets and exploring the API
 
 ```python
@@ -206,7 +219,7 @@ During dataset concatenation, it is assumed that all of the data types are eithe
 To convert multiple files with a given data format, the user can run:
 
 ```bash
-convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset [--data-dtype float64 --paginated_load_cutoff 10_000 --load-block-row-size 1_000_000]
+convert_h5ad_to_scdl --data-path hdf5s --save-path example_dataset [--data-dtype float64 --paginated_load_cutoff 10_000 --load-block-row-size 1_000_000 --use-X-not-raw]
 ```
 
 ## Runtimes with SCDL

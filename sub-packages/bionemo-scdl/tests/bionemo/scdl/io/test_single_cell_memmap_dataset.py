@@ -37,7 +37,7 @@ def generate_dataset(tmp_path, test_directory) -> SingleCellMemMapDataset:
     Returns:
         A SingleCellMemMapDataset
     """
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", use_X_not_raw=True)
     ds.save()
     del ds
     reloaded = SingleCellMemMapDataset(tmp_path / "scy")
@@ -112,7 +112,7 @@ def big_int_h5ad(tmp_path, big_h5ad_data):
     """Create and return the path to an h5ad with large values/columns for dtype promotion tests."""
     d = big_h5ad_data
     X = sp.csr_matrix((d["data"].astype(np.uint32), d["indices"], d["indptr"]), shape=(d["n_rows"], d["n_cols"]))
-    a = ad.AnnData(X=X)
+    a = ad.AnnData(X=None, raw={"X": X})
     h5ad_path = tmp_path / "big_dtype.h5ad"
     a.write_h5ad(h5ad_path)
     return h5ad_path
@@ -123,7 +123,7 @@ def big_float_h5ad(tmp_path, big_h5ad_data):
     """Create and return the path to an h5ad with large values/columns for dtype promotion tests."""
     d = big_h5ad_data
     X = sp.csr_matrix((d["data"].astype("float32"), d["indices"], d["indptr"]), shape=(d["n_rows"], d["n_cols"]))
-    a = ad.AnnData(X=X)
+    a = ad.AnnData(X=None, raw={"X": X})
     h5ad_path = tmp_path / "big_dtype.h5ad"
     a.write_h5ad(h5ad_path)
     return h5ad_path
@@ -149,7 +149,27 @@ def test_wrong_arguments_for_dataset(tmp_path):
 
 
 def test_load_h5ad(tmp_path, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", use_X_not_raw=True)
+    assert ds.number_of_rows() == 8
+    assert ds.number_of_variables() == [10]
+    assert len(ds) == 8
+    assert ds.number_of_values() == 80
+    assert ds.number_nonzero_values() == 5
+    assert np.isclose(ds.sparsity(), 0.9375, rtol=1e-6)
+    assert np.array_equal(ds.data, [6.0, 19.0, 12.0, 16.0, 1.0])
+    assert len(ds) == 8
+    assert ds.dtypes["data.npy"] == "float32"
+    assert ds.dtypes["col_ptr.npy"] == "uint8"
+    assert ds.dtypes["row_ptr.npy"] == "uint8"
+
+
+def test_load_h5ad_with_raw(tmp_path, test_directory):
+    # Create a dataset with no X data, but with raw X data
+    adata = ad.read_h5ad(test_directory / "adata_sample0.h5ad")
+    adata_new = ad.AnnData(X=None, raw={"X": adata.X}, var=adata.var, obs=adata.obs)
+    adata_new.write_h5ad(tmp_path / "adata_sample0_raw.h5ad")
+
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=tmp_path / "adata_sample0_raw.h5ad")
     assert ds.number_of_rows() == 8
     assert ds.number_of_variables() == [10]
     assert len(ds) == 8
@@ -220,9 +240,9 @@ def test_SingleCellMemMapDataset_get_row_padded(generate_dataset):
     assert len(generate_dataset.get_row_padded(2)[0]) == 10
 
 
-def test_concat_SingleCellMemMapDatasets_same(tmp_path, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
-    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample0.h5ad")
+def test_concat_SingleCellMemMapDatasets_same(tmp_path, big_int_h5ad):
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=big_int_h5ad)
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=big_int_h5ad)
     dt.concat(ds)
 
     assert dt.number_of_rows() == 2 * ds.number_of_rows()
@@ -230,8 +250,9 @@ def test_concat_SingleCellMemMapDatasets_same(tmp_path, test_directory):
     assert dt.number_nonzero_values() == 2 * ds.number_nonzero_values()
 
 
-def test_concat_SingleCellMemMapDatasets_empty(tmp_path, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
+# TODO: Addtest that raises error
+def test_concat_SingleCellMemMapDatasets_empty(tmp_path, big_float_h5ad):
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=big_float_h5ad)
     exp_rows = np.array(ds.row_index)
     exp_cols = np.array(ds.col_index)
     exp_data = np.array(ds.data)
@@ -243,9 +264,9 @@ def test_concat_SingleCellMemMapDatasets_empty(tmp_path, test_directory):
 
 
 @pytest.mark.parametrize("extend_copy_size", [1, 10 * 1_024 * 1_024])
-def test_concat_SingleCellMemMapDatasets_underlying_memmaps(tmp_path, test_directory, extend_copy_size):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
-    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad")
+def test_concat_SingleCellMemMapDatasets_underlying_memmaps_regular_X(tmp_path, test_directory, extend_copy_size):
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", use_X_not_raw=True)
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad", use_X_not_raw=True)
     exp_rows = np.append(dt.row_index, ds.row_index[1:] + len(dt.col_index))
     exp_cols = np.append(dt.col_index, ds.col_index)
     exp_data = np.append(dt.data, ds.data)
@@ -260,9 +281,29 @@ def test_concat_SingleCellMemMapDatasets_underlying_memmaps(tmp_path, test_direc
     assert dt.dtypes["row_ptr.npy"] == "uint8"
 
 
+@pytest.mark.parametrize("extend_copy_size", [1, 10 * 1_024 * 1_024])
+def test_concat_SingleCellMemMapDatasets_underlying_memmaps_raw_X(
+    tmp_path, big_float_h5ad, big_int_h5ad, extend_copy_size
+):
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=big_float_h5ad)
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=big_int_h5ad)
+    exp_rows = np.append(dt.row_index, ds.row_index[1:] + len(dt.col_index))
+    exp_cols = np.append(dt.col_index, ds.col_index)
+    exp_data = np.append(dt.data, ds.data)
+
+    dt.concat(ds, extend_copy_size)
+    assert (np.array(dt.row_index) == exp_rows).all()
+    assert (np.array(dt.col_index) == exp_cols).all()
+    assert (np.array(dt.data) == exp_data).all()
+    # Dtypes should remain minimal and consistent
+    assert dt.dtypes["data.npy"] == "float32"
+    assert dt.dtypes["col_ptr.npy"] == "uint32"
+    assert dt.dtypes["row_ptr.npy"] == "uint8"
+
+
 def test_concat_SingleCellMemMapDatasets_diff(tmp_path, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
-    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", use_X_not_raw=True)
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad", use_X_not_raw=True)
 
     exp_number_of_rows = ds.number_of_rows() + dt.number_of_rows()
     exp_n_val = ds.number_of_values() + dt.number_of_values()
@@ -278,48 +319,82 @@ def test_concat_SingleCellMemMapDatasets_diff(tmp_path, test_directory):
 
 
 def test_concat_SingleCellMemMapDatasets_multi(tmp_path, compare_fn, test_directory):
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
-    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad")
-    dx = SingleCellMemMapDataset(tmp_path / "sccx", h5ad_path=test_directory / "adata_sample2.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", use_X_not_raw=True)
+    dt = SingleCellMemMapDataset(tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad", use_X_not_raw=True)
+    dx = SingleCellMemMapDataset(
+        tmp_path / "sccx", h5ad_path=test_directory / "adata_sample2.h5ad", use_X_not_raw=True
+    )
     exp_n_obs = ds.number_of_rows() + dt.number_of_rows() + dx.number_of_rows()
     dt.concat(ds)
     dt.concat(dx)
     assert dt.number_of_rows() == exp_n_obs
-    dns = SingleCellMemMapDataset(tmp_path / "scdns", h5ad_path=test_directory / "adata_sample1.h5ad")
+    dns = SingleCellMemMapDataset(
+        tmp_path / "scdns", h5ad_path=test_directory / "adata_sample1.h5ad", use_X_not_raw=True
+    )
     dns.concat([ds, dx])
     compare_fn(dns, dt)
 
 
 def test_lazy_load_SingleCellMemMapDatasets_one_dataset(tmp_path, compare_fn, test_directory):
-    ds_regular = SingleCellMemMapDataset(tmp_path / "sc1", h5ad_path=test_directory / "adata_sample1.h5ad")
+    ds_regular = SingleCellMemMapDataset(
+        tmp_path / "sc1", h5ad_path=test_directory / "adata_sample1.h5ad", use_X_not_raw=True
+    )
     ds_lazy = SingleCellMemMapDataset(
         tmp_path / "sc2",
         h5ad_path=test_directory / "adata_sample1.h5ad",
         paginated_load_cutoff=0,
         load_block_row_size=2,
+        use_X_not_raw=True,
     )
     compare_fn(ds_regular, ds_lazy)
 
 
 def test_lazy_load_SingleCellMemMapDatasets_another_dataset(tmp_path, compare_fn, test_directory):
-    ds_regular = SingleCellMemMapDataset(tmp_path / "sc1", h5ad_path=test_directory / "adata_sample0.h5ad")
+    ds_regular = SingleCellMemMapDataset(
+        tmp_path / "sc1", h5ad_path=test_directory / "adata_sample0.h5ad", use_X_not_raw=True
+    )
     ds_lazy = SingleCellMemMapDataset(
         tmp_path / "sc2",
         h5ad_path=test_directory / "adata_sample0.h5ad",
         paginated_load_cutoff=0,
         load_block_row_size=3,
+        use_X_not_raw=True,
     )
     compare_fn(ds_regular, ds_lazy)
 
 
 def test_lazy_load_SingleCellMemMapDatasets_with_raw(tmp_path, compare_fn, make_h5ad_with_raw):
     h5ad_path = make_h5ad_with_raw(tmp_path)
+
+    # Assert that the anndata file has different data in .raw.X and .X
+    adata = ad.read_h5ad(h5ad_path)
+    # but these are sparse
+    assert not (adata.raw.X != adata.X).nnz == 0
+
     ds_regular = SingleCellMemMapDataset(tmp_path / "regular_load", h5ad_path=h5ad_path)
     ds_lazy = SingleCellMemMapDataset(
         tmp_path / "lazy_load",
         h5ad_path=h5ad_path,
         paginated_load_cutoff=0,
         load_block_row_size=2,
+    )
+    compare_fn(ds_regular, ds_lazy)
+
+
+def test_lazy_load_SingleCellMemMapDatasets_with_raw_load_regular(tmp_path, compare_fn, make_h5ad_with_raw):
+    h5ad_path = make_h5ad_with_raw(tmp_path)
+
+    # Assert that the anndata file has different data in .raw.X and .X
+    adata = ad.read_h5ad(h5ad_path)
+    assert not (adata.raw.X != adata.X).nnz == 0
+
+    ds_regular = SingleCellMemMapDataset(tmp_path / "regular_load", h5ad_path=h5ad_path, use_X_not_raw=True)
+    ds_lazy = SingleCellMemMapDataset(
+        tmp_path / "lazy_load",
+        h5ad_path=h5ad_path,
+        paginated_load_cutoff=0,
+        load_block_row_size=2,
+        use_X_not_raw=True,
     )
     compare_fn(ds_regular, ds_lazy)
 
@@ -430,10 +505,10 @@ def test_load_h5ad_does_not_overflow_on_high_tolerance(tmp_path, test_directory,
 
 def test_concat_SingleCellMemMapDatasets_raises_diff_dtypes(tmp_path, test_directory):
     ds_float = SingleCellMemMapDataset(
-        tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", data_dtype="float32"
+        tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", data_dtype="float32", use_X_not_raw=True
     )
     dt_int = SingleCellMemMapDataset(
-        tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad", data_dtype="uint8"
+        tmp_path / "sct", h5ad_path=test_directory / "adata_sample1.h5ad", data_dtype="uint8", use_X_not_raw=True
     )
     with pytest.raises(ValueError, match="mix of int and float dtypes"):
         ds_float.concat(dt_int)
@@ -444,7 +519,7 @@ def test_concat_SingleCellMemMapDatasets_raises_diff_dtypes(tmp_path, test_direc
 
 def test_cast_data_dtype_updates_dtype_and_preserves_values(tmp_path, test_directory):
     ds = SingleCellMemMapDataset(
-        tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", data_dtype="float32"
+        tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", data_dtype="float32", use_X_not_raw=True
     )
     original = np.array(ds.data, copy=True)
 
@@ -457,7 +532,7 @@ def test_cast_data_dtype_updates_dtype_and_preserves_values(tmp_path, test_direc
 
 def test_cast_data_dtype_downscales_dtype_and_preserves_values(tmp_path, test_directory):
     ds = SingleCellMemMapDataset(
-        tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", data_dtype="float32"
+        tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", data_dtype="float32", use_X_not_raw=True
     )
     original = np.array(ds.data, copy=True)
 
@@ -493,8 +568,11 @@ def test_SingleCellMemMapDataset_obs_features_identical_to_anndata_source(
     tmp_path, create_cellx_val_data, assert_index_state
 ):
     memmap_data = tmp_path / "out"
-    ds = SingleCellMemMapDataset(memmap_data, h5ad_path=create_cellx_val_data / "sidx_40575621_2_0.h5ad")
     adata = ad.read_h5ad(create_cellx_val_data / "sidx_40575621_2_0.h5ad")
+    ds = SingleCellMemMapDataset(
+        memmap_data, h5ad_path=create_cellx_val_data / "sidx_40575621_2_0.h5ad", use_X_not_raw=True
+    )
+
     assert_index_state(ds.obs_features(), length=1, rows=adata.obs.shape[0], col_widths=[adata.obs.shape[1]])
     obs_feats0 = ds.get_row(index=0, return_obs_features=True)[2]
     obs_feats1 = ds.get_row(index=1, return_obs_features=True)[2]
@@ -506,8 +584,25 @@ def test_SingleCellMemMapDataset_var_features_identical_to_anndata_source(
     tmp_path, create_cellx_val_data, assert_index_state
 ):
     memmap_data = tmp_path / "out"
-    ds = SingleCellMemMapDataset(memmap_data, h5ad_path=create_cellx_val_data / "sidx_40575621_2_0.h5ad")
+    ds = SingleCellMemMapDataset(
+        memmap_data, h5ad_path=create_cellx_val_data / "sidx_40575621_2_0.h5ad", use_X_not_raw=True
+    )
     adata = ad.read_h5ad(create_cellx_val_data / "sidx_40575621_2_0.h5ad")
     assert_index_state(ds.var_features(), length=1, rows=adata.shape[0], col_widths=[adata.var.shape[0]])
     var_feats0 = ds.get_row(index=0, return_var_features=True)[1]
     assert np.array_equal(np.stack([adata.var[c].to_numpy() for c in adata.var.columns]), np.stack(var_feats0))
+
+
+def test_SingleCellMemMapDataset_raises_when_trying_to_load_raw_X_without_raw(tmp_path, test_directory):
+    with pytest.raises(
+        ValueError,
+        match="This file does not have raw count data; set use_X_not_raw=True to use normalized counts instead.",
+    ):
+        SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
+
+
+def test_SingleCellMemMapDataset_raises_when_trying_to_access_X_with_empty_X(tmp_path, big_float_h5ad):
+    with pytest.raises(
+        ValueError, match="This file does not have count data; set use_X_not_raw=False to use raw counts instead."
+    ):
+        SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=big_float_h5ad, use_X_not_raw=True)
