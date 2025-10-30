@@ -285,3 +285,7 @@ class SingleCellDataModule(MegatronDataModule):
     @property
     def vocab_size(self):  # noqa: D102
         return self.tokenizer.vocab_size
+
+    @property
+    def seq_length(self) -> int:  # noqa: D102
+        return self.max_len
