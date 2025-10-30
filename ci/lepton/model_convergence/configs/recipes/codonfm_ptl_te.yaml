@@ -22,7 +22,7 @@ branch: jwilber/codon-fm-ci
 # Defines the base Docker image and registry auth needed
 ############################################################
 container:
-  image: nvcr.io/nvidian/cvai_bnmo_trng/codon_fm_te_bnmo_10272025_github2
+  image: nvcr.io/nvidian/cvai_bnmo_trng/codon_fm_te_bnmo_10292025_multinode
   registry_auth: lepton-nvidia-nvcrio-jonathan
 
 ############################################################
@@ -81,6 +81,9 @@ save_checkpoints: false
 save_final_model: false
 resume_from_checkpoint: false
 use_distributed_checkpoint_fsdp2: false
+
+# edit these
+max_steps: 1_000
 
 ############################################################
 # Each product is a different config to run, alongside
@@ -151,6 +154,7 @@ run_script: |
       --train_batch_size $train_batch_size \
       --val_batch_size $val_batch_size \
       --num_workers $num_workers \
+      --max_steps ${max_steps} \
       --bf16 \
       --split_name_prefix nopathogen \
       --attn_input_format thd \
