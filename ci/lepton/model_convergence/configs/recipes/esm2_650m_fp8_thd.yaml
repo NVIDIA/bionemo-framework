@@ -89,8 +89,8 @@ products:
   - wandb_name: "esm2_fp8_650m__thd__baseline${now:%Y%m%d-%H%M%S}__${gitsha:}"
     job_name: "${sanitize:esm2_fp8-650m-thd-baseline}"
     fp8_enabled: false
-    fp8_recipe: null
-    fp8_format: null
+    fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+    fp8_format: "HYBRID"
     fp8_model_init_kwargs_enabled: false
   # TE THD delayed scaling
   - wandb_name: "esm2_fp8_650m__thd__delayed_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
