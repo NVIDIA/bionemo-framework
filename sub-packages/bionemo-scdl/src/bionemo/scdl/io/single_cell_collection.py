@@ -106,12 +106,11 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         True: ragged; scmmap column dimemsions vary
     """
 
-    def __init__(self, data_path: str, use_X_not_raw: bool = False) -> None:
+    def __init__(self, data_path: str) -> None:
         """Instantiate the class.
 
         Args:
             data_path: Where the class will be stored.
-            use_X_not_raw: If True, prefer `adata.X`; otherwise use `adata.raw.X` when loading datasets.
         """
         self.data_path: str = data_path
         self._version: str = importlib.metadata.version("bionemo.scdl")
