@@ -103,8 +103,8 @@ class MyModelTE(PreTrainedModel):
 
 ### Conversion Functions (`convert.py`)
 
-Implement bidirectional conversion between HuggingFace and TransformerEngine state dictionaries. We
-currently use the nemo.lightning.io.apply_transforms function to handle the conversion.
+Implement bidirectional conversion between HuggingFace and TransformerEngine state dictionaries. We use a module adapted
+from the nemo.lightning.io.apply_transforms function to handle the conversion.
 
 ```python
 def convert_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:

@@ -9,20 +9,15 @@ description = "ESM TE Model"
 requires-python = ">=3.8"
 dependencies = [
     "accelerate",
-    "cloudpickle",
     "datasets",
-    "fiddle",
     "hydra-core",
     "jinja2",
-    "lightning",
-    "megatron-core@git+https://github.com/NVIDIA/Megatron-LM.git", # Currently at ToT until mfsdp is in a release.
     "megatron-fsdp",
-    "nemo_toolkit[lightning]",                                     # tested with 2.3.1
     "omegaconf",
     "pytest",
     "torch",
     "transformer_engine[pytorch]",
-    "transformers",                                                # TODO: fix me, currently failing with a modelopt import from nemo.
+    "transformers",
 ]
 
 
