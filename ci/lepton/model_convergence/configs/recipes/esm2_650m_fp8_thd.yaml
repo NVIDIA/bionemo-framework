@@ -59,7 +59,6 @@ config: L1_650M
 num_train_steps: 40_000
 num_warmup_steps: 2_000
 task_cmd: train_fsdp2
-model_tag: facebook/esm2_t33_650M_UR50D
 parallelism_strategy: fsdp2
 micro_batch_size: 48
 thd_enabled: true
@@ -80,62 +79,61 @@ save_final_model: false
 resume_from_checkpoint: false
 use_distributed_checkpoint_fsdp2: false
 
-
 ############################################################
 # Each product is a different config to run, alongside
 # config-specific arguments. Must have a w`andb_name`.
 ############################################################
 
 products:
-  # TE THD baseline (bf16)
+  # TE THD baseline (bf16) running
   - wandb_name: "esm2_fp8_650m__thd__baseline${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2_fp8-650m-thd-baseline"
+    job_name: "${sanitize:esm2_fp8-650m-thd-baseline}"
     fp8_enabled: false
     fp8_recipe: null
-    fp8_model_init_kwargs_enabled: false
     fp8_format: null
+    fp8_model_init_kwargs_enabled: false
   # TE THD delayed scaling
-  # - wandb_name: "esm2_fp8_650m__thd__delayed_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
-  #   job_name: "esm2_fp8-650m-thd-delayed-scaling"
-  #   fp8_enabled: true
-  #   fp8_recipe: DelayedScaling
-  #   fp8_model_init_kwargs_enabled:
-  #   fp8_format: "HYBRID"
-  # # TE THD current scaling
-  # - wandb_name: "esm2_fp8_650m__thd__current_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
-  #   job_name: "esm2_fp8-650m-thd-current-scaling"
-  #   fp8_enabled: true
-  #   fp8_recipe: Float8CurrentScaling
-  #   fp8_model_init_kwargs_enabled: false
-  #   fp8_format: "HYBRID"
-  # # TE THD block scaling
-  # - wandb_name: "esm2_fp8_650m__thd__block_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
-  #   job_name: "esm2_fp8-650m-thd-block-scaling"
-  #   fp8_enabled: true
-  #   fp8_recipe: Float8BlockScaling
-  #   fp8_model_init_kwargs_enabled: false
-  #   fp8_format: "E4M3"
-  # # TE THD delayed scaling (fp8 model init)
-  # - wandb_name: "esm2_fp8_650m__thd__delayed_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
-  #   job_name: "esm2_fp8-650m-thd-delayed-scaling-fp8init"
-  #   fp8_enabled: true
-  #   fp8_recipe: DelayedScaling
-  #   fp8_model_init_kwargs_enabled: true
-  #   fp8_format: "HYBRID"
-  # # TE THD current scaling (fp8 model init)
-  # - wandb_name: "esm2_fp8_650m__thd__current_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
-  #   job_name: "esm2_fp8-650m-thd-current-scaling-fp8init"
-  #   fp8_enabled: true
-  #   fp8_recipe: Float8CurrentScaling
-  #   fp8_model_init_kwargs_enabled: true
-  #   fp8_format: "HYBRID"
-  # # TE THD block scaling (fp8 model init)
-  # - wandb_name: "esm2_fp8_650m__thd__block_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
-  #   job_name: "esm2_fp8-650m-thd-block-scaling-fp8init"
-  #   fp8_enabled: true
-  #   fp8_recipe: Float8BlockScaling
-  #   fp8_model_init_kwargs_enabled: true
-  #   fp8_format: "E4M3"
+  - wandb_name: "esm2_fp8_650m__thd__delayed_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "${sanitize:esm2_fp8-650m-thd-delayed-scaling}"
+    fp8_enabled: true
+    fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+    fp8_format: "HYBRID"
+    fp8_model_init_kwargs_enabled: false
+  # TE THD current scaling
+  - wandb_name: "esm2_fp8_650m__thd__current_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "${sanitize:esm2_fp8-650m-thd-current-scaling}"
+    fp8_enabled: true
+    fp8_recipe: transformer_engine.common.recipe.Float8CurrentScaling
+    fp8_format: "HYBRID"
+    fp8_model_init_kwargs_enabled: false
+  # TE THD block scaling
+  - wandb_name: "esm2_fp8_650m__thd__block_scaling${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "${sanitize:esm2_fp8-650m-thd-block-scaling}"
+    fp8_enabled: true
+    fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+    fp8_format: "E4M3"
+    fp8_model_init_kwargs_enabled: false
+  # TE THD delayed scaling (fp8 model init)
+  - wandb_name: "esm2_fp8_650m__thd__delayed_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "${sanitize:esm2_fp8-650m-thd-delayedscale-init}"
+    fp8_enabled: true
+    fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+    fp8_format: "HYBRID"
+    fp8_model_init_kwargs_enabled: true
+  # TE THD current scaling (fp8 model init)
+  - wandb_name: "esm2_fp8_650m__thd__current_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "${sanitize:esm2_fp8-650m-thd-currentscale-init}"
+    fp8_enabled: true
+    fp8_recipe: transformer_engine.common.recipe.Float8CurrentScaling
+    fp8_format: "HYBRID"
+    fp8_model_init_kwargs_enabled: true
+  # TE THD block scaling (fp8 model init)
+  - wandb_name: "esm2_fp8_650m__thd__block_scaling_fp8_model_init${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "${sanitize:esm2_fp8-650m-thd-blockscale-init}"
+    fp8_enabled: true
+    fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+    fp8_format: "E4M3"
+    fp8_model_init_kwargs_enabled: true
 
 ############################################################
 # run script
@@ -172,5 +170,8 @@ run_script: |
     checkpoint.resume_from_checkpoint=${resume_from_checkpoint} \
     +checkpoint.save_checkpoints=${save_checkpoints} \
     +checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2} \
+    use_torch_compile=${use_torch_compile} \
     fp8_config.enabled=${fp8_enabled} \
-
+    fp8_config.fp8_recipe=${fp8_recipe} \
+    fp8_config.fp8_format=${fp8_format} \
+    fp8_config.fp8_model_init_kwargs.enabled=${fp8_model_init_kwargs_enabled}
