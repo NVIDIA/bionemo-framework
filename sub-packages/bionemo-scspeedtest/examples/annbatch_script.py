@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 
 import anndata as ad
+import scipy.sparse as sp
 import torch
 import zarr
 from annbatch import ZarrSparseDataset, create_anndata_collection
@@ -33,11 +34,9 @@ from bionemo.scspeedtest import benchmark_dataloaders_with_configs
 # TODO: How big is the data? Presumably if it is not big enough to fit in memory, we would want O_DIRECT reading to be on.
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline", "io_direct": True})
 
-# TODO: Should annbatch export this? Probably. We wanted to stay torch-agnostic, but DataLoader does help the `chunk_size=1` case. On the other hand, the number of cases here is kind of dizzying.
-# TODO: Is this being run on a GPU? If not, does using scipy make sense from dlpack?
-# TODO: Does cupy keep the buffer in pinned memory on the roundtrip?
-def def_collate_annbatch(tensor_list: list[torch.Tensor]) -> torch.Tensor:
-    """Custom function for collating tensors. annbatch doesn't export at the moment, but probably should."""
+# TODO: Should annbatch export this? Probably.
+def collate_annbatch(data_to_collate: list[tuple[sp.csr_matrix, ...]]) -> torch.Tensor:
+    """Collation of anndata tensors from torch."""
     if torch.cuda.is_available():
         import cupy as np
         import cupyx.scipy.sparse as sp
@@ -48,14 +47,14 @@ def def_collate_annbatch(tensor_list: list[torch.Tensor]) -> torch.Tensor:
     sparse_mat_not_torch = sp.vstack(
         [
             sp.csr_matrix(
-                (np.from_dlpack(v[0].crow_indices), np.from_dlpack(v[0].col_indices), np.from_dlpack(v[0].values)),
+                (np.array(v[0].data), np.array(v[0].indices), np.array(v[0].indptr)),
                 shape=v[0].shape,
             )
-            for v in tensor_list
+            for v in data_to_collate
         ],
         format="csr",
     )
-    return to_torch(sparse_mat_not_torch).to_dense()
+    return to_torch(sparse_mat_not_torch, preload_to_gpu=torch.cuda.is_available())
 
 def create_dataset_factory(adata_path: Path | str) -> ad.AnnData:
     """Generate an `anndata.AnnData` object for use in `annbatch` i.e., zarr v3 on disk, loaded using `anndata.io.sparse_dataset`."""
@@ -69,7 +68,7 @@ def create_dataset_factory(adata_path: Path | str) -> ad.AnnData:
             import dask.array as da
             adata.uns = { k: v.compute() if isinstance(v, da.Array) else v for k, v in adata.uns.items() }
             return adata
-        create_anndata_collection([adata_path], output_zarr_collection, load_adata=load_adata)
+        create_anndata_collection([adata_path], output_zarr_collection, zarr_sparse_chunk_size=32768//2, load_adata=load_adata, zarr_compressor=None)
         # TODO: Does X always contain the genes of interest? Layers? Raw?
         return [ad.AnnData(X=ad.io.sparse_dataset(zarr.open(p)["X"])) for p in output_zarr_collection.iterdir()]
     return dataset_factory
@@ -81,15 +80,16 @@ def to_annbatch(adatas: list[ad.AnnData], *, batch_size: int = 64, shuffle: bool
             batch_size=batch_size // num_workers,
             chunk_size=block_size,
             preload_nchunks=((fetch_factor * batch_size) // block_size),
-            preload_to_gpu=torch.cuda.is_available(),
+            preload_to_gpu=False,
             shuffle=shuffle,
+            to_torch=False
         ).add_anndatas(adatas)
         loader = DataLoader(
             ds,
             batch_size=num_workers,
             num_workers=num_workers,
             multiprocessing_context="spawn",
-            collate_fn=def_collate_annbatch
+            collate_fn=collate_annbatch
         )
         return loader
     ds = ZarrSparseDataset(
@@ -175,7 +175,7 @@ def comprehensive_benchmarking_example(
                     "dataloader_factory": create_annbatch_from_preloaded_anndata_factory(
                         batch_size=64,
                         shuffle=True,
-                        num_workers=0,
+                        num_workers=4, # TODO: why 0? the other scripts seem to have this hardcoded though
                         block_size=block_size,
                         fetch_factor=fetch_factor,
                     ),

@@ -20,8 +20,11 @@ dependencies = [
     "scdataset",
     "anndata>=0.11.0",
     "bionemo-scdl>=0.0.7",
-    "annbatch[zarrs,cupy-cuda13]@git+https://github.com/scverse/annbatch.git"
+    "annbatch[zarrs]==0.0.1"
 ]
+[project.optional-dependencies]
+cupy-cuda13 = [ "annbatch[cupy-cuda13]" ]
+
 
 [tool.setuptools.packages.find]
 where = ["src"]
