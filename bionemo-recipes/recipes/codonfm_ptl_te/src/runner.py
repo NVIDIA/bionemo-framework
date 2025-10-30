@@ -44,12 +44,20 @@ def get_parser():  # noqa: D103
     parser.add_argument("--dryrun", action="store_true", default=False)
     parser.add_argument("--project_name", type=str, default=None, help="Weights & Biases project name.")
     parser.add_argument("--entity", type=str, default=None, help="Weights & Biases entity.")
-    parser.add_argument("--enable_wandb", action="store_true", default=False, help="Enable Weights & Biases logging.")
+    parser.add_argument(
+        "--enable_wandb",
+        action="store_true",
+        default=False,
+        help="Enable Weights & Biases logging.",
+    )
 
     # Container-like path overrides
     parser.add_argument("--out_dir", type=str, default="results/", help="Base output directory.")
     parser.add_argument(
-        "--checkpoints_dir", type=str, default=None, help="Checkpoints directory. Defaults to <out_dir>/checkpoints."
+        "--checkpoints_dir",
+        type=str,
+        default=None,
+        help="Checkpoints directory. Defaults to <out_dir>/checkpoints.",
     )
     parser.add_argument(
         "--pretrained_ckpt_path",
@@ -64,7 +72,12 @@ def get_parser():  # noqa: D103
         "--process_item",
         type=str,
         required=True,
-        choices=["mlm_memmap", "mutation_pred_mlm", "mutation_pred_likelihood", "codon_sequence"],
+        choices=[
+            "mlm_memmap",
+            "mutation_pred_mlm",
+            "mutation_pred_likelihood",
+            "codon_sequence",
+        ],
     )
     parser.add_argument(
         "--dataset_name",
@@ -93,7 +106,13 @@ def get_parser():  # noqa: D103
         "--model_name",
         type=str,
         required=True,
-        choices=["encodon_80m", "encodon_600m", "encodon_1b", "encodon_5b", "encodon_10b"],
+        choices=[
+            "encodon_80m",
+            "encodon_600m",
+            "encodon_1b",
+            "encodon_5b",
+            "encodon_10b",
+        ],
     )
     parser.add_argument("--lr", type=float, default=None)
     parser.add_argument("--weight_decay", type=float, default=0.01)
@@ -105,7 +124,11 @@ def get_parser():  # noqa: D103
     parser.add_argument("--warmup_iterations", type=int, default=10_000)
     parser.add_argument("--use_transformer_engine", action="store_true", default=False)
     parser.add_argument(
-        "--attn_input_format", type=str, default="bshd", choices=["bshd", "thd"], help="Attention input format."
+        "--attn_input_format",
+        type=str,
+        default="bshd",
+        choices=["bshd", "thd"],
+        help="Attention input format.",
     )
 
     # Pretrain specific
@@ -128,7 +151,10 @@ def get_parser():  # noqa: D103
 
     # Finetune specific
     parser.add_argument(
-        "--checkpoint_path", type=str, default=None, help="Path to checkpoint for finetuning or evaluation."
+        "--checkpoint_path",
+        type=str,
+        default=None,
+        help="Path to checkpoint for finetuning or evaluation.",
     )
     parser.add_argument("--loss_type", choices=["regression", "classification"], default="regression")
     parser.add_argument("--label_col", type=str, default=None)
@@ -142,11 +168,21 @@ def get_parser():  # noqa: D103
         choices=["lora", "head_only_random", "head_only_pretrained", "full"],
         help="Finetuning strategy.",
     )
-    parser.add_argument("--lora", action="store_true", default=False, help="Whether to use LoRA for finetuning.")
+    parser.add_argument(
+        "--lora",
+        action="store_true",
+        default=False,
+        help="Whether to use LoRA for finetuning.",
+    )
     parser.add_argument("--lora_alpha", type=float, default=32.0)
     parser.add_argument("--lora_r", type=int, default=16)
     parser.add_argument("--lora_dropout", type=float, default=0.1)
-    parser.add_argument("--num_classes", type=int, default=2, help="Number of classes for classification tasks.")
+    parser.add_argument(
+        "--num_classes",
+        type=int,
+        default=2,
+        help="Number of classes for classification tasks.",
+    )
     parser.add_argument(
         "--use_downstream_head",
         action="store_true",
@@ -154,10 +190,16 @@ def get_parser():  # noqa: D103
         help="Whether to use downstream cross-attention head.",
     )
     parser.add_argument(
-        "--cross_attention_hidden_dim", type=int, default=512, help="Hidden dimension for cross attention."
+        "--cross_attention_hidden_dim",
+        type=int,
+        default=512,
+        help="Hidden dimension for cross attention.",
     )
     parser.add_argument(
-        "--cross_attention_num_heads", type=int, default=8, help="Number of heads for cross attention."
+        "--cross_attention_num_heads",
+        type=int,
+        default=8,
+        help="Number of heads for cross attention.",
     )
 
     # Common trainer flags
@@ -183,7 +225,6 @@ def get_parser():  # noqa: D103
 
 
 def main():  # noqa: C901, D103
-    print("hey jared/jonathan and bruce, this is a test")
     parser = get_parser()
     args = parser.parse_args()
     if args.mode in ["eval"] and not args.checkpoint_path:
