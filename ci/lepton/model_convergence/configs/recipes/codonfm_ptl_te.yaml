@@ -83,7 +83,8 @@ resume_from_checkpoint: false
 use_distributed_checkpoint_fsdp2: false
 
 # edit these
-max_steps: 1_000
+max_steps: 200
+out_dir: "wandb"
 
 ############################################################
 # Each product is a different config to run, alongside
@@ -163,4 +164,5 @@ run_script: |
       --entity clara-discovery \
       --gradient_accumulation_steps $gradient_accumulation_steps \
       --use_transformer_engine \
-      --enable_wandb
+      --enable_wandb \
+      --out_dir ${out_dir}
