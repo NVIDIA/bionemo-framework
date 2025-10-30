@@ -46,6 +46,16 @@
   description: >
     A 7b parameter evo2 model used in testing, torch_dist format. Converted from hf://arcinstitute/savanna_evo2_7b.
 
+- tag: 40b-1m-fp8-bf16:1.0
+  ngc: nvidia/clara/evo2-40b-1m-fp8-bf16-nemo2:1.0
+  ngc_registry: model
+  pbss: "s3://bionemo-ci/models/evo2_40b_bf16_finetune_wandb_Ji2IRcrz_step_119.tar.gz"
+  sha256: 544b47e033d1fb0261b686a53f7c4fe240cd290253187d31e8c99dea9e35a680 # pragma: allowlist secret
+  owner: John St John <jstjohn@nvidia.com>
+  description: >
+    A 40b parameter evo2 model that was fine-tuned from hf://arcinstitute/savanna_evo2_40b to add support for fp8
+    and bf16 precision on Hopper/Blackwell/Ampere GPUs. The original evo2 40b model only supported fp8 precision on
+    Hopper.
 
 - tag: 7b-8k-nofp8-te-goldvalue-testdata:1.0
   ngc: nvidia/clara/evo2-7b-8k-nofp8-te-goldvalue-testdata:1.0
