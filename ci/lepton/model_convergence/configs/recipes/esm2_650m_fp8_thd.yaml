@@ -43,9 +43,9 @@ extras: [] # e.g. [thd]
 total_gpus: ${multiply:${num_devices},${num_nodes}}
 
 wandb_init_args:
-  project: "test_convergence__recipes__${sanitize:${branch}}"
-  group: "${model_type}__${task_cmd}__${total_gpus}gpus__${sanitize:${gpu_type}}"
-  job_type: "${recipe_subdir}"
+  project: "recipes_fp8_${sanitize:${branch}}"
+  group: "esm2_650m"
+  job_type: "thd"
   name: null
 
 ############################################################
