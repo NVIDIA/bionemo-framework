@@ -82,7 +82,7 @@ def test_gene_not_in_tok_vocab(tmp_path, test_directory_feat_ids):
     adata.var["feature_id"] = synthetic_ids
     adata.write(sc_h5ad_dataset_path0)
     SingleCellMemMapDataset(
-        str(sc_memmap_dataset_path0), h5ad_path=str(sc_h5ad_dataset_path0)
+        str(sc_memmap_dataset_path0), h5ad_path=str(sc_h5ad_dataset_path0), use_X_not_raw=True
     )  # create the memmap dataset format from h5ad for testing purposes
     preprocessor = GeneformerPreprocess(
         download_directory=str(sc_memmap_dataset_path0),
