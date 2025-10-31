@@ -234,6 +234,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel, LlamaModel):
         # Important: Compute RoPE in FP32 to avoid precision issues (see PR #1221)
         with torch.amp.autocast(device_type='cuda', enabled=False):
             self.te_rope_emb = self.decoder_rotary_emb(max_seq_len=config.max_position_embeddings).cuda()
+            
         self._cached_max_seq_len = config.max_position_embeddings
 
         # For the rotary_emb we just do a NoOp since we don't use its outputs.

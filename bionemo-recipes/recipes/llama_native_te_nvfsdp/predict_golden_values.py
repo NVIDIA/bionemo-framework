@@ -35,6 +35,7 @@ from tqdm import tqdm
 # Import your model
 from model import NVLlamaForCausalLM
 
+
 # Import tokenizer - try HF tokenizer first, fall back to custom
 try:
     from transformers import AutoTokenizer
@@ -263,7 +264,7 @@ def generate_golden_values(
         loss_mask = batch['loss_mask'].to(device)  # [batch_size, seq_len]
         
         # Forward pass
-        outputs = model(input_ids=tokens)
+        outputs = model(input_ids=tokens, attention_mask=None)
         logits = outputs.logits  # [batch_size, seq_len, vocab_size]
         
         # Apply log_softmax to get log probabilities
@@ -453,6 +454,11 @@ def main():
     
     # Load model
     logger.info(f"Loading model from {args.checkpoint}...")
+    import transformer_engine.pytorch.module._common as te_common
+    te_common.noop_cat = lambda tensors, dim=0: torch.cat(tensors, dim=dim).contiguous()
+    # # Also patch the layernorm_linear module's reference if it imported it
+    from transformer_engine.pytorch.module import layernorm_linear
+    layernorm_linear.noop_cat = lambda tensors, dim=0: torch.cat(tensors, dim=dim).contiguous()
     model = NVLlamaForCausalLM.from_pretrained(
         args.checkpoint,
         torch_dtype=torch_dtype,

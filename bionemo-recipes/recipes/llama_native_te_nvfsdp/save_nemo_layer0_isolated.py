@@ -20,9 +20,10 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 torch.cuda.empty_cache()
 
 # Paths
+# nemo_ckpt = "/workspaces/bionemo-framework/checkpoints/nemo_checkpoint"
 nemo_ckpt = "/workspaces/bionemo-framework/checkpoints/bcr_eden_checkpoint"
 hardcoded_input = "/workspaces/bionemo-framework/bionemo-recipes/recipes/llama_native_te_nvfsdp/hardcoded_input.pt"
-out_dir = Path("/workspaces/bionemo-framework/bionemo-recipes/recipes/llama_native_te_nvfsdp/layer0_nemo_isolated_outputs")
+out_dir = Path("/workspaces/bionemo-framework/bionemo-recipes/recipes/llama_native_te_nvfsdp/layer0_nemo_isolated_outputs_nemo_checkpoint")
 out_dir.mkdir(parents=True, exist_ok=True)
 
 print("=" * 80)
@@ -187,7 +188,35 @@ with torch.no_grad():
     # NeMo TransformerLayer signature: forward(hidden_states, attention_mask=None, rotary_pos_emb, ...)
     # TE will create causal mask internally with self_attn_mask_type='causal' (default)
     # Note: position_ids are NOT passed to individual layers, RoPE is computed internally
-    layer0_output = layer0(embeddings, attention_mask=None)
+    # layer0_output = layer0(embeddings, attention_mask=None)
+    # Step 2: Compute RoPE embeddings (CRITICAL - this was missing!)
+    # Access the model's rotary embedding module
+    if hasattr(megatron_model, 'rotary_pos_emb'):
+        rotary_pos_emb_module = megatron_model.rotary_pos_emb
+        print(f"\nComputing RoPE embeddings...")
+        print(f"  RoPE module type: {type(rotary_pos_emb_module).__name__}")
+        
+        # Compute rotary embeddings for the sequence length
+        rotary_seq_len = seq_len
+        rotary_pos_emb = rotary_pos_emb_module(rotary_seq_len)
+        
+        print(f"  rotary_pos_emb computed: {type(rotary_pos_emb)}")
+        if isinstance(rotary_pos_emb, tuple):
+            print(f"  rotary_pos_emb[0] shape: {rotary_pos_emb[0].shape}")
+            print(f"  rotary_pos_emb[1] shape: {rotary_pos_emb[1].shape}")
+        else:
+            print(f"  rotary_pos_emb shape: {rotary_pos_emb.shape}")
+    else:
+        print("WARNING: No rotary_pos_emb module found!")
+        rotary_pos_emb = None
+    
+    # Step 3: Run through layer 0 WITH RoPE
+    print(f"\nRunning layer 0 with RoPE...")
+    layer0_output = layer0(
+        embeddings, 
+        attention_mask=None,
+        rotary_pos_emb=rotary_pos_emb  # <-- ADD THIS!
+    )
     
     # Handle tuple output
     if isinstance(layer0_output, tuple):

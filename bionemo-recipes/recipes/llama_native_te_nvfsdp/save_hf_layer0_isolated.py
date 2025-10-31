@@ -44,7 +44,12 @@ print("LOADING HF MODEL")
 print("-"*80)
 
 from model import NVLlamaForCausalLM
-
+breakpoint()
+import transformer_engine.pytorch.module._common as te_common
+te_common.noop_cat = lambda tensors, dim=0: torch.cat(tensors, dim=dim).contiguous()
+# # Also patch the layernorm_linear module's reference if it imported it
+from transformer_engine.pytorch.module import layernorm_linear
+layernorm_linear.noop_cat = lambda tensors, dim=0: torch.cat(tensors, dim=dim).contiguous()
 model = NVLlamaForCausalLM.from_pretrained(
     hf_ckpt,
     torch_dtype=torch.bfloat16,
@@ -141,17 +146,17 @@ with torch.no_grad():
     # Step 1: Generate embeddings
     # HF format: model.model.embed_tokens(tokens) -> [batch, seq, hidden]
     embeddings = model.model.embed_tokens(tokens_gpu)
-    print(f"Embeddings shape: {embeddings.shape}, dtype: {embeddings.dtype}")
+    # print(f"Embeddings shape: {embeddings.shape}, dtype: {embeddings.dtype}")
     
-    # Save embeddings for comparison
-    torch.save(embeddings.detach().cpu(), out_dir / "embeddings.pt")
-    print(f"Saved embeddings")
+    # # Save embeddings for comparison
+    # torch.save(embeddings.detach().cpu(), out_dir / "embeddings.pt")
+    # print(f"Saved embeddings")
     
-    # WORKAROUND: TE bug - flash attention outputs zeros if hooks registered before first run
-    # This only affects HF/NVLlama model in script execution (NeMo doesn't have this issue)
-    # Solution: Run layer0 once to initialize TE, then register hooks for actual capture
-    print("\n[Workaround] Initializing TE by running layer0 once...")
-    _ = layer0(embeddings, attention_mask=None)
+    # # WORKAROUND: TE bug - flash attention outputs zeros if hooks registered before first run
+    # # This only affects HF/NVLlama model in script execution (NeMo doesn't have this issue)
+    # # Solution: Run layer0 once to initialize TE, then register hooks for actual capture
+    # print("\n[Workaround] Initializing TE by running layer0 once...")
+    # _ = layer0(embeddings, attention_mask=None)
     
     # NOW register hooks for the actual capture run
     print("[Workaround] Registering hooks for capture...")
@@ -168,6 +173,7 @@ with torch.no_grad():
     # NVLlamaDecoderLayer signature: forward(hidden_states, attention_mask=None)
     # TE will create causal mask internally with self_attn_mask_type='causal' (default)
     layer0_output = layer0(embeddings, attention_mask=None)
+   
     
     # Handle tuple output
     if isinstance(layer0_output, tuple):
