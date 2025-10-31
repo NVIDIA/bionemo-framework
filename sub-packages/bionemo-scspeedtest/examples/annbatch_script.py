@@ -18,12 +18,14 @@
 
 import argparse
 from datetime import datetime
+import os
 from pathlib import Path
 
 import anndata as ad
 import scipy.sparse as sp
 import torch
 import zarr
+import psutil
 from annbatch import ZarrSparseDataset, create_anndata_collection
 from torch.utils.data import DataLoader
 
@@ -31,32 +33,9 @@ from bionemo.scspeedtest import benchmark_dataloaders_with_configs
 
 
 # TODO: Should num_workers control threading? If scdataset were to wrap zarr, it would still be multithreaded under the processes, so my inclination is "no".
-# TODO: How big is the data? Presumably if it is not big enough to fit in memory, we would want O_DIRECT reading to be on.
-zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline", "io_direct": True})
+zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 
-# TODO: Should annbatch export this? Probably.
-def collate_annbatch(data_to_collate: list[tuple[sp.csr_matrix, ...]]) -> torch.Tensor:
-    """Collation of anndata tensors from torch."""
-    if torch.cuda.is_available():
-        import cupy as np
-        import cupyx.scipy.sparse as sp
-    else:
-        import numpy as np
-        import scipy.sparse as sp
-    from annbatch.utils import to_torch
-    sparse_mat_not_torch = sp.vstack(
-        [
-            sp.csr_matrix(
-                (np.array(v[0].data), np.array(v[0].indices), np.array(v[0].indptr)),
-                shape=v[0].shape,
-            )
-            for v in data_to_collate
-        ],
-        format="csr",
-    )
-    return to_torch(sparse_mat_not_torch, preload_to_gpu=torch.cuda.is_available())
-
-def create_dataset_factory(adata_path: Path | str) -> ad.AnnData:
+def create_dataset_factory(adata_path: Path | str, num_workers: int) -> ad.AnnData:
     """Generate an `anndata.AnnData` object for use in `annbatch` i.e., zarr v3 on disk, loaded using `anndata.io.sparse_dataset`."""
     def dataset_factory():
         # TODO: Where to dump this data?
@@ -69,29 +48,38 @@ def create_dataset_factory(adata_path: Path | str) -> ad.AnnData:
             adata.uns = { k: v.compute() if isinstance(v, da.Array) else v for k, v in adata.uns.items() }
             return adata
         create_anndata_collection([adata_path], output_zarr_collection, zarr_sparse_chunk_size=32768//2, load_adata=load_adata, zarr_compressor=None)
+        # Allocate each worker an even number of threads plus a little
+        # TODO: How big is the data? Presumably if it is not big enough to fit in memory, we would want O_DIRECT reading to be on.
+        # TODO: There are probably faster ways to get a directory size? If you're using this data loader, presumably your data doesn't fit in memory?
         # TODO: Does X always contain the genes of interest? Layers? Raw?
-        return [ad.AnnData(X=ad.io.sparse_dataset(zarr.open(p)["X"])) for p in output_zarr_collection.iterdir()]
+        use_direct_io = psutil.virtual_memory().total < sum(f.stat().st_size for f in output_zarr_collection.glob("**/*") if f.is_file())
+        with zarr.config.set(
+            {
+                "threading.max_workers": (os.cpu_count() // max(num_workers, 1)) + 1,
+                "codec_pipeline.direct_io": use_direct_io,
+            }
+        ):
+            return [ad.AnnData(X=ad.io.sparse_dataset(zarr.open(p)["X"])) for p in output_zarr_collection.iterdir()]
     return dataset_factory
 
 def to_annbatch(adatas: list[ad.AnnData], *, batch_size: int = 64, shuffle: bool = True, block_size: int = 1, fetch_factor: int = 2, num_workers: int = 0) -> ZarrSparseDataset:
     """Generate an `annbatch.ZarrSparseDataset` based on configuration and a list of input `anndata.AnnData` objects backed by zarr v3 on disk."""
-    if block_size == 1 and num_workers > 1:
+    if num_workers > 0:
         ds = ZarrSparseDataset(
-            batch_size=batch_size // num_workers,
+            batch_size=batch_size,
             chunk_size=block_size,
             preload_nchunks=((fetch_factor * batch_size) // block_size),
             preload_to_gpu=False,
             shuffle=shuffle,
-            to_torch=False
+            to_torch=True
         ).add_anndatas(adatas)
         loader = DataLoader(
             ds,
-            batch_size=num_workers,
+            batch_size=None,
             num_workers=num_workers,
             multiprocessing_context="spawn",
-            collate_fn=collate_annbatch
         )
-        return loader
+        return (v[0] for v in iter(loader))
     ds = ZarrSparseDataset(
         batch_size=batch_size,
         chunk_size=block_size,
@@ -114,7 +102,7 @@ def create_annbatch_factory(
     """Factory creator for on-disk zarr v3 sharded anndata file __and__ a `annbatch.ZarrSparseDataset` based on configuration in the arguments to this function as well as that on-disk."""
 
     def factory():
-        adatas = create_dataset_factory(adata_path)()
+        adatas = create_dataset_factory(adata_path, num_workers)()
         return to_annbatch(
             adatas,
             batch_size=batch_size,
@@ -166,6 +154,7 @@ def comprehensive_benchmarking_example(
     print(f"Benchmarking {num_runs} run(s) each")
     print()
     print("Running annbatch...")
+    num_workers = 0  # TODO: why 0? the other scripts seem to have this hardcoded though
     annbatch_configurations = []
     for fetch_factor in fetch_factors:
         for block_size in block_sizes:
@@ -175,7 +164,7 @@ def comprehensive_benchmarking_example(
                     "dataloader_factory": create_annbatch_from_preloaded_anndata_factory(
                         batch_size=64,
                         shuffle=True,
-                        num_workers=4, # TODO: why 0? the other scripts seem to have this hardcoded though
+                        num_workers=num_workers,
                         block_size=block_size,
                         fetch_factor=fetch_factor,
                     ),
@@ -189,7 +178,7 @@ def comprehensive_benchmarking_example(
 
     benchmark_dataloaders_with_configs(
         dataloader_configs=annbatch_configurations,
-        shared_dataset_factory=create_dataset_factory(adata_path),
+        shared_dataset_factory=create_dataset_factory(adata_path, num_workers),
         output_prefix=f"annbatch_benchmark_{timestamp}",
     )
 
