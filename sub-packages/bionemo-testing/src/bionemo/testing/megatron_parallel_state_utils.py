@@ -106,9 +106,6 @@ def clean_parallel_state_context():
     try:
         clean_up_distributed_and_parallel_states()
         yield
-    except Exception as e:
-        # TODO (@skothenhill) verify this is a problem and that this is a solution. Had issues with keyboard interrupts being ignored inside context manager.
-        raise Exception from e
     finally:
         clean_up_distributed_and_parallel_states()
 
