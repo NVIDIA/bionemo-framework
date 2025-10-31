@@ -59,11 +59,10 @@ from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_log
 
 torch._dynamo.config.suppress_errors = True
 
-# Force first batch to run with CUDA_LAUNCH_BLOCKING enabled to avoid first-pass
-# asynchronous races in lower-level libraries. This is unset after batch 0.
+# Force first batch to run with CUDA_LAUNCH_BLOCKING enabled to avoid CUDA asynchronous initialization
+# race condition in TE LayerNormLinear. This is unset after the first batch.
+# See https://github.com/NVIDIA/bionemo-framework/issues/1301 for more details.
 os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
-
-# Remove previous TE monkeypatching (not needed with first-batch blocking)
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
@@ -853,7 +852,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         TEVCallback(),
     ]
 
-    # First batch CUDA sync callback: adds barriers only for the very first training batch
+    # First batch CUDA sync callback: adds barriers for the first training batch to avoid race condition
+    # See https://github.com/NVIDIA/bionemo-framework/issues/1301 for more details.
     class _FirstBatchCudaSync(Callback):
         def __init__(self):
             self._done = False
