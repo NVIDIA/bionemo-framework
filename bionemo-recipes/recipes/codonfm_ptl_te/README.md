@@ -205,6 +205,31 @@ Optional path overrides:
   --pretrained_ckpt_path <path>
 ```
 
+For multi-node execution please consider using `torchrun`.
+
+```bash
+export NUM_GPUS=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader | wc -l)
+torchrun \
+    --nnodes=$NNODES \
+    --nproc_per_node=$NUM_GPUS \
+    --node_rank=$NODE_RANK \
+    --master_addr=$MASTER_ADDR \
+    --master_port=$MASTER_PORT \
+  -m src.runner pretrain \
+    --out_dir <output_dir> \
+    --exp_name <experiment_name> \
+    --model_name <model_size> \
+    --data_path <path_to_data> \
+    --process_item mlm_memmap \
+    --dataset_name CodonMemmapDataset \
+    --lr <learning_rate> \
+    --num_gpus $NUM_GPUS \
+    --num_nodes $NNODES \
+    --collate_fn <thd/bshd> \
+    --attn_input_format <thd/bshd> \
+    [--use_transformer_engine]
+```
+
 **Available `--process_item` options:**
 
 - `mlm_memmap`: Constructs MLM training examples using memory-mapped data input format.
@@ -226,7 +251,7 @@ The publicly available checkpoints can be finetuned using the finetuning options
 
 See example script at `experiment_scripts/pretraining/encodon_filtered/finetuning/`
 
-- `lora`: Fine-tunes low-rank adapters within a pretrained model added to each transformer layer to reduce training cost and memory usage. Currently this does not work with TE and we are working to fix this.
+- `lora`: Fine-tunes low-rank adapters within a pretrained model added to each transformer layer to reduce training cost and memory usage.
 - `head_only_random`: Trains a randomly initialized output head while the remainder of the model is kept frozen.
 - `head_only_pretrained`: Trains a pretrained output head while the remainder of the model is kept frozen.
 - `full`: Fine-tunes all parameters of the model end-to-end
@@ -276,7 +301,6 @@ python -m src.runner eval \
 ### Checkpoint conversion between PyTorch and TE
 
 [codonfm_ckpt_te_conversion.py](codonfm_ckpt_te_conversion.py) will convert PyTorch-native Encodon checkpoint TE and back, see [Pre-trained Models](#pre-trained-models).
-Since PEFT LoRA is only supported for PyTorch models right now, please use the checkpoint conversion script to convert TE checkpoint to PyTorch if you want to do finetuning with LoRA.
 
 ## Using Weights and Biases with CodonFM
 

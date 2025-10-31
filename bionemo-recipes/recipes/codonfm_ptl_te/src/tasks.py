@@ -37,8 +37,7 @@ def train(config: Dict[str, Any], ckpt_path: str, seed: int, config_dict: Dict[s
     """
     seed_everything(seed, workers=True)
 
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
 
     logger, data, trainer_kwargs, model, callbacks = (
         config["log"],
@@ -84,8 +83,7 @@ def finetune(  # noqa: D417
     """
     seed_everything(seed, workers=True)
 
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
 
     logger, data, trainer_kwargs, model, callbacks = (
         config["log"],
@@ -98,7 +96,6 @@ def finetune(  # noqa: D417
 
     if logger and hasattr(logger, "log_hyperparams"):
         logger.log_hyperparams(config_dict)
-
     if os.path.exists(pretrained_ckpt_path) and not os.path.exists(ckpt_path):
         state_dict = load_checkpoint(pretrained_ckpt_path, map_location="cpu")
         model.configure_model(state_dict=state_dict.get("state_dict"))
@@ -137,8 +134,7 @@ def evaluate(  # noqa: D417
     Note: Evaluation must be run in a single run as resuming the trainer state is not supported for prediction.
     """
     seed_everything(seed, workers=True)
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
+    os.makedirs(out_dir, exist_ok=True)
 
     logger, data, trainer_kwargs, model, callbacks = (
         config["log"],
