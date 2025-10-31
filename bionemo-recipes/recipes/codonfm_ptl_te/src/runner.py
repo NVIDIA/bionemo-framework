@@ -272,8 +272,6 @@ def main():  # noqa: C901, D103
     elif args.mode == "finetune":
         if args.attn_input_format == "thd" or args.collate_fn == "thd":
             raise ValueError("THD format is not supported for finetuning")
-        if args.use_transformer_engine and args.finetune_strategy == "lora":
-            raise ValueError("Transformer engine support is not available yet for lora finetuning strategy")
         ckpt_path = os.path.join(checkpoints_dir, "last.ckpt")
         cfg_dict["ckpt_path"] = ckpt_path
         cfg_dict["pretrained_ckpt_path"] = args.checkpoint_path

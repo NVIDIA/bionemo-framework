@@ -96,7 +96,6 @@ def finetune(  # noqa: D417
 
     if logger and hasattr(logger, "log_hyperparams"):
         logger.log_hyperparams(config_dict)
-
     if os.path.exists(pretrained_ckpt_path) and not os.path.exists(ckpt_path):
         state_dict = load_checkpoint(pretrained_ckpt_path, map_location="cpu")
         model.configure_model(state_dict=state_dict.get("state_dict"))

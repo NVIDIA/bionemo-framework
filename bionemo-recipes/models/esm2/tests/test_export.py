@@ -13,40 +13,62 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
+from transformers import AutoModel, AutoModelForMaskedLM, AutoModelForTokenClassification, AutoTokenizer
 
-def test_export_hf_checkpoint(tmp_path):
-    from transformers import AutoModel, AutoModelForMaskedLM, AutoTokenizer
+from esm.export import export_hf_checkpoint
 
-    from esm.export import export_hf_checkpoint
 
+@pytest.fixture
+def exported_8m_checkpoint(tmp_path):
     export_hf_checkpoint("esm2_t6_8M_UR50D", tmp_path)
+    return tmp_path / "esm2_t6_8M_UR50D"
 
-    model_for_masked_lm, loading_info = AutoModelForMaskedLM.from_pretrained(
-        tmp_path / "esm2_t6_8M_UR50D", trust_remote_code=True, output_loading_info=True
+
+def test_auto_model_loading(exported_8m_checkpoint):
+    model, loading_info = AutoModel.from_pretrained(
+        exported_8m_checkpoint, trust_remote_code=True, output_loading_info=True
     )
+    assert type(model).__name__.endswith("NVEsmModel")
+    assert not loading_info["mismatched_keys"]
+    assert not loading_info["error_msgs"]
 
+
+def test_auto_model_for_masked_lm_loading(exported_8m_checkpoint):
+    model_for_masked_lm, loading_info = AutoModelForMaskedLM.from_pretrained(
+        exported_8m_checkpoint, trust_remote_code=True, output_loading_info=True
+    )
+    assert type(model_for_masked_lm).__name__.endswith("NVEsmForMaskedLM")
     assert not loading_info["missing_keys"]
     assert not loading_info["unexpected_keys"]
     assert not loading_info["mismatched_keys"]
     assert not loading_info["error_msgs"]
 
-    model, loading_info = AutoModel.from_pretrained(
-        tmp_path / "esm2_t6_8M_UR50D", trust_remote_code=True, output_loading_info=True
-    )
 
+def test_auto_model_for_token_classification_loading(exported_8m_checkpoint):
+    model_for_token_classification, loading_info = AutoModelForTokenClassification.from_pretrained(
+        exported_8m_checkpoint,
+        trust_remote_code=True,
+        output_loading_info=True,
+        num_labels=8,
+    )
+    assert type(model_for_token_classification).__name__.endswith("NVEsmForTokenClassification")
+    assert model_for_token_classification.num_labels == 8
+    assert model_for_token_classification.classifier.weight.shape[0] == 8
     assert not loading_info["mismatched_keys"]
     assert not loading_info["error_msgs"]
 
-    tokenizer = AutoTokenizer.from_pretrained(tmp_path / "esm2_t6_8M_UR50D")
 
-    assert model_for_masked_lm is not None
-    assert model is not None
+def test_auto_tokenizer_loading(exported_8m_checkpoint):
+    tokenizer = AutoTokenizer.from_pretrained(exported_8m_checkpoint)
     assert tokenizer is not None
 
-    # Test that required files (LICENSE, README.md) are present in the exported directory
-    export_dir = tmp_path / "esm2_t6_8M_UR50D"
-    assert (export_dir / "LICENSE").is_file(), "LICENSE file is missing in the export directory"
-    readme_path = export_dir / "README.md"
+
+def test_exported_checkpoint_files(exported_8m_checkpoint):
+    """Test that required files (LICENSE, README.md) are present in the exported directory."""
+
+    assert (exported_8m_checkpoint / "LICENSE").is_file(), "LICENSE file is missing in the export directory"
+    readme_path = exported_8m_checkpoint / "README.md"
     assert readme_path.is_file(), "README.md file is missing in the export directory"
     with open(readme_path, "r") as f:
         readme_contents = f.read()

@@ -135,6 +135,9 @@ jobs:
     container:
       image: ${{ matrix.recipe.image }}
       options: --shm-size=16G
+      env:
+        CI: true
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
     strategy:
       matrix:
         recipe: ${{ fromJson(needs.changed-dirs.outputs.dirs) }}

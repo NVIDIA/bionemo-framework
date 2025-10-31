@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional, Tuple
 import torch
 import torch.nn as nn
 from lightning import LightningModule
+from peft import LoraConfig, PeftType, get_peft_model
 from torch.distributed.fsdp.wrap import wrap
 from torchmetrics import MeanMetric
 from transformers.utils import logging
@@ -106,8 +107,6 @@ class EncodonTEPL(LightningModule):
         attn_input_format: str = "bshd",
     ):
         super().__init__()
-        if finetune_strategy == "lora":
-            raise ValueError("LoRA finetuning is not supported for EnCodonTE model.")
         self.save_hyperparameters(logger=False)
         self.pretrained_config = construct_pretrained_config(self.hparams, EnCodonConfig)
         self.model = None
@@ -118,6 +117,10 @@ class EncodonTEPL(LightningModule):
         # Best validation loss tracking (simplified for basic loss monitoring)
         self.best_val_loss = float("inf")
 
+        if use_downstream_head and lora_dropout != 0.0:
+            raise ValueError(
+                "Lora dropout must be 0.0 when using downstream head with TransformerEngine since ParamWrapper for LayerNormLinear does not support dropout"
+            )
         # Determine task type for metric calculation
         if use_downstream_head:
             if loss_type == "classification":
@@ -182,9 +185,9 @@ class EncodonTEPL(LightningModule):
                         dropout=self.hparams.classifier_dropout,
                     )
                 self.init_downstream_heads()
-
+        has_peft_params = any("lora" in k for k in state_dict.keys()) if state_dict else False
         # Load base model weights
-        if state_dict:
+        if state_dict and not has_peft_params:
             new_state_dict = {}
             for k, v in state_dict.items():
                 if k.startswith("model."):
@@ -205,6 +208,42 @@ class EncodonTEPL(LightningModule):
             logger.info("Randomly initializing lm_head.")
             self.model.reset_cls_parameters()
             self.init_downstream_heads()
+        # Configure PEFT if LoRA is enabled or if loading a LoRA checkpoint
+        if self.hparams.lora or has_peft_params:
+            peft_config = LoraConfig(
+                peft_type=PeftType.LORA,
+                task_type="SEQ_CLS",
+                r=self.hparams.lora_r,
+                lora_alpha=self.hparams.lora_alpha,
+                target_parameters=["layernorm_qkv.weight", "mlp_fc1.weight", "mlp_fc2.weight"],
+                inference_mode=False,
+            )
+            self.model = get_peft_model(self.model, peft_config)
+
+            #  Ensure classifier head `model.cls` is trainable after applying LoRA
+            cls_trainable = any(param.requires_grad for param in self.model.cls.parameters())
+            if not cls_trainable:
+                for param in self.model.cls.parameters():
+                    param.requires_grad = True
+
+            # Ensure cross-attention heads are trainable after applying LoRA if they exist and downstream head is enabled
+            if self.hparams.use_downstream_head:
+                cross_attention_heads = ["cross_attention_input_proj", "cross_attention_head"]
+                for head_name in cross_attention_heads:
+                    if hasattr(self.model, head_name):
+                        head = getattr(self.model, head_name)
+                        head_trainable = any(param.requires_grad for param in head.parameters())
+                        if not head_trainable:
+                            for param in head.parameters():
+                                param.requires_grad = True
+
+            # Log LoRA parameter counts
+            if self.hparams.lora and not has_peft_params:
+                self.model.print_trainable_parameters()
+
+        # Load the full state dict (including PEFT weights) if provided
+        if state_dict and has_peft_params:
+            self.load_state_dict(state_dict, strict=True)
 
     def init_downstream_heads(self):
         """Initialize downstream head parameters when enabled.
