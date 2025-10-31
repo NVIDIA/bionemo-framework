@@ -35,7 +35,7 @@ def generate_dataset(tmp_path, test_directory) -> SingleCellMemMapDataset:
     Returns:
         A SingleCellMemMapDataset
     """
-    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad")
+    ds = SingleCellMemMapDataset(tmp_path / "scy", h5ad_path=test_directory / "adata_sample0.h5ad", use_X_not_raw=True)
     ds.save()
     del ds
     reloaded = SingleCellMemMapDataset(tmp_path / "scy")
@@ -96,6 +96,7 @@ def test_create_dataset_with_neighbor_support(tmp_path):
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Verify neighbor configuration
@@ -115,6 +116,7 @@ def test_empty_dataset_save_and_reload_with_neighbors(tmp_path):
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
     ds.save()
     del ds
@@ -150,6 +152,7 @@ def test_neighbor_matrix_extraction(tmp_path, test_neighbor_directory):
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Test that neighbor data was extracted
@@ -189,6 +192,7 @@ def test_sample_neighbor_index(tmp_path, monkeypatch, test_neighbor_directory):
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Mock numpy's random choice to make sampling deterministic
@@ -258,6 +262,7 @@ def test_get_row_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Verify neighbors are loaded
@@ -321,6 +326,7 @@ def test_get_row_with_neighbor(tmp_path, monkeypatch, test_neighbor_directory):
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Should raise ValueError when trying to use neighbor functions without neighbors
@@ -350,6 +356,7 @@ def test_get_row_padded_with_neighbor(tmp_path, monkeypatch, test_neighbor_direc
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Verify neighbors are loaded
@@ -415,6 +422,7 @@ def test_get_row_padded_with_neighbor(tmp_path, monkeypatch, test_neighbor_direc
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Should raise ValueError when trying to use neighbor functions without neighbors
@@ -437,6 +445,7 @@ def test_get_neighbor_stats(tmp_path, test_neighbor_directory):
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Verify neighbors are loaded
@@ -508,6 +517,7 @@ def test_get_neighbor_stats(tmp_path, test_neighbor_directory):
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Verify no neighbors were loaded
@@ -534,6 +544,7 @@ def test_paginated_neighbor_data_extraction(tmp_path, test_neighbor_directory):
         fallback_to_identity=True,
         paginated_load_cutoff=0,  # Force paginated loading for any file size
         load_block_row_size=3,  # Use small block size to test chunking
+        use_X_not_raw=True,
     )
 
     # Create dataset with regular loading for comparison
@@ -545,6 +556,7 @@ def test_paginated_neighbor_data_extraction(tmp_path, test_neighbor_directory):
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
         paginated_load_cutoff=999999,  # Ensure regular loading
+        use_X_not_raw=True,
     )
 
     # Verify both datasets loaded neighbors successfully
@@ -597,6 +609,7 @@ def test_get_neighbor_weights_for_cell(tmp_path, test_neighbor_directory):
         neighbor_key="next_cell_ids",
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Test normal operation - get weights for a cell that has neighbors
@@ -623,6 +636,7 @@ def test_get_neighbor_weights_for_cell(tmp_path, test_neighbor_directory):
         load_neighbors=False,  # No neighbors requested
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Test with load_neighbors=False - should return empty array
@@ -638,6 +652,7 @@ def test_get_neighbor_weights_for_cell(tmp_path, test_neighbor_directory):
         neighbor_key="nonexistent_key",  # This key doesn't exist, so no neighbors will be loaded
         neighbor_sampling_strategy="random",
         fallback_to_identity=True,
+        use_X_not_raw=True,
     )
 
     # Test ValueError when neighbors were requested but not available

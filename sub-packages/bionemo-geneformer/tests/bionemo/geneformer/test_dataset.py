@@ -44,19 +44,19 @@ def test_load_sc_datasets(tmp_path, test_directory_feat_ids):
     tokenizer = MagicMock()
     sc_memmap_dataset_path0 = tmp_path / "test_data_0"
     ds_0 = SingleCellMemMapDataset(
-        str(sc_memmap_dataset_path0), h5ad_path=str(test_directory_feat_ids / "adata_sample0.h5ad")
+        str(sc_memmap_dataset_path0), h5ad_path=str(test_directory_feat_ids / "adata_sample0.h5ad"), use_X_not_raw=True
     )  # create the memmap dataset format from h5ad for testing purposes
     dataset0 = SingleCellDataset(str(sc_memmap_dataset_path0), tokenizer)
     assert len(dataset0) == len(ds_0) == 8
     sc_memmap_dataset_path1 = tmp_path / "test_data_1"
     ds_1 = SingleCellMemMapDataset(
-        str(sc_memmap_dataset_path1), h5ad_path=str(test_directory_feat_ids / "adata_sample1.h5ad")
+        str(sc_memmap_dataset_path1), h5ad_path=str(test_directory_feat_ids / "adata_sample1.h5ad"), use_X_not_raw=True
     )  # create the memmap dataset format from h5ad for testing purposes
     dataset1 = SingleCellDataset(str(sc_memmap_dataset_path1), tokenizer)
     assert len(dataset1) == len(ds_1) == 6
     sc_memmap_dataset_path2 = tmp_path / "test_data_2"
     ds_2 = SingleCellMemMapDataset(
-        str(sc_memmap_dataset_path2), h5ad_path=str(test_directory_feat_ids / "adata_sample2.h5ad")
+        str(sc_memmap_dataset_path2), h5ad_path=str(test_directory_feat_ids / "adata_sample2.h5ad"), use_X_not_raw=True
     )  # create the memmap dataset format from h5ad for testing purposes
     dataset2 = SingleCellDataset(str(sc_memmap_dataset_path2), tokenizer)
     assert len(dataset2) == len(ds_2) == 100
@@ -82,7 +82,7 @@ def test_gene_not_in_tok_vocab(tmp_path, test_directory_feat_ids):
     adata.var["feature_id"] = synthetic_ids
     adata.write(sc_h5ad_dataset_path0)
     SingleCellMemMapDataset(
-        str(sc_memmap_dataset_path0), h5ad_path=str(sc_h5ad_dataset_path0)
+        str(sc_memmap_dataset_path0), h5ad_path=str(sc_h5ad_dataset_path0), use_X_not_raw=True
     )  # create the memmap dataset format from h5ad for testing purposes
     preprocessor = GeneformerPreprocess(
         download_directory=str(sc_memmap_dataset_path0),
@@ -115,7 +115,7 @@ def test_gene_not_in_tok_vocab(tmp_path, test_directory_feat_ids):
 def test_empty_gene_data_input(tmp_path, test_directory_feat_ids):
     sc_memmap_dataset_path0 = tmp_path / "test_data_0"
     SingleCellMemMapDataset(
-        str(sc_memmap_dataset_path0), h5ad_path=str(test_directory_feat_ids / "adata_sample0.h5ad")
+        str(sc_memmap_dataset_path0), h5ad_path=str(test_directory_feat_ids / "adata_sample0.h5ad"), use_X_not_raw=True
     )  # create the memmap dataset format from h5ad for testing purposes
     preprocessor = GeneformerPreprocess(
         download_directory=str(sc_memmap_dataset_path0),
@@ -158,7 +158,7 @@ def test_lookup_row(tmp_path, cellx_small_directory):
 def test_get_item_synthetic(tmp_path, test_directory_feat_ids):
     sc_memmap_dataset_path0 = tmp_path / "test_data_0"
     SingleCellMemMapDataset(
-        sc_memmap_dataset_path0, h5ad_path=test_directory_feat_ids / "adata_sample0.h5ad"
+        sc_memmap_dataset_path0, h5ad_path=test_directory_feat_ids / "adata_sample0.h5ad", use_X_not_raw=True
     )  # create the memmap dataset format from h5ad for testing purposes
     preprocessor = GeneformerPreprocess(
         download_directory=sc_memmap_dataset_path0,

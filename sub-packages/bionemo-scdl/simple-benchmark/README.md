@@ -113,6 +113,7 @@ python scdl_speedtest.py --generate-baseline -i my_data.h5ad --scdl-path /path/t
 | `--scdl-path`           | Path to SCDL dataset (optional, only used with --generate-baseline)                                                  | None                     |
 | `--num-epochs`          | The number of epochs (passes through the training dataset).                                                          | 1                        |
 | `--num-runs`            | Number of benchmark runs to average (for more stable and reliable measurements)                                      | 1                        |
+| `--use-X-not-raw`       | Set to use the .X, not the raw.X from an anndata file at conversion time                                             | None                     |
 
 ## Sample Output
 
@@ -259,7 +260,7 @@ full conversion; however, running a single plate of the data should give you a g
 on your system. The following command will run the speedtest on the first plate, as downloaded above:
 
 ```bash
-python scdl_speedtest.py --generate-baseline -i tahoe-100m/h5ad/plate1_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad --warmup-time 30 --max-time 120
+python scdl_speedtest.py --generate-baseline -i tahoe-100m/h5ad/plate1_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.h5ad --warmup-time 30 --max-time 120 --use-X-not-raw
 ```
 
 Alternatively, on the fully converted data:

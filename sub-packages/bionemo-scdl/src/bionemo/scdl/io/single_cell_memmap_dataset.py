@@ -98,6 +98,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         fallback_to_identity: bool = True,
         data_dtype: Optional[str] = None,  # Must be one of INT_ORDER or FLOAT_ORDER in scdl_constants
         data_dtype_tolerance: float = 1e-08,
+        use_X_not_raw: bool = False,  # If True, use .X instead of .raw.X for the data
     ) -> None:
         """Instantiate the class.
 
@@ -121,6 +122,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 new datasets; if None, defaults to 'float32'. Must be one of
                 'uint8','uint16','uint32','uint64','float16','float32','float64'.
             data_dtype_tolerance (float, optional): Tolerance for data type conversion. Defaults to 1e-08.
+            use_X_not_raw (bool, optional): If True, use .X instead of .raw.X for the data.
         """
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.data_path: str = data_path
@@ -130,6 +132,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.load_block_row_size = load_block_row_size
         self.var_feature_index_name = var_feature_index_name
         self.obs_feature_index_name = obs_feature_index_name
+        self.use_X_not_raw = use_X_not_raw
         # Backing arrays
         self.data: Optional[np.ndarray] = None
         self.row_index: Optional[np.ndarray] = None
@@ -744,30 +747,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         """
         adata = ad.read_h5ad(anndata_path)  # slow
-        if not isinstance(adata.X, scipy.sparse.spmatrix):
+        count_data = self._get_matrix_X(adata)
+        if not isinstance(count_data, scipy.sparse.spmatrix):
             raise NotImplementedError("Error: dense matrix loading not yet implemented.")
 
-        self._check_data_downcast(adata.X, "First 1000 rows of the dataset")
-
-        num_genes, num_cells = adata.shape
+        self._check_data_downcast(count_data, "First 1000 rows of the dataset")
 
         # Check and load neighbor data
         # NOTE: More clear to have a check here and not call _extract_neighbor_data() if there no neighbors
         if self.load_neighbors:
             self._has_neighbors = self._extract_neighbor_data(adata)
-
-        # Check if raw data is present
-        raw = getattr(adata, "raw", None)
-        count_data = None
-        if raw is not None:
-            # If it is, attempt to get the counts in the raw data.
-            count_data = getattr(raw, "X", None)
-
-        if count_data is None:
-            # No raw counts were present, resort to normalized
-            count_data = getattr(adata, "X")
-        if count_data is None:
-            raise ValueError("This file does not have count data")
 
         num_rows, num_cols = count_data.shape
 
@@ -777,7 +766,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.dtypes[f"{FileNames.COLPTR.value}"] = smallest_uint_dtype(num_cols - 1)
         # Create the arrays.
         self._init_arrs(num_elements_stored, num_rows)
-
         # Store data
         count_data_downcast = self._check_data_downcast(count_data, "Full Dataset")
         self.data[0:num_elements_stored] = count_data_downcast
@@ -786,7 +774,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         # Store the row idx array
         self.row_index[0 : num_rows + 1] = count_data.indptr.astype(self.dtypes[f"{FileNames.ROWPTR.value}"])
-
         vars = adata.var
         obs = adata.obs
         file_handle = getattr(adata, "file", None)
@@ -796,6 +783,20 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             except Exception:
                 pass
         return vars, obs, num_rows
+
+    def _get_matrix_X(self, adata_obj: Optional[ad.AnnData] = None):
+        if self.use_X_not_raw:
+            if adata_obj.X is None:
+                raise ValueError(
+                    "This file does not have count data; set use_X_not_raw=False to use raw counts instead."
+                )
+            return adata_obj.X
+        else:
+            if getattr(getattr(adata_obj, "raw", None), "X", None) is None:
+                raise ValueError(
+                    "This file does not have raw count data; set use_X_not_raw=True to use normalized counts instead."
+                )
+            return adata_obj.raw.X
 
     def paginated_load_h5ad(
         self,
@@ -815,23 +816,27 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             int: number of rows in the dataframe.
         """
         adata = ad.read_h5ad(anndata_path, backed=True)
-
         if self.load_neighbors:
             self._has_neighbors = self._extract_neighbor_data_paginated(adata)
+        X_full = self._get_matrix_X(adata)
+        if not isinstance(X_full, ad.experimental.CSRDataset):
+            raise NotImplementedError("Error: dense matrix loading not yet implemented.")
 
-        if not isinstance(adata.X, ad.experimental.CSRDataset):
-            raise NotImplementedError("Non-sparse format cannot be loaded: {type(adata.X)}.")
-        count_data = adata.X[:1_000]
+        # Use slice-then-raw when sampling rows
+        count_data = self._get_matrix_X(adata[:1_000])
+
+        # Use full matrix for pointers and shapes
+        n_elements = X_full._indptr[-1]
+        row_index = X_full._indptr.astype(self.dtypes[f"{FileNames.ROWPTR.value}"])
+
         self._check_data_downcast(count_data, "First 1000 rows of the dataset")
-
-        num_rows, num_cols = adata.X.shape
-        n_elements = adata.X._indptr[-1]
+        num_rows, num_cols = X_full.shape
         self.dtypes[f"{FileNames.COLPTR.value}"] = smallest_uint_dtype(num_cols - 1)
         self.dtypes[f"{FileNames.ROWPTR.value}"] = smallest_uint_dtype(n_elements)
         # Read the row indices into a memory map.
         mode = Mode.CREATE_APPEND
         self.row_index = _create_row_memmaps(num_rows, Path(self.data_path), mode, self.dtypes)
-        self.row_index[:] = adata.X._indptr.astype(self.dtypes[f"{FileNames.ROWPTR.value}"])
+        self.row_index[:] = row_index
 
         # The data from each column and data chunk of the original anndata file is read in. This is saved into the final
         # location of the memmap file. In this step, it is saved in the binary file format.
@@ -841,14 +846,13 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             open(f"{memmap_dir_path}/{FileNames.DATA.value}", "wb") as data_file,
         ):
             for row_start in range(0, num_rows, self.load_block_row_size):
+                adata_block = adata[row_start : row_start + self.load_block_row_size]
+                adata_block_X = self._get_matrix_X(adata_block)
                 # Write each array's data to the file in binary format
-                col_block = adata.X[row_start : row_start + self.load_block_row_size].indices.astype(
-                    self.dtypes[f"{FileNames.COLPTR.value}"]
-                )
+                col_block = adata_block_X.indices.astype(self.dtypes[f"{FileNames.COLPTR.value}"])
                 col_file.write(col_block.tobytes())
-                count_data = adata.X[row_start : row_start + self.load_block_row_size]
                 count_data_downcast = self._check_data_downcast(
-                    count_data, f"Rows {row_start} to {row_start + self.load_block_row_size - 1} of the dataset"
+                    adata_block_X, f"Rows {row_start} to {row_start + self.load_block_row_size - 1} of the dataset"
                 )
 
                 data_file.write(count_data_downcast.tobytes())
@@ -932,7 +936,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
 
         var_features = _extract_features(var_features_df, self.var_feature_index_name)
         obs_features = _extract_features(obs_features_df, self.obs_feature_index_name)
-
         self._var_feature_index.append_features(n_obs=num_rows, features=var_features, label=anndata_path)
         self._obs_feature_index.append_features(features=obs_features, label=anndata_path)
         self.save()

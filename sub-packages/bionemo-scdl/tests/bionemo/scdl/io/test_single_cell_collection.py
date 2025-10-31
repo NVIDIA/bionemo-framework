@@ -37,7 +37,7 @@ def test_sccollection_empty(tmp_path):
 
 def test_sccollection_basics(tmp_path, test_directory):
     coll = SingleCellCollection(tmp_path / "sccz")
-    coll.load_h5ad(test_directory / "adata_sample0.h5ad")
+    coll.load_h5ad(test_directory / "adata_sample0.h5ad", use_X_not_raw=True)
     assert coll.number_of_rows() == 8
     assert coll.number_of_variables() == [10]
     assert coll.number_of_values() == 80
@@ -49,7 +49,7 @@ def test_sccollection_basics(tmp_path, test_directory):
 def test_sccollection_multi(tmp_path, test_directory):
     coll = SingleCellCollection(tmp_path)
 
-    coll.load_h5ad_multi(test_directory / "", max_workers=4, use_processes=False)
+    coll.load_h5ad_multi(test_directory / "", max_workers=4, use_processes=False, use_X_not_raw=True)
     assert sorted(coll.fname_to_mmap) == [
         Path(tmp_path / "adata_sample0"),
         Path(tmp_path / "adata_sample1"),
@@ -82,7 +82,9 @@ def test_sccollection_multi(tmp_path, test_directory):
 
 def test_sccollection_serialization(tmp_path, test_directory):
     coll = SingleCellCollection(tmp_path / "sccy")
-    coll.load_h5ad_multi(test_directory / "", max_workers=4, use_processes=False, data_dtype="float32")
+    coll.load_h5ad_multi(
+        test_directory / "", max_workers=4, use_processes=False, data_dtype="float32", use_X_not_raw=True
+    )
     assert coll.number_of_rows() == 114
     assert coll.number_of_values() == 2092
     assert coll.number_nonzero_values() == 57
@@ -114,7 +116,7 @@ def test_sc_concat_in_flatten_cellxval(tmp_path, create_cellx_val_data):
     memmap_data = tmp_path / "out"
     with tempfile.TemporaryDirectory() as temp_dir:
         coll = SingleCellCollection(temp_dir)
-        coll.load_h5ad_multi(create_cellx_val_data, max_workers=4, use_processes=False)
+        coll.load_h5ad_multi(create_cellx_val_data, max_workers=4, use_processes=False, use_X_not_raw=True)
         coll.flatten(memmap_data, destroy_on_copy=True)
     data = SingleCellMemMapDataset(memmap_data)
     assert np.array(data.row_index)[2] != 2  # regression test for bug
@@ -144,7 +146,8 @@ def test_sc_failed_process(tmp_path):
     with tempfile.TemporaryDirectory() as temp_dir:
         coll = SingleCellCollection(temp_dir)
     with pytest.raises(
-        RuntimeError, match=rf"Error in processing file {empty_fn}: Error: dense matrix loading not yet implemented."
+        RuntimeError,
+        match=rf"Error in processing file {empty_fn}: This file does not have raw count data; set use_X_not_raw=True to use normalized counts instead.",
     ):
         coll.load_h5ad_multi(adata_path, max_workers=4, use_processes=False)
 
@@ -155,6 +158,7 @@ def test_sccollection_concatenation_dtype_and_values(tmp_path, make_small_and_la
 
     first, second = order
     coll = SingleCellCollection(tmp_path / f"coll_{first}_{second}")
+
     if first == "large":
         coll.load_h5ad(large_path)
         coll.load_h5ad(small_path)
