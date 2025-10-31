@@ -56,7 +56,7 @@ wandb_init_args:
 # script overrides
 # these should match the keys in the recipe's config file
 config: L1_650M
-num_train_steps: 20_000
+num_train_steps: 40_000
 num_warmup_steps: 2_000
 task_cmd: train_fsdp2
 parallelism_strategy: fsdp2
