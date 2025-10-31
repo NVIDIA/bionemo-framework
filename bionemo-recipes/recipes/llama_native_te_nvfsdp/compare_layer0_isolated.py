@@ -10,7 +10,7 @@ print("=" * 80)
 print("COMPARING ISOLATED LAYER 0 OUTPUTS")
 print("=" * 80)
 
-nemo_dir = Path("/workspaces/bionemo-framework/bionemo-recipes/recipes/llama_native_te_nvfsdp/layer0_nemo_isolated_outputs")
+nemo_dir = Path("/workspaces/bionemo-framework/bionemo-recipes/recipes/llama_native_te_nvfsdp/layer0_nemo_isolated_outputs_nemo_checkpoint")
 hf_dir = Path("/workspaces/bionemo-framework/bionemo-recipes/recipes/llama_native_te_nvfsdp/layer0_hf_isolated_outputs")
 
 # Mapping from NeMo submodule names to HF submodule names
