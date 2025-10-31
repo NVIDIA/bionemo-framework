@@ -183,7 +183,7 @@ class TestEncodonPLLoRA:
         model = EncodonPL(**base_config)
         model.configure_model()
 
-        expected_targets = ["query", "value", "intermediate_dense", "post_dense"]
+        expected_targets = ["query", "value", "intermediate_dense", "output_dense"]
         actual_targets = model.model.peft_config["default"].target_modules
         assert set(actual_targets) == set(expected_targets)
 
@@ -719,22 +719,13 @@ class TestEncodonTEPL:
         assert model.hparams.attn_input_format == "bshd"
         assert model.model is None  # Model not configured yet
 
-    def test_te_model_with_lora_raises_error(self, base_config):
-        """Test that EncodonTEPL raises error when LoRA is enabled"""
-        if not torch.cuda.is_available():
-            pytest.skip("Transformer Engine requires CUDA")
-        base_config["finetune_strategy"] = "lora"
-        base_config["lora"] = True
-
-        with pytest.raises(ValueError, match="LoRA finetuning is not supported for EnCodonTE model"):
-            EncodonTEPL(**base_config)
-
     def test_te_model_with_downstream_head_regression(self, base_config, sample_regression_batch):
         """Test EncodonTEPL with downstream head for regression"""
         if not torch.cuda.is_available():
             pytest.skip("Transformer Engine requires CUDA")
         base_config["use_downstream_head"] = True
         base_config["loss_type"] = "regression"
+        base_config["lora_dropout"] = 0.0
         model = EncodonTEPL(**base_config)
         model.configure_model()
 
@@ -758,6 +749,7 @@ class TestEncodonTEPL:
             pytest.skip("Transformer Engine requires CUDA")
         base_config["use_downstream_head"] = True
         base_config["loss_type"] = "classification"
+        base_config["lora_dropout"] = 0.0
         model = EncodonTEPL(**base_config)
         model.configure_model()
 
@@ -774,3 +766,125 @@ class TestEncodonTEPL:
         assert isinstance(loss, torch.Tensor)
         assert loss.ndim == 0
         assert preds.shape == (2, 2)
+
+    @pytest.mark.parametrize("lora_dropout", [0.0, 0.1])
+    def test_te_model_with_lora_and_dropout(self, base_config, sample_regression_batch, lora_dropout):
+        """Test EncodonTEPL with LoRA finetuning strategy.
+
+        This test validates that:
+        1. LoRA works with Transformer Engine when lora_dropout=0.0
+        2. LoRA fails gracefully with Transformer Engine when lora_dropout!=0.0
+
+        Background: TransformerEngine's LayerNormLinear modules use ParamWrapper
+        as a fallback in PEFT, which doesn't support non-zero dropout.
+        """
+        if not torch.cuda.is_available():
+            pytest.skip("Transformer Engine requires CUDA")
+
+        base_config["use_downstream_head"] = True
+        base_config["loss_type"] = "regression"
+        base_config["finetune_strategy"] = "lora"
+        base_config["lora"] = True
+        base_config["lora_r"] = 16
+        base_config["lora_alpha"] = 32.0
+        base_config["lora_dropout"] = lora_dropout
+
+        if lora_dropout != 0.0:
+            with pytest.raises(ValueError):
+                model = EncodonTEPL(**base_config)
+                model.configure_model()
+        else:
+            model = EncodonTEPL(**base_config)
+            # Should work fine with lora_dropout=0.0
+            model.configure_model()
+
+            # Verify LoRA is properly configured
+            assert hasattr(model.model, "peft_config"), "LoRA should be enabled"
+            assert model.model.peft_config is not None
+
+            # Move model to CUDA
+            model = model.cuda()
+
+            # Move batch to CUDA
+            sample_regression_batch = {
+                k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in sample_regression_batch.items()
+            }
+
+            # Test forward pass
+            _loss, preds, _targets = model.model_step(sample_regression_batch)
+            assert isinstance(_loss, torch.Tensor)
+            assert _loss.ndim == 0
+            assert preds.shape == (2,)
+
+            # Verify that LoRA parameters are trainable
+            lora_params = [p for n, p in model.named_parameters() if "lora" in n.lower()]
+            assert len(lora_params) > 0, "Should have LoRA parameters"
+            assert all(p.requires_grad for p in lora_params), "All LoRA parameters should be trainable"
+
+            # Verify downstream heads are trainable
+            cls_params = [p for n, p in model.named_parameters() if "cls" in n]
+            assert len(cls_params) > 0, "Should have classifier parameters"
+            assert all(p.requires_grad for p in cls_params), "All classifier parameters should be trainable"
+
+            cross_attn_params = [p for n, p in model.named_parameters() if "cross_attention" in n]
+            assert len(cross_attn_params) > 0, "Should have cross-attention parameters"
+            assert all(p.requires_grad for p in cross_attn_params), (
+                "All cross-attention parameters should be trainable"
+            )
+
+    def test_te_model_lora_single_gpu_integration(self, base_config, sample_regression_batch):
+        """Integration test for LoRA + TransformerEngine on single GPU.
+
+        This test simulates a full training step to ensure the entire pipeline works:
+        - Model initialization with LoRA
+        - Forward pass
+        - Backward pass
+        - Optimizer step
+        """
+        if not torch.cuda.is_available():
+            pytest.skip("Transformer Engine requires CUDA")
+
+        base_config["use_downstream_head"] = True
+        base_config["loss_type"] = "regression"
+        base_config["finetune_strategy"] = "lora"
+        base_config["lora"] = True
+        base_config["lora_r"] = 32
+        base_config["lora_alpha"] = 32.0
+        base_config["lora_dropout"] = 0.0  # Must be 0.0 for TE
+
+        model = EncodonTEPL(**base_config)
+        model.configure_model()
+        model = model.cuda()
+
+        # Move batch to CUDA
+        sample_regression_batch = {
+            k: v.cuda() if isinstance(v, torch.Tensor) else v for k, v in sample_regression_batch.items()
+        }
+
+        # Get trainable parameters before training
+        trainable_params_before = {n: p.clone().detach() for n, p in model.named_parameters() if p.requires_grad}
+
+        # Perform a training step
+        model.train()
+        loss, _preds, _targets = model.model_step(sample_regression_batch)
+
+        # Backward pass
+        loss.backward()
+
+        # Optimizer step (manual)
+        optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=1e-5)
+        optimizer.step()
+        optimizer.zero_grad()
+
+        # Verify that trainable parameters have changed
+        params_changed = []
+        for name, param in model.named_parameters():
+            if param.requires_grad and name in trainable_params_before:
+                if not torch.allclose(param, trainable_params_before[name], atol=1e-8):
+                    params_changed.append(name)
+
+        assert len(params_changed) > 0, "Some trainable parameters should have changed after optimizer step"
+
+        # Verify LoRA parameters are among those that changed
+        lora_params_changed = [n for n in params_changed if "lora" in n.lower()]
+        assert len(lora_params_changed) > 0, "LoRA parameters should have been updated"

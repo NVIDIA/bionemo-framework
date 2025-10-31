@@ -46,7 +46,7 @@ def test_runner_main_finetune_dispatch(mock_finetune, mock_build, mock_get_confi
         "/pretrained/model.ckpt",
         "--resume_trainer_state",
         "--finetune_strategy",
-        "full",  # Use 'full' to avoid LoRA+TE conflict
+        "full",
     ]
     if use_te:
         argv.append("--use_transformer_engine")
@@ -246,41 +246,6 @@ def test_runner_wandb_requires_project_and_entity(monkeypatch):
 
         mod = importlib.import_module("src.runner")
         with pytest.raises(SystemExit):
-            mod.main()
-
-
-def test_runner_finetune_transformer_engine_lora_conflict(monkeypatch):
-    """Test that using transformer engine with LoRA raises an error."""
-    argv = [
-        "prog",
-        "finetune",
-        "--exp_name",
-        "run_error",
-        "--data_path",
-        "/data",
-        "--process_item",
-        "codon_sequence",
-        "--dataset_name",
-        "CodonBertDataset",
-        "--model_name",
-        "encodon_80m",
-        "--out_dir",
-        "/out",
-        "--checkpoints_dir",
-        "/out/ckpts",
-        "--checkpoint_path",
-        "/pretrained/model.ckpt",
-        "--use_transformer_engine",
-        "--finetune_strategy",
-        "lora",
-        "--lora",
-    ]
-    monkeypatch.setenv("WANDB_API_KEY", "")
-    with patch.object(sys, "argv", argv):
-        import importlib
-
-        mod = importlib.import_module("src.runner")
-        with pytest.raises(ValueError, match="LoRA finetuning is not supported for EnCodonTE model"):
             mod.main()
 
 
