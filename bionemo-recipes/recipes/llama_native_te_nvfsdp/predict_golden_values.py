@@ -465,7 +465,10 @@ def main():
         device_map=device,
     )
     model.eval()
-    logger.info("Model loaded successfully")
+    
+    # Disable KV cache to ensure sequences are independent
+    model.config.use_cache = False
+    logger.info("Model loaded successfully (use_cache=False)")
     
     # Generate golden values
     results = generate_golden_values(

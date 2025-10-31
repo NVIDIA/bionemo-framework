@@ -56,9 +56,9 @@ def align_by_headers(llama3, bionemo, llama3_map_file, bionemo_map_file):
     return llama3_aligned, bionemo_aligned, loss_mask_aligned, sorted_headers
 
 # Main
-llama3_file = 'golden_values_llama3/predictions_llama3_native.pt'
+llama3_file = 'golden_values_llama3_nocache/predictions_llama3_native.pt'
 bionemo_dir = '/workspaces/bionemo-framework/golden_values_bionemo/'
-llama3_map = 'golden_values_llama3/seq_idx_map.json'
+llama3_map = 'golden_values_llama3_nocache/seq_idx_map.json'
 bionemo_map = '/workspaces/bionemo-framework/golden_values_bionemo/seq_idx_map.json'
 
 print("Loading data...")
