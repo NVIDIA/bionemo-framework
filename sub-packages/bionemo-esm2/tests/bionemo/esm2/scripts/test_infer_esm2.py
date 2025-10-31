@@ -99,10 +99,13 @@ def test_infer_without_finetune_head(
     assert result_dir.exists(), "Could not find test results directory."
 
     if prediction_interval == "epoch":
-        results = torch.load(f"{result_dir}/predictions__rank_0.pt")
+        results = torch.load(f"{result_dir}/predictions__rank_0__dp_rank_0.pt")
     elif prediction_interval == "batch":
         results = batch_collator(
-            [torch.load(f, map_location="cpu") for f in glob.glob(f"{result_dir}/predictions__rank_0__batch_*.pt")]
+            [
+                torch.load(f, map_location="cpu")
+                for f in glob.glob(f"{result_dir}/predictions__rank_0__dp_rank_0__batch_*.pt")
+            ]
         )
     assert isinstance(results, dict)
     keys_included = ["token_logits", "hidden_states", "embeddings", "binary_logits", "input_ids"]

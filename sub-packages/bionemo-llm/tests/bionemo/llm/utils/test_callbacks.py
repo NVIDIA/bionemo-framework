@@ -23,6 +23,7 @@ import torch
 
 from bionemo.llm.lightning import batch_collator
 from bionemo.llm.utils.callbacks import PredictionWriter
+from bionemo.testing import megatron_parallel_state_utils
 
 
 # Fixture for temporary directory
@@ -68,17 +69,20 @@ def test_write_on_batch_end(mock_torch_save, temp_dir, mock_trainer, mock_module
     writer = PredictionWriter(output_dir=temp_dir, write_interval="batch")
 
     batch_idx = 1
-    writer.write_on_batch_end(
-        trainer=mock_trainer,
-        pl_module=mock_module,
-        prediction=collated_prediction,
-        batch_indices=[],
-        batch=None,
-        batch_idx=batch_idx,
-        dataloader_idx=0,
-    )
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        writer.write_on_batch_end(
+            trainer=mock_trainer,
+            pl_module=mock_module,
+            prediction=collated_prediction,
+            batch_indices=[],
+            batch=None,
+            batch_idx=batch_idx,
+            dataloader_idx=0,
+        )
 
-    expected_path = os.path.join(temp_dir, f"predictions__rank_{mock_trainer.global_rank}__batch_{batch_idx}.pt")
+    expected_path = os.path.join(
+        temp_dir, f"predictions__rank_{mock_trainer.global_rank}__dp_rank_0__batch_{batch_idx}.pt"
+    )
     mock_torch_save.assert_called_once_with(collated_prediction, expected_path)
 
 
@@ -88,14 +92,15 @@ def test_write_on_epoch_end(
 ):
     writer = PredictionWriter(output_dir=temp_dir, write_interval="epoch")
 
-    writer.write_on_epoch_end(
-        trainer=mock_trainer,
-        pl_module=mock_module,
-        predictions=sample_predictions,
-        batch_indices=[],
-    )
+    with megatron_parallel_state_utils.distributed_model_parallel_state():
+        writer.write_on_epoch_end(
+            trainer=mock_trainer,
+            pl_module=mock_module,
+            predictions=sample_predictions,
+            batch_indices=[],
+        )
 
-    expected_path = os.path.join(temp_dir, f"predictions__rank_{mock_trainer.global_rank}.pt")
+    expected_path = os.path.join(temp_dir, f"predictions__rank_{mock_trainer.global_rank}__dp_rank_0.pt")
 
     mock_torch_save.assert_called_once()  # Ensure it's called exactly once
 

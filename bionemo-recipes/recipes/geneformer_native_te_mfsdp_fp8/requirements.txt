@@ -1,0 +1,9 @@
+datasets
+megatron-fsdp
+hydra-core
+safetensors
+torch
+tqdm
+transformer_engine
+transformers
+wandb

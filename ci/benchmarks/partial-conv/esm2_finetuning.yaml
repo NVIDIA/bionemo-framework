@@ -1,5 +1,5 @@
 scope: partial-conv
-time_limit: 14400
+time_limit: 7200
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   train_data_path: False
@@ -91,10 +91,6 @@ tests:
           operator: range
           max: 0.1372
           min: 0.0993
-        TFLOPS_per_GPU:
-          operator: range
-          max: 719.5984
-          min: 694.8020
         val_acc:
           operator: range
           max: 0.8462

@@ -1,4 +1,55 @@
-# NeMo2 Parallelism
+# NeMo2
+
+## Checkpointing
+
+In NeMo, there are two distinct mechanisms for continuing training from a checkpoint: resuming from a training
+directory and restoring from a checkpoint.
+
+> **Note**: If both `--result-dir` and `--ckpt-dir` are provided, checkpoints in `--result-dir` take precedence.
+> The `--ckpt-dir` is only used if `--result-dir` contains no checkpoints.
+
+**1. Resuming Training from a Directory**
+
+When a training job runs, NeMo saves checkpoints in a designated results directory specified with the `--result-dir`
+flag. If the same job is restarted and a checkpoint exists in that directory, the most recent checkpoint is
+automatically loaded and training continues from the exact step and optimizer state stored there.
+
+If no checkpoint is found in the results directory:
+
+- No checkpoint directory specified → training starts from scratch.
+- Checkpoint dir is specified by `--ckpt-dir` → NeMo attempts to restore from that checkpoint (see "Restoring from a
+  Checkpoint" below).
+
+**2. Restoring from a Checkpoint**
+
+To start a new training run initialized from a checkpoint in a different directory, the restore configuration can be
+set to point to that checkpoint via the `--ckpt-dir` flag. NeMo will begin training from that checkpoint’s weights and
+optimizer state. After the initial restoration, subsequent runs of the same job follow the standard resuming flow -
+loading from the results directory — without repeating the restore step.
+
+```
+               +-------------------------+
+               | Start Training Job      |
+               +-----------+-------------+
+                         |
+     +-------------------+-------------------+
+     |                                       |
+Results dir has                         Results dir empty
+checkpoint → Resume                           |
+                                             v
+                                   +----------------------------+
+                                   | Checkpoint dir specified?  |
+                                   +-------------+--------------+
+                                             |
+                              +----------------+----------------+
+                              |                                 |
+                         No → Start from scratch        Yes → Restore
+                                                       from checkpoint
+                                                                 ↓
+                                                            Resume flow
+```
+
+## Parallelism
 
 NeMo2 represents tools and utilities to extend the capabilities of `pytorch-lightning` to support training and inference
 with megatron models. While pytorch-lightning supports parallel abstractions sufficient for LLMs that fit on single GPUs
@@ -10,16 +61,16 @@ So in other words, NeMo2 adds the Megatron strategy in addition to the standard 
 
 Many downstream constraints and conventions are driven by the underlying constraints of megatron.
 
-## Deeper Background on Megatron
+### Deeper Background on Megatron
 
-### Other Options for Parallelizing Smaller Models
+#### Other Options for Parallelizing Smaller Models
 
 Megatron is a system for supporting advanced varieties of model parallelism. While vanilla models can be executed
 in parallel with systems, such as distributed data parallel (DDP), or moderately large models can be trained with Meta's
 Fully Sharded Data Parallel (FSDP/FSDP2), when you work with larger models and want to train them with maximal
 efficiency, it is ideal to use some variant of megatron.
 
-### DDP Background
+#### DDP Background
 
 DDP is the best option **when you can fit the entire model on every GPU** in your cluster. With DDP, you can
 parallelize your `global batch` across multiple GPUs by splitting it into smaller `mini-batches`, one for each GPU.
@@ -30,7 +81,7 @@ on your cluster with a small model:
 
 ![Data Parallelism Diagram](../../../assets/images/megatron_background/data_parallelism.png)
 
-### FSDP Background
+#### FSDP Background
 
 FSDP extends DDP by sharding (splitting) model weights across GPUs in your cluster to optimize memory usage.
 While data is still split across GPUs in the same way as DDP, FSDP strategically synchronizes and broadcasts
@@ -48,7 +99,7 @@ The following two figures show two steps through the forward pass of a model tha
 ![FSDP Diagram Step 1](../../../assets/images/megatron_background/fsdp_slide1.png)
 ![FSDP Diagram Step 2](../../../assets/images/megatron_background/fsdp_slide2.png)
 
-### Model Parallelism
+#### Model Parallelism
 
 Model parallelism is the catch-all term for the variety of different parallelism strategies
 that could be applied to parallelizing your model across a cluster. Below we explain several varieties of model
@@ -56,7 +107,7 @@ parallelism that are implemented in megatron. As mentioned in the previous secti
 megatron-specific parallelism types described next are that they co-locate storage and compute of the layers. Inefficiencies
 caused by naive scheduler implementations are also addressed (discussed in the section on schedulers).
 
-#### Pipeline Parallelism
+##### Pipeline Parallelism
 
 Pipeline parallelism is similar to FSDP, but the model blocks that are sharded are also computed in parallel on the
 nodes that own the model weight in question. You can think of this as a larger simulated GPU that happens to be spread
@@ -68,7 +119,7 @@ Similarly, there are convenience
 environmental lookups for the first pipeline stage (where you compute the embedding for example)
 `parallel_state.is_pipeline_first_stage()`.
 
-#### Tensor Parallelism
+##### Tensor Parallelism
 
 Tensor parallelism represents splitting single layers across GPUs. This can also solve the problem where some individual
 layers could in theory be too large to fit on a single GPU, where FSDP would not be possible. This would still work
@@ -76,7 +127,7 @@ since individual layer weights (and computations) are distributed. Examples of t
 `ColumnParallelLinear` layers.
 ![Tensor Parallelism](../../../assets/images/megatron_background/tensor_parallelism.png)
 
-#### Sequence Parallelism
+##### Sequence Parallelism
 
 In megatron, "sequence parallelism" refers to the parallelization of the dropout, and layernorm blocks of a transformer.
 The idea is roughly as follows. First, remember that in a typical transformer architecture, the `embedding_dimension` is
@@ -93,7 +144,7 @@ across sequence parallel GPUs for the output of that transformer block.
 As a user, if you know that your transformer is executed in parallel and you have custom losses or downstream layers,
 you need to make sure that the appropriate gather operations are occurring for your loss computation etc.
 
-#### Context Parallelism
+##### Context Parallelism
 
 [Context parallelism](https://docs.nvidia.com/megatron-core/developer-guide/latest/api-guide/context_parallel.html)
 extends sequence parallelism by also parallelizing the attention mechanism itself, similar to
@@ -104,7 +155,7 @@ kinds of parallelism if a micro-batch fits on a single device still holds. Split
 represent the fewest necessary communications between GPUs on your cluster, so standard DDP should run the fastest if
 you can get your training loop for a micro batch to fit on one GPU.
 
-#### Mixing Parallelism Strategies
+##### Mixing Parallelism Strategies
 
 You can mix different kinds of parallelism together to achieve a better result. In general, experimentation
 should be done to identify the optimal mix of parallelism. See this
@@ -117,7 +168,7 @@ so if you have `TP=2` and `PP=2`, then you are creating a larger virtual GPU out
 needs to be a multiple of 4 in this case.
 ![Mixing Tensor and Pipeline Parallelism](../../../assets/images/megatron_background/tensor_and_pipeline_parallelism.png)
 
-#### Scheduling Model Parallelism
+##### Scheduling Model Parallelism
 
 You can improve on naive schedules by splitting up micro-batches into smaller pieces, executing many stages of the
 model on single GPUs, and starting computing the backwards pass of one micro-batch while another is going through forward.

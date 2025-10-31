@@ -1,3 +1,35 @@
+# BioNeMo Framework CI Workflow
+#
+# This workflow runs comprehensive tests for the BioNeMo framework on various triggers:
+#
+# TRIGGERS:
+# - Push to main branch, pull-request branches, or dependabot branches
+# - Merge group events (when PRs are merged via merge queue)
+# - Scheduled runs (daily at 7 AM UTC)
+#
+# WORKFLOW OVERVIEW:
+# 1. changed-files: Detects which files have changed compared to main branch
+#    - Tracks changes in: All files (**) except:
+#      * bionemo-recipes/** (recipes have separate workflow)
+#      * **.md (markdown documentation files)
+#      * .github/** (GitHub configuration, except this workflow file)
+#      * .gitignore, .devcontainer/**
+#      * ci/scripts/recipes_local_test.py
+#    - Includes: .github/workflows/unit-tests-framework.yml (this workflow file)
+# 2. pre-commit: Runs static code checks and linting
+# 3. get-pr-labels: Retrieves PR labels for conditional job execution
+# 4. build-bionemo-image: Builds Docker image (conditional on triggers/labels)
+# 5. run-tests: Runs unit tests (when image build succeeds)
+# 6. run-tests-slow: Runs slow tests (when image succeeds + ciflow:slow label OR schedule/merge_group/ciflow:all)
+# 7. run-tests-notebooks: Runs notebook tests (when image succeeds + ciflow:notebooks label OR schedule/merge_group/ciflow:all)
+# 8. verify-tests-status: Verifies all test jobs completed successfully
+#
+# CONDITIONAL EXECUTION:
+# - build-bionemo-image runs on: schedule, ciflow:all label, (no ciflow:skip + modified files), (merge_group + modified files)
+# - run-tests runs when: build-bionemo-image succeeds
+# - run-tests-slow runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
+# - run-tests-notebooks runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:notebooks)
+
 name: "BioNeMo Framework CI"
 
 on:
@@ -44,8 +76,7 @@ jobs:
           base_sha: ${{ steps.merge-base.outputs.merge-base }}
           files: |
             **
-            !models/**
-            !recipes/**
+            !bionemo-recipes/**
             !**.md
             !.github/**
             !.gitignore
@@ -83,7 +114,7 @@ jobs:
   get-pr-labels:
     runs-on: ubuntu-latest
     outputs:
-      labels: ${{ steps.get-labels.outputs.labels }}
+      labels: ${{ steps.get-labels.outputs.labels || steps.get-labels-empty.outputs.labels }}
     steps:
       - name: Get PR number from branch
         if: startsWith(github.ref, 'refs/heads/pull-request/')
@@ -100,11 +131,14 @@ jobs:
         run: |
           LABELS=$(gh api repos/${{ github.repository }}/pulls/${{ steps.get-pr-num.outputs.pr_num }} --jq '[.labels[].name]' || echo "[]")
           echo "labels=$LABELS" >> $GITHUB_OUTPUT
+          echo "Retrieved labels: $LABELS"
 
       - name: Set empty labels for non-PR branches
         if: ${{ !startsWith(github.ref, 'refs/heads/pull-request/') }}
         id: get-labels-empty
-        run: echo "labels=[]" >> $GITHUB_OUTPUT
+        run: |
+          echo "labels=[]" >> $GITHUB_OUTPUT
+          echo "Set empty labels for non-PR branch"
 
   build-bionemo-image:
     needs:
@@ -112,9 +146,19 @@ jobs:
       - get-pr-labels
       - changed-files
     runs-on: linux-amd64-cpu16
-    # We want this to run on schedule events even if no files have changed
-    if: ${{ github.event_name == 'schedule' || (!contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'SKIP_CI') && needs.changed-files.outputs.any_changed == 'true') }}
+    if: |
+      (github.event_name == 'schedule') ||
+      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+      (
+        !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
+        (needs.changed-files.outputs.any_changed == 'true')
+      ) ||
+      (
+        (github.event_name == 'merge_group') &&
+        (needs.changed-files.outputs.any_changed == 'true')
+      )
     steps:
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -172,6 +216,7 @@ jobs:
       credentials:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
+    if: needs.build-bionemo-image.result == 'success'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -201,7 +246,7 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  run-slow-tests:
+  run-tests-slow:
     needs:
       - build-bionemo-image
       - get-pr-labels
@@ -212,13 +257,19 @@ jobs:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
     if: |
-      github.event_name == 'schedule' || github.event_name == 'merge_group' ||
-      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_SLOW_TESTS')
+        (needs.build-bionemo-image.result == 'success') &&
+        (
+          (github.event_name == 'schedule') ||
+          (github.event_name == 'merge_group') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
+        )
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Run slow tests
+
         env:
           BIONEMO_DATA_SOURCE: ngc
         # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
@@ -228,14 +279,20 @@ jobs:
           ./ci/scripts/run_pytest_slow.sh
 
 
-  run-notebooks-docs:
+  run-tests-notebooks:
     needs:
       - build-bionemo-image
       - get-pr-labels
     runs-on: linux-amd64-gpu-l4-latest-1
+
     if: |
-      github.event_name == 'schedule' || github.event_name == 'merge_group' ||
-      contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'INCLUDE_NOTEBOOKS_TESTS')
+        (needs.build-bionemo-image.result == 'success') &&
+        (
+          (github.event_name == 'schedule') ||
+          (github.event_name == 'merge_group') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:notebooks')
+        )
     container:
       image: svcbionemo023/bionemo-framework:${{ github.run_id }}
       credentials:
@@ -261,8 +318,8 @@ jobs:
       - get-pr-labels
       - build-bionemo-image
       - run-tests
-      - run-slow-tests
-      - run-notebooks-docs
+      - run-tests-slow
+      - run-tests-notebooks
       # Add all other run-*-test jobs
     runs-on: ubuntu-latest
     if: always() # This ensures the job runs even if previous jobs fail

@@ -16,6 +16,7 @@ script_args:
   model: evo2
   variant: train
   config_name: 1b
+  model_type: hyena
   precision: fp8
   gpus: 8
   batch_size: 8
@@ -34,9 +35,19 @@ script_args:
     - nodes: 2
       pp: 1
       tp: 1
+      config_name: 1b
     - nodes: 1
       pp: 1
       tp: 1
+      config_name: 1b
+    # - nodes: 2
+    #   pp: 1
+    #   tp: 2
+    #   config_name: hybrid_mamba_8b
+    # - nodes: 1
+    #   pp: 1
+    #   tp: 2
+    #   config_name: hybrid_mamba_8b
     # FIXME, issue: https://github.com/NVIDIA/bionemo-framework/issues/814
     # - nodes: 2
     #   pp: 1

@@ -1,0 +1,24 @@
+name: Build Dashboard
+
+on:
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger GitLab dashboard pipeline
+        env:
+          GITLAB_TRIGGER_TOKEN: ${{ secrets.GITLAB_TRIGGER_TOKEN }}
+          GITLAB_PROJECT_ID_DASHBOARDS: "130554"
+        run: |
+          echo "Triggering GitLab dashboard pipeline (main)..."
+          if curl -fsS -X POST \
+              -F "token=${GITLAB_TRIGGER_TOKEN}" \
+              -F "ref=main" \
+              "https://gitlab-master.nvidia.com/api/v4/projects/${GITLAB_PROJECT_ID_DASHBOARDS}/trigger/pipeline" >/dev/null; then
+            echo "✓ Triggered GitLab dashboard pipeline."
+          else
+            echo "✗ Failed to trigger GitLab dashboard pipeline." >&2
+            exit 1
+          fi

@@ -153,7 +153,8 @@ def load_data_run_benchmark(result_path, adata_path, write_results=True):
     import torch
 
     adata = read_h5ad(adata_path)
-
+    # TODO: update the prediction writer to support model and data parallelism, and modify the
+    #   path accordingly.
     infer_Xs = torch.load(result_path / "predictions__rank_0.pt")["embeddings"].float().cpu().numpy()
     assert len(adata) == len(infer_Xs), (len(adata), len(infer_Xs))
 

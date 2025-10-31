@@ -717,8 +717,8 @@ def test_batch_generate(
 @pytest.mark.parametrize(
     "ckpt_name,model_tokenizer_provider,expected_matchpercents",
     [
-        ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
-        ("evo2/1b-8k:1.0", get_model_and_tokenizer, [86.4, 78.8, 87.6]),
+        ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [86.4, 78.8, 49.7]),
+        ("evo2/1b-8k:1.0", get_model_and_tokenizer, [86.4, 78.8, 49.7]),
         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
         ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
         ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),

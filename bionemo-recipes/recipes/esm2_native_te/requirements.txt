@@ -1,0 +1,10 @@
+datasets
+hydra-core
+megatron-fsdp
+torch
+torchmetrics
+torchdata
+tqdm
+transformer_engine[pytorch]
+transformers
+wandb

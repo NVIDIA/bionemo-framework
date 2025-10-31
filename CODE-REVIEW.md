@@ -1,1 +1,1 @@
-docs/docs/user-guide/contributing/code-review.md
+docs/docs/main/contributing/code-review.md

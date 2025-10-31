@@ -88,7 +88,8 @@ def test_celltype_embeddings_golden_values():
         config_class=GeneformerConfig,
         include_unrecognized_vocab_in_dataset=False,
     )
-
+    # TODO: update the prediction writer to support model and data parallelism, and modify the
+    #   path accordingly.
     result = torch.load(results_path / "predictions__rank_0.pt")["embeddings"]
     expected_vals = torch.load(golden_values_path / "predictions__rank_0.pt")["embeddings"]
 

@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "esm"
+version = "0.1.0"
+description = "ESM TE Model"
+requires-python = ">=3.8"
+dependencies = [
+    "accelerate",
+    "datasets",
+    "hydra-core",
+    "jinja2",
+    "megatron-fsdp",
+    "omegaconf",
+    "peft",
+    "pytest",
+    "torch",
+    "transformer_engine[pytorch]",
+    "transformers",
+]
+
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.pytest.ini_options]
+addopts = ["--color=yes", "--strict-markers", "--tb=short", "-v"]

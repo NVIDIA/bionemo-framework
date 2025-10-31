@@ -193,12 +193,6 @@ ENV UV_LINK_MODE=copy \
   UV_SYSTEM_PYTHON=true \
   UV_BREAK_SYSTEM_PACKAGES=1
 
-# Install the bionemo-geometric requirements ahead of copying over the rest of the repo, so that we can cache their
-# installation. These involve building some torch extensions, so they can take a while to install.
-RUN --mount=type=bind,source=./sub-packages/bionemo-geometric/requirements.txt,target=/requirements-pyg.txt \
-  --mount=type=cache,target=/root/.cache \
-  uv pip install --no-build-isolation -r /requirements-pyg.txt
-
 COPY --from=rust-env /usr/local/cargo /usr/local/cargo
 COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 

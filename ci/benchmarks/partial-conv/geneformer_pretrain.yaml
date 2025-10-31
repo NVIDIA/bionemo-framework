@@ -1,5 +1,9 @@
 scope: partial-conv
 time_limit: 14400
+# artifacts:
+#   # Artifact data mount paths for script execution, specified as mount_path: artifact_tag pairs.
+#   # See Confluence Onboarding Guide section 5.4 for more details on locating this data.
+#   /data-jetart/cellxgene_scdl : tabular/cellxgene/processed/scdl-2025-06-20
 key_segments:
   # Modify keys to be renamed (str) or excluded (False) from run identifier. By default, all args under script_args are included.
   data_path: False
@@ -25,15 +29,20 @@ script_args:
   acc_grad: 1
   num_workers: 4
 script: |-
+  # Copying data to shared memory filesystem in Linux that provides a RAM-based temporary storage location
   COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
   NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
-      df -h;
+      df -h /dev/shm
       echo $NEW_DATA_PATH;
-      time cp -r ${data_path}/ $NEW_DATA_PATH;
+      # Create destination directory if it doesn't exist
+      mkdir -p $NEW_DATA_PATH;
+      # Check if source directory exists and has files
+      time cp -r ${data_path}/* $NEW_DATA_PATH/;
+      # ls -R $NEW_DATA_PATH;
       touch $COPY_FLAG
   fi
-  # All ranks wait until install flag file appears
+  # All ranks wait until data copy flag file appears
   while [ ! -f $COPY_FLAG ]; do
       sleep 1
   done
@@ -63,3 +72,26 @@ script: |-
     --accumulate-grad-batches ${acc_grad} \
     --precision ${precision} \
     --disable-checkpointing;
+tests:
+  - logic_type: static
+    # It can be used with the product_identifier to filter the runs by target (GPU type)
+    # but in fact this test should work with any target
+    # product_identifier: { 'target': 'dgxa100_dracooci-iad' }
+    logic_spec:
+      exit_codes:
+        - 0
+      baselines:
+        consumed_samples:
+          operator: eq
+          value: 15360000.0
+        val_loss:
+          operator: range
+          max: 2.42
+          min: 2.36
+        reduced_train_loss:
+          operator: range
+          max: 2.52
+          min: 2.45
+        TFLOPS_per_GPU:
+          operator: geq
+          value: 41

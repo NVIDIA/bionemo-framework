@@ -1,0 +1,20 @@
+# Test pipeline labels
+- name: ciflow:slow
+  description: Run slow single GPU integration tests marked as @pytest.mark.slow for bionemo2
+  color: 0E8A16  # Green
+
+- name: ciflow:notebooks
+  description: Run Jupyter notebooks execution tests for bionemo2
+  color: 1D76DB  # Blue
+
+- name: ciflow:all
+  description: Run all tests (unit tests, slow tests, and notebooks) for bionemo2. This label can be used to enforce running tests for all bionemo2.
+  color: FBCA04  # Yellow/Gold
+
+- name: ciflow:all-recipes
+  description: Run tests for all recipes (under bionemo-recipes). This label can be used to enforce running tests for all recipes.
+  color: 812afe  # Purple
+
+- name: ciflow:skip
+  description: Skip all CI tests for this PR
+  color: B60205  # Red
