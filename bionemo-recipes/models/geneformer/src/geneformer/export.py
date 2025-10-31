@@ -87,7 +87,7 @@ def export_hf_checkpoint(model_name: str, export_path: Path):
     model_file_dest = export_path / "geneformer.py"
     shutil.copy(model_file_source, model_file_dest)
     print(f"Copied {model_file_source} to {model_file_dest}")
-    
+
     project_root = Path(__file__).parent.parent.parent
     shutil.copy(project_root / "README.md", export_path / "README.md")
     shutil.copy(project_root / "LICENSE", export_path / "LICENSE")
