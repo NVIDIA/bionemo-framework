@@ -90,7 +90,11 @@ def convert_llama_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
     Returns:
         nn.Module: The Transformer Engine model.
     """
-    hf_config = LlamaConfig(**model_te.config.to_dict(), **config_kwargs)
+    # Filter out keys from model_te.config that are not valid LlamaConfig attributes
+    te_config_dict = model_te.config.to_dict()
+    valid_keys = set(LlamaConfig.__init__.__code__.co_varnames)
+    filtered_config = {k: v for k, v in te_config_dict.items() if k in valid_keys}
+    hf_config = LlamaConfig(**filtered_config, **config_kwargs)
 
     with torch.device("meta"):
         model_hf = LlamaForCausalLM(hf_config)

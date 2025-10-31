@@ -13,20 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from collections import OrderedDict
 from typing import Unpack
 
 import torch
 import torch.nn as nn
 import transformer_engine.pytorch
 import transformers
+from transformer_engine.pytorch.attention import InferenceParams
+from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
 from transformers import LlamaConfig, PreTrainedModel
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
-from transformers.modeling_rope_utils import dynamic_rope_update
 from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 from transformers.utils.generic import TransformersKwargs
 
 
-class NVLlamaConfig(LlamaConfig): ...  # noqa: D101
+class NVLlamaConfig(LlamaConfig):
+    """NVLlama configuration."""
+
+    attn_input_format: str = "bshd"
+    self_attn_mask_type: str = "padding_causal"
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -62,7 +68,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                     qkv_weight_interleaved=True,
                     normalization="RMSNorm",
                     activation="swiglu",
-                    attn_input_format="bshd",
+                    attn_input_format=config.attn_input_format,
+                    self_attn_mask_type=config.self_attn_mask_type,
                     num_gqa_groups=config.num_key_value_heads,
                     layer_number=layer_idx + 1,
                     params_dtype=config.dtype,
@@ -71,7 +78,12 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             ]
         )
         self.norm = transformer_engine.pytorch.RMSNorm(config.hidden_size, eps=config.rms_norm_eps, dtype=config.dtype)
-        self.rotary_emb = NVLlamaRotaryEmbedding(config=config)
+
+        # We use TE's RotaryPositionEmbedding, but we ensure that we use the same inv_freq as the original
+        # LlamaRotaryEmbedding.
+        self.rotary_emb = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
+        self.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=config).inv_freq
+
         self.gradient_checkpointing = False
 
         # Initialize weights and apply final processing
@@ -82,9 +94,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         input_ids: torch.Tensor | None = None,
         attention_mask: torch.Tensor | None = None,
         position_ids: torch.Tensor | None = None,
-        past_key_values: tuple[tuple[torch.Tensor, ...], ...] | None = None,
+        past_key_values: InferenceParams | None = None,
         inputs_embeds: torch.Tensor | None = None,
-        cache_position: torch.Tensor | None = None,
         use_cache: bool | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> BaseModelOutputWithPast:
@@ -96,7 +107,6 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             position_ids (torch.Tensor): The position ids.
             past_key_values (tuple[tuple[torch.Tensor, ...], ...]): The past key values.
             inputs_embeds (torch.Tensor): The inputs embeds.
-            cache_position (torch.Tensor): The cache position.
             use_cache (bool): Whether to use cache.
             **kwargs: Additional keyword arguments.
 
@@ -112,20 +122,50 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         if inputs_embeds is None:
             inputs_embeds: torch.Tensor = self.embed_tokens(input_ids)
 
-        if use_cache and past_key_values is None:
-            past_key_values = transformers.cache_utils.DynamicCache(config=self.config)
+        hidden_states = inputs_embeds
+        if self.config.attn_input_format == "bshd":
+            if past_key_values is not None:
+                max_seq_len = past_key_values.max_sequence_length
+            else:
+                max_seq_len = hidden_states.shape[1]
+            te_rope_emb = self.rotary_emb(max_seq_len=max_seq_len)
+        elif self.config.attn_input_format == "thd":
+            te_rope_emb = self.rotary_emb(max_seq_len=kwargs["cu_seq_lens_q"][-1])
 
-        if cache_position is None:
-            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            cache_position: torch.Tensor = torch.arange(
-                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
+        has_thd_input = [
+            x is not None
+            for x in [
+                kwargs.get("cu_seq_lens_q", None),
+                kwargs.get("cu_seq_lens_k", None),
+                kwargs.get("max_length_q", None),
+                kwargs.get("max_length_k", None),
+            ]
+        ]
+
+        if isinstance(past_key_values, InferenceParams):
+            # lengths = attention_mask.sum(dim=1) if attention_mask is not None else torch.tensor([0])
+            lengths = input_ids.ne(0).sum(dim=1) if input_ids is not None else torch.tensor([0])
+            past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths.tolist())))
+
+        if self.config.attn_input_format == "thd":
+            if not all(has_thd_input):
+                raise ValueError(
+                    "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k must be provided when using THD inputs."
+                )
+            assert hidden_states.dim() == 3 and hidden_states.size(0) == 1, (
+                "THD expects embeddings shaped [1, total_tokens, hidden_size]."
+            )
+            hidden_states = hidden_states.squeeze(0)
+            attention_mask = None
+
+        elif self.config.attn_input_format == "bshd" and any(has_thd_input):
+            raise ValueError(
+                "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k are not allowed when using BSHD inputs."
             )
 
-        if position_ids is None:
-            position_ids = cache_position.unsqueeze(0)
-
-        hidden_states = inputs_embeds
-        position_embeddings = self.rotary_emb(hidden_states, position_ids)
+        # Construct the appropriate attention mask.
+        if attention_mask is not None and self.config.self_attn_mask_type == "padding_causal":
+            attention_mask = ~attention_mask.to(bool)[:, None, None, :]
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             if output_hidden_states:
@@ -133,13 +173,13 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
             hidden_states = decoder_layer(
                 hidden_states,
-                attention_mask=None,
-                self_attn_mask_type="causal",
-                rotary_pos_emb=position_embeddings,
-                # position_ids=position_ids,
-                # past_key_values=past_key_values,
-                # cache_position=cache_position,
-                # **kwargs,
+                attention_mask=attention_mask,
+                rotary_pos_emb=te_rope_emb,
+                inference_params=past_key_values,
+                cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
+                cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                max_seqlen_q=kwargs.get("max_length_q", None),
+                max_seqlen_kv=kwargs.get("max_length_k", None),
             )
 
         hidden_states = self.norm(hidden_states)
@@ -185,7 +225,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         labels: torch.Tensor | None = None,
         use_cache: bool | None = None,
         cache_position: torch.Tensor | None = None,
-        logits_to_keep: int | torch.Tensor = 0,
+        only_keep_last_logits: bool = False,
         **kwargs: Unpack[TransformersKwargs],
     ) -> CausalLMOutputWithPast:
         """Forward pass for the NVLlamaForCausalLM model.
@@ -199,7 +239,8 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             labels (torch.Tensor): The labels.
             use_cache (bool): Whether to use cache.
             cache_position (torch.Tensor): The cache position.
-            logits_to_keep (int | torch.Tensor): The logits to keep.
+            only_keep_last_logits (bool): Whether to keep only the last logits, as a workaround for the fact that TE
+                doesn't support left-side padding with `padding_causal` attention masks.
             **kwargs: Additional keyword arguments.
 
         Returns:
@@ -217,9 +258,26 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
-        slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
-        logits = self.lm_head(hidden_states[:, slice_indices, :])
+
+        # TE doesn't support left-side padding with `padding_causal` attention masks, and InferenceParams doesn't
+        # support arbitrary attention masks (and the attention backend for arbitrary masks is the slower, unfused
+        # backend). To keep the inference interface consistent with HF's `GenerationMixin.generate` interface, we use a
+        # `only_keep_last_logits` flag to indicate that we should pick out and return only the last token's hidden state
+        # during pre-fill. This allows generation to work with right-side padding. Note, make sure that you decode the
+        # tokens with `skip_special_tokens=True` when using this flag, otherwise padding tokens will interrupt the
+        # generated text.
+        if (
+            only_keep_last_logits
+            and attention_mask is not None  # Padded inputs
+            and hidden_states.shape[1] > 1  # We're in pre-fill mode
+        ):
+            seqlens = attention_mask.sum(dim=1)  # shape: [batch]
+            # For each batch idx, select hidden_states[idx, seqlens[idx]-1, :]
+            batch_indices = torch.arange(hidden_states.size(0), device=hidden_states.device)
+            selected_hidden_states = hidden_states[batch_indices, seqlens - 1, :]  # shape: [batch, hidden_dim]
+            hidden_states = selected_hidden_states.unsqueeze(1)  # shape: [batch, 1, hidden_dim]
+
+        logits = self.lm_head(hidden_states)
 
         loss = None
         if labels is not None:
@@ -248,25 +306,3 @@ class NVLlamaForQuestionAnswering(transformers.modeling_layers.GenericForQuestio
 class NVLlamaForTokenClassification(  # noqa: D101
     transformers.modeling_layers.GenericForTokenClassification, NVLlamaPreTrainedModel
 ): ...
-
-
-class NVLlamaRotaryEmbedding(LlamaRotaryEmbedding):
-    """Slight modification of the LlamaRotaryEmbedding for use with Transformer Engine."""
-
-    @torch.no_grad()
-    @dynamic_rope_update  # power user: used with advanced RoPE types (e.g. dynamic rope)
-    def forward(self, x, position_ids):  # pyright: ignore[reportIncompatibleMethodOverride]
-        """Forward pass for the NVLlamaRotaryEmbedding.
-
-        Unlike the original LlamaRotaryEmbedding, this implementation returns the frequency tensor (upstream of the
-        cosine and sine transforms), reshaped in a way that is compatible with TransformerEngine's fused RoPE.
-        """
-        inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to(x.device)
-        position_ids_expanded = position_ids[:, None, :].float()
-
-        device_type = x.device.type if isinstance(x.device.type, str) and x.device.type != "mps" else "cpu"
-        with torch.autocast(device_type=device_type, enabled=False):  # Force float32
-            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
-            emb = torch.cat((freqs, freqs), dim=-1)
-
-        return emb.transpose(0, 1).unsqueeze(1)
