@@ -1,0 +1,7 @@
+datasets
+peft
+torch
+tqdm
+transformer_engine[pytorch]
+transformers
+wandb
