@@ -235,6 +235,12 @@ MODEL_ARCHITECTURES: Dict[str, Dict[str, Any]] = {
         "num_attention_heads": 16,
         "num_hidden_layers": 18,
     },
+    "encodon_10b": {
+        "hidden_size": 5120,
+        "intermediate_size": 20480,
+        "num_attention_heads": 40,
+        "num_hidden_layers": 34,
+    },
 }
 
 
@@ -309,7 +315,11 @@ def get_trainer_config(args: Any) -> Dict[str, Any]:
         devices=args.num_gpus,
         max_steps=args.max_steps,
         default_root_dir=args.out_dir,
-        strategy="ddp" if args.mode != "finetune" else "ddp_find_unused_parameters_true",
+        strategy="fsdp"
+        if args.enable_fsdp
+        else "ddp"
+        if args.mode != "finetune"
+        else "ddp_find_unused_parameters_true",
         precision="bf16-mixed" if getattr(args, "bf16", False) else "32-true",
         limit_val_batches=args.limit_val_batches,
         log_every_n_steps=args.log_every_n_steps,
