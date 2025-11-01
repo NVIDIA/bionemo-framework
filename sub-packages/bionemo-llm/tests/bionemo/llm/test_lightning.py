@@ -75,6 +75,7 @@ def test_batch_collate_list():
     assert torch.equal(result[1], torch.tensor([i + 1 for i in range(10)]))
 
 
+@pytest.mark.multi_gpu
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="test requires at least 2 GPUs")
 def test_batch_collate_multi_gpu():
     # Create tensors on different GPUs
