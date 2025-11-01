@@ -22,7 +22,6 @@ import torch.nn as nn
 import torch.utils.checkpoint
 from lightning import LightningModule
 from peft import LoraConfig, PeftType, get_peft_model
-from torch.distributed.fsdp.wrap import wrap
 from torchmetrics import MeanMetric
 from transformers.utils import logging
 
@@ -156,7 +155,7 @@ class EncodonPL(LightningModule):
                 return
 
         if self.model is None:
-            self.model = wrap(EnCodon(self.pretrained_config))
+            self.model = EnCodon(self.pretrained_config)
 
             # Add cross-attention downstream heads only if enabled
             if self.hparams.use_downstream_head:
@@ -359,8 +358,16 @@ class EncodonPL(LightningModule):
         Returns:
             Loss tensor used for optimization.
         """
+        torch.cuda.reset_peak_memory_stats()
+        torch.cuda.empty_cache()
+        initial_memory = torch.cuda.memory_allocated()
+        print(f"initial memory: {initial_memory / 1024**2:.2f} MB")
         loss, preds, targets = self.model_step(batch)
+        post_model_step_memory = torch.cuda.memory_allocated()
+        print(f"post forward step memory: {post_model_step_memory / 1024**2:.2f} MB")
         self.train_loss(loss)
+        post_loss_memory = torch.cuda.memory_allocated()
+        print(f"post loss memory: {post_loss_memory / 1024**2:.2f} MB")
         self.log("train/loss", self.train_loss, prog_bar=True, on_step=True, on_epoch=True, sync_dist=True)
         return loss
 
@@ -465,3 +472,5 @@ class EncodonPL(LightningModule):
             self.zero_grad()
 
         super().optimizer_step(*args, **kwargs)
+        post_optimizer_step_memory = torch.cuda.memory_allocated()
+        print(f"post optimizer step memory: {post_optimizer_step_memory / 1024**2:.2f} MB")

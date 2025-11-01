@@ -33,6 +33,7 @@ from src.inference.encodon import EncodonInference
 from src.models.encodon_pl import EncodonPL
 from src.models.encodon_te_pl import EncodonTEPL
 from src.tokenizer import Tokenizer
+from src.utils.fsdp_config import get_fsdp_strategy
 from src.utils.grad_norm_callback import GradientNormLogger
 from src.utils.pred_writer import PredWriter
 from src.utils.scheduler import linear_scheduler_with_warmup_lr_lambda
@@ -310,16 +311,26 @@ def get_model_config(args: Any) -> fdl.Config:
 # Trainer
 def get_trainer_config(args: Any) -> Dict[str, Any]:
     """Builds the trainer configuration arguments."""
+    # Configure strategy based on args
+    if args.enable_fsdp:
+        # Use proper FSDP/FSDP2 strategy with auto-wrap policy
+        # This ensures FSDP uses LESS memory than DDP
+        strategy = get_fsdp_strategy(
+            cpu_offload=getattr(args, "fsdp_cpu_offload", False),
+            activation_checkpointing=getattr(args, "fsdp_activation_checkpointing", False),
+            use_fsdp2=getattr(args, "use_fsdp2", True),  # FSDP2 by default if available
+        )
+    elif args.mode == "finetune":
+        strategy = "ddp_find_unused_parameters_true"
+    else:
+        strategy = "ddp"
+
     trainer_kwargs = dict(  # noqa: C408
         num_nodes=args.num_nodes,
         devices=args.num_gpus,
         max_steps=args.max_steps,
         default_root_dir=args.out_dir,
-        strategy="fsdp"
-        if args.enable_fsdp
-        else "ddp"
-        if args.mode != "finetune"
-        else "ddp_find_unused_parameters_true",
+        strategy=strategy,
         precision="bf16-mixed" if getattr(args, "bf16", False) else "32-true",
         limit_val_batches=args.limit_val_batches,
         log_every_n_steps=args.log_every_n_steps,
