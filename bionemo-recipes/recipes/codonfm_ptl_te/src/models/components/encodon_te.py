@@ -78,6 +78,7 @@ class EnCodonTE(nn.Module):
                     rotary_pos_interleaved=config.rotary_pos_interleaved,
                     layer_number=i + 1,
                     layer_type="encoder",
+                    device="cpu",
                     self_attn_mask_type=config.self_attn_mask_type,
                     activation=config.encoder_activation,
                     attn_input_format=config.attn_input_format,
@@ -91,25 +92,26 @@ class EnCodonTE(nn.Module):
         )
 
         self.cls = nn.Sequential(
-            transformer_engine.pytorch.Linear(config.hidden_size, config.hidden_size),
+            transformer_engine.pytorch.Linear(config.hidden_size, config.hidden_size, device="cpu"),
             ACT2FN[config.hidden_act],
             transformer_engine.pytorch.LayerNormLinear(
                 config.hidden_size,
                 config.padded_vocab_size if config.padded_vocab_size is not None else config.vocab_size,
                 bias=True,
                 eps=config.layer_norm_eps,
+                device="cpu",
             ),
         )
         self.rotary_embeddings = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
         # Keep on CPU, pin for faster non_blocking H2D; don't persist in state_dict.
-        if config.attn_input_format == "bshd":
-            self.register_buffer(
-                "te_rope_emb",
-                self.rotary_embeddings(max_seq_len=config.max_position_embeddings).cpu().pin_memory(),
-                persistent=False,
-            )
-        else:
-            self.te_rope_emb = None
+        # if config.attn_input_format == "bshd":
+        #     self.register_buffer(
+        #         "te_rope_emb",
+        #         self.rotary_embeddings(max_seq_len=config.max_position_embeddings).cpu().pin_memory(),
+        #         persistent=False,
+        #     )
+        # else:
+        self.te_rope_emb = None
         self._init_weights()
 
     def reset_cls_parameters(self):  # noqa: C901
@@ -240,33 +242,33 @@ class EnCodonTE(nn.Module):
                 attention_mask, input_shape, device=input_ids.device, dtype=next(self.parameters()).dtype
             )
             extended_attention_mask = extended_attention_mask < -1
-
-            te_rope_emb = self.te_rope_emb.to(
-                device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
-            )
-            seq_len = hidden_states.shape[1]
-            if te_rope_emb.size(0) < seq_len:
-                raise RuntimeError(
-                    f"ROPE length {te_rope_emb.size(0)} < input seq length {seq_len}. "
-                    f"Increase max_position_embeddings."
-                )
-            te_rope_emb = te_rope_emb[:seq_len]
-        else:
-            with torch.autocast(device_type="cuda", enabled=False):
-                te_rope_emb = self.rotary_embeddings(max_seq_len=kwargs["cu_seq_lens_q"][-1])
-            te_rope_emb = te_rope_emb.to(hidden_states.device, dtype=hidden_states.dtype, non_blocking=True)
-
-        for i, layer_module in enumerate(self.layers):
-            core_attention_bias_type = "no_bias"
-            core_attention_bias = None
             attention_mask = extended_attention_mask
 
+        #     te_rope_emb = self.te_rope_emb.to(
+        #         device=hidden_states.device, dtype=hidden_states.dtype, non_blocking=True
+        #     )
+        #     seq_len = hidden_states.shape[1]
+        #     if te_rope_emb.size(0) < seq_len:
+        #         raise RuntimeError(
+        #             f"ROPE length {te_rope_emb.size(0)} < input seq length {seq_len}. "
+        #             f"Increase max_position_embeddings."
+        #         )
+        #     te_rope_emb = te_rope_emb[:seq_len]
+        # else:
+        with torch.autocast(device_type="cuda", enabled=False):
+            if self.config.attn_input_format == "bshd":
+                te_rope_emb = self.rotary_embeddings(max_seq_len=hidden_states.shape[1])
+            elif self.config.attn_input_format == "thd":
+                te_rope_emb = self.rotary_embeddings(max_seq_len=kwargs["cu_seq_lens_q"][-1])
+        te_rope_emb = te_rope_emb.to(hidden_states.device, dtype=hidden_states.dtype, non_blocking=True)
+
+        for i, layer_module in enumerate(self.layers):
             if self.config.attn_input_format == "bshd":
                 layer_outputs = layer_module(
                     hidden_states=hidden_states,
                     rotary_pos_emb=te_rope_emb,
-                    core_attention_bias_type=core_attention_bias_type,
-                    core_attention_bias=core_attention_bias,
+                    core_attention_bias_type="no_bias",
+                    core_attention_bias=None,
                     attention_mask=attention_mask,
                 )
             else:
