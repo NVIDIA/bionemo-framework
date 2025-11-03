@@ -27,7 +27,6 @@ from torch import nn
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 SourceModuleT = TypeVar("SourceModuleT", bound=nn.Module)
 TargetModuleT = TypeVar("TargetModuleT", bound=nn.Module)
@@ -491,13 +490,13 @@ class TransformFns:
 
         Example: export layer linear_qkv to HF {q|k|v}_proj
         """
-        megatron_config = ctx.source.config
+        target_config = ctx.target.config
 
-        head_num = megatron_config.num_attention_heads
-        num_query_groups = megatron_config.num_query_groups
+        head_num = target_config.num_attention_heads
+        num_query_groups = target_config.num_key_value_heads
         heads_per_group = head_num // num_query_groups
-        # hidden_size = megatron_config.hidden_size
-        head_size = megatron_config.kv_channels
+        hidden_size = target_config.hidden_size
+        head_size = hidden_size // head_num
         qkv_total_dim = head_num + 2 * num_query_groups
 
         linear_qkv = linear_qkv.reshape([qkv_total_dim, head_size, -1])
@@ -568,13 +567,13 @@ class TransformFns:
 
         Example: import HF {q|k|v}_proj to layer linear_qkv
         """
-        megatron_config = ctx.target.config
+        target_config = ctx.target.config
 
-        head_num = megatron_config.num_attention_heads
-        num_query_groups = megatron_config.num_query_groups
+        head_num = target_config.num_attention_heads
+        num_query_groups = target_config.num_key_value_heads
         heads_per_group = head_num // num_query_groups
-        hidden_size = megatron_config.hidden_size
-        head_size = megatron_config.kv_channels
+        hidden_size = target_config.hidden_size
+        head_size = hidden_size // head_num
         old_tensor_shape = q.size()
         new_q_tensor_shape = (head_num, head_size, *old_tensor_shape[1:])
         new_kv_tensor_shape = (num_query_groups, head_size, *old_tensor_shape[1:])
