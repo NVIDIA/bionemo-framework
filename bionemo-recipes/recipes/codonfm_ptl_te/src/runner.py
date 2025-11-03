@@ -162,7 +162,6 @@ def get_parser():  # noqa: D103
 
     # Common trainer flags
     parser.add_argument("--enable_fsdp", action="store_true", default=False)
-    parser.add_argument("--use_fsdp2", action="store_true", default=False)
     parser.add_argument("--fsdp_cpu_offload", action="store_true", default=False)
     parser.add_argument("--fsdp_activation_checkpointing", action="store_true", default=False)
     parser.add_argument("--val_check_interval", type=int, default=1000)
