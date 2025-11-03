@@ -53,3 +53,9 @@ def cleanup_after_test():
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         gc.collect()
+
+
+def pytest_addoption(parser: pytest.Parser):
+    """Pytest configuration for bionemo.evo2.run tests. Adds custom command line options for dataset paths."""
+    parser.addoption("--dataset-dir", action="store", default=None, help="Path to preprocessed dataset directory")
+    parser.addoption("--training-config", action="store", default=None, help="Path to training data config YAML file")

@@ -104,6 +104,8 @@ class SingleCellDataModule(MegatronDataModule):
         self.tokenizer = tokenizer
         self.median_dict = median_dict
         self.max_len = seq_length
+        # We need to define a "seq_length" for OneLogger, but we just set it to max_len
+        self.seq_length = seq_length
         self.mask_prob = mask_prob
         self.mask_token_prob = mask_token_prob
         self.random_token_prob = random_token_prob

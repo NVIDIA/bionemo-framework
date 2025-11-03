@@ -59,7 +59,7 @@ exclude = [
 [lint.isort]
 lines-after-imports = 2
 known-third-party = ["wandb"]
-known-first-party = ["esm"]
+known-first-party = ["esm", "amplify"]
 
 [lint.pydocstyle]
 convention = "google"

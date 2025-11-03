@@ -118,9 +118,25 @@ if __name__ == "__main__":
     parser.add_argument("--strategy", type=Strategy, default=Strategy.FSDP2, choices=[Strategy.FSDP2, Strategy.MFSDP])
     args = parser.parse_args()
 
-    from conftest import get_input_data
-
     tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
+
+    test_proteins = [
+        "MLSATEKLSDYISSLFASVSIINSISTEDLFFLKLTCQTFSKDSEEYKAAYRILRGVQRGKVQIIEEALVS",
+        "MFVFFAGTLVNQDTLNFRDQLNINVVGTVRGIAQDASKYLEYAIDSV",
+        "MAATGSLILSDEEQAELIALAVRIVLACAGGSQNKELAAQLGVIETTVGEWRRRFAQNRVEGLRDEARPGAPSDDQ",
+        "MSAVLSAVASDDWTAFAKLVHPYVHWTADGITTRGRTRVMARLSGHDGVKPASSYELRDGQVYRWTS",
+        "MSDPAAEPPADTSGIAWRKSSYSGPNGNCVELAQISGDHVGIRNSRDLHGSVLTCTRAEFAALLCDIKAGRFDSLIL",
+        "MRRPKLRRSGVLMSHPARGQPIKDASTEAAAERRPHVTSSERQDVSDQDTR",
+        "MQTITVAGGNLFQIAAQYLGDATQWIRIAQLNGLADPVLSGVVTLTIPQPNPLAGGGVVGQ",
+        "MVFSLEQFVRGQGWQSITSNSDNEVPKPRQVYEVKAVCHPGAWRVKARVFGTSQGIPFDYSQASMERRVAQDECDRRPQ",
+        "AGDGTGCNPTLSKAAGVELDNSDSGEVFVIYLHIIIAIIVLISINLIGFLYF",
+        "MKVGVDPSVCEAHGACMSILPEVFDLDDDEVLQIRDGELAPSEEESAERAVASCPMGALRLSR",
+        "MWISERPPSRMALGSQSQMSLPGIPARCLHS",
+        "MIDNSIRLFDADDSELFSLAEVPLDNKPIQRDTDSLSQWGDTWLREIQHS",
+        "MVKNLFFNKIKNATLKVANISRCYLPFPPPPCPPPEPLEPPEPPAPLEPAPDPPPLPPFPVPDILPAI",
+        "MSYINDITQSNSSILNVNVKINDHNSDEMYRNETKWYGEQFRYQSNPRFSRSSTSKNEKGFVQKKT",
+        "MQILILPIPDQLQNPNKISQHLICITFVSEQTLPI",
+    ]
 
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
@@ -129,7 +145,7 @@ if __name__ == "__main__":
         seed=42,
     )
 
-    input_data = get_input_data(tokenizer, data_collator)
+    input_data = data_collator([tokenizer(p, truncation=True, max_length=1024) for p in test_proteins])
 
     @dataclass
     class DistributedConfig:
@@ -155,14 +171,14 @@ if __name__ == "__main__":
         if use_te:
             model = AutoModelForMaskedLM.from_pretrained(
                 "nvidia/esm2_t6_8M_UR50D",
-                torch_dtype=torch.bfloat16,
+                dtype=torch.bfloat16,
                 trust_remote_code=True,
             )
             transformer_layers = model.esm.encoder.layers
         else:
             model = AutoModelForMaskedLM.from_pretrained(
                 "facebook/esm2_t6_8M_UR50D",
-                torch_dtype=torch.bfloat16,
+                dtype=torch.bfloat16,
             )
             transformer_layers = model.esm.encoder.layer
             del model.esm.contact_head  # Unused in backwards pass.
@@ -197,7 +213,7 @@ if __name__ == "__main__":
                 device_mesh=device_mesh,
                 dp_shard_dim="dp",
                 tp_dim="tp",
-                sync_grads_each_step=True,
+                sync_model_each_microbatch=True,
                 preserve_fp32_weights=False,  # TODO: cory, any idea why this is needed?
             )
 
@@ -205,8 +221,7 @@ if __name__ == "__main__":
         input_data = {k: v.to(device) for k, v in input_data.items()}
 
         optimizer.zero_grad()
-        with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-            outputs = model(**input_data)
+        outputs = model(**input_data)
         outputs.loss.backward()
 
         # get gradients

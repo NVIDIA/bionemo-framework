@@ -2,7 +2,7 @@
 
 This directory contains self-contained training examples that demonstrate best practices for scaling
 biological foundation models using [TransformerEngine](https://github.com/NVIDIA/TransformerEngine)
-and [megatron-fsdp](https://pypi.org/project/megatron-fsdp/). Each recipe is a complete Docker environment with
+and [megatron-FSDP](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src)). Each recipe is a complete Docker environment with
 benchmarked training scripts that users can learn from and adapt for their own research.
 
 ## Philosophy
@@ -27,7 +27,7 @@ Each recipe is a completely isolated environment:
 - **Everything needed** to run training is included in the recipe directory
 - **Pinned dependencies** for reproducible results. Eventually we will use a uv lockfile to make automated package updates easier.
 
-### KISS over DRY
+### KISS (Keep It Simple) over DRY (Don't Repeat Yourself)
 
 Prioritize **readability and educational value** over code reuse:
 
@@ -50,7 +50,6 @@ Follow this naming pattern to clearly communicate what your recipe demonstrates:
 Examples:
 
 - `esm2_native_te_mfsdp/` - ESM-2 with vanilla PyTorch, TransformerEngine, and megatron-fsdp
-- `amplify_accelerate_fp8/` - AMPLIFY with HuggingFace Accelerate and FP8 training
 - `geneformer_lightning_context_parallel/` - Geneformer with PyTorch Lightning and context parallelism
 
 ### Required Directory Structure
@@ -86,7 +85,7 @@ recipes/{recipe_name}/
 Your `Dockerfile` should create a complete, reproducible training environment:
 
 ```dockerfile
-FROM nvcr.io/nvidia/pytorch:25.08-py3
+FROM nvcr.io/nvidia/pytorch:25.09-py3
 
 # Install dependencies with caching for faster builds
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -412,7 +411,6 @@ docker run --rm -it --gpus all my_recipe pytest -v .
 For reference implementations, examine existing recipes:
 
 - **`esm2_native_te_mfsdp/`**: Comprehensive example showing vanilla PyTorch with TE and megatron-fsdp
-- **`amplify_accelerate_fp8/`**: HuggingFace Accelerate integration with FP8 training
 - **`geneformer_lightning_context_parallel/`**: PyTorch Lightning with context parallelism for long sequences
 
 ## Best Practices

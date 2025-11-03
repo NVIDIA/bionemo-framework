@@ -18,9 +18,9 @@
 
 import torch
 from accelerate import init_empty_weights
-from nemo.lightning import io
 from torch import nn
 
+import amplify.state as io
 from amplify.amplify_te import AMPLIFYConfig, AMPLIFYForMaskedLM
 
 

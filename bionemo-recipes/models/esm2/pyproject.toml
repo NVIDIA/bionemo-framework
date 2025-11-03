@@ -10,17 +10,15 @@ requires-python = ">=3.8"
 dependencies = [
     "accelerate",
     "datasets",
-    "fiddle",
     "hydra-core",
-    "lightning",
-    "megatron-core@git+https://github.com/NVIDIA/Megatron-LM.git", # Currently at ToT until mfsdp is in a release.
-    "megatron-fsdp==0.1.0rc0",
-    "nemo_toolkit[lightning]",                                     # tested with 2.3.1
+    "jinja2",
+    "megatron-fsdp",
     "omegaconf",
+    "peft",
     "pytest",
     "torch",
     "transformer_engine[pytorch]",
-    "transformers<4.56",                                           # TODO: fix me, currently failing with a modelopt import from nemo.
+    "transformers",
 ]
 
 

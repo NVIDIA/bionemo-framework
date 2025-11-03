@@ -22,6 +22,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+import datasets
 import torch
 from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
 
@@ -107,6 +108,9 @@ class MLMDataCollatorWithFlattening:
         return_tensors: str = "pt",
         seed: int | None = None,
         pad_to_multiple_of: int | None = None,
+        return_position_ids: bool = False,
+        bshd_equivalent: bool = False,
+        bshd_pad_to_multiple_of: int | None = None,
     ):
         """Initialize the MLMDataCollatorWithFlattening.
 
@@ -120,6 +124,11 @@ class MLMDataCollatorWithFlattening:
             seed (int | None): Random seed for reproducible masking. Defaults to None.
             pad_to_multiple_of (int | None): If set, pads the total sequence length to be divisible
                 by this number by adding a mock sequence at the end. Defaults to None.
+            return_position_ids (bool): Whether to return position ids. Defaults to False.
+            bshd_equivalent (bool): Whether to return a batch exactly reproduces the random masking of the BSHD
+                collator, at the expense of additional computation time. Defaults to False.
+            bshd_pad_to_multiple_of (int | None): For the bshd_equivalent mode, mimics padding that would be done by the
+                BSHD collator. Defaults to None.
         """
         self.mlm_collator = DataCollatorForLanguageModeling(
             tokenizer=tokenizer,
@@ -129,9 +138,16 @@ class MLMDataCollatorWithFlattening:
             random_replace_prob=random_replace_prob,
             return_tensors=return_tensors,
             seed=seed,
+            pad_to_multiple_of=bshd_pad_to_multiple_of,
         )
         self.return_tensors = return_tensors
         self.pad_to_multiple_of = pad_to_multiple_of
+        self.return_position_ids = return_position_ids
+        self.bshd_equivalent = bshd_equivalent
+        self.bshd_pad_to_multiple_of = bshd_pad_to_multiple_of
+
+        if bshd_pad_to_multiple_of is not None and not bshd_equivalent:
+            raise ValueError("bshd_pad_to_multiple_of can only be used when bshd_equivalent is True")
 
     def __call__(self, features, return_tensors=None):
         """Process a batch of variable-length sequences for Flash Attention with MLM.
@@ -192,13 +208,16 @@ class MLMDataCollatorWithFlattening:
             sequence processing capabilities. When pad_to_multiple_of is used, an additional
             mock sequence is appended to reach the desired total length.
         """
+        if self.bshd_equivalent:
+            return self.bshd_compatible_call(features, return_tensors=return_tensors)
+
         if return_tensors is None:
             return_tensors = self.return_tensors
 
         if return_tensors != "pt":
             raise NotImplementedError(f'return_tensors must be "pt", {return_tensors=} not implemented')
 
-        batch = _pt_flatten_collate(features)
+        batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
 
         special_tokens_mask = batch.pop("special_tokens_mask", None)
         batch["input_ids"], batch["labels"] = self.mlm_collator.torch_mask_tokens(
@@ -206,33 +225,66 @@ class MLMDataCollatorWithFlattening:
         )
 
         if self.pad_to_multiple_of is not None:
-            # Ensure token_pad is an integer, defaulting to 1 if pad_token_id is None or invalid
-            pad_token_id = self.mlm_collator.tokenizer.pad_token_id
-            if not isinstance(pad_token_id, int):
-                logger.warning(f"tokenizer.pad_token_id is not an integer, using 1 instead: {pad_token_id}")
-                pad_token_id = 1
-
-            batch = _pt_pad_to_multiple_of(
-                batch,
-                self.pad_to_multiple_of,
-                token_pad=pad_token_id,
-                label_pad=-100,
-            )
+            batch = self._pad_batch_to_multiple_of(batch)
 
         return batch
+
+    def bshd_compatible_call(self, features, return_tensors=None):
+        """Mask tokens in a way that's identical to the BSHD collator.
+
+        This ensures the randomized masking outputs of the THD collator are identical to the BSHD collator.
+        """
+        # Perform the masking with the BSHD collator.
+        bshd_batch = self.mlm_collator(features, return_tensors=return_tensors)
+
+        # Create the flattened batch to get the cu_seq_lens_q and cu_seq_lens_k values.
+        packed_batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
+
+        # Get the masked input_ids and labels from the BSHD batch.
+        masked_input_ids = bshd_batch["input_ids"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
+        masked_labels = bshd_batch["labels"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
+
+        # Update the packed batch with the masked input_ids and labels.
+        packed_batch["input_ids"] = masked_input_ids
+        packed_batch["labels"] = masked_labels
+
+        if self.pad_to_multiple_of is not None:
+            packed_batch = self._pad_batch_to_multiple_of(packed_batch)
+
+        return packed_batch
+
+    def _pad_batch_to_multiple_of(self, batch):
+        """Add a mock sequence to make the total number of tokens divisible by pad_to_multiple_of."""
+        # Ensure token_pad is an integer, defaulting to 1 if pad_token_id is None or invalid
+        pad_token_id = self.mlm_collator.tokenizer.pad_token_id
+        if not isinstance(pad_token_id, int):
+            logger.warning(f"tokenizer.pad_token_id is not an integer, using 1 instead: {pad_token_id}")
+            pad_token_id = 1
+
+        return _pt_pad_to_multiple_of(
+            batch,
+            self.pad_to_multiple_of,
+            token_pad=pad_token_id,
+            label_pad=-100,
+        )
 
 
 @dataclass
 class DataCollatorWithFlattening(DefaultDataCollator):
     """Data collator for sequence packing with flash attentions cu_seqlens-style attention.
 
-    Inspired by transformers.data.data_collator.DataCollatorWithFlattening.
+    Inspired by transformers.data.data_collator.DataCollatorWithFlattening, but skips adding a separator_id in the
+    output labels, since this overwrites the first token in MLM masking.
+
+    Optionally returns position_ids, which are not needed for Flash Attention, but can be needed for context
+    parallelism.
     """
 
     pad_to_multiple_of: int | None = None
     token_pad: int = 1
     label_pad: int = -100
     return_tensors: str = "pt"
+    return_position_ids: bool = False
 
     def __call__(self, features: list[dict[str, list[int]]], return_tensors: str | None = None) -> dict[str, Any]:
         """Collate a batch of variable-length sequences for Flash Attention with sequence packing.
@@ -264,13 +316,49 @@ class DataCollatorWithFlattening(DefaultDataCollator):
         if return_tensors != "pt":
             raise NotImplementedError(f'return_tensors must be "pt", {return_tensors=} not implemented')
 
-        batch = _pt_flatten_collate(features)
+        batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
         if self.pad_to_multiple_of is not None:
             batch = _pt_pad_to_multiple_of(batch, self.pad_to_multiple_of, self.token_pad, self.label_pad)
         return batch
 
 
-def _pt_flatten_collate(features: list[dict[str, list[int]]]):
+@dataclass
+class TokenPackingDataset(torch.utils.data.IterableDataset):
+    """Dataset that uses sequence packing to construct batches with variable length up to a maximum number of tokens."""
+
+    dataset: datasets.IterableDataset
+    """Dataset to pack."""
+    max_tokens_per_batch: int
+    """Maximum number of tokens per batch."""
+    drop_last: bool = True
+    """Whether to drop the last batch if it's less than max_length."""
+
+    def __iter__(self):
+        """Yield batches of samples, each with a variable number of tokens up to the maximum length.
+
+        Returns:
+            A generator of batches of samples, each with a variable number of tokens up to the maximum length.
+        """
+        samples = []
+        current_length = 0
+        for sample in iter(self.dataset):
+            current_length += len(sample["input_ids"])
+            if current_length > self.max_tokens_per_batch:
+                yield samples
+                samples = [sample]
+                current_length = len(sample["input_ids"])
+            else:
+                samples.append(sample)
+
+        if not self.drop_last and samples:
+            yield samples
+
+    def set_epoch(self, epoch: int):
+        """Set the epoch for the dataset."""
+        self.dataset.set_epoch(epoch)
+
+
+def _pt_flatten_collate(features: list[dict[str, list[int]]], return_position_ids: bool = False):
     is_labels_provided = "labels" in features[0]
     sample_lengths = [len(sample["input_ids"]) for sample in features]
 
@@ -290,6 +378,11 @@ def _pt_flatten_collate(features: list[dict[str, list[int]]]):
         batch["attention_mask"] = torch.tensor(
             [[v for sample in features for v in sample["attention_mask"]]], dtype=torch.int64
         )
+    if return_position_ids:
+        batch["position_ids"] = torch.hstack(
+            [torch.arange(sample_len, dtype=torch.int64) for sample_len in sample_lengths]
+        ).unsqueeze(0)
+
     return batch
 
 
@@ -340,6 +433,11 @@ def _pt_pad_to_multiple_of(batch: dict[str, Any], pad_to_multiple_of: int, token
     if "attention_mask" in batch:
         batch["attention_mask"] = torch.cat(
             [batch["attention_mask"], torch.zeros((1, remainder), dtype=batch["attention_mask"].dtype)], dim=1
+        )
+
+    if "position_ids" in batch:
+        batch["position_ids"] = torch.cat(
+            [batch["position_ids"], torch.arange(remainder, dtype=batch["position_ids"].dtype).unsqueeze(0)], dim=1
         )
 
     return batch

@@ -1,7 +1,7 @@
 torch
 torchvision
 transformer_engine
-megatron-fsdp==0.1.0rc1
+megatron-fsdp
 hydra-core
 einops
 wandb

@@ -15,7 +15,6 @@ source_roots = [
     "sub-packages/bionemo-example_model/src",
     "sub-packages/bionemo-fw/src",
     "sub-packages/bionemo-geneformer/src",
-    "sub-packages/bionemo-geometric/src",
     "sub-packages/bionemo-llm/src",
     "sub-packages/bionemo-scdl/src",
     "sub-packages/bionemo-size-aware-batching/src",
@@ -55,7 +54,6 @@ depends_on = [
     "bionemo.core",
     "bionemo.esm2",
     "bionemo.geneformer",
-    "bionemo.geometric",
     "bionemo.llm",
     "bionemo.noodles",
     "bionemo.noodles",
@@ -70,12 +68,6 @@ depends_on = [
     "bionemo.core",
     "bionemo.llm",
     "bionemo.scdl",
-]
-
-[[modules]]
-path = "bionemo.geometric"
-depends_on = [
-    "bionemo.core",
 ]
 
 [[modules]]

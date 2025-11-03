@@ -77,8 +77,6 @@ def main(cfg) -> None:
             zero_dp_strategy=cfg.fsdp.zero_dp_strategy,
             # FSDP "Unit Modules" - The sub-modules of the model that you want to shard!
             fsdp_unit_modules=cfg.fsdp.fsdp_unit_modules,
-            # Use Hybrid FSDP (HSDP).
-            use_hybrid_fsdp=cfg.fsdp.use_hybrid_fsdp,
             # Inter / Outer DP Sharding Strategy: None (0) -> Optim (1) -> Grad (2) -> Weights (3)
             # Note: This adds a second stage of sharding that generalizes DP-Replicate. Think of it
             # like an extra stage of NCCL divide-and-conquer when using all-gather or reduce-scatter.
@@ -90,7 +88,7 @@ def main(cfg) -> None:
             # Always required to use Megatron-FSDP. What we shard on.
             dp_shard_dim="dp_cp_shard",
             # Required if using HSDP. The second / intermediate set of data-parallel process groups.
-            dp_inter_dim="dp_outer",
+            dp_outer_dim="dp_outer",
             # Required if using TP, either from TransformerEngine (TP=1) / Megatron or DTensor-based TP.
             tp_dim="tp",
             # Required if using HSDP. Created by flattening everything we shard on, e.g. DP-CP.
@@ -101,9 +99,9 @@ def main(cfg) -> None:
             grad_reduce_in_fp32=cfg.fsdp.grad_reduce_in_fp32,
             # Store distributed optimization state in FP32.
             preserve_fp32_weights=cfg.fsdp.preserve_fp32_weights,
-            # Sync gradients each step. Allows for gradient transformations after backward pass, but
-            # deactivates compute-communication overlap going into the subsequent training step.
-            sync_grads_each_step=True,
+            # Sync model parameters and gradients each step. Allows for param and gradient mods after BWD
+            # pass, but deactivates compute-communication overlap going into the subsequent training step.
+            sync_model_each_microbatch=True,
             # Preprocess state dict for DCP checkpointing. Required for Torch Distributed Checkpoint.
             preproc_state_dict_for_dcp_ckpt=True,
         )

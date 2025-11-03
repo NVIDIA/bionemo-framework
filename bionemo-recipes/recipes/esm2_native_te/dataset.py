@@ -13,62 +13,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+
 import datasets
 import datasets.distributed
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DistributedSampler
+from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
-from collator import MLMDataCollatorWithFlattening
+from collator import MLMDataCollatorWithFlattening, TokenPackingDataset
 from distributed_config import DistributedConfig
 
 
-# Create the dataset. In unit tests, we load the train.parquet file from the repo itself to avoid external dependencies.
+logger = logging.getLogger(__name__)
 
 
-def infinite_dataloader(dataloader, dataset_or_sampler):
-    """Create an infinite iterator that automatically restarts at the end of each epoch.
-
-    Args:
-        dataloader: The DataLoader to loop through.
-        dataset_or_sampler: The dataset or sampler to set epochs for.
-    """
-    epoch = 0
-    while True:
-        dataset_or_sampler.set_epoch(epoch)  # Update epoch for proper shuffling
-        for batch in dataloader:
-            yield batch
-        epoch += 1  # Increment epoch counter after completing one full pass
-
-
-def create_dataloader(
+def create_tokenized_dataset(
     distributed_config: DistributedConfig,
     tokenizer_name: str,
     load_dataset_kwargs: dict,
-    micro_batch_size: int,
-    num_workers: int,
     max_seq_length: int = 1024,
-    seed: int = 42,
-    use_sequence_packing: bool = False,
-    sequence_packing_pad_to_multiple_of: int | None = None,
+    buffer_size: int = 10_000,
+    use_lazy_tokenization: bool = True,
 ):
-    """Create a dataloader for the dataset.
-
-    Args:
-        distributed_config: The distributed configuration.
-        tokenizer_name: The name of the tokenizer to pull from the HuggingFace Hub.
-        load_dataset_kwargs: Keyword arguments to pass to `load_dataset` for the train dataset.
-        micro_batch_size: The batch size per device.
-        num_workers: The number of workers to use for the dataloader.
-        max_seq_length: The maximum length of the protein sequences.
-        seed: The seed to use for the distributed sampler and data collator.
-        use_sequence_packing: Whether to use sequence packing.
-        sequence_packing_pad_to_multiple_of: The padding to use for the sequence packing collator, for fp8 support.
-
-    Returns:
-        A dataloader that just infinitely loops over the dataset.
-    """
+    """Create a tokenized dataset."""
+    logger.info(f"Loading dataset with kwargs: {load_dataset_kwargs}")
     dataset = datasets.load_dataset(**load_dataset_kwargs)
+    logger.info(f"Loaded dataset: {dataset}")
 
     if isinstance(dataset, datasets.IterableDataset):
         dataset = datasets.distributed.split_dataset_by_node(
@@ -76,14 +48,7 @@ def create_dataloader(
             rank=distributed_config.rank,
             world_size=distributed_config.world_size,
         )
-        sampler = None
-    else:
-        sampler = DistributedSampler(
-            dataset,
-            rank=distributed_config.rank,
-            num_replicas=distributed_config.world_size,
-            seed=seed,
-        )
+        dataset = dataset.shuffle(seed=42, buffer_size=buffer_size)
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
@@ -95,28 +60,79 @@ def create_dataloader(
             max_length=max_seq_length,
         )
 
-    tokenized_dataset = dataset.map(
-        tokenize_function,
-        batched=True,
-        remove_columns=dataset.column_names,
+    if isinstance(dataset, datasets.Dataset) and use_lazy_tokenization:
+        # Using dataset.map on a non-streaming dataset will automatically perform and cache the transform, which can
+        # trigger an expensive tokenization.
+        tokenized_dataset = dataset.with_transform(tokenize_function)
+
+    else:
+        tokenized_dataset = dataset.map(
+            tokenize_function,
+            batched=True,
+            remove_columns=dataset.column_names,
+        )
+
+    return tokenized_dataset, tokenizer
+
+
+def create_bshd_dataloader(
+    distributed_config: DistributedConfig,
+    tokenizer_name: str,
+    load_dataset_kwargs: dict,
+    micro_batch_size: int,
+    num_workers: int,
+    max_seq_length: int = 1024,
+    seed: int = 42,
+    buffer_size: int = 10_000,
+    use_lazy_tokenization: bool = True,
+    mlm_probability: float = 0.15,
+):
+    """Create a dataloader for the dataset.
+
+    Args:
+        distributed_config: The distributed configuration.
+        tokenizer_name: The name of the tokenizer to pull from the HuggingFace Hub.
+        load_dataset_kwargs: Keyword arguments to pass to `load_dataset` for the train dataset.
+        micro_batch_size: The batch size (number of sequences) per device.
+        num_workers: The number of workers to use for the dataloader.
+        max_seq_length: The maximum length of the protein sequences.
+        seed: The seed to use for the distributed sampler and data collator.
+        buffer_size: The buffer size to use for the distributed sampler.
+        use_lazy_tokenization: Whether to use datasets.set_transform for tokenization if the dataset is a
+            non-streaming datasets.Dataset. Defaults to True.
+        mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
+        **kwargs: Unused, here to enable kwargs to match the signature of create_thd_dataloader.
+
+    Returns:
+        A dataloader that can be used for training.
+    """
+    tokenized_dataset, tokenizer = create_tokenized_dataset(
+        distributed_config=distributed_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        max_seq_length=max_seq_length,
+        buffer_size=buffer_size,
+        use_lazy_tokenization=use_lazy_tokenization,
     )
 
-    if use_sequence_packing:
-        data_collator = MLMDataCollatorWithFlattening(
-            tokenizer=tokenizer,
-            mlm_probability=0.15,
-            pad_to_multiple_of=sequence_packing_pad_to_multiple_of,
-            seed=seed,
-        )
+    if isinstance(tokenized_dataset, datasets.IterableDataset):
+        sampler = None
     else:
-        data_collator = DataCollatorForLanguageModeling(
-            tokenizer=tokenizer,
-            mlm_probability=0.15,
-            pad_to_multiple_of=max_seq_length,
+        sampler = DistributedSampler(
+            tokenized_dataset,
+            rank=distributed_config.rank,
+            num_replicas=distributed_config.world_size,
             seed=seed,
         )
 
-    train_dataloader = DataLoader(
+    data_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm_probability=mlm_probability,
+        pad_to_multiple_of=max_seq_length,
+        seed=seed,
+    )
+
+    train_dataloader = StatefulDataLoader(
         tokenized_dataset,
         sampler=sampler,
         batch_size=micro_batch_size,
@@ -126,7 +142,72 @@ def create_dataloader(
         persistent_workers=True,
     )
 
-    # Create the infinite iterator
-    train_iterator = infinite_dataloader(train_dataloader, dataset if sampler is None else sampler)
+    return train_dataloader, tokenized_dataset if sampler is None else sampler
 
-    return train_iterator
+
+def create_thd_dataloader(
+    distributed_config: DistributedConfig,
+    tokenizer_name: str,
+    load_dataset_kwargs: dict,
+    micro_batch_size: int | None = None,
+    token_micro_batch_size: int | None = None,
+    num_workers: int = 1,
+    max_seq_length: int = 1024,
+    seed: int = 42,
+    buffer_size: int = 10_000,
+    mlm_probability: float = 0.15,
+):
+    """Create a dataloader that packs up to the maximum number of tokens per batch.
+
+    Args:
+        distributed_config: The distributed configuration.
+        tokenizer_name: The name of the tokenizer to pull from the HuggingFace Hub.
+        load_dataset_kwargs: Keyword arguments to pass to `load_dataset` for the train dataset.
+        micro_batch_size: The batch size (number of sequences) per device. This will set the token_micro_batch_size to
+            micro_batch_size * max_seq_length. Defaults to None.
+        token_micro_batch_size: The maximum number of tokens per batch. If None, the micro_batch_size * max_seq_length
+            will be used. Defaults to None.
+        num_workers: The number of workers to use for the dataloader. For iterable datasets, this should be 1.
+        max_seq_length: The maximum length of the protein sequences.
+        seed: The seed to use for the distributed sampler and data collator.
+        buffer_size: The buffer size to use for the distributed sampler.
+        mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
+        **kwargs: Unused, here to enable kwargs to match the signature of create_bshd_dataloader.
+
+    Returns:
+        A dataloader that can be used for training.
+    """
+    tokenized_dataset, tokenizer = create_tokenized_dataset(
+        distributed_config=distributed_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        max_seq_length=max_seq_length,
+        buffer_size=buffer_size,
+    )
+
+    assert isinstance(tokenized_dataset, datasets.IterableDataset), "THD token packing requires a streaming dataset."
+    if token_micro_batch_size is None:
+        assert micro_batch_size is not None, "Only one of micro_batch_size or token_micro_batch_size can be provided."
+        token_micro_batch_size = micro_batch_size * max_seq_length
+    else:
+        assert micro_batch_size is None, "Only one of micro_batch_size or token_micro_batch_size can be provided."
+        assert token_micro_batch_size >= max_seq_length, "token_micro_batch_size must be greater than max_seq_length."
+
+    # For THD, we pad out to the maximum number of tokens per batch for consistent array shapes.
+    data_collator = MLMDataCollatorWithFlattening(
+        tokenizer=tokenizer,
+        mlm_probability=mlm_probability,
+        pad_to_multiple_of=token_micro_batch_size,
+        seed=seed,
+    )
+
+    train_dataloader = StatefulDataLoader(
+        TokenPackingDataset(tokenized_dataset, max_tokens_per_batch=token_micro_batch_size),
+        batch_size=None,  # The TokenPackingDataset will handle the batching.
+        collate_fn=data_collator,
+        num_workers=num_workers,
+        pin_memory=True,
+        persistent_workers=True,
+    )
+
+    return train_dataloader, tokenized_dataset

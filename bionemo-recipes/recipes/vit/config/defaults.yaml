@@ -54,7 +54,6 @@ fsdp:
     - vit.AttentionPoolLatent
     - torch.nn.LayerNorm
     - torch.nn.Linear
-  use_hybrid_fsdp: true
   outer_dp_sharding_strategy: "optim"
   grad_reduce_in_fp32: false
   preserve_fp32_weights: true

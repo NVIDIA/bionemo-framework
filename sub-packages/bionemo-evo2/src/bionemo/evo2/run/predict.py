@@ -41,6 +41,7 @@ from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
 
 # Add import for Mamba models
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
+from bionemo.evo2.models.peft import Evo2LoRA
 from bionemo.llm.data import collate
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.utils.callbacks import PredictionWriter
@@ -159,6 +160,13 @@ def parse_args():
         "know a model was trained with a specific interpolation factor for ROPE, provide it here, it can make a big "
         "difference in accuracy.",
     )
+    ap.add_argument(
+        "--lora-checkpoint-path",
+        type=Path,
+        required=False,
+        default=None,
+        help="Path to the lora states to restore from.",
+    )
     return ap.parse_args()
 
 
@@ -260,6 +268,11 @@ class BasePredictor(LightningPassthroughPredictionMixin):
 
 class HyenaPredictor(BasePredictor, HyenaModel):
     """A predictor for the Hyena model. This adds in the predict step and the passthrough method."""
+
+    def configure_model(self, *args, **kwargs) -> None:
+        """Configure the model."""
+        super().configure_model(*args, **kwargs)
+        self.trainer.strategy._init_model_parallel = True
 
 
 class MambaPredictor(BasePredictor, MambaModel):
@@ -397,6 +410,7 @@ def predict(
     num_layers: int | None = None,
     seq_len_interpolation_factor: int | None = None,
     files_per_subdir: int | None = None,
+    lora_checkpoint_path: Path | None = None,
 ):
     """Inference workflow for Evo2.
 
@@ -423,6 +437,77 @@ def predict(
             "by model_parallel_size, which is TP * CP * PP."
         )
     global_batch_size = micro_batch_size * world_size // model_parallel_size
+
+    callbacks = [
+        PredictionWriter(
+            output_dir=output_dir,
+            write_interval=write_interval,
+            batch_dim_key_defaults={"token_logits": 0},
+            seq_dim_key_defaults={"token_logits": 1},
+            files_per_subdir=files_per_subdir,
+            save_all_model_parallel_ranks=False,  # only write one copy of predictions.
+        )
+    ]
+
+    # The following two config options are really only used for testing, but may also be useful for getting output from
+    #   specific layers of the model.
+    config_modifiers_init = {}
+    if hybrid_override_pattern is not None:
+        config_modifiers_init["hybrid_override_pattern"] = hybrid_override_pattern
+    if num_layers is not None:
+        config_modifiers_init["num_layers"] = num_layers
+
+    tokenizer = get_nmt_tokenizer("byte-level")
+
+    # Select model config based on model type
+    if model_type == "hyena":
+        if "-1m" in model_size and "nv" not in model_size and seq_len_interpolation_factor is None:
+            # TODO remove this override once we add this as a default upstream in NeMo.
+            #  if you see this, just check the pointed to model option for the 1m model in nemo and see if it already
+            #  has this option set.
+            config_modifiers_init["seq_len_interpolation_factor"] = 128
+
+        if model_size not in HYENA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Hyena: {model_size}")
+        config = HYENA_MODEL_OPTIONS[model_size](
+            forward_step_fn=hyena_predict_forward_step,
+            data_step_fn=hyena_predict_data_step,  # , attention_backend=AttnBackend.fused,
+            distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
+            # Only use vortex style FP8 in the model config if using FP8 and not full FP8. This will only apply FP8 to
+            #   the projection layer of the hyena mixer.
+            vortex_style_fp8=fp8 and not full_fp8,
+            **config_modifiers_init,
+        )
+
+        if lora_checkpoint_path:
+            model_transform = Evo2LoRA(peft_ckpt_path=str(lora_checkpoint_path))
+            callbacks.append(model_transform)
+        else:
+            model_transform = None
+
+        model = HyenaPredictor(
+            config,
+            tokenizer=tokenizer,
+            output_log_prob_seqs=output_log_prob_seqs,
+            log_prob_collapse_option=log_prob_collapse_option,
+            model_transform=model_transform,
+        )
+    else:  # mamba
+        if model_size not in MAMBA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Mamba: {model_size}")
+        config = MAMBA_MODEL_OPTIONS[model_size](
+            forward_step_fn=hyena_predict_forward_step,  # Can reuse the same forward steps
+            data_step_fn=hyena_predict_data_step,
+            distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
+            **config_modifiers_init,
+        )
+
+        model = MambaPredictor(
+            config,
+            tokenizer=tokenizer,
+            output_log_prob_seqs=output_log_prob_seqs,
+            log_prob_collapse_option=log_prob_collapse_option,
+        )
 
     # Create PTL trainer.
     trainer = nl.Trainer(
@@ -451,16 +536,7 @@ def predict(
         log_every_n_steps=1,
         limit_val_batches=10,
         num_sanity_val_steps=0,
-        callbacks=[
-            PredictionWriter(
-                output_dir=output_dir,
-                write_interval=write_interval,
-                batch_dim_key_defaults={"token_logits": 0},
-                seq_dim_key_defaults={"token_logits": 1},
-                files_per_subdir=files_per_subdir,
-                save_all_model_parallel_ranks=False,  # only write one copy of predictions.
-            )
-        ],
+        callbacks=callbacks,
         plugins=nl.MegatronMixedPrecision(
             precision="bf16-mixed",
             params_dtype=torch.bfloat16,
@@ -471,42 +547,6 @@ def predict(
             fp8_amax_compute_algo="max" if fp8 and full_fp8 else "most_recent",
         ),
     )
-    # The following two config options are really only used for testing, but may also be useful for getting output from
-    #   specific layers of the model.
-    config_modifiers_init = {}
-    if hybrid_override_pattern is not None:
-        config_modifiers_init["hybrid_override_pattern"] = hybrid_override_pattern
-    if num_layers is not None:
-        config_modifiers_init["num_layers"] = num_layers
-    # Select model config based on model type
-    if model_type == "hyena":
-        if "-1m" in model_size and "nv" not in model_size and seq_len_interpolation_factor is None:
-            # TODO remove this override once we add this as a default upstream in NeMo.
-            #  if you see this, just check the pointed to model option for the 1m model in nemo and see if it already
-            #  has this option set.
-            config_modifiers_init["seq_len_interpolation_factor"] = 128
-
-        if model_size not in HYENA_MODEL_OPTIONS:
-            raise ValueError(f"Invalid model size for Hyena: {model_size}")
-        config = HYENA_MODEL_OPTIONS[model_size](
-            forward_step_fn=hyena_predict_forward_step,
-            data_step_fn=hyena_predict_data_step,  # , attention_backend=AttnBackend.fused,
-            distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
-            # Only use vortex style FP8 in the model config if using FP8 and not full FP8. This will only apply FP8 to
-            #   the projection layer of the hyena mixer.
-            vortex_style_fp8=fp8 and not full_fp8,
-            **config_modifiers_init,
-        )
-    else:  # mamba
-        if model_size not in MAMBA_MODEL_OPTIONS:
-            raise ValueError(f"Invalid model size for Mamba: {model_size}")
-        config = MAMBA_MODEL_OPTIONS[model_size](
-            forward_step_fn=hyena_predict_forward_step,  # Can reuse the same forward steps
-            data_step_fn=hyena_predict_data_step,
-            distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
-            **config_modifiers_init,
-        )
-
     trainer.strategy._setup_optimizers = False
 
     nemo_logger = NeMoLogger(log_dir=work_dir)
@@ -518,23 +558,6 @@ def predict(
         resume_from_path=str(ckpt_dir),
         restore_config=None,
     )
-    tokenizer = get_nmt_tokenizer("byte-level")
-
-    # Create appropriate model based on type
-    if model_type == "hyena":
-        model = HyenaPredictor(
-            config,
-            tokenizer=tokenizer,
-            output_log_prob_seqs=output_log_prob_seqs,
-            log_prob_collapse_option=log_prob_collapse_option,
-        )
-    else:  # mamba
-        model = MambaPredictor(
-            config,
-            tokenizer=tokenizer,
-            output_log_prob_seqs=output_log_prob_seqs,
-            log_prob_collapse_option=log_prob_collapse_option,
-        )
 
     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
 
@@ -573,6 +596,7 @@ def main():
         num_layers=args.num_layers,
         files_per_subdir=args.files_per_subdir,
         write_interval=args.write_interval,
+        lora_checkpoint_path=args.lora_checkpoint_path,
     )
 
 

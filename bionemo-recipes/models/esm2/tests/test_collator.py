@@ -13,14 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import torch
+from unittest.mock import MagicMock
 
-from esm.collator import DataCollatorWithFlattening, MLMDataCollatorWithFlattening
+import torch
+from transformers import DataCollatorForLanguageModeling
+
+from esm.collator import DataCollatorWithFlattening, MLMDataCollatorWithFlattening, TokenPackingDataset
 
 
 def test_data_collator_with_flattening_basic():
     """Test DataCollatorWithFlattening with input_ids and attention_mask."""
-    collator = DataCollatorWithFlattening()
+    collator = DataCollatorWithFlattening(return_position_ids=True)
 
     # Create test sequences of different lengths
     features = [
@@ -52,6 +55,10 @@ def test_data_collator_with_flattening_basic():
     # Assert max_length values are correct
     assert batch["max_length_q"] == 6, f"Expected max_length_q=6, got {batch['max_length_q']}"
     assert batch["max_length_k"] == 6, f"Expected max_length_k=6, got {batch['max_length_k']}"
+
+    # Assert position_ids are created properly
+    expected_position_ids = torch.tensor([[0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3]], dtype=torch.int64)
+    torch.testing.assert_close(batch["position_ids"], expected_position_ids)
 
     # Assert flattened input_ids matches concatenated original sequences
     expected_input_ids = torch.tensor([[0, 5, 6, 7, 2, 0, 8, 9, 10, 11, 2, 0, 12, 13, 2]], dtype=torch.int64)
@@ -123,7 +130,7 @@ def test_data_collator_with_flattening_with_labels():
 
 def test_data_collator_pads_to_multiple_of():
     """Test DataCollatorWithFlattening with input_ids and attention_mask."""
-    collator = DataCollatorWithFlattening(pad_to_multiple_of=8, token_pad=1, label_pad=-100)
+    collator = DataCollatorWithFlattening(pad_to_multiple_of=8, token_pad=1, label_pad=-100, return_position_ids=True)
 
     # Create test sequences with labels
     features = [
@@ -149,12 +156,16 @@ def test_data_collator_pads_to_multiple_of():
     # Assert input_ids are padded with 1
     assert batch["input_ids"][:, -1].item() == 1
 
+    expected_position_ids = torch.tensor([[0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 0]], dtype=torch.int64)
+    torch.testing.assert_close(batch["position_ids"], expected_position_ids)
+
 
 def test_mlm_data_collator_with_flattening_basic(tokenizer):
     """Test MLMDataCollatorWithFlattening with basic input_ids and verify labels are created."""
     collator = MLMDataCollatorWithFlattening(
         tokenizer=tokenizer,
         mlm_probability=0.15,
+        return_position_ids=True,
     )
 
     # Create test sequences of different lengths
@@ -206,6 +217,10 @@ def test_mlm_data_collator_with_flattening_basic(tokenizer):
     assert "cu_seq_lens_k" in batch, "cu_seq_lens_k should be present for Flash Attention"
     assert "max_length_q" in batch, "max_length_q should be present for Flash Attention"
     assert "max_length_k" in batch, "max_length_k should be present for Flash Attention"
+
+    # Assert that position_ids are created properly
+    expected_position_ids = torch.tensor([[0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6]], dtype=torch.int64)
+    torch.testing.assert_close(batch["position_ids"], expected_position_ids)
 
 
 def test_mlm_data_collator_with_flattening_masking(tokenizer, test_proteins):
@@ -309,3 +324,146 @@ def test_mlm_data_collator_with_flattening_pad_to_multiple_of(tokenizer, test_pr
     # Assert that the attention mask is padded with zeros
     assert (batch["attention_mask"][:, -remainder:] == 0).all()
     assert (batch["attention_mask"][:, :-remainder] == 1).all()
+
+
+def test_mlm_data_collator_with_flattening_bshd_equivalent(tokenizer, test_proteins):
+    """Test MLMDataCollatorWithFlattening with bshd_equivalent=True."""
+    thd_collator = MLMDataCollatorWithFlattening(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        seed=42,
+        pad_to_multiple_of=16,
+        bshd_equivalent=True,
+        bshd_pad_to_multiple_of=256,
+    )
+
+    bshd_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        seed=42,
+        pad_to_multiple_of=256,
+    )
+
+    features = [tokenizer(protein) for protein in test_proteins]
+
+    # Do the masking a bunch of times to make sure the random numerics continue to match.
+    for _ in range(25):
+        thd_batch = thd_collator(features)
+        bshd_batch = bshd_collator(features)
+
+        packed_bshd_inputs = bshd_batch["input_ids"][bshd_batch["attention_mask"].to(bool)].unsqueeze(0)
+        packed_bshd_labels = bshd_batch["labels"][bshd_batch["attention_mask"].to(bool)].unsqueeze(0)
+
+        # Since we pad out the THD inputs beyond the packed BSHD inputs (for FP8 compatibility), we truncate the THD
+        # inputs before comparing.
+        torch.testing.assert_close(
+            thd_batch["input_ids"][:, : packed_bshd_inputs.shape[1]],
+            packed_bshd_inputs,
+        )
+
+        torch.testing.assert_close(
+            thd_batch["labels"][:, : packed_bshd_labels.shape[1]],
+            packed_bshd_labels,
+        )
+
+
+def test_token_packing_dataset():
+    """Test that the token packing dataset works."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            while True:
+                yield {"input_ids": torch.arange(torch.randint(1, 100, (1,)).item())}
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=1000)
+    for i, batch in enumerate(token_packing_dataset):
+        if i == 10:
+            break
+        total_length = sum([len(sample["input_ids"]) for sample in batch])
+        assert 900 <= total_length <= 1000
+
+
+def test_token_packing_dataset_multiple_epochs():
+    """Test that the token packing dataset works over multiple epochs."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        set_epoch = MagicMock()
+
+        def __init__(self):
+            self.data = [{"input_ids": torch.arange(torch.randint(1, 100, (1,)).item())} for _ in range(25)]
+
+        def __iter__(self):
+            return iter(self.data)
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=200)
+    token_packing_dataset.set_epoch(0)
+    MockDataset.set_epoch.assert_called_with(0)
+    epoch1 = list(token_packing_dataset)
+    token_packing_dataset.set_epoch(1)
+    MockDataset.set_epoch.assert_called_with(1)
+    epoch2 = list(token_packing_dataset)
+
+    # Make sure each epoch contains some number of samples
+    assert len(epoch1) > 0
+    assert len(epoch2) > 0
+
+
+def test_token_packing_dataset_last_sequence_exceeds_max():
+    """Test when last sequence would push over token_batch_size - should yield current batch."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": torch.arange(40)}  # 40 tokens
+            yield {"input_ids": torch.arange(40)}  # 40 tokens (total: 80)
+            yield {"input_ids": torch.arange(30)}  # 30 tokens (would exceed 100)
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=100, drop_last=False)
+    batches = list(token_packing_dataset)
+
+    # Should have 2 batches: first with 2 sequences (80 tokens), second with 1 sequence (30 tokens)
+    assert len(batches) == 2
+    assert len(batches[0]) == 2
+    assert sum(len(sample["input_ids"]) for sample in batches[0]) == 80
+    assert len(batches[1]) == 1
+    assert sum(len(sample["input_ids"]) for sample in batches[1]) == 30
+
+
+def test_token_packing_dataset_last_sequence_equals_max():
+    """Test when last sequence makes total equal to token_batch_size - should add to batch."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": torch.arange(40)}  # 40 tokens
+            yield {"input_ids": torch.arange(30)}  # 30 tokens (total: 70)
+            yield {"input_ids": torch.arange(30)}  # 30 tokens (total: 100, exactly max)
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=100, drop_last=False)
+    batches = list(token_packing_dataset)
+
+    # Should have 1 batch with all 3 sequences totaling exactly 100 tokens
+    assert len(batches) == 1
+    assert len(batches[0]) == 3
+    assert sum(len(sample["input_ids"]) for sample in batches[0]) == 100
+
+
+def test_token_packing_dataset_last_sequence_less_than_max():
+    """Test when last sequence gives less than token_batch_size - should add to batch."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": torch.arange(40)}  # 40 tokens
+            yield {"input_ids": torch.arange(30)}  # 30 tokens (total: 70)
+            yield {"input_ids": torch.arange(20)}  # 20 tokens (total: 90, less than max)
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=100, drop_last=False)
+    batches = list(token_packing_dataset)
+
+    # Should have 1 batch with all 3 sequences totaling 90 tokens (less than max)
+    assert len(batches) == 1
+    assert len(batches[0]) == 3
+    assert sum(len(sample["input_ids"]) for sample in batches[0]) == 90

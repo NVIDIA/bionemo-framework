@@ -3,14 +3,25 @@ name: "BioNeMo Model Convergence Tests"
 on:
   workflow_dispatch:
     inputs:
-      node_group:
-        description: "DGX Lepton Node Group (Cluster) to use"
+      gpu_type:
+        description: "GPU type to use"
         required: true
-        default: "yo-bom-lepton-001"
+        default: "h100-sxm"
         type: choice
         options:
-          - yo-bom-lepton-001
-          - nv-int-multiteam-nebius-h200-01
+          - h200
+          - h100-sxm
+          - a100-80gb
+      model_config:
+        description: "Model configuration to use"
+        required: true
+        default: "esm2_native_te_650m"
+        type: choice
+        options:
+          - esm2_native_te_650m
+          - esm2_native_te_3b
+          - esm2_native_te_15b
+          - codonfm_ptl_te
       branch:
         description: "Branch to use (ignored if commit SHA is provided)"
         required: true
@@ -20,27 +31,21 @@ on:
         description: "Commit SHA (optional - overrides branch if provided)"
         required: false
         type: string
-      model_config:
-        description: "Model configuration to use"
-        required: true
-        default: "esm2_accelerate"
-        type: choice
-        options:
-          - esm2_accelerate_te.yaml
-          - esm2_native_te
-          - esm2_native_te_mfsdp_thd
-          - geneformer_native_te_mfsdp_fp8
-      config_override:
-        description: "Optional: run only these product configs (CSV). Examples: 10m  or  10m,4b. Leave blank to run all."
-        required: false
-        type: string
+  schedule:
+    - cron: "0 8 * * *" # everyday at 1am PST
 
 jobs:
   submit-lepton-jobs:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        model_config: ${{ github.event_name == 'schedule' && fromJSON('["esm2_native_te_650m", "esm2_native_te_3b", "esm2_native_te_15b", "codonfm_ptl_te"]') || fromJSON(format('["{0}"]', github.event.inputs.model_config)) }}
+      fail-fast: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.commit_sha || github.event.inputs.branch || 'main' }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -48,29 +53,40 @@ jobs:
           python-version: "3.11"
           cache: "pip"
           cache-dependency-path: |
-            ci/lepton/model_convergence/requirements.txt
+            ci/lepton/requirements.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r ci/lepton/model_convergence/requirements.txt
+          pip install -r ci/lepton/requirements.txt
 
       - name: Submit Lepton Jobs
         env:
           LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
+          GPU_TYPE: ${{ github.event.inputs.gpu_type || 'h100-sxm' }}
+          BRANCH: ${{ github.event.inputs.branch || 'main' }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha || '' }}
+          MODEL_CONFIG: ${{ matrix.model_config }}
         run: |
           set -euo pipefail
           lep login -c "$LEP_LOGIN_CREDENTIALS" || true
 
-          RUN_ONLY_ARGS=""
-          if [ -n "${{ inputs.config_override }}" ]; then
-            # Users can type: 10m  or  10m,4b
-            RUN_ONLY_ARGS="+run_only=${{ inputs.config_override }}"
+          # Map GPU type to node group
+          if [ "$GPU_TYPE" = "h200" ]; then
+            NODE_GROUP="nv-int-multiteam-nebius-h200-01"
+          elif [ "$GPU_TYPE" = "h100-sxm" ]; then
+            NODE_GROUP="yo-bom-lepton-001"
+          elif [ "$GPU_TYPE" = "a100-80gb" ]; then
+            NODE_GROUP="az-sat-lepton-001"
+          else
+            echo "Error: Unknown GPU type: $GPU_TYPE"
+            exit 1
           fi
 
-          python ci/lepton/model_convergence/scripts/launch_job.py \
-            --config-name recipes/${{ inputs.model_config }} \
-            $RUN_ONLY_ARGS \
-            branch=${{ inputs.branch }} \
-            commit_sha=${{ inputs.commit_sha }} \
-            node_group=${{ inputs.node_group }}
+          python ci/lepton/core/launch_job.py \
+            --config-path ../model_convergence/configs \
+            --config-name "recipes/$MODEL_CONFIG" \
+            branch="$BRANCH" \
+            commit_sha=$COMMIT_SHA \
+            node_group=$NODE_GROUP \
+            gpu_type="$GPU_TYPE"

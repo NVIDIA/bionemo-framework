@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+import os
 from pathlib import Path
 
 import hydra
@@ -37,9 +38,6 @@ logger = logging.getLogger(__name__)
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig):
     """Entrypoint."""
-    # add wandb logging on main process
-    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == 0:
-        wandb.init(config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True), **args.wandb_init_args)
     # Initialize Accelerate's distributed state early so torch device is set per process
     state = PartialState()
     logger.info(
@@ -48,6 +46,10 @@ def main(args: DictConfig):
         state.num_processes,
         state.device,
     )
+
+    # add wandb logging on main process
+    if state.is_main_process:
+        wandb.init(config=OmegaConf.to_container(args, resolve=True, throw_on_missing=True), **args.wandb_init_args)
 
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True, dtype=torch.bfloat16)
@@ -71,7 +73,9 @@ def main(args: DictConfig):
 
     if training_args.do_train:
         Path(training_args.output_dir).mkdir(parents=True, exist_ok=True)
-        last_checkpoint = transformers.trainer_utils.get_last_checkpoint(training_args.output_dir)
+        last_checkpoint = training_args.resume_from_checkpoint or transformers.trainer_utils.get_last_checkpoint(
+            training_args.output_dir
+        )
         if last_checkpoint is not None:
             logger.info("Resuming from checkpoint: %s", last_checkpoint)
         else:
@@ -92,4 +96,12 @@ def main(args: DictConfig):
 
 
 if __name__ == "__main__":
+    # Set required environment variables for distributed training (if not already set) to enable `python train.py` to
+    # succeed.
+    os.environ.setdefault("LOCAL_RANK", "0")
+    os.environ.setdefault("RANK", "0")
+    os.environ.setdefault("WORLD_SIZE", "1")
+    os.environ.setdefault("MASTER_ADDR", "localhost")
+    os.environ.setdefault("MASTER_PORT", "29500")
+    os.environ.setdefault("WANDB_MODE", "offline")
     main()

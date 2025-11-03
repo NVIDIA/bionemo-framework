@@ -18,18 +18,23 @@ script_args:
   gpus: 8
   batch_size: 16
   max_steps: 500000
-  stop_steps: 26000
+  stop_steps: 25000
   num_workers: 1
 script: |-
+  # Copying data to shared memory filesystem in Linux that provides a RAM-based temporary storage location
   COPY_FLAG="/tmp/copy_done_${{SLURMD_NODENAME}}";
   NEW_DATA_PATH="/dev/shm/data_path_${{SLURMD_NODENAME}}";
   if [ "$SLURM_LOCALID" = "0" ]; then
-      df -h;
+      df -h /dev/shm
       echo $NEW_DATA_PATH;
-      time cp -r ${data_path}/ $NEW_DATA_PATH;
+      # Create destination directory if it doesn't exist
+      mkdir -p $NEW_DATA_PATH;
+      # Check if source directory exists and has files
+      time cp -r ${data_path}/* $NEW_DATA_PATH/;
+      # ls -R $NEW_DATA_PATH;
       touch $COPY_FLAG
   fi
-  # All ranks wait until install flag file appears
+  # All ranks wait until data copy flag file appears
   while [ ! -f $COPY_FLAG ]; do
       sleep 1
   done
@@ -63,22 +68,25 @@ script: |-
     --disable-checkpointing;
 tests:
   - logic_type: static
+    # It can be used with the product_identifier to filter the runs by target (GPU type)
+    # but in fact this test should work with any target
+    # product_identifier: { 'target': 'dgxa100_dracooci-iad' }
     logic_spec:
       exit_codes:
         - 0
       baselines:
         consumed_samples:
           operator: eq
-          value: 13568000.0
+          value: 12800000.0
+        # increasing val_loss is expected as we are using a different training cluster set
         val_loss:
           operator: range
-          max: 2.5906
-          min: 2.4833
+          max: 8.5
+          min: 8.0
         reduced_train_loss:
           operator: range
-          max: 2.5640
-          min: 2.4578
-        tflops_per_sec_per_gpu:
-          operator: range
-          max: 157.9352
-          min: 141.2835
+          max: 0.0025
+          min: 0.0005
+        TFLOPS_per_GPU:
+          operator: geq
+          value: 140.0

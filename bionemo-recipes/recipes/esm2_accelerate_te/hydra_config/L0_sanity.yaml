@@ -2,7 +2,7 @@ defaults:
   - defaults
   - _self_
 
-model_tag: "nvidia/esm2_t6_8M_UR50D"
+model_tag: ./example_8m_checkpoint
 stop_after_n_steps: 250
 
 dataset:

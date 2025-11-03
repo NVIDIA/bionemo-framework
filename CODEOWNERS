@@ -68,8 +68,6 @@ sub-packages/bionemo-core @DejunL @dorotat-nv @farhadrgh @guoqing-zhou @jstjohn 
 
 sub-packages/bionemo-llm @farhadrgh @dorotat-nv @jstjohn @pstjohn @skothenhill-nv
 
-sub-packages/bionemo-geometric @DejunL @guoqing-zhou @jstjohn
-
 sub-packages/bionemo-esm2 @pstjohn @jstjohn @skothenhill-nv @jomitchellnv @farhadrgh @sichu2023 @yzhang123 @polinabinder1
 
 sub-packages/bionemo-example_model @jstjohn @skothenhill-nv

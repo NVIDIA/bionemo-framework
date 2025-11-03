@@ -1,0 +1,24 @@
+extend = "../.ruff.toml"
+[lint.extend-per-file-ignores]
+"**/*.ipynb" = [
+    "C411",
+    "C416",
+    "C901",
+    "D101",
+    "D102",
+    "E402",
+    "E722",
+    "F402",
+    "FURB187",
+    "NPY002",
+    "PERF401",
+    "PERF402",
+    "PLW0127",
+    "PLW2901",
+    "RUF003",
+    "RUF005",
+    "RUF015",
+    "RUF017",
+    "RUF059",
+    "RUF100",
+]

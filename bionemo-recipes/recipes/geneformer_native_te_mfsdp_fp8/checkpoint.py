@@ -196,21 +196,6 @@ def save_checkpoint(
             logger.error(f"Failed to clean up partial checkpoint: {cleanup_e}")
 
 
-def _gather_mfsdp_parameters(model, logger):
-    """Helper function to gather mfsdp parameters across all processes."""
-    logger.info("Starting mfsdp parameter gathering...")
-
-    # These collective operations must run on ALL processes
-    model._replace_param_with_raw_if_needed()
-    model.all_gather_pipeline.all_gather_params(list(model.module.parameters()))
-
-    for param in model.module.parameters():
-        bucket_id = model.param_and_grad_buffer.param_to_param_group[param]
-        model.all_gather_pipeline.wait_bucket_ready(bucket_id)
-
-    logger.info("mfsdp parameter gathering completed")
-
-
 def _get_underlying_model(model):
     """Get the underlying model, handling both mfsdp and DDP wrapping."""
     if hasattr(model, "module"):
@@ -235,14 +220,25 @@ def save_final_model(model, save_directory, logger, use_mfsdp=False, is_main_pro
     the main process saves the model.
     """
     if use_mfsdp:
-        # Parameter gathering must happen on ALL processes
-        _gather_mfsdp_parameters(model, logger)
+        # Gather Megatron-FSDP parameters to CPU.
+        from megatron_fsdp.uneven_dtensor import gather_uneven_dtensor_to_full_tensor
+
+        unsharded_state_dict = {
+            # Gather all parameters to CPU, and remove the "module." prefix from the Megatron-FSDP class wrapper.
+            k.removeprefix("module."): gather_uneven_dtensor_to_full_tensor(
+                v, target_device=torch.device("cpu")
+            ).to_local()
+            if isinstance(v, torch.distributed.tensor.DTensor)
+            else v
+            for k, v in model.state_dict().items()
+        }
 
         # Only main process saves the model
         if not is_main_process:
             return
 
         underlying_model = model.module
+        model_state_dict = unsharded_state_dict
         save_type = "mfsdp"
     else:
         # Only main process needs to do anything for DDP
@@ -250,10 +246,11 @@ def save_final_model(model, save_directory, logger, use_mfsdp=False, is_main_pro
             return
 
         underlying_model = _get_underlying_model(model)
+        model_state_dict = underlying_model.state_dict()
         save_type = "DDP"
 
     logger.info(f"Starting {save_type} model saving...")
 
-    underlying_model.save_pretrained(save_directory, state_dict=underlying_model.state_dict(), safe_serialization=True)
+    underlying_model.save_pretrained(save_directory, state_dict=model_state_dict, safe_serialization=True)
 
     logger.info(f"✅ {save_type} save_pretrained succeeded with safe_serialization=True")

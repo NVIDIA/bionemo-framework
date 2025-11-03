@@ -21,135 +21,14 @@ implementing the formal specification defined in scdl-schema.md.
 """
 
 import json
-from enum import IntEnum
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+from bionemo.scdl.util.scdl_constants import ArrayDType, Backend
 
 from .headerutil import BinaryHeaderCodec, Endianness, HeaderSerializationError
 from .magic import SCDL_MAGIC_NUMBER
 from .version import CurrentSCDLVersion, SCDLVersion
-
-
-class ArrayDType(IntEnum):
-    """Numpy dtype specification for arrays in SCDL archives.
-
-    Integer values are used in the binary format for efficient storage.
-    """
-
-    UINT8_ARRAY = 1
-    UINT16_ARRAY = 2
-    UINT32_ARRAY = 3
-    UINT64_ARRAY = 4
-    FLOAT16_ARRAY = 5
-    FLOAT32_ARRAY = 6
-    FLOAT64_ARRAY = 7
-    STRING_ARRAY = 8
-    FIXED_STRING_ARRAY = 9
-
-    @property
-    def numpy_dtype_string(self) -> str:
-        """Get the corresponding NumPy dtype string."""
-        dtype_map = {
-            self.UINT8_ARRAY: "uint8",
-            self.UINT16_ARRAY: "uint16",
-            self.UINT32_ARRAY: "uint32",
-            self.UINT64_ARRAY: "uint64",
-            self.FLOAT16_ARRAY: "float16",
-            self.FLOAT32_ARRAY: "float32",
-            self.FLOAT64_ARRAY: "float64",
-            self.STRING_ARRAY: "string",
-            self.FIXED_STRING_ARRAY: "fixed_string",
-        }
-        return dtype_map[self]
-
-    @classmethod
-    def from_numpy_dtype(cls, dtype) -> "ArrayDType":
-        """Convert a numpy dtype to ArrayDType enum.
-
-        Args:
-            dtype: numpy dtype object or string representation
-
-        Returns:
-            Corresponding ArrayDType enum value
-
-        Raises:
-            ValueError: If dtype is not supported
-        """
-        # Convert dtype object to string if needed
-        if isinstance(dtype, type) and hasattr(dtype, "__name__"):
-            # Handle numpy type classes like np.float32, np.uint32
-            dtype_str = dtype.__name__
-        elif hasattr(dtype, "name"):
-            # Handle numpy dtype instances
-            dtype_str = dtype.name
-        elif hasattr(dtype, "dtype"):
-            dtype_str = dtype.dtype.name
-        else:
-            dtype_str = str(dtype)
-
-        # Map numpy dtype strings to ArrayDType enums
-        dtype_map = {
-            "uint8": cls.UINT8_ARRAY,
-            "uint16": cls.UINT16_ARRAY,
-            "uint32": cls.UINT32_ARRAY,
-            "uint64": cls.UINT64_ARRAY,
-            "float16": cls.FLOAT16_ARRAY,
-            "float32": cls.FLOAT32_ARRAY,
-            "float64": cls.FLOAT64_ARRAY,
-            "object": cls.STRING_ARRAY,  # Object arrays often contain strings
-            "str": cls.STRING_ARRAY,
-            "<U": cls.FIXED_STRING_ARRAY,  # Unicode string arrays
-        }
-
-        # Handle variations and aliases
-        if dtype_str.startswith("<U") or dtype_str.startswith(">U"):
-            return cls.FIXED_STRING_ARRAY
-        elif dtype_str.startswith("<f") or dtype_str.startswith(">f"):
-            if "4" in dtype_str:
-                return cls.FLOAT32_ARRAY
-            elif "8" in dtype_str:
-                return cls.FLOAT64_ARRAY
-            elif "2" in dtype_str:
-                return cls.FLOAT16_ARRAY
-        elif (
-            dtype_str.startswith("<i")
-            or dtype_str.startswith(">i")
-            or dtype_str.startswith("<u")
-            or dtype_str.startswith(">u")
-        ):
-            if "1" in dtype_str:
-                return cls.UINT8_ARRAY
-            elif "2" in dtype_str:
-                return cls.UINT16_ARRAY
-            elif "4" in dtype_str:
-                return cls.UINT32_ARRAY
-            elif "8" in dtype_str:
-                return cls.UINT64_ARRAY
-
-        # Try direct mapping
-        if dtype_str in dtype_map:
-            return dtype_map[dtype_str]
-
-        # Default fallback for common types
-        if "float32" in dtype_str or "f4" in dtype_str:
-            return cls.FLOAT32_ARRAY
-        elif "float64" in dtype_str or "f8" in dtype_str:
-            return cls.FLOAT64_ARRAY
-        elif "int32" in dtype_str or "i4" in dtype_str:
-            return cls.UINT32_ARRAY
-        elif "int64" in dtype_str or "i8" in dtype_str:
-            return cls.UINT64_ARRAY
-
-        raise ValueError(f"Unsupported numpy dtype: {dtype_str} (original: {dtype})")
-
-
-class Backend(IntEnum):
-    """Backend implementations for SCDL archives.
-
-    Defines how array data is stored and accessed.
-    """
-
-    MEMMAP_V0 = 1
 
 
 class ArrayInfo:
