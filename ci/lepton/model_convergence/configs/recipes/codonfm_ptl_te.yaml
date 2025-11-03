@@ -1,0 +1,137 @@
+# @package _global_
+defaults:
+  - /base
+  - _self_
+
+############################################################
+# lepton job info
+############################################################
+node_group: yo-bom-lepton-001
+mount_from: node-nfs:fs1
+num_nodes: 1
+device_type: gpu
+num_devices: 8
+gpu_type: h100-sxm
+resource_shape: "${device_type}.${num_devices}x${gpu_type}"
+
+job_name: "${sanitize:codonfm_ptl_test}8gpu"
+branch: jwilber/codon-fm-ci
+
+############################################################
+# Container Runtime
+# Defines the base Docker image and registry auth needed
+############################################################
+container:
+  image: nvcr.io/nvidian/cvai_bnmo_trng/codon_fm_te_bnmo_10292025_multinode
+  registry_auth: lepton-nvidia-nvcrio-jonathan
+
+############################################################
+# kratos info: where to log data
+############################################################
+kratos_subject: "codonfm_test"
+
+############################################################
+# recipe identifiers
+# mostly used for logging and observability
+############################################################
+recipe_subdir: codonfm_ptl_te # don't need
+model_type: codonfm
+variant: train # train, finetune
+
+# Core identifiers for filtering
+framework: ptl # native, accelerate
+precision: bf16 # likely bf16 or fp8
+te_enabled: true
+fp8_enabled: false
+thd_enabled: true
+
+# Catchall for additional features/configs
+extras: [] # e.g. [thd]
+
+############################################################
+# wandb info (total_gpus used for group name)
+############################################################
+# `total_gpus` calculated from lepton job info above
+total_gpus: ${multiply:${num_devices},${num_nodes}}
+
+wandb_init_args:
+  project: "test_convergence__recipes__${sanitize:${branch}}"
+  group: "${model_type}__${task_cmd}__${total_gpus}gpus__${sanitize:${gpu_type}}"
+  job_type: "${recipe_subdir}"
+  name: null
+  entity: clara-discovery
+
+############################################################
+# script overrides
+# shared across all products (if not explicitly overridden)
+############################################################
+task_cmd: "train"
+
+# edit these
+max_steps: 200
+out_dir: "/workspace/bionemo-framework/bionemo-recipes/recipes/codonfm_ptl_te"
+learning_rate: 1e-4
+train_batch_size: 32
+val_batch_size: 32
+gradient_accumulation_steps: 4
+num_workers: 12
+exp_name: ci_test_jwilber_oct28_1
+model_name: encodon_80m
+data_path: /data/jomitchell/codonfmnight/
+process_item: mlm_memmap
+dataset_name: CodonMemmapDataset
+split_name_prefix: nopathogen
+attn_input_format: thd
+collate_fn: thd
+
+############################################################
+# Checkout Script
+# Standardized script to clone the BioNeMo repository and install
+# dependencies before the training run starts. Child configs can
+# inherit and reuse this logic without modification.
+############################################################
+checkout_script: |
+  cd /workspace/codonfm
+  git clone https://github.com/NVIDIA/bionemo-framework.git
+  cd bionemo-framework
+  if [ -n "${commit_sha}" ]; then
+    echo "Checking out commit: ${commit_sha}"
+    git checkout "${commit_sha}"
+  elif [ "${branch}" != "main" ]; then
+    echo "Checking out branch: ${branch}"
+    git checkout "${branch}"
+  fi
+  cd bionemo-recipes/recipes/${recipe_subdir}
+  pip install -e .
+
+############################################################
+# run script
+# This gets called right after `checkout_script` in the base config.
+############################################################
+run_script: |
+  num_nodes=$LEPTON_JOB_TOTAL_WORKERS
+  num_gpus=$LEPTON_RESOURCE_ACCELERATOR_NUM
+
+  python -m src.runner pretrain \
+      --num_gpus $num_gpus \
+      --num_nodes $num_nodes \
+      --exp_name ${exp_name} \
+      --model_name ${model_name} \
+      --data_path ${data_path} \
+      --process_item ${process_item} \
+      --dataset_name ${dataset_name} \
+      --lr ${learning_rate} \
+      --train_batch_size ${train_batch_size} \
+      --val_batch_size ${val_batch_size} \
+      --num_workers ${num_workers} \
+      --max_steps ${max_steps} \
+      --bf16 \
+      --split_name_prefix ${split_name_prefix} \
+      --attn_input_format ${attn_input_format} \
+      --collate_fn ${collate_fn} \
+      --project_name ${wandb_init_args.project} \
+      --entity ${wandb_init_args.entity} \
+      --gradient_accumulation_steps ${gradient_accumulation_steps} \
+      --use_transformer_engine \
+      --enable_wandb \
+      --out_dir ${out_dir}
