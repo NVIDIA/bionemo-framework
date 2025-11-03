@@ -181,6 +181,7 @@ set -e
 
 # Look for W&B files
 WANDB_DIR="/workspace/bionemo-framework/bionemo-recipes/recipes/$RECIPE_SUBDIR/wandb"
+
 WANDB_FOUND=0
 WANDB_SUMMARY=""
 WANDB_METADATA=""
@@ -191,7 +192,9 @@ if [ -d "$WANDB_DIR" ]; then
     else
         LATEST_RUN=$(ls -td "$WANDB_DIR"/run-* "$WANDB_DIR"/offline-run-* 2>/dev/null | head -n1)
     fi
+    WANDB_ID="$(basename "$(readlink -f "$LATEST_RUN")" | cut -d'-' -f3)"
 
+    echo "WANDB_ID: $WANDB_ID"
     if [ -n "$LATEST_RUN" ] && [ -d "$LATEST_RUN/files" ]; then
         if [ -f "$LATEST_RUN/files/wandb-summary.json" ]; then
             WANDB_SUMMARY="$LATEST_RUN/files/wandb-summary.json"
@@ -210,6 +213,7 @@ if [ "$WANDB_FOUND" = "1" ] && [ -n "$WANDB_SUMMARY" ]; then
     COMBINED_JSON=$(jq -n \
         --arg m "$METADATA_JSON" \
         --arg s "$SUMMARY_JSON" \
+        --arg wandb_id "$WANDB_ID" \
         --argjson job_info "$JOB_INFO_JSON" \
         --argjson all_config "$ALL_CONFIG_JSON_UPDATED" \
         --argjson nvidia_smi "$NVIDIA_SMI_JSON" \
@@ -218,6 +222,7 @@ if [ "$WANDB_FOUND" = "1" ] && [ -n "$WANDB_SUMMARY" ]; then
         '
         . + {
           job_name: env.LEPTON_JOB_NAME,
+          wandb_id: $wandb_id,
           metadata: ($m | fromjson? // {}),
           summary:  ($s | fromjson? // {}),
           job_info: $job_info,
