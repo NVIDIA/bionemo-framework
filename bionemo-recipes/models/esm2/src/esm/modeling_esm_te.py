@@ -214,7 +214,7 @@ class NVEsmEncoder(nn.Module):
                     te_rope_emb = self.rotary_embeddings(max_seq_len=hidden_states.shape[1])
                 elif self.config.attn_input_format == "thd":
                     te_rope_emb = self.rotary_embeddings(max_seq_len=kwargs["cu_seq_lens_q"][-1])
-            te_rope_emb = te_rope_emb.to(hidden_states.device, dtype=hidden_states.dtype, non_blocking=True)
+            te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
 
         for layer_module in self.layers:
             if kwargs.get("output_hidden_states", False):
