@@ -33,11 +33,13 @@ class Evo2LoRA(LoRA):
         target_modules: List[str] = [
             "linear_qkv",
             "linear_proj",
+            "dense_projection",
+        #    "hyena_proj_conv", # doesn't work doesnt' have .config
             "linear_fc1",
             "linear_fc2",
-            "short_filter",  # Short convolution filters
-            "hyena_filter",  # Hyena layer filters
-            "positional_encoding",  # ROPE or other position encodings
+            "short_conv",  # Short convolution filters
+       #     "filter",  # Hyena layer filters
+     #       "rotary_pos_emb",  # ROPE or other position encodings ; doesn't work, doesn't have config
         ],
         *args,
         **kwargs,
