@@ -269,4 +269,4 @@ class NVLlamaRotaryEmbedding(LlamaRotaryEmbedding):
             freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
             emb = torch.cat((freqs, freqs), dim=-1)
 
-        return emb.to(dtype=x.dtype).transpose(0, 1).unsqueeze(1)
+        return emb.transpose(0, 1).unsqueeze(1)
