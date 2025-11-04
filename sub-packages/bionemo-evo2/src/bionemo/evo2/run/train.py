@@ -17,13 +17,14 @@
 # limitations under the License.
 
 import argparse
+import os
 from pathlib import Path
 from typing import List, Optional
 
 # TODO add back support for slurm resilience.
 # import nvidia_resiliency_ext.ptl_resiliency as res_module
 import torch
-from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
+from lightning.pytorch.callbacks import Callback, LearningRateMonitor, RichModelSummary
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import Fp8Recipe
 from megatron.core.optimizer import OptimizerConfig
@@ -59,6 +60,11 @@ from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_log
 
 
 torch._dynamo.config.suppress_errors = True
+
+# Force first batch to run with CUDA_LAUNCH_BLOCKING enabled to avoid CUDA asynchronous initialization
+# race condition in TE LayerNormLinear. This is unset after the first batch.
+# See https://github.com/NVIDIA/bionemo-framework/issues/1301 for more details.
+os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
@@ -863,6 +869,29 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         TEVCallback(),
     ]
 
+    # First batch CUDA sync callback: adds barriers for the first training batch to avoid race condition
+    # See https://github.com/NVIDIA/bionemo-framework/issues/1301 for more details.
+    class _FirstBatchCudaSync(Callback):
+        def __init__(self):
+            self._done = False
+
+        def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+            if not self._done and torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+        def on_after_backward(self, trainer, pl_module):
+            if not self._done and torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+        def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+            if not self._done and torch.cuda.is_available():
+                torch.cuda.synchronize()
+                # Unset blocking for subsequent batches
+                os.environ.pop("CUDA_LAUNCH_BLOCKING", None)
+                self._done = True
+
+    callbacks.append(_FirstBatchCudaSync())
+
     if args.garbage_collect_at_inference:
         callbacks.append(GarbageCollectAtInferenceTime())
 
@@ -1059,6 +1088,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         ckpt_async_save=args.ckpt_async_save,
         save_ckpt_format=args.ckpt_format,
         ckpt_load_strictness="log_all",  # or rebasing to https://github.com/NVIDIA/NeMo/pull/11988/files#diff-7667eae242a8ef776bff78cd08e79bc81df4896a450f0a781f6ed317a3dfb7ffR139
+        fp8_recipe=None,
     )
     trainer = nl.Trainer(
         devices=args.devices,
@@ -1112,6 +1142,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         use_precision_aware_optimizer=args.use_precision_aware_optimizer,
         main_grads_dtype=torch.bfloat16 if args.bf16_main_grads else torch.float32,
         bf16=True,
+        fp8_recipe=None,
     )
 
     sched = CosineAnnealingScheduler(
@@ -1125,6 +1156,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         opt_config, sched, no_weight_decay_cond=getattr(model_config, "hyena_no_weight_decay_cond_fn", None)
     )
     opt.connect(model)
+
+    # Remove earlier warmup and hook logic; first-batch blocking is sufficient.
+
     # Start training
     trainer.fit(model, data_module)
     return trainer
