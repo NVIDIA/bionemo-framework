@@ -110,7 +110,6 @@ def get_parser():  # noqa: D103
             "encodon_80m",
             "encodon_600m",
             "encodon_1b",
-            "encodon_5b",
             "encodon_10b",
         ],
     )
@@ -205,7 +204,6 @@ def get_parser():  # noqa: D103
     # Common trainer flags
     parser.add_argument("--enable_fsdp", action="store_true", default=False)
     parser.add_argument("--fsdp_cpu_offload", action="store_true", default=False)
-    parser.add_argument("--fsdp_activation_checkpointing", action="store_true", default=False)
     parser.add_argument("--val_check_interval", type=int, default=1000)
     parser.add_argument(
         "--check_val_every_n_epoch",

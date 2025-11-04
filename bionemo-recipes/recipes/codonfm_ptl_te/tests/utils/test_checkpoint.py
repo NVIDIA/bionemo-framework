@@ -153,7 +153,6 @@ def test_default_map_location_is_cpu(tmp_path):
         assert call_args[1]["map_location"] == "cpu"
 
 
-@pytest.mark.skip(reason="checkpoint is not available on the huggingface hub")
 def test_download_checkpoint_success(tmp_path):
     """Test successful checkpoint download from HuggingFace Hub."""
     repo_id = "nvidia/NV-CodonFM-Encodon-TE-80M-v1"

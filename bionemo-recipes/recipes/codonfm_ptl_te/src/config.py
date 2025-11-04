@@ -115,6 +115,7 @@ def get_callbacks_config(args: Any) -> Dict[str, fdl.Config]:
             mode="min",
             save_top_k=1,
             auto_insert_metric_name=False,
+            enable_version_counter=False,
         ),
         "early_stopping": fdl.Config(
             EarlyStopping,
@@ -316,9 +317,7 @@ def get_trainer_config(args: Any) -> Dict[str, Any]:
         # Use proper FSDP/FSDP2 strategy with auto-wrap policy
         # This ensures FSDP uses LESS memory than DDP
         strategy = get_fsdp_strategy(
-            cpu_offload=getattr(args, "fsdp_cpu_offload", False),
-            activation_checkpointing=getattr(args, "fsdp_activation_checkpointing", False),
-            use_fsdp2=getattr(args, "use_fsdp2", True),  # FSDP2 by default if available
+            cpu_offload=getattr(args, "fsdp_cpu_offload", False), activation_checkpointing=False, use_fsdp2=True
         )
     elif args.mode == "finetune":
         strategy = "ddp_find_unused_parameters_true"

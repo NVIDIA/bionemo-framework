@@ -31,4 +31,5 @@ python -m src.runner pretrain \
     --bf16 \
     --split_name_prefix nopathogen \
     --use_transformer_engine \
-    --checkpoints_dir results/checkpoints/${exp_name} \
+    --checkpoints_dir results/${exp_name}/checkpoints/ \
+    --out_dir results/${exp_name}/

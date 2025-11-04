@@ -54,7 +54,7 @@ from .encodon_te_mha import EncodonTEMultiheadAttention
 
 warnings.filterwarnings("module", category=DeprecationWarning, module="transformer")
 
-__all__ = ["TransformerLayer"]  # noqa: F822
+__all__ = ["EncodonTELayer"]
 
 
 class DropPath(torch.nn.Module):
@@ -266,7 +266,7 @@ class EncodonTELayer(torch.nn.Module):
                     QK normalization at different points.
     """  # noqa: D205
 
-    def __init__(  # noqa: C901
+    def __init__(  # noqa: D107, C901
         self,
         hidden_size: int,
         ffn_hidden_size: int,

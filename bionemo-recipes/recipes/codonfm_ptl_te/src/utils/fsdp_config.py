@@ -63,7 +63,6 @@ def get_fsdp_strategy(
 
     # FSDP2 uses different configuration for better memory efficiency
     if use_fsdp2:
-        print("Using FSDP2 for improved memory efficiency (25-40% less memory than FSDP1)")
         strategy = FSDPStrategy(
             auto_wrap_policy=auto_wrap_policy,
             activation_checkpointing_policy=transformer_layer_classes if activation_checkpointing else None,
