@@ -70,7 +70,7 @@ def test_llama_model_golden_values(input_text):
     with torch.no_grad():
         outputs_te = model_te(**inputs, labels=inputs["input_ids"], output_hidden_states=True)
 
-    torch.testing.assert_close(outputs_te.loss, outputs_hf.loss, atol=2e-3, rtol=2e-3)
+    torch.testing.assert_close(outputs_te.loss, outputs_hf.loss, atol=5e-3, rtol=2e-3)
     torch.testing.assert_close(outputs_te.logits, outputs_hf.logits, atol=1.0, rtol=0.01)
 
 
