@@ -11,6 +11,14 @@ The biological AI community is actively prototyping model architectures and need
 - **Performance optimization**: Leverages TransformerEngine and megatron-FSDP for state-of-the-art training efficiency
 - **Research-friendly**: Hackable, readable code that researchers can easily adapt for their experiments
 
+### Performance Benchmarks
+
+<p align="center">
+  <img src="../docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg" width="600">
+  <br>
+  <em> Training benchmarks for ESM-2 using the <code>esm2_native_te</code> recipe.</em>
+</p>
+
 ### Use Cases
 
 - **Foundation Model Developers**: AI researchers and ML engineers developing novel biological foundation models who need to scale up prototypes efficiently
