@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from functools import partial
 from typing import Set
 
@@ -22,6 +23,9 @@ from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from transformer_engine.pytorch import TransformerLayer as TETransformerLayer
 
 from src.models.components.encodon_te_layer import EncodonTELayer
+
+
+logging = logging.getLogger(__name__)
 
 
 def get_fsdp_strategy(
@@ -58,7 +62,9 @@ def get_fsdp_strategy(
     fsdp2_available = torch_version >= (2, 1)
 
     if use_fsdp2 and not fsdp2_available:
-        print(f"Warning: FSDP2 requested but PyTorch version {torch.__version__} < 2.1. Falling back to FSDP1.")
+        logging.warning(
+            f"Warning: FSDP2 requested but PyTorch version {torch.__version__} < 2.1. Falling back to FSDP1."
+        )
         use_fsdp2 = False
 
     # FSDP2 uses different configuration for better memory efficiency
@@ -75,7 +81,7 @@ def get_fsdp_strategy(
             limit_all_gathers=True,  # Reduce memory spikes during forward pass
         )
     else:
-        print("Using FSDP1 (consider upgrading to PyTorch 2.1+ for FSDP2 benefits)")
+        logging.info("Using FSDP1 (consider upgrading to PyTorch 2.1+ for FSDP2 benefits)")
         # FSDP1 configuration
         strategy = FSDPStrategy(
             auto_wrap_policy=auto_wrap_policy,
