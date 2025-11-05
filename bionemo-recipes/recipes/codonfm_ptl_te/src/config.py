@@ -41,7 +41,7 @@ from src.utils.timer import StepTimingCallback
 
 
 # Datasets
-def get_dataset_config(args: Any, process_item_cfg: fdl.Partial) -> fdl.Config:
+def get_dataset_config(args: Any, process_item_cfg: fdl.Partial) -> fdl.Config:  # noqa: C901
     """Builds the dataset configuration."""
     class_name = args.dataset_name
     if class_name == "CodonMemmapDataset":
@@ -50,6 +50,8 @@ def get_dataset_config(args: Any, process_item_cfg: fdl.Partial) -> fdl.Config:
         module_path = "src.data.mutation_dataset"
     elif class_name == "CodonBertDataset":
         module_path = "src.data.codon_bert_dataset"
+    elif class_name == "SimpleCodonDataset":
+        module_path = "src.data.simple_codon_dataset"
     else:
         raise ValueError(f"Unknown dataset name: {class_name}")
 
@@ -93,6 +95,12 @@ def get_dataset_config(args: Any, process_item_cfg: fdl.Partial) -> fdl.Config:
             dataset_class,
             data_path=args.data_path,
             tokenizer=tokenizer_cfg,
+            process_item=process_item_cfg,
+        )
+    elif class_name == "SimpleCodonDataset":
+        # SimpleCodonDataset doesn't need data_path, tokenizer, or most other args
+        dataset_cfg = fdl.Partial(
+            dataset_class,
             process_item=process_item_cfg,
         )
     else:
@@ -219,6 +227,12 @@ def get_logger_config(args: Any) -> fdl.Config:
 
 # Model
 MODEL_ARCHITECTURES: Dict[str, Dict[str, Any]] = {
+    "encodon_200k": {
+        "hidden_size": 128,
+        "intermediate_size": 512,
+        "num_attention_heads": 4,
+        "num_hidden_layers": 2,
+    },
     "encodon_80m": {
         "hidden_size": 1024,
         "intermediate_size": 4096,

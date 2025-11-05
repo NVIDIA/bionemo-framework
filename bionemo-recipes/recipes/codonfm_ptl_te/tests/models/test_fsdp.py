@@ -15,13 +15,11 @@
 
 """FSDP tests for EncodonPL model.
 
-IMPORTANT: Multi-GPU distributed tests MUST run as subprocesses via torchrun.
-You cannot run FSDP/DDP directly in pytest - it will hang due to process spawning issues.
+IMPORTANT: Multi-GPU distributed tests run the example training script as a subprocess.
+This tests the full training infrastructure with FSDP on real hardware.
 """
 
 import subprocess
-import tempfile
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -34,143 +32,142 @@ requires_multi_gpu = pytest.mark.skipif(
 )
 
 
-def run_distributed_training_script(script_path: Path, num_gpus: int = 2, timeout: int = 120):
-    """Run a training script with torchrun for multi-GPU testing.
+@requires_multi_gpu
+def test_encodon_pl_fsdp_training_2gpus(tmp_path):
+    """Test EncodonPL training with FSDP on 2 GPUs using SimpleCodonDataset.
 
-    This is the ONLY way to properly test FSDP/DDP. Running directly in pytest will hang.
+    This test runs the full training infrastructure to verify FSDP works correctly
+    with SimpleCodonDataset and the runner.py infrastructure.
     """
+    # Get path to the recipe root
+    test_dir = Path(__file__).parent.parent.parent  # Go up to recipe root
+
+    # Build the training command
+    cmd = [
+        "python",
+        "src/runner.py",
+        "pretrain",
+        "--exp_name",
+        "fsdp_test",
+        "--dataset_name",
+        "SimpleCodonDataset",
+        "--process_item",
+        "mlm_memmap",
+        "--model_name",
+        "encodon_200k",
+        "--use_transformer_engine",
+        "--enable_fsdp",
+        "--num_nodes",
+        "1",
+        "--num_gpus",
+        "2",
+        "--context_length",
+        "64",
+        "--train_batch_size",
+        "1",
+        "--val_batch_size",
+        "1",
+        "--max_steps",
+        "100",
+        "--lr",
+        "1e-4",
+        "--warmup_iterations",
+        "10",
+        "--log_every_n_steps",
+        "10",
+        "--val_check_interval",
+        "50",
+        "--limit_val_batches",
+        "5",
+        "--mlm_probability",
+        "0.15",
+        "--mask_replace_prob",
+        "0.8",
+        "--random_replace_prob",
+        "0.1",
+        "--num_workers",
+        "2",
+    ]
+
+    # Run the training command
     result = subprocess.run(
-        [
-            "torchrun",
-            "--nproc_per_node",
-            str(num_gpus),
-            "--standalone",
-            str(script_path),
-        ],
+        cmd,
         check=False,
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=timeout,
-        cwd=str(script_path.parent),
+        timeout=300,  # 5 minutes should be enough for 100 steps
+        cwd=str(test_dir),
     )
-
-    if result.returncode != 0:
-        print(f"STDOUT:\n{result.stdout}")
-        print(f"STDERR:\n{result.stderr}")
-        pytest.fail(f"Training script failed with exit code {result.returncode}")
-
-    return result
+    # Verify training completed successfully
+    assert result.returncode == 0, "Training should complete successfully"
 
 
 @requires_multi_gpu
-def test_encodon_pl_fsdp_training_2gpus(tmp_path):
-    """Test EncodonPL training with FSDP on 2 GPUs.
+def test_encodon_pl_fsdp_training_2gpus_no_te(tmp_path):
+    """Test EncodonPL training with FSDP on 2 GPUs without transformer engine.
 
-    This test runs as a subprocess with torchrun because FSDP requires
-    proper distributed process initialization that cannot be done within pytest.
+    This test runs the full training infrastructure to verify FSDP works correctly
+    with SimpleCodonDataset and the runner.py infrastructure without transformer engine.
     """
+    # Get path to the recipe root
+    test_dir = Path(__file__).parent.parent.parent  # Go up to recipe root
 
-    # Create a self-contained training script
-    training_script = textwrap.dedent("""
-        import torch
-        from torch.utils.data import Dataset, DataLoader
-        from src.models.encodon_te_pl import EncodonTEPL
-        from src.utils.fsdp_config import get_fsdp_strategy
-        from src.data.metadata import MetadataFields
-        from lightning.pytorch import Trainer
+    # Build the training command
+    cmd = [
+        "python",
+        "src/runner.py",
+        "pretrain",
+        "--exp_name",
+        "fsdp_test_no_te",
+        "--dataset_name",
+        "SimpleCodonDataset",
+        "--process_item",
+        "mlm_memmap",
+        "--model_name",
+        "encodon_200k",
+        "--enable_fsdp",
+        "--num_nodes",
+        "1",
+        "--num_gpus",
+        "2",
+        "--context_length",
+        "64",
+        "--train_batch_size",
+        "1",
+        "--val_batch_size",
+        "1",
+        "--max_steps",
+        "100",
+        "--lr",
+        "1e-4",
+        "--warmup_iterations",
+        "10",
+        "--log_every_n_steps",
+        "10",
+        "--val_check_interval",
+        "50",
+        "--limit_val_batches",
+        "5",
+        "--mlm_probability",
+        "0.15",
+        "--mask_replace_prob",
+        "0.8",
+        "--random_replace_prob",
+        "0.1",
+        "--num_workers",
+        "2",
+    ]
 
-        class SimpleCodonDataset(Dataset):
-            def __init__(self, num_samples=8, seq_length=64, vocab_size=69):
-                self.num_samples = num_samples
-                self.seq_length = seq_length
-                self.vocab_size = vocab_size
-
-            def __len__(self):
-                return self.num_samples
-
-            def __getitem__(self, idx):
-                return {
-                    MetadataFields.INPUT_IDS: torch.randint(0, self.vocab_size, (self.seq_length,)),
-                    MetadataFields.LABELS: torch.randint(0, self.vocab_size, (self.seq_length,)),
-                    MetadataFields.ATTENTION_MASK: torch.ones(self.seq_length),
-                    MetadataFields.INPUT_MASK: torch.ones(self.seq_length, dtype=torch.bool),
-                }
-
-        def main():
-            base_config = {
-                "vocab_size": 69,
-                "hidden_size": 128,
-                "num_hidden_layers": 2,
-                "num_attention_heads": 4,
-                "intermediate_size": 512,
-                "hidden_act": "gelu",
-                "hidden_dropout_prob": 0.1,
-                "attention_probs_dropout_prob": 0.1,
-                "initializer_range": 0.02,
-                "layer_norm_eps": 1e-12,
-                "pad_token_id": 3,
-                "position_embedding_type": "rotary",
-                "classifier_dropout": 0.1,
-                "rotary_theta": 1e4,
-                "ignore_index": -100,
-                "loss_type": "regression",
-                "lora": False,
-                "lora_alpha": 32.0,
-                "lora_r": 16,
-                "lora_dropout": 0.1,
-                "finetune_strategy": "full",
-                "num_classes": 2,
-                "use_downstream_head": False,
-                "cross_attention_hidden_dim": 256,
-                "cross_attention_num_heads": 8,
-                "max_position_embeddings": 2048,
-                "attn_input_format": "bshd",
-                "optimizer": torch.optim.AdamW,
-                "scheduler": None,
-            }
-
-            # Create dataset and model
-            dataset = SimpleCodonDataset(num_samples=8, seq_length=64)
-            dataloader = DataLoader(dataset, batch_size=2, num_workers=0)
-            model = EncodonTEPL(**base_config)
-            model.configure_model()
-
-            # Create trainer with FSDP strategy
-            trainer = Trainer(
-                max_steps=2,
-                max_epochs=1,
-                accelerator="gpu",
-                devices=2,
-                num_nodes=1,
-                strategy=get_fsdp_strategy(),
-                enable_checkpointing=False,
-                logger=False,
-                enable_progress_bar=False,
-                enable_model_summary=False,
-                gradient_clip_val=1.0,
-                gradient_clip_algorithm="norm",
-            )
-
-            # Run training
-            trainer.fit(model, train_dataloaders=dataloader)
-            print(f"[SUCCESS] Training completed! Global step: {trainer.global_step}")
-
-        if __name__ == "__main__":
-            main()
-    """)
-
-    # Write script to temporary file
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, dir=tmp_path) as f:
-        f.write(training_script)
-        script_path = Path(f.name)
-
-    try:
-        # Run the training script with torchrun
-        result = run_distributed_training_script(script_path, num_gpus=2)
-
-        # Verify training completed successfully
-        assert "[SUCCESS]" in result.stdout, "Training did not complete successfully"
-    finally:
-        # Cleanup temporary script
-        script_path.unlink(missing_ok=True)
+    # Run the training command
+    result = subprocess.run(
+        cmd,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=300,  # 5 minutes should be enough for 100 steps
+        cwd=str(test_dir),
+    )
+    # Verify training completed successfully
+    assert result.returncode == 0, "Training should complete successfully"

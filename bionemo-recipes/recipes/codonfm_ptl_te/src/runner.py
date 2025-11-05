@@ -67,7 +67,9 @@ def get_parser():  # noqa: D103
     )
 
     # Data arguments
-    parser.add_argument("--data_path", type=str, required=True)
+    parser.add_argument(
+        "--data_path", type=str, default=None, help="Path to dataset (not required for SimpleCodonDataset)"
+    )
     parser.add_argument(
         "--process_item",
         type=str,
@@ -83,7 +85,7 @@ def get_parser():  # noqa: D103
         "--dataset_name",
         type=str,
         required=True,
-        choices=["CodonMemmapDataset", "MutationDataset", "CodonBertDataset"],
+        choices=["CodonMemmapDataset", "MutationDataset", "CodonBertDataset", "SimpleCodonDataset"],
     )
     parser.add_argument("--num_workers", type=int, default=12)
     parser.add_argument("--train_batch_size", type=int, default=16)
@@ -107,6 +109,7 @@ def get_parser():  # noqa: D103
         type=str,
         required=True,
         choices=[
+            "encodon_200k",
             "encodon_80m",
             "encodon_600m",
             "encodon_1b",
@@ -230,6 +233,11 @@ def main():  # noqa: C901, D103
     args = parser.parse_args()
     if args.mode in ["eval"] and not args.checkpoint_path:
         parser.error(f"--checkpoint_path is required for mode '{args.mode}'")
+
+    # Validate data_path requirement based on dataset
+    if args.dataset_name != "SimpleCodonDataset" and not args.data_path:
+        parser.error(f"--data_path is required for dataset '{args.dataset_name}'")
+
     if args.enable_wandb:
         missing = []
         if not args.project_name:
