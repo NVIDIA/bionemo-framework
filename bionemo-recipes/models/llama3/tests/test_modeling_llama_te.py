@@ -100,7 +100,6 @@ def test_hf_llama_model_generate_golden_values():
 
 
 @pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
-@pytest.mark.xfail(reason="This doesn't work with the te model?")
 def test_te_llama_model_generate_golden_values():
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
     model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
@@ -111,8 +110,12 @@ def test_te_llama_model_generate_golden_values():
    you may not use this file except in compliance with the License.
    You may obtain a copy of the License at"""
 
-    # TODO: this doesn't work with the te model?
-    generator = pipeline("text-generation", model=model_te, tokenizer=tokenizer, device="cuda")
+    inputs = tokenizer(prompt, return_tensors="pt")
+    inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    model_te.to("cuda")
 
-    outputs = generator(prompt, max_new_tokens=16)
-    assert "http://www.apache.org/licenses/LICENSE-2.0" in outputs[0]["generated_text"]
+    with torch.no_grad():
+        output_ids = model_te.generate(**inputs, max_new_tokens=16, use_cache=False)
+
+    generated_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    assert "http://www.apache.org/licenses/LICENSE-2.0" in generated_text
