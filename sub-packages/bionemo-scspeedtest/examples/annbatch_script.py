@@ -18,6 +18,7 @@
 
 import argparse
 import os
+from collections.abc import Callable, Iterable
 from datetime import datetime
 from pathlib import Path
 
@@ -32,11 +33,13 @@ from bionemo.scspeedtest import benchmark_dataloaders_with_configs
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 
 
-def create_on_disk_collection(adata_path: Path | str, output_path: Path | None = None):
-    """Creates a collection at either the output_path / "collection" or at the adata_path.parent / "collection" if output_path is None."""
-    output_zarr_collection = (
-        Path(adata_path).parent / "collection" if output_path is None else output_path / "collection"
-    )
+def _get_default_collection_path(adata_path: Path) -> Path:
+    return Path(adata_path).parent / "collection"
+
+
+def create_on_disk_collection(adata_path: Path, *, output_path: Path | None = None) -> Path:
+    """Creates a collection at either the output_path or at the adata_path.parent / "collection" if output_path is None."""
+    output_zarr_collection = _get_default_collection_path(adata_path) if output_path is None else output_path
 
     def load_adata(adata_path):
         adata = ad.experimental.read_lazy(adata_path)
@@ -53,30 +56,30 @@ def create_on_disk_collection(adata_path: Path | str, output_path: Path | None =
         load_adata=load_adata,
         zarr_compressor=None,
     )
-    return output_zarr_collection
+    return Path(output_zarr_collection)
+
+
+def create_adata(collection_path: Path, num_workers: int, *, use_direct_io: bool = False) -> list[ad.AnnData]:
+    """Create a list of AnnData objects loaded from collection_path with the specified parameters, loading only X."""
+    # Allocate each worker an even number of threads plus a little
+    # TODO: How big is the data? Presumably if it is not big enough to fit in memory, we would want O_DIRECT reading to be on.
+    # TODO: There are probably faster ways to get a directory size? If you're using this data loader, presumably your data doesn't fit in memory?
+    # TODO: Does X always contain the genes of interest? Layers? Raw?
+    # TODO: Should num_workers control threading? If scdataset were to wrap zarr, it would still be multithreaded under the processes, so my inclination is "no".
+    with zarr.config.set(
+        {
+            "threading.max_workers": (os.cpu_count() // max(num_workers, 1)) + 1,
+            "codec_pipeline.direct_io": use_direct_io,
+        }
+    ):
+        return [ad.AnnData(X=ad.io.sparse_dataset(zarr.open(p)["X"])) for p in collection_path.iterdir()]
 
 
 def create_dataset_factory(
-    collection_path: Path | str, num_workers: int, *, use_direct_io: bool = False
-) -> ad.AnnData:
+    collection_path: Path, num_workers: int, *, use_direct_io: bool = False
+) -> Callable[[], list[ad.AnnData]]:
     """Generate an `anndata.AnnData` object for use in `annbatch` i.e., zarr v3 on disk, loaded using `anndata.io.sparse_dataset`."""
-    collection_path = Path(collection_path)
-
-    def dataset_factory():
-        # Allocate each worker an even number of threads plus a little
-        # TODO: How big is the data? Presumably if it is not big enough to fit in memory, we would want O_DIRECT reading to be on.
-        # TODO: There are probably faster ways to get a directory size? If you're using this data loader, presumably your data doesn't fit in memory?
-        # TODO: Does X always contain the genes of interest? Layers? Raw?
-        # TODO: Should num_workers control threading? If scdataset were to wrap zarr, it would still be multithreaded under the processes, so my inclination is "no".
-        with zarr.config.set(
-            {
-                "threading.max_workers": (os.cpu_count() // max(num_workers, 1)) + 1,
-                "codec_pipeline.direct_io": use_direct_io,
-            }
-        ):
-            return [ad.AnnData(X=ad.io.sparse_dataset(zarr.open(p)["X"])) for p in collection_path.iterdir()]
-
-    return dataset_factory
+    return lambda: create_adata(collection_path=collection_path, num_workers=num_workers, use_direct_io=use_direct_io)
 
 
 def to_annbatch(
@@ -87,7 +90,7 @@ def to_annbatch(
     block_size: int = 1,
     fetch_factor: int = 2,
     num_workers: int = 0,
-) -> ZarrSparseDataset:
+) -> Iterable:
     """Generate an `annbatch.ZarrSparseDataset` based on configuration and a list of input `anndata.AnnData` objects backed by zarr v3 on disk."""
     if num_workers > 0:
         ds = ZarrSparseDataset(
@@ -117,10 +120,10 @@ def to_annbatch(
 
 def create_annbatch_from_preloaded_anndata_factory(
     batch_size=64, shuffle=True, block_size=1, fetch_factor=2, num_workers=0
-):
+) -> Callable[[list[ad.AnnData]], Iterable]:
     """Factory creator for an `annbatch.ZarrSparseDataset` given a list of anndatas (backed by zarr v3 on-disk) and based on configuration in the arguments to this function."""
 
-    def factory(adatas: list[ad.AnnData]):
+    def factory(adatas: list[ad.AnnData]) -> Iterable:
         return to_annbatch(
             adatas,
             batch_size=batch_size,
@@ -134,19 +137,21 @@ def create_annbatch_from_preloaded_anndata_factory(
 
 
 def create_annbatch_factory(
-    batch_size=64,
-    block_size=1,
-    shuffle=True,
-    collection_path=None,
-    num_workers=0,
-    fetch_factor=1,
+    batch_size: int = 64,
+    block_size: int = 1,
+    shuffle: bool = True,
+    collection_path: Path | None = None,
+    num_workers: int = 0,
+    fetch_factor: int = 1,
     *,
-    use_direct_io=False,
-):
+    use_direct_io: bool = False,
+) -> Callable[[], Iterable]:
     """Factory creator for on-disk zarr v3 sharded anndata file __and__ a `annbatch.ZarrSparseDataset` based on configuration in the arguments to this function as well as that on-disk."""
 
     def factory():
-        adatas = create_dataset_factory(collection_path, num_workers, use_direct_io=use_direct_io)()
+        adatas = create_dataset_factory(
+            collection_path=collection_path, num_workers=num_workers, use_direct_io=use_direct_io
+        )()
         return to_annbatch(
             adatas,
             batch_size=batch_size,
@@ -160,14 +165,15 @@ def create_annbatch_factory(
 
 
 def comprehensive_benchmarking_example(
-    num_epochs=1,
-    num_runs=1,
-    collection_path=None,
-    adata_path=None,
-    fetch_factors=None,
-    block_sizes=None,
-    max_time_seconds=120.0,
-    warmup_time_seconds=30.0,
+    num_epochs: int = 1,
+    num_runs: int = 1,
+    collection_path: Path | None = None,
+    adata_path: Path | None = None,
+    fetch_factors: Path | None = None,
+    block_sizes: Path | None = None,
+    max_time_seconds: float = 120.0,
+    warmup_time_seconds: float = 30.0,
+    measure_collection_creation_time: bool = False,
 ):
     """Benchmarking exampe for `annbatch.ZarrSparseDataset`.
 
@@ -180,6 +186,7 @@ def comprehensive_benchmarking_example(
         block_sizes: List of block sizes to test (default: [1, 2, 4, 8, 16, 32, 64])
         max_time_seconds: Maximum time to run each configuration (default: 120.0)
         warmup_time_seconds: Time to warmup before benchmarking (default: 30.0)
+        measure_collection_creation_time: Whether or not to measure the time to make the on-disk collection (default: False)
     """
     print("=" * 80)
     print("COMPREHENSIVE BENCHMARKING EXAMPLE")
@@ -200,8 +207,15 @@ def comprehensive_benchmarking_example(
     print()
     print("Running annbatch...")
     # TODO: should we make this by default or?
-    if collection_path is None:
+    if collection_path is None and not measure_collection_creation_time:
+        if adata_path is None:
+            raise ValueError("Cannot create collection from adata_path None.")
         collection_path = create_on_disk_collection(adata_path)
+    if measure_collection_creation_time:
+        if adata_path is None:
+            raise ValueError("Cannot measure collection creation time from adata_path None.")
+        if collection_path is None:
+            collection_path = _get_default_collection_path(adata_path)
     num_workers = 0  # TODO: why 0? the other scripts seem to have this hardcoded though
     use_direct_io = False  # TODO: grid search this parameter as well
     annbatch_configurations = []
@@ -209,7 +223,7 @@ def comprehensive_benchmarking_example(
         for block_size in block_sizes:
             annbatch_configurations.append(
                 {
-                    "name": f"annbatch_{block_size}_{fetch_factor}",
+                    "name": f"annbatch_{block_size}_{fetch_factor}{'_measure_collection_creation' if measure_collection_creation_time else ''}",
                     "dataloader_factory": create_annbatch_from_preloaded_anndata_factory(
                         batch_size=64,
                         shuffle=True,
@@ -227,7 +241,15 @@ def comprehensive_benchmarking_example(
 
     benchmark_dataloaders_with_configs(
         dataloader_configs=annbatch_configurations,
-        shared_dataset_factory=create_dataset_factory(collection_path, num_workers, use_direct_io=use_direct_io),
+        shared_dataset_factory=create_dataset_factory(
+            collection_path=collection_path, num_workers=num_workers, use_direct_io=use_direct_io
+        )
+        if not measure_collection_creation_time
+        else lambda: create_adata(
+            collection_path=create_on_disk_collection(adata_path=adata_path, output_path=collection_path),
+            num_workers=num_workers,
+            use_direct_io=use_direct_io,
+        ),
         output_prefix=f"annbatch_benchmark_{timestamp}",
     )
 
@@ -240,14 +262,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="BioNeMo Benchmarking Framework - annbatch Test")
     parser.add_argument(
         "--collection-path",
-        type=str,
-        default="/home/pbinder/bionemo-framework/tahoe_data",
+        type=Path,
+        default=None,
         help="Path to the AnnData zarr v3 collection. Default: %(default)s",
     )
     parser.add_argument(
         "--adata-path",
-        type=str,
-        default="/home/pbinder/bionemo-framework/tahoe_data",
+        type=Path,
+        default=None,
         help="Path to the AnnData H5AD file. Default: %(default)s",
     )
     parser.add_argument(
@@ -288,6 +310,12 @@ if __name__ == "__main__":
         default=1.0,
         help="Time to warmup before benchmarking in seconds. Default: %(default)s",
     )
+    parser.add_argument(
+        "--measure-collection-creation-time",
+        type=bool,
+        default=False,
+        help="Whether to benchmark dataset creation time. Default: %(default)s",
+    )
 
     args = parser.parse_args()
 
@@ -302,4 +330,5 @@ if __name__ == "__main__":
         block_sizes=args.block_sizes,
         max_time_seconds=args.max_time,
         warmup_time_seconds=args.warmup_time,
+        measure_collection_creation_time=args.measure_collection_creation_time,
     )
