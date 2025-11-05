@@ -22,6 +22,7 @@ from lightning.pytorch.strategies import FSDPStrategy
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
 from transformer_engine.pytorch import TransformerLayer as TETransformerLayer
 
+from src.models.components.encodon_layer import EncoderLayer
 from src.models.components.encodon_te_layer import EncodonTELayer
 
 
@@ -50,7 +51,7 @@ def get_fsdp_strategy(
     """
     # Define which layer types should be wrapped as FSDP units
     # This allows each transformer layer to be sharded independently
-    transformer_layer_classes: Set[type] = {EncodonTELayer, TETransformerLayer}
+    transformer_layer_classes: Set[type] = {EncodonTELayer, TETransformerLayer, EncoderLayer}
 
     auto_wrap_policy = partial(
         transformer_auto_wrap_policy,
@@ -75,7 +76,7 @@ def get_fsdp_strategy(
             cpu_offload=cpu_offload,
             # FSDP2-specific optimizations
             sharding_strategy="FULL_SHARD",  # Each GPU holds 1/N of parameters
-            state_dict_type="full",
+            state_dict_type="sharded",
             # FSDP2 improvements that reduce memory usage
             use_orig_params=True,  # Better memory management and optimizer compatibility
             limit_all_gathers=True,  # Reduce memory spikes during forward pass
@@ -88,7 +89,7 @@ def get_fsdp_strategy(
             activation_checkpointing_policy=transformer_layer_classes if activation_checkpointing else None,
             cpu_offload=cpu_offload,
             sharding_strategy="FULL_SHARD",
-            state_dict_type="full",
+            state_dict_type="sharded",
         )
 
     return strategy
