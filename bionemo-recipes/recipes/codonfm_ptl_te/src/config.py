@@ -33,6 +33,7 @@ from src.inference.encodon import EncodonInference
 from src.models.encodon_pl import EncodonPL
 from src.models.encodon_te_pl import EncodonTEPL
 from src.tokenizer import Tokenizer
+from src.utils.fsdp_config import get_fsdp_strategy
 from src.utils.grad_norm_callback import GradientNormLogger
 from src.utils.pred_writer import PredWriter
 from src.utils.scheduler import linear_scheduler_with_warmup_lr_lambda
@@ -40,7 +41,7 @@ from src.utils.timer import StepTimingCallback
 
 
 # Datasets
-def get_dataset_config(args: Any, process_item_cfg: fdl.Partial) -> fdl.Config:
+def get_dataset_config(args: Any, process_item_cfg: fdl.Partial) -> fdl.Config:  # noqa: C901
     """Builds the dataset configuration."""
     class_name = args.dataset_name
     if class_name == "CodonMemmapDataset":
@@ -49,6 +50,8 @@ def get_dataset_config(args: Any, process_item_cfg: fdl.Partial) -> fdl.Config:
         module_path = "src.data.mutation_dataset"
     elif class_name == "CodonBertDataset":
         module_path = "src.data.codon_bert_dataset"
+    elif class_name == "SimpleCodonDataset":
+        module_path = "src.data.simple_codon_dataset"
     else:
         raise ValueError(f"Unknown dataset name: {class_name}")
 
@@ -94,6 +97,12 @@ def get_dataset_config(args: Any, process_item_cfg: fdl.Partial) -> fdl.Config:
             tokenizer=tokenizer_cfg,
             process_item=process_item_cfg,
         )
+    elif class_name == "SimpleCodonDataset":
+        # SimpleCodonDataset doesn't need data_path, tokenizer, or most other args
+        dataset_cfg = fdl.Partial(
+            dataset_class,
+            process_item=process_item_cfg,
+        )
     else:
         print(f"Warning: Using generic config for dataset '{args.dataset_name}'.")
         dataset_cfg = fdl.Partial(dataset_class, **common_args)
@@ -114,6 +123,7 @@ def get_callbacks_config(args: Any) -> Dict[str, fdl.Config]:
             mode="min",
             save_top_k=1,
             auto_insert_metric_name=False,
+            enable_version_counter=False,
         ),
         "early_stopping": fdl.Config(
             EarlyStopping,
@@ -217,6 +227,12 @@ def get_logger_config(args: Any) -> fdl.Config:
 
 # Model
 MODEL_ARCHITECTURES: Dict[str, Dict[str, Any]] = {
+    "encodon_200k": {
+        "hidden_size": 128,
+        "intermediate_size": 512,
+        "num_attention_heads": 4,
+        "num_hidden_layers": 2,
+    },
     "encodon_80m": {
         "hidden_size": 1024,
         "intermediate_size": 4096,
@@ -234,6 +250,12 @@ MODEL_ARCHITECTURES: Dict[str, Dict[str, Any]] = {
         "intermediate_size": 8192,
         "num_attention_heads": 16,
         "num_hidden_layers": 18,
+    },
+    "encodon_10b": {
+        "hidden_size": 5120,
+        "intermediate_size": 20480,
+        "num_attention_heads": 40,
+        "num_hidden_layers": 34,
     },
 }
 
@@ -304,12 +326,24 @@ def get_model_config(args: Any) -> fdl.Config:
 # Trainer
 def get_trainer_config(args: Any) -> Dict[str, Any]:
     """Builds the trainer configuration arguments."""
+    # Configure strategy based on args
+    if args.enable_fsdp:
+        # Use proper FSDP/FSDP2 strategy with auto-wrap policy
+        # This ensures FSDP uses LESS memory than DDP
+        strategy = get_fsdp_strategy(
+            cpu_offload=getattr(args, "fsdp_cpu_offload", False), activation_checkpointing=False, use_fsdp2=True
+        )
+    elif args.mode == "finetune":
+        strategy = "ddp_find_unused_parameters_true"
+    else:
+        strategy = "ddp"
+
     trainer_kwargs = dict(  # noqa: C408
         num_nodes=args.num_nodes,
         devices=args.num_gpus,
         max_steps=args.max_steps,
         default_root_dir=args.out_dir,
-        strategy="ddp" if args.mode != "finetune" else "ddp_find_unused_parameters_true",
+        strategy=strategy,
         precision="bf16-mixed" if getattr(args, "bf16", False) else "32-true",
         limit_val_batches=args.limit_val_batches,
         log_every_n_steps=args.log_every_n_steps,

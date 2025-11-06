@@ -21,7 +21,6 @@ import torch
 import torch.nn as nn
 from lightning import LightningModule
 from peft import LoraConfig, PeftType, get_peft_model
-from torch.distributed.fsdp.wrap import wrap
 from torchmetrics import MeanMetric
 from transformers.utils import logging
 
@@ -159,7 +158,7 @@ class EncodonTEPL(LightningModule):
             # rather than doing early return
 
         if self.model is None:
-            self.model = wrap(EnCodonTE(self.pretrained_config))
+            self.model = EnCodonTE(self.pretrained_config)
 
             # Add cross-attention downstream heads only if enabled
             if self.hparams.use_downstream_head:
