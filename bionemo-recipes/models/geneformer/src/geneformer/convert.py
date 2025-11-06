@@ -119,7 +119,7 @@ def convert_geneformer_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Modu
         "fuse_qkv_params",
         "micro_batch_size",
         "max_seq_length",
-        "model_type",
+        "use_te_layers",
     ]
     for key in te_specific_keys:
         hf_config_dict.pop(key, None)
@@ -148,7 +148,11 @@ def convert_geneformer_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Modu
         model_hf,
         reverse_mapping,
         [_unpack_qkv_weight, _unpack_qkv_bias],
-        state_dict_ignored_entries=["cls.predictions.decoder.weight", *extra_state_entries],
+        state_dict_ignored_entries=[
+            "cls.predictions.decoder.weight",
+            "cls.predictions.decoder.bias",
+            *extra_state_entries,
+        ],
     )
 
     output_model.tie_weights()

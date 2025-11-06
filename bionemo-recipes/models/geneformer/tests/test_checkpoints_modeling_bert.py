@@ -98,21 +98,17 @@ def test_geneformer_checkpoint_loss(model_variant, input_data):
     assert te_outputs.logits.shape == hf_outputs.logits.shape, "Both models should have same output shape"
 
     # Verify losses are close to each other (indicating similar model behavior)
-    loss_diff = abs(te_outputs.loss - hf_outputs.loss)
-    assert loss_diff < 0.1, (
-        f"Loss difference {loss_diff:.4f} should be < 0.1. TE loss: {te_outputs.loss:.4f}, HF loss: {hf_outputs.loss:.4f}"
+    torch.testing.assert_close(
+        te_outputs.loss,
+        hf_outputs.loss,
+        atol=0.1,
+        rtol=0,
+        msg=f"TE loss ({te_outputs.loss:.4f}) and HF loss ({hf_outputs.loss:.4f}) should be close",
     )
-
-    print("Model compatibility test passed!")
-    print(f" - TE model loss: {te_outputs.loss.item():.4f}")
-    print(f" - HF model loss: {hf_outputs.loss.item():.4f}")
-    print(f" - Output shape: {te_outputs.logits.shape}")
 
     # Clean up
     del model_hf, model_te
     torch.cuda.empty_cache()
-
-    print(f"{model_name} loss computation test completed successfully!")
 
 
 @pytest.mark.parametrize("model_variant", MODEL_VARIANTS, ids=[variant[0] for variant in MODEL_VARIANTS])
@@ -123,22 +119,9 @@ def test_geneformer_checkpoint_weight_compatibility(model_variant):
 
     model_name, model_info = model_variant
 
-    print(f"Testing weight compatibility with {model_name} checkpoint...")
-    print(f"  - {model_info['description']}")
-    print(f"  - Input size: {model_info['input_size']}")
-    print(f"  - Vocabulary: {model_info['vocabulary']}")
-    print(f"  - Training data: {model_info['training_data']}")
-
     model_hf = load_geneformer_model(model_name)
 
     hf_state_dict = model_hf.state_dict()
-
-    print(f"Loaded checkpoint with {len(hf_state_dict)} parameters")
-    print(
-        f"Checkpoint config: hidden_size={model_hf.config.hidden_size}, "
-        f"layers={model_hf.config.num_hidden_layers}, "
-        f"heads={model_hf.config.num_attention_heads}"
-    )
 
     # Create our TE model with the same architecture
     te_config_dict = {
@@ -163,18 +146,12 @@ def test_geneformer_checkpoint_weight_compatibility(model_variant):
     te_config = TEBertConfig(**te_config_dict)
     model_te = TEBertForMaskedLM(te_config)
 
-    print(f"Created TE model with config: {te_config_dict}")
-
     te_state_dict = model_te.state_dict()
-
-    print(f"TE model has {len(te_state_dict)} parameters")
 
     _run_compatibility_analysis(hf_state_dict, te_state_dict, te_config)
 
     del model_hf, model_te
     torch.cuda.empty_cache()
-
-    print(f"{model_name} weight compatibility analysis completed!")
 
 
 # Helper functions for parameter compatibility analysis
@@ -208,42 +185,30 @@ def _expand_pattern(pattern, state_dict):
 
 
 def _get_parameter_mapping():
-    """Get the mapping from HF BERT format to TE format."""
-    return {
-        "bert.embeddings.word_embeddings.weight": "bert.embeddings.word_embeddings.weight",
-        "bert.embeddings.position_embeddings.weight": "bert.embeddings.position_embeddings.weight",
-        "bert.embeddings.token_type_embeddings.weight": "bert.embeddings.token_type_embeddings.weight",
-        "bert.embeddings.LayerNorm.weight": "bert.embeddings.LayerNorm.weight",
-        "bert.embeddings.LayerNorm.bias": "bert.embeddings.LayerNorm.bias",
-        # Attention self components (individual Q, K, V - unpacked from fused format)
+    """Get the mapping from HF BERT format to TE format.
+
+    This mapping extends the base conversion mapping with unpacked QKV parameters.
+    Since _unpack_fused_qkv_in_te_state_dict unpacks the fused QKV into individual
+    Q, K, V parameters in HF format, we need identity mappings for them.
+    """
+    from geneformer.convert import mapping as base_mapping
+
+    # Start with the base mapping from convert.py
+    extended_mapping = base_mapping.copy()
+
+    # Add mappings for unpacked Q, K, V parameters (identity mappings after unpacking)
+    qkv_mappings = {
         "bert.encoder.layer.*.attention.self.query.weight": "bert.encoder.layer.*.attention.self.query.weight",
         "bert.encoder.layer.*.attention.self.query.bias": "bert.encoder.layer.*.attention.self.query.bias",
         "bert.encoder.layer.*.attention.self.key.weight": "bert.encoder.layer.*.attention.self.key.weight",
         "bert.encoder.layer.*.attention.self.key.bias": "bert.encoder.layer.*.attention.self.key.bias",
         "bert.encoder.layer.*.attention.self.value.weight": "bert.encoder.layer.*.attention.self.value.weight",
         "bert.encoder.layer.*.attention.self.value.bias": "bert.encoder.layer.*.attention.self.value.bias",
-        # Attention output components
-        "bert.encoder.layer.*.attention.output.dense.weight": "bert.encoder.layer.*.self_attention.proj.weight",
-        "bert.encoder.layer.*.attention.output.dense.bias": "bert.encoder.layer.*.self_attention.proj.bias",
-        # With output_layernorm=True, LayerNorm is separate (not in layernorm_qkv)
-        "bert.encoder.layer.*.attention.output.LayerNorm.weight": "bert.encoder.layer.*.layernorm.weight",
-        "bert.encoder.layer.*.attention.output.LayerNorm.bias": "bert.encoder.layer.*.layernorm.bias",
-        # MLP components (custom TEBertLayer uses submodules, so dots not underscores)
-        "bert.encoder.layer.*.intermediate.dense.weight": "bert.encoder.layer.*.layernorm_mlp.fc1.weight",
-        "bert.encoder.layer.*.intermediate.dense.bias": "bert.encoder.layer.*.layernorm_mlp.fc1.bias",
-        "bert.encoder.layer.*.output.dense.weight": "bert.encoder.layer.*.layernorm_mlp.fc2.weight",
-        "bert.encoder.layer.*.output.dense.bias": "bert.encoder.layer.*.layernorm_mlp.fc2.bias",
-        "bert.encoder.layer.*.output.LayerNorm.weight": "bert.encoder.layer.*.layernorm_mlp.layer_norm.weight",
-        "bert.encoder.layer.*.output.LayerNorm.bias": "bert.encoder.layer.*.layernorm_mlp.layer_norm.bias",
-        # Classification head
-        "cls.predictions.bias": "cls.predictions.bias",
-        "cls.predictions.decoder.weight": "cls.predictions.decoder.weight",
-        "cls.predictions.decoder.bias": "cls.predictions.decoder.bias",
-        "cls.predictions.transform.dense.weight": "cls.predictions.transform.dense.weight",
-        "cls.predictions.transform.dense.bias": "cls.predictions.transform.dense.bias",
-        "cls.predictions.transform.LayerNorm.weight": "cls.predictions.transform.LayerNorm.weight",
-        "cls.predictions.transform.LayerNorm.bias": "cls.predictions.transform.LayerNorm.bias",
     }
+
+    extended_mapping.update(qkv_mappings)
+
+    return extended_mapping
 
 
 def _check_wildcard_mapping(hf_pattern, te_pattern, hf_state_dict, te_state_dict):
@@ -405,11 +370,7 @@ def _run_compatibility_analysis(hf_state_dict, te_state_dict, te_config):
         compatible_params, incompatible_params, missing_params, len(hf_state_dict)
     )
 
-    # Now we expect 100% compatibility since we've unpacked the fused QKV parameters
     assert compatibility_ratio == 1.0, (
         f"Expected 100% compatibility after unpacking fused QKV parameters, but got {compatibility_ratio:.2%}. "
         f"All parameters should be mappable between HF and TE models."
     )
-
-    print("100% compatibility achieved - all parameters can be properly mapped!")
-    print("Note: Fused QKV parameters were unpacked for accurate comparison.")

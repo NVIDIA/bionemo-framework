@@ -36,7 +36,14 @@ This loads the pre-trained Geneformer model that will serve as our reference for
 
 ### Step 2: Export to Transformer Engine Format
 
-Convert the Hugging Face model to Transformer Engine format using the high-level export API:
+Convert the Hugging Face model to Transformer Engine format using the high-level export API.
+
+**Supported Models:**
+
+- `Geneformer-V1-10M`
+- `Geneformer-V2-104M`
+- `Geneformer-V2-316M`
+- `Geneformer-V2-104M_CLcancer`
 
 ```python
 from geneformer.export import export_hf_checkpoint
