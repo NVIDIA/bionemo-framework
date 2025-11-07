@@ -24,7 +24,7 @@ from torch.optim import AdamW
 from transformers import AutoConfig, AutoModelForMaskedLM
 
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp
-from dataset import create_dataloader
+from dataset import create_bshd_dataloader
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -38,7 +38,7 @@ class MockSingleProcessDistributedConfig:
         return self.rank == 0
 
 
-def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_path):  # noqa: C901
+def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_path):
     # Setup the dataloader
     tokenizer_name = "facebook/esm2_t6_8M_UR50D"
     load_dataset_kwargs = {
@@ -55,7 +55,7 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
     )
 
     # First, collect reference batches from a fresh dataloader
-    reference_dataloader, _ = create_dataloader(
+    reference_dataloader, _ = create_bshd_dataloader(
         distributed_config=dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -162,7 +162,7 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
     resumed_scheduler = get_linear_schedule_with_warmup(resumed_optimizer, **lr_scheduler_kwargs)
 
     # Now make a dataloader brand new and restore the state?
-    new_dataloader, _ = create_dataloader(
+    new_dataloader, _ = create_bshd_dataloader(
         distributed_config=dist_config,
         tokenizer_name=tokenizer_name,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -172,7 +172,7 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
     )
 
     # Load checkpoint from step 5 into the fresh model
-    resumed_model, resumed_optimizer, resumed_scheduler, _, new_dataloader, _ = load_checkpoint_ddp(
+    resumed_model, resumed_optimizer, resumed_scheduler, new_dataloader, _, _ = load_checkpoint_ddp(
         model=resumed_model,
         optimizer=resumed_optimizer,
         scheduler=resumed_scheduler,

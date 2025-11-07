@@ -22,6 +22,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+import datasets
 import torch
 from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
 
@@ -319,6 +320,42 @@ class DataCollatorWithFlattening(DefaultDataCollator):
         if self.pad_to_multiple_of is not None:
             batch = _pt_pad_to_multiple_of(batch, self.pad_to_multiple_of, self.token_pad, self.label_pad)
         return batch
+
+
+@dataclass
+class TokenPackingDataset(torch.utils.data.IterableDataset):
+    """Dataset that uses sequence packing to construct batches with variable length up to a maximum number of tokens."""
+
+    dataset: datasets.IterableDataset
+    """Dataset to pack."""
+    max_tokens_per_batch: int
+    """Maximum number of tokens per batch."""
+    drop_last: bool = True
+    """Whether to drop the last batch if it's less than max_length."""
+
+    def __iter__(self):
+        """Yield batches of samples, each with a variable number of tokens up to the maximum length.
+
+        Returns:
+            A generator of batches of samples, each with a variable number of tokens up to the maximum length.
+        """
+        samples = []
+        current_length = 0
+        for sample in iter(self.dataset):
+            current_length += len(sample["input_ids"])
+            if current_length > self.max_tokens_per_batch:
+                yield samples
+                samples = [sample]
+                current_length = len(sample["input_ids"])
+            else:
+                samples.append(sample)
+
+        if not self.drop_last and samples:
+            yield samples
+
+    def set_epoch(self, epoch: int):
+        """Set the epoch for the dataset."""
+        self.dataset.set_epoch(epoch)
 
 
 def _pt_flatten_collate(features: list[dict[str, list[int]]], return_position_ids: bool = False):

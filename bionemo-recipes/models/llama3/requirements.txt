@@ -1,0 +1,3 @@
+transformer_engine[pytorch]
+transformers
+torch

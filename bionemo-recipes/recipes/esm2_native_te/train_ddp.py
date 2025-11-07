@@ -26,7 +26,7 @@ from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
-from dataset import create_dataloader
+from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
@@ -37,8 +37,8 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
-def main(args: DictConfig) -> float | None:  # noqa: C901
-    """Train ESM-2 with TE layers using ddp.
+def main(args: DictConfig) -> float | None:
+    """Train ESM-2 with TE layers using DDP.
 
     Returns:
         float: The loss value for the final batch.
@@ -54,12 +54,23 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # and MFSDP.
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("ddp",))
 
-    # Create an empty ESM-2 model with a masked language model head.
+    # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
+    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+    )
+
+    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
-    if args.dataset.use_sequence_packing:
+    if args.use_sequence_packing:
         config.attn_input_format = "thd"
-    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+
+    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
+    # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
+    # versions of weights are kept.
+    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
+        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+
     logger.info("Initialized Model:\n%s", model)
 
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
@@ -81,16 +92,12 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         device_mesh=device_mesh["ddp"],
     )
 
-    # Create an FP8 recipe
-    if args.fp8_config.enabled:
-        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-        )
-    else:
-        fp8_recipe = None
-
-    # Create a dataloader that just infinitely loops over the dataset.
-    train_dataloader, dataset_or_sampler = create_dataloader(dist_config, **args.dataset)
+    # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
+    train_dataloader, dataset_or_sampler = (
+        create_thd_dataloader(dist_config, **args.dataset)
+        if args.use_sequence_packing
+        else create_bshd_dataloader(dist_config, **args.dataset)
+    )
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
@@ -99,7 +106,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_ddp" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
-        model, optimizer, scheduler, start_step, train_dataloader, epoch = load_checkpoint_ddp(
+        model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_ddp(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
@@ -135,6 +142,14 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
             scheduler.step()
             optimizer.zero_grad()
 
+            perf_logger.log_step(
+                step=step,
+                batch=batch,
+                outputs=outputs,
+                grad_norm=total_norm,
+                lr=optimizer.param_groups[0]["lr"],
+            )
+
             if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                 save_checkpoint_ddp(
                     model=model,
@@ -147,13 +162,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     epoch=epoch,
                 )
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
             step += 1
             if step >= args.num_train_steps:
                 break

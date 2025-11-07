@@ -11,12 +11,8 @@ requires-python = ">=3.8"
 dependencies = [
     "accelerate",
     "datasets",
-    "fiddle",
     "hydra-core",
     "jinja2",
-    "lightning",
-    "megatron-core==0.12.1",
-    "nemo_toolkit[lightning]==2.3.1",
     "nvidia_resiliency_ext",
     "omegaconf",
     "pytest",

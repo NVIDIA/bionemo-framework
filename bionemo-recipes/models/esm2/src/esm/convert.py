@@ -15,10 +15,10 @@
 
 import torch
 from accelerate import init_empty_weights
-from nemo.lightning import io
 from torch import nn
 from transformers import EsmConfig, EsmForMaskedLM
 
+import esm.state as io
 from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
 
@@ -64,7 +64,13 @@ def convert_esm_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
         model_hf,
         model_te,
         mapping,
-        [_pack_qkv_weight, _pack_qkv_bias, _pad_embeddings, _pad_decoder_weights, _pad_bias],
+        [
+            _pack_qkv_weight,
+            _pack_qkv_bias,
+            _pad_embeddings,
+            _pad_decoder_weights,
+            _pad_bias,
+        ],
         state_dict_ignored_entries=["lm_head.decoder.weight"],
     )
 

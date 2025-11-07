@@ -27,6 +27,12 @@ bionemo-framework repository. You can download a zipped directory of this folder
 \[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
 \[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
 
+### Performance Benchmarks
+
+![Performance Benchmarks](../../../docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg)
+
+Note: "compiled" refers to `torch.compile`. "fa2" is [FlashAttention2](https://github.com/Dao-AILab/flash-attention). Recently, we measured 2800 tokens/second/GPU training speed on H100 with HuggingFace Transformers's ESM-2 implementation of THD sequence packing, however we have not been able to make this configuration work on Blackwell and this work is still in progress.
+
 ### Distributed Training
 
 This recipe supports distributed training using DDP, FSDP2, and Megatron-FSDP, shown in three separate training
@@ -64,23 +70,22 @@ python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true
 ### Sequence Packing (THD input format)
 
 Sequence packing is handled via a padding-free collator (in `collator.py`) that provides input arguments (e.g.
-`cu_seq_lens_q`) needed for padding-free attention. To enable sequence packing, set `dataset.use_sequence_packing=true`
+`cu_seq_lens_q`) needed for padding-free attention. To enable sequence packing, set `use_sequence_packing=true`
 in the hydra configuration.
 
 ```bash
-python train_fsdp2.py --config-name L0_sanity dataset.use_sequence_packing=true
+python train_fsdp2.py --config-name L0_sanity use_sequence_packing=true
 ```
 
 ### FP8 and Sequence Packing
 
-To combine FP8 training with sequence packing, the number of unpadded input tokens must be a multiple of 16. This can be
-set via the `dataset.sequence_packing_pad_to_multiple_of=16` configuration parameter.
+To combine FP8 training with sequence packing, the number of unpadded input tokens must be a multiple of 16. The data
+collator will automatically pad packed sequences to the maximum number of tokens per batch.
 
 ```bash
 python train_fsdp2.py --config-name L0_sanity \
   fp8_config.enabled=true \
-  dataset.use_sequence_packing=true \
-  dataset.sequence_packing_pad_to_multiple_of=16
+  use_sequence_packing=true
 ```
 
 ### Comparing Against the HF Transformers Reference Implementation
@@ -118,16 +123,23 @@ directory within the checkpoint directory.
 
 Checkpointing is implemented for all three strategies, see [`checkpoint.py`](checkpoint.py) for more details.
 
-## Stateful dataloading
+## Saving Dataloader State with `StatefulDataLoader`
 
-We now offer the ability to resume your dataloader exactly where it left off.
+These examples show how to save and resume your dataloader by passing the dataloader instance to our `save_checkpoint_*`
+and `load_checkpoint_*` functions using the `StatefulDataLoader` class from `torchdata`. See `checkpoint.py` for
+implementation details.
+
+For references on `StatefulDataLoader` and it's integration with `datasets` see:
+
+- https://github.com/meta-pytorch/data/tree/main/torchdata/stateful_dataloader
+- https://huggingface.co/docs/datasets/en/stream#save-a-dataset-checkpoint-and-resume-iteration
 
 Known limitations:
 
-- When loading the dataloader from a saved checkpoint, you must provide the same `num_workers` that you used to save the dataloader state, because state is saved at the worker-level.
-- Moreover, dataloader state is saved on a per-rank basis. So if you resume training and load the dataloaders with a different amount of nodes / gpus that was used when you saved the dataloader the state will not resume perfectly.
-
-For references on Stateful Dataloaders please see [hf](https://huggingface.co/docs/datasets/en/stream#save-a-dataset-checkpoint-and-resume-iteration) and [example][https://github.com/meta-pytorch/data/tree/main/torchdata/stateful_dataloader]
+- When loading the dataloader from a saved checkpoint, you must provide the same `num_workers` that you used to save the
+  dataloader state, because state is saved at the worker-level.
+- Moreover, dataloader state is saved on a per-rank basis. So if you resume training and load the dataloader with a
+  different amount of nodes / gpus that was used when you saved the dataloader the state will not resume perfectly.
 
 ## Running Inference with the Trained Model
 

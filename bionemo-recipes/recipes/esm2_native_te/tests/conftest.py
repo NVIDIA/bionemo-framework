@@ -15,15 +15,17 @@
 
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import torch
-import torch.distributed as dist
-from torch.distributed.device_mesh import _mesh_resources
+from torch.distributed.device_mesh import _mesh_resources, init_device_mesh
 
 
 sys.path.append(Path(__file__).parent.parent.as_posix())
 sys.path.append(Path(__file__).parent.as_posix())
+
+from distributed_config import DistributedConfig
 
 
 @pytest.fixture
@@ -32,32 +34,38 @@ def recipe_path() -> Path:
     return Path(__file__).parent.parent
 
 
-@pytest.fixture(autouse=True)
-def distributed_cleanup():
-    yield
+@pytest.fixture(scope="session", autouse=True)
+def device_mesh():
+    """Create a re-usable device mesh for testing.
 
-    # Try to destroy the process group, but don't fail if it's not available.
-    try:
-        if dist.is_initialized():
-            dist.destroy_process_group()
-    except (AssertionError, RuntimeError):
-        pass
+    This is a "auto-use", session-scope fixture so that a single device mesh is created and used in all tests.
 
-    # Clear ALL mesh resources (for both MFSDP and FSDP2) to avoid issues re-running in the same process.
+    Megatron-FSDP throws issues when re-creating the torch device mesh in the same process, starting in the 25.09 NGC
+    pytorch container release. To work around this, we create a re-usable device mesh that use in all single-process
+    tests.
+    """
+    # Initialize the distributed configuration, including creating the distributed process group.
+    dist_config = DistributedConfig()
+    device = torch.device(f"cuda:{dist_config.local_rank}")
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    torch.cuda.set_device(dist_config.local_rank)
+    device_mesh = init_device_mesh("cuda", mesh_shape=(1, 1), mesh_dim_names=("dp", "tp"))
+
+    # Mock these torch.distributed functions so that we re-use the same device mesh, and don't re-create or destroy the
+    # global process group.
+    with (
+        mock.patch("torch.distributed.device_mesh.init_device_mesh", return_value=device_mesh),
+        mock.patch("torch.distributed.init_process_group", return_value=None),
+        mock.patch("torch.distributed.destroy_process_group", return_value=None),
+    ):
+        yield
+
+    # At the end of all tests, destroy the process group and clear the device mesh resources.
+    torch.distributed.destroy_process_group()
     _mesh_resources.mesh_stack.clear()
     _mesh_resources.child_to_root_mapping.clear()
     _mesh_resources.root_to_flatten_mapping.clear()
     _mesh_resources.flatten_name_to_root_dims.clear()
     _mesh_resources.mesh_dim_group_options.clear()
-
-    # Clear CUDA cache to prevent memory issues between tests
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        torch.cuda.synchronize()
-
-    # Reset CUDA device to ensure clean state
-    if torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats()
-        # Reset all accumulated values in CUDA memory stats
-        for device in range(torch.cuda.device_count()):
-            torch.cuda.reset_accumulated_memory_stats(device)
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()

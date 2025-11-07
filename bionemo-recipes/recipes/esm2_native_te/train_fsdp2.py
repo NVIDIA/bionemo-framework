@@ -30,7 +30,7 @@ from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
-from dataset import create_dataloader
+from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
@@ -61,20 +61,24 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         mesh_dim_names=("dp",),
     )
 
-    # Create an empty ESM-2 model with a masked language model head.
+    # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
+    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+    )
+
+    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
-    if args.dataset.use_sequence_packing:
+    if args.use_sequence_packing:
         config.attn_input_format = "thd"
-    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
-    logger.info("Initialized Model:\n%s", model)
 
-    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
-    # avoid errors with unused parameters.
-    try:
-        del model.esm.contact_head
-    except AttributeError:
-        pass
+    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
+    # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
+    # versions of weights are kept.
+    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
+        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+
+    logger.info("Initialized Model:\n%s", model)
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
@@ -92,16 +96,12 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
 
-    # Create an FP8 recipe
-    if args.fp8_config.enabled:
-        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-        )
-    else:
-        fp8_recipe = None
-
-    # Create a dataloader that just infinitely loops over the dataset.
-    train_dataloader, dataset_or_sampler = create_dataloader(dist_config, **args.dataset)
+    # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
+    train_dataloader, dataset_or_sampler = (
+        create_thd_dataloader(dist_config, **args.dataset)
+        if args.use_sequence_packing
+        else create_bshd_dataloader(dist_config, **args.dataset)
+    )
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
@@ -110,7 +110,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
-        model, optimizer, scheduler, start_step, train_dataloader, epoch = load_checkpoint_fsdp2(
+        model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_fsdp2(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
@@ -121,6 +121,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     else:
         start_step = 0
         epoch = 0
+
     perf_logger = PerfLogger(dist_config, args)
 
     # Training loop
@@ -145,6 +146,14 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
             scheduler.step()
             optimizer.zero_grad()
 
+            perf_logger.log_step(
+                step=step,
+                batch=batch,
+                outputs=outputs,
+                grad_norm=total_norm,
+                lr=optimizer.param_groups[0]["lr"],
+            )
+
             if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                 save_checkpoint_fsdp2(
                     model=model,
@@ -157,13 +166,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     dataloader=train_dataloader,
                 )
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
             step += 1
             if step >= args.num_train_steps:
                 break

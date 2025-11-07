@@ -10,13 +10,12 @@ use_meta_device: false
 # We leave this off by default since we don't see much of a performance improvement with TE layers.
 use_torch_compile: false
 
+use_sequence_packing: false
 dataset:
   tokenizer_name: ${model_tag}
   micro_batch_size: ???
   num_workers: 1
   max_seq_length: 1024
-  use_sequence_packing: false
-  sequence_packing_pad_to_multiple_of: null
   mlm_probability: 0.15
   load_dataset_kwargs:
     path: "nvidia/esm2_uniref_pretraining_data"
@@ -47,9 +46,9 @@ fp8_config:
   enabled: false
   fp8_recipe: transformer_engine.common.recipe.DelayedScaling
   fp8_format: "HYBRID"
-  fp8_recipe_kwargs:
-    amax_history_len: 16
-    amax_compute_algo: "max"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false # If this is set to true, fp8_config.enabled must also be set to true.
 
 # Optimizer config
 adamw_kwargs:

@@ -28,7 +28,7 @@ from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 
 from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp, should_save_checkpoint
-from dataset import create_dataloader
+from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
@@ -39,7 +39,7 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
-def main(args: DictConfig) -> float | None:  # noqa: C901
+def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using mfsdp.
 
     Model names are valid ESM-2 model sizes, e.g.:
@@ -65,20 +65,24 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         mesh_dim_names=("dp", "tp"),
     )
 
-    # Create an empty ESM-2 model with a masked language model head.
+    # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
+    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+    )
+
+    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
-    if args.dataset.use_sequence_packing:
+    if args.use_sequence_packing:
         config.attn_input_format = "thd"
-    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
-    logger.info("Initialized Model:\n%s", model)
 
-    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
-    # avoid errors with unused parameters.
-    try:
-        del model.esm.contact_head
-    except AttributeError:
-        pass
+    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
+    # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
+    # versions of weights are kept.
+    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
+        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+
+    logger.info("Initialized Model:\n%s", model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
@@ -104,17 +108,12 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # after the optimizer gets wrapped in FSDP. Here we use a warmup and linear decay scheduler.
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    # Create a dataloader that just infinitely loops over the dataset.
-    train_dataloader, dataset_or_sampler = create_dataloader(dist_config, **args.dataset)
-
-    # Create an FP8 recipe
-    if args.fp8_config.enabled:
-        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-        )
-        logger.info("Training with FP8: %s", fp8_recipe)
-    else:
-        fp8_recipe = None
+    # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
+    train_dataloader, dataset_or_sampler = (
+        create_thd_dataloader(dist_config, **args.dataset)
+        if args.use_sequence_packing
+        else create_bshd_dataloader(dist_config, **args.dataset)
+    )
 
     if args.use_torch_compile:
         logger.warning(
@@ -125,7 +124,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_mfsdp" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
-        model, optimizer, scheduler, start_step, train_dataloader, epoch = load_checkpoint_mfsdp(
+        model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_mfsdp(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
@@ -161,6 +160,14 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
             scheduler.step()
             optimizer.zero_grad()
 
+            perf_logger.log_step(
+                step=step,
+                batch=batch,
+                outputs=outputs,
+                grad_norm=total_norm,
+                lr=optimizer.param_groups[0]["lr"],
+            )
+
             if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                 save_checkpoint_mfsdp(
                     model=model,
@@ -173,13 +180,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     epoch=epoch,
                 )
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
             step += 1
             if step >= args.num_train_steps:
                 break

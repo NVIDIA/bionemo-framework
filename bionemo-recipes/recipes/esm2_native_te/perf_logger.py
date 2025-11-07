@@ -49,17 +49,21 @@ class PerfLogger:
         self.min_loss = float("inf")
 
         self.logging_frequency = args.logger.frequency
-        self.metrics = torchmetrics.MetricCollection(
-            {
-                "train/loss": torchmetrics.MeanMetric(),
-                "train/grad_norm": torchmetrics.MeanMetric(),
-                "train/learning_rate": torchmetrics.MeanMetric(),
-                "train/step_time": torchmetrics.MeanMetric(),
-                "train/tokens_per_second": torchmetrics.MeanMetric(),
-                "train/unpadded_tokens_per_second": torchmetrics.MeanMetric(),
-                "train/perplexity": torchmetrics.text.Perplexity(ignore_index=-100),
-            }
-        )
+        # Track whether to collect memory stats (disabled by default for max performance)
+
+        metrics_dict = {
+            "train/loss": torchmetrics.MeanMetric(),
+            "train/grad_norm": torchmetrics.MeanMetric(),
+            "train/learning_rate": torchmetrics.MeanMetric(),
+            "train/step_time": torchmetrics.MeanMetric(),
+            "train/tokens_per_second": torchmetrics.MeanMetric(),
+            "train/unpadded_tokens_per_second": torchmetrics.MeanMetric(),
+            "train/perplexity": torchmetrics.text.Perplexity(ignore_index=-100),
+            "train/gpu_memory_allocated_max_gb": torchmetrics.MaxMetric(),
+            "train/gpu_memory_allocated_mean_gb": torchmetrics.MeanMetric(),
+        }
+
+        self.metrics = torchmetrics.MetricCollection(metrics_dict)
         # We move metrics to a GPU device so we can use torch.distributed to aggregate them before logging.
         self.metrics.to(torch.device(f"cuda:{dist_config.local_rank}"))
         self.previous_step_time = time.perf_counter()
@@ -107,6 +111,10 @@ class PerfLogger:
         self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
 
         if step % self.logging_frequency == 0 and step > 0:
+            memory_allocated = torch.cuda.memory_allocated() / (1024**3)
+            self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)
+            self.metrics["train/gpu_memory_allocated_mean_gb"].update(memory_allocated)
+
             metrics = self.metrics.compute()
             self.metrics.reset()
             metrics["train/global_step"] = torch.tensor(step, dtype=torch.int64)

@@ -13,10 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from unittest.mock import MagicMock
+
 import torch
 from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import DataCollatorWithFlattening, MLMDataCollatorWithFlattening
+from esm.collator import DataCollatorWithFlattening, MLMDataCollatorWithFlattening, TokenPackingDataset
 
 
 def test_data_collator_with_flattening_basic():
@@ -363,3 +365,105 @@ def test_mlm_data_collator_with_flattening_bshd_equivalent(tokenizer, test_prote
             thd_batch["labels"][:, : packed_bshd_labels.shape[1]],
             packed_bshd_labels,
         )
+
+
+def test_token_packing_dataset():
+    """Test that the token packing dataset works."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            while True:
+                yield {"input_ids": torch.arange(torch.randint(1, 100, (1,)).item())}
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=1000)
+    for i, batch in enumerate(token_packing_dataset):
+        if i == 10:
+            break
+        total_length = sum([len(sample["input_ids"]) for sample in batch])
+        assert 900 <= total_length <= 1000
+
+
+def test_token_packing_dataset_multiple_epochs():
+    """Test that the token packing dataset works over multiple epochs."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        set_epoch = MagicMock()
+
+        def __init__(self):
+            self.data = [{"input_ids": torch.arange(torch.randint(1, 100, (1,)).item())} for _ in range(25)]
+
+        def __iter__(self):
+            return iter(self.data)
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=200)
+    token_packing_dataset.set_epoch(0)
+    MockDataset.set_epoch.assert_called_with(0)
+    epoch1 = list(token_packing_dataset)
+    token_packing_dataset.set_epoch(1)
+    MockDataset.set_epoch.assert_called_with(1)
+    epoch2 = list(token_packing_dataset)
+
+    # Make sure each epoch contains some number of samples
+    assert len(epoch1) > 0
+    assert len(epoch2) > 0
+
+
+def test_token_packing_dataset_last_sequence_exceeds_max():
+    """Test when last sequence would push over token_batch_size - should yield current batch."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": torch.arange(40)}  # 40 tokens
+            yield {"input_ids": torch.arange(40)}  # 40 tokens (total: 80)
+            yield {"input_ids": torch.arange(30)}  # 30 tokens (would exceed 100)
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=100, drop_last=False)
+    batches = list(token_packing_dataset)
+
+    # Should have 2 batches: first with 2 sequences (80 tokens), second with 1 sequence (30 tokens)
+    assert len(batches) == 2
+    assert len(batches[0]) == 2
+    assert sum(len(sample["input_ids"]) for sample in batches[0]) == 80
+    assert len(batches[1]) == 1
+    assert sum(len(sample["input_ids"]) for sample in batches[1]) == 30
+
+
+def test_token_packing_dataset_last_sequence_equals_max():
+    """Test when last sequence makes total equal to token_batch_size - should add to batch."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": torch.arange(40)}  # 40 tokens
+            yield {"input_ids": torch.arange(30)}  # 30 tokens (total: 70)
+            yield {"input_ids": torch.arange(30)}  # 30 tokens (total: 100, exactly max)
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=100, drop_last=False)
+    batches = list(token_packing_dataset)
+
+    # Should have 1 batch with all 3 sequences totaling exactly 100 tokens
+    assert len(batches) == 1
+    assert len(batches[0]) == 3
+    assert sum(len(sample["input_ids"]) for sample in batches[0]) == 100
+
+
+def test_token_packing_dataset_last_sequence_less_than_max():
+    """Test when last sequence gives less than token_batch_size - should add to batch."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": torch.arange(40)}  # 40 tokens
+            yield {"input_ids": torch.arange(30)}  # 30 tokens (total: 70)
+            yield {"input_ids": torch.arange(20)}  # 20 tokens (total: 90, less than max)
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=100, drop_last=False)
+    batches = list(token_packing_dataset)
+
+    # Should have 1 batch with all 3 sequences totaling 90 tokens (less than max)
+    assert len(batches) == 1
+    assert len(batches[0]) == 3
+    assert sum(len(sample["input_ids"]) for sample in batches[0]) == 90
