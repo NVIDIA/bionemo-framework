@@ -124,3 +124,91 @@ def test_tokenizer_special_nucleotides(tokenizer):
     assert encoded == expected
 
 
+def test_10kbp_sequence_creates_expected_window_count(tokenizer):
+    """Test 10kbp sequence creates correct number of windows with seq_length=1000, stride=800.
+    
+    Verifies windowing math: 10000bp with seq_length=1000, stride=800.
+    """
+    sequence = "A" * 10000  # 10kbp
+    
+    result = tokenizer(
+        sequence,
+        max_length=1000,
+        stride=800,       # 800 token overlap
+        truncation=True,
+        return_overflowing_tokens=True,
+        add_special_tokens=True,
+    )
+    
+    # Hardcoded expectation based on input data:
+    # 10000bp with 1000 token windows and 800 token stride
+    # Step forward = 1000 - 800 = 200 tokens per window
+    assert len(result["input_ids"]) == 47
+
+
+def test_overlapping_windows_creates_more_samples(tokenizer):
+    """Test overlapping stride creates more windows than less overlapping."""
+    sequence = "ATCG" * 2500  # 10kbp
+    
+    result_more_overlap = tokenizer(
+        sequence,
+        max_length=1000,
+        stride=800,  # 200 token step (80% overlap)
+        truncation=True,
+        return_overflowing_tokens=True,
+        add_special_tokens=True,
+    )
+    
+    result_less_overlap = tokenizer(
+        sequence,
+        max_length=1000,
+        stride=500,  # 500 token step (50% overlap)
+        truncation=True,
+        return_overflowing_tokens=True,
+        add_special_tokens=True,
+    )
+    
+    # Hardcoded expectations
+    assert len(result_more_overlap["input_ids"]) == 47  # With more overlap (smaller step)
+    assert len(result_less_overlap["input_ids"]) == 20  # With less overlap (larger step)
+    assert len(result_more_overlap["input_ids"]) > len(result_less_overlap["input_ids"])
+
+
+def test_production_window_length_creates_expected_samples(tokenizer):
+    """Test production settings (8192 window, 200 overlap) create correct number of windows."""
+    sequence = "A" * 50000  # 50kbp sequence
+    
+    result = tokenizer(
+        sequence,
+        max_length=8192,
+        stride=200,  # 200 token overlap
+        truncation=True,
+        return_overflowing_tokens=True,
+        add_special_tokens=True,
+    )
+    
+    # Hardcoded expectation with production settings:
+    # 50000bp with 8192 window and 200 stride (overlap)
+    # Step forward = 8192 - 200 = 7992 tokens per window
+    assert len(result["input_ids"]) == 7
+
+
+def test_short_sequences_dont_overflow(tokenizer):
+    """Test that short sequences (< max_length) don't create overflow windows."""
+    sequence = "ATCG" * 100  # 400bp
+    
+    result = tokenizer(
+        sequence,
+        max_length=1000,
+        stride=800,
+        truncation=True,
+        return_overflowing_tokens=True,
+        add_special_tokens=True,
+    )
+    
+    # Sequence is shorter than max_length, should only create 1 window
+    assert len(result["input_ids"]) == 1
+    # Length should be 400bp + BOS + EOS = 402 tokens
+    assert len(result["input_ids"][0]) == 402
+
+
