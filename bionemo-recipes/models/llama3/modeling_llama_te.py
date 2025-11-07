@@ -117,6 +117,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         if cache_position is None:
             past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
+            # breakpoint()
             cache_position: torch.Tensor = torch.arange(
                 past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
             )
@@ -188,7 +189,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         logits_to_keep: int | torch.Tensor = 0,
         **kwargs: Unpack[TransformersKwargs],
     ) -> CausalLMOutputWithPast:
-        """Forward pass for the NVLlamaForCausalLM model.
+        """Forward pass for the NVLlamaForCausalLM model.x
 
         Args:
             input_ids (torch.Tensor): The input ids.
@@ -261,12 +262,16 @@ class NVLlamaRotaryEmbedding(LlamaRotaryEmbedding):
         Unlike the original LlamaRotaryEmbedding, this implementation returns the frequency tensor (upstream of the
         cosine and sine transforms), reshaped in a way that is compatible with TransformerEngine's fused RoPE.
         """
+        # breakpoint()
         inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to(x.device)
         position_ids_expanded = position_ids[:, None, :].float()
+        # breakpoint()
 
         device_type = x.device.type if isinstance(x.device.type, str) and x.device.type != "mps" else "cpu"
         with torch.autocast(device_type=device_type, enabled=False):  # Force float32
             freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
             emb = torch.cat((freqs, freqs), dim=-1)
+        # breakpoint()
+        # return emb.to(dtype=x.dtype).transpose(0, 1).unsqueeze(1)
+        return emb.transpose(0, 1).unsqueeze(1)
 
-        return emb.to(dtype=x.dtype).transpose(0, 1).unsqueeze(1)
