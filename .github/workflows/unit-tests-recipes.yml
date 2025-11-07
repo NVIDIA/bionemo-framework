@@ -1,3 +1,25 @@
+# BioNeMo Recipes CI Workflow
+#
+# This workflow runs tests for BioNeMo recipes and models on various triggers:
+#
+# TRIGGERS:
+# - Push to pull-request branches or dependabot branches
+# - Merge group events (when PRs are merged via merge queue)
+# - Scheduled runs (daily at 9 AM UTC)
+#
+# WORKFLOW OVERVIEW:
+# 1. changed-dirs: Detects which recipe/model directories have changed
+# 2. get-pr-labels: Retrieves PR labels for conditional job execution
+# 3. unit-tests-single-gpu: Runs single-GPU tests for changed directories
+# 4. unit-tests-multi-gpu: Runs multi-GPU tests (conditional - see below)
+# 5. verify-recipe-tests: Verifies all test jobs completed successfully
+#
+# MULTI-GPU TEST EXECUTION:
+# Multi-GPU tests run ONLY in these situations:
+# - On schedule (nightly): if single-GPU tests pass AND there are changed directories
+# - On PRs: if there are changed directories AND ciflow:multi-gpu label is set
+# - NOT on merge_group or any other events
+
 name: "BioNeMo Recipes CI"
 
 on:
@@ -173,10 +195,57 @@ jobs:
         working-directory: ${{ matrix.recipe.dir }}
         run: pytest -v -m "not multi_gpu" .
 
+  get-pr-labels:
+    runs-on: ubuntu-latest
+    outputs:
+      labels: ${{ steps.get-labels.outputs.labels || steps.get-labels-empty.outputs.labels }}
+    steps:
+      - name: Get PR number from branch
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        id: get-pr-num
+        run: |
+          PR_NUM=$(echo ${{ github.ref_name }} | grep -oE '[0-9]+$')
+          echo "pr_num=$PR_NUM" >> $GITHUB_OUTPUT
+
+      - name: Get PR labels
+        id: get-labels
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LABELS=$(gh api repos/${{ github.repository }}/pulls/${{ steps.get-pr-num.outputs.pr_num }} --jq '[.labels[].name]' || echo "[]")
+          echo "labels=$LABELS" >> $GITHUB_OUTPUT
+          echo "Retrieved labels: $LABELS"
+
+      - name: Set empty labels for non-PR branches
+        if: ${{ !startsWith(github.ref, 'refs/heads/pull-request/') }}
+        id: get-labels-empty
+        run: |
+          echo "labels=[]" >> $GITHUB_OUTPUT
+          echo "Set empty labels for non-PR branch"
+
   unit-tests-multi-gpu:
-    needs: changed-dirs
+    needs:
+      - changed-dirs
+      - unit-tests-single-gpu
+      - get-pr-labels
     runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
-    if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
+    # Run multi-GPU tests ONLY when:
+    # 1. On schedule (nightly) if single-GPU tests passed and there are changed dirs
+    # 2. On PRs (push events) if there are changed dirs AND ciflow:multi-gpu label is set
+    # Do NOT run on merge_group or any other events
+    if: |
+      (needs.changed-dirs.outputs.dirs != '[]') &&
+      (
+        (
+          github.event_name == 'schedule' &&
+          needs.unit-tests-single-gpu.result == 'success'
+        ) ||
+        (
+          github.event_name == 'push' &&
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
+        )
+      )
     name: "unit-tests-multi-gpu (${{ matrix.recipe.name }})"
     container:
       image: ${{ matrix.recipe.image }}
@@ -220,6 +289,8 @@ jobs:
     # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.
     # Use this job as the required check for PRs.
     needs:
+      - changed-dirs
+      - get-pr-labels
       - unit-tests-single-gpu
       - unit-tests-multi-gpu
     runs-on: ubuntu-latest
