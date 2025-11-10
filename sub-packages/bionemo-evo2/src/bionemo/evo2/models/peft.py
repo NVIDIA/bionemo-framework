@@ -17,8 +17,13 @@ from copy import deepcopy
 from typing import List, Optional
 
 import lightning.pytorch as pl
+import torch
+from lightning.pytorch.trainer.states import TrainerFn
 from nemo.collections.llm.fn.mixin import FNMixin
 from nemo.collections.llm.peft.lora import LoRA
+from nemo.lightning.megatron_parallel import MegatronParallel
+from nemo.lightning.pytorch.utils import is_trainer_attached
+
 from nemo.utils import logging
 from torch import nn
 
@@ -29,15 +34,14 @@ class Evo2LoRA(LoRA):
     def __init__(
         self,
         peft_ckpt_path: Optional[str] = None,
-        freeze_modules: List[str] = ["encoder", "embedding"],
+        skip_freeze_modules: List[str] = ["final_norm", "24"], # This modules won't be frozen
         target_modules: List[str] = [
-            "linear_qkv",
-            "linear_proj",
-            "linear_fc1",
-            "linear_fc2",
-            "short_filter",  # Short convolution filters
-            "hyena_filter",  # Hyena layer filters
-            "positional_encoding",  # ROPE or other position encodings
+            "linear_qkv", # Belonging to Transformer Layer
+            "linear_proj", # Belonging to Transformer Layer
+            "linear_fc1", # Belonging to both HyenaLayer and Transformer Layer
+            "linear_fc2", # Belonging to both HyenaLayer and Transformer Layer
+          #  "rotary_pos_emb",  # ROPE or other position encodings
+            "dense_projection", # Belonging to HyenaLayer Layer
         ],
         *args,
         **kwargs,
@@ -59,19 +63,18 @@ class Evo2LoRA(LoRA):
         """
         """Initialize the LoRA Adapter for Evo2."""
         super().__init__(target_modules=target_modules, *args, **kwargs)
-        self.freeze_modules = freeze_modules
+        self.skip_freeze_modules = skip_freeze_modules
         self.peft_ckpt_path = peft_ckpt_path
 
         # CRITICAL: Set model_transform to self
         # The callback system expects this attribute
         self.model_transform = self
 
-    def setup(self, trainer, pl_module, stage):
+    # balvisio: Based on Evo2LoRA
+    def setup(self, *args, **kwargs):
         """Setup callback - properly initialize transform."""
-        super().setup(trainer, pl_module, stage)
-
-        logging.info(f"Will attempt to apply to model if matches: \n{self.target_modules}")
-
+        super().setup(*args, **kwargs)
+        logging.info(f"Evo2LoRA: Will attempt to apply to model if matches: \n{self.target_modules}")
         # Ensure model_transform is set
         if not hasattr(self, "model_transform") or self.model_transform is None:
             self.model_transform = self
@@ -80,187 +83,243 @@ class Evo2LoRA(LoRA):
         if hasattr(self, "wrapped_io") and self.peft_ckpt_path:
             self.wrapped_io.adapter_ckpt_path = self.peft_ckpt_path
 
-    def on_predict_epoch_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
-        """Event hook.
 
-        Apply transformations for prediction if needed.
+    # balvisio: Original
+    # def setup(self, trainer, pl_module, stage):
+    #     """Setup callback - properly initialize transform."""
+    #     super().setup(trainer, pl_module, stage)
 
-        Args:
-            trainer: The trainer object.
-            pl_module: The LightningModule object.
-        """
-        self._maybe_apply_transform(trainer)
+    #     logging.info(f"Will attempt to apply to model if matches: \n{self.target_modules}")
 
-    def adapter_key_filter(self, key: str) -> bool:
-        """Filter state dict keys to identify adapter parameters.
+    #     # Ensure model_transform is set
+    #     if not hasattr(self, "model_transform") or self.model_transform is None:
+    #         self.model_transform = self
 
-        Args:
-            key: State dict key to check
+    #     # Pass checkpoint path to wrapped IO if available
+    #     if hasattr(self, "wrapped_io") and self.peft_ckpt_path:
+    #         self.wrapped_io.adapter_ckpt_path = self.peft_ckpt_path
 
-        Returns:
-            bool: True if key corresponds to an adapter parameter
-        """
-        if isinstance(key, tuple):
-            return key[1].requires_grad
+    # balvisio: Commented out 'on_predict_epoch_start' because it is identical to ModelTransform implementation.
+    # def on_predict_epoch_start(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
+    #     """Event hook.
 
-        if "_extra_state" in key:
-            return False
+    #     Apply transformations for prediction if needed.
 
-        # Check if it's an adapter parameter or not in freeze list
-        return (
-            (not any(substring in key for substring in self.freeze_modules))
-            or ".adapter." in key
-            or key.endswith(".adapters")
-            or "lora_A" in key
-            or "lora_B" in key
-        )
+    #     Args:
+    #         trainer: The trainer object.
+    #         pl_module: The LightningModule object.
+    #     """
+    #     self._maybe_apply_transform(trainer)
 
-    def __call__(self, model: nn.Module) -> nn.Module:
-        """Apply LoRA transformations to the model.
+    # balvisio: Commented out because we will try to use default implementation in PEFT.
+    # def adapter_key_filter(self, key: str) -> bool:
+    #     """Filter state dict keys to identify adapter parameters.
 
-        Override to avoid fn.walk compatibility issues.
-        """
-        # First, manually freeze specified modules
-        self._apply_selective_freeze(model)
+    #     Args:
+    #         key: State dict key to check
 
-        # Then apply LoRA transformations
-        self._apply_lora_transform(model)
+    #     Returns:
+    #         bool: True if key corresponds to an adapter parameter
+    #     """
+    #     if isinstance(key, tuple):
+    #         return key[1].requires_grad
 
-        # THEN freeze ALL base model parameters
-        # This must happen AFTER LoRA is applied
-        self._freeze_base_model_parameters(model)
+    #     if "_extra_state" in key:
+    #         return False
 
-        # Log summary
-        self._log_lora_summary(model)
+    #     # Check if it's an adapter parameter or not in freeze list
+    #     return (
+    #         (not any(substring in key for substring in self.freeze_modules))
+    #         or ".adapter." in key
+    #         or key.endswith(".adapters")
+    #         or "lora_A" in key
+    #         or "lora_B" in key
+    #     )
 
-        return model
+    # balvisio: Commented out because we will try to use default implementation in PEFT.
+    # def __call__(self, model: nn.Module) -> nn.Module:
+    #     """Apply LoRA transformations to the model.
 
-    def _apply_selective_freeze(self, model: nn.Module, prefix=""):
-        """Manually walk model and freeze specified modules."""
-        for name, child in model.named_children():
-            full_name = f"{prefix}.{name}" if prefix else name
+    #     Override to avoid fn.walk compatibility issues.
+    #     """
+    #     # First, manually freeze specified modules
+    #     self._apply_selective_freeze(model)
 
-            # Check if this module should be frozen
-            if name in self.freeze_modules:
-                logging.info(f"Freezing module: {full_name}")
-                for param in child.parameters():
-                    param.requires_grad = False
+    #     # Then apply LoRA transformations
+    #     self._apply_lora_transform(model)
 
-            # Recursively apply to children
-            self._apply_selective_freeze(child, full_name)
+    #     # THEN freeze ALL base model parameters
+    #     # This must happen AFTER LoRA is applied
+    #     self._freeze_base_model_parameters(model)
 
-    def _freeze_base_model_parameters(self, model: nn.Module):
-        """Freeze all parameters except LoRA adapters and critical layers."""
-        logging.info("\nFreezing base model parameters...")
-        frozen_count = 0
-        kept_trainable = []
+    #     # Log summary
+    #     self._log_lora_summary(model)
 
+    #     return model
+
+    # def __call__(self, model: nn.Module) -> nn.Module:
+    #     super().__call__(model)
+    #     self._log_lora_summary(model)
+
+    def _evo2_selective_freeze(self, model: nn.Module):
+       # params = [ x for x in model.named_parameters() ]
         for name, param in model.named_parameters():
-            # Keep LoRA/adapter parameters trainable
-            if any(adapter_term in name for adapter_term in ["adapter", "lora_A", "lora_B", "lora"]):
-                param.requires_grad = True
-                kept_trainable.append(name)
-            # CRITICAL: Keep output layer trainable to maintain gradient flow
-            elif "output_layer" in name or "lm_head" in name:
-                param.requires_grad = True
-                kept_trainable.append(name)
-                logging.info(f"  Keeping output layer trainable: {name}")
-            # CRITICAL: Keep final layer norm trainable
-            elif "final_norm" in name or ("decoder" in name and "norm" in name and "24" in name):
-                param.requires_grad = True
-                kept_trainable.append(name)
-                logging.info(f"  Keeping final norm trainable: {name}")
-            else:
+            if not any(skip_freeze in name for skip_freeze in self.skip_freeze_modules):
                 param.requires_grad = False
-                frozen_count += 1
+            else:
+                logging.info(f"Evo2LoRA: Skipping freezing module: {name}.")
 
-        logging.info(f"Froze {frozen_count} parameter tensors")
-        logging.info(f"Kept {len(kept_trainable)} parameters trainable")
+        model.eval()
 
-    def _apply_lora_transform(self, model: nn.Module, prefix=""):
-        """Apply LoRA with better tracking."""
-        # Get all modules in a flat list first
-        modules_to_transform = []
-
-        for name, module in model.named_modules():
-            # Skip if has children (not a leaf module)
-            if list(module.children()):
-                continue
-
-            # Check if this matches our target modules
-            module_type = name.split(".")[-1] if "." in name else name
-            if module_type in self.target_modules:
-                modules_to_transform.append((name, module))
-
-        logging.info(f"\nFound {len(modules_to_transform)} modules to apply LoRA to")
-
-        # Apply transformations
-        for full_name, module in modules_to_transform:
-            # Get parent and attribute name
-            parts = full_name.split(".")
-            parent = model
-            for part in parts[:-1]:
-                parent = getattr(parent, part)
-
-            # Apply transform
-            attr_name = parts[-1]
-            transformed = self.transform(module, name=attr_name, prefix="")
-
-            if transformed is not module:
-                setattr(parent, attr_name, transformed)
-                logging.info(f"Applied LoRA to: {full_name}")
-
-                # Verify LoRA was applied
-                if hasattr(transformed, "adapter") or hasattr(transformed, "lora_A"):
-                    logging.info(f"  ✓ LoRA adapter confirmed on {full_name}")
-
-    def selective_freeze(self, m: nn.Module, name=None, prefix=None):
-        """Selectively freeze modules based on freeze_modules list.
-
-        Args:
-            m: Module to potentially freeze.
-            name: Name of the module.
-            prefix: Prefix for the module name.
-
-        Returns:
-            nn.Module: The module (frozen or not).
+    def freeze_model(self, model: nn.Module):
+        """Inspired on PEFT.freeze_model() from NeMo.
+        Github:
         """
-        if name in self.freeze_modules:
-            FNMixin.freeze(m)
-            logging.info(f"Freezing module: {prefix}.{name}" if prefix else f"Freezing module: {name}")
 
-        return m
+        # If trainer is not in FITTING mode, all parameters are frozen using super() implementation
+        if is_trainer_attached(model) and model.trainer.state.fn != TrainerFn.FITTING:
+            super().freeze_model(model)
+            return
+
+        if isinstance(model, MegatronParallel) and len(model) > 1:
+            for model_chunk in model:
+                self._evo2_selective_freeze(model_chunk)
+        if isinstance(model, torch.nn.parallel.distributed.DistributedDataParallel):
+            self._evo2_selective_freeze(model.module)
+        else:
+            self._evo2_selective_freeze(model)
+
+        if is_trainer_attached(model) and model.trainer.state.fn == TrainerFn.FITTING:
+            model.train(mode=True)
+
+    # def _apply_selective_freeze(self, model: nn.Module, prefix=""):
+    #     """Manually walk model and freeze specified modules."""
+    #     for name, child in model.named_children():
+    #         full_name = f"{prefix}.{name}" if prefix else name
+
+    #         # Check if this module should be frozen
+    #         if name in self.freeze_modules:
+    #             logging.info(f"Freezing module: {full_name}")
+    #             for param in child.parameters():
+    #                 param.requires_grad = False
+
+    #         # Recursively apply to children
+    #         self._apply_selective_freeze(child, full_name)
+
+    # def _freeze_base_model_parameters(self, model: nn.Module):
+    #     """Freeze all parameters except LoRA adapters and critical layers."""
+    #     logging.info("\nFreezing base model parameters...")
+    #     frozen_count = 0
+    #     kept_trainable = []
+
+    #     for name, param in model.named_parameters():
+    #         # Keep LoRA/adapter parameters trainable
+    #         if any(adapter_term in name for adapter_term in ["adapter", "lora_A", "lora_B", "lora"]):
+    #             param.requires_grad = True
+    #             kept_trainable.append(name)
+    #         # CRITICAL: Keep output layer trainable to maintain gradient flow
+    #         elif "output_layer" in name or "lm_head" in name:
+    #             param.requires_grad = True
+    #             kept_trainable.append(name)
+    #             logging.info(f"  Keeping output layer trainable: {name}")
+    #         # CRITICAL: Keep final layer norm trainable
+    #         elif "final_norm" in name or ("decoder" in name and "norm" in name and "24" in name):
+    #             param.requires_grad = True
+    #             kept_trainable.append(name)
+    #             logging.info(f"  Keeping final norm trainable: {name}")
+    #         else:
+    #             param.requires_grad = False
+    #             frozen_count += 1
+
+    #     logging.info(f"Froze {frozen_count} parameter tensors")
+    #     logging.info(f"Kept {len(kept_trainable)} parameters trainable")
+
+    # def _apply_lora_transform(self, model: nn.Module, prefix=""):
+    #     """Apply LoRA with better tracking."""
+    #     # Get all modules in a flat list first
+    #     modules_to_transform = []
+
+    #     for name, module in model.named_modules():
+    #         # Skip if has children (not a leaf module)
+    #         if list(module.children()):
+    #             continue
+
+    #         # Check if this matches our target modules
+    #         module_type = name.split(".")[-1] if "." in name else name
+    #         if module_type in self.target_modules:
+    #             modules_to_transform.append((name, module))
+
+    #     logging.info(f"\nFound {len(modules_to_transform)} modules to apply LoRA to")
+
+    #     # Apply transformations
+    #     for full_name, module in modules_to_transform:
+    #         # Get parent and attribute name
+    #         parts = full_name.split(".")
+    #         parent = model
+    #         for part in parts[:-1]:
+    #             parent = getattr(parent, part)
+
+    #         # Apply transform
+    #         attr_name = parts[-1]
+    #         transformed = self.transform(module, name=attr_name, prefix="")
+
+    #         if transformed is not module:
+    #             setattr(parent, attr_name, transformed)
+    #             logging.info(f"Applied LoRA to: {full_name}")
+
+    #             # Verify LoRA was applied
+    #             if hasattr(transformed, "adapter") or hasattr(transformed, "lora_A"):
+    #                 logging.info(f"  ✓ LoRA adapter confirmed on {full_name}")
+
+    # balvisio: This function is defined in the original implementation but not called anywhere. This implementation 
+    # seems to be copied from other LoRA implementations such ESM2LoRA or LoRAForGeneFormerTokenRegressor
+    # def selective_freeze(self, m: nn.Module, name=None, prefix=None):
+    #     """Selectively freeze modules based on freeze_modules list.
+
+    #     Args:
+    #         m: Module to potentially freeze.
+    #         name: Name of the module.
+    #         prefix: Prefix for the module name.
+
+    #     Returns:
+    #         nn.Module: The module (frozen or not).
+    #     """
+    #     if name in self.freeze_modules:
+    #         FNMixin.freeze(m)
+    #         logging.info(f"Freezing module: {prefix}.{name}" if prefix else f"Freezing module: {name}")
+
+    #     return m
 
     # Deepcopy compatibility
-    def __deepcopy__(self, memo):
-        """Custom deepcopy to handle unpickleable objects."""
-        # Create a new instance with the same parameters
-        cls = self.__class__
-        result = cls.__new__(cls)
+    # def __deepcopy__(self, memo):
+    #     """Custom deepcopy to handle unpickleable objects."""
+    #     # Create a new instance with the same parameters
+    #     cls = self.__class__
+    #     result = cls.__new__(cls)
 
-        # Copy all attributes except problematic ones
-        memo[id(self)] = result
-        for k, v in self.__dict__.items():
-            if k not in ["_metadata", "_fields"]:  # Skip dataclass internals
-                try:
-                    setattr(result, k, deepcopy(v, memo))
-                except Exception:
-                    # If deepcopy fails, just use the original reference
-                    setattr(result, k, v)
+    #     # Copy all attributes except problematic ones
+    #     memo[id(self)] = result
+    #     for k, v in self.__dict__.items():
+    #         if k not in ["_metadata", "_fields"]:  # Skip dataclass internals
+    #             try:
+    #                 setattr(result, k, deepcopy(v, memo))
+    #             except Exception:
+    #                 # If deepcopy fails, just use the original reference
+    #                 setattr(result, k, v)
 
-        return result
+    #     return result
 
-    def __getstate__(self):
-        """Prepare object for pickling."""
-        state = self.__dict__.copy()
-        # Remove unpickleable entries
-        state.pop("_metadata", None)
-        state.pop("_fields", None)
-        return state
+    # def __getstate__(self):
+    #     """Prepare object for pickling."""
+    #     state = self.__dict__.copy()
+    #     # Remove unpickleable entries
+    #     state.pop("_metadata", None)
+    #     state.pop("_fields", None)
+    #     return state
 
-    def __setstate__(self, state):
-        """Restore object from pickle."""
-        self.__dict__.update(state)
+    # def __setstate__(self, state):
+    #     """Restore object from pickle."""
+    #     self.__dict__.update(state)
 
     # Debug module
     def _log_lora_summary(self, model: nn.Module):
