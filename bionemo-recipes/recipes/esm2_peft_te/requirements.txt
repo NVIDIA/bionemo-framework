@@ -1,6 +1,7 @@
 datasets
 peft
 torch
+torchao!=0.14.0
 tqdm
 transformer_engine[pytorch]
 transformers

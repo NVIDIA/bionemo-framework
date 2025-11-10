@@ -2,7 +2,8 @@ accelerate
 datasets
 deepspeed
 hydra-core
+torchao!=0.14.0
 torchmetrics
-transformers
 transformer_engine[pytorch]
+transformers
 wandb
