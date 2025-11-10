@@ -17,7 +17,7 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 | Model                                     | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP8 with THD Input Format | MXFP8<sup>[2]</sup> | Context Parallelism |
 | ----------------------------------------- | ---- | ----------------- | ---------------- | ------------------------- | ------------------- | ------------------- |
-| [ESM-2](../../models/esm2/README.md)      | ✅   | ✅                | ✅               | ✅                        | ✅                  | 🚧                  |
+| [ESM-2](../../models/esm2/README.md)      | ✅   | ✅                | ✅               | ✅                        | ✅                  | ✅                  |
 | [AMPLIFY](../../models/amplify/README.md) | ✅   | ❌                | 🚧               | ❌                        | ❌                  | 🚧                  |
 
 ✅: Supported <br/>
@@ -126,6 +126,27 @@ python train_fsdp2.py --config-name L0_sanity \
   fp8_config.enabled=true \
   use_sequence_packing=true
 ```
+
+### Context Parallelism
+We provide a training script [train_ddp_cp](./esm2_native_te/train_ddp_cp.py) and a sample config [L0_sanity_cp](./hydra_config/L0_sanity_cp.yaml) that uses context parallelism. 
+
+In the config the argument `--cp_size` allows the user to set the size of the context parallel distributed group. When paired with Distributed Data Parallelism (DDP), the number of context parallel groups will be determined by `world_size//cp_size`. 
+
+Thus, for example, if a user has 8 processes and sets `cp_size=2` they will have `2` CP groups and `4` DDP groups. During dataloading we make no assumptions about the data pipeline being deterministic or not. We simply unique data only for the DDP groups and select the relevant CP shards for the respective CP group.
+
+For example, let's say that we have 2 DDP groups and 2 CP groups. Each DDP group will have a unique dataloader DP0 for DDP group 0
+and DP1 for DDP group 1. CP works by running something called ring attention, which expects tokens to live on each device in a particular layout. For this CP implementation we use something called [Dual Chunk Swapping](https://github.com/NVIDIA/TransformerEngine/blob/1df4a69f761672f633d40ea3605327087d1ea737/transformer_engine/pytorch/attention/dot_product_attention/context_parallel.py#L3714-L3770). If DP0 outputs sequence `1 2 3 4 5 6 7 8` and DP1 outputs `9 10 11 12 13 14 15 16` then when we run through the `CPAwareDataloader` defined in [datasets](./dataset.py), the dataloader will create CP shards from that DP group as follows:
+
+```
+      |   DP0   |    DP1        |
+  CP0 | 1,2,7,8 | 9, 10, 15, 16 |
+  CP1 | 3,4,5,6 | 11, 12, 13, 14|
+```
+You may notice these shards and wonder why they are the way they are. We did. The reason is that CP groups are sharded using slices. The full input sequence (such as `1 2 3 4 5 6 7`) is sliced into `2 * cp_size` groups. Then CP0 takes the first and last slice, while CP1 takes the middle slices, of each sequence. 
+
+In this example we only show one sequence but its important to note that slicing takes place on every sequence, so if a second sequence is also available, that will be sliced in the same manner. CP0 will take the first and last slice of every sequence, while CP1 will take the middle slices of each sequence.
+
+
 
 ### Comparing Against the HF Transformers Reference Implementation
 
