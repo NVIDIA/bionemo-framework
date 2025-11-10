@@ -31,6 +31,8 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 ![Performance Benchmarks](../../../docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg)
 
+Note: "compiled" refers to `torch.compile`. "fa2" is [FlashAttention2](https://github.com/Dao-AILab/flash-attention). Recently, we measured 2800 tokens/second/GPU training speed on H100 with HuggingFace Transformers's ESM-2 implementation of THD sequence packing, however we have not been able to make this configuration work on Blackwell and this work is still in progress.
+
 ### Distributed Training
 
 This recipe supports distributed training using DDP, FSDP2, and Megatron-FSDP, shown in three separate training

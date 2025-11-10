@@ -11,6 +11,14 @@ The biological AI community is actively prototyping model architectures and need
 - **Performance optimization**: Leverages TransformerEngine and megatron-FSDP for state-of-the-art training efficiency
 - **Research-friendly**: Hackable, readable code that researchers can easily adapt for their experiments
 
+### Performance Benchmarks
+
+<p align="center">
+  <img src="../docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg" width="600">
+  <br>
+  <em> Training benchmarks for ESM-2 using the <code>esm2_native_te</code> recipe.</em>
+</p>
+
 ### Use Cases
 
 - **Foundation Model Developers**: AI researchers and ML engineers developing novel biological foundation models who need to scale up prototypes efficiently
@@ -18,14 +26,15 @@ The biological AI community is actively prototyping model architectures and need
 
 ## Supported Recipes and Models
 
-| Directory                                                                                        | Description                                                                                       | FSDP         | BF16 | FP8<sup>[1]</sup> | THD | FP8 + THD | MXFP8<sup>[2]</sup> | NVFP4<sup>[2]</sup> | CP  |
-| ------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- | ------------ | ---- | ----------------- | --- | --------- | ------------------- | ------------------- | --- |
-| `models/amplify`,<br> [available on Hugging Face](https://huggingface.co/nvidia/AMPLIFY_350M)    | TE accelerated protein BERT, [Amgen](https://www.biorxiv.org/content/10.1101/2024.09.23.614603v1) | ✅           | ✅   | ❌                | ❌  | 🚧        | ❌                  | ❌                  | ❌  |
-| `models/esm2`,<br> [available on Hugging Face](https://huggingface.co/nvidia/esm2_t48_15B_UR50D) | TE accelerated protein BERT, [Meta](https://www.biorxiv.org/content/10.1101/2022.07.20.500902v1)  | ✅           | ✅   | ✅                | ✅  | ✅        | ✅                  | 🚧                  | 🚧  |
-| `recipes/`<br>`esm2_accelerate_te`                                                               | Recipe for `esm2/amplify` TE + HF Accelerate                                                      | 🚧           | ✅   | ✅                | 🚧  | ❌        | 🚧                  | 🚧                  | 🚧  |
-| `recipes/`<br>`esm2_native_te`                                                                   | Recipe for `esm2/amplify` + native PyTorch                                                        | mFSDP, FSDP2 | ✅   | ✅                | ✅  | ✅        | ✅                  | 🚧                  | 🚧  |
-| `recipes/`<br>`geneformer_native_te_mfsdp_fp8`                                                   | Recipe for geneformer HF model                                                                    | mFSDP        | ✅   | 🚧                | 🚧  | 🚧        | 🚧                  | 🚧                  | 🚧  |
-| `recipes/`<br>`vit`                                                                              | Recipe for vision transformer                                                                     | mFSDP        | ✅   | 🚧                | 🚧  | 🚧        | 🚧                  | 🚧                  | 🚧  |
+| Directory                                                                                        | Description                                                                                                                   | FSDP         | BF16 | FP8<sup>[1]</sup> | THD | FP8 + THD | MXFP8<sup>[2]</sup> | NVFP4<sup>[2]</sup> | CP  |
+| ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- | ------------ | ---- | ----------------- | --- | --------- | ------------------- | ------------------- | --- |
+| `models/amplify`,<br> [available on Hugging Face](https://huggingface.co/nvidia/AMPLIFY_350M)    | TE accelerated protein BERT, [Amgen](https://www.biorxiv.org/content/10.1101/2024.09.23.614603v1)                             | ✅           | ✅   | ❌                | ❌  | 🚧        | ❌                  | ❌                  | ❌  |
+| `models/esm2`,<br> [available on Hugging Face](https://huggingface.co/nvidia/esm2_t48_15B_UR50D) | TE accelerated protein BERT, [Meta](https://www.biorxiv.org/content/10.1101/2022.07.20.500902v1)                              | ✅           | ✅   | ✅                | ✅  | ✅        | ✅                  | 🚧                  | 🚧  |
+| `recipes/`<br>`codonfm_ptl_te`                                                                   | Recipe for [CodonFM](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/nv-codonfm-preprint.pdf)'s Encodon using TE | 🚧           | ✅   | 🚧                | ✅  | 🚧        | 🚧                  | 🚧                  | 🚧  |
+| `recipes/`<br>`esm2_accelerate_te`                                                               | Recipe for `esm2/amplify` TE + HF Accelerate                                                                                  | 🚧           | ✅   | ✅                | 🚧  | ❌        | 🚧                  | 🚧                  | 🚧  |
+| `recipes/`<br>`esm2_native_te`                                                                   | Recipe for `esm2/amplify` + native PyTorch                                                                                    | mFSDP, FSDP2 | ✅   | ✅                | ✅  | ✅        | ✅                  | 🚧                  | 🚧  |
+| `recipes/`<br>`geneformer_native_te_mfsdp_fp8`                                                   | Recipe for geneformer HF model                                                                                                | mFSDP        | ✅   | 🚧                | 🚧  | 🚧        | 🚧                  | 🚧                  | 🚧  |
+| `recipes/`<br>`vit`                                                                              | Recipe for vision transformer                                                                                                 | mFSDP        | ✅   | 🚧                | 🚧  | 🚧        | 🚧                  | 🚧                  | 🚧  |
 
 ✅: Supported <br/>
 🚧: Under development, will be supported soon <br/>

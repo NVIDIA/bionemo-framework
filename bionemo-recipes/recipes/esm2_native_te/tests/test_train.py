@@ -548,6 +548,7 @@ def test_sanity_ddp_thd_token_packing_huggingface_model(tmp_path, recipe_path):
                 "use_sequence_packing=true",
                 "model_tag=facebook/esm2_t6_8M_UR50D",
                 "num_train_steps=4",
+                "use_torch_compile=false",
             ],
         )
 

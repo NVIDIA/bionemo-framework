@@ -44,6 +44,7 @@ def _create_single_cell_memmap_dataset_from_h5ad(
     data_dtype: str | None = None,
     paginated_load_cutoff: int = 10_000,
     load_block_row_size: int = 1_000_000,
+    use_X_not_raw: bool = False,
 ) -> SingleCellMemMapDataset:
     """The SingleCellMemMapDataset is loaded from h5ad_path.
 
@@ -55,6 +56,7 @@ def _create_single_cell_memmap_dataset_from_h5ad(
         data dtype: Optional dtype string for `data.npy` (e.g., 'uint8','float16','float32','float64')
         paginated_load_cutoff: The cutoff in MB for paginated loading of the AnnData files.
         load_block_row_size: The number of rows to load into memory at a time for paginated loading of the AnnData files.
+        use_X_not_raw: If True, prefer `adata.X`; otherwise use `adata.raw.X`.
 
     Returns:
         The created SingleCellMemMapDataset
@@ -69,6 +71,7 @@ def _create_single_cell_memmap_dataset_from_h5ad(
         data_dtype=data_dtype,
         paginated_load_cutoff=paginated_load_cutoff,
         load_block_row_size=load_block_row_size,
+        use_X_not_raw=use_X_not_raw,
     )
     return obj
 
@@ -114,7 +117,6 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         self.metadata: Dict[str, int] = {}
         self._var_feature_index: VariableFeatureIndex = VariableFeatureIndex()
         self.fname_to_mmap: Dict[str, SingleCellMemMapDataset] = {}
-
         Path(self.data_path).mkdir(parents=True, exist_ok=True)
 
         # Write the version
@@ -130,7 +132,11 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         return self._version
 
     def load_h5ad(
-        self, h5ad_path: str, paginated_load_cutoff: int = 10_000, load_block_row_size: int = 1_000_000
+        self,
+        h5ad_path: str,
+        paginated_load_cutoff: int = 10_000,
+        load_block_row_size: int = 1_000_000,
+        use_X_not_raw: bool = False,
     ) -> None:
         """Loads data from an existing AnnData archive.
 
@@ -141,6 +147,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
             h5ad_path: the path to AnnData archive
             paginated_load_cutoff: The cutoff in MB for paginated loading of the AnnData files.
             load_block_row_size: The number of rows to load into memory at a time for paginated loading of the AnnData files.
+            use_X_not_raw: If True, prefer `adata.X`; otherwise use `adata.raw.X`.
         """
         mmap_path = Path(self.data_path) / Path(h5ad_path).stem
         self.fname_to_mmap[mmap_path] = _create_single_cell_memmap_dataset_from_h5ad(
@@ -148,6 +155,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
             base_directory_path=self.data_path,
             paginated_load_cutoff=paginated_load_cutoff,
             load_block_row_size=load_block_row_size,
+            use_X_not_raw=use_X_not_raw,
         )
         self._var_feature_index.concat(self.fname_to_mmap[mmap_path]._var_feature_index)
 
@@ -159,6 +167,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         data_dtype: str | None = None,
         paginated_load_cutoff: int = 10_000,
         load_block_row_size: int = 1_000_000,
+        use_X_not_raw: bool = False,
     ) -> None:
         """Loads one or more AnnData files and adds them to the collection.
 
@@ -170,6 +179,8 @@ class SingleCellCollection(SingleCellRowDatasetCore):
             paginated_load_cutoff: The cutoff in MB for paginated loading of the AnnData files.
             load_block_row_size: The number of rows to load into memory at a time for paginated loading of the AnnData files.
             data_dtype: Optional dtype string propagated to dataset creation
+            use_X_not_raw: If True, prefer `adata.X`; otherwise use `adata.raw.X`.
+
         Raises:
             FileNotFoundError: If no h5ad files are found in the directory.
             RuntimeError: If an error occurs in the loading of any of the h5ad files.
@@ -191,6 +202,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
                 data_dtype=data_dtype,
                 paginated_load_cutoff=paginated_load_cutoff,
                 load_block_row_size=load_block_row_size,
+                use_X_not_raw=use_X_not_raw,
             )
         queue.wait()
         mmaps = queue.get_task_results()

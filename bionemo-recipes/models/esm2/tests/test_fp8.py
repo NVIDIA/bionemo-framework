@@ -15,7 +15,9 @@
 
 import pytest
 import torch
+import torch.distributed.checkpoint as dcp
 import transformer_engine
+from torch.distributed.checkpoint.state_dict import get_model_state_dict
 from transformer_engine.common.recipe import DelayedScaling, MXFP8BlockScaling
 from transformer_engine.pytorch.fp8 import check_fp8_support, check_mxfp8_support
 from transformer_engine.pytorch.tensor.float8_tensor import Float8Tensor
@@ -153,7 +155,7 @@ def test_fp8_model_init_from_pretrained(te_model_checkpoint, input_data):
 
 @requires_fp8
 @pytest.mark.xfail(reason="BIONEMO-3055: fp8 model init and pretrained saving is not currently supported.")
-def test_fp8_model_init_save_pretrained(te_model_checkpoint, tmp_path, input_data):
+def test_fp8_model_init_save_pretrained(te_model_checkpoint, tmp_path):
     fp8_recipe = DelayedScaling()
     config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
@@ -165,3 +167,29 @@ def test_fp8_model_init_save_pretrained(te_model_checkpoint, tmp_path, input_dat
     model_fp8.save_pretrained(tmp_path / "fp8_checkpoint")
     del model_fp8
     NVEsmForMaskedLM.from_pretrained(tmp_path / "fp8_checkpoint", dtype=torch.bfloat16)
+
+
+@requires_fp8
+@pytest.mark.xfail(reason="BIONEMO-3055: fp8 model init and distributed checkpointing is not currently supported.")
+def test_fp8_model_distributed_checkpointing_save_and_load(te_model_checkpoint, tmp_path, input_data):
+    fp8_recipe = DelayedScaling()
+    config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
+    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
+        model_fp8 = NVEsmForMaskedLM(config)
+
+    model_fp8.to("cuda")
+    input_data = {k: v.to("cuda") for k, v in input_data.items()}
+    with transformer_engine.pytorch.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
+        outputs = model_fp8(**input_data)
+    outputs.loss.backward()
+
+    state_dict = get_model_state_dict(model_fp8)
+    dcp.save(state_dict, checkpoint_id=tmp_path / "fp8_checkpoint")
+
+    del model_fp8, state_dict
+
+    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
+        model_fp8 = NVEsmForMaskedLM(config)
+
+    state_dict = model_fp8.state_dict()
+    dcp.load(state_dict, checkpoint_id=tmp_path / "fp8_checkpoint")

@@ -21,6 +21,7 @@ on:
           - esm2_native_te_650m
           - esm2_native_te_3b
           - esm2_native_te_15b
+          - codonfm_ptl_te
       branch:
         description: "Branch to use (ignored if commit SHA is provided)"
         required: true
@@ -38,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        model_config: ${{ github.event_name == 'schedule' && fromJSON('["esm2_native_te_650m", "esm2_native_te_3b", "esm2_native_te_15b"]') || fromJSON(format('["{0}"]', github.event.inputs.model_config)) }}
+        model_config: ${{ github.event_name == 'schedule' && fromJSON('["esm2_native_te_650m", "esm2_native_te_3b", "esm2_native_te_15b", "codonfm_ptl_te"]') || fromJSON(format('["{0}"]', github.event.inputs.model_config)) }}
       fail-fast: false
     steps:
       - name: Checkout
