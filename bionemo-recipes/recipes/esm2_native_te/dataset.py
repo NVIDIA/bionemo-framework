@@ -15,6 +15,9 @@
 
 import logging
 
+import copy
+from typing import Any
+import torch
 import datasets
 import datasets.distributed
 from torch.utils.data import DataLoader, DistributedSampler
@@ -25,9 +28,20 @@ from transformers.data.data_collator import DataCollatorForLanguageModeling
 from collator import MLMDataCollatorWithFlattening, TokenPackingDataset
 from distributed_config import DistributedConfig
 
-
+from utils import get_batch_on_this_cp_rank
 logger = logging.getLogger(__name__)
 
+# TODO(@jomitchell): Create an enum for the batch keys, which we can then use later.
+
+BATCH_KEYS_DTYPE = {
+    'max_length_q': torch.int32,  # regular int
+    'max_length_k': torch.int32,  # regular int
+    'input_ids': torch.int64,
+    'cu_seq_lens_q': torch.int32,
+    'cu_seq_lens_k': torch.int32,
+    # 'attention_mask': torch.int64,  # Missing!
+    'labels': torch.int64,
+}
 
 def create_tokenized_dataset(
     distributed_config: DistributedConfig,
@@ -143,7 +157,7 @@ def create_bshd_dataloader(
         collate_fn=data_collator,
         num_workers=num_workers,
         pin_memory=True if not use_stateful_dataloader else False,
-        persistent_workers=True,
+        persistent_workers=num_workers > 0,  # DELETEME
     )
 
     return train_dataloader, tokenized_dataset if sampler is None else sampler
@@ -161,6 +175,7 @@ def create_thd_dataloader(
     buffer_size: int = 10_000,
     use_stateful_dataloader: bool = False,
     mlm_probability: float = 0.15,
+    pad_sequences_to_be_divisible_by: int | None = None,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
 
@@ -178,11 +193,13 @@ def create_thd_dataloader(
         buffer_size: The buffer size to use for the distributed sampler.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
-        **kwargs: Unused, here to enable kwargs to match the signature of create_bshd_dataloader.
+        pad_sequences_to_be_divisible_by: If provided, sequences will be padded to be divisible by this value.
+            This is useful for context parallelism. Defaults to None.
 
     Returns:
         A dataloader that can be used for training.
     """
+    # If cp_rank not 0 return none.
     tokenized_dataset, tokenizer = create_tokenized_dataset(
         distributed_config=distributed_config,
         tokenizer_name=tokenizer_name,
@@ -203,8 +220,9 @@ def create_thd_dataloader(
     data_collator = MLMDataCollatorWithFlattening(
         tokenizer=tokenizer,
         mlm_probability=mlm_probability,
-        pad_to_multiple_of=token_micro_batch_size,
+        pad_to_multiple_of=token_micro_batch_size if pad_sequences_to_be_divisible_by is None else None,
         seed=seed,
+        pad_sequences_to_be_divisible_by=pad_sequences_to_be_divisible_by,
     )
 
     # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
@@ -215,7 +233,147 @@ def create_thd_dataloader(
         collate_fn=data_collator,
         num_workers=num_workers,
         pin_memory=True if not use_stateful_dataloader else False,
-        persistent_workers=True,
+        persistent_workers=num_workers > 0,  # TODO: DELETEME
     )
-
     return train_dataloader, tokenized_dataset
+
+class CPAwareDataloader:
+    """A dataloader that is aware of context parallelism."""
+
+    def __init__(self, dataloader: StatefulDataLoader,
+                    dist_config: DistributedConfig,
+                    cp_group: torch.distributed.ProcessGroup,
+                    cp_rank: int,
+                    max_seq_length: int = 1024,
+                    dtype: torch.dtype = torch.float32,
+                    ):
+        self.dataloader = dataloader
+        self.dist_config = dist_config
+        self.cp_rank = cp_rank
+        self.cp_group = cp_group
+        self.num_cp_ranks = cp_group.size()
+        self.max_len = max_seq_length
+        self.dtype = dtype
+        self.sentinel_value = 1e8 # TODO(@jomitchell): Make this a configurable parameter. Not even sure if 1e8 makes sense lawl.
+        self._iterator = None
+
+    def __iter__(self):
+        """Make the dataloader iterable."""
+        self._iterator = iter(self.dataloader)
+        return self
+
+    def __next__(self):
+        batch = self.__get_data_scatter()
+        input_ids_padded, labels_padded = get_batch_on_this_cp_rank(
+            cu_seqlens_padded=batch["cu_seq_lens_q"],
+            input_ids_padded=batch["input_ids"],
+            labels_padded=batch["labels"],
+            cp_group=self.cp_group,
+            qvk_format="thd",
+        )
+        batch["input_ids"] = input_ids_padded
+        batch["labels"] = labels_padded
+        
+        return batch
+
+    def __get_data_broadcast(self):
+        pass
+
+    def __get_data_scatter(self):
+        # Create device for current rank (use local_rank = GPU index on this node)
+        device = torch.device(f"cuda:{self.dist_config.local_rank}")
+
+        if self.cp_rank == 0: # Is this global rank 0? IDK.
+            # Get data once, then make copies for each rank.
+            if self._iterator is None:
+                self._iterator = iter(self.dataloader)
+            batch = next(self._iterator)
+
+            # Convert everything to tensors and move to GPU
+            # Create scatter list for each key
+            combined_batch = {key: [] for key in BATCH_KEYS_DTYPE}
+            tensor_sizes = {}  # Track actual tensor sizes
+            tensor_shapes = {}  # Track original shapes for reconstruction
+
+            for key, value in batch.items():
+                if key in BATCH_KEYS_DTYPE:
+                    # Convert to tensor if not already
+                    if isinstance(value, torch.Tensor):
+                        # Store original shape before flattening
+                        tensor_shapes[key] = value.shape
+                        # Flatten multi-dimensional tensors for scatter (scatter only works with 1D tensors)
+                        tensor_value = value.to(device).flatten()
+                    else:
+                        # Convert scalar (int/float) to tensor
+                        tensor_value = torch.tensor([value], device=device, dtype=BATCH_KEYS_DTYPE[key])
+                        tensor_shapes[key] = tensor_value.shape
+
+                    tensor_sizes[key] = tensor_value.numel()  # Store total number of elements
+
+                    # Create copies for each CP rank
+                    for _ in range(self.num_cp_ranks):
+                        combined_batch[key].append(tensor_value.clone())
+        else:
+            combined_batch = None
+            tensor_sizes = {}
+            tensor_shapes = {}
+
+        # Get the global rank of cp_rank=0 in this CP group (the source for broadcasts)
+        cp_group_ranks = torch.distributed.get_process_group_ranks(self.cp_group)
+        src_global_rank = cp_group_ranks[0]  # First rank in the CP group is cp_rank=0
+        
+        # Broadcast tensor sizes to all ranks
+        size_tensor = torch.zeros(len(BATCH_KEYS_DTYPE), dtype=torch.int64, device=device)
+        if self.cp_rank == 0:
+            for i, key in enumerate(BATCH_KEYS_DTYPE.keys()):
+                size_tensor[i] = tensor_sizes.get(key, 1)
+        torch.distributed.broadcast(size_tensor, src=src_global_rank, group=self.cp_group)
+        
+        # Broadcast tensor shapes (max 4 dimensions should be enough)
+        # Format: [ndim, dim0, dim1, dim2, dim3] for each key
+        shape_tensor = torch.zeros(len(BATCH_KEYS_DTYPE) * 5, dtype=torch.int64, device=device)
+        if self.cp_rank == 0:
+            for i, key in enumerate(BATCH_KEYS_DTYPE.keys()):
+                shape = tensor_shapes.get(key, (1,))
+                shape_tensor[i * 5] = len(shape)  # number of dimensions
+                for j, dim in enumerate(shape[:4]):  # max 4 dims
+                    shape_tensor[i * 5 + 1 + j] = dim
+        torch.distributed.broadcast(shape_tensor, src=src_global_rank, group=self.cp_group)
+
+        # Reconstruct sizes and shapes on non-zero ranks
+        if self.cp_rank != 0:
+            for i, key in enumerate(BATCH_KEYS_DTYPE.keys()):
+                tensor_sizes[key] = size_tensor[i].item()
+                ndim = shape_tensor[i * 5].item()
+                shape = tuple(shape_tensor[i * 5 + 1: i * 5 + 1 + ndim].tolist())
+                tensor_shapes[key] = shape
+
+        # Create batch buffers with correct dtypes and sizes
+        batch_buffer = {}
+        for key, dtype in BATCH_KEYS_DTYPE.items():
+            size = tensor_sizes.get(key, 1)
+            batch_buffer[key] = torch.zeros(size, device=device, dtype=dtype)
+
+        # Scatter all values (now all tensors) across CP ranks
+        for key in BATCH_KEYS_DTYPE:
+            scatter_list = combined_batch[key] if combined_batch is not None else None
+            torch.distributed.scatter(
+                batch_buffer[key],      # Output: where received tensor is stored
+                scatter_list=scatter_list,  # Input: only used on source rank
+                src=src_global_rank,     # Source rank (global rank of cp_rank=0 in this group)
+                group=self.cp_group,
+                async_op=False  # Turn on Async later.
+            )
+
+        # Reconstruct the dictionary batch from the batch buffer with original shapes
+        batch = {}
+        for key in BATCH_KEYS_DTYPE:
+            original_shape = tensor_shapes[key]
+            if original_shape == (1,):  # Scalar values (max_length_q, max_length_k)
+                batch[key] = batch_buffer[key].item()
+            else:
+                # Reshape back to original shape
+                batch[key] = batch_buffer[key].view(original_shape)
+
+        return batch
+

@@ -26,6 +26,8 @@ import datasets
 import torch
 from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
 
+from utils import pad_thd_sequences_for_cp  # TODO: Import from TE when 2.8 is up.
+
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,7 @@ class MLMDataCollatorWithFlattening:
     2. Then applying MLM masking to the flattened sequence
     3. Providing Flash Attention metadata (cu_seq_lens) for sequence boundary awareness
     4. Optionally padding the total sequence length to be divisible by a specified number
+    5. Optionally, pad each sequence to be divisible by a specified number (if provided).
 
     The result is a THD-format batch optimized for Flash Attention with sequence packing,
     eliminating the need for traditional attention masks while maintaining proper sequence
@@ -62,6 +65,9 @@ class MLMDataCollatorWithFlattening:
         seed (int | None): Random seed for reproducible masking. Defaults to None.
         pad_to_multiple_of (int | None): If set, pads the total sequence length to be divisible
             by this number by adding a mock sequence at the end. Defaults to None.
+        pad_sequences_to_be_divisible_by (int | None): If set, pads each sequence to be divisible
+            by this number by adding padding tokens and labels set to -100. Defaults to None.
+            This is used by context parallelism.
 
     Example:
         >>> from transformers import AutoTokenizer
@@ -111,6 +117,7 @@ class MLMDataCollatorWithFlattening:
         return_position_ids: bool = False,
         bshd_equivalent: bool = False,
         bshd_pad_to_multiple_of: int | None = None,
+        pad_sequences_to_be_divisible_by: int | None = None,
     ):
         """Initialize the MLMDataCollatorWithFlattening.
 
@@ -129,6 +136,9 @@ class MLMDataCollatorWithFlattening:
                 collator, at the expense of additional computation time. Defaults to False.
             bshd_pad_to_multiple_of (int | None): For the bshd_equivalent mode, mimics padding that would be done by the
                 BSHD collator. Defaults to None.
+            pad_sequences_to_be_divisible_by (int | None): If set, pads each sequence to be divisible
+                by this number by adding padding tokens and labels set to -100. Defaults to None.
+                This is used by context parallelism.
         """
         self.mlm_collator = DataCollatorForLanguageModeling(
             tokenizer=tokenizer,
@@ -145,6 +155,10 @@ class MLMDataCollatorWithFlattening:
         self.return_position_ids = return_position_ids
         self.bshd_equivalent = bshd_equivalent
         self.bshd_pad_to_multiple_of = bshd_pad_to_multiple_of
+        self.pad_sequences_to_be_divisible_by = pad_sequences_to_be_divisible_by
+
+        if self.pad_sequences_to_be_divisible_by is not None and self.pad_to_multiple_of is not None:
+            raise ValueError("pad_sequences_to_be_divisible_by and pad_to_multiple_of cannot be used together")
 
         if bshd_pad_to_multiple_of is not None and not bshd_equivalent:
             raise ValueError("bshd_pad_to_multiple_of can only be used when bshd_equivalent is True")
@@ -226,6 +240,23 @@ class MLMDataCollatorWithFlattening:
 
         if self.pad_to_multiple_of is not None:
             batch = self._pad_batch_to_multiple_of(batch)
+
+        elif self.pad_sequences_to_be_divisible_by is not None:
+            # import pdb; pdb.set_trace()
+            input_ids_padded, labels_padded, cu_seqlens_padded = pad_thd_sequences_for_cp(
+                batch["input_ids"],
+                batch["labels"],
+                batch["cu_seq_lens_q"],
+                self.pad_sequences_to_be_divisible_by,
+                padding_token_id=int(
+                    self.mlm_collator.tokenizer.pad_token_id
+                ),  # TODO(@jomitchell): Ensure this is correct
+                padding_label_id=-100,  # TODO(@jomitchell): Ensure this is correct
+            )
+            batch["input_ids"] = input_ids_padded.unsqueeze(0)
+            batch["labels"] = labels_padded.unsqueeze(0)
+            batch["cu_seq_lens_q"] = cu_seqlens_padded.to(torch.int32)  # weird that its not int32.
+            batch["cu_seq_lens_k"] = cu_seqlens_padded.to(torch.int32)
 
         return batch
 

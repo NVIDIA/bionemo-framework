@@ -38,7 +38,6 @@ class DistributedConfig:
     world_size: int = field(default_factory=lambda: int(os.environ.setdefault("WORLD_SIZE", "1")))
     _master_addr: str = field(default_factory=lambda: os.environ.setdefault("MASTER_ADDR", "localhost"))
     _master_port: str = field(default_factory=lambda: os.environ.setdefault("MASTER_PORT", "12355"))
-
     def is_main_process(self) -> bool:
         """This is the global rank 0 process, to be used for wandb logging, etc."""
         return self.rank == 0
