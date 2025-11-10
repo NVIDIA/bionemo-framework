@@ -22,7 +22,7 @@ from nemo.collections import llm
 
 @dataclass
 class EdenConfig(llm.Llama31Config8B):
-    """Eden-flavoured Llama-3.1 ~8B (keeps all Eden behaviors). Needs to inherit from the 3.1 config for proper RoPE scaling terms."""
+    """Eden-flavoured Llama-3.1 ~8B (keeps all Eden behaviors). Inherits from the llama 3.1 config for proper handling of RoPE when converting checkpoints."""
 
     rotary_base: int = 500_000
     seq_length: int = 8192
