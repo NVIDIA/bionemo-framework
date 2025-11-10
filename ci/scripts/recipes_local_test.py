@@ -48,14 +48,14 @@ CUSTOM_CONTAINERS = {
     "bionemo-recipes/models/amplify": "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025",
 }
 
-# DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:25.09-py3"
+# DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:25.10-py3"
 
-# This is a squashed version of the pytorch:25.09-py3 image, generated with
-# docker-squash nvcr.io/nvidia/pytorch:25.09-py3 -t svcbionemo023/bionemo-framework:pytorch25.09-py3-squashed
+# This is a squashed version of the pytorch:25.10-py3 image, generated with
+# docker-squash nvcr.io/nvidia/pytorch:25.10-py3 -t svcbionemo023/bionemo-framework:pytorch25.10-py3-squashed
 # --output type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
 # and pushed to the dockerhub registry. Our github actions are able to cache image pulls from dockerhub but not nvcr, so
 # hopefully this cuts down slightly on CI time at the expense of having a slightly in-directed image location.
-DEFAULT_CONTAINER = "svcbionemo023/bionemo-framework:pytorch25.09-py3-squashed"
+DEFAULT_CONTAINER = "svcbionemo023/bionemo-framework:pytorch25.10-py3-squashed"
 
 
 def get_git_root() -> str:
