@@ -18,12 +18,11 @@ from dataclasses import dataclass
 from typing import Optional
 
 from nemo.collections import llm
-from nemo.collections.llm.gpt.model.llama import apply_rope_scaling
 
 
 @dataclass
-class EdenConfig(llm.Llama3Config8B):
-    """Eden-flavoured Llama-3.1 ~8B (keeps all Eden behaviors)."""
+class EdenConfig(llm.Llama31Config8B):
+    """Eden-flavoured Llama-3.1 ~8B (keeps all Eden behaviors). Needs to inherit from the 3.1 config for proper RoPE scaling terms."""
 
     rotary_base: int = 500_000
     seq_length: int = 8192
@@ -38,22 +37,6 @@ class EdenConfig(llm.Llama3Config8B):
     old_context_len: int = 8192
     init_method_std: float = 0.02
     embedding_init_method_std: Optional[float] = None
-
-    def configure_model(self, *args, **kwargs):
-        """Configure and instantiate a Megatron Core Llama 3.1 model.
-
-        Extends the base configuration with Llama 3.1 specific RoPE scaling.
-        """
-        model = super(EdenConfig, self).configure_model(*args, **kwargs)
-        # Apply rope scaling for Llama3.1 model
-        model.rotary_pos_emb.inv_freq = apply_rope_scaling(
-            model.rotary_pos_emb.inv_freq,
-            factor=self.scale_factor,
-            low_freq_factor=self.low_freq_factor,
-            high_freq_factor=self.high_freq_factor,
-            old_context_len=self.old_context_len,
-        )
-        return model
 
 
 @dataclass
