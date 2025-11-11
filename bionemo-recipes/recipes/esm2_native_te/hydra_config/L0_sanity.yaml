@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 # Training config
-model_tag: ./example_8m_checkpoint  # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
+model_tag: ./example_8m_checkpoint # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
 num_train_steps: 250
 
 # We want this on in CI/CD to validate that the script runs successfully with torch.compile.
@@ -15,11 +15,11 @@ dataset:
   micro_batch_size: 2
   num_workers: 1
   max_seq_length: 1024
+  use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
   load_dataset_kwargs:
     path: "parquet"
     split: "train"
     data_files: "train.parquet"
-
 
 # WandB config
 wandb_init_args:

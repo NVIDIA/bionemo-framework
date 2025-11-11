@@ -163,7 +163,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     step=step,
                     epoch=epoch,
                     dist_config=dist_config,
-                    dataloader=train_dataloader,
+                    dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
                 )
 
             step += 1

@@ -17,7 +17,7 @@ import logging
 
 import datasets
 import datasets.distributed
-from torch.utils.data import DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
@@ -85,6 +85,7 @@ def create_bshd_dataloader(
     seed: int = 42,
     buffer_size: int = 10_000,
     use_lazy_tokenization: bool = True,
+    use_stateful_dataloader: bool = False,
     mlm_probability: float = 0.15,
 ):
     """Create a dataloader for the dataset.
@@ -100,6 +101,7 @@ def create_bshd_dataloader(
         buffer_size: The buffer size to use for the distributed sampler.
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization if the dataset is a
             non-streaming datasets.Dataset. Defaults to True.
+        use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
         **kwargs: Unused, here to enable kwargs to match the signature of create_thd_dataloader.
 
@@ -132,13 +134,15 @@ def create_bshd_dataloader(
         seed=seed,
     )
 
-    train_dataloader = StatefulDataLoader(
+    # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
+    dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
+    train_dataloader = dataloader_class(
         tokenized_dataset,
         sampler=sampler,
         batch_size=micro_batch_size,
         collate_fn=data_collator,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=True if not use_stateful_dataloader else False,
         persistent_workers=True,
     )
 
@@ -155,6 +159,7 @@ def create_thd_dataloader(
     max_seq_length: int = 1024,
     seed: int = 42,
     buffer_size: int = 10_000,
+    use_stateful_dataloader: bool = False,
     mlm_probability: float = 0.15,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
@@ -171,6 +176,7 @@ def create_thd_dataloader(
         max_seq_length: The maximum length of the protein sequences.
         seed: The seed to use for the distributed sampler and data collator.
         buffer_size: The buffer size to use for the distributed sampler.
+        use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
         **kwargs: Unused, here to enable kwargs to match the signature of create_bshd_dataloader.
 
@@ -201,12 +207,14 @@ def create_thd_dataloader(
         seed=seed,
     )
 
-    train_dataloader = StatefulDataLoader(
+    # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
+    dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
+    train_dataloader = dataloader_class(
         TokenPackingDataset(tokenized_dataset, max_tokens_per_batch=token_micro_batch_size),
         batch_size=None,  # The TokenPackingDataset will handle the batching.
         collate_fn=data_collator,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=True if not use_stateful_dataloader else False,
         persistent_workers=True,
     )
 

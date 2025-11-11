@@ -58,6 +58,7 @@ def test_load_dataset_state_from_latest_checkpoint(tmp_path):
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     for i, _ in enumerate(reference_dataloader):
@@ -79,6 +80,7 @@ def test_load_dataset_state_from_latest_checkpoint(tmp_path):
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     new_dataloader = load_dataloader(
@@ -121,6 +123,7 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     rank1_dataloader, _ = create_bshd_dataloader(
@@ -130,6 +133,7 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     dataloader_path_step_4 = dataloader_path / "step_4"
@@ -172,6 +176,7 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     rank0_dataloader_reloaded = load_dataloader(
@@ -188,6 +193,7 @@ def test_map_style_stateful_dataloader_resumption_multi_process(tmp_path):
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     rank1_dataloader_reloaded = load_dataloader(
@@ -251,6 +257,7 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=4,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     rank1_dataloader_info, _ = create_thd_dataloader(
@@ -259,6 +266,7 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=4,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
     dataloader_path_step_4 = dataloader_path / "step_4"
     dataloader_path_step_5 = dataloader_path / "step_5"
@@ -299,6 +307,7 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=4,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     rank0_dataloader_reloaded = load_dataloader(
@@ -314,6 +323,7 @@ def test_iterable_stateful_dataloader_resumption_multi_process(tmp_path):
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=4,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     rank1_dataloader_reloaded = load_dataloader(
@@ -373,6 +383,7 @@ def test_stateful_dataloader_works_save_dataloader_and_load_dataloader_single_pr
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     # Collect 10 batches in total. Save the state of the sixth batch at iteration 5.
@@ -397,6 +408,7 @@ def test_stateful_dataloader_works_save_dataloader_and_load_dataloader_single_pr
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     new_dataloader = load_dataloader(
@@ -451,6 +463,7 @@ def test_stateful_dataloader():
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     # Collect 10 batches in total. Save the state of the sixth batch at iteration 5.
@@ -471,6 +484,7 @@ def test_stateful_dataloader():
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     new_dataloader = new_dataloader_info
@@ -519,6 +533,7 @@ def test_stateful_dataloader_with_multiple_workers(tmp_path):
         micro_batch_size=4,
         num_workers=2,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     # Collect 10 batches in total. Save the state of the sixth batch at iteration 5.
@@ -545,6 +560,7 @@ def test_stateful_dataloader_with_multiple_workers(tmp_path):
         micro_batch_size=4,
         num_workers=2,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     load_dataloader(
@@ -598,6 +614,7 @@ def test_iterable_dataloader_yields_different_values_per_rank():
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=4,
         num_workers=1,
+        use_stateful_dataloader=True,
     )
 
     rank2_config = MockDistributedConfig(
@@ -612,6 +629,7 @@ def test_iterable_dataloader_yields_different_values_per_rank():
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=4,
         num_workers=1,
+        use_stateful_dataloader=True,
     )
 
     rank1_batch = next(iter(rank1_dataloader))
@@ -735,6 +753,7 @@ def test_stateful_dataloader_load_fails_if_num_workers_mismatch(tmp_path, caplog
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     save_dataloader(
@@ -752,6 +771,7 @@ def test_stateful_dataloader_load_fails_if_num_workers_mismatch(tmp_path, caplog
         micro_batch_size=4,
         num_workers=2,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     with caplog.at_level(logging.WARNING):
@@ -792,6 +812,7 @@ def test_stateful_dataloader_load_fails_if_num_ranks_mismatch(tmp_path, caplog):
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     save_dataloader(
@@ -816,6 +837,7 @@ def test_stateful_dataloader_load_fails_if_num_ranks_mismatch(tmp_path, caplog):
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     with caplog.at_level(logging.WARNING):
