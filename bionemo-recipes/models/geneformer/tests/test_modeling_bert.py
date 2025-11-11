@@ -14,8 +14,9 @@
 # limitations under the License.
 
 import torch
-from geneformer.modeling_bert_te import BertForMaskedLM, BertLayer, TEBertLayer
 from transformers.models.bert.configuration_bert import BertConfig
+
+from geneformer.modeling_bert_te import BertForMaskedLM, BertLayer, TEBertLayer
 
 
 def test_geneformer_hf_model_has_vanilla_pt_layers(get_config):
@@ -80,8 +81,9 @@ def test_te_bert_layer_and_hf_bert_layer_same_output_shapes(get_config):
 def test_te_bert_layer_and_hf_bert_layer_similar_output_values(get_config):
     """Test that TE and HF BERT layers have similar output values using proper conversion."""
     from accelerate import init_empty_weights
-    from geneformer.convert import _pack_qkv_bias, _pack_qkv_weight, mapping
     from nemo.lightning import io
+
+    from geneformer.convert import _pack_qkv_bias, _pack_qkv_weight, mapping
 
     hf_model = BertForMaskedLM(get_config).cuda()
     te_config = BertConfig(**get_config.to_dict())
