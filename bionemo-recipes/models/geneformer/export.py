@@ -16,7 +16,7 @@
 import argparse
 from pathlib import Path
 
-from geneformer.export import export_hf_checkpoint, export_te_checkpoint
+from geneformer.export import export_hf_checkpoint
 
 
 GENEFORMER_MODELS = [
@@ -28,56 +28,36 @@ GENEFORMER_MODELS = [
 
 
 def main():
-    """Export Geneformer models from Hugging Face Hub to a standardized format."""
+    """Export the Geneformer models from Hugging Face to the Transformer Engine format."""
     parser = argparse.ArgumentParser(
-        description="Convert Geneformer models from Hugging Face Hub to standardized format"
+        description="Convert Geneformer models from Hugging Face to Transformer Engine format"
     )
-
-    subparsers = parser.add_subparsers(dest="conversion_type", required=True, help="Type of conversion to perform")
-
-    hf_to_te_parser = subparsers.add_parser("hf-to-te", help="Convert from HuggingFace to Transformer Engine format")
-    hf_to_te_parser.add_argument(
+    parser.add_argument(
         "--model",
         type=str,
         choices=GENEFORMER_MODELS,
         help="Specific model to convert. If not provided, all models will be converted.",
     )
-    hf_to_te_parser.add_argument(
+    parser.add_argument(
         "--output-path",
         type=str,
-        default="./hf_to_te_checkpoint_export",
-        help="Output directory path for the converted model. Defaults to './hf_to_te_checkpoint_export'",
-    )
-
-    te_to_hf_parser = subparsers.add_parser("te-to-hf", help="Convert from Transformer Engine to HuggingFace format")
-    te_to_hf_parser.add_argument(
-        "--checkpoint-path", type=str, required=True, help="Path to the HuggingFace checkpoint to convert"
-    )
-    te_to_hf_parser.add_argument(
-        "--output-path",
-        type=str,
-        default="./te_to_hf_checkpoint_export",
-        help="Output directory path for the converted model. Defaults to './te_to_hf_checkpoint_export'",
+        default="./checkpoint_export",
+        help="Output directory path for the converted model. Defaults to './checkpoint_export'",
     )
 
     args = parser.parse_args()
 
-    print(f"Performing {args.conversion_type} conversion...")
-    if args.conversion_type == "hf-to-te":
-        if args.model:
-            if args.model not in GENEFORMER_MODELS:
-                print(f"Error: '{args.model}' is not a valid model.\nAvailable models: {', '.join(GENEFORMER_MODELS)}")
-                return
+    if args.model:
+        if args.model not in GENEFORMER_MODELS:
+            print(f"Error: '{args.model}' is not a valid model.\nAvailable models: {', '.join(GENEFORMER_MODELS)}")
+            return
 
-            print(f"Converting {args.model} from Hugging Face Hub...")
-            export_hf_checkpoint(args.model, Path(args.output_path) / args.model)
-        else:
-            for model in GENEFORMER_MODELS:
-                print(f"Converting {model} from Hugging Face Hub...")
-                export_hf_checkpoint(model, Path(args.output_path) / model)
+        print(f"Converting {args.model} from Hugging Face Hub...")
+        export_hf_checkpoint(args.model, Path(args.output_path) / args.model)
     else:
-        print(f"Converting {args.checkpoint_path}...")
-        export_te_checkpoint(args.checkpoint_path, Path(args.output_path))
+        for model in GENEFORMER_MODELS:
+            print(f"Converting {model} from Hugging Face Hub...")
+            export_hf_checkpoint(model, Path(args.output_path) / model)
 
 
 if __name__ == "__main__":
