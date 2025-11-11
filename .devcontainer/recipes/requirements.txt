@@ -2,8 +2,10 @@ accelerate
 datasets
 deepspeed
 hydra-core
+megatron-fsdp
+peft
 torch
-megatron-fsdp==0.1.0rc0
+torchdata
 torchmetrics
 tqdm
 transformer_engine

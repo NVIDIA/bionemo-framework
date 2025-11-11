@@ -40,11 +40,44 @@ def main():
     parser.add_argument(
         "--save-path", required=True, type=str, help="An output path where an SCDataset will be stored."
     )
+
+    parser.add_argument(
+        "--data-dtype",
+        type=str,
+        default=None,
+        help="The data type to use for the SCDataset. Must be one of 'uint8', 'uint16', 'uint32', 'uint64', 'float32', 'float64'.",
+    )
+    parser.add_argument(
+        "--paginated-load-cutoff",
+        type=int,
+        default=10_000,
+        help="The cutoff in MB for paginated loading of the AnnData files.",
+    )
+    parser.add_argument(
+        "--load-block-row-size",
+        type=int,
+        default=1_000_000,
+        help="The number of rows to load into memory at a time for paginated loading of the AnnData files.",
+    )
+    parser.add_argument(
+        "--use-X-not-raw",
+        action="store_true",
+        default=False,
+        help="Use .X instead of raw.X from the anndata file [False].",
+    )
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as temp_dir:
         coll = SingleCellCollection(temp_dir)
-        coll.load_h5ad_multi(args.data_path, max_workers=args.num_workers, use_processes=args.use_mp)
+        coll.load_h5ad_multi(
+            args.data_path,
+            max_workers=args.num_workers,
+            use_processes=args.use_mp,
+            data_dtype=args.data_dtype,
+            paginated_load_cutoff=args.paginated_load_cutoff,
+            load_block_row_size=args.load_block_row_size,
+            use_X_not_raw=args.use_X_not_raw,
+        )
         coll.flatten(args.save_path, destroy_on_copy=True)
 
 

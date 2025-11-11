@@ -89,6 +89,8 @@ class ESMDataModule(MegatronDataModule):
         self._seed = seed
         self._min_seq_length = min_seq_length if min_seq_length is not None else max_seq_length
         self._max_seq_length = max_seq_length
+        # seq_length needs to be implemented for OneLogger to use
+        self.seq_length = max_seq_length
         self._mask_prob = mask_prob
         self._mask_token_prob = mask_token_prob
         self._mask_random_prob = mask_random_prob

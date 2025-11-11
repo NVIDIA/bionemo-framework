@@ -1,0 +1,8 @@
+accelerate
+datasets
+deepspeed
+hydra-core
+torchmetrics
+transformers
+transformer_engine[pytorch]
+wandb

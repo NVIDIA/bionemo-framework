@@ -45,17 +45,17 @@ DOCKER_RUN_ARGS = [
 ]
 
 CUSTOM_CONTAINERS = {
-    "models/amplify": "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025",
+    "bionemo-recipes/models/amplify": "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025",
 }
 
-# DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:25.06-py3"
+# DEFAULT_CONTAINER = "nvcr.io/nvidia/pytorch:25.09-py3"
 
-# This is a squashed version of the pytorch:25.06-py3 image, generated with
-# docker-squash nvcr.io/nvidia/pytorch:25.06-py3 -t svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed
+# This is a squashed version of the pytorch:25.09-py3 image, generated with
+# docker-squash nvcr.io/nvidia/pytorch:25.09-py3 -t svcbionemo023/bionemo-framework:pytorch25.09-py3-squashed
 # --output type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15
 # and pushed to the dockerhub registry. Our github actions are able to cache image pulls from dockerhub but not nvcr, so
 # hopefully this cuts down slightly on CI time at the expense of having a slightly in-directed image location.
-DEFAULT_CONTAINER = "svcbionemo023/bionemo-framework:pytorch25.06-py3-squashed"
+DEFAULT_CONTAINER = "svcbionemo023/bionemo-framework:pytorch25.09-py3-squashed"
 
 
 def get_git_root() -> str:
@@ -71,13 +71,13 @@ def get_test_directories(input_dirs: Optional[List[str]] = None) -> List[str]:
     """Get directories to test.
 
     Returns list of (directory_path, docker_image) tuples.
-    If input_dirs is None, scans all subdirectories under models/ and recipes/.
+    If input_dirs is None, scans all subdirectories under bionemo-recipes/models/ and bionemo-recipes/recipes/.
     """
     git_root = get_git_root()
 
     # Scan models/ and recipes/ directories
     directories = []
-    for base_dir in ["models", "recipes"]:
+    for base_dir in ["bionemo-recipes/models", "bionemo-recipes/recipes"]:
         base_path = Path(git_root) / base_dir
         if base_path.exists():
             for subdir in base_path.iterdir():

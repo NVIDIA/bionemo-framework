@@ -17,14 +17,16 @@
 # limitations under the License.
 
 import argparse
+import os
 from pathlib import Path
 from typing import List, Optional
 
 # TODO add back support for slurm resilience.
 # import nvidia_resiliency_ext.ptl_resiliency as res_module
 import torch
-from lightning.pytorch.callbacks import LearningRateMonitor, RichModelSummary
+from lightning.pytorch.callbacks import Callback, LearningRateMonitor, RichModelSummary
 from megatron.core.distributed import DistributedDataParallelConfig
+from megatron.core.enums import Fp8Recipe
 from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.collections import llm
@@ -38,18 +40,19 @@ from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
 )
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning.pytorch import callbacks as nl_callbacks
-from nemo.lightning.pytorch.callbacks import ModelTransform
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
+from nemo.utils import logging as logger
 from nemo.utils.exp_manager import TimingCallback
 
 from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
 from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
-from bionemo.evo2.run.peft import Evo2LoRA
+from bionemo.evo2.models.peft import Evo2LoRA
+from bionemo.evo2.run.utils import infer_model_type, patch_eden_tokenizer
 from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
 from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
@@ -58,6 +61,11 @@ from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_log
 
 
 torch._dynamo.config.suppress_errors = True
+
+# Force first batch to run with CUDA_LAUNCH_BLOCKING enabled to avoid CUDA asynchronous initialization
+# race condition in TE LayerNormLinear. This is unset after the first batch.
+# See https://github.com/NVIDIA/bionemo-framework/issues/1301 for more details.
+os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
@@ -197,7 +205,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--dataset-dir",
         type=str,
-        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML. Required with --dataset-config.",
+        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML. Only used with --dataset-config.",
     )
 
     parser.add_argument("--num-nodes", type=int, default=1, help="Number of nodes to use for training, defaults to 1.")
@@ -319,6 +327,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         type=int,
         default=20,
         help="Number of validation steps",
+    )
+    parser.add_argument(
+        "--limit-test-batches",
+        type=int,
+        help="Number of test steps (sometimes useful for getting around megatron errors of too few samples). Defaults "
+        "to the same as limit_val_batches.",
     )
     parser.add_argument(
         "--log-every-n-steps",
@@ -450,6 +464,16 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate.")
     parser.add_argument("--min-lr", type=float, default=3e-5, help="Min learning rate in cosine annealing.")
     parser.add_argument("--warmup-steps", type=int, default=2500, help="Number of warmup steps in cosine annealing")
+    parser.add_argument(
+        "--fp8-recipe",
+        type=str,
+        default="delayed",
+        choices=list(Fp8Recipe.__members__.keys()),
+        help="FP8 recipe to use for FP8 tensors in the forward and backward pass. Note that some recipes are only "
+        "supported by certain architectures. For example 'mxfp8' requires at least blackwell, and 'blockwise' is only "
+        "implemented for hopper (but not blackwell). 'tensorwise' and 'delayed' are currently supported by all "
+        "architectures, but 'tensorwise' is preferred over 'delayed' which is the default for historical reasons.",
+    )
     # NSYS profiling/tooling arguments
     parser.add_argument(
         "--nsys-profiling",
@@ -611,7 +635,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Disable saving the last checkpoint.",
     )
     parser.add_argument("--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False)
-    parser.add_argument("--lora-checkpoint-path", type=Path, default=None, help="LoRA checkpoint path")
+    parser.add_argument("--lora-checkpoint-path", type=str, default=None, help="LoRA checkpoint path")
     parser.add_argument(
         "--no-calculate-per-token-loss",
         action="store_true",
@@ -631,6 +655,18 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Enable CUDA memory cleanup before validation to prevent initialization errors.",
     )
+    parser.add_argument(
+        "--lora-alpha",
+        type=int,
+        default=None,
+        help="Alpha parameter for LoRA fine-tuning.",
+    )
+    parser.add_argument(
+        "--lora-dim",
+        type=int,
+        default=None,
+        help="Dim parameter for LoRA fine-tuning.",
+    )
 
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
@@ -643,14 +679,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     tokenizer = get_nmt_tokenizer(
         "byte-level",
     )
-
-    bos_id, eos_id, sep_id, pad_id = 1, 2, 3, 0
-
-    # Patch the private attrs so tokenizer.bos_id/.eos_id/.pad_id work
-    tokenizer._bos_id = bos_id
-    tokenizer._eos_id = eos_id
-    tokenizer._sep_id = sep_id
-    tokenizer._pad_id = pad_id
 
     # Infer global batch size.
     global_batch_size = args.global_batch_size
@@ -669,6 +697,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             seq_length=args.seq_length,
             micro_batch_size=args.micro_batch_size,
             global_batch_size=global_batch_size,
+            num_train_samples=args.max_steps * global_batch_size,
+            num_val_samples=args.limit_val_batches * global_batch_size,
+            num_test_samples=1,
             num_workers=args.workers,
             tokenizer=tokenizer,
         )
@@ -689,6 +720,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             raise ValueError(
                 "--sequence-db-dir, --train-window-db, --val-window-db, and --test-window-db are required when using --sharded-eden-data."
             )
+        logger.info(f"Patching the tokenizer for compatibility with Eden model training: {tokenizer}")
+        patch_eden_tokenizer(tokenizer)  # Eden tokenizer uses different IDs for BOS, EOS, SEP, and PAD than default.
         data_module = ShardedEdenDataModule(
             sequence_db_dir=args.sequence_db_dir,
             train_window_db_path=args.train_window_db,
@@ -708,8 +741,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             log_dir=args.window_log_dir,
         )
     else:
-        if not args.dataset_dir:
-            raise ValueError("--dataset-dir is required when using --dataset-config.")
         blended_dataset_config = parse_dataset_config(
             dataset_config_path=args.dataset_config, dataset_path=args.dataset_dir
         )
@@ -774,14 +805,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         config_modifiers_init["hybrid_override_pattern"] = args.hybrid_override_pattern
     if args.num_layers:
         config_modifiers_init["num_layers"] = args.num_layers
-    if args.model_size in HYENA_MODEL_OPTIONS:
-        model_type = "hyena"
-    elif args.model_size in MAMBA_MODEL_OPTIONS:
-        model_type = "mamba"
-    elif args.model_size in LLAMA_MODEL_OPTIONS:
-        model_type = "llama"
-    else:
-        raise ValueError(f"Invalid model size: {args.model_size}")
+
+    model_type = infer_model_type(args.model_size)
 
     # Create model based on selected model type
     if model_type == "hyena":
@@ -795,7 +820,16 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         # Lora adaptors configuration
         lora_transform = None
         if args.lora_finetune:
-            lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path)
+            lora_kwargs = {
+                k: v
+                for k, v in {
+                    "alpha": args.lora_alpha,
+                    "dim": args.lora_dim,
+                }.items()
+                if v is not None
+            }
+
+            lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path, **lora_kwargs)
 
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
     elif model_type == "mamba":  # mamba
@@ -807,7 +841,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = MambaModel(model_config, tokenizer=data_module.tokenizer)
     elif model_type == "llama":
-        config_modifiers_init.pop("to_upper")
+        config_modifiers_init.pop("to_upper")  # llama model does not handle custom loss renormalization settings.
         model_config = LLAMA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = llm.LlamaModel(model_config, tokenizer=data_module.tokenizer)
 
@@ -819,11 +853,34 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         TEVCallback(),
     ]
 
+    # First batch CUDA sync callback: adds barriers for the first training batch to avoid race condition
+    # See https://github.com/NVIDIA/bionemo-framework/issues/1301 for more details.
+    class _FirstBatchCudaSync(Callback):
+        def __init__(self):
+            self._done = False
+
+        def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+            if not self._done and torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+        def on_after_backward(self, trainer, pl_module):
+            if not self._done and torch.cuda.is_available():
+                torch.cuda.synchronize()
+
+        def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+            if not self._done and torch.cuda.is_available():
+                torch.cuda.synchronize()
+                # Unset blocking for subsequent batches
+                os.environ.pop("CUDA_LAUNCH_BLOCKING", None)
+                self._done = True
+
+    callbacks.append(_FirstBatchCudaSync())
+
     if args.garbage_collect_at_inference:
         callbacks.append(GarbageCollectAtInferenceTime())
 
     if args.lora_finetune:
-        callbacks.append(ModelTransform())
+        callbacks.append(lora_transform)
     if args.enable_preemption:
         callbacks.append(nl_callbacks.PreemptionCallback())
     if args.debug_ddp_parity_freq > 0:
@@ -971,6 +1028,11 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         )
         callbacks.append(checkpoint_callback)
 
+        # Note: `nl.AutoResume` is only created if a `ModelCheckpoint` exists, because `nl.AutoResume.setup()`
+        # expects the trainer to have a `checkpoint_callback` set. See: https://github.com/NVIDIA/NeMo/blob/29c230b8a3352bef2128ba2d226a327d52d05be3/nemo/lightning/resume.py#L128
+        #
+        # In principle, this shouldn't be a constraint — it should be possible to create `nl.AutoResume` even if
+        # checkpointing is not enabled.
         auto_resume = nl.AutoResume(
             resume_if_exists=True,
             resume_ignore_no_checkpoint=True,
@@ -1010,6 +1072,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         ckpt_async_save=args.ckpt_async_save,
         save_ckpt_format=args.ckpt_format,
         ckpt_load_strictness="log_all",  # or rebasing to https://github.com/NVIDIA/NeMo/pull/11988/files#diff-7667eae242a8ef776bff78cd08e79bc81df4896a450f0a781f6ed317a3dfb7ffR139
+        fp8_recipe=None,
     )
     trainer = nl.Trainer(
         devices=args.devices,
@@ -1020,10 +1083,12 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         callbacks=callbacks,
         log_every_n_steps=args.log_every_n_steps,
         limit_val_batches=args.limit_val_batches,
+        limit_test_batches=args.limit_test_batches if args.limit_test_batches is not None else args.limit_val_batches,
         num_sanity_val_steps=0,
         use_distributed_sampler=False,
         plugins=nl.MegatronMixedPrecision(
             precision="bf16-mixed",
+            fp8_recipe=args.fp8_recipe,
             params_dtype=torch.bfloat16,
             grad_reduce_in_fp32=args.grad_reduce_in_fp32,
             fp8="hybrid" if args.fp8 else None,
@@ -1061,6 +1126,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         use_precision_aware_optimizer=args.use_precision_aware_optimizer,
         main_grads_dtype=torch.bfloat16 if args.bf16_main_grads else torch.float32,
         bf16=True,
+        fp8_recipe=None,
     )
 
     sched = CosineAnnealingScheduler(
@@ -1074,6 +1140,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         opt_config, sched, no_weight_decay_cond=getattr(model_config, "hyena_no_weight_decay_cond_fn", None)
     )
     opt.connect(model)
+
+    # Remove earlier warmup and hook logic; first-batch blocking is sufficient.
+
     # Start training
     trainer.fit(model, data_module)
     return trainer

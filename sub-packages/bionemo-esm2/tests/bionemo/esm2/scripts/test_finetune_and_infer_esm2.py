@@ -166,7 +166,7 @@ def test_esm2_finetune_token_classifier(
                     config_class=ESM2FineTuneTokenConfig,
                     lora_checkpoint_path=simple_ft_checkpoint,
                 )
-            prediction_path = tmp_path / "infer" / "predictions__rank_0.pt"
+            prediction_path = tmp_path / "infer" / "predictions__rank_0__dp_rank_0.pt"
             # check that prediction_path loaded has classification_output key
             assert prediction_path.exists()
             predictions = torch.load(prediction_path)
@@ -310,7 +310,7 @@ def test_esm2_finetune_regressor(
                     config_class=ESM2FineTuneSeqConfig,
                     lora_checkpoint_path=simple_ft_checkpoint,
                 )
-            prediction_path = tmp_path / "infer" / "predictions__rank_0.pt"
+            prediction_path = tmp_path / "infer" / "predictions__rank_0__dp_rank_0.pt"
             # check that prediction_path loaded has classification_output key
             assert prediction_path.exists()
             predictions = torch.load(prediction_path)
@@ -456,7 +456,7 @@ def test_esm2_finetune_classifier(
                     config_class=ESM2FineTuneSeqConfig,
                     lora_checkpoint_path=simple_ft_checkpoint,
                 )
-            prediction_path = tmp_path / "infer" / "predictions__rank_0.pt"
+            prediction_path = tmp_path / "infer" / "predictions__rank_0__dp_rank_0.pt"
             # check that prediction_path loaded has classification_output key
             assert prediction_path.exists()
             predictions = torch.load(prediction_path)

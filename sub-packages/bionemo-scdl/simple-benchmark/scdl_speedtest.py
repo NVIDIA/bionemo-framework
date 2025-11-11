@@ -30,6 +30,7 @@ if __name__ == "__main__":
 import argparse
 import gc
 import importlib.metadata as im
+import json
 import os
 import platform
 import subprocess
@@ -37,7 +38,7 @@ import sys
 import tempfile
 import time
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
@@ -795,6 +796,44 @@ def export_benchmark_results(results: List[BenchmarkResult], output_prefix: str 
     return f"{base_filename}_summary.csv", f"{base_filename}_detailed_breakdown.csv"
 
 
+def export_benchmark_results_json(
+    results: List[BenchmarkResult], filename: str | None = None, output_prefix: str = "benchmark_data"
+) -> str:
+    """Export benchmark results to JSON file."""
+    if filename is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{output_prefix}_{timestamp}.json"
+
+    # Create comprehensive JSON structure
+    json_data = {
+        "metadata": {
+            "export_timestamp": datetime.now().isoformat(),
+            "num_results": len(results),
+            "export_version": "1.0",
+        },
+        "results": [],
+    }
+
+    for result in results:
+        # Convert dataclass to dict and add derived metrics
+        result_dict = asdict(result)
+        derived_metrics = calculate_derived_metrics(result)
+        result_dict["derived_metrics"] = derived_metrics
+
+        # Add per-epoch data if available
+        if hasattr(result, "epoch_results") and result.epoch_results:
+            result_dict["epoch_breakdown"] = result.epoch_results
+
+        json_data["results"].append(result_dict)
+
+    # Write JSON file
+    with open(filename, "w") as f:
+        json.dump(json_data, f, indent=2, default=str)
+
+    print(f"JSON export complete: {filename}")
+    return filename
+
+
 def get_sampler(sampling_scheme: str, dataset: torch.utils.data.Dataset):
     """Returns the shuffle flag and sampler object for a given sampling scheme.
 
@@ -829,7 +868,9 @@ def get_sampler(sampling_scheme: str, dataset: torch.utils.data.Dataset):
     return shuffle, sampler
 
 
-def create_dataloader_factory(input_path: str, sampling_scheme: str, batch_size: int = 32, use_anndata: bool = False):
+def create_dataloader_factory(
+    input_path: str, sampling_scheme: str, batch_size: int = 32, use_anndata: bool = False, use_X_not_raw: bool = False
+):
     """Create a factory function for the dataloader."""
     # Track conversion metrics globally to be accessible later
     conversion_metrics = {"time": 0.0, "performed": False}
@@ -885,7 +926,9 @@ def create_dataloader_factory(input_path: str, sampling_scheme: str, batch_size:
                     if input_path.endswith(".h5ad"):
                         print(f"Converting h5ad to SCDL format: {Path(input_path).name}")
                         conversion_start = time.perf_counter()
-                        dataset = SingleCellMemMapDataset(data_path=data_dir, h5ad_path=input_path)
+                        dataset = SingleCellMemMapDataset(
+                            data_path=data_dir, h5ad_path=input_path, use_X_not_raw=use_X_not_raw
+                        )
                         conversion_end = time.perf_counter()
                         conversion_time = conversion_end - conversion_start
                         conversion_metrics["time"] = conversion_time
@@ -895,7 +938,9 @@ def create_dataloader_factory(input_path: str, sampling_scheme: str, batch_size:
                         # Directory: convert all h5ad files in the directory
                         with tempfile.TemporaryDirectory() as temp_dir:
                             coll = SingleCellCollection(temp_dir)
-                            coll.load_h5ad_multi(input_path, max_workers=4, use_processes=False)
+                            coll.load_h5ad_multi(
+                                input_path, max_workers=4, use_processes=False, use_X_not_raw=use_X_not_raw
+                            )
                             coll.flatten(data_dir, destroy_on_copy=True)
 
                         conversion_start = time.perf_counter()
@@ -1129,6 +1174,67 @@ def format_comparison_report(scdl_result, anndata_result, input_path: str, sampl
     return "\n".join(report)
 
 
+def average_benchmark_results(results: List[BenchmarkResult], averaged_name: str | None = None) -> BenchmarkResult:
+    """Average multiple benchmark results into a single result."""
+    if not results:
+        raise ValueError("Cannot average empty list of results")
+    if len(results) == 1:
+        return results[0]
+
+    base = results[0]
+    n = len(results)
+    name = averaged_name or f"{base.name} (avg of {n} runs)"
+
+    # Average all numeric fields
+    numeric_fields = {
+        "disk_size_mb",
+        "setup_time_seconds",
+        "warmup_time_seconds",
+        "total_iteration_time_seconds",
+        "average_batch_time_seconds",
+        "samples_per_second",
+        "batches_per_second",
+        "peak_memory_mb",
+        "average_memory_mb",
+        "gpu_memory_mb",
+    }
+
+    kwargs = {"name": name}
+    for field in numeric_fields:
+        kwargs[field] = sum(getattr(r, field) for r in results) / n
+
+    # Average integer fields
+    for field in ["total_batches", "total_samples", "warmup_samples", "warmup_batches"]:
+        kwargs[field] = int(sum(getattr(r, field) for r in results) / n)
+
+    # Average optional numeric fields (only if present in all results)
+    optional_fields = [
+        "instantiation_time_seconds",
+        "peak_memory_during_instantiation_mb",
+        "memory_before_instantiation_mb",
+        "memory_after_instantiation_mb",
+        "conversion_time_seconds",
+        "load_time_seconds",
+    ]
+    for field in optional_fields:
+        values = [getattr(r, field) for r in results if getattr(r, field) is not None]
+        if len(values) == len(results):  # Only average if all have values
+            kwargs[field] = sum(values) / len(values)
+
+    # Copy non-numeric fields from base
+    for field in [
+        "data_path",
+        "max_time_seconds",
+        "shuffle",
+        "madvise_interval",
+        "conversion_performed",
+        "load_performed",
+    ]:
+        kwargs[field] = getattr(base, field)
+
+    return BenchmarkResult(**kwargs)
+
+
 def main():
     """Main function to run the benchmark."""
     parser = argparse.ArgumentParser(
@@ -1141,7 +1247,10 @@ Examples:
   python scdl_speedtest.py -s sequential              # Use sequential sampling
   python scdl_speedtest.py -o report.txt              # Save report to file
   python scdl_speedtest.py --csv                      # Export detailed CSV files
+  python scdl_speedtest.py --json results.json        # Export detailed JSON file
   python scdl_speedtest.py --generate-baseline        # Compare SCDL vs AnnData performance
+  python scdl_speedtest.py --num-runs 3               # Run 3 iterations and average results
+  python scdl_speedtest.py --num-runs 5 --csv         # Average 5 runs and export CSV
         """,
     )
 
@@ -1158,12 +1267,25 @@ Examples:
     parser.add_argument("--max-time", type=float, default=30.0, help="Max runtime seconds (default: 30)")
     parser.add_argument("--warmup-time", type=float, default=0.0, help="Warmup seconds (default: 0)")
     parser.add_argument("--csv", action="store_true", help="Export detailed CSV files")
+    parser.add_argument("--json", type=str, help="Export detailed JSON file to specified filename")
     parser.add_argument(
         "--generate-baseline", action="store_true", help="Generate AnnData baseline comparison (requires .h5ad input)"
     )
-    parser.add_argument("--num-epochs", type=int, default=1, help="Number of epochs (default: 1)")
+    parser.add_argument("--scdl-path", type=str, help="Path to SCDL dataset (default: None)")
 
+    parser.add_argument("--num-epochs", type=int, default=1, help="Number of epochs (default: 1)")
+    parser.add_argument("--num-runs", type=int, default=1, help="Number of benchmark runs to average (default: 1)")
+    parser.add_argument(
+        "--use-X-not-raw",
+        action="store_true",
+        help="Use .X instead of raw.X from the anndata file (only applicable when generating a SCDL dataset)",
+    )
     args = parser.parse_args()
+
+    # Validate num_runs parameter
+    if args.num_runs < 1:
+        print("Error: --num-runs must be a positive integer")
+        sys.exit(1)
 
     # Check if baseline generation is requested
     if args.generate_baseline:
@@ -1203,45 +1325,85 @@ Examples:
                 print("Exiting...")
                 sys.exit(1)
 
+    def run_single_benchmark(name, factory, data_path, run_num=None):
+        """Run a single benchmark iteration with optional run number for progress display."""
+        run_suffix = f" (run {run_num}/{args.num_runs})" if args.num_runs > 1 and run_num else ""
+        if args.num_runs > 1 and run_num:
+            print(f"\n--- Running {name}{run_suffix} ---")
+
+        return benchmark_dataloader(
+            name=name,
+            dataloader_factory=factory,
+            data_path=data_path,
+            num_epochs=args.num_epochs,
+            max_time_seconds=args.max_time,
+            warmup_time_seconds=args.warmup_time,
+            print_progress=True,
+        )
+
     try:
         if args.generate_baseline:
             # Run comparison benchmark
             print(f"\nRunning SCDL vs AnnData comparison: {Path(input_path).name}")
             print(f"Sampling: {args.sampling_scheme}")
+            if args.num_runs > 1:
+                print(f"Number of runs: {args.num_runs} (results will be averaged)")
             print("This will benchmark both SCDL and AnnData approaches...\n")
 
-            # Run SCDL benchmark
+            # Run SCDL benchmark(s)
             print("=== Running SCDL Benchmark ===")
+            if args.scdl_path:
+                scdl_path = args.scdl_path
+            else:
+                scdl_path = str(input_path)
             scdl_factory = create_dataloader_factory(
-                str(input_path), args.sampling_scheme, args.batch_size, use_anndata=False
+                str(scdl_path),
+                args.sampling_scheme,
+                args.batch_size,
+                use_anndata=False,
+                use_X_not_raw=args.use_X_not_raw,
             )
 
-            scdl_result = benchmark_dataloader(
-                name=f"SCDL-{args.sampling_scheme}",
-                dataloader_factory=scdl_factory,
-                data_path=str(input_path),
-                num_epochs=args.num_epochs,
-                max_time_seconds=args.max_time,
-                warmup_time_seconds=args.warmup_time,
-                print_progress=True,
-            )
+            scdl_results = []
+            for run_num in range(1, args.num_runs + 1):
+                result = run_single_benchmark(
+                    f"SCDL-{args.sampling_scheme}",
+                    scdl_factory,
+                    str(scdl_path),
+                    run_num if args.num_runs > 1 else None,
+                )
+                scdl_results.append(result)
 
-            # Run AnnData benchmark
+            # Average SCDL results if multiple runs
+            if args.num_runs > 1:
+                scdl_result = average_benchmark_results(scdl_results, f"SCDL-{args.sampling_scheme}")
+                print(f"\nSCDL benchmark completed: averaged {len(scdl_results)} runs")
+            else:
+                scdl_result = scdl_results[0]
+
+            # Run AnnData benchmark(s)
             adata_path = input_path
             print("\n=== Running AnnData Benchmark ===")
             anndata_factory = create_dataloader_factory(
                 str(adata_path), args.sampling_scheme, args.batch_size, use_anndata=True
             )
 
-            anndata_result = benchmark_dataloader(
-                name=f"AnnData-{args.sampling_scheme}",
-                dataloader_factory=anndata_factory,
-                data_path=str(adata_path),
-                num_epochs=args.num_epochs,
-                max_time_seconds=args.max_time,
-                warmup_time_seconds=args.warmup_time,
-                print_progress=True,
-            )
+            anndata_results = []
+            for run_num in range(1, args.num_runs + 1):
+                result = run_single_benchmark(
+                    f"AnnData-{args.sampling_scheme}",
+                    anndata_factory,
+                    str(adata_path),
+                    run_num if args.num_runs > 1 else None,
+                )
+                anndata_results.append(result)
+
+            # Average AnnData results if multiple runs
+            if args.num_runs > 1:
+                anndata_result = average_benchmark_results(anndata_results, f"AnnData-{args.sampling_scheme}")
+                print(f"\nAnnData benchmark completed: averaged {len(anndata_results)} runs")
+            else:
+                anndata_result = anndata_results[0]
 
             # Format and output comparison report
             comparison_report = format_comparison_report(
@@ -1265,23 +1427,34 @@ Examples:
                 csv_prefix = f"comparison_{args.sampling_scheme}"
                 base_filename = export_benchmark_results([scdl_result, anndata_result], output_prefix=csv_prefix)
                 print(f"CSV files exported with prefix: {base_filename}")
+
+            # Export JSON file if requested
+            if args.json:
+                json_filename = export_benchmark_results_json([scdl_result, anndata_result], filename=args.json)
+                print(f"JSON file exported: {json_filename}")
         else:
             # Regular SCDL-only benchmark
             factory = create_dataloader_factory(str(input_path), args.sampling_scheme, args.batch_size)
 
             print(f"\nBenchmarking: {Path(input_path).name}")
             print(f"Sampling: {args.sampling_scheme}")
+            if args.num_runs > 1:
+                print(f"Number of runs: {args.num_runs} (results will be averaged)")
             print("Running benchmark...\n")
 
-            result = benchmark_dataloader(
-                name=f"SCDL-{args.sampling_scheme}",
-                dataloader_factory=factory,
-                data_path=str(input_path),
-                num_epochs=args.num_epochs,
-                max_time_seconds=args.max_time,
-                warmup_time_seconds=args.warmup_time,
-                print_progress=True,
-            )
+            results = []
+            for run_num in range(1, args.num_runs + 1):
+                single_result = run_single_benchmark(
+                    f"SCDL-{args.sampling_scheme}", factory, str(input_path), run_num if args.num_runs > 1 else None
+                )
+                results.append(single_result)
+
+            # Average results if multiple runs
+            if args.num_runs > 1:
+                result = average_benchmark_results(results, f"SCDL-{args.sampling_scheme}")
+                print(f"\nBenchmark completed: averaged {len(results)} runs")
+            else:
+                result = results[0]
 
             # Format and output report
             report = format_report(result, str(input_path), args.sampling_scheme)
@@ -1297,6 +1470,11 @@ Examples:
                 csv_prefix = f"scdl_benchmark_{args.sampling_scheme}"
                 base_filename = export_benchmark_results([result], output_prefix=csv_prefix)
                 print(f"CSV files exported with prefix: {base_filename}")
+
+            # Export JSON file if requested
+            if args.json:
+                json_filename = export_benchmark_results_json([result], filename=args.json)
+                print(f"JSON file exported: {json_filename}")
 
     except Exception as e:
         print(f"\nBenchmark failed: {e}")

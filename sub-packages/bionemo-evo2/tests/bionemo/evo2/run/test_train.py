@@ -17,27 +17,30 @@
 # limitations under the License.
 import argparse
 import io
+import os
 import shlex
 from contextlib import redirect_stderr, redirect_stdout
 from typing import Tuple
 
 import pytest
+import torch
 from nemo import lightning as nl
 from transformer_engine.pytorch.fp8 import check_fp8_support
 
 from bionemo.evo2.run.train import parse_args, train
+from bionemo.testing.assert_optimizer_grads_match import assert_optimizer_states_match
 from bionemo.testing.lightning import extract_global_steps_from_log
 from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
+
+from .common import small_training_cmd, small_training_finetune_cmd
 
 
 fp8_available, reason_for_no_fp8 = check_fp8_support()
 
 
 def run_train_with_std_redirect(args: argparse.Namespace) -> Tuple[str, nl.Trainer]:
-    """
-    Run a function with output capture.
-    """
+    """Run a function with output capture."""
     stdout_buf, stderr_buf = io.StringIO(), io.StringIO()
     with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
         with distributed_model_parallel_state():
@@ -50,24 +53,51 @@ def run_train_with_std_redirect(args: argparse.Namespace) -> Tuple[str, nl.Train
     return train_stdout, trainer
 
 
-def small_training_cmd(path, max_steps, val_check, devices: int = 1, additional_args: str = ""):
+def distributed_training_cmd(
+    path,
+    max_steps,
+    val_check,
+    num_devices,
+    dp,
+    tp,
+    cp,
+    pp,
+    dataset_dir=None,
+    training_config=None,
+    additional_args: str = "",
+):
+    """Create distributed training command with specified parallelism settings.
+
+    Args:
+        path: Result directory path
+        max_steps: Maximum training steps
+        val_check: Validation check interval
+        num_devices: Total number of devices
+        dp: Data parallel size
+        tp: Tensor parallel size
+        cp: Context parallel size
+        pp: Pipeline parallel size
+        dataset_dir: Path to preprocessed dataset directory (if None, uses --mock-data)
+        training_config: Path to training data config YAML file (required if dataset_dir is provided)
+        additional_args: Additional command line arguments
+    """
+    micro_batch_size = 1 if dp == 2 else 2
+
+    # Use real dataset if provided, otherwise fall back to mock data
+    if dataset_dir and training_config:
+        data_args = f"-d {training_config} --dataset-dir {dataset_dir}"
+    else:
+        data_args = "--mock-data"
+
     cmd = (
-        f"train_evo2 --mock-data --result-dir {path} --devices {devices} "
-        "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* --limit-val-batches 1 "
+        f"train_evo2 {data_args} --result-dir {path} --devices {num_devices} "
+        f"--tensor-parallel-size {tp} --pipeline-model-parallel-size {pp} --context-parallel-size {cp} "
+        "--model-size 7b --num-layers 4 --hybrid-override-pattern SDH* --limit-val-batches 1 "
         "--no-activation-checkpointing --add-bias-output --create-tensorboard-logger --create-tflops-callback "
         f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
-        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args}"
-    )
-    return cmd
-
-
-def small_training_finetune_cmd(path, max_steps, val_check, prev_ckpt, devices: int = 1, additional_args: str = ""):
-    cmd = (
-        f"train_evo2 --mock-data --result-dir {path} --devices {devices} "
-        "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* --limit-val-batches 1 "
-        "--no-activation-checkpointing --add-bias-output --create-tensorboard-logger --create-tflops-callback "
-        f"--max-steps {max_steps} --warmup-steps 1 --val-check-interval {val_check} --limit-val-batches 1 "
-        f"--seq-length 16 --hidden-dropout 0.1 --attention-dropout 0.1 {additional_args} --ckpt-dir {prev_ckpt}"
+        f"--seq-length 64 --hidden-dropout 0.0 --attention-dropout 0.0 --seed 42 --workers 0 "
+        f"--micro-batch-size {micro_batch_size} --global-batch-size 2 "
+        f"--adam-beta1 0 --adam-beta2 0 {additional_args}"
     )
     return cmd
 
@@ -403,7 +433,7 @@ def test_train_evo2_stops(tmp_path):
         ),
     ],
 )
-@pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+@pytest.mark.timeout(512)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
 def test_train_evo2_stop_at_max_steps_and_continue(tmp_path, additional_args):
     max_steps_first_run = 4
@@ -457,3 +487,151 @@ def test_train_evo2_stop_at_max_steps_and_continue(tmp_path, additional_args):
     assert matching_subfolders, (
         f"No checkpoint subfolder ending with '{expected_checkpoint_second_run_suffix}' found in {checkpoints_dir}."
     )
+
+
+@pytest.fixture(scope="session")
+def dataset_config(request):
+    """Get dataset directory and training config from command line options or environment variables.
+
+    Users can provide dataset paths via:
+    - Command line: pytest --dataset-dir=/path/to/data --training-config=/path/to/config.yaml
+    - Environment: DATASET_DIR=/path/to/data TRAINING_CONFIG=/path/to/config.yaml pytest
+
+    If not provided, tests will fall back to --mock-data.
+    """
+    # Try to get from pytest command line options first
+    dataset_dir = request.config.getoption("--dataset-dir", default=None)
+    training_config = request.config.getoption("--training-config", default=None)
+
+    # Fall back to environment variables
+    if not dataset_dir:
+        dataset_dir = os.environ.get("DATASET_DIR")
+    if not training_config:
+        training_config = os.environ.get("TRAINING_CONFIG")
+
+    return {"dataset_dir": dataset_dir, "training_config": training_config}
+
+
+@pytest.fixture(scope="session")
+def initial_checkpoint():
+    """Load the initial checkpoint for distributed training tests."""
+    from bionemo.core.data.load import load
+
+    return load("evo2/7b-8k:1.0")
+
+
+@pytest.fixture(scope="session")
+def base_checkpoint(tmp_path_factory, initial_checkpoint, dataset_config):
+    """Create a base checkpoint by training one step with no parallelism.
+
+    This fixture is session-scoped, so it creates the checkpoint once and reuses it
+    across all parametrized test cases, significantly improving test performance.
+    """
+    num_steps = 1
+    tmp_path = tmp_path_factory.mktemp("base_checkpoint_session")
+    base_path = tmp_path / "base_training"
+
+    # Create command with the initial checkpoint and dataset (if provided)
+    cmd = distributed_training_cmd(
+        path=base_path,
+        max_steps=num_steps,
+        val_check=num_steps,
+        num_devices=1,
+        dp=1,
+        tp=1,
+        cp=1,
+        pp=1,
+        dataset_dir=dataset_config["dataset_dir"],
+        training_config=dataset_config["training_config"],
+        additional_args=f"--ckpt-dir {initial_checkpoint}",
+    )
+
+    # Run training
+    stdout = run_command_in_subprocess(command=cmd, path=str(tmp_path))
+    assert "Restoring model weights from RestoreConfig(path='" in stdout
+
+    # Find the resulting checkpoint
+    log_dir = base_path / "evo2"
+    checkpoints_dir = log_dir / "checkpoints"
+    # Lightning uses 0-indexed step counting, so after max_steps=1, we're at step 0
+    expected_checkpoint_suffix = "step=0"
+
+    matching_subfolders = [
+        p for p in checkpoints_dir.iterdir() if p.is_dir() and (expected_checkpoint_suffix in p.name)
+    ]
+
+    assert len(matching_subfolders) == 1, "Expected exactly one checkpoint subfolder"
+    return matching_subfolders[0]
+
+
+@pytest.mark.parametrize(
+    "dp,cp,tp,pp",
+    [
+        pytest.param(2, 1, 1, 1, id="data_parallel"),
+        pytest.param(1, 2, 1, 1, id="context_parallel"),
+        pytest.param(1, 1, 2, 1, id="tensor_parallel"),
+        pytest.param(1, 1, 1, 2, id="pipeline_parallel"),
+    ],
+)
+@pytest.mark.timeout(900)
+@pytest.mark.slow
+@pytest.mark.skipif(torch.cuda.device_count() < 2, reason="Test requires at least 2 GPUs")
+def test_distributed_training_gradient_equivalence(
+    tmp_path, initial_checkpoint, base_checkpoint, dataset_config, dp, cp, tp, pp
+):
+    """Test that gradients are equivalent across different distributed training strategies."""
+    # NOTE: Megatron Core is changing its distributed checkpoint format soon. This test needs to be updated after release 0.14.
+    num_steps = 1
+
+    # Calculate total devices needed
+    num_devices = dp * cp * tp * pp
+    assert num_devices == 2, (
+        f"Test is designed for 2 GPUs but got {num_devices} for dp={dp}, cp={cp}, tp={tp}, pp={pp}"
+    )
+
+    # Create parallel training checkpoint
+    parallel_path = tmp_path / f"parallel_dp{dp}_cp{cp}_tp{tp}_pp{pp}"
+
+    cmd = distributed_training_cmd(
+        path=parallel_path,
+        max_steps=num_steps,
+        val_check=num_steps,
+        num_devices=num_devices,
+        dp=dp,
+        tp=tp,
+        cp=cp,
+        pp=pp,
+        dataset_dir=dataset_config["dataset_dir"],
+        training_config=dataset_config["training_config"],
+        additional_args=f"--ckpt-dir {initial_checkpoint}",
+    )
+
+    # Run distributed training
+    stdout = run_command_in_subprocess(command=cmd, path=str(tmp_path))
+    assert "Restoring model weights from RestoreConfig(path='" in stdout
+
+    # Find the resulting checkpoint
+    log_dir = parallel_path / "evo2"
+    checkpoints_dir = log_dir / "checkpoints"
+    # Lightning uses 0-indexed step counting, so after max_steps=1, we're at step 0
+    expected_checkpoint_suffix = "step=0"
+
+    matching_subfolders = [
+        p for p in checkpoints_dir.iterdir() if p.is_dir() and (expected_checkpoint_suffix in p.name)
+    ]
+
+    assert len(matching_subfolders) == 1, "Expected exactly one checkpoint subfolder"
+    parallel_checkpoint = matching_subfolders[0]
+
+    # Compare gradients/optimizer states between base and parallel distributed training
+    print(f"Base checkpoint: {base_checkpoint}")
+    print(f"Parallel checkpoint (dp={dp}, cp={cp}, tp={tp}, pp={pp}): {parallel_checkpoint}")
+
+    # Ensure both checkpoints exist before comparison
+    assert base_checkpoint.exists(), "Base checkpoint should exist"
+    assert parallel_checkpoint.exists(), "Parallel checkpoint should exist"
+
+    # Use the custom gradient comparison logic to verify optimizer states match
+    # This implements theorem 5.3 of https://www.arxiv.org/pdf/2506.09280 for gradient equivalence
+    checkpoint_dirs = [str(base_checkpoint / "weights"), str(parallel_checkpoint / "weights")]
+    assert_optimizer_states_match(checkpoint_dirs)

@@ -37,7 +37,7 @@ def test_sccollection_empty(tmp_path):
 
 def test_sccollection_basics(tmp_path, test_directory):
     coll = SingleCellCollection(tmp_path / "sccz")
-    coll.load_h5ad(test_directory / "adata_sample0.h5ad")
+    coll.load_h5ad(test_directory / "adata_sample0.h5ad", use_X_not_raw=True)
     assert coll.number_of_rows() == 8
     assert coll.number_of_variables() == [10]
     assert coll.number_of_values() == 80
@@ -49,14 +49,22 @@ def test_sccollection_basics(tmp_path, test_directory):
 def test_sccollection_multi(tmp_path, test_directory):
     coll = SingleCellCollection(tmp_path)
 
-    coll.load_h5ad_multi(test_directory / "", max_workers=4, use_processes=False)
+    coll.load_h5ad_multi(test_directory / "", max_workers=4, use_processes=False, use_X_not_raw=True)
     assert sorted(coll.fname_to_mmap) == [
         Path(tmp_path / "adata_sample0"),
         Path(tmp_path / "adata_sample1"),
         Path(tmp_path / "adata_sample2"),
     ]
     for dir_path in coll.fname_to_mmap:
-        for fn in ["col_ptr.npy", "data.npy", "features", "metadata.json", "row_ptr.npy", "version.json"]:
+        for fn in [
+            "col_ptr.npy",
+            "data.npy",
+            "obs_features",
+            "var_features",
+            "metadata.json",
+            "row_ptr.npy",
+            "version.json",
+        ]:
             assert os.path.exists(f"{dir_path}/{fn}")
 
     assert len(coll.fname_to_mmap) == 3
@@ -74,7 +82,9 @@ def test_sccollection_multi(tmp_path, test_directory):
 
 def test_sccollection_serialization(tmp_path, test_directory):
     coll = SingleCellCollection(tmp_path / "sccy")
-    coll.load_h5ad_multi(test_directory / "", max_workers=4, use_processes=False)
+    coll.load_h5ad_multi(
+        test_directory / "", max_workers=4, use_processes=False, data_dtype="float32", use_X_not_raw=True
+    )
     assert coll.number_of_rows() == 114
     assert coll.number_of_values() == 2092
     assert coll.number_nonzero_values() == 57
@@ -85,8 +95,20 @@ def test_sccollection_serialization(tmp_path, test_directory):
     assert dat.number_of_values() == 2092
     assert dat.number_nonzero_values() == 57
     assert np.isclose(dat.sparsity(), 0.972753346080306, rtol=1e-6)
+    # Flattened dataset should preserve minimal dtypes for this fixture
+    assert dat.dtypes["data.npy"] == "float32"
+    assert dat.dtypes["col_ptr.npy"] == "uint8"
+    assert dat.dtypes["row_ptr.npy"] == "uint8"
 
-    for fn in ["col_ptr.npy", "data.npy", "features", "metadata.json", "row_ptr.npy", "version.json"]:
+    for fn in [
+        "col_ptr.npy",
+        "data.npy",
+        "obs_features",
+        "var_features",
+        "metadata.json",
+        "row_ptr.npy",
+        "version.json",
+    ]:
         assert os.path.exists(tmp_path / "flattened" / fn)
 
 
@@ -94,13 +116,17 @@ def test_sc_concat_in_flatten_cellxval(tmp_path, create_cellx_val_data):
     memmap_data = tmp_path / "out"
     with tempfile.TemporaryDirectory() as temp_dir:
         coll = SingleCellCollection(temp_dir)
-        coll.load_h5ad_multi(create_cellx_val_data, max_workers=4, use_processes=False)
+        coll.load_h5ad_multi(create_cellx_val_data, max_workers=4, use_processes=False, use_X_not_raw=True)
         coll.flatten(memmap_data, destroy_on_copy=True)
     data = SingleCellMemMapDataset(memmap_data)
     assert np.array(data.row_index)[2] != 2  # regression test for bug
     assert np.array(data.row_index)[3] != 1149  # regression test for bug
 
     assert all(data.row_index == np.array([0, 440, 972, 2119]))
+    assert data.obs_features().column_dims() == [26]
+    assert data.obs_features().number_of_values() == [78]
+    assert len(data.obs_features()) == 1
+    assert data.obs_features().number_of_rows() == 3
 
 
 def test_sc_empty_directory_error(tmp_path):
@@ -120,6 +146,70 @@ def test_sc_failed_process(tmp_path):
     with tempfile.TemporaryDirectory() as temp_dir:
         coll = SingleCellCollection(temp_dir)
     with pytest.raises(
-        RuntimeError, match=rf"Error in processing file {empty_fn}: Error: dense matrix loading not yet implemented."
+        RuntimeError,
+        match=rf"Error in processing file {empty_fn}: This file does not have raw count data; set use_X_not_raw=True to use normalized counts instead.",
     ):
         coll.load_h5ad_multi(adata_path, max_workers=4, use_processes=False)
+
+
+@pytest.mark.parametrize("order", [("large", "small"), ("small", "large")])
+def test_sccollection_concatenation_dtype_and_values(tmp_path, make_small_and_large_h5ads, order):
+    small_path, large_path, small_parameters, large_parameters = make_small_and_large_h5ads(tmp_path)
+
+    first, second = order
+    coll = SingleCellCollection(tmp_path / f"coll_{first}_{second}")
+
+    if first == "large":
+        coll.load_h5ad(large_path)
+        coll.load_h5ad(small_path)
+    else:
+        coll.load_h5ad(small_path)
+        coll.load_h5ad(large_path)
+
+    # Assert original per-dataset dtypes before flatten
+    datasets = list(coll.fname_to_mmap.values())
+    ds_small = min(datasets, key=lambda ds: ds.number_of_variables()[0])
+    ds_large = max(datasets, key=lambda ds: ds.number_of_variables()[0])
+    assert ds_small.dtypes["data.npy"] == "float32"
+    assert ds_small.dtypes["col_ptr.npy"] == "uint8"
+    assert ds_small.dtypes["row_ptr.npy"] == "uint8"
+    assert ds_large.dtypes["data.npy"] == "float32"
+    assert ds_large.dtypes["col_ptr.npy"] == "uint32"
+    assert ds_large.dtypes["row_ptr.npy"] == "uint8"
+
+    out_path = tmp_path / f"flattened_{first}_{second}"
+    coll.flatten(out_path)
+    merged = SingleCellMemMapDataset(out_path)
+    # Dtypes: float32 data (common), col_ptr upscaled to uint32 due to large columns
+    assert merged.dtypes["data.npy"] == "float32"
+    assert merged.dtypes["col_ptr.npy"] == "uint32"
+    assert merged.dtypes["row_ptr.npy"] == "uint8"
+
+    if first == "large":
+        assert np.array_equal(
+            np.array(merged.data), np.append(large_parameters["data_vals"], small_parameters["data_vals"])
+        )
+        assert np.array_equal(
+            np.array(merged.col_index), np.append(large_parameters["indices_vals"], small_parameters["indices_vals"])
+        )
+        assert np.array_equal(
+            np.array(merged.row_index),
+            np.append(
+                large_parameters["indptr_vals"],
+                small_parameters["indptr_vals"][1:] + large_parameters["indptr_vals"][-1],
+            ),
+        )
+    else:
+        assert np.array_equal(
+            np.array(merged.data), np.append(small_parameters["data_vals"], large_parameters["data_vals"])
+        )
+        assert np.array_equal(
+            np.array(merged.col_index), np.append(small_parameters["indices_vals"], large_parameters["indices_vals"])
+        )
+        assert np.array_equal(
+            np.array(merged.row_index),
+            np.append(
+                small_parameters["indptr_vals"],
+                large_parameters["indptr_vals"][1:] + small_parameters["indptr_vals"][-1],
+            ),
+        )

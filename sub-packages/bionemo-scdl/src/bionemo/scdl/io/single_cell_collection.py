@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDatasetCore
-from bionemo.scdl.index.row_feature_index import RowFeatureIndex
+from bionemo.scdl.index.row_feature_index import VariableFeatureIndex
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.util.async_worker_queue import AsyncWorkQueue
 
@@ -38,7 +38,14 @@ logger.setLevel(logging.INFO)
 logging.basicConfig(format="%(asctime)s %(levelname)s [%(filename)s:%(lineno)d] - %(message)s")
 
 
-def _create_single_cell_memmap_dataset_from_h5ad(h5ad_path: str, base_directory_path: str) -> SingleCellMemMapDataset:
+def _create_single_cell_memmap_dataset_from_h5ad(
+    h5ad_path: str,
+    base_directory_path: str,
+    data_dtype: str | None = None,
+    paginated_load_cutoff: int = 10_000,
+    load_block_row_size: int = 1_000_000,
+    use_X_not_raw: bool = False,
+) -> SingleCellMemMapDataset:
     """The SingleCellMemMapDataset is loaded from h5ad_path.
 
     The data is stored in the base_data_path directory.
@@ -46,11 +53,26 @@ def _create_single_cell_memmap_dataset_from_h5ad(h5ad_path: str, base_directory_
     Args:
         h5ad_path: the path to the dataset
         base_directory_path: the base directory path where the dataset will be stored
+        data dtype: Optional dtype string for `data.npy` (e.g., 'uint8','float16','float32','float64')
+        paginated_load_cutoff: The cutoff in MB for paginated loading of the AnnData files.
+        load_block_row_size: The number of rows to load into memory at a time for paginated loading of the AnnData files.
+        use_X_not_raw: If True, prefer `adata.X`; otherwise use `adata.raw.X`.
+
     Returns:
         The created SingleCellMemMapDataset
+
+    Args:
+        data_dtype: Optional dtype string for `data.npy` (e.g., 'uint8','float16','float32','float64')
     """
     fname = Path(h5ad_path).stem
-    obj = SingleCellMemMapDataset(data_path=Path(base_directory_path) / fname, h5ad_path=h5ad_path)
+    obj = SingleCellMemMapDataset(
+        data_path=Path(base_directory_path) / fname,
+        h5ad_path=h5ad_path,
+        data_dtype=data_dtype,
+        paginated_load_cutoff=paginated_load_cutoff,
+        load_block_row_size=load_block_row_size,
+        use_X_not_raw=use_X_not_raw,
+    )
     return obj
 
 
@@ -74,7 +96,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
     Attributes:
         _version: The version of the dataset
         data_path: The directory where the colleection of datasets is stored.
-        _feature_index: The corresponding RowFeatureIndex where features are
+        _feature_index: The corresponding VariableFeatureIndex where features are
         stored.
         fname_to_mmap:  dictionary to hold each SingleCellMemMapDataset object.
         This maps from the path to the dataset.
@@ -93,9 +115,8 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         self.data_path: str = data_path
         self._version: str = importlib.metadata.version("bionemo.scdl")
         self.metadata: Dict[str, int] = {}
-        self._feature_index: RowFeatureIndex = RowFeatureIndex()
+        self._var_feature_index: VariableFeatureIndex = VariableFeatureIndex()
         self.fname_to_mmap: Dict[str, SingleCellMemMapDataset] = {}
-
         Path(self.data_path).mkdir(parents=True, exist_ok=True)
 
         # Write the version
@@ -110,7 +131,13 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         """
         return self._version
 
-    def load_h5ad(self, h5ad_path: str) -> None:
+    def load_h5ad(
+        self,
+        h5ad_path: str,
+        paginated_load_cutoff: int = 10_000,
+        load_block_row_size: int = 1_000_000,
+        use_X_not_raw: bool = False,
+    ) -> None:
         """Loads data from an existing AnnData archive.
 
         This creates and saves a new backing data structure.
@@ -118,14 +145,30 @@ class SingleCellCollection(SingleCellRowDatasetCore):
 
         Args:
             h5ad_path: the path to AnnData archive
+            paginated_load_cutoff: The cutoff in MB for paginated loading of the AnnData files.
+            load_block_row_size: The number of rows to load into memory at a time for paginated loading of the AnnData files.
+            use_X_not_raw: If True, prefer `adata.X`; otherwise use `adata.raw.X`.
         """
         mmap_path = Path(self.data_path) / Path(h5ad_path).stem
         self.fname_to_mmap[mmap_path] = _create_single_cell_memmap_dataset_from_h5ad(
-            h5ad_path=h5ad_path, base_directory_path=self.data_path
+            h5ad_path=h5ad_path,
+            base_directory_path=self.data_path,
+            paginated_load_cutoff=paginated_load_cutoff,
+            load_block_row_size=load_block_row_size,
+            use_X_not_raw=use_X_not_raw,
         )
-        self._feature_index.concat(self.fname_to_mmap[mmap_path]._feature_index)
+        self._var_feature_index.concat(self.fname_to_mmap[mmap_path]._var_feature_index)
 
-    def load_h5ad_multi(self, directory_path: str, max_workers: int = 5, use_processes: bool = False) -> None:
+    def load_h5ad_multi(
+        self,
+        directory_path: str,
+        max_workers: int = 5,
+        use_processes: bool = False,
+        data_dtype: str | None = None,
+        paginated_load_cutoff: int = 10_000,
+        load_block_row_size: int = 1_000_000,
+        use_X_not_raw: bool = False,
+    ) -> None:
         """Loads one or more AnnData files and adds them to the collection.
 
         Args:
@@ -133,9 +176,17 @@ class SingleCellCollection(SingleCellRowDatasetCore):
             max_workers: the maximal number of workers to use
             use_processes: If True, use ProcessPoolExecutor; otherwise, use
                 ThreadPoolExecutor
+            paginated_load_cutoff: The cutoff in MB for paginated loading of the AnnData files.
+            load_block_row_size: The number of rows to load into memory at a time for paginated loading of the AnnData files.
+            data_dtype: Optional dtype string propagated to dataset creation
+            use_X_not_raw: If True, prefer `adata.X`; otherwise use `adata.raw.X`.
+
         Raises:
             FileNotFoundError: If no h5ad files are found in the directory.
             RuntimeError: If an error occurs in the loading of any of the h5ad files.
+
+        Args:
+            data_dtype: Optional dtype string propagated to dataset creation
         """
         directory_path = Path(directory_path)
         ann_data_paths = sorted(directory_path.rglob("*.h5ad"))
@@ -144,7 +195,15 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         mmap_paths = [Path(self.data_path) / Path(ann_datapath).stem for ann_datapath in ann_data_paths]
         queue = AsyncWorkQueue(max_workers=max_workers, use_processes=use_processes)
         for ann in ann_data_paths:
-            queue.submit_task(_create_single_cell_memmap_dataset_from_h5ad, ann, base_directory_path=self.data_path)
+            queue.submit_task(
+                _create_single_cell_memmap_dataset_from_h5ad,
+                ann,
+                base_directory_path=self.data_path,
+                data_dtype=data_dtype,
+                paginated_load_cutoff=paginated_load_cutoff,
+                load_block_row_size=load_block_row_size,
+                use_X_not_raw=use_X_not_raw,
+            )
         queue.wait()
         mmaps = queue.get_task_results()
 
@@ -157,7 +216,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
                 raise RuntimeError(f"Error in processing file {mmap_path}: {mmap}") from mmap
 
             self.fname_to_mmap[mmap_path] = mmap
-            self._feature_index.concat(self.fname_to_mmap[mmap_path]._feature_index)
+            self._var_feature_index.concat(self.fname_to_mmap[mmap_path]._var_feature_index)
 
     def number_nonzero_values(self) -> int:
         """Sum of the number of non zero entries in each dataset."""
@@ -179,9 +238,9 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         row_sum_from_datasets = sum(
             [self.fname_to_mmap[mmap_path].number_of_rows() for mmap_path in self.fname_to_mmap]
         )
-        if len(self._feature_index) > 0 and self._feature_index.number_of_rows() != row_sum_from_datasets:
+        if len(self._var_feature_index) > 0 and self._var_feature_index.number_of_rows() != row_sum_from_datasets:
             raise ValueError(
-                f"""The nuber of rows in the feature index {self._feature_index.number_of_rows()}
+                f"""The nuber of rows in the feature index {self._var_feature_index.number_of_rows()}
                              does not correspond to the number of rows in the datasets {row_sum_from_datasets}"""
             )
 
@@ -193,10 +252,10 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         If not ragged, returns a list with one entry. A ragged
         collection is one where the datasets have different lengths.
         """
-        if len(self._feature_index) == 0:
+        if len(self._var_feature_index) == 0:
             return [0]
         else:
-            num_vars = self._feature_index.column_dims()
+            num_vars = self._var_feature_index.column_dims()
             return num_vars
 
     def shape(self) -> Tuple[int, List[int]]:
@@ -208,7 +267,7 @@ class SingleCellCollection(SingleCellRowDatasetCore):
         Returns:
             The total number of elements across dataset
             A list containing the number of variables for each entry in the
-                RowFeatureIndex.
+                VariableFeatureIndex.
         """
         return self.number_of_rows(), self.number_of_variables()
 

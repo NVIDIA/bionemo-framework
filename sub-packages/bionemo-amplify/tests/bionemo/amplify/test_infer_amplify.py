@@ -104,7 +104,7 @@ def test_infer_epoch_mode(
 
     # Load and verify results
     results: Dict[str, torch.Tensor] = {}
-    results = cast(Dict[str, torch.Tensor], torch.load(f"{result_dir}/predictions__rank_0.pt"))
+    results = cast(Dict[str, torch.Tensor], torch.load(f"{result_dir}/predictions__rank_0__dp_rank_0.pt"))
 
     assert isinstance(results, dict)
     keys_included = ["token_logits", "hidden_states", "embeddings", "input_ids"]
