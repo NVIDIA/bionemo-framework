@@ -1,0 +1,44 @@
+defaults:
+  - defaults
+  - _self_
+
+# Training config
+model_tag: ./small_llama_config  # Use small Llama config for testing (4 layers, 2048 hidden)
+num_train_steps: 250
+
+# We want this on in CI/CD to validate that the script runs successfully with torch.compile.
+use_torch_compile: false  # Disable for faster startup during testing
+
+dataset:
+  tokenizer_path: /workspaces/bionemo-framework/bionemo-recipes/models/llama3/nucleotide_fast_tokenizer
+  micro_batch_size: 1  # Small batch size for limited GPU memory
+  num_workers: 1
+  max_seq_length: 1024  # Smaller window for testing
+  stride: 100  # Smaller stride for testing
+  buffer_size: 10_000  # Smaller buffer for testing
+  use_lazy_tokenization: true
+  load_dataset_kwargs:
+    path: "parquet"
+    split: "train"
+    data_files: "test_genomic_sequences.parquet"  # Use local test file for now
+
+
+# WandB config
+wandb_init_args:
+  name: "llama3_8B_genomic_sanity"
+  mode: "offline"
+
+# Learning rate scheduler config
+lr_scheduler_kwargs:
+  num_warmup_steps: 10  # Shorter warmup for quick testing
+  num_training_steps: 250  # Match num_train_steps
+
+checkpoint:
+  ckpt_dir: null
+  resume_from_checkpoint: true
+  save_every_n_steps: 50
+  save_final_model: false
+
+logger:
+  frequency: 1
+
