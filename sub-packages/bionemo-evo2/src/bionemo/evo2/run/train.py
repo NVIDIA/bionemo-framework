@@ -461,6 +461,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Log training parameters shapes and dtypes for debugging.",
     )
+    parser.add_argument("--fsdp", action="store_true", default=False, help="Use FSDP for training.")
+    parser.add_argument("--nccl-ub", action="store_true", default=False, help="Enable the experimental NCCL userbuffer for communication overlap.")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate.")
     parser.add_argument("--min-lr", type=float, default=3e-5, help="Min learning rate in cosine annealing.")
     parser.add_argument("--warmup-steps", type=int, default=2500, help="Number of warmup steps in cosine annealing")
@@ -679,7 +681,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     tokenizer = get_nmt_tokenizer(
         "byte-level",
     )
-
+    if args.fsdp:
+        logger.info("Using FSDP for training. Setting checkpoint format to fsdp_dtensor.")
+        args.ckpt_format = "fsdp_dtensor"
     # Infer global batch size.
     global_batch_size = args.global_batch_size
     if global_batch_size is None:
@@ -916,6 +920,14 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             tp_comm_overlap_cfg = userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192
         else:
             tp_comm_overlap_cfg = userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192
+        
+        if args.fsdp:
+            extra_comm_olap_kwargs = {
+                "overlap_param_gather": True,
+                "overlap_grad_reduce": True,
+            }
+        else:
+            extra_comm_olap_kwargs = {}
         callbacks.append(
             MegatronCommOverlapCallback(
                 tp_comm_overlap=model_config.tp_comm_overlap,
@@ -924,6 +936,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
                 wgrad_deferral_limit=22,  # default from NeMo
                 overlap_param_gather_with_optimizer_step=False,  # Currently disabled due to an issue with checkpointing.
                 align_param_gather=args.align_param_gather,
+                **extra_comm_olap_kwargs,
             )
         )
 
@@ -970,6 +983,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
         f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
+        f"-FSDP{args.fsdp}"
     )
     if model_type == "mamba":
         # Include this setting for mamba models.
@@ -1050,6 +1064,22 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         )
     else:
         auto_resume = None
+    if args.fsdp:
+        logger.info("Using FSDP for training. Setting overlap_grad_reduce and overlap_param_gather to True.")
+        args.overlap_grad_reduce = True
+        args.overlap_param_gather = True
+        ddp_kwargs = {
+            "use_megatron_fsdp": True,
+            "data_parallel_sharding_strategy": "optim_grads_params",
+            "fsdp_double_buffer": args.nccl_ub,  # needs to be True when using NCCL userbuffer
+        }
+        strategy_kwargs = {
+            "fsdp": "megatron",
+        }
+
+    else:
+        ddp_kwargs = {}
+        strategy_kwargs = {}
 
     ddp: DistributedDataParallelConfig = DistributedDataParallelConfig(
         check_for_nan_in_grad=not args.no_check_for_nan_in_grad,
@@ -1058,6 +1088,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
         align_param_gather=args.align_param_gather,
         average_in_collective=average_in_collective,
+        nccl_ub=args.nccl_ub,
+        **ddp_kwargs,
     )
     # Initialize Megatron Strategy and Trainer.
     strategy = nl.MegatronStrategy(
@@ -1072,7 +1104,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         ckpt_async_save=args.ckpt_async_save,
         save_ckpt_format=args.ckpt_format,
         ckpt_load_strictness="log_all",  # or rebasing to https://github.com/NVIDIA/NeMo/pull/11988/files#diff-7667eae242a8ef776bff78cd08e79bc81df4896a450f0a781f6ed317a3dfb7ffR139
-        fp8_recipe=None,
+        **strategy_kwargs,
     )
     trainer = nl.Trainer(
         devices=args.devices,
