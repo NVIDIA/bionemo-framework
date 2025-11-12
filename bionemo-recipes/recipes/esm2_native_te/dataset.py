@@ -268,6 +268,7 @@ class CPAwareDataloader:
         batch = self.__get_data_scatter()
         # return batch
         
+        #TODO: Get the batch first then scatter it.
         input_ids_sharded, labels_sharded = get_batch_on_this_cp_rank(
             cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
             input_ids_padded=batch["input_ids"], # These should already be padded.
@@ -282,6 +283,15 @@ class CPAwareDataloader:
         return batch
 
     def __get_data_broadcast(self):
+        pass
+
+    def _get_data_scatter_sharded(self):
+        # If self.cp_rank == 0,
+            # Get the batch of data from the dataloader
+            # Determine the shards for all the different CP group members.
+            # Put those shards into a combined_list.
+            # Then send out the shards with scatter.
+            # Question: What happens if the shards are different sizes, and not the same size as that batch buffer tho?
         pass
 
     def __get_data_scatter(self):
