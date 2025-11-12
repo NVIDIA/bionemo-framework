@@ -17,7 +17,7 @@
 import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Generic, NamedTuple, Protocol, Sequence, TypeVar
+from typing import Any, Generic, NamedTuple, Protocol, Sequence, TypeVar
 
 import numpy as np
 from torch.utils.data import Dataset
@@ -130,9 +130,16 @@ class MultiEpochDatasetResampler(Dataset[T_co]):
 
     def __getitem__(self, index: int) -> T_co:
         """Get the sample at the given index."""
-        if index not in range(len(self)):
+        if index < 0 or index >= len(self):
             raise IndexError(f"Index {index} out of bounds for dataset of length {len(self)}.")
         return self.dataset[self._global_index_to_permuted_local_index(index)]
+
+    def __getitems__(self, indices: list[int]) -> Any:
+        """Get the samples at the given indices."""
+        if hasattr(self.dataset, '__getitems__'):
+            return self.dataset.__getitems__([self[i] for i in indices])
+        else:
+            return [self[i] for i in indices]
 
     def __len__(self) -> int:
         """Return the length of the resampled dataset."""
