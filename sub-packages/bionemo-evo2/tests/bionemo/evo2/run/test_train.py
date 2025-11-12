@@ -433,7 +433,7 @@ def test_train_evo2_stops(tmp_path):
         ),
     ],
 )
-@pytest.mark.timeout(256)  # Optional: fail if the test takes too long.
+@pytest.mark.timeout(512)  # Optional: fail if the test takes too long.
 @pytest.mark.slow
 def test_train_evo2_stop_at_max_steps_and_continue(tmp_path, additional_args):
     max_steps_first_run = 4

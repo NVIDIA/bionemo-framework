@@ -17,7 +17,12 @@
 from dataclasses import dataclass
 from typing import Optional
 
+import torch
 from nemo.collections import llm
+from nemo.collections.llm.gpt.model.llama import HFLlamaImporter, LlamaModel, apply_rope_scaling
+from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
+from nemo.lightning import io
+from nemo.lightning.pytorch.utils import dtype_from_hf
 
 
 @dataclass
@@ -146,6 +151,78 @@ class Eden35BConfig(EdenConfig):
     num_attention_heads: int = 56
     num_query_groups: int = 8  # GQA
     old_context_len: int = 8192
+
+
+@io.model_importer(LlamaModel, "hf")
+class HFEdenLlamaImporter(HFLlamaImporter):
+    """Importer for Eden-flavoured Llama models which just overrides the tokenizer and config classes from NeMo."""
+
+    @property
+    def config(self) -> EdenConfig:
+        """Create a NeMo LlamaConfig from the HF model config.
+
+        Translates the HF configuration parameters to the equivalent NeMo
+        configuration.
+
+        Returns:
+            LlamaConfig: NeMo configuration for Llama models
+        """
+        from transformers import AutoConfig, GenerationConfig
+
+        source = AutoConfig.from_pretrained(str(self))
+        try:
+            generation_config = GenerationConfig.from_pretrained(str(self))
+        except Exception:
+            generation_config = None
+
+        def make_vocab_size_divisible_by(vocab_size):
+            base = 128
+            while vocab_size % base != 0:
+                base //= 2
+            return base
+
+        cls = EdenConfig
+        scale_factor = source.rope_scaling.get("factor", 8.0) if source.rope_scaling is not None else 8.0
+
+        args = {}
+
+        output = cls(
+            num_layers=source.num_hidden_layers,
+            hidden_size=source.hidden_size,
+            ffn_hidden_size=(
+                source.intermediate_size
+                if not getattr(source, "intermediate_size_mlp", None)
+                else source.intermediate_size_mlp
+            ),
+            num_attention_heads=source.num_attention_heads,
+            init_method_std=source.initializer_range,
+            layernorm_epsilon=source.rms_norm_eps,
+            num_query_groups=source.num_key_value_heads,
+            seq_length=source.max_position_embeddings,
+            rotary_base=source.rope_theta,
+            gated_linear_unit=True,
+            make_vocab_size_divisible_by=make_vocab_size_divisible_by(source.vocab_size),
+            share_embeddings_and_output_weights=getattr(source, "tie_word_embeddings", False),
+            fp16=(dtype_from_hf(source) == torch.float16),
+            bf16=(dtype_from_hf(source) == torch.bfloat16),
+            params_dtype=dtype_from_hf(source),
+            generation_config=generation_config,
+            vocab_size=source.vocab_size,
+            kv_channels=getattr(source, "head_dim", None),
+            scale_factor=scale_factor,
+            **args,
+        )
+
+        return output
+
+    @property
+    def tokenizer(self):
+        """Override the tokenizer to use the Eden-flavoured tokenizer."""
+        from bionemo.evo2.run.utils import patch_eden_tokenizer  # avoid circular import
+
+        tokenizer = get_nmt_tokenizer("byte-level")
+        patch_eden_tokenizer(tokenizer)
+        return tokenizer
 
 
 LLAMA_MODEL_OPTIONS = {
