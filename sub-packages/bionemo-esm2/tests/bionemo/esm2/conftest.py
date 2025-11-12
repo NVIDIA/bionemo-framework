@@ -19,7 +19,11 @@ import pytest
 import torch
 
 from bionemo.esm2.data.tokenizer import get_tokenizer
-from bionemo.testing.data.esm2 import create_mock_parquet_train_val_inputs, create_mock_protein_dataset
+from bionemo.testing.data.esm2 import (
+    create_mock_parquet_train_val_inputs,
+    create_mock_protein_fasta,
+    create_mock_protein_sqlite_dataset,
+)
 
 
 @pytest.fixture
@@ -56,7 +60,13 @@ def tokenizer():
 @pytest.fixture
 def dummy_protein_dataset(tmp_path):
     """Create a mock protein dataset."""
-    return create_mock_protein_dataset(tmp_path)
+    return create_mock_protein_sqlite_dataset(tmp_path)
+
+
+@pytest.fixture
+def dummy_protein_fasta(tmp_path):
+    """Create a mock protein fasta file."""
+    return create_mock_protein_fasta(tmp_path)
 
 
 @pytest.fixture

@@ -30,6 +30,7 @@ from bionemo.core.utils import random_utils
 from bionemo.esm2.data import tokenizer
 from bionemo.llm.data import masking
 from bionemo.llm.data.types import BertSample
+from bionemo.noodles.nvfaidx import NvFaidx
 
 
 class RandomMaskStrategy(str, Enum):
@@ -87,6 +88,72 @@ class ProteinSQLiteDataset(Dataset):
 
         self.cursor.execute("SELECT sequence FROM protein WHERE id = ?", (idx,))
         return self.cursor.fetchone()[0]
+
+
+class ProteinFastaDataset(Dataset):
+    """Dataset for protein sequences stored in a FASTA file."""
+
+    def __init__(
+        self,
+        fasta_path: str | os.PathLike,
+        faidx_path: str | os.PathLike | None = None,
+        ignore_existing_fai: bool = False,
+        allow_duplicate_seqids: bool = False,
+    ):
+        """Initializes the dataset.
+
+        Args:
+            fasta_path: Path to the FASTA file.
+            faidx_path: Path to the FAIDX file. If not provided, a new FAIDX file will be created.
+            ignore_existing_fai: If True, ignore the existing FAIDX file.
+            allow_duplicate_seqids: If True, allow duplicate sequence IDs in the FASTA file.
+        """
+        self.fasta = NvFaidx(
+            str(fasta_path),
+            faidx_path=str(faidx_path) if faidx_path is not None else None,
+            ignore_existing_fai=ignore_existing_fai,
+            allow_duplicate_seqids=allow_duplicate_seqids,
+        )
+
+    def __len__(self) -> int:
+        """Returns the number of proteins in the dataset.
+
+        Returns:
+            Number of proteins in the dataset.
+        """
+        return len(self.fasta.keys())
+
+    def __getitem__(self, idx: str) -> str:
+        """Returns the sequence of a protein at a given index.
+
+        Args:
+            idx: An identifier for the protein sequence. For training data, these are UniRef90 IDs, while for validation
+                data, they are UniRef50 IDs.
+
+        Returns:
+            The protein sequence as a string.
+        """
+        if not isinstance(idx, str):
+            raise TypeError(f"Expected string, got {type(idx)}: {idx}.")
+
+        return self.fasta[idx].sequence()
+
+
+def create_indexed_protein_dataset(path: str | os.PathLike) -> ProteinFastaDataset | ProteinSQLiteDataset:
+    """Create a dataset from a FASTA or SQLite file.
+
+    Args:
+        path: Path to the FASTA or SQLite file.
+
+    Returns:
+        A ProteinFastaDataset or ProteinSQLiteDataset.
+    """
+    if Path(path).suffix == ".fasta":
+        return ProteinFastaDataset(path)
+    elif Path(path).suffix == ".db":
+        return ProteinSQLiteDataset(path)
+    else:
+        raise ValueError(f"Unsupported file extension: {Path(path).suffix}")
 
 
 class ESMMaskedResidueDataset(Dataset):
@@ -264,7 +331,7 @@ def create_train_dataset(
     if "ur90_id" not in cluster_df.columns:
         raise ValueError(f"Training cluster file must contain a 'ur90_id' column. Found columns {cluster_df.columns}.")
 
-    protein_dataset = ProteinSQLiteDataset(db_path)
+    protein_dataset = create_indexed_protein_dataset(db_path)
     masked_cluster_dataset = ESMMaskedResidueDataset(
         protein_dataset=protein_dataset,
         clusters=cluster_df["ur90_id"],
@@ -319,7 +386,7 @@ def create_valid_dataset(  # noqa: D417
     Args:
         cluster_file: Clusters as pd.Series, or path to the cluster file. The file should contain a single column named "ur50_id" with UniRef50
             IDs, with one UniRef50 ID per row.
-        db_path: Path to the SQLite database.
+        db_path: Path to the SQLite or FASTA file.
         total_samples: Total number of samples to draw from the dataset.
         seed: Random seed for reproducibility.
         max_seq_length: Crop long sequences to a maximum of this length, including BOS and EOS tokens.
@@ -341,7 +408,7 @@ def create_valid_dataset(  # noqa: D417
     if not Path(db_path).exists():
         raise ValueError(f"Database file {db_path} not found.")
 
-    protein_dataset = ProteinSQLiteDataset(db_path)
+    protein_dataset = create_indexed_protein_dataset(db_path)
     masked_dataset = ESMMaskedResidueDataset(
         protein_dataset=protein_dataset,
         clusters=clusters,

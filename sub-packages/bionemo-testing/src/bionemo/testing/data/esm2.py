@@ -15,11 +15,12 @@
 
 
 import sqlite3
+import textwrap
 
 import pandas as pd
 
 
-def create_mock_protein_dataset(tmp_path):
+def create_mock_protein_sqlite_dataset(tmp_path):
     """Create a mock protein dataset."""
     db_file = tmp_path / "protein_dataset.db"
     conn = sqlite3.connect(str(db_file))
@@ -47,6 +48,29 @@ def create_mock_protein_dataset(tmp_path):
     conn.close()
 
     return db_file
+
+
+def create_mock_protein_fasta(tmp_path):
+    """Create a mock protein dataset in FASTA format."""
+    fasta_file = tmp_path / "protein_dataset.fasta"
+    with open(fasta_file, "w") as f:
+        f.write(
+            textwrap.dedent(
+                """\
+                >UniRef90_A
+                ACDEFGHIKLMNPQRSTVWY
+                >UniRef90_B
+                DEFGHIKLMNPQRSTVWYAC
+                >UniRef90_C
+                MGHIKLMNPQRSTVWYACDE
+                >UniRef50_A
+                MKTVRQERLKSIVRI
+                >UniRef50_B
+                MRILERSKEPVSGAQLA
+                """
+            )
+        )
+    return fasta_file
 
 
 def create_mock_parquet_train_val_inputs(tmp_path):
