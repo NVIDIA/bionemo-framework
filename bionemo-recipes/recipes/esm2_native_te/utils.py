@@ -137,8 +137,10 @@ def get_dummy_data_thd(cp_size: int):
     batch = {
         "input_ids": input_ids_padded.unsqueeze(0).to(torch.int64), # Add batch dim: [1, seq_len]
         "labels": labels_padded.unsqueeze(0).to(torch.int64), # [1, seq_len]
-        "cu_seq_lens_q": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_k": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
+        "cu_seq_lens_q_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
+        "cu_seq_lens_k_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
+        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
+        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
         "max_length_q": 8,
         "max_length_k": 8,
     }

@@ -33,14 +33,16 @@ logger = logging.getLogger(__name__)
 
 # TODO(@jomitchell): Create an enum for the batch keys, which we can then use later.
 
+#FOR CP --> Make into ENUM later.
 BATCH_KEYS_DTYPE = {
-    'max_length_q': torch.int32,  # regular int
-    'max_length_k': torch.int32,  # regular int
     'input_ids': torch.int64,
+    'labels': torch.int64,
     'cu_seq_lens_q': torch.int32,
     'cu_seq_lens_k': torch.int32,
-    # 'attention_mask': torch.int64,  # Missing!
-    'labels': torch.int64,
+    'cu_seq_lens_q_padded': torch.int32,
+    'cu_seq_lens_q_padded': torch.int32,
+    'max_length_q': torch.int32,  # regular int
+    'max_length_k': torch.int32,  # regular int
 }
 
 def create_tokenized_dataset(
@@ -264,15 +266,18 @@ class CPAwareDataloader:
 
     def __next__(self):
         batch = self.__get_data_scatter()
-        input_ids_padded, labels_padded = get_batch_on_this_cp_rank(
-            cu_seqlens_padded=batch["cu_seq_lens_q"],
-            input_ids_padded=batch["input_ids"],
-            labels_padded=batch["labels"],
+        # return batch
+        
+        input_ids_sharded, labels_sharded = get_batch_on_this_cp_rank(
+            cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
+            input_ids_padded=batch["input_ids"], # These should already be padded.
+            labels_padded=batch["labels"], # These should already be padded.
             cp_group=self.cp_group,
             qvk_format="thd",
         )
-        batch["input_ids"] = input_ids_padded
-        batch["labels"] = labels_padded
+        batch['pad_between_seqs'] = True
+        batch["input_ids"] = input_ids_sharded
+        batch["labels"] = labels_sharded
         
         return batch
 
@@ -283,6 +288,7 @@ class CPAwareDataloader:
         # Create device for current rank (use local_rank = GPU index on this node)
         device = torch.device(f"cuda:{self.dist_config.local_rank}")
 
+        # TODO: I want the local cp_rank 0 to be the source for the broadcast/scatter.
         if self.cp_rank == 0: # Is this global rank 0? IDK.
             # Get data once, then make copies for each rank.
             if self._iterator is None:
@@ -318,16 +324,16 @@ class CPAwareDataloader:
             tensor_sizes = {}
             tensor_shapes = {}
 
+        # TODO: Calls get_batch_on_this_cp_rank(combined_batch) to generate shards.
+        # Combined_batch = [<obj_shard1>, <obj_shard2> ]
         # Get the global rank of cp_rank=0 in this CP group (the source for broadcasts)
-        cp_group_ranks = torch.distributed.get_process_group_ranks(self.cp_group)
-        src_global_rank = cp_group_ranks[0]  # First rank in the CP group is cp_rank=0
         
         # Broadcast tensor sizes to all ranks
         size_tensor = torch.zeros(len(BATCH_KEYS_DTYPE), dtype=torch.int64, device=device)
         if self.cp_rank == 0:
             for i, key in enumerate(BATCH_KEYS_DTYPE.keys()):
                 size_tensor[i] = tensor_sizes.get(key, 1)
-        torch.distributed.broadcast(size_tensor, src=src_global_rank, group=self.cp_group)
+        torch.distributed.broadcast(size_tensor, group_src=0, group=self.cp_group) # There's group_src. 
         
         # Broadcast tensor shapes (max 4 dimensions should be enough)
         # Format: [ndim, dim0, dim1, dim2, dim3] for each key
@@ -338,7 +344,7 @@ class CPAwareDataloader:
                 shape_tensor[i * 5] = len(shape)  # number of dimensions
                 for j, dim in enumerate(shape[:4]):  # max 4 dims
                     shape_tensor[i * 5 + 1 + j] = dim
-        torch.distributed.broadcast(shape_tensor, src=src_global_rank, group=self.cp_group)
+        torch.distributed.broadcast(shape_tensor, group_src=0, group=self.cp_group)
 
         # Reconstruct sizes and shapes on non-zero ranks
         if self.cp_rank != 0:
@@ -360,7 +366,7 @@ class CPAwareDataloader:
             torch.distributed.scatter(
                 batch_buffer[key],      # Output: where received tensor is stored
                 scatter_list=scatter_list,  # Input: only used on source rank
-                src=src_global_rank,     # Source rank (global rank of cp_rank=0 in this group)
+                group_src=0,     # Source rank (global rank of cp_rank=0 in this group)
                 group=self.cp_group,
                 async_op=False  # Turn on Async later.
             )

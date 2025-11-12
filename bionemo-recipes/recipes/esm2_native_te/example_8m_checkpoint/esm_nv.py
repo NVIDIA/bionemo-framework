@@ -71,6 +71,7 @@ class NVEsmConfig(EsmConfig):
         micro_batch_size: Optional[int] = None,
         max_seq_length: Optional[int] = None,
         padded_vocab_size: Optional[int] = 64,
+        use_cp: bool = False,
         attn_mask_type: str = "padding",
         **kwargs,
     ):
@@ -113,6 +114,7 @@ class NVEsmConfig(EsmConfig):
         self.micro_batch_size = micro_batch_size
         self.max_seq_length = max_seq_length
         self.attn_mask_type = attn_mask_type
+        self.use_cp = use_cp
 
         # Set padded_vocab_size with default fallback to vocab_size
         self.padded_vocab_size = padded_vocab_size if padded_vocab_size is not None else self.vocab_size
@@ -180,7 +182,6 @@ class NVEsmEncoder(nn.Module):
             **kwargs: Additional arguments, see TransformersKwargs for more details.
         """
         all_hidden_states: tuple[torch.Tensor, ...] = ()
-
         has_thd_input = [
             x is not None
             for x in [
@@ -188,7 +189,7 @@ class NVEsmEncoder(nn.Module):
                 kwargs.get("cu_seq_lens_k", None),
                 kwargs.get("max_length_q", None),
                 kwargs.get("max_length_k", None),
-            ]
+            ] # TODO(@jomitchell): Add cu_seq_lens_q_padded and cu_seq_lens_k_padded.
         ]
 
         if self.config.attn_input_format == "thd":
@@ -213,22 +214,39 @@ class NVEsmEncoder(nn.Module):
                 if self.config.attn_input_format == "bshd":
                     te_rope_emb = self.rotary_embeddings(max_seq_len=hidden_states.shape[1])
                 elif self.config.attn_input_format == "thd":
-                    te_rope_emb = self.rotary_embeddings(max_seq_len=kwargs["cu_seq_lens_q"][-1])
+                    if self.config.use_cp:
+                        te_rope_emb = self.rotary_embeddings(max_seq_len=kwargs["cu_seq_lens_q_padded"][-1])
+                    else:
+                        te_rope_emb = self.rotary_embeddings(max_seq_len=kwargs["cu_seq_lens_q"][-1])
             te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
 
         for layer_module in self.layers:
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            hidden_states = layer_module(
-                hidden_states,
-                attention_mask,
-                rotary_pos_emb=te_rope_emb,
-                cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
-                cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
-                max_seqlen_q=kwargs.get("max_length_q", None),
-                max_seqlen_kv=kwargs.get("max_length_k", None),
-            )
+            if self.config.use_cp:
+                hidden_states = layer_module(
+                    hidden_states,
+                    attention_mask,
+                    rotary_pos_emb=te_rope_emb,
+                    cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
+                    cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                    cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
+                    cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
+                    pad_between_seqs=kwargs.get("pad_between_seqs", None),
+                    max_seqlen_q=kwargs.get("max_length_q", None),
+                    max_seqlen_kv=kwargs.get("max_length_k", None),
+                )
+            else:
+                hidden_states = layer_module(
+                    hidden_states,
+                    attention_mask,
+                    rotary_pos_emb=te_rope_emb,
+                    cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
+                    cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                    max_seqlen_q=kwargs.get("max_length_q", None),
+                    max_seqlen_kv=kwargs.get("max_length_k", None),
+                )
 
         hidden_states = self.emb_layer_norm_after(hidden_states)
 
@@ -515,6 +533,7 @@ class NVEsmEmbeddings(nn.Module):
     def __init__(self, config):
         """Initialize a NVEsmEmbeddings."""
         super().__init__()
+        self.config = config
         self.word_embeddings = nn.Embedding(
             config.padded_vocab_size,
             config.hidden_size,
@@ -564,6 +583,8 @@ class NVEsmEmbeddings(nn.Module):
         else:
             using_thd = False
 
+        if self.token_dropout and self.config.use_cp:
+            raise NotImplementedError("Token dropout is not supported for CP yet.")
         # Matt: ESM has the option to handle masking in MLM in a slightly unusual way. If the token_dropout
         # flag is False then it is handled in the same was as BERT/RoBERTa. If it is set to True, however,
         # masked tokens are treated as if they were selected for input dropout and zeroed out.
@@ -587,9 +608,10 @@ class NVEsmEmbeddings(nn.Module):
                 src_lengths = torch.diff(kwargs["cu_seq_lens_q"])
                 # We need to find the number of masked tokens in each sequence in the padded batch.
                 is_masked = (input_ids == self.mask_token_id).squeeze(0)
+                
                 n_masked_per_seq = torch.nested.nested_tensor_from_jagged(
-                    is_masked, offsets=kwargs["cu_seq_lens_q"]
-                ).sum(1)
+                        is_masked, offsets=kwargs["cu_seq_lens_q"]
+                    ).sum(1)
                 mask_ratio_observed = n_masked_per_seq.float() / src_lengths
                 scale_factor = (1 - mask_ratio_train) / (1 - mask_ratio_observed)
                 reshaped_scale_factor = torch.repeat_interleave(scale_factor, src_lengths, dim=0)
