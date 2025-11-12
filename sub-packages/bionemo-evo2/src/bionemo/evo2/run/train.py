@@ -793,6 +793,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "fp32_residual_connection": not args.no_fp32_residual_connection,
         **activation_checkpointing_args,
     }
+    if args.fsdp:
+        config_modifiers_init["init_model_with_meta_device"] = True
     if args.add_bias_output:
         config_modifiers_init["add_bias_output"] = args.add_bias_output
     if args.spike_no_more_embedding_init:
@@ -1075,6 +1077,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         }
         strategy_kwargs = {
             "fsdp": "megatron",
+            "lazy_init": True,
         }
 
     else:
