@@ -28,6 +28,7 @@ from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCall
 from nemo.lightning.pytorch.optim import MegatronOptimizerModule
 from nemo.utils.exp_manager import TimingCallback
 
+from bionemo.core.callbacks.one_logger_callback import add_one_logger_args, configure_one_logger
 from bionemo.core.utils.dtypes import PrecisionTypes, get_autocast_dtype
 from bionemo.esm2.api import ESM2Config
 from bionemo.esm2.data.datamodule import ESMDataModule
@@ -105,6 +106,10 @@ def main(
     average_in_collective: bool = True,
     grad_reduce_in_fp32: bool = False,
     decoder_first_pipeline_num_layers: Optional[int] = None,
+    one_logger_project: Optional[str] = None,
+    one_logger_app_tag_run_version: Optional[str] = None,
+    one_logger_app_tag: Optional[str] = None,
+    one_logger_app_tag_run_name: Optional[str] = None,
 ) -> nl.Trainer:
     """Train an ESM2 model on UR data.
 
@@ -170,6 +175,10 @@ def main(
         average_in_collective (bool): average in collective
         grad_reduce_in_fp32 (bool): gradient reduction in fp32
         decoder_first_pipeline_num_layers (Optional[int]): number of layers in the decoder first pipeline. Default None is even split of transformer layers across all pipeline stages
+        one_logger_project (Optional[str]): OneLogger project name
+        one_logger_app_tag_run_version (Optional[str]): OneLogger app tag run version
+        one_logger_app_tag (Optional[str]): OneLogger app tag
+        one_logger_app_tag_run_name (Optional[str]): OneLogger app tag run name
     """
     # Create the result directory if it does not exist.
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -387,6 +396,22 @@ def main(
         enable_checkpointing=create_checkpoint_callback,
     )
 
+    one_logger_callback = configure_one_logger(
+        trainer=trainer,
+        experiment_name=experiment_name,
+        global_batch_size=global_batch_size,
+        micro_batch_size=micro_batch_size,
+        seq_length=max_seq_length,
+        create_tflops_callback=False,
+        save_checkpoint_strategy="async",
+        one_logger_project=one_logger_project,
+        app_tag_run_version=one_logger_app_tag_run_version,
+        app_run_type="training",
+        app_tag=one_logger_app_tag,
+        app_tag_run_name=one_logger_app_tag_run_name,
+    )
+    trainer.callbacks.append(one_logger_callback)
+
     llm.train(
         model=model,
         data=data_module,
@@ -462,6 +487,10 @@ def train_esm2_entrypoint():
         average_in_collective=not args.no_average_in_collective,
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
         decoder_first_pipeline_num_layers=args.decoder_first_pipeline_num_layers,
+        one_logger_project=args.one_logger_project,
+        one_logger_app_tag_run_version=args.one_logger_app_tag_run_version,
+        one_logger_app_tag=args.one_logger_app_tag,
+        one_logger_app_tag_run_name=args.one_logger_app_tag_run_name,
     )
 
 
@@ -471,6 +500,10 @@ def get_parser():
     # Parse the arguments and pull them out into local variables for ease of future refactor to a
     #   config management system.
     parser = argparse.ArgumentParser(description="Pretrain ESM2 with UR data.")
+
+    # Add OneLogger arguments
+    parser = add_one_logger_args(parser)
+
     parser.add_argument(
         "--train-cluster-path",
         type=Path,
