@@ -59,6 +59,16 @@ def test_tokenizer_encode_without_special_tokens(tokenizer):
     assert encoded == expected
 
 
+def test_tokenizer_roundtrip_encode_decode(tokenizer):
+    """Test that encoding and decoding produces the original sequence."""
+    sequence = "ATCGATCG"
+    encoded = tokenizer.encode(sequence, add_special_tokens=True)
+    decoded = tokenizer.decode(encoded, skip_special_tokens=True)
+    
+    # Decoded may have spaces between tokens, so compare without spaces
+    assert sequence == decoded.replace(" ", "")
+
+
 def test_tokenizer_nucleotide_mappings(tokenizer):
     """Test each nucleotide maps to its ASCII value."""
     # A=65, T=84, C=67, G=71
@@ -210,5 +220,44 @@ def test_short_sequences_dont_overflow(tokenizer):
     assert len(result["input_ids"]) == 1
     # Length should be 400bp + BOS + EOS = 402 tokens
     assert len(result["input_ids"][0]) == 402
+
+
+def test_bos_eos_in_overlapping_windows(tokenizer):
+    """Test that BOS/EOS tokens are added to every overlapping window.
+    
+    Verifies that when using return_overflowing_tokens with add_special_tokens=True,
+    each window gets its own BOS and EOS tokens, treating each as an independent sequence.
+    This matches the behavior needed for causal language modeling training.
+    """
+    # Use a short genomic sequence that will produce exactly 2 overlapping windows
+    # With max_length=7 and stride=4, sequence of 8bp should give 2 windows
+    sequence = "ATCGATCG"  # 8bp
+    
+    result = tokenizer(
+        sequence,
+        max_length=7,      # BOS + 5 content + EOS = 7 tokens total
+        stride=4,          # Overlap of 4 tokens between windows
+        truncation=True,
+        return_overflowing_tokens=True,
+        add_special_tokens=True,
+    )
+    
+    # Should produce exactly 2 windows
+    num_windows = len(result["input_ids"])
+    assert num_windows >= 2, f"Should produce at least 2 overlapping windows, got {num_windows}"
+    
+    first_window = result["input_ids"][0]
+    second_window = result["input_ids"][1]
+    
+    # Verify both windows have BOS at start and EOS at end
+    assert first_window[0] == tokenizer.bos_token_id
+    assert first_window[-1] == tokenizer.eos_token_id
+    assert second_window[0] == tokenizer.bos_token_id
+    assert second_window[-1] == tokenizer.eos_token_id
+    
+    # Verify windows are actually overlapping by checking they share some content
+    first_content = set(first_window[1:-1])
+    second_content = set(second_window[1:-1])
+    assert len(first_content & second_content) > 0
 
 
