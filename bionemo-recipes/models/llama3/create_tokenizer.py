@@ -100,7 +100,7 @@ def main():
     logger.info(f"Special tokens: BOS={tokenizer.bos_token_id}, EOS={tokenizer.eos_token_id}, PAD={tokenizer.pad_token_id}, UNK={tokenizer.unk_token_id}")
 
     # Save to default location
-    save_path = os.path.join(os.path.dirname(__file__), "nucleotide_tokenizer")
+    save_path = os.path.join(os.path.dirname(__file__), "nucleotide_fast_tokenizer")
     tokenizer.save_pretrained(save_path)
     logger.info(f"Tokenizer saved to: {save_path}")
 
