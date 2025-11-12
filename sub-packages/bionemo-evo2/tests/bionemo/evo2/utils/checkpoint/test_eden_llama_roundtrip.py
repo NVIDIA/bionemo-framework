@@ -14,18 +14,17 @@
 # limitations under the License.
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 import torch
-from lightning.fabric.plugins.environments.lightning import find_free_network_port
 from nemo.collections.llm.gpt.model.llama import HFLlamaExporter
 
+from bionemo.core.data.load import load
 from bionemo.evo2.models.llama import HFEdenLlamaImporter
 from bionemo.llm.lightning import batch_collator
 from bionemo.testing.subprocess_utils import run_command_in_subprocess
-from bionemo.core.data.load import load
-import os
 
 
 REPO_PATH = Path(__file__).parent.parent.parent.parent.parent.parent.parent.parent
@@ -39,7 +38,7 @@ def eden_llama_og2_step_182313_on_evo2_rrna_highly_conserved_PMC4140814():
         tree
             .
             ├── per_layer_activations
-            │   └── activations_rank000_dl00_batch000000.pt
+            │   └── activations_rank000_dl00_batch000000.pt
             ├── predictions__rank_0__dp_rank_0.pt
             ├── ribosomal_rrna_highly_conserved_PMC4140814.fasta
             └── seq_idx_map.json
@@ -48,10 +47,10 @@ def eden_llama_og2_step_182313_on_evo2_rrna_highly_conserved_PMC4140814():
     """
     return load("evo2_llama/eden_llama_og2_step_182313_on_evo2_rrna_highly_conserved_PMC4140814:1.0")
 
+
 @pytest.fixture(scope="module")
 def llama_7b_8k_og2():
     return load("evo2_llama/7B-8k-og2:1.0")
-
 
 
 def predict_metagenome(
@@ -75,9 +74,14 @@ def predict_metagenome(
 
 @pytest.mark.skipif(os.environ.get("BIONEMO_DATA_SOURCE") != "pbss", reason="Test data is not available on NGC")
 @pytest.mark.slow
-def test_eden_llama_roundtrip(tmp_path, llama_7b_8k_og2: Path, eden_llama_og2_step_182313_on_evo2_rrna_highly_conserved_PMC4140814: Path):
+def test_eden_llama_roundtrip(
+    tmp_path, llama_7b_8k_og2: Path, eden_llama_og2_step_182313_on_evo2_rrna_highly_conserved_PMC4140814: Path
+):
     """Test that converting NeMo -> HF -> NeMo produces the same model."""
-    fasta_path = eden_llama_og2_step_182313_on_evo2_rrna_highly_conserved_PMC4140814 / "ribosomal_rrna_highly_conserved_PMC4140814.fasta"
+    fasta_path = (
+        eden_llama_og2_step_182313_on_evo2_rrna_highly_conserved_PMC4140814
+        / "ribosomal_rrna_highly_conserved_PMC4140814.fasta"
+    )
     assert llama_7b_8k_og2.exists() and fasta_path.exists()
 
     exporter = HFLlamaExporter(llama_7b_8k_og2)
