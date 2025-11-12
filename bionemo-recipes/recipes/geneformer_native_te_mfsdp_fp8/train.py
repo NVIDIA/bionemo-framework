@@ -274,14 +274,15 @@ def main(cfg: DictConfig) -> None:
 
     # Save final model using save_pretrained
     # Note: For mfsdp, ALL processes must participate in collective operations
-    final_model_dir = os.path.join(ckpt_dir, "final_model")
-    save_final_model(
-        model=model,
-        use_mfsdp=cfg.training.use_mfsdp,
-        save_directory=final_model_dir,
-        logger=logger,
-        is_main_process=dist_config.is_main_process(),
-    )
+    if cfg.training.save_final_model:
+        final_model_dir = os.path.join(ckpt_dir, "final_model")
+        save_final_model(
+            model=model,
+            use_mfsdp=cfg.training.use_mfsdp,
+            save_directory=final_model_dir,
+            logger=logger,
+            is_main_process=dist_config.is_main_process(),
+        )
 
     # Clean up distributed training
     if dist_config.is_main_process():
