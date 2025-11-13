@@ -539,6 +539,15 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Loss weight for the Mamba model for lowercase bases, if you are using a Mamba model. "
         "Default is 0.1 like the Evo2 paper. Set to 1.0 to disable differential loss weighting.",
     )
+    parser.add_argument(
+        "--mid-level-dataset-surplus",
+        type=float,
+        default=0.005,
+        help="The sample surplus to build for the mid-level datasets(s). Defaults arbitrarily to 0.005. "
+        "This value is irrelevant for single source data blends. This value may need to be increased "
+        "if the top level dataset oversamples the mid level dataset(s). This value may be set to 0.0 "
+        "in future if the top level dataset is constrained to not oversample the mid level datasets(s).",
+    )
     # rank as list of integers
     parser.add_argument(
         "--nsys-ranks",
@@ -764,6 +773,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             num_workers=args.workers,
             tokenizer=tokenizer,
             eod_mask_loss=args.eod_pad_in_loss_mask,
+            build_kwargs={
+                "mid_level_dataset_surplus": args.mid_level_dataset_surplus,
+            },
         )
     if args.no_activation_checkpointing:
         activation_checkpointing_args = {
