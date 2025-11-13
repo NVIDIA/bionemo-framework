@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 
@@ -163,12 +163,17 @@ def get_batch_on_this_cp_rank(
     labels_padded: torch.Tensor,
     cp_group: torch.distributed.ProcessGroup = None,
     qvk_format: str = "thd",
+    cp_rank: Optional[int] = None,
 ):
     """Slice batch input along sequence dimension into multiple chunks for THD format.
     This function is inteded for use in self attention. It will not work for cross attention because
     it does not handle the case where the sequence length of the query and key are different.
     Which are parallelized across GPUs in a context parallel group.
     This version works with variable-length sequences using cumulative sequence lengths.
+
+    Args:
+        cp_rank: Optional manual CP rank index. When provided, the function shards tensors as if it
+            were executing on that rank without querying `torch.distributed.get_rank`.
     """
     if qvk_format not in ["thd", "bshd", "sbhd"]:
         raise ValueError(f"Unsupported qvk_format: {qvk_format}!")
@@ -176,7 +181,10 @@ def get_batch_on_this_cp_rank(
         # Get context parallel size and rank
         cp_size = torch.distributed.get_world_size(group=cp_group)
         if cp_size > 1:
-            cp_rank = torch.distributed.get_rank(group=cp_group)
+            if cp_rank is None:
+                cp_rank = torch.distributed.get_rank(group=cp_group)
+            elif not (0 <= cp_rank < cp_size):
+                raise ValueError(f"cp_rank must be in [0, {cp_size}), but received {cp_rank}.")
 
             # Calculate the chunk sizes for each sequence
             total_slices_of_any_sequence = 2 * cp_size

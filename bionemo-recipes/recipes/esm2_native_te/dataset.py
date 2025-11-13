@@ -239,9 +239,9 @@ def create_thd_dataloader(
     )
     return train_dataloader, tokenized_dataset
 
+
 class CPAwareDataloader:
     """A dataloader that is aware of context parallelism."""
-
     def __init__(self, dataloader: StatefulDataLoader,
                     dist_config: DistributedConfig,
                     cp_group: torch.distributed.ProcessGroup,
@@ -256,7 +256,6 @@ class CPAwareDataloader:
         self.num_cp_ranks = cp_group.size()
         self.max_len = max_seq_length
         self.dtype = dtype
-        self.sentinel_value = 1e8 # TODO(@jomitchell): Make this a configurable parameter. Not even sure if 1e8 makes sense lawl.
         self._iterator = None
 
     def __iter__(self):
@@ -265,133 +264,61 @@ class CPAwareDataloader:
         return self
 
     def __next__(self):
-        batch = self.__get_data_scatter()
-        # return batch
-        
-        #TODO: Get the batch first then scatter it.
-        input_ids_sharded, labels_sharded = get_batch_on_this_cp_rank(
-            cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
-            input_ids_padded=batch["input_ids"], # These should already be padded.
-            labels_padded=batch["labels"], # These should already be padded.
-            cp_group=self.cp_group,
-            qvk_format="thd",
-        )
+        batch = self._get_data_scatter_sharded()
         batch['pad_between_seqs'] = True
-        batch["input_ids"] = input_ids_sharded
-        batch["labels"] = labels_sharded
-        
         return batch
 
-    def __get_data_broadcast(self):
-        pass
-
     def _get_data_scatter_sharded(self):
-        # If self.cp_rank == 0,
-            # Get the batch of data from the dataloader
-            # Determine the shards for all the different CP group members.
-            # Put those shards into a combined_list.
-            # Then send out the shards with scatter.
-            # Question: What happens if the shards are different sizes, and not the same size as that batch buffer tho?
-        pass
+        """
+        This function will get the batch from the dataloader on CP rank 0, and then determine 
+        the shards for all the different CP group members.
+        combined_batch = [<cp_rank_0_shard>, <cp_rank_1_shard>, ..., <cp_rank_n_shard>]
+        Then it will scatter the shards to the different CP group members.
+        The shards are then combined into a single batch and returned to the caller
+        for the current CP rank.
 
-    def __get_data_scatter(self):
-        # Create device for current rank (use local_rank = GPU index on this node)
-        device = torch.device(f"cuda:{self.dist_config.local_rank}")
+        Scalability:
+            Rank 0's work grows linearly with CP size, but the other ranks do not need to store all the shards so they do not 
+            grow linearly with CP size.
 
-        # TODO: I want the local cp_rank 0 to be the source for the broadcast/scatter.
-        if self.cp_rank == 0: # Is this global rank 0? IDK.
+        Args:
+            None
+
+        Returns:
+            batch: The batch for the current CP rank.
+
+        """
+        if self.cp_rank == 0:
             # Get data once, then make copies for each rank.
             if self._iterator is None:
                 self._iterator = iter(self.dataloader)
             batch = next(self._iterator)
 
-            # Convert everything to tensors and move to GPU
-            # Create scatter list for each key
-            combined_batch = {key: [] for key in BATCH_KEYS_DTYPE}
-            tensor_sizes = {}  # Track actual tensor sizes
-            tensor_shapes = {}  # Track original shapes for reconstruction
-
-            for key, value in batch.items():
-                if key in BATCH_KEYS_DTYPE:
-                    # Convert to tensor if not already
-                    if isinstance(value, torch.Tensor):
-                        # Store original shape before flattening
-                        tensor_shapes[key] = value.shape
-                        # Flatten multi-dimensional tensors for scatter (scatter only works with 1D tensors)
-                        tensor_value = value.to(device).flatten()
-                    else:
-                        # Convert scalar (int/float) to tensor
-                        tensor_value = torch.tensor([value], device=device, dtype=BATCH_KEYS_DTYPE[key])
-                        tensor_shapes[key] = tensor_value.shape
-
-                    tensor_sizes[key] = tensor_value.numel()  # Store total number of elements
-
-                    # Create copies for each CP rank
-                    for _ in range(self.num_cp_ranks):
-                        combined_batch[key].append(tensor_value.clone())
+            # Now let's do the sharding on the batch for the different CP group members.
+            combined_batch = []
+            for cp_rank in range(self.num_cp_ranks):
+                input_ids_sharded, labels_sharded = get_batch_on_this_cp_rank(
+                    cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
+                    input_ids_padded=batch["input_ids"],
+                    labels_padded=batch["labels"],
+                    cp_group=self.cp_group,
+                    qvk_format="thd",
+                    cp_rank=cp_rank,
+                )
+                batch_shard = dict(batch)
+                batch_shard["input_ids"] = input_ids_sharded
+                batch_shard["labels"] = labels_sharded
+                combined_batch.append(batch_shard)
         else:
             combined_batch = None
-            tensor_sizes = {}
-            tensor_shapes = {}
 
-        # TODO: Calls get_batch_on_this_cp_rank(combined_batch) to generate shards.
-        # Combined_batch = [<obj_shard1>, <obj_shard2> ]
-        # Get the global rank of cp_rank=0 in this CP group (the source for broadcasts)
-        
-        # Broadcast tensor sizes to all ranks
-        size_tensor = torch.zeros(len(BATCH_KEYS_DTYPE), dtype=torch.int64, device=device)
-        if self.cp_rank == 0:
-            for i, key in enumerate(BATCH_KEYS_DTYPE.keys()):
-                size_tensor[i] = tensor_sizes.get(key, 1)
-        torch.distributed.broadcast(size_tensor, group_src=0, group=self.cp_group) # There's group_src. 
-        
-        # Broadcast tensor shapes (max 4 dimensions should be enough)
-        # Format: [ndim, dim0, dim1, dim2, dim3] for each key
-        shape_tensor = torch.zeros(len(BATCH_KEYS_DTYPE) * 5, dtype=torch.int64, device=device)
-        if self.cp_rank == 0:
-            for i, key in enumerate(BATCH_KEYS_DTYPE.keys()):
-                shape = tensor_shapes.get(key, (1,))
-                shape_tensor[i * 5] = len(shape)  # number of dimensions
-                for j, dim in enumerate(shape[:4]):  # max 4 dims
-                    shape_tensor[i * 5 + 1 + j] = dim
-        torch.distributed.broadcast(shape_tensor, group_src=0, group=self.cp_group)
-
-        # Reconstruct sizes and shapes on non-zero ranks
-        if self.cp_rank != 0:
-            for i, key in enumerate(BATCH_KEYS_DTYPE.keys()):
-                tensor_sizes[key] = size_tensor[i].item()
-                ndim = shape_tensor[i * 5].item()
-                shape = tuple(shape_tensor[i * 5 + 1: i * 5 + 1 + ndim].tolist())
-                tensor_shapes[key] = shape
-
-        # Create batch buffers with correct dtypes and sizes
-        batch_buffer = {}
-        for key, dtype in BATCH_KEYS_DTYPE.items():
-            size = tensor_sizes.get(key, 1)
-            batch_buffer[key] = torch.zeros(size, device=device, dtype=dtype)
-
-        # Scatter all values (now all tensors) across CP ranks
-        for key in BATCH_KEYS_DTYPE:
-            scatter_list = combined_batch[key] if combined_batch is not None else None
-            torch.distributed.scatter(
-                batch_buffer[key],      # Output: where received tensor is stored
-                scatter_list=scatter_list,  # Input: only used on source rank
-                group_src=0,     # Source rank (global rank of cp_rank=0 in this group)
-                group=self.cp_group,
-                async_op=True  # Turn on Async later.
-            )
-
+        scatter_object_output_list = [None]
+        # Note: This does not provide an async_op handle. Thus its blocking.
+        torch.distributed.scatter_object_list(
+            scatter_object_output_list=scatter_object_output_list,
+            scatter_object_input_list=combined_batch,
+            group=self.cp_group,
+            group_src=0,
+        )
         torch.distributed.barrier(group=self.cp_group)
-
-        # Reconstruct the dictionary batch from the batch buffer with original shapes
-        batch = {}
-        for key in BATCH_KEYS_DTYPE:
-            original_shape = tensor_shapes[key]
-            if original_shape == (1,):  # Scalar values (max_length_q, max_length_k)
-                batch[key] = batch_buffer[key].item()
-            else:
-                # Reshape back to original shape
-                batch[key] = batch_buffer[key].view(original_shape)
-
-        return batch
-
+        return scatter_object_output_list[0]
