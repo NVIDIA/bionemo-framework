@@ -288,7 +288,9 @@ jobs:
 
       - name: Run multi-GPU tests
         working-directory: ${{ matrix.recipe.dir }}
-        run: pytest -v -m "multi_gpu" . || exit 0  # Allow no tests found for recipes without multi-GPU tests
+        run: |
+          # Run multi-GPU tests, but allow exit code 5 (no tests found) to pass
+          pytest -v -m "multi_gpu" . || [ $? -eq 5 ]
 
   verify-recipe-tests:
     # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.

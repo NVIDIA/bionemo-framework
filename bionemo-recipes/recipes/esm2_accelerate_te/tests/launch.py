@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from transformer_engine.pytorch.fp8 import check_fp8_support
 
 import train
 
@@ -29,6 +30,12 @@ requires_multi_gpu = pytest.mark.skipif(
     not torch.cuda.is_available() or torch.cuda.device_count() < 2,
     reason="Test requires at least 2 GPUs",
 )
+
+
+def requires_fp8(func):
+    """Decorator to skip tests that require FP8 support."""
+    fp8_available, reason = check_fp8_support()
+    return pytest.mark.skipif(not fp8_available, reason=f"FP8 is not supported on this GPU: {reason}")(func)
 
 
 def extract_final_train_loss(output_text: str) -> float:
