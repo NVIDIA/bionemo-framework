@@ -15,14 +15,11 @@
 # 5. verify-recipe-tests: Verifies all test jobs completed successfully
 #
 # MULTI-GPU TEST EXECUTION:
-# Multi-GPU tests have these PREREQUISITES (must pass before multi-GPU tests run):
-# - changed directories exist
-# - single-GPU tests pass
-#
-# Then multi-GPU tests run if:
-# - On schedule (nightly)
-# - On PRs (push events) with labels: ciflow:all-recipes OR ciflow:multi-gpu
+# Multi-GPU tests run in these situations:
+# - On schedule (nightly): if changed dirs exist AND single-GPU tests pass
+# - On PRs (push events): if changed dirs exist AND (ciflow:all-recipes OR ciflow:multi-gpu)
 # - NOT on merge_group or any other events
+# Note: On push, multi-GPU tests run in parallel with single-GPU tests (no dependency)
 
 name: "BioNeMo Recipes CI"
 
@@ -235,14 +232,16 @@ jobs:
       - get-pr-labels
     runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
     # Run multi-GPU tests ONLY when:
-    # Prerequisites: changed dirs exist AND single-GPU tests pass
-    # Then run if: schedule OR (push with ciflow:all-recipes OR ciflow:multi-gpu label)
+    # 1. On schedule: if changed dirs exist AND single-GPU tests pass
+    # 2. On push: if changed dirs exist AND (ciflow:all-recipes OR ciflow:multi-gpu label)
     # Do NOT run on merge_group or any other events
     if: |
       (needs.changed-dirs.outputs.dirs != '[]') &&
-      (needs.unit-tests-single-gpu.result == 'success') &&
       (
-        github.event_name == 'schedule' ||
+        (
+          github.event_name == 'schedule' &&
+          needs.unit-tests-single-gpu.result == 'success'
+        ) ||
         (
           github.event_name == 'push' &&
           (

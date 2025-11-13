@@ -35,16 +35,13 @@
 # - run-tests-notebooks runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:notebooks)
 #
 # MULTI-GPU TEST EXECUTION:
-# Multi-GPU tests have these PREREQUISITES (must pass before multi-GPU tests run):
-# - build-bionemo-image succeeds
-# - corresponding single-GPU tests pass (fast or slow)
-#
-# Then multi-GPU tests run if:
-# - On schedule (nightly)
-# - On PRs (push events) with labels:
+# Multi-GPU tests run in these situations:
+# - On schedule (nightly): if build succeeds AND corresponding single-GPU tests pass
+# - On PRs (push events): if build succeeds AND labels match:
 #   * Fast multi-GPU: ciflow:all OR ciflow:multi-gpu
 #   * Slow multi-GPU: ciflow:all OR (ciflow:multi-gpu AND ciflow:slow)
 # - NOT on merge_group or any other events
+# Note: On push, multi-GPU tests run in parallel with single-GPU tests (no dependency)
 
 name: "BioNeMo Framework CI"
 
@@ -274,14 +271,16 @@ jobs:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
     # Run multi-GPU tests ONLY when:
-    # Prerequisites: build succeeds AND single-GPU tests pass
-    # Then run if: schedule OR (push with ciflow:all OR ciflow:multi-gpu label)
+    # 1. On schedule: if build succeeds AND single-GPU tests pass
+    # 2. On push: if build succeeds AND (ciflow:all OR ciflow:multi-gpu label)
     # Do NOT run on merge_group or any other events
     if: |
         (needs.build-bionemo-image.result == 'success') &&
-        (needs.run-tests-single-gpu.result == 'success') &&
         (
-          github.event_name == 'schedule' ||
+          (
+            github.event_name == 'schedule' &&
+            needs.run-tests-single-gpu.result == 'success'
+          ) ||
           (
             github.event_name == 'push' &&
             (
@@ -342,14 +341,16 @@ jobs:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
     # Run slow multi-GPU tests ONLY when:
-    # Prerequisites: build succeeds AND slow single-GPU tests pass
-    # Then run if: schedule OR (push with ciflow:all OR (ciflow:multi-gpu AND ciflow:slow))
+    # 1. On schedule: if build succeeds AND slow single-GPU tests pass
+    # 2. On push: if build succeeds AND (ciflow:all OR (ciflow:multi-gpu AND ciflow:slow))
     # Do NOT run on merge_group or any other events
     if: |
         (needs.build-bionemo-image.result == 'success') &&
-        (needs.run-tests-slow-single-gpu.result == 'success') &&
         (
-          github.event_name == 'schedule' ||
+          (
+            github.event_name == 'schedule' &&
+            needs.run-tests-slow-single-gpu.result == 'success'
+          ) ||
           (
             github.event_name == 'push' &&
             (
