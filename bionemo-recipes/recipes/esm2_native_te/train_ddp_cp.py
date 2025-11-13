@@ -136,8 +136,7 @@ def main(args: DictConfig) -> float | None:
         if args.use_sequence_packing
         else create_bshd_dataloader(dist_config, **args.dataset)
     )
-    train_dataloader = CPAwareDataloader(train_dataloader, dist_config, cp_group, cp_rank, max_seq_length=args.dataset.max_seq_length)
-
+    train_dataloader = CPAwareDataloader(train_dataloader, cp_group, cp_rank)
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.

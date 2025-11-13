@@ -243,20 +243,16 @@ def create_thd_dataloader(
 class CPAwareDataloader:
     """A dataloader that is aware of context parallelism."""
     def __init__(self, dataloader: StatefulDataLoader,
-                    dist_config: DistributedConfig,
                     cp_group: torch.distributed.ProcessGroup,
                     cp_rank: int,
-                    max_seq_length: int = 1024,
-                    dtype: torch.dtype = torch.float32,
                     ):
+        """Initialize the CPAwareDataloader."""
         self.dataloader = dataloader
-        self.dist_config = dist_config
         self.cp_rank = cp_rank
         self.cp_group = cp_group
         self.num_cp_ranks = cp_group.size()
-        self.max_len = max_seq_length
-        self.dtype = dtype
         self._iterator = None
+        
 
     def __iter__(self):
         """Make the dataloader iterable."""
@@ -264,6 +260,7 @@ class CPAwareDataloader:
         return self
 
     def __next__(self):
+        """Get the batch from the dataloader for the current CP rank."""
         batch = self._get_data_scatter_sharded()
         batch['pad_between_seqs'] = True
         return batch
