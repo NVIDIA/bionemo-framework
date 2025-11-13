@@ -13,13 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import sys
-from pathlib import Path
-
-
-sys.path.append(Path(__file__).parent.parent.as_posix())
-sys.path.append(Path(__file__).parent.as_posix())
-
 
 def pytest_configure(config):
     """Register custom markers."""
