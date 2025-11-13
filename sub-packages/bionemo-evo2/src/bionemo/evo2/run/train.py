@@ -55,7 +55,6 @@ from bionemo.evo2.models.peft import Evo2LoRA
 from bionemo.evo2.run.utils import infer_model_type, patch_eden_tokenizer
 from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
 from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
-from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -462,7 +461,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Log training parameters shapes and dtypes for debugging.",
     )
     parser.add_argument("--fsdp", action="store_true", default=False, help="Use FSDP for training.")
-    parser.add_argument("--nccl-ub", action="store_true", default=False, help="Enable the experimental NCCL userbuffer for communication overlap.")
+    parser.add_argument(
+        "--nccl-ub",
+        action="store_true",
+        default=False,
+        help="Enable the experimental NCCL userbuffer for communication overlap.",
+    )
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate.")
     parser.add_argument("--min-lr", type=float, default=3e-5, help="Min learning rate in cosine annealing.")
     parser.add_argument("--warmup-steps", type=int, default=2500, help="Number of warmup steps in cosine annealing")
@@ -856,7 +860,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         TimingCallback(),
-        TEVCallback(),
+        # TEVCallback(),
     ]
 
     # First batch CUDA sync callback: adds barriers for the first training batch to avoid race condition
@@ -922,7 +926,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             tp_comm_overlap_cfg = userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192
         else:
             tp_comm_overlap_cfg = userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192
-        
+
         if args.fsdp:
             extra_comm_olap_kwargs = {
                 "overlap_param_gather": True,
@@ -1073,7 +1077,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         ddp_kwargs = {
             "use_megatron_fsdp": True,
             "data_parallel_sharding_strategy": "optim_grads_params",
-            "fsdp_double_buffer": args.nccl_ub,  # needs to be True when using NCCL userbuffer
+            # "fsdp_double_buffer": args.nccl_ub,  # needs to be True when using NCCL userbuffer
+            "preserve_fp32_weights": True,
         }
         strategy_kwargs = {
             "fsdp": "megatron",
@@ -1179,7 +1184,14 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     # Remove earlier warmup and hook logic; first-batch blocking is sufficient.
 
     # Start training
+    torch.cuda.memory._record_memory_history(max_entries=250000)
     trainer.fit(model, data_module)
+    snapshot = torch.cuda.memory._snapshot()
+    from pickle import dump
+
+    print(os.getcwd())
+    with open("snapshot_fsdpv3.pickle", "wb") as f:
+        dump(snapshot, f)
     return trainer
 
 
