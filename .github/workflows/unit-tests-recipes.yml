@@ -15,9 +15,13 @@
 # 5. verify-recipe-tests: Verifies all test jobs completed successfully
 #
 # MULTI-GPU TEST EXECUTION:
-# Multi-GPU tests run ONLY in these situations:
-# - On schedule (nightly): if single-GPU tests pass AND there are changed directories
-# - On PRs: if there are changed directories AND ciflow:multi-gpu label is set
+# Multi-GPU tests have these PREREQUISITES (must pass before multi-GPU tests run):
+# - changed directories exist
+# - single-GPU tests pass
+#
+# Then multi-GPU tests run if:
+# - On schedule (nightly)
+# - On PRs (push events) with labels: ciflow:all-recipes OR ciflow:multi-gpu
 # - NOT on merge_group or any other events
 
 name: "BioNeMo Recipes CI"
@@ -231,19 +235,20 @@ jobs:
       - get-pr-labels
     runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
     # Run multi-GPU tests ONLY when:
-    # 1. On schedule (nightly) if single-GPU tests passed and there are changed dirs
-    # 2. On PRs (push events) if there are changed dirs AND ciflow:multi-gpu label is set
+    # Prerequisites: changed dirs exist AND single-GPU tests pass
+    # Then run if: schedule OR (push with ciflow:all-recipes OR ciflow:multi-gpu label)
     # Do NOT run on merge_group or any other events
     if: |
       (needs.changed-dirs.outputs.dirs != '[]') &&
+      (needs.unit-tests-single-gpu.result == 'success') &&
       (
-        (
-          github.event_name == 'schedule' &&
-          needs.unit-tests-single-gpu.result == 'success'
-        ) ||
+        github.event_name == 'schedule' ||
         (
           github.event_name == 'push' &&
-          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
+          (
+            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all-recipes') ||
+            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
+          )
         )
       )
     name: "unit-tests-multi-gpu (${{ matrix.recipe.name }})"
