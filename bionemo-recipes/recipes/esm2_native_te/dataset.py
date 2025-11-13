@@ -378,8 +378,10 @@ class CPAwareDataloader:
                 scatter_list=scatter_list,  # Input: only used on source rank
                 group_src=0,     # Source rank (global rank of cp_rank=0 in this group)
                 group=self.cp_group,
-                async_op=False  # Turn on Async later.
+                async_op=True  # Turn on Async later.
             )
+
+        torch.distributed.barrier(group=self.cp_group)
 
         # Reconstruct the dictionary batch from the batch buffer with original shapes
         batch = {}
