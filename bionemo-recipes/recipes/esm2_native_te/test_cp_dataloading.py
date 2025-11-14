@@ -145,15 +145,15 @@ def get_dummy_data_thd_dp1_nopadding():
     return batch
 
 class _DummyLoader:
-    """Minimal iterable that always yields the same batch."""
+    """Minimal iterable that always yields the same object (batch or list)."""
 
-    def __init__(self, batch: Dict[str, torch.Tensor]):
+    def __init__(self, batch):
         self._batch = batch
 
-    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
+    def __iter__(self) -> Iterator:
         return self
 
-    def __next__(self) -> Dict[str, torch.Tensor]:
+    def __next__(self):
         return copy.deepcopy(self._batch)
 
 
@@ -197,6 +197,24 @@ def _fake_get_batch(
         torch.cat(shard_tokens).unsqueeze(0),
         torch.cat(shard_labels).unsqueeze(0),
     )
+
+
+def _make_cp_shards(base_batch: Dict[str, torch.Tensor], cp_group: _DummyCPGroup):
+    combined_batch = []
+    for cp_rank in range(cp_group.size()):
+        input_ids_sharded, labels_sharded = _fake_get_batch(
+            cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
+            input_ids_padded=base_batch["input_ids"],
+            labels_padded=base_batch["labels"],
+            cp_group=cp_group,
+            qvk_format="thd",
+            cp_rank=cp_rank,
+        )
+        batch_shard = dict(base_batch)
+        batch_shard["input_ids"] = input_ids_sharded
+        batch_shard["labels"] = labels_sharded
+        combined_batch.append(batch_shard)
+    return combined_batch
 
 def test_pad_thd_sequences_for_cp():
     pid = 1 # The pad token id.
@@ -260,10 +278,34 @@ def test_dataloader_scatter_nopadding():
     cp_group = _DummyCPGroup(size=2)
 
     def run_roundtrip(base_batch):
-        loader_rank0 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=0)
-        loader_rank1 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=1)
+        combined_batch = [
+            dict(
+                base_batch,
+                **{
+                    "input_ids": split_batch_by_cp_rank(
+                        cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
+                        input_ids_padded=base_batch["input_ids"],
+                        labels_padded=base_batch["labels"],
+                        qvk_format="thd",
+                        cp_rank=cp_rank,
+                        cp_world_size=cp_group.size(),
+                    )[0],
+                    "labels": split_batch_by_cp_rank(
+                        cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
+                        input_ids_padded=base_batch["input_ids"],
+                        labels_padded=base_batch["labels"],
+                        qvk_format="thd",
+                        cp_rank=cp_rank,
+                        cp_world_size=cp_group.size(),
+                    )[1],
+                },
+            )
+            for cp_rank in range(cp_group.size())
+        ]
+        loader_rank0 = CPAwareDataloader(_DummyLoader(combined_batch), cp_group, cp_rank=0)
+        loader_rank1 = CPAwareDataloader(_DummyLoader(combined_batch), cp_group, cp_rank=1)
 
-        scatter_payload: Dict[int, Dict[str, torch.Tensor]] = {}
+        scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
         current_rank = {"value": None}
 
         def fake_scatter(
@@ -274,14 +316,11 @@ def test_dataloader_scatter_nopadding():
             group_src,
         ):
             if scatter_object_input_list is not None:
-                scatter_payload[0] = scatter_object_input_list
-            assert 0 in scatter_payload, "Rank 0 payload missing"
-            scatter_object_output_list[0] = scatter_payload[0]
+                scatter_payload["data"] = scatter_object_input_list
+            assert "data" in scatter_payload, "Rank 0 payload missing"
+            scatter_object_output_list[0] = scatter_payload["data"][current_rank["value"]]
 
-        
-
-        with mock.patch("utils.split_batch_by_cp_rank", side_effect=_fake_get_batch) as mock_get_batch, \
-             mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter), \
+        with mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter), \
              mock.patch("dataset.torch.distributed.barrier", return_value=None):
             iter(loader_rank0)
             iter(loader_rank1)
@@ -292,24 +331,20 @@ def test_dataloader_scatter_nopadding():
             current_rank["value"] = 1
             batch_cp1 = next(loader_rank1)
 
-        return batch_cp0, batch_cp1, mock_get_batch
+        return batch_cp0, batch_cp1
 
-    batch_dp0_cp0, batch_dp0_cp1, mock_dp0 = run_roundtrip(get_dummy_data_thd_dp0_nopadding())
+    batch_dp0_cp0, batch_dp0_cp1 = run_roundtrip(get_dummy_data_thd_dp0_nopadding())
     torch.testing.assert_close(batch_dp0_cp0["input_ids"], torch.tensor([[1, 2, 7, 8]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp0_cp0["labels"], torch.tensor([[10, 20, 70, 80]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp0_cp1["input_ids"], torch.tensor([[3, 4, 5, 6]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp0_cp1["labels"], torch.tensor([[30, 40, 50, 60]], dtype=torch.int64))
 
-    batch_dp1_cp0, batch_dp1_cp1, _ = run_roundtrip(get_dummy_data_thd_dp1_nopadding())
+    batch_dp1_cp0, batch_dp1_cp1 = run_roundtrip(get_dummy_data_thd_dp1_nopadding())
 
     torch.testing.assert_close(batch_dp1_cp0["input_ids"], torch.tensor([[9, 10, 15 ,16]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp1_cp0["labels"], torch.tensor([[90, 100, 150, 160]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp1_cp1["input_ids"], torch.tensor([[11, 12, 13, 14]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp1_cp1["labels"], torch.tensor([[110, 120, 130, 140]], dtype=torch.int64))
-
-    called_ranks = [kwargs["cp_rank"] for _, kwargs in mock_dp0.call_args_list]
-    assert called_ranks == [0, 1]
-
 
 def test_dataloader_scatter_with_pad_between_seqs():
     f"""
@@ -327,10 +362,34 @@ def test_dataloader_scatter_with_pad_between_seqs():
     cp_group = _DummyCPGroup(size=2)
 
     def run_roundtrip(base_batch):
-        loader_rank0 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=0)
-        loader_rank1 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=1)
+        combined_batch = [
+            dict(
+                base_batch,
+                **{
+                    "input_ids": split_batch_by_cp_rank(
+                        cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
+                        input_ids_padded=base_batch["input_ids"],
+                        labels_padded=base_batch["labels"],
+                        qvk_format="thd",
+                        cp_rank=cp_rank,
+                        cp_world_size=cp_group.size(),
+                    )[0],
+                    "labels": split_batch_by_cp_rank(
+                        cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
+                        input_ids_padded=base_batch["input_ids"],
+                        labels_padded=base_batch["labels"],
+                        qvk_format="thd",
+                        cp_rank=cp_rank,
+                        cp_world_size=cp_group.size(),
+                    )[1],
+                },
+            )
+            for cp_rank in range(cp_group.size())
+        ]
+        loader_rank0 = CPAwareDataloader(_DummyLoader(combined_batch), cp_group, cp_rank=0)
+        loader_rank1 = CPAwareDataloader(_DummyLoader(combined_batch), cp_group, cp_rank=1)
 
-        scatter_payload: Dict[int, Dict[str, torch.Tensor]] = {}
+        scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
         current_rank = {"value": None}
 
         def fake_scatter(
@@ -341,14 +400,11 @@ def test_dataloader_scatter_with_pad_between_seqs():
             group_src,
         ):
             if scatter_object_input_list is not None:
-                scatter_payload[0] = scatter_object_input_list
-            assert 0 in scatter_payload, "Rank 0 payload missing"
-            scatter_object_output_list[0] = scatter_payload[0]
+                scatter_payload["data"] = scatter_object_input_list
+            assert "data" in scatter_payload, "Rank 0 payload missing"
+            scatter_object_output_list[0] = scatter_payload["data"][current_rank["value"]]
 
-        
-
-        with mock.patch("utils.split_batch_by_cp_rank", side_effect=_fake_get_batch) as mock_get_batch, \
-             mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter), \
+        with mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter), \
              mock.patch("dataset.torch.distributed.barrier", return_value=None):
             iter(loader_rank0)
             iter(loader_rank1)
@@ -359,24 +415,17 @@ def test_dataloader_scatter_with_pad_between_seqs():
             current_rank["value"] = 1
             batch_cp1 = next(loader_rank1)
 
-        return batch_cp0, batch_cp1, mock_get_batch
+        return batch_cp0, batch_cp1
 
-    batch_dp0_cp0, batch_dp0_cp1, mock_dp0 = run_roundtrip(get_dummy_data_thd_with_padding_dp0(cp_size=2))
+    batch_dp0_cp0, batch_dp0_cp1 = run_roundtrip(get_dummy_data_thd_with_padding_dp0(cp_size=2))
 
-    print("batch_dp0_cp0['input_ids']", batch_dp0_cp0["input_ids"])
-    print("batch_dp0_cp0['labels']", batch_dp0_cp0["labels"])
-    print("batch_dp0_cp1['input_ids']", batch_dp0_cp1["input_ids"])
-    print("batch_dp0_cp1['labels']", batch_dp0_cp1["labels"])
     torch.testing.assert_close(batch_dp0_cp0["input_ids"], torch.tensor([[1, 1, 5, 1]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp0_cp1["input_ids"], torch.tensor([[2, 3, 6, 1]], dtype=torch.int64))
 
-    batch_dp1_cp0, batch_dp1_cp1, _ = run_roundtrip(get_dummy_data_thd_with_padding_dp1(cp_size=2))
+    batch_dp1_cp0, batch_dp1_cp1 = run_roundtrip(get_dummy_data_thd_with_padding_dp1(cp_size=2))
 
     torch.testing.assert_close(batch_dp1_cp0["input_ids"], torch.tensor([[9, 1, 13, 1]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp1_cp1["input_ids"], torch.tensor([[10, 11, 14, 15]], dtype=torch.int64))
-
-    called_ranks = [kwargs["cp_rank"] for _, kwargs in mock_dp0.call_args_list]
-    assert called_ranks == [0, 1]
 
 if __name__ == "__main__":
     unittest.main()
