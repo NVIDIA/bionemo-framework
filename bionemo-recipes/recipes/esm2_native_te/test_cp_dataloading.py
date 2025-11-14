@@ -7,7 +7,7 @@ from unittest import mock
 import torch
 
 from dataset import CPAwareDataloader
-from utils import get_dummy_data_thd_dp0_nopadding, get_dummy_data_thd_dp1_nopadding
+from utils import get_dummy_data_thd_dp0_nopadding, get_dummy_data_thd_dp1_nopadding, get_dummy_data_thd_with_padding_dp0, get_dummy_data_thd_with_padding_dp1
 
 class _DummyLoader:
     """Minimal iterable that always yields the same batch."""
@@ -64,9 +64,11 @@ def _fake_get_batch(
     )
 
 
+
+
 def test_dataloader_scatter_nopadding():
     """
-    Test 1. Using no additional padding, with CP=2, DP=2, ensure that the data is scattered correctly.
+    Test single sequence on two dataloader ranks with no additional padding, with CP=2, DP=2, ensure that the data is scattered correctly.
     There are going to be 4 shards. CP0, CP1 (for context parallel) and DP0, DP1 (for data parallel).
     DP0 will return [1,2,3,4,5,6,7,8] and DP1 will return [9,10,11,12,13,14,15,16].
     CP0 will receive [1,2,7,8] and CP1 will receive [3,4,5,6]. (from DP0)
@@ -113,7 +115,6 @@ def test_dataloader_scatter_nopadding():
         return batch_cp0, batch_cp1, mock_get_batch
 
     batch_dp0_cp0, batch_dp0_cp1, mock_dp0 = run_roundtrip(get_dummy_data_thd_dp0_nopadding())
-
     torch.testing.assert_close(batch_dp0_cp0["input_ids"], torch.tensor([[1, 2, 7, 8]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp0_cp0["labels"], torch.tensor([[10, 20, 70, 80]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp0_cp1["input_ids"], torch.tensor([[3, 4, 5, 6]], dtype=torch.int64))
@@ -125,6 +126,73 @@ def test_dataloader_scatter_nopadding():
     torch.testing.assert_close(batch_dp1_cp0["labels"], torch.tensor([[90, 100, 150, 160]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp1_cp1["input_ids"], torch.tensor([[11, 12, 13, 14]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp1_cp1["labels"], torch.tensor([[110, 120, 130, 140]], dtype=torch.int64))
+
+    called_ranks = [kwargs["cp_rank"] for _, kwargs in mock_dp0.call_args_list]
+    assert called_ranks == [0, 1]
+
+
+def test_dataloader_scatter_with_pad_between_seqs():
+    f"""
+    Here we are going to test two sequences using two dataloaders with padding. We use CP=2, DP=2 and
+    ensure that the data is scattered correctly.
+    There are going to be 4 shards. CP0, CP1 (for context parallel) and DP0, DP1 (for data parallel).
+    DP0 will return [1,2,3,<p> | 5,6,<p>,<p>]
+    DP1 will return [9,10,11,<p> | 13,14,15,<p>]
+
+    We notice that CP sharding grabs slices of each sequence. Thus, CP0 grabs the first and last slices, while CP1 grabs the middle slices.
+        |   DP0       |       DP1      |
+    CP0 | 1,<p>,5,<p> | 9, <p>, 13, <p>|
+    CP1 | 2,3,6, <p>  | 10, 11, 14, 15 |
+    """
+    cp_group = _DummyCPGroup(size=2)
+
+    def run_roundtrip(base_batch):
+        loader_rank0 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=0)
+        loader_rank1 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=1)
+
+        scatter_payload: List[Dict[str, torch.Tensor]] | None = None
+        current_rank = {"value": None}
+
+        def fake_scatter(
+            *,
+            scatter_object_output_list,
+            scatter_object_input_list,
+            group,
+            group_src,
+        ):
+            nonlocal scatter_payload
+            if scatter_object_input_list is not None:
+                scatter_payload = scatter_object_input_list
+            assert scatter_payload is not None
+            scatter_object_output_list[0] = scatter_payload[current_rank["value"]]
+
+        with mock.patch("dataset.get_batch_on_this_cp_rank", side_effect=_fake_get_batch) as mock_get_batch, \
+             mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter), \
+             mock.patch("dataset.torch.distributed.barrier", return_value=None):
+            iter(loader_rank0)
+            iter(loader_rank1)
+
+            current_rank["value"] = 0
+            batch_cp0 = next(loader_rank0)
+
+            current_rank["value"] = 1
+            batch_cp1 = next(loader_rank1)
+
+        return batch_cp0, batch_cp1, mock_get_batch
+
+    batch_dp0_cp0, batch_dp0_cp1, mock_dp0 = run_roundtrip(get_dummy_data_thd_with_padding_dp0(cp_size=2))
+
+    print("batch_dp0_cp0['input_ids']", batch_dp0_cp0["input_ids"])
+    print("batch_dp0_cp0['labels']", batch_dp0_cp0["labels"])
+    print("batch_dp0_cp1['input_ids']", batch_dp0_cp1["input_ids"])
+    print("batch_dp0_cp1['labels']", batch_dp0_cp1["labels"])
+    torch.testing.assert_close(batch_dp0_cp0["input_ids"], torch.tensor([[1, 1, 5, 1]], dtype=torch.int64))
+    torch.testing.assert_close(batch_dp0_cp1["input_ids"], torch.tensor([[2, 3, 6, 1]], dtype=torch.int64))
+
+    batch_dp1_cp0, batch_dp1_cp1, _ = run_roundtrip(get_dummy_data_thd_with_padding_dp1(cp_size=2))
+
+    torch.testing.assert_close(batch_dp1_cp0["input_ids"], torch.tensor([[9, 1, 13, 1]], dtype=torch.int64))
+    torch.testing.assert_close(batch_dp1_cp1["input_ids"], torch.tensor([[10, 11, 14, 15]], dtype=torch.int64))
 
     called_ranks = [kwargs["cp_rank"] for _, kwargs in mock_dp0.call_args_list]
     assert called_ranks == [0, 1]

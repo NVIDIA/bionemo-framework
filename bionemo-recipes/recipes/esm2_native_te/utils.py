@@ -141,6 +141,80 @@ def get_dummy_data_thd(cp_size: int):
     return batch
 
 
+def get_dummy_data_thd_with_padding_dp0(cp_size: int):
+    pid = 1 # The pad token id.
+    label_pad = -100 # The label pad id.
+
+    # Make some fake data.
+    input_ids = torch.tensor([
+                1, 2, 3, 5, 6
+            ])
+    labels = torch.tensor([
+        10, 20, 30, 50, 60,
+    ])
+    cu_seqlens_q = torch.tensor([0, 3, 5])
+    divisibility_factor = 2 * cp_size
+
+    input_ids_padded, labels_padded, cu_seqlens_q_padded = \
+                pad_thd_sequences_for_cp(
+                    input_ids.unsqueeze(0),
+                    labels.unsqueeze(0),
+                    cu_seqlens_q,
+                    divisibility_factor,
+                    padding_token_id=pid,
+                    padding_label_id=label_pad
+                )
+
+    batch = {
+        "input_ids": input_ids_padded.unsqueeze(0).to(torch.int64), # Add batch dim: [1, seq_len]
+        "labels": labels_padded.unsqueeze(0).to(torch.int64), # [1, seq_len]
+        "cu_seq_lens_q_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
+        "cu_seq_lens_k_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
+        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
+        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
+        "max_length_q": 8,
+        "max_length_k": 8,
+    }
+    return batch
+
+
+def get_dummy_data_thd_with_padding_dp1(cp_size: int):
+    pid = 1 # The pad token id.
+    label_pad = -100 # The label pad id.
+
+    # Make some fake data.
+    input_ids = torch.tensor([
+                9, 10, 11, 13, 14, 15,
+            ])
+    labels = torch.tensor([
+        90, 100, 110, 130, 140, 150,
+    ])
+    cu_seqlens_q = torch.tensor([0, 3, 6])
+    divisibility_factor = 2 * cp_size
+
+    input_ids_padded, labels_padded, cu_seqlens_q_padded = \
+                pad_thd_sequences_for_cp(
+                    input_ids.unsqueeze(0),
+                    labels.unsqueeze(0),
+                    cu_seqlens_q,
+                    divisibility_factor,
+                    padding_token_id=pid,
+                    padding_label_id=label_pad
+                )
+
+    batch = {
+        "input_ids": input_ids_padded.unsqueeze(0).to(torch.int64), # Add batch dim: [1, seq_len]
+        "labels": labels_padded.unsqueeze(0).to(torch.int64), # [1, seq_len]
+        "cu_seq_lens_q_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
+        "cu_seq_lens_k_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
+        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
+        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
+        "max_length_q": 8,
+        "max_length_k": 8,
+    }
+    return batch
+
+
 def get_dummy_data_thd_dp0_nopadding():
     pid = 1 # The pad token id.
     label_pad = -100 # The label pad id.
