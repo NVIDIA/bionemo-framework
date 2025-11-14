@@ -1196,14 +1196,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     # Remove earlier warmup and hook logic; first-batch blocking is sufficient.
 
     # Start training
-    torch.cuda.memory._record_memory_history(max_entries=250000)
     trainer.fit(model, data_module)
-    snapshot = torch.cuda.memory._snapshot()
-    from pickle import dump
-
-    print(os.getcwd())
-    with open("snapshot_fsdpv3.pickle", "wb") as f:
-        dump(snapshot, f)
     return trainer
 
 
