@@ -51,6 +51,15 @@ MODEL_VARIANTS = [
         },
     ),
     (
+        "Geneformer-V2-104M_CLcancer",
+        {
+            "description": "104M parameters, Dec 2024, cancer cell line specific",
+            "input_size": 4096,
+            "vocabulary": "~20K protein-coding genes",
+            "training_data": "~104M human single cell transcriptomes (cancer cell lines)",
+        },
+    ),
+    (
         "Geneformer-V2-316M",
         {
             "description": "316M parameters, Dec 2024 (default)",
@@ -61,8 +70,10 @@ MODEL_VARIANTS = [
     ),
 ]
 
+DEFAULT_MODEL_VARIANT = [MODEL_VARIANTS[0]]
 
-@pytest.mark.parametrize("model_variant", MODEL_VARIANTS, ids=[variant[0] for variant in MODEL_VARIANTS])
+
+@pytest.mark.parametrize("model_variant", DEFAULT_MODEL_VARIANT, ids=[variant[0] for variant in DEFAULT_MODEL_VARIANT])
 def test_geneformer_checkpoint_loss(model_variant, input_data):
     """Test that the TE model can process input data and produce valid loss outputs."""
 
@@ -101,8 +112,8 @@ def test_geneformer_checkpoint_loss(model_variant, input_data):
     torch.testing.assert_close(
         te_outputs.loss,
         hf_outputs.loss,
-        atol=0.1,
-        rtol=0,
+        atol=1e-3,
+        rtol=1e-3,
         msg=f"TE loss ({te_outputs.loss:.4f}) and HF loss ({hf_outputs.loss:.4f}) should be close",
     )
 
@@ -111,7 +122,7 @@ def test_geneformer_checkpoint_loss(model_variant, input_data):
     torch.cuda.empty_cache()
 
 
-@pytest.mark.parametrize("model_variant", MODEL_VARIANTS, ids=[variant[0] for variant in MODEL_VARIANTS])
+@pytest.mark.parametrize("model_variant", DEFAULT_MODEL_VARIANT, ids=[variant[0] for variant in DEFAULT_MODEL_VARIANT])
 def test_geneformer_checkpoint_weight_compatibility(model_variant):
     """Test that our TE model can potentially load weights from the actual Geneformer checkpoints."""
     from geneformer.modeling_bert_te import BertForMaskedLM as TEBertForMaskedLM

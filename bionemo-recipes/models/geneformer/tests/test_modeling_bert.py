@@ -78,56 +78,55 @@ def test_te_bert_layer_and_hf_bert_layer_same_output_shapes(get_config):
     assert te_output[0].shape == hf_output[0].shape
 
 
-def test_te_bert_layer_and_hf_bert_layer_similar_output_values(get_config):
+def test_te_bert_layer_and_hf_bert_layer_similar_output_values_random_inputs(get_config):
     """Test that TE and HF BERT layers have similar output values using proper conversion."""
-    from accelerate import init_empty_weights
-    from nemo.lightning import io
+    from geneformer.convert import convert_geneformer_hf_to_te
 
-    from geneformer.convert import _pack_qkv_bias, _pack_qkv_weight, mapping
+    hf_config = BertConfig(**get_config.to_dict())
+    hf_model = BertForMaskedLM(hf_config)
 
-    hf_model = BertForMaskedLM(get_config).cuda()
-    te_config = BertConfig(**get_config.to_dict())
-    te_config.use_te_layers = True
-    te_config.fuse_qkv_params = True
-    with init_empty_weights():
-        te_model = BertForMaskedLM(te_config)
-    # map weights from hf to te
-    te_model = io.apply_transforms(
-        hf_model,
-        te_model,
-        mapping,
-        [_pack_qkv_weight, _pack_qkv_bias],
-        state_dict_ignored_entries=["cls.predictions.decoder.weight", "cls.predictions.decoder.bias"],
-    )
+    # Convert HF model to TE format using the conversion utility
+    te_model = convert_geneformer_hf_to_te(hf_model)
+
+    hf_model = hf_model.cuda()
     te_model = te_model.cuda()
+
+    # Verify all weights are properly initialized (not NaN or uninitialized)
+    for name, param in te_model.named_parameters():
+        if param.requires_grad:
+            assert not torch.isnan(param).any(), f"Parameter {name} contains NaN values after weight transfer"
+            assert not torch.isinf(param).any(), f"Parameter {name} contains Inf values after weight transfer"
+
+    te_model.eval()
+    hf_model.eval()
     # Extract the BertLayer from the models
     te_bert_layer = te_model.bert.encoder.layer[0]
     hf_bert_layer = hf_model.bert.encoder.layer[0]
+
     # Send in a random input of shape (12, 2048, 256) into both and confirm that they have the same output
+    torch.manual_seed(18)
     random_input = torch.randn(12, 2048, 256).cuda()
     with torch.no_grad():
         te_output = te_bert_layer(hidden_states=random_input)
         hf_output = hf_bert_layer(hidden_states=random_input)
+
     # With identical weights, outputs should be very close (allowing for numerical differences)
-    assert torch.abs(te_output[0] - hf_output[0]).mean() < 0.07
+    torch.testing.assert_close(te_output[0], hf_output[0], atol=2e-4, rtol=5e-3)
 
 
 def test_geneformer_model_loss_validity(input_data, get_config):
     """Test that the geneformer model produces valid loss values."""
+    from geneformer.convert import convert_geneformer_hf_to_te
 
-    te_config = get_config
-    te_config.use_te_layers = True
-    te_config.fuse_qkv_params = True
-    te_model = BertForMaskedLM(te_config)
+    # Create HF model first
+    hf_model = BertForMaskedLM(get_config)
 
-    hf_config = BertConfig(**get_config.to_dict())
-    hf_config.use_te_layers = False
-    hf_config.fuse_qkv_params = False
-    hf_model = BertForMaskedLM(hf_config)
+    # Convert HF model to TE format using the conversion utility
+    te_model = convert_geneformer_hf_to_te(hf_model)
 
     device = torch.device("cuda")
-    te_model.to(device)
-    hf_model.to(device)
+    hf_model = hf_model.to(device)
+    te_model = te_model.to(device)
 
     input_data = {k: v.to(device) for k, v in input_data.items()}
 
@@ -141,7 +140,7 @@ def test_geneformer_model_loss_validity(input_data, get_config):
         assert not torch.isnan(outputs.loss), f"{model_name} model loss should not be NaN"
         assert not torch.isinf(outputs.loss), f"{model_name} model loss should not be infinite"
 
-    torch.testing.assert_close(te_outputs.loss, hf_outputs.loss, atol=1e-1, rtol=1e-2)
+    torch.testing.assert_close(te_outputs.loss, hf_outputs.loss, atol=1e-2, rtol=1e-3)
 
 
 def test_geneformer_model_logits_shape(input_data, te_config):
@@ -181,7 +180,6 @@ def test_geneformer_model_loss_convergence(input_data, te_config):
             loss = outputs.loss
         loss.backward()
         optimizer.step()
-        losses.append(loss.item())
+        losses.append(loss.detach().item())
     # Check that final loss is lower than initial loss
-    print(losses)
     assert losses[-1] < losses[0], f"Final loss {losses[-1]} should be lower than initial loss {losses[0]}"
