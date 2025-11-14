@@ -26,7 +26,7 @@ from transformers import (
 )
 
 from convert import convert_llama_hf_to_te
-from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
+from modeling_llama_te import HFInferenceParams, NVLlamaConfig, NVLlamaForCausalLM
 
 
 @pytest.fixture
@@ -289,6 +289,55 @@ def test_te_llama_model_generate_with_cache_bshd():
             max_new_tokens=16,
             use_cache=True,
             past_key_values=past_key_values,
+        )
+
+    generated_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+    assert "http://www.apache.org/licenses/LICENSE-2.0" in generated_text[0]
+    assert "et dolore magna aliqua. Ut enim ad minim " in generated_text[1]
+
+
+@pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
+def test_te_llama_model_generate_with_cache_bshd_beam_search():
+    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
+    model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
+    model_te = convert_llama_hf_to_te(model_hf)
+
+    prompt = (
+        """
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at""",
+        "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore",
+    )
+
+    tokenizer.pad_token = tokenizer.eos_token
+    inputs = tokenizer(prompt, return_tensors="pt", padding=True, padding_side="left")
+    inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    model_te.to("cuda")
+
+    num_beams = 2
+
+    past_key_values = HFInferenceParams(
+        max_batch_size=2 * num_beams,
+        max_sequence_length=256,
+        num_heads_kv=model_te.config.num_key_value_heads,
+        head_dim_k=model_te.config.hidden_size // model_te.config.num_attention_heads,
+        dtype=torch.bfloat16,
+        qkv_format="thd",
+        max_ctx_len=256,
+    )
+
+    for layer_number in range(1, model_te.config.num_hidden_layers + 1):
+        past_key_values.allocate_memory(layer_number)
+
+    with torch.no_grad():
+        output_ids = model_te.generate(
+            **inputs,
+            max_new_tokens=16,
+            use_cache=True,
+            past_key_values=past_key_values,
+            num_beams=num_beams,
+            do_sample=True,
         )
 
     generated_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)

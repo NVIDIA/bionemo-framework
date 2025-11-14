@@ -21,6 +21,7 @@ import torch.nn as nn
 import transformer_engine.pytorch
 import transformers
 from transformer_engine.pytorch.attention import InferenceParams
+from transformer_engine.pytorch.attention.inference import PagedKVCacheManager
 from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
 from transformers import LlamaConfig, PreTrainedModel
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
@@ -124,6 +125,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         has_thd_input = [x in kwargs for x in ["cu_seq_lens_q", "cu_seq_lens_k", "max_length_q", "max_length_k"]]
         should_pack_inputs = not any(has_thd_input)
 
+        # This might be slower for BSHD + padding with fused attention backend. But it should be faster for the flash
+        # attention backend.
         if should_pack_inputs:
             # Left-side padding is not supported in TE layers, so to make generation work with TE we dynamically convert
             # to THD-style inputs in our forward pass, and then convert back to BSHD for the output. This lets the
@@ -295,6 +298,9 @@ class NVLlamaForTokenClassification(  # noqa: D101
 ): ...
 
 
+torch._dynamo.config.capture_scalar_outputs = True
+
+
 @torch.compile
 def _pad_input(hidden_states, indices, batch, seqlen):
     """Convert a THD tensor to a BSHD equivalent tensor.
@@ -360,3 +366,16 @@ def _unpad_input(hidden_states, attention_mask, unused_mask=None):
         max_seqlen_in_batch,
         used_seqlens_in_batch,
     )
+
+
+class HFInferenceParams(InferenceParams):
+    """Extension of the InferenceParams class to support beam search."""
+
+    def reorder_cache(self, beam_idx: torch.LongTensor):
+        """Reorder the cache based on the beam indices."""
+        if isinstance(self.cache_manager, PagedKVCacheManager):
+            raise NotImplementedError("Beam search is not supported for paged cache manager.")
+        for layer_number, (key_cache, value_cache) in self.cache_manager.cache.items():
+            updated_key_cache = key_cache.index_select(0, beam_idx)
+            updated_value_cache = value_cache.index_select(0, beam_idx)
+            self.cache_manager.cache[layer_number] = (updated_key_cache, updated_value_cache)
