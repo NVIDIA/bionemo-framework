@@ -189,7 +189,7 @@ class NVEsmEncoder(nn.Module):
                 kwargs.get("cu_seq_lens_k", None),
                 kwargs.get("max_length_q", None),
                 kwargs.get("max_length_k", None),
-            ] # TODO(@jomitchell): Add cu_seq_lens_q_padded and cu_seq_lens_k_padded.
+            ]
         ]
 
         if self.config.attn_input_format == "thd":

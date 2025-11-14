@@ -82,7 +82,7 @@ def main(args: DictConfig) -> float | None:
     )
 
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, use_cp=True, dtype=torch.bfloat16)
+    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, token_dropout=False, use_cp=True, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -116,10 +116,6 @@ def main(args: DictConfig) -> float | None:
     )
     cp_group = device_mesh["cp"].get_group()
     cp_rank = device_mesh.get_local_rank("cp")
-    # print("Model: ", model)
-    # print("Model.module: ", model.module)
-    # print("Model.module.esm: ", model.module.esm)
-    # print("Model.module.esm.encoder: ", model.module.esm.encoder)
     
     if args.cp_size > 1:
         for i, transformer_layer in enumerate(model.module.esm.encoder.layers):

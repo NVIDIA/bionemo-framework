@@ -31,19 +31,6 @@ from distributed_config import DistributedConfig
 from utils import get_batch_on_this_cp_rank
 logger = logging.getLogger(__name__)
 
-# TODO(@jomitchell): Create an enum for the batch keys, which we can then use later.
-
-#FOR CP --> Make into ENUM later.
-BATCH_KEYS_DTYPE = {
-    'input_ids': torch.int64,
-    'labels': torch.int64,
-    'cu_seq_lens_q': torch.int32,
-    'cu_seq_lens_k': torch.int32,
-    'cu_seq_lens_q_padded': torch.int32,
-    'cu_seq_lens_q_padded': torch.int32,
-    'max_length_q': torch.int32,  # regular int
-    'max_length_k': torch.int32,  # regular int
-}
 
 def create_tokenized_dataset(
     distributed_config: DistributedConfig,
@@ -159,7 +146,6 @@ def create_bshd_dataloader(
         collate_fn=data_collator,
         num_workers=num_workers,
         pin_memory=True if not use_stateful_dataloader else False,
-        persistent_workers=num_workers > 0,  # DELETEME
     )
 
     return train_dataloader, tokenized_dataset if sampler is None else sampler
@@ -201,7 +187,6 @@ def create_thd_dataloader(
     Returns:
         A dataloader that can be used for training.
     """
-    # If cp_rank not 0 return none.
     tokenized_dataset, tokenizer = create_tokenized_dataset(
         distributed_config=distributed_config,
         tokenizer_name=tokenizer_name,
@@ -235,7 +220,6 @@ def create_thd_dataloader(
         collate_fn=data_collator,
         num_workers=num_workers,
         pin_memory=True if not use_stateful_dataloader else False,
-        persistent_workers=num_workers > 0,  # TODO: DELETEME
     )
     return train_dataloader, tokenized_dataset
 
@@ -317,5 +301,5 @@ class CPAwareDataloader:
             group=self.cp_group,
             group_src=0,
         )
-        torch.distributed.barrier(group=self.cp_group)
+        torch.distributed.barrier(group=self.cp_group)  # TODO(@jomitchell): Might not need this since its sync.
         return scatter_object_output_list[0]

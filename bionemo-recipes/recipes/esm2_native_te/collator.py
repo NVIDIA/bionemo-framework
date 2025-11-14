@@ -250,8 +250,8 @@ class MLMDataCollatorWithFlattening:
                 self.pad_sequences_to_be_divisible_by,
                 padding_token_id=int(
                     self.mlm_collator.tokenizer.pad_token_id
-                ),  # TODO(@jomitchell): Ensure this is correct
-                padding_label_id=-100,  # TODO(@jomitchell): Ensure this is correct
+                ),
+                padding_label_id=-100, # TODO(@jomitchell): Get this from config?
             )
             batch["input_ids"] = input_ids_padded.unsqueeze(0)
             batch["labels"] = labels_padded.unsqueeze(0)
