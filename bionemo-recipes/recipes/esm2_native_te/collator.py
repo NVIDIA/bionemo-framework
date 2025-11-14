@@ -251,7 +251,7 @@ class MLMDataCollatorWithFlattening:
                 padding_token_id=int(
                     self.mlm_collator.tokenizer.pad_token_id
                 ),
-                padding_label_id=-100, # TODO(@jomitchell): Get this from config?
+                padding_label_id=-100,
             )
             batch["input_ids"] = input_ids_padded.unsqueeze(0)
             batch["labels"] = labels_padded.unsqueeze(0)
