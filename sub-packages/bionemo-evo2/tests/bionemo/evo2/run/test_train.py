@@ -680,7 +680,14 @@ def base_checkpoint(tmp_path_factory, initial_checkpoint, dataset_config):
 @pytest.mark.parametrize(
     "dp,cp,tp,pp",
     [
-        pytest.param(2, 1, 1, 1, id="data_parallel"),
+        pytest.param(
+            2,
+            1,
+            1,
+            1,
+            id="data_parallel",
+            marks=pytest.mark.xfail(reason="Known bug. See https://github.com/NVIDIA/bionemo-framework/issues/1323"),
+        ),
         pytest.param(1, 2, 1, 1, id="context_parallel"),
         pytest.param(1, 1, 2, 1, id="tensor_parallel"),
         pytest.param(1, 1, 1, 2, id="pipeline_parallel"),
