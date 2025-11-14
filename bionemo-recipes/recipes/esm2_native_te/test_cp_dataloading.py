@@ -1,157 +1,133 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-Apache2
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+import copy
+import unittest
+from typing import Dict, Iterator, List
 
-import logging
-from pathlib import Path
+from unittest import mock
 
-import hydra
 import torch
-import transformer_engine.pytorch
 
-from omegaconf import DictConfig
-from torch.distributed.device_mesh import init_device_mesh
-from torch.optim import AdamW
-from transformer_engine.common.recipe import Format
-from transformers import AutoConfig, AutoModelForMaskedLM
-from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
-from dataset import create_bshd_dataloader, create_thd_dataloader, CPAwareDataloader
-from distributed_config import DistributedConfig
-from perf_logger import PerfLogger
-from scheduler import get_linear_schedule_with_warmup
-from utils import DummyDataloader
+from dataset import CPAwareDataloader
+from utils import get_dummy_data_thd_dp0_nopadding, get_dummy_data_thd_dp1_nopadding
 
+class _DummyLoader:
+    """Minimal iterable that always yields the same batch."""
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+    def __init__(self, batch: Dict[str, torch.Tensor]):
+        self._batch = batch
+
+    def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
+        return self
+
+    def __next__(self) -> Dict[str, torch.Tensor]:
+        return copy.deepcopy(self._batch)
 
 
-@hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
-def main(args: DictConfig) -> float | None:
-    """Train ESM-2 with TE layers using DDP.
+class _DummyCPGroup:
+    def __init__(self, size: int):
+        self._size = size
 
-    Returns:
-        float: The loss value for the final batch.
+    def size(self) -> int:
+        return self._size
+
+
+def _fake_get_batch(
+    cu_seqlens_padded,
+    input_ids_padded,
+    labels_padded,
+    cp_group,
+    qvk_format,
+    cp_rank,
+):
+    cp_size = cp_group.size()
+    total_slices = 2 * cp_size
+    seq_tokens = input_ids_padded.view(-1)
+    seq_labels = labels_padded.view(-1)
+    shard_tokens: List[torch.Tensor] = []
+    shard_labels: List[torch.Tensor] = []
+
+    for start, end in zip(cu_seqlens_padded[:-1], cu_seqlens_padded[1:]):
+        start_idx = int(start)
+        end_idx = int(end)
+        slice_size = (end_idx - start_idx) // total_slices
+
+        first_start = start_idx + (cp_rank * slice_size)
+        first_end = first_start + slice_size
+        second_start = start_idx + ((total_slices - cp_rank - 1) * slice_size)
+        second_end = second_start + slice_size
+
+        shard_tokens.append(torch.cat([seq_tokens[first_start:first_end], seq_tokens[second_start:second_end]]))
+        shard_labels.append(torch.cat([seq_labels[first_start:first_end], seq_labels[second_start:second_end]]))
+
+    return (
+        torch.cat(shard_tokens).unsqueeze(0),
+        torch.cat(shard_labels).unsqueeze(0),
+    )
+
+
+def test_dataloader_scatter_nopadding():
     """
-    # Initialize the distributed configuration, including creating the distributed process group.
-    dist_config = DistributedConfig()
-    logger.info("Initializing distributed training: %s", dist_config)
-    device = torch.device(f"cuda:{dist_config.local_rank}")
-    torch.distributed.init_process_group(backend="nccl", device_id=device)
-    torch.cuda.set_device(dist_config.local_rank)
+    Test 1. Using no additional padding, with CP=2, DP=2, ensure that the data is scattered correctly.
+    There are going to be 4 shards. CP0, CP1 (for context parallel) and DP0, DP1 (for data parallel).
+    DP0 will return [1,2,3,4,5,6,7,8] and DP1 will return [9,10,11,12,13,14,15,16].
+    CP0 will receive [1,2,7,8] and CP1 will receive [3,4,5,6]. (from DP0)
+    CP1 will receive [9,10,15,16] and CP0 will receive [11,12,13,14]. (from DP1)
 
-    # Validate that world_size is divisible by cp_size
-    if dist_config.world_size % args.cp_size != 0:
-        raise ValueError(
-            f"world_size ({dist_config.world_size}) must be divisible by cp_size ({args.cp_size}). "
-            f"Set cp_size to a divisor of world_size."
-        )
+        |   DP0   |    DP1        |
+    CP0 | 1,2,7,8 | 9, 10, 15, 16 |
+    CP1 | 3,4,5,6 | 11, 12, 13, 14|
+    """
+    cp_group = _DummyCPGroup(size=2)
 
-    # Calculate DDP size (number of data parallel replicas)
-    ddp_size = dist_config.world_size // args.cp_size
+    def run_roundtrip(base_batch):
+        loader_rank0 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=0)
+        loader_rank1 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=1)
 
-    logger.info(
-        f"Creating device mesh: world_size={dist_config.world_size}, "
-        f"ddp_size={ddp_size}, cp_size={args.cp_size}"
-    )
+        scatter_payload: List[Dict[str, torch.Tensor]] | None = None
+        current_rank = {"value": None}
 
-    # Create a device mesh for DDP and CP.
-    # The mesh is organized as [DDP_dimension, CP_dimension] where:
-    # - DDP dimension: number of data parallel replicas (world_size // cp_size)
-    # - CP dimension: context parallel size
-    # Total ranks = ddp_size * cp_size = world_size
-    device_mesh = init_device_mesh(
-        "cuda",
-        mesh_shape=(ddp_size, args.cp_size),
-        mesh_dim_names=("ddp", "cp"),
-    )
+        def fake_scatter(
+            *,
+            scatter_object_output_list,
+            scatter_object_input_list,
+            group,
+            group_src,
+        ):
+            nonlocal scatter_payload
+            if scatter_object_input_list is not None:
+                scatter_payload = scatter_object_input_list
+            assert scatter_payload is not None
+            scatter_object_output_list[0] = scatter_payload[current_rank["value"]]
 
-    # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-    )
+        with mock.patch("dataset.get_batch_on_this_cp_rank", side_effect=_fake_get_batch) as mock_get_batch, \
+             mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter), \
+             mock.patch("dataset.torch.distributed.barrier", return_value=None):
+            iter(loader_rank0)
+            iter(loader_rank1)
 
-    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
-    # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
-    if args.use_sequence_packing:
-        config.attn_input_format = "thd"
+            current_rank["value"] = 0
+            batch_cp0 = next(loader_rank0)
 
-    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
-    # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
-    # versions of weights are kept.
-    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
-        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+            current_rank["value"] = 1
+            batch_cp1 = next(loader_rank1)
 
-    logger.info("Initialized Model:\n%s", model)
+        return batch_cp0, batch_cp1, mock_get_batch
 
-    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
-    # avoid errors with unused parameters.
-    try:
-        del model.esm.contact_head
-    except AttributeError:
-        pass
+    batch_dp0_cp0, batch_dp0_cp1, mock_dp0 = run_roundtrip(get_dummy_data_thd_dp0_nopadding())
 
-    # Create optimizer.
-    optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
-    scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+    torch.testing.assert_close(batch_dp0_cp0["input_ids"], torch.tensor([[1, 2, 7, 8]], dtype=torch.int64))
+    torch.testing.assert_close(batch_dp0_cp0["labels"], torch.tensor([[10, 20, 70, 80]], dtype=torch.int64))
+    torch.testing.assert_close(batch_dp0_cp1["input_ids"], torch.tensor([[3, 4, 5, 6]], dtype=torch.int64))
+    torch.testing.assert_close(batch_dp0_cp1["labels"], torch.tensor([[30, 40, 50, 60]], dtype=torch.int64))
 
-    model = model.to(device=device)
-    group_fsdp_cp = device_mesh[("ddp", "cp")]._flatten("dp_cp").get_group()
-    model = torch.nn.parallel.DistributedDataParallel(
-        model,
-        device_ids=[dist_config.local_rank],
-        output_device=dist_config.local_rank,
-        process_group=group_fsdp_cp,
-    )
-    cp_group = device_mesh["cp"].get_group()
-    cp_rank = device_mesh.get_local_rank("cp")
+    batch_dp1_cp0, batch_dp1_cp1, _ = run_roundtrip(get_dummy_data_thd_dp1_nopadding())
 
-    if args.cp_size > 1:
-        for i, transformer_layer in enumerate(model.module.esm.encoder.layers):
-            logger.debug(f"Rank {dist_config.rank}: Setting CP group for layer {i}")
-            transformer_layer.set_context_parallel_group(
-                cp_group,
-                torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()),
-                torch.cuda.Stream()
-            )
+    torch.testing.assert_close(batch_dp1_cp0["input_ids"], torch.tensor([[9, 10, 15 ,16]], dtype=torch.int64))
+    torch.testing.assert_close(batch_dp1_cp0["labels"], torch.tensor([[90, 100, 150, 160]], dtype=torch.int64))
+    torch.testing.assert_close(batch_dp1_cp1["input_ids"], torch.tensor([[11, 12, 13, 14]], dtype=torch.int64))
+    torch.testing.assert_close(batch_dp1_cp1["labels"], torch.tensor([[110, 120, 130, 140]], dtype=torch.int64))
 
-    torch.distributed.barrier()
-
-    
-    # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
-    train_dataloader, dataset_or_sampler = (
-        create_thd_dataloader(dist_config, **args.dataset)
-        if args.use_sequence_packing
-        else create_bshd_dataloader(dist_config, **args.dataset)
-    )
-    # Make a dummy dataloader that just loads the mock data
-
-    dummy_dataloader = DummyDataloader(cp_size=args.cp_size)
-    train_dataloader = CPAwareDataloader(dummy_dataloader, dist_config, cp_group, cp_rank, max_seq_length=args.dataset.max_seq_length)
-
-    sample = next(iter(train_dataloader))
-
-    # Now print out the (1) CP rank, (2) Global rank and (3) sample batch.
-    print(f"CP rank: {cp_rank}")
-    print(f"Global rank: {dist_config.rank}")
-    print(f"Sample batch: {sample}")
-    # Clean up distributed training
-    torch.distributed.destroy_process_group()
-
-    return None
-
+    called_ranks = [kwargs["cp_rank"] for _, kwargs in mock_dp0.call_args_list]
+    assert called_ranks == [0, 1]
 
 if __name__ == "__main__":
-    main()
+    unittest.main()
