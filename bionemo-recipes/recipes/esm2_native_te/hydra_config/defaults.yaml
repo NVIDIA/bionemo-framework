@@ -10,6 +10,8 @@ use_meta_device: false
 # We leave this off by default since we don't see much of a performance improvement with TE layers.
 use_torch_compile: false
 
+cp_size: 1
+
 use_sequence_packing: false
 dataset:
   tokenizer_name: ${model_tag}
