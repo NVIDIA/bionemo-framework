@@ -255,7 +255,7 @@ class MLMDataCollatorWithFlattening:
             )
             batch["input_ids"] = input_ids_padded.unsqueeze(0)
             batch["labels"] = labels_padded.unsqueeze(0)
-            batch["cu_seq_lens_q_padded"] = cu_seqlens_padded.to(torch.int32)  # weird that its not int32.
+            batch["cu_seq_lens_q_padded"] = cu_seqlens_padded.to(torch.int32)
             batch["cu_seq_lens_k_padded"] = cu_seqlens_padded.to(torch.int32)
 
         return batch
