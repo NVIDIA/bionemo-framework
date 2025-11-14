@@ -266,7 +266,7 @@ def test_te_llama_model_generate_with_cache_bshd():
     )
 
     tokenizer.pad_token = tokenizer.eos_token
-    inputs = tokenizer(prompt, return_tensors="pt", padding=True)
+    inputs = tokenizer(prompt, return_tensors="pt", padding=True, padding_side="left")
     inputs = {k: v.to("cuda") for k, v in inputs.items()}
     model_te.to("cuda")
 
@@ -289,7 +289,6 @@ def test_te_llama_model_generate_with_cache_bshd():
             max_new_tokens=16,
             use_cache=True,
             past_key_values=past_key_values,
-            only_keep_last_logits=True,
         )
 
     generated_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)

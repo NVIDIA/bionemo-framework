@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import torch
-import torch.nn as nn
 from transformers import LlamaConfig, LlamaForCausalLM
 
 import state
@@ -35,7 +34,7 @@ mapping = {
 reverse_mapping = {v: k for k, v in mapping.items()}
 
 
-def convert_llama_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
+def convert_llama_hf_to_te(model_hf: LlamaForCausalLM, **config_kwargs) -> NVLlamaForCausalLM:
     """Convert a Hugging Face model to a Transformer Engine model.
 
     Args:
@@ -80,7 +79,7 @@ def convert_llama_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
     return output_model
 
 
-def convert_llama_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
+def convert_llama_te_to_hf(model_te: NVLlamaForCausalLM, **config_kwargs) -> LlamaForCausalLM:
     """Convert a Hugging Face model to a Transformer Engine model.
 
     Args:
