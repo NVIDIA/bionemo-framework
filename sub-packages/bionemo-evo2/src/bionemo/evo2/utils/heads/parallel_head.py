@@ -17,7 +17,7 @@ from typing import Any, Dict, Optional
 
 import torch
 import torch.nn as nn
-from megatron.core import tensor_parallel
+from megatron.core import parallel_state, tensor_parallel
 from megatron.core.utils import get_batch_on_this_cp_rank
 from nemo.collections.llm.gpt.model.hyena import HyenaConfig
 from nemo.collections.llm.gpt.model.hyena import HyenaModel as ForwardHyenaModel
@@ -29,9 +29,8 @@ from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import (
 from nemo.lightning.io.mixin import IOMixin
 from nemo.utils import logging
 
-from bionemo.evo2.utils.tests import debug_heads
-
 from ..loss.borzoi import BorzoiLoss
+from .debug import debug_heads
 
 
 class ParallelHeadTransform(IOMixin):
@@ -148,18 +147,35 @@ class ParallelHeadTransform(IOMixin):
         # Return the updated model
         return model
 
-    def _transform_core_model(self, model, core_model, forward_target, config):
-        """Apply any core model specific transforms."""
+    def _transform_core_model(
+        self, model: nn.Module, core_model: nn.Module, forward_target: nn.Module | None, config: HyenaConfig
+    ) -> nn.Module:
+        """Apply any core model specific transforms.
+
+        Args:
+            model (nn.Module): The overall model.
+            core_model (nn.Module): The core HyenaModel instance.
+            forward_target (nn.Module): The model used during forward pass.
+            config (HyenaConfig): The model configuration.
+
+        Returns:
+            nn.Module: The transformed model with parallel heads.
+        """
+        # Use parallel_state to determine if input_is_parallel should be True
+        input_is_parallel = parallel_state.is_pipeline_first_stage()
+
         # Add RNA seq head to core model
         if not hasattr(core_model, "rna_seq_head") and self.parallel_rna:
-            core_model.rna_seq_head = tensor_parallel.ColumnParallelLinear(
+            # Create RowParallelLinear for RNA-seq head because output is small
+            core_model.rna_seq_head = tensor_parallel.RowParallelLinear(  # ColumnParallelLinear, alternative
                 config.hidden_size,  # Input dim: model hidden state size
                 1,  # Output dim: one value per token for RNA expression
                 config=config,
-                init_method=config.init_method,  # Weight initialization strategy
+                init_method=config.init_method,  # type: ignore # Weight initialization strategy
                 bias=config.add_bias_output,  # Whether to add bias
                 skip_bias_add=False,
-                gather_output=True,  # Ensures output is gathered across TP ranks
+                # gather_output=True,  # Ensures output is gathered across TP ranks <== Needed for ColumnParallelLinear
+                input_is_parallel=input_is_parallel,
             )
             # Initialize bias to 0 if bias is used
             if config.add_bias_output:
@@ -167,36 +183,38 @@ class ParallelHeadTransform(IOMixin):
 
         # Add pep map head to core model
         if not hasattr(core_model, "pep_map_head") and self.parallel_pep:
-            core_model.pep_map_head = tensor_parallel.ColumnParallelLinear(
+            # Create RowParallelLinear for pep map head because output is small
+            core_model.pep_map_head = tensor_parallel.RowParallelLinear(  # ColumnParallelLinear, alternative
                 config.hidden_size,  # Input dim: model hidden state size
                 1,  # Output dim: one value per token for RNA expression
                 config=config,
-                init_method=config.init_method,  # Weight initialization strategy
+                init_method=config.init_method,  # type: ignore # Weight initialization strategy
                 bias=config.add_bias_output,  # Whether to add bias
                 skip_bias_add=False,
-                gather_output=True,  # Ensures output is gathered across TP ranks
+                # gather_output=True,  # Ensures output is gathered across TP ranks <== Needed for ColumnParallelLinear
+                input_is_parallel=input_is_parallel,
             )
             # Initialize bias to 0 if bias is used
             if config.add_bias_output:
                 core_model.pep_map_head.bias.data.zero_()
 
         # Set attributes on core model
-        core_model.dna_loss_weight = self.dna_loss_weight
-        core_model.rna_loss_weight = self.rna_loss_weight
-        core_model.pep_loss_weight = self.pep_loss_weight
-        core_model.parallel_dna = self.parallel_dna
-        core_model.parallel_rna = self.parallel_rna
-        core_model.parallel_pep = self.parallel_pep
+        core_model.dna_loss_weight = self.dna_loss_weight  # type: ignore
+        core_model.rna_loss_weight = self.rna_loss_weight  # type: ignore
+        core_model.pep_loss_weight = self.pep_loss_weight  # type: ignore
+        core_model.parallel_dna = self.parallel_dna  # type: ignore
+        core_model.parallel_rna = self.parallel_rna  # type: ignore
+        core_model.parallel_pep = self.parallel_pep  # type: ignore
 
         # Set up forward target
         if forward_target and forward_target != core_model:
             # Copy attributes to forward target
-            forward_target.dna_loss_weight = self.dna_loss_weight
-            forward_target.rna_loss_weight = self.rna_loss_weight
-            forward_target.pep_loss_weight = self.pep_loss_weight
-            forward_target.parallel_dna = self.parallel_dna
-            forward_target.parallel_rna = self.parallel_rna
-            forward_target.parallel_pep = self.parallel_pep
+            forward_target.dna_loss_weight = self.dna_loss_weight  # type: ignore
+            forward_target.rna_loss_weight = self.rna_loss_weight  # type: ignore
+            forward_target.pep_loss_weight = self.pep_loss_weight  # type: ignore
+            forward_target.parallel_dna = self.parallel_dna  # type: ignore
+            forward_target.parallel_rna = self.parallel_rna  # type: ignore
+            forward_target.parallel_pep = self.parallel_pep  # type: ignore
             # Store reference to core model on forward target
             forward_target._core_model = core_model
             if self.parallel_rna:
@@ -206,8 +224,8 @@ class ParallelHeadTransform(IOMixin):
 
             # Override the forward pass logic with multi-head awareness
             if not hasattr(forward_target, "_original_forward"):
-                forward_target._original_forward = forward_target.forward
-                forward_target.forward = self._create_parallel_forward(forward_target, core_model)
+                forward_target._original_forward = forward_target.forward  # type: ignore
+                forward_target.forward = self._create_parallel_forward(forward_target, core_model)  # type: ignore
 
         # Log updated model structure
         debug_heads("Model post transform", model)
@@ -229,8 +247,16 @@ class ParallelHeadTransform(IOMixin):
 
         raise ValueError("❌ No HyenaModel found")
 
-    def _get_forward_target_model(self, model):
-        """Get the HyenaModel that will be called during forward step."""
+    def _get_forward_target_model(self, model: nn.Module) -> Optional[nn.Module]:
+        """Get the HyenaModel that will be called during forward step.
+
+        This is typically a wrapper model around the core HyenaModel.
+
+        Args:
+            model (nn.Module): The overall model.
+
+        Returns:( nn.Module or None): The model used during forward pass, or None if not found.
+        """
         hyena_models = self._discover_all_hyena_models(model)
 
         # Based on your debug output, the forward step calls the wrapper at level 1
@@ -384,7 +410,11 @@ class ParallelHeadTransform(IOMixin):
             rotary_pos_emb = None
             if config.position_embedding_type == "rope":
                 rotary_seq_len = core_model.rotary_pos_emb.get_rotary_seq_len(
-                    inference_context, core_model.decoder, decoder_input, config, None
+                    inference_context,  # type: ignore
+                    core_model.decoder,  # type: ignore
+                    decoder_input,  # type: ignore
+                    config,
+                    None,  # type: ignore
                 )
                 rotary_pos_emb = core_model.rotary_pos_emb(rotary_seq_len)
 
@@ -420,14 +450,14 @@ class ParallelHeadTransform(IOMixin):
             rna_seq_logits = None
             if target_model.parallel_rna:
                 # Processed through core model
-                rna_seq_logits, _ = core_model.rna_seq_head(hidden_states)
+                rna_seq_logits, _ = core_model.rna_seq_head(hidden_states)  # type: ignore # Output dim: (batch, seq_len, 1)
                 rna_seq_logits = rna_seq_logits.squeeze(-1)
 
             # PEP map head
             pep_map_logits = None
             if target_model.parallel_pep:
                 # Processed through core model
-                pep_map_logits, _ = core_model.pep_map_head(hidden_states)
+                pep_map_logits, _ = core_model.pep_map_head(hidden_states)  # type: ignore
                 pep_map_logits = pep_map_logits.squeeze(-1)
 
             # -------------------------------------------
@@ -465,7 +495,7 @@ class ParallelHeadTransform(IOMixin):
                 )
 
                 # Weight and accumulate DNA loss
-                loss *= target_model.dna_loss_weight
+                loss *= target_model.dna_loss_weight  # type: ignore
                 total_loss = loss if total_loss is None else total_loss + loss
 
             # RNA-Seq Loss (Borzoi Loss)
@@ -487,7 +517,7 @@ class ParallelHeadTransform(IOMixin):
                 )
 
                 # Weight and accumulate rna seq loss
-                rna_seq_loss *= target_model.rna_loss_weight
+                rna_seq_loss *= target_model.rna_loss_weight  # type: ignore
                 total_loss = rna_seq_loss if total_loss is None else total_loss + rna_seq_loss
 
             # PEP-MAP Loss (Borzoi Loss)
@@ -509,7 +539,7 @@ class ParallelHeadTransform(IOMixin):
                 )
 
                 # Weight and accumulate pep map loss
-                pep_map_loss *= target_model.pep_loss_weight
+                pep_map_loss *= target_model.pep_loss_weight  # type: ignore
                 total_loss = pep_map_loss if total_loss is None else total_loss + pep_map_loss
 
             # Convert loss to correct dtype for model stability (bfloat16)
@@ -606,8 +636,6 @@ def parallel_head_data_step_fn(dataloader_iter, use_mtp=False) -> dict[str, torc
     """
     # Based on: https://github.com/NVIDIA/Megatron-LM/blob/main/pretrain_gpt.py#L87
     # https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/nlp/models/language_modeling/megatron_gpt_model.py#L828-L842
-
-    from megatron.core import parallel_state
 
     # Fetch the next batch from the dataloader
     batch = next(dataloader_iter)
