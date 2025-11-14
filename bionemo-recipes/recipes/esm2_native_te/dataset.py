@@ -239,7 +239,10 @@ def create_cp_dataloader(
     cp_group: torch.distributed.ProcessGroup = None,
     cp_rank: int = 0,
 ):
-    """Create a dataloader that packs up to the maximum number of tokens per batch.
+    """Create a dataloader that packs up to the maximum number of tokens per batch. This dataload is also 
+    amenable toward context parallelism. It produces batches of data on CP rank 0, creates shards from that data for all other
+    CP ranks, and then scatters the shards to the other CP ranks.
+
 
     Args:
         distributed_config: The distributed configuration.
@@ -258,8 +261,10 @@ def create_cp_dataloader(
         pad_sequences_to_be_divisible_by: If provided, sequences will be padded to be divisible by this value.
             This is useful for context parallelism. Defaults to None.
         cp_world_size: The size of the context parallel group.
+        cp_group: The context parallel group.
+        cp_rank: The rank of the current context parallel process.
     Returns:
-        A dataloader that can be used for training.
+        A CPAwareDataloader that can be used for training.
     """
     tokenized_dataset, tokenizer = create_tokenized_dataset(
         distributed_config=distributed_config,
