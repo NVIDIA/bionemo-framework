@@ -224,28 +224,17 @@ class NVEsmEncoder(nn.Module):
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            if self.config.use_cp:
-                hidden_states = layer_module(
+            hidden_states = layer_module(
                     hidden_states,
                     attention_mask,
                     rotary_pos_emb=te_rope_emb,
                     cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
                     cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                    max_seqlen_q=kwargs.get("max_length_q", None),
+                    max_seqlen_kv=kwargs.get("max_length_k", None),
                     cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
                     cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
                     pad_between_seqs=kwargs.get("pad_between_seqs", None),
-                    max_seqlen_q=kwargs.get("max_length_q", None),
-                    max_seqlen_kv=kwargs.get("max_length_k", None),
-                )
-            else:
-                hidden_states = layer_module(
-                    hidden_states,
-                    attention_mask,
-                    rotary_pos_emb=te_rope_emb,
-                    cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
-                    cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
-                    max_seqlen_q=kwargs.get("max_length_q", None),
-                    max_seqlen_kv=kwargs.get("max_length_k", None),
                 )
 
         hidden_states = self.emb_layer_norm_after(hidden_states)
@@ -610,8 +599,8 @@ class NVEsmEmbeddings(nn.Module):
                 is_masked = (input_ids == self.mask_token_id).squeeze(0)
                 
                 n_masked_per_seq = torch.nested.nested_tensor_from_jagged(
-                        is_masked, offsets=kwargs["cu_seq_lens_q"]
-                    ).sum(1)
+                    is_masked, offsets=kwargs["cu_seq_lens_q"]
+                ).sum(1)
                 mask_ratio_observed = n_masked_per_seq.float() / src_lengths
                 scale_factor = (1 - mask_ratio_train) / (1 - mask_ratio_observed)
                 reshaped_scale_factor = torch.repeat_interleave(scale_factor, src_lengths, dim=0)

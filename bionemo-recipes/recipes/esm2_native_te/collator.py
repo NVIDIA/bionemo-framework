@@ -26,7 +26,7 @@ import datasets
 import torch
 from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
 
-from utils import pad_thd_sequences_for_cp  # TODO: Import from TE when 2.8 is up.
+from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 
 
 logger = logging.getLogger(__name__)
