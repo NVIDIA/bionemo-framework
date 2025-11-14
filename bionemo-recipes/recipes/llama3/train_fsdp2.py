@@ -86,9 +86,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
 
-    # Disable KV cache to avoid complications during training.
-    model.config.use_cache = False
-    model.model.config.use_cache = False
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore

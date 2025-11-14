@@ -11,8 +11,8 @@ use_meta_device: false
 use_torch_compile: false
 
 dataset:
-  tokenizer_path: /workspaces/bionemo-framework/bionemo-recipes/models/llama3/nucleotide_fast_tokenizer
-  micro_batch_size: ???
+  tokenizer_path: ./example_small_llama_checkpoint   # Set to the path of your tokenizer (e.g., ./example_small_llama_checkpoint)
+  micro_batch_size: 8
   num_workers: 1
   max_seq_length: 8192  # Window size for genomic sequences
   stride: 200  # Overlap for windowing
