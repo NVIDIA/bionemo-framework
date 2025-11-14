@@ -224,18 +224,28 @@ class NVEsmEncoder(nn.Module):
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            hidden_states = layer_module(
+            if self.config.use_cp:
+                hidden_states = layer_module(
                     hidden_states,
                     attention_mask,
                     rotary_pos_emb=te_rope_emb,
                     cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
                     cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
-                    max_seqlen_q=kwargs.get("max_length_q", None),
-                    max_seqlen_kv=kwargs.get("max_length_k", None),
                     cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
                     cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
                     pad_between_seqs=kwargs.get("pad_between_seqs", None),
+                    # TODO(@jomitchell): Add `max_seqlen_q` and `max_seqlen_kv` by finding the largest padded sequence length. torch.diff(cu_seqlens_q_padded).max().item()
                 )
+            else:
+                hidden_states = layer_module(
+                        hidden_states,
+                        attention_mask,
+                        rotary_pos_emb=te_rope_emb,
+                        cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
+                        cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                        max_seqlen_q=kwargs.get("max_length_q", None),
+                        max_seqlen_kv=kwargs.get("max_length_k", None),
+                    )
 
         hidden_states = self.emb_layer_norm_after(hidden_states)
 
