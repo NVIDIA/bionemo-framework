@@ -18,7 +18,7 @@
 
 
 from pathlib import Path
-from typing import Literal
+from typing import Dict, Literal
 
 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
 from pydantic import BaseModel
@@ -99,3 +99,6 @@ class Evo2PreprocessingConfig(BaseModel):
     taxonomy_data: dict[str, Evo2TaxonomyLineage] = {}
     # Periodicity of injecting phylogenetic lineage tags in the sequence prior to tokenization.
     prompt_spacer_length: int = 131072
+    # RNA-seq specific additions
+    fasta_rnaseq_bigwig_map: None | Dict[str, str] = None  # Maps FASTA path -> BigWig path
+    rna_seq_missing_value: float = 0.0  # Default value when BigWig data is missing
