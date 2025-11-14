@@ -101,8 +101,8 @@ def test_geneformer_checkpoint_loss(model_variant, input_data):
     torch.testing.assert_close(
         te_outputs.loss,
         hf_outputs.loss,
-        atol=0.1,
-        rtol=0,
+        atol=1e-3,
+        rtol=1e-3,
         msg=f"TE loss ({te_outputs.loss:.4f}) and HF loss ({hf_outputs.loss:.4f}) should be close",
     )
 

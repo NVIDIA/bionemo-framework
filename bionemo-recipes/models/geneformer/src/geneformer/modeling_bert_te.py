@@ -115,6 +115,25 @@ class TEBertLayer(nn.Module):
     - te.LayerNorm for post-MLP normalization as layernorm_mlp.layer_norm
 
     Parameter naming matches convert.py expectations for weight loading from HF checkpoints.
+
+    DIVERGENCE FROM TYPICAL TRANSFORMERLAYER:
+    This implementation uses POST-norm architecture, which differs significantly from the
+    typical TransformerLayer that uses PRE-norm.
+
+    Geneformer/HF BERT (POST-norm, output_layernorm=True equivalent):
+        Input -> Attention -> Dropout -> Residual Add -> LayerNorm
+              -> MLP -> Dropout -> Residual Add -> LayerNorm -> Output
+
+    Typical TransformerLayer (PRE-norm, output_layernorm=False default):
+        Input -> [LayerNorm Attn inside MultiheadAttention] -> Dropout -> Residual Add
+              -> [LayerNorm MLP inside LayerNormMLP] -> Dropout -> Residual Add -> Output
+
+    Geneformer applies LayerNorm AFTER residual connections as
+    explicit separate modules, whereas typical TransformerLayer applies LayerNorm Before
+    operations via input_layernorm=True inside MultiheadAttention and LayerNormMLP modules.
+
+    For more information, see:
+    https://github.com/NVIDIA/TransformerEngine/blob/dd9433e7ad28c12f27da9770be54c9c584e85fa0/transformer_engine/pytorch/transformer.py#L822
     """
 
     def __init__(self, config, layer_number=None):
@@ -198,17 +217,28 @@ class TEBertLayer(nn.Module):
     ) -> Tuple[torch.Tensor]:
         """Forward pass through the TE BERT layer.
 
-        Architecture:
+        Architecture
             Input
             → Self-Attention
             → Dropout
             → Residual Connection
-            → LayerNorm  (POST-norm)
-            → MLP (FC1 → ReLU → FC2)
+            → LayerNorm
+            → MLP
             → Dropout
             → Residual Connection
-            → LayerNorm  (POST-norm)
+            → LayerNorm
             → Output
+
+        This architecture is the key divergence from typical TransformerLayer
+        (with output_layernorm=False default) which uses PRE-norm.
+
+        In PRE-norm TransformerLayer, LayerNorm is applied Before operations:
+            - MultiheadAttention with input_layernorm=True applies LayerNorm internally before attention
+            - LayerNormMLP applies LayerNorm internally before MLP
+            - Residuals bypass these internal LayerNorms
+
+        In Geneformer's POST-norm, LayerNorm is applied after residual connections as explicit
+        separate modules, meaning the normalized output flows to the next layer.
 
         Args:
             hidden_states: Input hidden states.
