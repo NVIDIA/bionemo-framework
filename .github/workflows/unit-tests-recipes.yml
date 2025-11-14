@@ -196,6 +196,7 @@ jobs:
         working-directory: ${{ matrix.recipe.dir }}
         run: pytest -v -m "not multi_gpu" .
 
+  # With copy-pr-bot, we need to get the PR labels from the PR API rather than from the event metadata.
   get-pr-labels:
     runs-on: ubuntu-latest
     outputs:
@@ -243,11 +244,8 @@ jobs:
           needs.unit-tests-single-gpu.result == 'success'
         ) ||
         (
-          github.event_name == 'push' &&
-          (
-            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all-recipes') ||
-            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
-          )
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all-recipes') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
         )
       )
     name: "unit-tests-multi-gpu (${{ matrix.recipe.name }})"

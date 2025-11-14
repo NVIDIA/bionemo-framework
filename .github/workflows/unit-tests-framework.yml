@@ -282,11 +282,8 @@ jobs:
             needs.run-tests-single-gpu.result == 'success'
           ) ||
           (
-            github.event_name == 'push' &&
-            (
-              contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
-              contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
-            )
+            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
           )
         )
     steps:
@@ -352,13 +349,10 @@ jobs:
             needs.run-tests-slow-single-gpu.result == 'success'
           ) ||
           (
-            github.event_name == 'push' &&
+            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
             (
-              contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
-              (
-                contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu') &&
-                contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
-              )
+              contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu') &&
+              contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
             )
           )
         )
