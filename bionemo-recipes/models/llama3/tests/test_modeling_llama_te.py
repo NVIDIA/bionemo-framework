@@ -158,12 +158,11 @@ def test_llama_model_golden_values_thd_inputs(input_text):
 
 
 @pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
-@pytest.mark.xfail(reason="padding_causal attention mask doesn't support left-side padding.")
 def test_llama_model_golden_values_padding_left(input_text):
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
     model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
 
-    model_te = convert_llama_hf_to_te(model_hf, self_attn_mask_type="padding_causal")
+    model_te = convert_llama_hf_to_te(model_hf)
 
     tokenizer.pad_token = tokenizer.eos_token
     inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="left")
@@ -189,35 +188,6 @@ def test_llama_model_golden_values_padding_left(input_text):
         atol=1.5,
         rtol=0.01,
     )
-
-
-# @pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
-# def test_llama_model_same_loss_for_arbitrary_and_padding_causal(input_text):
-#     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
-#     model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
-
-#     model_te_arbitrary = convert_llama_hf_to_te(model_hf, self_attn_mask_type="arbitrary")
-#     model_te_padding_causal = convert_llama_hf_to_te(model_hf, self_attn_mask_type="padding_causal")
-
-#     tokenizer.pad_token = tokenizer.eos_token
-#     inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="right")
-#     inputs = {k: v.to("cuda") for k, v in inputs.items()}
-#     labels = inputs["input_ids"].clone()
-#     labels[labels == tokenizer.pad_token_id] = -100
-
-#     model_te_arbitrary.to("cuda")
-#     with torch.no_grad():
-#         outputs_arbitrary = model_te_arbitrary(**inputs, labels=labels)
-
-#     del model_te_arbitrary
-#     gc.collect()
-#     torch.cuda.empty_cache()
-
-#     model_te_padding_causal.to("cuda")
-#     with torch.no_grad():
-#         outputs_padding_causal = model_te_padding_causal(**inputs, labels=labels)
-
-#     torch.testing.assert_close(outputs_arbitrary.loss, outputs_padding_causal.loss, atol=1e-2, rtol=1e-3)
 
 
 @pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
@@ -247,34 +217,6 @@ def test_hf_llama_model_generate_bshd():
 
 
 @pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
-@pytest.mark.xfail(reason="The right-side padding approach doesn't work without InferenceParams.")
-def test_te_llama_model_generate_no_cache():
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
-    model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
-    model_te = convert_llama_hf_to_te(model_hf, self_attn_mask_type="padding_causal")
-
-    prompt = (
-        """
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at""",
-        "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore",
-    )
-
-    tokenizer.pad_token = tokenizer.eos_token
-    inputs = tokenizer(prompt, return_tensors="pt", padding=True)
-    inputs = {k: v.to("cuda") for k, v in inputs.items()}
-    model_te.to("cuda")
-
-    with torch.no_grad():
-        output_ids = model_te.generate(**inputs, max_new_tokens=16, use_cache=False, only_keep_last_logits=True)
-
-    generated_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
-    assert "http://www.apache.org/licenses/LICENSE-2.0" in generated_text[0]
-    assert "et dolore magna aliqua. Ut enim ad minim " in generated_text[1]
-
-
-@pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
 def test_te_llama_model_generate_with_cache():
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
     model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
@@ -295,7 +237,12 @@ def test_te_llama_model_generate_with_cache():
         num_heads_kv=model_te.config.num_key_value_heads,
         head_dim_k=model_te.config.hidden_size // model_te.config.num_attention_heads,
         dtype=torch.bfloat16,
+        qkv_format="thd",
+        max_ctx_len=256,
     )
+
+    for layer_number in range(1, model_te.config.num_hidden_layers + 1):
+        past_key_values.allocate_memory(layer_number)
 
     with torch.no_grad():
         output_ids = model_te.generate(**inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values)
@@ -308,7 +255,7 @@ def test_te_llama_model_generate_with_cache():
 def test_te_llama_model_generate_with_cache_bshd():
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
     model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
-    model_te = convert_llama_hf_to_te(model_hf, self_attn_mask_type="padding_causal")
+    model_te = convert_llama_hf_to_te(model_hf)
 
     prompt = (
         """
@@ -329,10 +276,12 @@ def test_te_llama_model_generate_with_cache_bshd():
         num_heads_kv=model_te.config.num_key_value_heads,
         head_dim_k=model_te.config.hidden_size // model_te.config.num_attention_heads,
         dtype=torch.bfloat16,
+        qkv_format="thd",
+        max_ctx_len=256,
     )
 
-    # for layer_number in range(1, model_te.config.num_hidden_layers + 1):
-    #     past_key_values.allocate_memory(layer_number)
+    for layer_number in range(1, model_te.config.num_hidden_layers + 1):
+        past_key_values.allocate_memory(layer_number)
 
     with torch.no_grad():
         output_ids = model_te.generate(

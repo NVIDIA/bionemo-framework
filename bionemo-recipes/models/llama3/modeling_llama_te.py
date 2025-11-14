@@ -23,6 +23,7 @@ import transformers
 from transformer_engine.pytorch.attention import InferenceParams
 from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
 from transformers import LlamaConfig, PreTrainedModel
+from transformers.modeling_flash_attention_utils import _pad_input, _unpad_input
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 from transformers.utils.generic import TransformersKwargs
@@ -30,9 +31,6 @@ from transformers.utils.generic import TransformersKwargs
 
 class NVLlamaConfig(LlamaConfig):
     """NVLlama configuration."""
-
-    attn_input_format: str = "bshd"
-    self_attn_mask_type: str = "padding_causal"
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -68,8 +66,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                     qkv_weight_interleaved=True,
                     normalization="RMSNorm",
                     activation="swiglu",
-                    attn_input_format=config.attn_input_format,
-                    self_attn_mask_type=config.self_attn_mask_type,
+                    attn_input_format="thd",
+                    self_attn_mask_type="padding_causal",
                     num_gqa_groups=config.num_key_value_heads,
                     layer_number=layer_idx + 1,
                     params_dtype=config.dtype,
@@ -123,49 +121,53 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             inputs_embeds: torch.Tensor = self.embed_tokens(input_ids)
 
         hidden_states = inputs_embeds
-        if self.config.attn_input_format == "bshd":
-            if past_key_values is not None:
-                max_seq_len = past_key_values.max_sequence_length
+
+        has_thd_input = [x in kwargs for x in ["cu_seq_lens_q", "cu_seq_lens_k", "max_length_q", "max_length_k"]]
+        should_pack_inputs = not any(has_thd_input)
+
+        if should_pack_inputs:
+            batch_size = hidden_states.size(0)
+            seq_length = hidden_states.size(1)
+            if attention_mask.shape[1] != seq_length:  # Likely in generation mode with kv-caching
+                hidden_states = hidden_states.squeeze(1)
+                max_seqlen = 1
+                cu_seqlens = torch.arange(batch_size + 1, dtype=torch.int32, device=hidden_states.device)
+                indices = torch.arange(batch_size, dtype=torch.int64, device=hidden_states.device)
+
             else:
-                max_seq_len = hidden_states.shape[1]
-            te_rope_emb = self.rotary_emb(max_seq_len=max_seq_len)
-        elif self.config.attn_input_format == "thd":
-            te_rope_emb = self.rotary_emb(max_seq_len=kwargs["cu_seq_lens_q"][-1])
+                hidden_states, indices, cu_seqlens, max_seqlen, _ = _unpad_input(hidden_states, attention_mask)
 
-        has_thd_input = [
-            x is not None
-            for x in [
-                kwargs.get("cu_seq_lens_q", None),
-                kwargs.get("cu_seq_lens_k", None),
-                kwargs.get("max_length_q", None),
-                kwargs.get("max_length_k", None),
-            ]
-        ]
+            cu_seq_lens_q = cu_seq_lens_k = cu_seqlens
+            max_length_q = max_length_k = max_seqlen
 
-        if isinstance(past_key_values, InferenceParams):
-            # lengths = attention_mask.sum(dim=1) if attention_mask is not None else torch.tensor([0])
-            lengths = input_ids.ne(0).sum(dim=1) if input_ids is not None else torch.tensor([0])
-            past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths.tolist())))
-
-        if self.config.attn_input_format == "thd":
-            if not all(has_thd_input):
-                raise ValueError(
-                    "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k must be provided when using THD inputs."
-                )
+        else:
             assert hidden_states.dim() == 3 and hidden_states.size(0) == 1, (
                 "THD expects embeddings shaped [1, total_tokens, hidden_size]."
             )
             hidden_states = hidden_states.squeeze(0)
-            attention_mask = None
+            cu_seq_lens_q = kwargs["cu_seq_lens_q"]
+            cu_seq_lens_k = kwargs["cu_seq_lens_k"]
+            max_length_q = kwargs["max_length_q"]
+            max_length_k = kwargs["max_length_k"]
 
-        elif self.config.attn_input_format == "bshd" and any(has_thd_input):
-            raise ValueError(
-                "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k are not allowed when using BSHD inputs."
-            )
+        if past_key_values is not None:
+            # If we're using kv-caching, we can't trust the max_length_q value as the true max length for rotary
+            # embeddings, since this will be 1 in generation. Instead we can take the max sequence length from the past
+            # key values object.
+            max_length = past_key_values.max_ctx_len
+        else:
+            max_length = max_length_q
 
-        # Construct the appropriate attention mask.
-        if attention_mask is not None and self.config.self_attn_mask_type == "padding_causal":
-            attention_mask = ~attention_mask.to(bool)[:, None, None, :]
+        te_rope_emb = self.rotary_emb(max_seq_len=max_length)
+
+        if isinstance(past_key_values, InferenceParams):
+            if attention_mask.shape == input_ids.shape:
+                lengths = attention_mask.sum(dim=1).tolist()
+            else:
+                # In generation mode, we set the length to 1 for each batch index.
+                lengths = [1] * input_ids.shape[0]
+
+            past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths)))
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             if output_hidden_states:
@@ -173,14 +175,17 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
             hidden_states = decoder_layer(
                 hidden_states,
-                attention_mask=attention_mask,
+                attention_mask=None,
                 rotary_pos_emb=te_rope_emb,
                 inference_params=past_key_values,
-                cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
-                cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
-                max_seqlen_q=kwargs.get("max_length_q", None),
-                max_seqlen_kv=kwargs.get("max_length_k", None),
+                cu_seqlens_q=cu_seq_lens_q,
+                cu_seqlens_kv=cu_seq_lens_k,
+                max_seqlen_q=max_length_q,
+                max_seqlen_kv=max_length_k,
             )
+
+        if should_pack_inputs:
+            hidden_states = _pad_input(hidden_states, indices, batch_size, max_length_q)
 
         hidden_states = self.norm(hidden_states)
 
