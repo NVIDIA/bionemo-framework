@@ -20,11 +20,12 @@ This should eventually get moved to a separate package, or possibly upstreamed i
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import datasets
 import torch
 from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
+from utils import split_batch_by_cp_rank
 
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 
@@ -299,6 +300,32 @@ class MLMDataCollatorWithFlattening:
             label_pad=-100,
         )
 
+
+class MLMDataCollatorWithFlatteningCPAware:
+    """A collator that is aware of context parallelism."""
+    def __init__(self, collator: MLMDataCollatorWithFlattening, cp_world_size: int):
+        self.collator = collator
+        self.cp_world_size = cp_world_size
+
+    def __call__(self, features):
+        batch = self.collator(features)
+
+        combined_batch = []
+        for cp_rank in range(self.cp_world_size):
+            input_ids_sharded, labels_sharded = split_batch_by_cp_rank(
+                cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
+                input_ids_padded=batch["input_ids"],
+                labels_padded=batch["labels"],
+                qvk_format="thd",
+                cp_rank=cp_rank,
+                cp_world_size=self.cp_world_size,
+            )
+            batch_shard = dict(batch)
+            batch_shard["input_ids"] = input_ids_sharded
+            batch_shard["labels"] = labels_sharded
+            combined_batch.append(batch_shard)
+
+        return combined_batch # [<cp_rank_0_shard>, <cp_rank_1_shard>, ..., <cp_rank_n_shard>]
 
 @dataclass
 class DataCollatorWithFlattening(DefaultDataCollator):

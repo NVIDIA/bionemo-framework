@@ -26,7 +26,7 @@ from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
-from dataset import create_bshd_dataloader, create_thd_dataloader, CPAwareDataloader
+from dataset import create_bshd_dataloader, create_thd_dataloader, CPAwareDataloader, create_cp_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
@@ -128,11 +128,10 @@ def main(args: DictConfig) -> float | None:
     
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
     train_dataloader, dataset_or_sampler = (
-        create_thd_dataloader(dist_config, **args.dataset)
+        create_cp_dataloader(dist_config, cp_world_size=torch.distributed.get_world_size(group=cp_group), cp_group=cp_group, cp_rank=cp_rank, **args.dataset)
         if args.use_sequence_packing
         else create_bshd_dataloader(dist_config, **args.dataset)
     )
-    train_dataloader = CPAwareDataloader(train_dataloader, cp_group, cp_rank)
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.

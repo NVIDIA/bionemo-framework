@@ -21,7 +21,8 @@ from unittest import mock
 
 import torch
 
-from dataset import CPAwareDataloader, get_batch_on_this_cp_rank
+from dataset import CPAwareDataloader
+from utils import split_batch_by_cp_rank
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 
 
@@ -244,7 +245,6 @@ def test_pad_thd_sequences_for_cp():
 
 
 
-
 def test_dataloader_scatter_nopadding():
     """
     Test single sequence on two dataloader ranks with no additional padding, with CP=2, DP=2, ensure that the data is scattered correctly.
@@ -263,7 +263,7 @@ def test_dataloader_scatter_nopadding():
         loader_rank0 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=0)
         loader_rank1 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=1)
 
-        scatter_payload: List[Dict[str, torch.Tensor]] | None = None
+        scatter_payload: Dict[int, Dict[str, torch.Tensor]] = {}
         current_rank = {"value": None}
 
         def fake_scatter(
@@ -273,13 +273,14 @@ def test_dataloader_scatter_nopadding():
             group,
             group_src,
         ):
-            nonlocal scatter_payload
             if scatter_object_input_list is not None:
-                scatter_payload = scatter_object_input_list
-            assert scatter_payload is not None
-            scatter_object_output_list[0] = scatter_payload[current_rank["value"]]
+                scatter_payload[0] = scatter_object_input_list
+            assert 0 in scatter_payload, "Rank 0 payload missing"
+            scatter_object_output_list[0] = scatter_payload[0]
 
-        with mock.patch("dataset.get_batch_on_this_cp_rank", side_effect=_fake_get_batch) as mock_get_batch, \
+        
+
+        with mock.patch("utils.split_batch_by_cp_rank", side_effect=_fake_get_batch) as mock_get_batch, \
              mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter), \
              mock.patch("dataset.torch.distributed.barrier", return_value=None):
             iter(loader_rank0)
@@ -329,7 +330,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
         loader_rank0 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=0)
         loader_rank1 = CPAwareDataloader(_DummyLoader(base_batch), cp_group, cp_rank=1)
 
-        scatter_payload: List[Dict[str, torch.Tensor]] | None = None
+        scatter_payload: Dict[int, Dict[str, torch.Tensor]] = {}
         current_rank = {"value": None}
 
         def fake_scatter(
@@ -339,13 +340,14 @@ def test_dataloader_scatter_with_pad_between_seqs():
             group,
             group_src,
         ):
-            nonlocal scatter_payload
             if scatter_object_input_list is not None:
-                scatter_payload = scatter_object_input_list
-            assert scatter_payload is not None
-            scatter_object_output_list[0] = scatter_payload[current_rank["value"]]
+                scatter_payload[0] = scatter_object_input_list
+            assert 0 in scatter_payload, "Rank 0 payload missing"
+            scatter_object_output_list[0] = scatter_payload[0]
 
-        with mock.patch("dataset.get_batch_on_this_cp_rank", side_effect=_fake_get_batch) as mock_get_batch, \
+        
+
+        with mock.patch("utils.split_batch_by_cp_rank", side_effect=_fake_get_batch) as mock_get_batch, \
              mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter), \
              mock.patch("dataset.torch.distributed.barrier", return_value=None):
             iter(loader_rank0)

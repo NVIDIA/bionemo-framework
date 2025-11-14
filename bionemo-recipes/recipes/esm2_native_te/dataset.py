@@ -24,7 +24,7 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
-from collator import MLMDataCollatorWithFlattening, TokenPackingDataset
+from collator import MLMDataCollatorWithFlattening, TokenPackingDataset, MLMDataCollatorWithFlatteningCPAware
 from distributed_config import DistributedConfig
 
 logger = logging.getLogger(__name__)
@@ -222,6 +222,88 @@ def create_thd_dataloader(
     return train_dataloader, tokenized_dataset
 
 
+def create_cp_dataloader(
+    distributed_config: DistributedConfig,
+    tokenizer_name: str,
+    load_dataset_kwargs: dict,
+    micro_batch_size: int | None = None,
+    token_micro_batch_size: int | None = None,
+    num_workers: int = 1,
+    max_seq_length: int = 1024,
+    seed: int = 42,
+    buffer_size: int = 10_000,
+    use_stateful_dataloader: bool = False,
+    mlm_probability: float = 0.15,
+    pad_sequences_to_be_divisible_by: int | None = None,
+    cp_world_size: int = 1,
+    cp_group: torch.distributed.ProcessGroup = None,
+    cp_rank: int = 0,
+):
+    """Create a dataloader that packs up to the maximum number of tokens per batch.
+
+    Args:
+        distributed_config: The distributed configuration.
+        tokenizer_name: The name of the tokenizer to pull from the HuggingFace Hub.
+        load_dataset_kwargs: Keyword arguments to pass to `load_dataset` for the train dataset.
+        micro_batch_size: The batch size (number of sequences) per device. This will set the token_micro_batch_size to
+            micro_batch_size * max_seq_length. Defaults to None.
+        token_micro_batch_size: The maximum number of tokens per batch. If None, the micro_batch_size * max_seq_length
+            will be used. Defaults to None.
+        num_workers: The number of workers to use for the dataloader. For iterable datasets, this should be 1.
+        max_seq_length: The maximum length of the protein sequences.
+        seed: The seed to use for the distributed sampler and data collator.
+        buffer_size: The buffer size to use for the distributed sampler.
+        use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
+        mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
+        pad_sequences_to_be_divisible_by: If provided, sequences will be padded to be divisible by this value.
+            This is useful for context parallelism. Defaults to None.
+        cp_world_size: The size of the context parallel group.
+    Returns:
+        A dataloader that can be used for training.
+    """
+    tokenized_dataset, tokenizer = create_tokenized_dataset(
+        distributed_config=distributed_config,
+        tokenizer_name=tokenizer_name,
+        load_dataset_kwargs=load_dataset_kwargs,
+        max_seq_length=max_seq_length,
+        buffer_size=buffer_size,
+    )
+
+    assert isinstance(tokenized_dataset, datasets.IterableDataset), "THD token packing requires a streaming dataset."
+    if token_micro_batch_size is None:
+        assert micro_batch_size is not None, "Only one of micro_batch_size or token_micro_batch_size can be provided."
+        token_micro_batch_size = micro_batch_size * max_seq_length
+    else:
+        assert micro_batch_size is None, "Only one of micro_batch_size or token_micro_batch_size can be provided."
+        assert token_micro_batch_size >= max_seq_length, "token_micro_batch_size must be greater than max_seq_length."
+
+    # For THD, we pad out to the maximum number of tokens per batch for consistent array shapes.
+    data_collator = MLMDataCollatorWithFlattening(
+        tokenizer=tokenizer,
+        mlm_probability=mlm_probability,
+        pad_to_multiple_of=token_micro_batch_size if pad_sequences_to_be_divisible_by is None else None,
+        seed=seed,
+        pad_sequences_to_be_divisible_by=pad_sequences_to_be_divisible_by,
+    )
+
+    data_collator = MLMDataCollatorWithFlatteningCPAware(
+        collator=data_collator,
+        cp_world_size=cp_world_size,
+    )
+
+    # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
+    dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
+    train_dataloader = dataloader_class(
+        TokenPackingDataset(tokenized_dataset, max_tokens_per_batch=token_micro_batch_size),
+        batch_size=None,  # The TokenPackingDataset will handle the batching.
+        collate_fn=data_collator,
+        num_workers=num_workers,
+        pin_memory=True if not use_stateful_dataloader else False,
+    )
+
+    return CPAwareDataloader(train_dataloader, cp_group, cp_rank), tokenized_dataset
+
+
 class CPAwareDataloader:
     """A dataloader that is aware of context parallelism."""
     def __init__(self, dataloader: StatefulDataLoader,
@@ -237,7 +319,7 @@ class CPAwareDataloader:
 
     def __iter__(self):
         """Make the dataloader iterable."""
-        self._iterator = iter(self.dataloader)
+        self._iterator = iter(self.dataloader) # < --- collator output.
         return self
 
     def __next__(self):
@@ -270,23 +352,8 @@ class CPAwareDataloader:
             # Get data once, then make copies for each rank.
             if self._iterator is None:
                 self._iterator = iter(self.dataloader)
-            batch = next(self._iterator)
+            combined_batch = next(self._iterator)
 
-            # Now let's do the sharding on the batch for the different CP group members.
-            combined_batch = []
-            for cp_rank in range(self.num_cp_ranks):
-                input_ids_sharded, labels_sharded = get_batch_on_this_cp_rank(
-                    cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
-                    input_ids_padded=batch["input_ids"],
-                    labels_padded=batch["labels"],
-                    cp_group=self.cp_group,
-                    qvk_format="thd",
-                    cp_rank=cp_rank,
-                )
-                batch_shard = dict(batch)
-                batch_shard["input_ids"] = input_ids_sharded
-                batch_shard["labels"] = labels_sharded
-                combined_batch.append(batch_shard)
         else:
             combined_batch = None
 
@@ -301,105 +368,3 @@ class CPAwareDataloader:
         torch.distributed.barrier(group=self.cp_group)  # TODO(@jomitchell): Might not need this since its sync.
         return scatter_object_output_list[0]
 
-
-
-# TODO(@jomitchell): Once this gets merged: https://github.com/NVIDIA/TransformerEngine/pull/2387 
-# we can replace this with the one in TransformerEngine.
-def get_batch_on_this_cp_rank(
-    cu_seqlens_padded: torch.Tensor,
-    input_ids_padded: torch.Tensor,
-    labels_padded: torch.Tensor,
-    cp_group: torch.distributed.ProcessGroup = None,
-    qvk_format: str = "thd",
-    cp_rank: Optional[int] = None,
-):
-    """Slice batch input along sequence dimension into multiple chunks for THD format.
-    This function is inteded for use in self attention. It will not work for cross attention because
-    it does not handle the case where the sequence length of the query and key are different.
-    Which are parallelized across GPUs in a context parallel group.
-    This version works with variable-length sequences using cumulative sequence lengths.
-
-    Args:
-        cp_rank: Optional manual CP rank index. When provided, the function shards tensors as if it
-            were executing on that rank without querying `torch.distributed.get_rank`.
-    """
-    if qvk_format not in ["thd", "bshd", "sbhd"]:
-        raise ValueError(f"Unsupported qvk_format: {qvk_format}!")
-    if qvk_format == "thd":
-        # Get context parallel size and rank
-        cp_size = torch.distributed.get_world_size(group=cp_group)
-        if cp_size > 1:
-            if cp_rank is None:
-                cp_rank = torch.distributed.get_rank(group=cp_group)
-            elif not (0 <= cp_rank < cp_size):
-                raise ValueError(f"cp_rank must be in [0, {cp_size}), but received {cp_rank}.")
-
-            # Calculate the chunk sizes for each sequence
-            total_slices_of_any_sequence = 2 * cp_size
-            slice_sizes = (
-                cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]
-            ) // total_slices_of_any_sequence
-
-            # Process each tensor directly instead of using keys_to_change loop
-            def process_tensor(val):
-                if val is None:
-                    return val
-                # Determine which dimension is the sequence dimension
-                # Ensure cu_seqlens_padded[-1] is a Python int, not a 0-dim tensor
-                if isinstance(cu_seqlens_padded[-1], torch.Tensor):
-                    seq_len_val = cu_seqlens_padded[-1].item()
-                else:
-                    seq_len_val = cu_seqlens_padded[-1]
-
-                # Handle 1D tensors (like position_ids that don't have batch dimension)
-                if val.ndim == 1:
-                    if val.shape[0] == seq_len_val:
-                        current_seq_dim = 0
-                    else:
-                        raise ValueError(
-                            "1D tensor shape doesn't match expected sequence length. Make sure the"
-                            " inputs are in THD format and padded correctly."
-                        )
-                elif val.ndim >= 2:
-                    if val.shape[1] == seq_len_val:
-                        current_seq_dim = 1
-                    elif val.shape[0] == seq_len_val:
-                        current_seq_dim = 0
-                    else:
-                        raise ValueError(
-                            "Make sure the inputs are in THD format and padded correctly."
-                        )
-                else:
-                    raise ValueError("Tensor must be at least 1D")
-
-                # On this particular rank, for each sequence, get two slices, one from the beginning
-                # and one from the end.
-                cp_rank_slices = []
-                for slice_size, seq_start in zip(slice_sizes, cu_seqlens_padded[:-1]):
-                    # 1st segment
-                    cp_rank_slices.append(
-                        torch.arange(
-                            seq_start + (cp_rank * slice_size),
-                            seq_start + ((cp_rank + 1) * slice_size),
-                            device=val.device,
-                        )
-                    )
-
-                    # 2nd segment
-                    cp_rank_slices.append(
-                        torch.arange(
-                            seq_start + ((total_slices_of_any_sequence - cp_rank - 1) * slice_size),
-                            seq_start + ((total_slices_of_any_sequence - cp_rank) * slice_size),
-                            device=val.device,
-                        )
-                    )
-
-                return val.index_select(current_seq_dim, torch.cat(cp_rank_slices))
-
-            # Process each tensor directly
-            input_ids_padded = process_tensor(input_ids_padded)
-            labels_padded = process_tensor(labels_padded)
-    else:
-        raise ValueError(f"Support not implemented yet for qvk_format: {qvk_format}!")
-
-    return input_ids_padded, labels_padded
