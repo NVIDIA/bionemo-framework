@@ -52,7 +52,7 @@ from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
 from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.models.peft import Evo2LoRA
-from bionemo.evo2.run.utils import infer_model_type, patch_eden_tokenizer
+from bionemo.evo2.run.utils import infer_model_type, lookup_activation_func, patch_eden_tokenizer
 from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
 from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
@@ -316,6 +316,14 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Add bias to the output layer to enable learning a simple prior.",
+    )
+    parser.add_argument(
+        "--activation-func",
+        type=str,
+        default=None,
+        help="Activation function to use for the FFN layers. See options in "
+        "https://docs.pytorch.org/docs/stable/nn.functional.html#non-linear-activation-functions. The default is "
+        "inferred from the model config, and is currently 'gelu'. Another good options is 'silu'.",
     )
     parser.add_argument(
         "--result-dir", type=Path, required=False, default=Path("./results"), help="Path to the result directory."
@@ -791,6 +799,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     }
     if args.add_bias_output:
         config_modifiers_init["add_bias_output"] = args.add_bias_output
+    if args.activation_func:
+        # Override the activation function for the FFN layers.
+        config_modifiers_init["activation_func"] = lookup_activation_func(args.activation_func)
     if args.spike_no_more_embedding_init:
         config_modifiers_init["embedding_init_method_std"] = 1.0
         # When using spike_no_more_embedding_init, we don't want to share embeddings and outputs.
@@ -969,7 +980,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-EWD{args.no_weight_decay_embeddings}-SNI{args.spike_no_more_embedding_init}"
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
         f"-TVL{args.use_targeted_variance_loss}"
-        f"-NODES{args.num_nodes}-FP8{args.fp8}"
+        f"-NODES{args.num_nodes}-FP8{args.fp8_recipe}{args.fp8}"
+        f"-AF{args.activation_func or 'def'}"
     )
     if model_type == "mamba":
         # Include this setting for mamba models.
