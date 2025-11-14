@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import copy
 import unittest
 from typing import Dict, Iterator, List
@@ -8,6 +23,8 @@ import torch
 
 from dataset import CPAwareDataloader
 from utils import get_dummy_data_thd_dp0_nopadding, get_dummy_data_thd_dp1_nopadding, get_dummy_data_thd_with_padding_dp0, get_dummy_data_thd_with_padding_dp1
+from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
+
 
 class _DummyLoader:
     """Minimal iterable that always yields the same batch."""
@@ -62,6 +79,51 @@ def _fake_get_batch(
         torch.cat(shard_tokens).unsqueeze(0),
         torch.cat(shard_labels).unsqueeze(0),
     )
+
+def test_pad_thd_sequences_for_cp():
+    pid = 1 # The pad token id.
+    label_pad = -100 # The label pad id.
+
+    # Make some fake data.
+    input_ids = torch.tensor([
+                1, 1, 1, 1, 1, 1, 1,  # 7 tokens
+                2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,  # 11 tokens
+                3, 3, 3, 3, 3  # 5 tokens
+            ])
+    labels = torch.tensor([
+        10, 11, 12, 13, 14, 15, 16,
+        20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
+        5, 6, 7, 8, 9
+    ])
+    cu_seqlens_q = torch.tensor([0, 7, 18, 23])
+    divisibility_factor = 4
+
+    input_ids_padded, labels_padded, cu_seqlens_q_padded = \
+                pad_thd_sequences_for_cp(
+                    input_ids.unsqueeze(0),
+                    labels.unsqueeze(0),
+                    cu_seqlens_q,
+                    divisibility_factor,
+                    padding_token_id=pid,
+                    padding_label_id=label_pad
+                )
+    expected_input_ids = torch.tensor([
+                1, 1, 1, 1, 1, 1, 1, pid,
+                2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, pid,
+                3, 3, 3, 3, 3, pid, pid, pid
+            ])
+
+    expected_labels = torch.tensor([
+        10, 11, 12, 13, 14, 15, 16, label_pad,
+        20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, label_pad,
+        5, 6, 7, 8, 9, label_pad, label_pad, label_pad
+    ])
+
+    expected_cu_seqlens_padded = torch.tensor([0, 8, 20, 28])
+
+    assert torch.equal(input_ids_padded, expected_input_ids)
+    assert torch.equal(labels_padded, expected_labels)
+    assert torch.equal(cu_seqlens_q_padded, expected_cu_seqlens_padded)
 
 
 

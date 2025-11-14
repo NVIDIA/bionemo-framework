@@ -553,3 +553,20 @@ def test_sanity_ddp_thd_token_packing_huggingface_model(tmp_path, recipe_path):
         )
 
     main_ddp(sanity_config)
+
+def test_sanity_convergence_ddp_cp(tmp_path, recipe_path):
+    """Test that the main function can be invoked wrapping the model in DDP."""
+
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity_cp",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                f"cp_size=2",
+            ],
+        )
+
+    final_loss = main_ddp(sanity_config)
+    assert final_loss < 3.0, f"Final loss {final_loss} is too high"
