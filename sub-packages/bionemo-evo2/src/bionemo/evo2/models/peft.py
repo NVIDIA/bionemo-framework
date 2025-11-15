@@ -177,9 +177,9 @@ class Evo2LoRA(LoRA):
         """
 
         # If trainer is not in FITTING mode, all parameters are frozen using super() implementation
-        if is_trainer_attached(model) and model.trainer.state.fn != TrainerFn.FITTING:
-            super().freeze_model(model)
-            return
+        # if is_trainer_attached(model) and model.trainer.state.fn != TrainerFn.FITTING:
+        #     super().freeze_model(model)
+        #     return
 
         if isinstance(model, MegatronParallel) and len(model) > 1:
             for model_chunk in model:
