@@ -61,13 +61,13 @@ class ParallelRNASeqBuilder(object):
     def __init__(self, base_bin_path: str):
         """Initialize ParallelRNASeqBuilder."""
         self.base_bin_path = base_bin_path
-        self.rna_seq_bin_path = base_bin_path.replace('.bin', '_rna_seq.bin')
-        self.rna_seq_idx_path = base_bin_path.replace('.bin', '_rna_seq.idx')
+        self.rna_seq_bin_path = base_bin_path.replace(".bin", "_rna_seq.bin")
+        self.rna_seq_idx_path = base_bin_path.replace(".bin", "_rna_seq.idx")
 
         print(f"Creating RNA-seq dataset at {self.rna_seq_bin_path} and {self.rna_seq_idx_path}")
 
         # Open files
-        self.rna_seq_file = open(self.rna_seq_bin_path, 'wb')
+        self.rna_seq_file = open(self.rna_seq_bin_path, "wb")
         self.doc_lengths = []
         self.doc_indices = [0]
 
@@ -91,9 +91,9 @@ class ParallelRNASeqBuilder(object):
         self.rna_seq_file.close()
 
         # Write simple index file (document lengths and indices)
-        with open(self.rna_seq_idx_path, 'wb') as idx_file:
+        with open(self.rna_seq_idx_path, "wb") as idx_file:
             # Write header
-            idx_file.write(b'RNAS')  # Magic bytes
+            idx_file.write(b"RNAS")  # Magic bytes
             idx_file.write(np.array([len(self.doc_lengths)], dtype=np.int64).tobytes())
 
             # Write document lengths
@@ -110,6 +110,7 @@ class ParallelRNASeqBuilder(object):
 # ----------------------------
 # END: RNA-seq data class
 # ----------------------------
+
 
 class Evo2Preprocessor:
     """Data preprocessing class for Evo2."""
@@ -128,7 +129,7 @@ class Evo2Preprocessor:
         """
         self.tokenizer: Evo2Tokenizer = Evo2Tokenizer(params)
         self.config: Evo2PreprocessingConfig = params
-        self._bigwig_cache = {} # Cache for BigWig file handles
+        self._bigwig_cache = {}  # Cache for BigWig file handles
 
     @staticmethod
     @contextmanager
@@ -224,11 +225,9 @@ class Evo2Preprocessor:
         """
         return [seq, complement_sequence(reverse_sequence(seq))]
 
-
     @staticmethod
     def _reverse_complement_bigwig_expansion(
-        bigwig_values: None | Dict[str,np.ndarray],
-        seq_reversed: bool = False
+        bigwig_values: None | Dict[str, np.ndarray], seq_reversed: bool = False
     ) -> List[np.ndarray | None]:
         """Generate a list containing the original and reverse complemented bigwig values.
 
@@ -243,16 +242,9 @@ class Evo2Preprocessor:
             return [None, None]
         # Include both original and reverse complement RNA-seq
         elif seq_reversed:
-            return [
-                bigwig_values["reverse"],
-                bigwig_values["forward"]
-            ]
+            return [bigwig_values["reverse"], bigwig_values["forward"]]
         else:
-            return [
-                bigwig_values["forward"],
-                bigwig_values["reverse"]
-            ]
-
+            return [bigwig_values["forward"], bigwig_values["reverse"]]
 
     @staticmethod
     def _train_val_test_split(train_weight: float, val_weight: float, test_weight: float, seed: Optional[int] = None):
@@ -331,12 +323,8 @@ class Evo2Preprocessor:
         return self._bigwig_cache[bigwig_path]
 
     def _extract_bigwig_seq_values(
-        self,
-        bigwig_path: str,
-        chromosome: str,
-        start_pos: int,
-        end_pos: int
-    ) -> Dict[str,np.ndarray]:
+        self, bigwig_path: str, chromosome: str, start_pos: int, end_pos: int
+    ) -> Dict[str, np.ndarray]:
         """Extract values from BigWig file for given genomic region.
 
         Args:
@@ -350,7 +338,7 @@ class Evo2Preprocessor:
         """
         try:
             forward_bw = self._get_bigwig_handle(bigwig_path)
-            reverse_bw = self._get_bigwig_handle(bigwig_path.replace("_forward.","_reverse."))
+            reverse_bw = self._get_bigwig_handle(bigwig_path.replace("_forward.", "_reverse."))
 
             # Get values for each position
             forward_values = forward_bw.values(chromosome, start_pos, end_pos)
@@ -360,13 +348,13 @@ class Evo2Preprocessor:
             forward_rna_seq_array = np.array(forward_values, dtype=np.float32)
             forward_rna_seq_array = np.nan_to_num(
                 forward_rna_seq_array,
-                nan=self.config.rna_seq_missing_value # type: ignore
+                nan=self.config.rna_seq_missing_value,  # type: ignore
             )
 
             reverse_rna_seq_array = np.array(reverse_values, dtype=np.float32)
             reverse_rna_seq_array = np.nan_to_num(
                 reverse_rna_seq_array,
-                nan=self.config.rna_seq_missing_value # type: ignore
+                nan=self.config.rna_seq_missing_value,  # type: ignore
             )
             # Reverse to match DNA strand
             reverse_rna_seq_array = np.flip(reverse_rna_seq_array)
@@ -376,34 +364,30 @@ class Evo2Preprocessor:
             reverse_rna_seq_array = np.squeeze(reverse_rna_seq_array, axis=-1)
 
             # Verify lengths
-            if (
-                forward_rna_seq_array.shape[0] != (end_pos - start_pos) or
-                reverse_rna_seq_array.shape[0] != (end_pos - start_pos)
+            if forward_rna_seq_array.shape[0] != (end_pos - start_pos) or reverse_rna_seq_array.shape[0] != (
+                end_pos - start_pos
             ):
                 logging.error(
                     f"Extracted RNA-seq length does not match expected length for {bigwig_path} at \
                     {chromosome}:{start_pos}-{end_pos}"
                 )
 
-            return {
-                "forward":forward_rna_seq_array,
-                "reverse":reverse_rna_seq_array
-            }
+            return {"forward": forward_rna_seq_array, "reverse": reverse_rna_seq_array}
 
         except Exception as e:
             logging.warning(f"Failed to extract RNA-seq from {bigwig_path}: {e}")
             # Return array of missing values
             return {
-                "forward":np.full(
-                end_pos - start_pos,
-                self.config.rna_seq_missing_value, # type: ignore
-                dtype=np.float32
+                "forward": np.full(
+                    end_pos - start_pos,
+                    self.config.rna_seq_missing_value,  # type: ignore
+                    dtype=np.float32,
                 ),
-                "reverse":np.full(
-                end_pos - start_pos,
-                self.config.rna_seq_missing_value, # type: ignore
-                dtype=np.float32
-                )
+                "reverse": np.full(
+                    end_pos - start_pos,
+                    self.config.rna_seq_missing_value,  # type: ignore
+                    dtype=np.float32,
+                ),
             }
 
     def _parse_genomic_coordinates(self, seqid: str, seq_length: int) -> Tuple[str, int, int]:
@@ -419,14 +403,14 @@ class Evo2Preprocessor:
         # Example parsing logic - adapt based on your SeqID format
         # Format: "chr1:1000-2000" or "chr1_1000_2000"
         try:
-            if ':' in seqid and '-' in seqid:
-                parts = seqid.split(':')
+            if ":" in seqid and "-" in seqid:
+                parts = seqid.split(":")
                 chromosome = parts[0]
-                coords = parts[1].split('-')
+                coords = parts[1].split("-")
                 start_pos = int(coords[0])
                 end_pos = int(coords[1])
-            elif '_' in seqid:
-                parts = seqid.split('_')
+            elif "_" in seqid:
+                parts = seqid.split("_")
                 chromosome = parts[0]
                 start_pos = int(parts[1]) if len(parts) > 1 else 0
                 end_pos = start_pos + seq_length
@@ -474,19 +458,17 @@ class Evo2Preprocessor:
 
         # Get BigWig file path for this FASTA file
         bigwig_path = None
-        if config.fasta_rnaseq_bigwig_map: # type: ignore
-            bigwig_path = config.fasta_rnaseq_bigwig_map.get(os.path.basename(filepath)) # type: ignore
+        if config.fasta_rnaseq_bigwig_map:  # type: ignore
+            bigwig_path = config.fasta_rnaseq_bigwig_map.get(os.path.basename(filepath))  # type: ignore
 
         # Parse sequence ID to get genomic coordinates
         # Assuming SeqID format like "chr1:1000-2000" or extract from sequence info
-        chromosome, start_pos, end_pos = seqid, 0, len(seq) #self._parse_genomic_coordinates(seqid, len(seq))
+        chromosome, start_pos, end_pos = seqid, 0, len(seq)  # self._parse_genomic_coordinates(seqid, len(seq))
 
         # Extract RNA-seq values if BigWig is available
         rna_seq_values_dict = None
         if bigwig_path and chromosome:
-            rna_seq_values_dict = self._extract_bigwig_seq_values(
-                bigwig_path, chromosome, start_pos, end_pos
-            )
+            rna_seq_values_dict = self._extract_bigwig_seq_values(bigwig_path, chromosome, start_pos, end_pos)
 
         # Preprocess data.
         preproc_data = []
@@ -667,9 +649,9 @@ class Evo2Preprocessor:
         # Create parallel RNA-seq builders if RNA-seq mapping is provided
         rna_seq_builders = {}
         if preproc_config.fasta_rnaseq_bigwig_map is not None:  # type: ignore
-            rna_seq_builders['train'] = ParallelRNASeqBuilder(str(temp_train_bin))
-            rna_seq_builders['val'] = ParallelRNASeqBuilder(str(temp_val_bin))
-            rna_seq_builders['test'] = ParallelRNASeqBuilder(str(temp_test_bin))
+            rna_seq_builders["train"] = ParallelRNASeqBuilder(str(temp_train_bin))
+            rna_seq_builders["val"] = ParallelRNASeqBuilder(str(temp_val_bin))
+            rna_seq_builders["test"] = ParallelRNASeqBuilder(str(temp_test_bin))
             logging.info("✅ Created parallel RNA-seq dataset builders")
 
         # Process sequences
@@ -692,27 +674,27 @@ class Evo2Preprocessor:
             split = sequence["split"]
             if split == "train":
                 train_builder.add_item(tokens_tensor)
-                if 'train' in rna_seq_builders:
-                    rna_seq_builders['train'].add_rna_seq_item(rna_seq_tensor)
+                if "train" in rna_seq_builders:
+                    rna_seq_builders["train"].add_rna_seq_item(rna_seq_tensor)
                 train_builder.end_document()
-                if 'train' in rna_seq_builders:
-                    rna_seq_builders['train'].end_document()
+                if "train" in rna_seq_builders:
+                    rna_seq_builders["train"].end_document()
 
             elif split == "val":
                 val_builder.add_item(tokens_tensor)
-                if 'val' in rna_seq_builders:
-                    rna_seq_builders['val'].add_rna_seq_item(rna_seq_tensor)
+                if "val" in rna_seq_builders:
+                    rna_seq_builders["val"].add_rna_seq_item(rna_seq_tensor)
                 val_builder.end_document()
-                if 'val' in rna_seq_builders:
-                    rna_seq_builders['val'].end_document()
+                if "val" in rna_seq_builders:
+                    rna_seq_builders["val"].end_document()
 
             elif split == "test":
                 test_builder.add_item(tokens_tensor)
-                if 'test' in rna_seq_builders:
-                    rna_seq_builders['test'].add_rna_seq_item(rna_seq_tensor)
+                if "test" in rna_seq_builders:
+                    rna_seq_builders["test"].add_rna_seq_item(rna_seq_tensor)
                 test_builder.end_document()
-                if 'test' in rna_seq_builders:
-                    rna_seq_builders['test'].end_document()
+                if "test" in rna_seq_builders:
+                    rna_seq_builders["test"].end_document()
 
             index_end_time = time.time()
             avg_preproc_time = (avg_preproc_time * count + elapsed_time) / (count + 1)
