@@ -69,3 +69,8 @@ def device_mesh():
     _mesh_resources.mesh_dim_group_options.clear()
     torch.cuda.empty_cache()
     torch.cuda.synchronize()
+
+
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line("markers", "multi_gpu: marks tests that require multiple GPUs")

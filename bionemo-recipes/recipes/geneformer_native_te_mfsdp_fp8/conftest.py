@@ -1,6 +1,4 @@
-#!/bin/bash
-#
-# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-Apache2
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Enable strict mode with better error handling
-set -euox pipefail
 
-ci/scripts/pytest_runner.sh --no-nbval --skip-slow --skip-multi-gpu
+def pytest_configure(config):
+    """Register custom markers."""
+    config.addinivalue_line("markers", "multi_gpu: marks tests that require multiple GPUs")
