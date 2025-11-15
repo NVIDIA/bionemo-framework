@@ -26,10 +26,10 @@ from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS, HyenaNV1bC
 class HyenaNV1bConfig2(HyenaNV1bConfig):
     """A parallel friendly version of the HyenaNV1bConfig."""
 
-    hidden_size: int = 2048
-    num_groups_hyena: int = 2048
-    num_attention_heads: int = 16
-    ffn_hidden_size: int = 6144
+    hidden_size: int = 2048  # 1920
+    num_groups_hyena: int = 2048  # 1920
+    num_attention_heads: int = 16  # 15
+    ffn_hidden_size: int = 5120  # 5120
     # Spike-no-more-embedding init by default.
     share_embeddings_and_output_weights: bool = False
     embedding_init_method_std: float = 1.0
