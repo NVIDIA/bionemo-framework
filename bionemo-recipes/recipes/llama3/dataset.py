@@ -18,7 +18,7 @@ from pathlib import Path
 
 import datasets
 import datasets.distributed
-from torch.utils.data import DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
@@ -118,6 +118,7 @@ def create_bshd_dataloader(
     seed: int = 42,
     buffer_size: int = 500_000,
     use_lazy_tokenization: bool = True,
+    use_stateful_dataloader: bool = False,
 ):
     """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
     
@@ -132,6 +133,7 @@ def create_bshd_dataloader(
         seed: The seed to use for the distributed sampler and data collator.
         buffer_size: The buffer size for shuffle.
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
+        use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -162,13 +164,15 @@ def create_bshd_dataloader(
         mlm=False,  # Causal language modeling (no masking)
     )
 
-    train_dataloader = StatefulDataLoader(
+    # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
+    dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
+    train_dataloader = dataloader_class(
         tokenized_dataset,
         sampler=sampler,
         batch_size=micro_batch_size,
         collate_fn=data_collator,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=True if not use_stateful_dataloader else False,
         persistent_workers=num_workers > 0,
     )
 
