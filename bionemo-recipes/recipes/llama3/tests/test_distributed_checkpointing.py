@@ -737,6 +737,7 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         "lr_scheduler_kwargs.num_warmup_steps=20",
         "lr_scheduler_kwargs.num_training_steps=100",
+        "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)

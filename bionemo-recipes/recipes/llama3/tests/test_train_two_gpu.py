@@ -40,11 +40,11 @@ requires_multi_gpu = pytest.mark.skipif(
 
 def run_train_cmd(cmd, recipe_path):
     """Run a training command and check for errors.
-    
+
     Args:
         cmd: List of command arguments to run
         recipe_path: Path to the recipe directory (working directory for command)
-        
+
     Raises:
         pytest.fail: If command returns non-zero exit code
     """
@@ -67,23 +67,25 @@ def run_train_cmd(cmd, recipe_path):
 @requires_multi_gpu
 def test_multi_gpu_train_ddp(tmp_path, recipe_path):
     """Test DDP training on 2 GPUs.
-    
+
     This test validates:
     - DDP launches successfully with 2 processes
     - Both GPUs are utilized
     - Training completes without errors
     - Gradient synchronization works across GPUs
-    
+
     The test runs only 4 training steps for speed.
     """
     run_train_cmd(
         [
             "torchrun",
-            "--nproc_per_node", "2",    # 2 processes = 2 GPUs
-            "--standalone",              # Single node mode
+            "--nproc_per_node",
+            "2",  # 2 processes = 2 GPUs
+            "--standalone",  # Single node mode
             "train_ddp.py",
-            "--config-name", "L0_sanity",
-            "num_train_steps=4",         # Just 4 steps for speed
+            "--config-name",
+            "L0_sanity",
+            "num_train_steps=4",  # Just 4 steps for speed
         ],
         recipe_path,
     )
@@ -92,32 +94,34 @@ def test_multi_gpu_train_ddp(tmp_path, recipe_path):
 @requires_multi_gpu
 def test_multi_gpu_train_fsdp2(tmp_path, recipe_path):
     """Test FSDP2 training on 2 GPUs.
-    
+
     This test validates:
     - FSDP2 launches successfully with 2 processes
     - Model sharding works across 2 GPUs
     - Training completes without errors
     - Parameter gathering/scattering works correctly
-    
+
     The test runs only 4 training steps for speed.
     """
     run_train_cmd(
         [
             "torchrun",
-            "--nproc_per_node", "2",    # 2 processes = 2 GPUs
-            "--standalone",              # Single node mode
+            "--nproc_per_node",
+            "2",  # 2 processes = 2 GPUs
+            "--standalone",  # Single node mode
             "train_fsdp2.py",
-            "--config-name", "L0_sanity",
-            "num_train_steps=4",         # Just 4 steps for speed
+            "--config-name",
+            "L0_sanity",
+            "num_train_steps=4",  # Just 4 steps for speed
         ],
         recipe_path,
     )
 
 
-@requires_multi_gpu  
+@requires_multi_gpu
 def test_multi_gpu_train_ddp_with_checkpointing(tmp_path, recipe_path):
     """Test DDP training on 2 GPUs with checkpoint saving.
-    
+
     This test validates:
     - DDP can save checkpoints with multiple processes
     - Checkpoint files are created correctly
@@ -126,17 +130,20 @@ def test_multi_gpu_train_ddp_with_checkpointing(tmp_path, recipe_path):
     run_train_cmd(
         [
             "torchrun",
-            "--nproc_per_node", "2",
+            "--nproc_per_node",
+            "2",
             "--standalone",
             "train_ddp.py",
-            "--config-name", "L0_sanity",
+            "--config-name",
+            "L0_sanity",
             "num_train_steps=10",
             f"checkpoint.ckpt_dir={tmp_path}",
             "checkpoint.save_every_n_steps=5",
+            "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
         ],
         recipe_path,
     )
-    
+
     # Verify checkpoint was created
     ckpt_dir = tmp_path / "train_ddp"
     assert ckpt_dir.exists(), f"Checkpoint directory not created: {ckpt_dir}"
@@ -146,7 +153,7 @@ def test_multi_gpu_train_ddp_with_checkpointing(tmp_path, recipe_path):
 @requires_multi_gpu
 def test_multi_gpu_train_fsdp2_with_checkpointing(tmp_path, recipe_path):
     """Test FSDP2 training on 2 GPUs with checkpoint saving.
-    
+
     This test validates:
     - FSDP2 can save checkpoints with multiple processes
     - Sharded checkpoints are created correctly
@@ -155,21 +162,21 @@ def test_multi_gpu_train_fsdp2_with_checkpointing(tmp_path, recipe_path):
     run_train_cmd(
         [
             "torchrun",
-            "--nproc_per_node", "2",
+            "--nproc_per_node",
+            "2",
             "--standalone",
             "train_fsdp2.py",
-            "--config-name", "L0_sanity",
+            "--config-name",
+            "L0_sanity",
             "num_train_steps=10",
             f"checkpoint.ckpt_dir={tmp_path}",
             "checkpoint.save_every_n_steps=5",
+            "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
         ],
         recipe_path,
     )
-    
+
     # Verify checkpoint was created
     ckpt_dir = tmp_path / "train_fsdp2"
     assert ckpt_dir.exists(), f"Checkpoint directory not created: {ckpt_dir}"
     assert (ckpt_dir / "step_5").exists(), "Checkpoint at step 5 not found"
-
-
-
