@@ -108,6 +108,11 @@ class ESM2FineTuneDataModule(MegatronDataModule):
             output_log=predict_dataset is None,  # logging does not work with predict step
         )
 
+    @property
+    def seq_length(self) -> int:
+        """Returns the sequence length."""
+        return self._max_seq_length
+
     def setup(self, stage: str) -> None:
         """Setup the ESMDataModule.
 
