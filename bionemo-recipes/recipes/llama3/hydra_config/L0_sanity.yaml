@@ -27,6 +27,7 @@ dataset:
 wandb_init_args:
   name: "llama3_8B_genomic_sanity"
   mode: "offline"
+  project: null  # Set to null by default, override with +wandb_init_args.project=your-project
 
 # Learning rate scheduler config
 lr_scheduler_kwargs:
@@ -41,4 +42,3 @@ checkpoint:
 
 logger:
   frequency: 1
-

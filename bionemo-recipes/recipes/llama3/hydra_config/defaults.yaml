@@ -26,6 +26,7 @@ dataset:
 # WandB config
 wandb_init_args:
   name: ???
+  project: null  # Optional: set to your wandb project name
 
 # mFSDP config
 fully_shard_kwargs:
@@ -73,6 +74,3 @@ checkpoint:
 
 logger:
   frequency: 100
-
-
-

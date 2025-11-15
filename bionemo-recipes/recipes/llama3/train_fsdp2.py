@@ -19,7 +19,12 @@ from pathlib import Path
 import hydra
 import torch
 import transformer_engine.pytorch
+from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
+from dataset import create_bshd_dataloader
+from distributed_config import DistributedConfig
 from omegaconf import DictConfig, OmegaConf
+from perf_logger import PerfLogger
+from scheduler import get_linear_schedule_with_warmup
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard
 from torch.optim import AdamW
@@ -28,12 +33,6 @@ from transformers import AutoConfig, AutoModelForCausalLM
 
 # This import seems to be needed with meta device init and AutoModel.from_config
 from transformers.models.llama.modeling_llama import LlamaForCausalLM  # noqa: F401
-
-from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
-from dataset import create_bshd_dataloader
-from distributed_config import DistributedConfig
-from perf_logger import PerfLogger
-from scheduler import get_linear_schedule_with_warmup
 
 
 logger = logging.getLogger(__name__)
@@ -69,7 +68,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     # Use SDPA (Scaled Dot-Product Attention) to avoid materializing large causal masks
-    config.attn_implementation = "sdpa"
+    # config.attn_implementation = "sdpa"
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
@@ -85,7 +84,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     for layer in transformer_stack:
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
-
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
@@ -188,4 +186,3 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
 
 if __name__ == "__main__":
     main()
-
