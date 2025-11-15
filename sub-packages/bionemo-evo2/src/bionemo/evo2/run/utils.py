@@ -14,12 +14,26 @@
 # limitations under the License.
 """Utility functions for Evo2 run functions."""
 
-from typing import Literal
+from typing import Callable, Literal
 
+import torch
 from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS
 
 from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS
+
+
+def lookup_activation_func(activation_func_name: str) -> Callable:
+    """Lookup an activation function by name."""
+    activation_func = getattr(torch.nn.functional, activation_func_name.lower(), None)
+    if activation_func is None:
+        raise ValueError(
+            f"Invalid activation function: {activation_func_name}. See options in "
+            "https://docs.pytorch.org/docs/stable/nn.functional.html#non-linear-activation-functions, "
+            "and make sure they are available in the current environment. "
+            "Recommended options are 'silu', 'gelu' or 'relu'."
+        )
+    return activation_func
 
 
 def patch_eden_tokenizer(tokenizer):
