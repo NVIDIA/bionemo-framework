@@ -37,6 +37,7 @@ def create_tokenized_dataset(
     stride: int = 200,
     buffer_size: int = 500_000,
     use_lazy_tokenization: bool = True,
+    sequence_column: str = "sequence",
 ):
     """Create a tokenized dataset with windowing.
     
@@ -48,6 +49,7 @@ def create_tokenized_dataset(
         stride: The stride for windowing (overlap = stride tokens).
         buffer_size: The buffer size for shuffle.
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
+        sequence_column: Name of the column containing genomic sequences (default: "sequence").
         
     Returns:
         Tuple of (tokenized_dataset, tokenizer).
@@ -64,12 +66,22 @@ def create_tokenized_dataset(
             raise ValueError(f"Dataset has splits {list(dataset.keys())} but no 'train' split found. "
                            "Please specify split='train' in load_dataset_kwargs or ensure your dataset has a 'train' split.")
 
-    # Normalize column names - rename 'nt_sequence' to 'sequence' if present
-    # Only do this for non-streaming datasets (streaming datasets don't have column_names attribute)
+    # Normalize column name to "sequence" for consistent processing
+    # Only validate and rename for non-streaming datasets (streaming datasets don't have column_names attribute)
     if hasattr(dataset, "column_names") and dataset.column_names is not None:
-        if "nt_sequence" in dataset.column_names and "sequence" not in dataset.column_names:
-            logger.info("Renaming column 'nt_sequence' to 'sequence' for consistency")
-            dataset = dataset.rename_column("nt_sequence", "sequence")
+        if sequence_column != "sequence":
+            if sequence_column not in dataset.column_names:
+                raise ValueError(
+                    f"Sequence column '{sequence_column}' not found in dataset. "
+                    f"Available columns: {dataset.column_names}"
+                )
+            logger.info(f"Renaming column '{sequence_column}' to 'sequence' for consistency")
+            dataset = dataset.rename_column(sequence_column, "sequence")
+        elif "sequence" not in dataset.column_names:
+            raise ValueError(
+                f"Column 'sequence' not found in dataset. Available columns: {dataset.column_names}. "
+                f"Use sequence_column parameter to specify the correct column name."
+            )
 
     if isinstance(dataset, datasets.IterableDataset):
         dataset = datasets.distributed.split_dataset_by_node(
@@ -119,6 +131,7 @@ def create_bshd_dataloader(
     buffer_size: int = 500_000,
     use_lazy_tokenization: bool = True,
     use_stateful_dataloader: bool = False,
+    sequence_column: str = "sequence",
 ):
     """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
     
@@ -134,6 +147,7 @@ def create_bshd_dataloader(
         buffer_size: The buffer size for shuffle.
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
+        sequence_column: Name of the column containing genomic sequences (default: "sequence").
         
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -146,6 +160,7 @@ def create_bshd_dataloader(
         stride=stride,
         buffer_size=buffer_size,
         use_lazy_tokenization=use_lazy_tokenization,
+        sequence_column=sequence_column,
     )
 
     if isinstance(tokenized_dataset, datasets.IterableDataset):
