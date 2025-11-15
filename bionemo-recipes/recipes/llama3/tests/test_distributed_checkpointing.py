@@ -73,6 +73,7 @@ def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
+                "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
             ],
         )
 
@@ -120,6 +121,7 @@ def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+                "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
             ],
         )
 
@@ -199,6 +201,7 @@ def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=false",  # Start fresh
+        "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -261,6 +264,7 @@ def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
         "num_train_steps=15",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+        "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -342,6 +346,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
+                "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
             ],
         )
 
@@ -385,6 +390,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+                "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
             ],
         )
 
@@ -445,6 +451,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
         f"checkpoint.ckpt_dir={temp_dir}",
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
+        "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -490,6 +497,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
         "num_train_steps=15",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+        "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -549,6 +557,7 @@ def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
                 "lr_scheduler_kwargs.num_warmup_steps=20",
                 "lr_scheduler_kwargs.num_training_steps=100",
+                "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
             ],
         )
 
@@ -566,6 +575,7 @@ def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
                 "lr_scheduler_kwargs.num_warmup_steps=20",
                 "lr_scheduler_kwargs.num_training_steps=100",
+                "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
             ],
         )
 
@@ -611,6 +621,7 @@ def test_final_model_save_ddp(recipe_path, tmp_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 "checkpoint.save_final_model=true",
                 "num_train_steps=3",
+                "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
             ],
         )
 
@@ -650,6 +661,7 @@ def test_final_model_save_fsdp2(recipe_path, tmp_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 "checkpoint.save_final_model=true",
                 "num_train_steps=3",
+                "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
             ],
         )
 
@@ -701,6 +713,7 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
         "checkpoint.resume_from_checkpoint=false",  # Start fresh
         "lr_scheduler_kwargs.num_warmup_steps=20",
         "lr_scheduler_kwargs.num_training_steps=100",
+        "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)

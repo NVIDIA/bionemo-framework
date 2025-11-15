@@ -23,6 +23,7 @@ dataset:
   stride: 400  # 400bp overlap for 8K context
   buffer_size: 10_000  # Smaller buffer for faster iteration
   use_lazy_tokenization: true
+  use_stateful_dataloader: false  # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
   load_dataset_kwargs:
     path: "parquet"
     data_files: "genomic_sequences_2mb.parquet"  # 2MB convergence test data in recipe directory

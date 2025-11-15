@@ -100,7 +100,7 @@ def main(args: DictConfig) -> float | None:
             scheduler=scheduler,
             ckpt_path=ckpt_path,
             dist_config=dist_config,
-            dataloader=train_dataloader,
+            dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
         )
     else:
         start_step = 0
@@ -146,7 +146,7 @@ def main(args: DictConfig) -> float | None:
                     ckpt_path=ckpt_path,
                     step=step,
                     dist_config=dist_config,
-                    dataloader=train_dataloader,
+                    dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
                     epoch=epoch,
                 )
 

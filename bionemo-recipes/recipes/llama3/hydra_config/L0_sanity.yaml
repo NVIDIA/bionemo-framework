@@ -17,6 +17,7 @@ dataset:
   stride: 100  # Smaller stride for testing
   buffer_size: 10_000  # Smaller buffer for testing
   use_lazy_tokenization: true
+  use_stateful_dataloader: false  # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
   load_dataset_kwargs:
     path: "parquet"
     split: "train"
