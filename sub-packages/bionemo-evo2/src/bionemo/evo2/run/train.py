@@ -59,7 +59,7 @@ from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
-# from nemo.collections.llm.peft import LoRA
+from nemo.collections.llm.peft import LoRA
 
 torch._dynamo.config.suppress_errors = True
 
@@ -836,8 +836,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
                 if v is not None
             }
 
-            lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path, **lora_kwargs)
-          #  lora_transform = LoRA()
+       #    lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path, **lora_kwargs)
+            lora_transform = LoRA()
 
         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
     elif model_type == "mamba":  # mamba
