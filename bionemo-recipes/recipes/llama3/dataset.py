@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import logging
-from pathlib import Path
 
 import datasets
 import datasets.distributed
@@ -40,7 +39,7 @@ def create_tokenized_dataset(
     sequence_column: str = "sequence",
 ):
     """Create a tokenized dataset with windowing.
-    
+
     Args:
         distributed_config: The distributed configuration.
         tokenizer_path: Path to the nucleotide tokenizer directory.
@@ -50,7 +49,7 @@ def create_tokenized_dataset(
         buffer_size: The buffer size for shuffle.
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         sequence_column: Name of the column containing genomic sequences (default: "sequence").
-        
+
     Returns:
         Tuple of (tokenized_dataset, tokenizer).
     """
@@ -63,8 +62,10 @@ def create_tokenized_dataset(
         if "train" in dataset:
             dataset = dataset["train"]
         else:
-            raise ValueError(f"Dataset has splits {list(dataset.keys())} but no 'train' split found. "
-                           "Please specify split='train' in load_dataset_kwargs or ensure your dataset has a 'train' split.")
+            raise ValueError(
+                f"Dataset has splits {list(dataset.keys())} but no 'train' split found. "
+                "Please specify split='train' in load_dataset_kwargs or ensure your dataset has a 'train' split."
+            )
 
     # Normalize column name to "sequence" for consistent processing
     # Only validate and rename for non-streaming datasets (streaming datasets don't have column_names attribute)
@@ -134,7 +135,7 @@ def create_bshd_dataloader(
     sequence_column: str = "sequence",
 ):
     """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
-    
+
     Args:
         distributed_config: The distributed configuration.
         tokenizer_path: Path to the nucleotide tokenizer directory.
@@ -147,8 +148,12 @@ def create_bshd_dataloader(
         buffer_size: The buffer size for shuffle.
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
+<<<<<<< HEAD
         sequence_column: Name of the column containing genomic sequences (default: "sequence").
         
+=======
+
+>>>>>>> eae1e5c6 (Add distributed checkpointing tests and fix pin_memory compatibility)
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
     """
@@ -192,4 +197,3 @@ def create_bshd_dataloader(
     )
 
     return train_dataloader, tokenized_dataset if sampler is None else sampler
-
