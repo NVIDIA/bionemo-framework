@@ -283,6 +283,11 @@ def create_cp_dataloader(
         assert token_micro_batch_size >= max_seq_length, "token_micro_batch_size must be greater than max_seq_length."
 
     # For THD, we pad out to the maximum number of tokens per batch for consistent array shapes.
+    if pad_sequences_to_be_divisible_by is not None:
+        logger.info(f"Setting padding sequences to be divisible by {2 * cp_world_size} for context parallelism.")
+        pad_sequences_to_be_divisible_by = 2 * cp_world_size
+
+
     data_collator = MLMDataCollatorWithFlattening(
         tokenizer=tokenizer,
         mlm_probability=mlm_probability,

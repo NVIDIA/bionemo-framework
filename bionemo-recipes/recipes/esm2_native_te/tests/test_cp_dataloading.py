@@ -26,7 +26,6 @@ from context_parallel import split_batch_by_cp_rank
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 
 
-
 def get_dummy_data_thd_with_padding_dp0(cp_size: int):
     pid = 1 # The pad token id.
     label_pad = -100 # The label pad id.
