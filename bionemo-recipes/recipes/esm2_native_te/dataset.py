@@ -319,8 +319,7 @@ class CPAwareDataloader:
         This class is used to create a dataloader that is aware of context parallelism. It will get the batch from the dataloader on CP rank 0, and then determine 
         the shards for all the different CP group members.
         Then it will scatter the shards to the different CP group members.
-        The shards are then combined into a single batch and returned to the caller
-        for the current CP rank.
+        The shards are then returned to the caller for the current CP rank.
 
         Args:
             dataloader: The dataloader to use.
