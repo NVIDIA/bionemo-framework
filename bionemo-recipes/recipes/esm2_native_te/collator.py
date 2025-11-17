@@ -25,7 +25,7 @@ from typing import Any, Callable
 import datasets
 import torch
 from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
-from utils import split_batch_by_cp_rank
+from context_parallel import split_batch_by_cp_rank
 
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 

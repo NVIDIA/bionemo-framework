@@ -22,7 +22,7 @@ from unittest import mock
 import torch
 
 from dataset import CPAwareDataloader
-from utils import split_batch_by_cp_rank
+from context_parallel import split_batch_by_cp_rank
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 
 
