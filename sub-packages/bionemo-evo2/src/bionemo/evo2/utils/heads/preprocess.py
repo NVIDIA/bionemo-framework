@@ -52,66 +52,6 @@ except ImportError:
     import pyBigWig
 
 
-# ----------------------------
-# START: RNA-seq data class
-# ----------------------------
-class ParallelRNASeqBuilder(object):
-    """Helper class to build parallel RNA-seq indexed datasets."""
-
-    def __init__(self, base_bin_path: str):
-        """Initialize ParallelRNASeqBuilder."""
-        self.base_bin_path = base_bin_path
-        self.rna_seq_bin_path = base_bin_path.replace(".bin", "_rna_seq.bin")
-        self.rna_seq_idx_path = base_bin_path.replace(".bin", "_rna_seq.idx")
-
-        print(f"Creating RNA-seq dataset at {self.rna_seq_bin_path} and {self.rna_seq_idx_path}")
-
-        # Open files
-        self.rna_seq_file = open(self.rna_seq_bin_path, "wb")
-        self.doc_lengths = []
-        self.doc_indices = [0]
-
-    def add_rna_seq_item(self, rna_seq_tensor: torch.Tensor | None):
-        """Add RNA-seq data for one document."""
-        if rna_seq_tensor is not None:
-            rna_seq_array = np.array(rna_seq_tensor.numpy(), dtype=np.float32)
-        else:
-            # Default to zeros if no RNA-seq data
-            rna_seq_array = np.zeros(1, dtype=np.float32)
-
-        self.rna_seq_file.write(rna_seq_array.tobytes(order="C"))
-        self.doc_lengths.append(rna_seq_array.size)
-
-    def end_document(self):
-        """Mark end of document."""
-        self.doc_indices.append(len(self.doc_lengths))
-
-    def finalize(self):
-        """Write index file and close."""
-        self.rna_seq_file.close()
-
-        # Write simple index file (document lengths and indices)
-        with open(self.rna_seq_idx_path, "wb") as idx_file:
-            # Write header
-            idx_file.write(b"RNAS")  # Magic bytes
-            idx_file.write(np.array([len(self.doc_lengths)], dtype=np.int64).tobytes())
-
-            # Write document lengths
-            np.array(self.doc_lengths, dtype=np.int64).tofile(idx_file)
-
-            # Write document indices
-            np.array(self.doc_indices, dtype=np.int64).tofile(idx_file)
-
-        # Rename temporary files
-        os.rename(self.rna_seq_bin_path, self.rna_seq_bin_path.replace(".tmp", ""))
-        os.rename(self.rna_seq_idx_path, self.rna_seq_idx_path.replace(".tmp", ""))
-
-
-# ----------------------------
-# END: RNA-seq data class
-# ----------------------------
-
-
 class Evo2Preprocessor:
     """Data preprocessing class for Evo2."""
 
@@ -358,10 +298,7 @@ class Evo2Preprocessor:
             )
             # Reverse to match DNA strand
             reverse_rna_seq_array = np.flip(reverse_rna_seq_array)
-
-            # Squeeze arrays to be shape (seq_length,channel)
-            forward_rna_seq_array = np.squeeze(forward_rna_seq_array, axis=-1)
-            reverse_rna_seq_array = np.squeeze(reverse_rna_seq_array, axis=-1)
+            reverse_rna_seq_array = reverse_rna_seq_array.copy()  # Ensure contiguous array, remove negative strides
 
             # Verify lengths
             if forward_rna_seq_array.shape[0] != (end_pos - start_pos) or reverse_rna_seq_array.shape[0] != (
@@ -460,9 +397,10 @@ class Evo2Preprocessor:
         bigwig_path = None
         if config.fasta_rnaseq_bigwig_map:  # type: ignore
             bigwig_path = config.fasta_rnaseq_bigwig_map.get(os.path.basename(filepath))  # type: ignore
+        else:
+            logging.warning("No BigWig mapping provided.")
 
         # Parse sequence ID to get genomic coordinates
-        # Assuming SeqID format like "chr1:1000-2000" or extract from sequence info
         chromosome, start_pos, end_pos = seqid, 0, len(seq)  # self._parse_genomic_coordinates(seqid, len(seq))
 
         # Extract RNA-seq values if BigWig is available
@@ -518,13 +456,34 @@ class Evo2Preprocessor:
                     append_eod=config.append_eod,
                     drop_empty_sequences=config.drop_empty_sequences,
                 )
+
                 # RNA seq TODO: This is not currently compatible with taxonomy lineage injection!
                 # Will result in offset if taxonomy lineage injection
                 if rna_seq is not None:
-                    # Check rna_seq is of type Tensor or np.ndarray
+                    # Tokens are stored as a list
+                    tokens_list = preproc_data_record["tokens"]
+
+                    # Handle EOD token mismatch
+                    if len(tokens_list[0]) == rna_seq.shape[0] + 1 and config.append_eod:
+                        # Pad RNA-seq to match token length
+                        rna_seq = np.pad(
+                            rna_seq,
+                            (0, 1),  # Pad 1 element at end
+                            constant_values=config.rna_seq_missing_value,
+                        )
+
+                    # Verify lengths match
+                    if len(tokens_list[0]) != rna_seq.shape[0]:
+                        raise ValueError(
+                            f"Token/RNA-seq length mismatch: tokens={len(tokens_list[0])}, rna_seq={rna_seq.shape[0]}"
+                        )
+
+                    # Convert to list of list for consistency with token storage format, if problamatic, convert to np
                     if isinstance(rna_seq, np.ndarray):
-                        rna_seq = torch.from_numpy(rna_seq)
-                    preproc_data_record["rna_seq_targets"] = rna_seq.unsqueeze(-1)
+                        # Store as list for consistency (if that's what downstream expects)
+                        preproc_data_record["rna_seq_targets"] = [rna_seq.tolist()]
+                    else:
+                        raise ValueError("RNA-seq data is not a numpy array.")
 
                 # Append record
                 preproc_data.append(preproc_data_record)
@@ -647,11 +606,34 @@ class Evo2Preprocessor:
         test_builder = IndexedDatasetBuilder(bin_path=str(temp_test_bin), dtype=dataset_dtype)
 
         # Create parallel RNA-seq builders if RNA-seq mapping is provided
-        rna_seq_builders = {}
+        rna_seq_train_builder = None
+        rna_seq_val_builder = None
+        rna_seq_test_builder = None
+        temp_rna_seq_train_bin = None
+        temp_rna_seq_val_bin = None
+        temp_rna_seq_test_bin = None
+        # Create RNA-seq dataset builders if mapping is provided
         if preproc_config.fasta_rnaseq_bigwig_map is not None:  # type: ignore
-            rna_seq_builders["train"] = ParallelRNASeqBuilder(str(temp_train_bin))
-            rna_seq_builders["val"] = ParallelRNASeqBuilder(str(temp_val_bin))
-            rna_seq_builders["test"] = ParallelRNASeqBuilder(str(temp_test_bin))
+            # Train RNA-seq builder
+            temp_rna_seq_train_bin = str(temp_train_bin).replace(".bin", "_rna_seq.bin")
+            rna_seq_train_builder = IndexedDatasetBuilder(
+                bin_path=temp_rna_seq_train_bin,
+                dtype=np.float32,  # ← Important: float32 for RNA-seq values
+            )
+
+            # Val RNA-seq builder
+            temp_rna_seq_val_bin = str(temp_val_bin).replace(".bin", "_rna_seq.bin")
+            rna_seq_val_builder = IndexedDatasetBuilder(
+                bin_path=temp_rna_seq_val_bin,
+                dtype=np.float32,  # ← Important: float32 for RNA-seq values
+            )
+
+            # Test RNA-seq builder
+            temp_rna_seq_test_bin = str(temp_test_bin).replace(".bin", "_rna_seq.bin")
+            rna_seq_test_builder = IndexedDatasetBuilder(
+                bin_path=temp_rna_seq_test_bin,
+                dtype=np.float32,  # ← Important: float32 for RNA-seq values
+            )
             logging.info("✅ Created parallel RNA-seq dataset builders")
 
         # Process sequences
@@ -665,36 +647,35 @@ class Evo2Preprocessor:
             # Get tokens
             tokens_tensor = torch.Tensor(sequence["tokens"])
 
-            # Get RNA-seq data if available
+            # Get RNA-seq targets if available
             rna_seq_tensor = None
-            if "rna_seq_values" in sequence and sequence["rna_seq_values"] is not None:
-                rna_seq_tensor = torch.Tensor(sequence["rna_seq_values"])
+            if "rna_seq_targets" in sequence and sequence["rna_seq_targets"] is not None:  # ✅ CORRECT KEY
+                rna_seq_tensor = torch.Tensor(sequence["rna_seq_targets"])
+                if rna_seq_tensor.dim() == 2 and rna_seq_tensor.shape[0] == 1:
+                    rna_seq_tensor = rna_seq_tensor.squeeze(0)
 
             # Add to appropriate split
             split = sequence["split"]
             if split == "train":
                 train_builder.add_item(tokens_tensor)
-                if "train" in rna_seq_builders:
-                    rna_seq_builders["train"].add_rna_seq_item(rna_seq_tensor)
                 train_builder.end_document()
-                if "train" in rna_seq_builders:
-                    rna_seq_builders["train"].end_document()
+                if isinstance(rna_seq_train_builder, IndexedDatasetBuilder) and rna_seq_tensor is not None:
+                    rna_seq_train_builder.add_item(rna_seq_tensor)
+                    rna_seq_train_builder.end_document()
 
             elif split == "val":
                 val_builder.add_item(tokens_tensor)
-                if "val" in rna_seq_builders:
-                    rna_seq_builders["val"].add_rna_seq_item(rna_seq_tensor)
                 val_builder.end_document()
-                if "val" in rna_seq_builders:
-                    rna_seq_builders["val"].end_document()
+                if isinstance(rna_seq_val_builder, IndexedDatasetBuilder) and rna_seq_tensor is not None:
+                    rna_seq_val_builder.add_item(rna_seq_tensor)
+                    rna_seq_val_builder.end_document()
 
             elif split == "test":
                 test_builder.add_item(tokens_tensor)
-                if "test" in rna_seq_builders:
-                    rna_seq_builders["test"].add_rna_seq_item(rna_seq_tensor)
                 test_builder.end_document()
-                if "test" in rna_seq_builders:
-                    rna_seq_builders["test"].end_document()
+                if isinstance(rna_seq_test_builder, IndexedDatasetBuilder) and rna_seq_tensor is not None:
+                    rna_seq_test_builder.add_item(rna_seq_tensor)
+                    rna_seq_test_builder.end_document()
 
             index_end_time = time.time()
             avg_preproc_time = (avg_preproc_time * count + elapsed_time) / (count + 1)
@@ -706,15 +687,37 @@ class Evo2Preprocessor:
         val_builder.finalize(str(self._get_output_filename(preproc_config, self.IDX, self.VAL)))
         test_builder.finalize(str(self._get_output_filename(preproc_config, self.IDX, self.TEST)))
 
-        # Finalize RNA-seq datasets
-        for builder in rna_seq_builders.values():
-            builder.finalize()
-
-        # Rename temporary files
+        # Rename temporary files to final output files
         os.rename(temp_train_bin, self._get_output_filename(preproc_config, self.BIN, self.TRAIN))
         os.rename(temp_val_bin, self._get_output_filename(preproc_config, self.BIN, self.VAL))
         os.rename(temp_test_bin, self._get_output_filename(preproc_config, self.BIN, self.TEST))
 
+        # Finalize RNA-seq datasets
+        if isinstance(rna_seq_train_builder, IndexedDatasetBuilder):
+            rna_seq_train_builder.finalize(
+                str(self._get_output_filename(preproc_config, self.IDX, self.TRAIN)).replace(".idx", "_rna_seq.idx")
+            )
+            # Rename temporary files
+            if temp_rna_seq_train_bin is not None:
+                os.rename(temp_rna_seq_train_bin, temp_rna_seq_train_bin.replace(".tmp", ""))
+
+        if isinstance(rna_seq_val_builder, IndexedDatasetBuilder):
+            rna_seq_val_builder.finalize(
+                str(self._get_output_filename(preproc_config, self.IDX, self.VAL)).replace(".idx", "_rna_seq.idx")
+            )
+            # Rename temporary files
+            if temp_rna_seq_val_bin is not None:
+                os.rename(temp_rna_seq_val_bin, temp_rna_seq_val_bin.replace(".tmp", ""))
+
+        if isinstance(rna_seq_test_builder, IndexedDatasetBuilder):
+            rna_seq_test_builder.finalize(
+                str(self._get_output_filename(preproc_config, self.IDX, self.TEST)).replace(".idx", "_rna_seq.idx")
+            )
+            # Rename temporary files
+            if temp_rna_seq_test_bin is not None:
+                os.rename(temp_rna_seq_test_bin, temp_rna_seq_test_bin.replace(".tmp", ""))
+
+        # Logging.
         logging.info(f"✅ Preprocessing complete: {count} sequences processed")
         logging.info(f"📊 Average preprocessing time: {avg_preproc_time:.4f}s")
         logging.info(f"📊 Average indexing time: {avg_index_time:.4f}s")

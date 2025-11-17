@@ -437,9 +437,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Train with parallel-heads. NOTE: Add adaptor to prediction scirpt.",
     )
     parser.add_argument(
-        "--parallel-dna-head",
-        action="store_true",
-        help="Add dna token prediction head to parallel-heads."
+        "--parallel-dna-head", action="store_true", help="Add dna token prediction head to parallel-heads."
     )
     parser.add_argument(
         "--parallel-rna-seq-head",
@@ -460,7 +458,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
 
 def train(args: argparse.Namespace) -> nl.Trainer:
     """Main function to run Evo2 training."""
-
     # Asserts for proper configuration of parallel heads
     if args.parallel_heads:
         heads = [args.parallel_dna_head, args.parallel_rna_seq_head, args.parallel_pep_map_head]
@@ -493,7 +490,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
                 num_workers=args.workers,
                 tokenizer=tokenizer,
                 rna_seq=args.parallel_rna_seq_head,
-                pep_map=args.parallel_pep_map_head
+                pep_map=args.parallel_pep_map_head,
             )
 
             # Debug
@@ -513,7 +510,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             dataset_config_path=args.dataset_config, dataset_path=args.dataset_dir
         )
         # Parallel head data processing
-        if args.parallel_heads: 
+        if args.parallel_heads:
             # User RNA
             dataset_cls = Evo2RNASeqDatasetPadEodLossMask if args.eod_pad_in_loss_mask else Evo2RNASeqDataset
         # Single head data processing
@@ -528,7 +525,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             global_batch_size=global_batch_size,
             seed=args.seed,
             num_workers=args.workers,
-            tokenizer=tokenizer, # type: ignore
+            tokenizer=tokenizer,  # type: ignore
             eod_mask_loss=args.eod_pad_in_loss_mask,
         )
 
@@ -588,22 +585,18 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             pep_loss_weight=0.5,
             parallel_dna=args.parallel_dna_head,
             parallel_rna=args.parallel_rna_seq_head,
-            parallel_pep=args.parallel_pep_map_head
+            parallel_pep=args.parallel_pep_map_head,
         )
 
     # Instantiate model.
-    model = llm.HyenaModel(
-        evo2_config, 
-        tokenizer=data_module.tokenizer,
-        model_transform=model_transform
-    )
+    model = llm.HyenaModel(evo2_config, tokenizer=data_module.tokenizer, model_transform=model_transform)
 
     # Setup callbacks.
     callbacks = [
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         TimingCallback(),
-    ]    
+    ]
 
     if args.parallel_heads:
         callbacks.append(nl_callbacks.ModelTransform())

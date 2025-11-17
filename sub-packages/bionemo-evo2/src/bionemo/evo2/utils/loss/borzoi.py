@@ -76,24 +76,19 @@ def _borzoi_nll_loss(
     """
     # Poisson NLL
     # =========================================================================================
-    # EXAMPLE
-    # Position:        0     1     2     3     4     5     6     7     8     9
-    #                 ─────────────────────────────────────────────────────────
-    # Predictions:     2     3    45    75    85    65     1     1     0     0
-    # Targets:         0     0    50    80    90    70     0     0     0     0
-    # multinomial_resolution = 9 (nucleotide level bin)
-    # STEP 1: Compute Poisson sums over resolution, exmaple with resolution = 9
-    # Sum_pred = 2 + 3 + 45 + 75 + 85 + 65 + 1 + 1 + 0 + 0 = 277
-    # Sum_target = 0 + 0 + 50 + 80 + 90 + 70 + 0 + 0 + 0 + 0 = 290
-    # STEP 2: Compute poisson loss
-    # Poisson NLL = (sum_pred - sum_target x log(sum_pred + ε)) / multinomial_resolution
-    #             = (277 - 290 x log(277)) / 9
-    #             = (277 - 290 x 5.624) / 9
-    #             = (277 - 1631.0) / 9
-    #             = -135.99 # Optimal = -424.09 / 9 = -47.12
-    #             = -150.44
+    # PER POSITION EXAMPLE
+    # Position:                        0     1     2     3     4     5     6     7     8
+    #                                  ─────────────────────────────────────────────────
+    # Predictions:                     2     3    45    75    85    65     1     1     0
+    # Targets:                         0     0    50    80    90    70     0     0     0
+    # STEP 1: Compute sum_pred and sum_target x log(sum_pred + ε)) per position
+    # Position:                        0     1     2     3     4     5     6     7     8
+    #                                  ─────────────────────────────────────────────────
+    # sum_pred:                        2     3    45    75    85    65     1     1     0
+    # sum_target x log(sum_pred + ε)): 0     0    82   150   173   126     0     0     0
+    # STEP 2: Compute poisson loss     --------------------------------------------------
+    # Compute poisson loss             2     3   -37   -75   -88   -61     1     1     0
     # =========================================================================================
-
     # Poisson NLL (per-position)
     pred_stable = torch.clamp_min(predictions, epsilon)
     target_stable = torch.clamp_min(targets, epsilon)
@@ -111,28 +106,28 @@ def _borzoi_nll_loss(
     # =========================================================================================
     # EXAMPLE from Poisson section above
     # STEP 1: Compute multinomial probabilities
-    # Position:     0      1      2      3      4      5      6      7      8      9
-    #             ─────────────────────────────────────────────────────────────────
-    # Pred:         2      3     45     75     85     65      1      1      0      0
+    # Position:     0      1      2      3      4      5      6      7      8
+    #             ───────────────────────────────────────────────────────────
+    # Pred:         2      3     45     75     85     65      1      1      0
     # Sum_pred:                         277
-    #             ─────────────────────────────────────────────────────────────────
-    # Prob:      0.007  0.011  0.162  0.271  0.307  0.235  0.004  0.004  0.000  0.000
+    #             ────────────────────────────────────────────────────────────
+    # Prob:      0.007  0.011  0.162  0.271  0.307  0.235  0.004  0.004  0.000
     #            (2/277)(3/277)(45/277)(75/277)(85/277)(65/277)(1/277)(1/277)
     #
     # STEP 2: Compute positional loss
-    # Position:     0      1      2      3      4      5      6      7      8      9
-    #             ─────────────────────────────────────────────────────────────────
-    # Target:       0      0     50     80     90     70      0      0      0      0
-    # Prob:      0.007  0.011  0.162  0.271  0.307  0.235  0.004  0.004  0.000  0.000
-    #             ─────────────────────────────────────────────────────────────────
-    # -log(prob): 4.96   4.51   1.82   1.31   1.18   1.45   5.52   5.52   ∞      ∞
-    #             ─────────────────────────────────────────────────────────────────
-    # Loss:        0      0     91.0   104.8  106.2  101.5    0      0      0      0
+    # Position:     0      1      2      3      4      5      6      7      8
+    #             ───────────────────────────────────────────────────────────
+    # Target:       0      0     50     80     90     70      0      0      0
+    # Prob:      0.007  0.011  0.162  0.271  0.307  0.235  0.004  0.004  0.00
+    #             ───────────────────────────────────────────────────────────
+    # -log(prob): 4.96   4.51   1.82   1.31   1.18   1.45   5.52   5.52     ∞
+    #             ───────────────────────────────────────────────────────────
+    # Loss:        0      0     91.0   104.8  106.2  101.5    0      0      0
     #            (0x4.96)(0x4.51)(50x1.82)(80x1.31)(90x1.18)(70x1.45)
-    # Total Multinomial Loss = 0 + 0 + 91.0 + 104.8 + 106.2 + 101.5 + 0 + 0 + 0 + 0 = 403.5
     # =========================================================================================
     # Compute sum over sequence to get single scalar value
     sum_pred = torch.sum(predictions, dim=sum_axis, keepdim=True)  # [B, 1, C]
+
     sum_pred_stable = torch.clamp_min(sum_pred, epsilon)
 
     # Compute multinomial probabilities
@@ -261,12 +256,28 @@ class BorzoiLoss(BaseRegressionLoss):
             if mask is not None:
                 mask = mask.unsqueeze(-1)
 
+        # 🔍 DEBUG: Check targets BEFORE masking
+        if mask is not None:
+            print("=" * 80)
+            print("BEFORE MASKING:")
+            print(f"Targets shape: {targets.shape}")
+            print(f"Targets min: {targets.min()}, max: {targets.max()}, mean: {targets.mean()}")
+            print(f"Number of non-zero targets: {torch.count_nonzero(targets)}")
+            print(f"First 10 target values: {targets[0, :10, 0]}")
+            print(f"\nMask shape: {mask.shape}")
+            print(f"Mask min: {mask.min()}, max: {mask.max()}, mean: {mask.mean()}")
+            print(f"Number of non-zero mask values: {torch.count_nonzero(mask)}")
+            print(f"First 10 mask values: {mask[0, :10, 0] if mask.dim() == 3 else mask[0, :10]}")
+            print("=" * 80)
+        else:
+            print("\nMask is None")
+
         # Extract shapes
         batch_size, seq_len, channels = predictions.shape
 
-        # Set multinomial resolution to seq_len if None
+        # Set multinomial resolution to 1 for no binning if None
         if self.multinomial_resolution is None:
-            self.multinomial_resolution = seq_len
+            self.multinomial_resolution = 1
 
         # Resolution binning
         if self.multinomial_resolution > 1:
@@ -294,6 +305,16 @@ class BorzoiLoss(BaseRegressionLoss):
             predictions = predictions * mask
             targets = targets * mask
         borzoi_loss = _borzoi_nll_loss(predictions, targets, sum_axis, self.multinomial_weight)
+
+        if channels == 1:
+            # Reshape to [batch, seq_len] to match DNA loss
+            batch_size = borzoi_loss.shape[0]
+            # Flatten all dimensions except batch
+            borzoi_loss = borzoi_loss.view(batch_size, -1)
+        else:
+            # If multichannel, raise error (not supported)
+            # Users need to extend this method for multichannel support
+            raise NotImplementedError("BorzoiLoss currently only supports single-channel outputs.")
 
         # Return loss per position
         return borzoi_loss

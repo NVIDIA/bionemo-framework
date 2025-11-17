@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # Copyright (c) 2024 Arc Institute. All rights reserved.
 # Copyright (c) 2024 Michael Poli. All rights reserved.
@@ -22,6 +37,7 @@ import torch
 from megatron.core.datasets.gpt_dataset import GPTDataset
 from megatron.core.datasets.indexed_dataset import IndexedDataset
 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import make_upper_case
+from nemo.utils import logging
 
 
 class Evo2Dataset(GPTDataset):
@@ -54,7 +70,7 @@ class Evo2Dataset(GPTDataset):
             labels,
             self.TAG_BOUNDS,
             self.TAG_CHARS,
-            self.config.tokenizer.eod if self.config.tokenizer is not None else self.DEFAULT_EOD, # type: ignore
+            self.config.tokenizer.eod if self.config.tokenizer is not None else self.DEFAULT_EOD,  # type: ignore
         )
         databatch["loss_mask"] = loss_mask * phylotag_mask
         if self.TO_UPPER_TOKENS:
@@ -268,22 +284,22 @@ class Evo2RNASeqDataset(GPTDataset):
         self._load_rna_seq_dataset()
 
     def _load_rna_seq_dataset(self):
-        """Load the parallel RNA-seq indexed dataset if it exists."""
-        try:
-            # Get the base path from the main dataset
-            if hasattr(self, 'indexed_dataset') and hasattr(self.indexed_dataset, '_path'): # type: ignore
-                base_path = self.indexed_dataset._path  # type: ignore
-                rna_seq_path = base_path.replace('.bin', '_rna_seq.bin')
+        """Load the parallel RNA-seq indexed dataset if it exists.
 
-                if Path(rna_seq_path).exists():
-                    # Remove .bin extension for IndexedDataset
-                    rna_seq_prefix = rna_seq_path.replace('.bin', '')
-                    self.rna_seq_dataset = IndexedDataset(rna_seq_prefix)
-                    print(f"✅ Loaded RNA-seq dataset: {rna_seq_prefix}")
-                else:
-                    print(f"⚠️ No RNA-seq dataset found at: {rna_seq_path}")
-        except Exception as e:
-            print(f"❌ Failed to load RNA-seq dataset: {e}")
+        The RNA-seq dataset is expected to have the same prefix as the DNA dataset,
+        but with the suffix '_rna_seq.bin'. This is part of the `preprocess.py` script.
+        """
+        base_path = self.dataset.path_prefix  # type: ignore # Original DNA dataset path prefix
+        rna_seq_path = base_path + "_rna_seq.bin"  # Append suffix for RNA-seq dataset
+
+        if Path(rna_seq_path).exists():
+            # Remove .bin extension for IndexedDataset
+            rna_seq_prefix = rna_seq_path.replace(".bin", "")
+            self.rna_seq_dataset = IndexedDataset(rna_seq_prefix)
+            logging.info(f"  ✅ Loaded RNA-seq dataset: {rna_seq_prefix}")
+            logging.info(f"  Number of documents: {len(self.rna_seq_dataset)}")
+        else:
+            logging.warning(f"  ⚠️ No RNA-seq dataset found at: {rna_seq_path}")
             self.rna_seq_dataset = None
 
     def _get_gpt_batch(self, idx: Optional[int]) -> dict[str, torch.Tensor]:
@@ -292,41 +308,28 @@ class Evo2RNASeqDataset(GPTDataset):
 
     def _add_rna_seq_data(self, databatch: dict[str, torch.Tensor], idx: int) -> dict[str, torch.Tensor]:
         """Add RNA-seq targets to the batch."""
-        if self.rna_seq_dataset is not None and idx is not None:
-            try:
-                # Get RNA-seq data for this document
-                rna_seq_data = self.rna_seq_dataset[idx]
+        # Load RNA-seq data for this document
+        rna_seq_data = self.rna_seq_dataset[idx]
+        rna_seq_tensor = torch.tensor(rna_seq_data, dtype=torch.float32)
 
-                # Convert to tensor and match sequence length
-                rna_seq_tensor = torch.tensor(rna_seq_data, dtype=torch.float32)
+        # Match sequence length with tokens
+        tokens = databatch.get("tokens", None)
+        if tokens is not None:
+            target_length = len(tokens)
 
-                # Match the length of tokens (exclude last token for targets)
-                tokens = databatch.get('tokens', None)
-                if tokens is not None:
-                    target_length = len(tokens)
-                    if len(rna_seq_tensor) >= target_length:
-                        rna_seq_tensor = rna_seq_tensor[:target_length]
-                    else:
-                        # Pad with zeros if RNA-seq data is shorter
-                        padding = torch.zeros(target_length - len(rna_seq_tensor))
-                        rna_seq_tensor = torch.cat([rna_seq_tensor, padding])
+            if len(rna_seq_tensor) > target_length:
+                # Truncate to match token length
+                rna_seq_tensor = rna_seq_tensor[:target_length]
+            elif len(rna_seq_tensor) < target_length:
+                # Pad with zeros to match token length
+                padding = torch.zeros(target_length - len(rna_seq_tensor), dtype=torch.float32)
+                rna_seq_tensor = torch.cat([rna_seq_tensor, padding])
 
-                databatch["rna_seq_targets"] = rna_seq_tensor
-
-            except Exception as e:
-                print(f"⚠️ Failed to load RNA-seq data for idx {idx}: {e}")
-                # Fallback to zeros
-                tokens = databatch.get('tokens', torch.tensor([]))
-                databatch["rna_seq_targets"] = torch.zeros(len(tokens), dtype=torch.float32)
-        else:
-            # No RNA-seq dataset available, use zeros
-            tokens = databatch.get('tokens', torch.tensor([]))
-            databatch["rna_seq_targets"] = torch.zeros(len(tokens), dtype=torch.float32)
-
+        databatch["rna_seq_targets"] = rna_seq_tensor
         return databatch
 
     def _modify_gpt_batch(self, databatch: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Apply Evo2-specific modifications (same as original)"""
+        """Apply Evo2-specific modifications (same as original)."""
         loss_mask = databatch.get("loss_mask", None)
         if self.RESET_PAD_EOD_MASK and loss_mask is not None:
             loss_mask = torch.ones_like(loss_mask)
@@ -342,7 +345,7 @@ class Evo2RNASeqDataset(GPTDataset):
             labels,
             self.TAG_BOUNDS,
             self.TAG_CHARS,
-            self.config.tokenizer.eod if self.config.tokenizer is not None else self.DEFAULT_EOD, # type: ignore
+            self.config.tokenizer.eod if self.config.tokenizer is not None else self.DEFAULT_EOD,  # type: ignore
         )
         databatch["loss_mask"] = loss_mask * phylotag_mask
 
@@ -354,7 +357,6 @@ class Evo2RNASeqDataset(GPTDataset):
             databatch["tokens"], _ = make_upper_case(databatch["tokens"])
 
         return databatch
-
 
     def __getitem__(self, idx: Optional[int]) -> Dict[str, torch.Tensor]:
         """Get data with both tokens and RNA-seq targets."""
@@ -543,5 +545,6 @@ class Evo2RNASeqDataset(GPTDataset):
 
 class Evo2RNASeqDatasetPadEodLossMask(Evo2RNASeqDataset):
     """RNA-seq dataset with pad and eod loss mask."""
+
     TO_UPPER_TOKENS: bool = True
     RESET_PAD_EOD_MASK: bool = False
