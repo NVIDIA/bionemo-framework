@@ -13,27 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from pathlib import Path
-
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import torch
 from dataset import create_bshd_dataloader, create_tokenized_dataset
 from distributed_config import DistributedConfig
-from transformers import AutoTokenizer
 
 
-@pytest.fixture(scope="session")
-def tokenizer_path():
+@pytest.fixture
+def tokenizer_path(recipe_path):
     """Get the path to the nucleotide tokenizer."""
-    return str(Path(__file__).parent.parent.parent.parent / "models" / "llama3" / "nucleotide_fast_tokenizer")
-
-
-@pytest.fixture(scope="session")
-def tokenizer(tokenizer_path):
-    """Load the nucleotide tokenizer."""
-    return AutoTokenizer.from_pretrained(tokenizer_path)
+    return str(recipe_path / "example_checkpoint")
 
 
 @pytest.fixture
