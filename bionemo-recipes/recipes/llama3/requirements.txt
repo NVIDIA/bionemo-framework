@@ -1,0 +1,9 @@
+datasets
+hydra-core
+torch
+torchao!=0.14.0
+torchmetrics
+tqdm
+transformer_engine[pytorch]
+transformers
+wandb
