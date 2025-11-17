@@ -315,7 +315,18 @@ class CPAwareDataloader:
                     cp_group: torch.distributed.ProcessGroup,
                     cp_rank: int,
                     ):
-        """Initialize the CPAwareDataloader."""
+        """Initialize the CPAwareDataloader.
+        This class is used to create a dataloader that is aware of context parallelism. It will get the batch from the dataloader on CP rank 0, and then determine 
+        the shards for all the different CP group members.
+        Then it will scatter the shards to the different CP group members.
+        The shards are then combined into a single batch and returned to the caller
+        for the current CP rank.
+
+        Args:
+            dataloader: The dataloader to use.
+            cp_group: The context parallel group.
+            cp_rank: The rank of the current context parallel process.
+        """
         self.dataloader = dataloader
         self.cp_rank = cp_rank
         self.cp_group = cp_group
@@ -370,6 +381,5 @@ class CPAwareDataloader:
             group=self.cp_group,
             group_src=0,
         )
-        torch.distributed.barrier(group=self.cp_group)  # TODO(@jomitchell): Might not need this since its sync.
         return scatter_object_output_list[0]
 
