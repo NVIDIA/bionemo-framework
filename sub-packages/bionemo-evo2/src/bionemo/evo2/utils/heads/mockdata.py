@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 import lightning.pytorch as pl
@@ -44,7 +59,7 @@ class _ParallelHeadMockDataset(Dataset):
         expression_noise_level: float = 0.1,
         expression_range: tuple = (0.0, 10.0),
         rna_seq: bool = True,
-        pep_map: bool = False
+        pep_map: bool = False,
     ) -> None:
         super().__init__()
         self.name = name
@@ -66,7 +81,7 @@ class _ParallelHeadMockDataset(Dataset):
         # Precomputed masks and IDs
         if create_attention_mask:
             # Causal attention mask (lower triangle)
-            self.attention_mask = torch.tril(torch.ones((self.seq_length, self.seq_length), device='cpu')).unsqueeze(0)
+            self.attention_mask = torch.tril(torch.ones((self.seq_length, self.seq_length), device="cpu")).unsqueeze(0)
             self.attention_mask = self.attention_mask < 0.5  # Convert to bool
 
         self.loss_mask = torch.ones(self.seq_length, dtype=torch.float)
@@ -80,10 +95,8 @@ class _ParallelHeadMockDataset(Dataset):
         logging.info(f"   RNA-seq: {rna_seq}")
         logging.info(f"   PEP-map: {pep_map}")
 
-
     def __len__(self) -> int:
         return self.length
-
 
     def _generate_rna_seq_targets(self, tokens: torch.Tensor) -> torch.Tensor:
         """RNA-seq Target Generation.
@@ -107,11 +120,7 @@ class _ParallelHeadMockDataset(Dataset):
             elif self.expression_pattern == "constant":
                 expression = np.full(seq_len, 3.0)
             else:  # "random"
-                expression = np.random.uniform(
-                    self.expression_range[0],
-                    self.expression_range[1],
-                    seq_len
-                )
+                expression = np.random.uniform(self.expression_range[0], self.expression_range[1], seq_len)
 
             # Add Gaussian noise
             if self.expression_noise_level > 0:
@@ -126,7 +135,6 @@ class _ParallelHeadMockDataset(Dataset):
         except Exception as e:
             logging.error(f"❌ Error generating expression targets: {e}")
             return torch.zeros(seq_len, dtype=torch.bfloat16)
-
 
     def _realistic_expression_pattern(self, tokens: torch.Tensor) -> np.ndarray:
         """Biologically inspired mock data.
@@ -201,14 +209,13 @@ class _ParallelHeadMockDataset(Dataset):
         seq_len = len(nucleotides)
 
         for i in range(0, seq_len - 10, 100):
-            window = nucleotides[i:i+10]
+            window = nucleotides[i : i + 10]
             if len(window) == 10:
                 pattern_score = torch.sum(window[::2] == 2).float()
                 if pattern_score >= 3:
                     promoters.append(i + 5)
 
         return promoters
-
 
     def __getitem__(self, idx) -> Dict[str, torch.Tensor]:
         """Generate a synthetic training example.
@@ -228,9 +235,9 @@ class _ParallelHeadMockDataset(Dataset):
 
         # Create batch exactly like original MockDataModule
         batch = {
-            "tokens": tokens[:-1],              # ✅ Input tokens (original field name)
-            "labels": tokens[1:],               # ✅ Shifted tokens for next-token prediction (original logic)
-            "loss_mask": self.loss_mask,        # ✅ Original field name
+            "tokens": tokens[:-1],  # ✅ Input tokens (original field name)
+            "labels": tokens[1:],  # ✅ Shifted tokens for next-token prediction (original logic)
+            "loss_mask": self.loss_mask,  # ✅ Original field name
             "position_ids": self.position_ids,  # ✅ Original field name
         }
 
@@ -250,7 +257,6 @@ class _ParallelHeadMockDataset(Dataset):
             rna_seq_targets = self._generate_rna_seq_targets(input_tokens)
             batch["pep_map_targets"] = rna_seq_targets
 
-
         # Basic sanity check
         for key, value in batch.items():
             if value is None:
@@ -259,18 +265,15 @@ class _ParallelHeadMockDataset(Dataset):
 
         return batch
 
-
     def _collate_fn(self, batch):
         """Default PyTorch collation (batched tensor stacking)."""
         from torch.utils.data import dataloader
-        return dataloader.default_collate(batch)
 
+        return dataloader.default_collate(batch)
 
     def collate_fn(self, batch):
         """Returns the callable to be used by DataLoader."""
         return self._collate_fn(batch)
-
-
 
 
 class ParallelHeadMockDataModule(pl.LightningDataModule):
@@ -309,7 +312,7 @@ class ParallelHeadMockDataModule(pl.LightningDataModule):
     def __init__(
         self,
         seq_length: int = 2048,
-        tokenizer: Optional["TokenizerSpec"] = None, # type: ignore
+        tokenizer: Optional["TokenizerSpec"] = None,  # type: ignore
         micro_batch_size: int = 4,
         global_batch_size: int = 8,
         rampup_batch_size: Optional[List[int]] = None,
@@ -326,7 +329,7 @@ class ParallelHeadMockDataModule(pl.LightningDataModule):
         expression_noise_level: float = 0.1,
         expression_range: tuple = (0.0, 10.0),
         rna_seq: bool = True,
-        pep_map: bool = False
+        pep_map: bool = False,
     ):
         """Initialize SimpleDualHeadMockDataModule.
 
@@ -383,11 +386,9 @@ class ParallelHeadMockDataModule(pl.LightningDataModule):
         # Setup tokenizer exactly like original
         if tokenizer is None:
             from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
+
             self.tokenizer = get_nmt_tokenizer(
-                "megatron",
-                "GPT2BPETokenizer",
-                vocab_file=vocab_file,
-                merges_file=merges_file
+                "megatron", "GPT2BPETokenizer", vocab_file=vocab_file, merges_file=merges_file
             )
         else:
             self.tokenizer = tokenizer
@@ -418,35 +419,43 @@ class ParallelHeadMockDataModule(pl.LightningDataModule):
         """
         # Create datasets using our dual-head version instead of _MockGPTDataset
         self._train_ds = _ParallelHeadMockDataset(
-            self.tokenizer, "train", self.num_train_samples, self.seq_length, # type: ignore
+            self.tokenizer,
+            "train",
+            self.num_train_samples,
+            self.seq_length,  # type: ignore
             create_attention_mask=self.create_attention_mask,
             expression_pattern=self.expression_pattern,
             expression_noise_level=self.expression_noise_level,
             expression_range=self.expression_range,
             rna_seq=self.rna_seq,
-            pep_map=self.pep_map
+            pep_map=self.pep_map,
         )
         self._validation_ds = _ParallelHeadMockDataset(
-            self.tokenizer, "valid", self.num_val_samples, self.seq_length, # type: ignore
+            self.tokenizer,
+            "valid",
+            self.num_val_samples,
+            self.seq_length,  # type: ignore
             create_attention_mask=self.create_attention_mask,
             expression_pattern=self.expression_pattern,
             expression_noise_level=self.expression_noise_level,
             expression_range=self.expression_range,
             rna_seq=self.rna_seq,
-            pep_map=self.pep_map
+            pep_map=self.pep_map,
         )
         self._test_ds = _ParallelHeadMockDataset(
-            self.tokenizer, "test", self.num_test_samples, self.seq_length, # type: ignore
+            self.tokenizer,
+            "test",
+            self.num_test_samples,
+            self.seq_length,  # type: ignore
             create_attention_mask=self.create_attention_mask,
             expression_pattern=self.expression_pattern,
             expression_noise_level=self.expression_noise_level,
             expression_range=self.expression_range,
             rna_seq=self.rna_seq,
-            pep_map=self.pep_map
+            pep_map=self.pep_map,
         )
 
         logging.info("✅ SimpleParallelHeadMockDataModule setup completed")
-
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:
         """Train Dataloader.
@@ -458,7 +467,6 @@ class ParallelHeadMockDataModule(pl.LightningDataModule):
             self.setup()
         return self._create_dataloader(self._train_ds)
 
-
     def val_dataloader(self) -> EVAL_DATALOADERS:
         """Validation Dataloader.
 
@@ -469,7 +477,6 @@ class ParallelHeadMockDataModule(pl.LightningDataModule):
             self.setup()
         return self._create_dataloader(self._validation_ds)
 
-
     def test_dataloader(self) -> EVAL_DATALOADERS:
         """Test Dataloader.
 
@@ -479,7 +486,6 @@ class ParallelHeadMockDataModule(pl.LightningDataModule):
         if not hasattr(self, "_test_ds"):
             self.setup()
         return self._create_dataloader(self._test_ds)
-
 
     def _create_dataloader(self, dataset, **kwargs) -> DataLoader:
         """Internal helper for constructing a dataloader.

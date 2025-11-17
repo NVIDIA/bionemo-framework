@@ -377,6 +377,7 @@ class ParallelHeadTransform(IOMixin):
                       parallel multi-task objectives (DNA and RNA).
         """
         config = self._get_config(target_model)
+        LOGGING = True
 
         def parallel_forward(
             input_ids: torch.Tensor,
@@ -469,7 +470,6 @@ class ParallelHeadTransform(IOMixin):
                     "rna_seq_logits": rna_seq_logits,
                     "pep_map_logits": pep_map_logits,
                 }
-                print(f"Inference :\n {inference}")
                 return inference
 
             # -------------------------------------------
@@ -484,7 +484,6 @@ class ParallelHeadTransform(IOMixin):
 
                 # Compute standard LM loss
                 loss = core_model.compute_language_model_loss(labels, logits)
-
                 # Normalize or reweight lowercase loss tokens
                 normalize_per_batch = config.to_upper == "normalized_weighted"
                 loss = reweighted_cross_entropy(
@@ -496,6 +495,7 @@ class ParallelHeadTransform(IOMixin):
 
                 # Weight and accumulate DNA loss
                 loss *= target_model.dna_loss_weight  # type: ignore
+                dna_loss = loss.detach().mean()
                 total_loss = loss if total_loss is None else total_loss + loss
 
             # RNA-Seq Loss (Borzoi Loss)
@@ -518,6 +518,7 @@ class ParallelHeadTransform(IOMixin):
 
                 # Weight and accumulate rna seq loss
                 rna_seq_loss *= target_model.rna_loss_weight  # type: ignore
+                rna_loss = rna_seq_loss.detach().mean()
                 total_loss = rna_seq_loss if total_loss is None else total_loss + rna_seq_loss
 
             # PEP-MAP Loss (Borzoi Loss)
@@ -540,11 +541,18 @@ class ParallelHeadTransform(IOMixin):
 
                 # Weight and accumulate pep map loss
                 pep_map_loss *= target_model.pep_loss_weight  # type: ignore
+                pep_loss = pep_map_loss.detach().mean()
                 total_loss = pep_map_loss if total_loss is None else total_loss + pep_map_loss
 
             # Convert loss to correct dtype for model stability (bfloat16)
             if total_loss is not None:
                 total_loss = total_loss.to(dtype=torch.bfloat16)
+
+                # Logging individual losses
+                if LOGGING:
+                    logging.info(
+                        f"🧮 Losses - Total: {total_loss.detach().mean()} | DNA: {dna_loss if 'dna_loss' in locals() else 'N/A'} | RNA: {rna_loss if 'rna_loss' in locals() else 'N/A'} | PEP: {pep_loss if 'pep_loss' in locals() else 'N/A'}"
+                    )
 
             return total_loss
 
