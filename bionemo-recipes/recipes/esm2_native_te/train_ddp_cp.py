@@ -82,7 +82,8 @@ def main(args: DictConfig) -> float | None:
     )
 
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, token_dropout=False, use_cp=True, dtype=torch.bfloat16)
+    # Note: token_dropout is set to False because it's not compatible with context parallelism.
+    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, token_dropout=False, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
