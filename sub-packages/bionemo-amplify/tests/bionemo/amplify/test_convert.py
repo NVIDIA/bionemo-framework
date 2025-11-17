@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import sys
 from pathlib import Path
 
@@ -321,6 +322,7 @@ def test_convert_amplify_120M_bf16(tmp_path):
     reason="AMPLIFY golden value tests require xformers. Run `pip install -v -U "
     "git+https://github.com/facebookresearch/xformers.git@v0.0.29.post1#egg=xformers` to enable.",
 )
+@pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping larger model test in CI.")
 def test_convert_amplify_350M(tmp_path):
     model_tag = "chandar-lab/AMPLIFY_350M"
     module = biobert_lightning_module(config=AMPLIFYConfig())
