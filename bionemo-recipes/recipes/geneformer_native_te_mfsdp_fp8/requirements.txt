@@ -1,8 +1,9 @@
 datasets
-megatron-fsdp
 hydra-core
+megatron-fsdp
 safetensors
 torch
+torchao!=0.14.0
 tqdm
 transformer_engine
 transformers

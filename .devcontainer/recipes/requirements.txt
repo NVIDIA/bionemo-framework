@@ -5,6 +5,7 @@ hydra-core
 megatron-fsdp
 peft
 torch
+torchao!=0.14.0
 torchdata
 torchmetrics
 tqdm

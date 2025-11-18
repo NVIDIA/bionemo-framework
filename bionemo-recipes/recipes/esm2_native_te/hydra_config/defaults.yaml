@@ -17,6 +17,7 @@ dataset:
   num_workers: 1
   max_seq_length: 1024
   mlm_probability: 0.15
+  use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
   load_dataset_kwargs:
     path: "nvidia/esm2_uniref_pretraining_data"
     split: "train"

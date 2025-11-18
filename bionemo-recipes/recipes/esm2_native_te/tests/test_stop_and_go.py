@@ -62,6 +62,7 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     # Setup the model
@@ -169,6 +170,7 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
         micro_batch_size=4,
         num_workers=1,
         mlm_probability=0,
+        use_stateful_dataloader=True,
     )
 
     # Load checkpoint from step 5 into the fresh model
