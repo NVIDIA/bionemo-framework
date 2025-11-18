@@ -1,0 +1,87 @@
+# Training config for full Llama-3.1-8B on Arc Institute OpenGenome2 dataset
+defaults:
+  - defaults
+  - _self_
+
+# Model configuration - uses genomic config matching John's model (no HuggingFace auth or internet needed!)
+model_tag: ./llama3_8b_genomic_config  # Local Llama-3-8B architecture for genomic data (vocab=512, context=8K)
+
+# Training duration
+num_train_steps: 100_000  # Adjust based on your needs
+
+# Dataset configuration
+dataset:
+  sequence_column: "Text"  # OpenGenome2 uses "Text" column
+  tokenizer_path: ./example_checkpoint  # Nucleotide tokenizer with vocab_size=256
+  micro_batch_size: 2  # Conservative for 8B model - adjust based on GPU memory
+  num_workers: 4  # Increase for better data loading performance
+  max_seq_length: 8192  # Full Llama3 context length
+  stride: 200  # Overlap for windowing
+  buffer_size: 500_000  # Shuffle buffer size
+  use_lazy_tokenization: true
+  use_stateful_dataloader: false
+  load_dataset_kwargs:
+    path: "arcinstitute/opengenome2"
+    split: "train"
+    streaming: true  # Required for large datasets
+
+# Optimizer configuration
+adamw_kwargs:
+  lr: 2e-4  # Lower learning rate for full-size model
+  fused: true
+  betas: [0.9, 0.98]
+  eps: 1e-8
+  weight_decay: 0.01
+
+# Learning rate scheduler
+lr_scheduler_kwargs:
+  num_warmup_steps: 2_000  # 2% of training steps
+  num_training_steps: 100_000  # Must match num_train_steps
+
+# Checkpoint configuration
+checkpoint:
+  ckpt_dir: ./checkpoints/llama3_8b_opengenome2  # TODO: Update with your checkpoint directory
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 1_000  # Save checkpoint every 1000 steps
+
+# Logging configuration
+logger:
+  frequency: 50  # Log every 50 steps
+
+# WandB configuration
+wandb_init_args:
+  name: "llama3-8b-opengenome2-${now:%Y%m%d_%H%M%S}"
+  project: "llama3-genomic-training"  # TODO: Update with your WandB project name
+  mode: "online"  # Use "offline" if no internet access on compute nodes
+  tags:
+    - llama3-8b
+    - opengenome2
+    - full-model
+    - production
+
+# mFSDP configuration for multi-GPU training
+fully_shard_kwargs:
+  zero_dp_strategy: "optim_grads_params"  # ZeRO Stage 2
+  calculate_per_token_loss: false
+  init_model_with_meta_device: ${use_meta_device}
+  check_for_nan_in_grad: true
+  grad_reduce_in_fp32: false
+  preserve_fp32_weights: true
+  overlap_grad_reduce: true
+  overlap_param_gather: true
+  sync_model_each_microbatch: true
+  average_in_collective: false
+
+# TransformerEngine FP8 configuration (optional - can improve performance on H100+)
+fp8_config:
+  enabled: false  # Set to true for H100+ GPUs if you want FP8 training
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
+
+# Meta device and torch compile
+use_meta_device: false
+use_torch_compile: false  # Not recommended with TransformerEngine
