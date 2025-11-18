@@ -227,8 +227,8 @@ class NVEsmEncoder(nn.Module):
                 cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
                 cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
                 cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
-                max_seqlen_q=kwargs.get("max_length_q", None),  # TODO(@jomitchell): Not sure if I need this to be without pads or with pads
-                max_seqlen_kv=kwargs.get("max_length_k", None),  # TODO(@jomitchell): Not sure if I need this to be without pads or with pads
+                max_seqlen_q=kwargs.get("max_length_q", None),
+                max_seqlen_kv=kwargs.get("max_length_k", None),
                 pad_between_seqs=kwargs.get("pad_between_seqs", None),
             )
 
