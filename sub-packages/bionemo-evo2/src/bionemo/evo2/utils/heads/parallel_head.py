@@ -551,7 +551,7 @@ class ParallelHeadTransform(IOMixin):
                 # Logging individual losses
                 if LOGGING:
                     logging.info(
-                        f"🧮 Losses - Total: {total_loss.detach().mean()} | DNA: {dna_loss if 'dna_loss' in locals() else 'N/A'} | RNA: {rna_loss if 'rna_loss' in locals() else 'N/A'} | PEP: {pep_loss if 'pep_loss' in locals() else 'N/A'}"
+                        f"🧮 Losses - Total: {total_loss.detach().mean()} | DNA: {dna_loss if 'dna_loss' in locals() else 'N/A'} | RNA: {rna_loss if 'rna_loss' in locals() else 'N/A'} | PEP: {pep_loss if 'pep_loss' in locals() else 'N/A'}"  # type: ignore
                     )
 
             return total_loss
@@ -618,7 +618,9 @@ def parallel_head_forward_step_fn(model, batch: Dict[str, Any]) -> torch.Tensor:
     return result
 
 
-def parallel_head_data_step_fn(dataloader_iter, use_mtp=False) -> dict[str, torch.Tensor]:
+def parallel_head_data_step_fn(
+    dataloader_iter, use_mtp: bool = False, predict: bool = False
+) -> dict[str, torch.Tensor]:
     """Retrieve and process the next batch of data from a dataloader.
 
     Inner function used during training steps to retrieve and process the next batch of data from a dataloader. Supports
@@ -629,6 +631,7 @@ def parallel_head_data_step_fn(dataloader_iter, use_mtp=False) -> dict[str, torc
         dataloader_iter: Iterator over the dataloader
         use_mtp: Whether the Multi-Token Prediction Module is used. Input needs to be passed
                 into the last pipeline stage if mtp is used.
+        predict: Whether the function is being called in prediction mode.
 
     Returns:
         dict[str, torch.Tensor]: Processed batch with required tensors moved to appropriate devices
@@ -693,7 +696,7 @@ def parallel_head_data_step_fn(dataloader_iter, use_mtp=False) -> dict[str, torc
 
     # If we're in the last pipeline stage, we need output labels for loss computation
     if parallel_state.is_pipeline_last_stage():
-        required_device_keys.update(("labels", "loss_mask"))
+        required_device_keys.update(("labels", "loss_mask", "seq_idx") if predict else ("labels", "loss_mask"))
         # RNA head loss may be computed in the final stage
         if "rna_seq_targets" in _batch:
             required_device_keys.add("rna_seq_targets")

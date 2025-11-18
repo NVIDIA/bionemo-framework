@@ -215,6 +215,7 @@ class BorzoiLoss(BaseRegressionLoss):
         multinomial_resolution: int | None = None,
         epsilon: float = 1e-7,
         clamp_predictions: bool = True,
+        max_per_position_loss: float = 50.0,
     ):
         """Initialize BorzoiLoss.
 
@@ -223,11 +224,13 @@ class BorzoiLoss(BaseRegressionLoss):
             multinomial_resolution: Resolution for binning predictions (default: 1, no binning)
             epsilon: Small constant for numerical stability (default: 1e-7)
             clamp_predictions: Whether to clamp predictions to non-negative values (default: True)
+            max_per_position_loss: Maximum allowed loss per position to prevent extreme values (default: 50.0)
         """
         self.multinomial_weight = multinomial_weight
         self.multinomial_resolution = multinomial_resolution
         self.epsilon = epsilon
         self.clamp_predictions = clamp_predictions
+        self.max_per_position_loss = max_per_position_loss
 
     def compute(self, predictions: torch.Tensor, targets: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
         """Compute Borzoi loss between predictions and targets.
@@ -269,8 +272,6 @@ class BorzoiLoss(BaseRegressionLoss):
             print(f"Number of non-zero mask values: {torch.count_nonzero(mask)}")
             print(f"First 10 mask values: {mask[0, :10, 0] if mask.dim() == 3 else mask[0, :10]}")
             print("=" * 80)
-        else:
-            print("\nMask is None")
 
         # Extract shapes
         batch_size, seq_len, channels = predictions.shape
@@ -315,6 +316,20 @@ class BorzoiLoss(BaseRegressionLoss):
             # If multichannel, raise error (not supported)
             # Users need to extend this method for multichannel support
             raise NotImplementedError("BorzoiLoss currently only supports single-channel outputs.")
+
+        # Prevent extreme per-position losses
+        borzoi_loss = torch.clamp(borzoi_loss, min=0.0, max=self.max_per_position_loss)
+
+        # # High coverage regions naturally have higher loss - normalize by this
+        # if mask is not None:
+        #     total_coverage = (targets * mask).sum(dim=1, keepdim=True).clamp(min=1)
+        # else:
+        #     total_coverage = targets.sum(dim=1, keepdim=True).clamp(min=1)
+
+        # # Normalize by log(coverage) to compress range
+        # coverage_factor = torch.log1p(total_coverage)  # log(1 + coverage)
+
+        # borzoi_loss = borzoi_loss / coverage_factor
 
         # Return loss per position
         return borzoi_loss

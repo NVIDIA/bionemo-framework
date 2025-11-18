@@ -30,7 +30,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from threading import Semaphore
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import torch
@@ -327,42 +327,6 @@ class Evo2Preprocessor:
                 ),
             }
 
-    def _parse_genomic_coordinates(self, seqid: str, seq_length: int) -> Tuple[str, int, int]:
-        """Parse genomic coordinates from sequence ID.
-
-        Args:
-            seqid (str): Sequence ID.
-            seq_length (int): Length of the sequence.
-
-        Returns:
-            Tuple[str, int, int]: Chromosome name, start position, end position.
-        """
-        # Example parsing logic - adapt based on your SeqID format
-        # Format: "chr1:1000-2000" or "chr1_1000_2000"
-        try:
-            if ":" in seqid and "-" in seqid:
-                parts = seqid.split(":")
-                chromosome = parts[0]
-                coords = parts[1].split("-")
-                start_pos = int(coords[0])
-                end_pos = int(coords[1])
-            elif "_" in seqid:
-                parts = seqid.split("_")
-                chromosome = parts[0]
-                start_pos = int(parts[1]) if len(parts) > 1 else 0
-                end_pos = start_pos + seq_length
-            else:
-                # Default case - assume chromosome name only
-                chromosome = seqid
-                start_pos = 0
-                end_pos = seq_length
-
-            return chromosome, start_pos, end_pos
-
-        except (ValueError, IndexError) as e:
-            logging.warning(f"Could not parse coordinates from {seqid}: {e}")
-            return seqid, 0, seq_length
-
     # ---------------------------
     # END: BigWig File Hanldes
     # ---------------------------
@@ -397,12 +361,13 @@ class Evo2Preprocessor:
         bigwig_path = None
         if config.fasta_rnaseq_bigwig_map:  # type: ignore
             bigwig_path = config.fasta_rnaseq_bigwig_map.get(os.path.basename(filepath))  # type: ignore
+            if bigwig_path is None:
+                logging.warning(f"No BigWig mapping found for FASTA file: {filepath}")
         else:
             logging.warning("No BigWig mapping provided.")
 
         # Parse sequence ID to get genomic coordinates
-        chromosome, start_pos, end_pos = seqid, 0, len(seq)  # self._parse_genomic_coordinates(seqid, len(seq))
-
+        chromosome, start_pos, end_pos = seqid, 0, len(seq)
         # Extract RNA-seq values if BigWig is available
         rna_seq_values_dict = None
         if bigwig_path and chromosome:
@@ -651,6 +616,12 @@ class Evo2Preprocessor:
             rna_seq_tensor = None
             if "rna_seq_targets" in sequence and sequence["rna_seq_targets"] is not None:  # ✅ CORRECT KEY
                 rna_seq_tensor = torch.Tensor(sequence["rna_seq_targets"])
+                # Before squeezing, ensure that shape is identical to tokens tensor
+                if rna_seq_tensor.shape != tokens_tensor.shape:
+                    raise ValueError(
+                        f"RNA-seq/tokens length mismatch: rna_seq={rna_seq_tensor.shape[1]}, tokens={tokens_tensor.shape[0]}"
+                    )
+
                 if rna_seq_tensor.dim() == 2 and rna_seq_tensor.shape[0] == 1:
                     rna_seq_tensor = rna_seq_tensor.squeeze(0)
 
