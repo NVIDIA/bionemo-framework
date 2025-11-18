@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import glob
 from typing import Dict, List, cast
 
 import pandas as pd
@@ -24,6 +25,7 @@ from bionemo.amplify.tokenizer import BioNeMoAMPLIFYTokenizer
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.llm.data import collate
 from bionemo.llm.data.types import BertSample
+from bionemo.llm.lightning import batch_collator
 
 
 @pytest.fixture
@@ -123,3 +125,46 @@ def test_infer_epoch_mode(
     # due to distributed processing. To address this, we optionally include input_ids in the predictions, allowing
     # for accurate mapping post-inference.
     assert torch.equal(padded_tokenized_sequences, results["input_ids"])
+
+
+def test_infer_batch_mode(
+    tmpdir,
+    mock_protein_csv,
+    mock_protein_sequences,
+    padded_tokenized_sequences,
+):
+    data_path = mock_protein_csv
+    result_dir = tmpdir / "results"
+    seq_len = 1024  # Minimum length of the output batch; tensors will be padded to this length.
+
+    # Run inference
+    main(
+        data_path=data_path,
+        hf_model_name="chandar-lab/AMPLIFY_120M",
+        results_path=result_dir,
+        seq_length=seq_len,
+        prediction_interval="batch",
+        micro_batch_size=3,
+        include_embeddings=True,
+        include_hiddens=True,
+        include_input_ids=True,
+        include_logits=True,
+    )
+
+    # Load and verify results
+    results: Dict[str, torch.Tensor] = {}
+    results = batch_collator(
+        [torch.load(f, map_location="cpu") for f in glob.glob(f"{result_dir}/predictions__rank_0__batch_*.pt")]
+    )
+
+    assert isinstance(results, dict)
+    keys_included = ["token_logits", "hidden_states", "embeddings", "input_ids"]
+    assert all(key in results for key in keys_included), f"Missing keys: {set(keys_included) - set(results.keys())}"
+    assert results["embeddings"].shape[0] == len(mock_protein_sequences)
+    assert results["embeddings"].dtype == get_autocast_dtype("bf16-mixed")
+    # hidden_states are [batch, sequence, hidden_dim]
+    assert results["hidden_states"].shape[:-1] == (len(mock_protein_sequences), seq_len)
+    # input_ids are [batch, sequence]
+    assert results["input_ids"].shape == (len(mock_protein_sequences), seq_len)
+    # token_logits are [sequence, batch, num_tokens]
+    assert results["token_logits"].shape[:-1] == (seq_len, len(mock_protein_sequences))
