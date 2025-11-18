@@ -21,7 +21,7 @@ dataset:
   stride: 200  # Overlap for windowing
   buffer_size: 500_000  # Shuffle buffer size
   use_lazy_tokenization: true
-  use_stateful_dataloader: false
+  use_stateful_dataloader: true  # Enable for checkpoint resumption
   load_dataset_kwargs:
     path: "arcinstitute/opengenome2"
     split: "train"
