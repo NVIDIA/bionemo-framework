@@ -303,7 +303,6 @@ class NVEsmModel(NVEsmPreTrainedModel):
             add_pooling_layer (bool): Whether to add a pooling layer.
         """
         super().__init__(config)
-        self.config = config
 
         # Ensure pad_token_id is set properly, defaulting to 0 if not specified
         if not hasattr(config, "pad_token_id") or config.pad_token_id is None:

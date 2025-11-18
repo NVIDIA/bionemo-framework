@@ -20,11 +20,14 @@ This should eventually get moved to a separate package, or possibly upstreamed i
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import datasets
 import torch
 from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
+from context_parallel import split_batch_by_cp_rank
+
+from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 
 
 logger = logging.getLogger(__name__)
@@ -38,6 +41,7 @@ class MLMDataCollatorWithFlattening:
     2. Then applying MLM masking to the flattened sequence
     3. Providing Flash Attention metadata (cu_seq_lens) for sequence boundary awareness
     4. Optionally padding the total sequence length to be divisible by a specified number
+    5. Optionally, pad each sequence to be divisible by a specified number (if provided).
 
     The result is a THD-format batch optimized for Flash Attention with sequence packing,
     eliminating the need for traditional attention masks while maintaining proper sequence
@@ -62,6 +66,9 @@ class MLMDataCollatorWithFlattening:
         seed (int | None): Random seed for reproducible masking. Defaults to None.
         pad_to_multiple_of (int | None): If set, pads the total sequence length to be divisible
             by this number by adding a mock sequence at the end. Defaults to None.
+        pad_sequences_to_be_divisible_by (int | None): If set, pads each sequence to be divisible
+            by this number by adding padding tokens and labels set to -100. Defaults to None.
+            This is used by context parallelism.
 
     Example:
         >>> from transformers import AutoTokenizer
@@ -111,6 +118,7 @@ class MLMDataCollatorWithFlattening:
         return_position_ids: bool = False,
         bshd_equivalent: bool = False,
         bshd_pad_to_multiple_of: int | None = None,
+        pad_sequences_to_be_divisible_by: int | None = None,
     ):
         """Initialize the MLMDataCollatorWithFlattening.
 
@@ -129,6 +137,9 @@ class MLMDataCollatorWithFlattening:
                 collator, at the expense of additional computation time. Defaults to False.
             bshd_pad_to_multiple_of (int | None): For the bshd_equivalent mode, mimics padding that would be done by the
                 BSHD collator. Defaults to None.
+            pad_sequences_to_be_divisible_by (int | None): If set, pads each sequence to be divisible
+                by this number by adding padding tokens and labels set to -100. Defaults to None.
+                This is used by context parallelism.
         """
         self.mlm_collator = DataCollatorForLanguageModeling(
             tokenizer=tokenizer,
@@ -145,6 +156,10 @@ class MLMDataCollatorWithFlattening:
         self.return_position_ids = return_position_ids
         self.bshd_equivalent = bshd_equivalent
         self.bshd_pad_to_multiple_of = bshd_pad_to_multiple_of
+        self.pad_sequences_to_be_divisible_by = pad_sequences_to_be_divisible_by
+
+        if self.pad_sequences_to_be_divisible_by is not None and self.pad_to_multiple_of is not None:
+            raise ValueError("pad_sequences_to_be_divisible_by and pad_to_multiple_of cannot be used together")
 
         if bshd_pad_to_multiple_of is not None and not bshd_equivalent:
             raise ValueError("bshd_pad_to_multiple_of can only be used when bshd_equivalent is True")
@@ -227,6 +242,23 @@ class MLMDataCollatorWithFlattening:
         if self.pad_to_multiple_of is not None:
             batch = self._pad_batch_to_multiple_of(batch)
 
+        elif self.pad_sequences_to_be_divisible_by is not None:
+            # import pdb; pdb.set_trace()
+            input_ids_padded, labels_padded, cu_seqlens_padded = pad_thd_sequences_for_cp(
+                batch["input_ids"],
+                batch["labels"],
+                batch["cu_seq_lens_q"],
+                self.pad_sequences_to_be_divisible_by,
+                padding_token_id=int(
+                    self.mlm_collator.tokenizer.pad_token_id
+                ),
+                padding_label_id=-100,
+            )
+            batch["input_ids"] = input_ids_padded.unsqueeze(0)
+            batch["labels"] = labels_padded.unsqueeze(0)
+            batch["cu_seq_lens_q_padded"] = cu_seqlens_padded.to(torch.int32)
+            batch["cu_seq_lens_k_padded"] = cu_seqlens_padded.to(torch.int32)
+
         return batch
 
     def bshd_compatible_call(self, features, return_tensors=None):
@@ -268,6 +300,36 @@ class MLMDataCollatorWithFlattening:
             label_pad=-100,
         )
 
+
+class MLMDataCollatorWithFlatteningCPAware:
+    """A collator that is aware of context parallelism."""
+    def __init__(self, collator: MLMDataCollatorWithFlattening, cp_world_size: int):
+        self.collator = collator
+        self.cp_world_size = cp_world_size
+
+    def __call__(self, features):
+        batch = self.collator(features)
+
+        combined_batch = []
+        for cp_rank in range(self.cp_world_size):
+            input_ids_sharded, labels_sharded = split_batch_by_cp_rank(
+                cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
+                input_ids_padded=batch["input_ids"],
+                labels_padded=batch["labels"],
+                qvk_format="thd",
+                cp_rank=cp_rank,
+                cp_world_size=self.cp_world_size,
+            )
+            batch_shard = dict(batch)
+            batch_shard["input_ids"] = input_ids_sharded
+            batch_shard["labels"] = labels_sharded
+            # Now determine the max length of the sequence.
+            seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
+            batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64) # TODO(@jomitchell): Not sure if I need this anymore.
+            batch_shard["max_length_k"] = batch_shard["max_length_q"]
+            combined_batch.append(batch_shard)
+
+        return combined_batch # [<cp_rank_0_shard>, <cp_rank_1_shard>, ..., <cp_rank_n_shard>]
 
 @dataclass
 class DataCollatorWithFlattening(DefaultDataCollator):
