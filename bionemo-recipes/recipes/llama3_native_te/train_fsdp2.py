@@ -134,66 +134,87 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
 
     # Training loop
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
+    import time
+
     step = start_step
     while step < args.num_train_steps:
-        logger.info(f"Epoch {epoch}: Iterating over dataloader...")
-        for batch_idx, batch in enumerate(train_dataloader):
-            if batch_idx == 0:
-                logger.info(f"Step {step}: Got first batch of epoch {epoch}")
+        logger.info(f"Epoch {epoch}: About to call iter(train_dataloader)...")
+        start_time = time.time()
 
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
+        try:
+            dataloader_iter = iter(train_dataloader)
+            elapsed = time.time() - start_time
+            logger.info(f"Epoch {epoch}: iter() took {elapsed:.2f}s")
 
-            if step % 10 == 0 or step < 3:
-                logger.info(f"Step {step}: Starting forward pass")
+            logger.info(f"Epoch {epoch}: Getting first batch from dataloader...")
+            start_time = time.time()
 
-            # Forward pass with mixed precision.
-            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
-                outputs = model(**batch)
+            for batch_idx, batch in enumerate(dataloader_iter):
+                if batch_idx == 0:
+                    elapsed = time.time() - start_time
+                    logger.info(f"Step {step}: Got first batch in {elapsed:.2f}s")
+                    logger.info(f"Step {step}: Batch keys: {list(batch.keys())}")
+                    for k, v in batch.items():
+                        if hasattr(v, "shape"):
+                            logger.info(f"  {k}: shape={v.shape}, dtype={v.dtype}")
 
-            if step % 10 == 0 or step < 3:
-                logger.info(f"Step {step}: Forward pass complete, loss={outputs.loss.item():.4f}")
+                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
-            # Backward pass.
-            loss = outputs.loss
-            loss.backward()
+                if step % 10 == 0 or step < 3:
+                    logger.info(f"Step {step}: Starting forward pass")
 
-            if step % 10 == 0 or step < 3:
-                logger.info(f"Step {step}: Backward pass complete")
+                # Forward pass with mixed precision.
+                with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+                    outputs = model(**batch)
 
-            # Compute and clip gradient norms.
-            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+                if step % 10 == 0 or step < 3:
+                    logger.info(f"Step {step}: Forward pass complete, loss={outputs.loss.item():.4f}")
 
-            # Step optimizer.
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
+                # Backward pass.
+                loss = outputs.loss
+                loss.backward()
 
-            if step % 10 == 0 or step < 3:
-                logger.info(f"Step {step}: Optimizer step complete")
+                if step % 10 == 0 or step < 3:
+                    logger.info(f"Step {step}: Backward pass complete")
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
+                # Compute and clip gradient norms.
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
-            if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
-                save_checkpoint_fsdp2(
-                    model=model,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    ckpt_path=ckpt_path,
+                # Step optimizer.
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+
+                if step % 10 == 0 or step < 3:
+                    logger.info(f"Step {step}: Optimizer step complete")
+
+                perf_logger.log_step(
                     step=step,
-                    epoch=epoch,
-                    dist_config=dist_config,
-                    dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                    batch=batch,
+                    outputs=outputs,
+                    grad_norm=total_norm,
+                    lr=optimizer.param_groups[0]["lr"],
                 )
 
-            step += 1
-            if step >= args.num_train_steps:
-                break
+                if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
+                    save_checkpoint_fsdp2(
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        ckpt_path=ckpt_path,
+                        step=step,
+                        epoch=epoch,
+                        dist_config=dist_config,
+                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                    )
+
+                step += 1
+                if step >= args.num_train_steps:
+                    break
+        except Exception as e:
+            elapsed = time.time() - start_time
+            logger.error(f"Epoch {epoch}: Failed after {elapsed:.2f}s with error: {e}")
+            raise
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1

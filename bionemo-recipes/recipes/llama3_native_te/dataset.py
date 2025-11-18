@@ -68,7 +68,9 @@ def create_tokenized_dataset(
 
     def tokenize_with_windowing(examples):
         """Tokenize nucleotide sequences with windowing (one-to-many mapping)."""
-        # Tokenize with windowing using return_overflowing_tokens
+        # Pass examples[sequence_column] directly to tokenizer
+        # With batched=True + batch_size=1 + return_overflowing_tokens,
+        # the tokenizer returns windows that dataset.map() will unpack
         result = tokenizer(
             examples[sequence_column],
             max_length=max_seq_length,
@@ -81,13 +83,21 @@ def create_tokenized_dataset(
 
     if isinstance(dataset, datasets.Dataset) and use_lazy_tokenization:
         # Using dataset.map on a non-streaming dataset will automatically perform and cache the transform
+        logger.info("Using with_transform for lazy tokenization")
         tokenized_dataset = dataset.with_transform(tokenize_with_windowing)
     else:
+        # For streaming datasets with huge genomic sequences, process one sequence at a time (batch_size=1)
+        # The tokenizer's return_overflowing_tokens will automatically expand windows into separate items
+        # IMPORTANT: Must explicitly remove the sequence column - dataset.column_names is None for IterableDataset!
+        logger.info(f"Applying dataset.map with windowing (max_seq_length={max_seq_length}, stride={stride})")
+        logger.info(f"  Removing column: [{sequence_column}]")
         tokenized_dataset = dataset.map(
             tokenize_with_windowing,
             batched=True,
-            remove_columns=dataset.column_names,
+            batch_size=1,  # Process one huge sequence at a time to avoid OOM
+            remove_columns=[sequence_column],  # Explicitly remove the text column
         )
+        logger.info("Dataset tokenization mapping complete")
 
     return tokenized_dataset, tokenizer
 
