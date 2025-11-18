@@ -11,7 +11,7 @@ num_train_steps: 100_000  # Adjust based on your needs
 
 # Dataset configuration
 dataset:
-  sequence_column: "Text"  # OpenGenome2 uses "Text" column
+  sequence_column: "text"  # OpenGenome2 uses "text" column (lowercase)
   tokenizer_path: ./example_checkpoint  # Nucleotide tokenizer with vocab_size=256
   micro_batch_size: 2  # Conservative for 8B model - adjust based on GPU memory
   num_workers: 4  # Increase for better data loading performance
