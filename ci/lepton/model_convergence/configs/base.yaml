@@ -28,7 +28,7 @@ environment_variables:
   - name: KRATOS_SSA_CLIENT_ID
     value_from: KRATOS_SSA_CLIENT_ID
   - name: KRATOS_SSA_SECRET
-    value_from: KRATOS_SSA_SECRET
+    value_from: KRATOS_SSA_SECRET.jwilber
   - name: LEP_LOGIN_CREDENTIALS
     value_from: LEP_LOGIN_CREDENTIALS
   - name: HF_HOME
