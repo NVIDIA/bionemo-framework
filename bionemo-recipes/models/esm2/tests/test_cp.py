@@ -193,53 +193,20 @@ if __name__ == "__main__":
     batch = get_dummy_data_thd_with_padding_dp0(tokenizer=tokenizer)
     # Move batch to CUDA
     batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
-    
-    # print(f"[Rank {cp_rank}] BEFORE split - batch keys: {batch.keys()}")
-    # print(f"[Rank {cp_rank}] BEFORE split - input_ids shape: {batch['input_ids'].shape}")
-    # print(f"[Rank {cp_rank}] BEFORE split - cu_seq_lens_q_padded: {batch['cu_seq_lens_q_padded']}")
-    # print(f"[Rank {cp_rank}] CP world size: {cp_world_size}")
-
     batch_cp = get_batch_for_cp_rank(batch, cp_rank=cp_rank, cp_world_size=cp_world_size)
-    
-    print(f"[CP Rank {cp_rank}] AFTER split - batch_cp keys: {batch_cp.keys()}")
-    if 'input_ids' in batch_cp:
-        print(f"[CP Rank {cp_rank}] AFTER split - input_ids: {batch_cp['input_ids']}")
-        print(f"[CP Rank {cp_rank}] AFTER split - input_ids shape: {batch_cp['input_ids'].shape if batch_cp['input_ids'] is not None else 'None'}")
-    else:
-        print(f"[CP Rank {cp_rank}] AFTER split - input_ids key MISSING from batch_cp!")
     
     torch.distributed.barrier(group=cp_group)
 
-    # batch_cp = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch_cp.items()}
     outputs_cp = model(**batch_cp)
-    # print("CP Rank: ", cp_rank, "Outputs CP: ", outputs_cp)
-    print("CP Rank: ", cp_rank, "Outputs CP Loss: ", outputs_cp.loss)
-    print("CP Rank: ", cp_rank, "Outputs CP Logits shape: ", outputs_cp.logits.shape)
-    
+
     # Gather the logits from all CP ranks
     # The logits are split along the sequence dimension (dim=1 for THD format: [batch, seq, vocab])
-    # Make sure the tensor is contiguous before gathering
     logits_contiguous = outputs_cp.logits.contiguous()
     logits_list = [torch.zeros_like(logits_contiguous) for _ in range(cp_world_size)]
     torch.distributed.all_gather(logits_list, logits_contiguous, group=cp_group)
-    
-    # Verify the ordering by checking which tensor came from which rank
-    # Create a rank identifier tensor to verify gather order
-    rank_id = torch.tensor([cp_rank], dtype=torch.int32, device=device)
-    rank_ids = [torch.zeros_like(rank_id) for _ in range(cp_world_size)]
-    torch.distributed.all_gather(rank_ids, rank_id, group=cp_group)
+
     
     if cp_rank == 0:
-        print(f"Verification: logits_list indices correspond to CP ranks: {[r.item() for r in rank_ids]}")
-    
-    # Concatenate along the sequence dimension
-    # logits_full = torch.cat(logits_list, dim=1)
-    
-    if cp_rank == 0:
-        print("Logits list: ", logits_list)
-        print("Logits list[0] shape: ", logits_list[0].shape)
-        print("Logits list[1] shape: ", logits_list[1].shape)
-    
         # Reconstruct the full logits from CP-split chunks dynamically
         # Get sequence lengths from cu_seqlens
         cu_seqlens = batch["cu_seq_lens_q_padded"].cpu()
@@ -273,35 +240,11 @@ if __name__ == "__main__":
                         logits_list[1][cp_offset_rank1:cp_offset_rank1 + chunk_size, :]
                     cp_offset_rank1 += chunk_size
 
-        # Now reconstructed logits should match the non-distributed logits
-        print("Reconstructed logits shape: ", reconstructed_logits.shape)
-        print("Reconstructed logits max: ", reconstructed_logits.max())
-        print("Reconstructed logits min: ", reconstructed_logits.min())
-        print("Reconstructed logits mean: ", reconstructed_logits.mean())
-        print("Reconstructed logits std: ", reconstructed_logits.std())
-        print("Reconstructed logits var: ", reconstructed_logits.var())
-        print("Reconstructed logits sum: ", reconstructed_logits.sum())
-
-        print("Non-distributed logits shape: ", outputs_nondistributed.logits.shape)
-        print("Non-distributed logits max: ", outputs_nondistributed.logits.max())
-        print("Non-distributed logits min: ", outputs_nondistributed.logits.min())
-        print("Non-distributed logits mean: ", outputs_nondistributed.logits.mean())
-        print("Non-distributed logits std: ", outputs_nondistributed.logits.std())
-        print("Non-distributed logits var: ", outputs_nondistributed.logits.var())
-        print("Non-distributed logits sum: ", outputs_nondistributed.logits.sum())
-
-        # print hte first 32 values of the reconstructed logits and the non-distributed logits
-        print("Reconstructed logits first 32 values: ", reconstructed_logits[0:32, :])
-        print("Non-distributed logits first 32 values: ", outputs_nondistributed.logits[0:32, :])
-
-        # Use relaxed tolerances for bfloat16 and distributed operations
-        # atol=0.2 handles observed max differences of ~0.125
-        # rtol=0.01 (1%) is reasonable for bfloat16 precision
+        assert reconstructed_logits.shape == outputs_nondistributed.logits.shape
         torch.testing.assert_close(
             reconstructed_logits.cpu(), 
             outputs_nondistributed.logits.cpu(),
             atol=0.29, 
             rtol=0.01,
         )
-        print("\n✓ CP outputs match non-distributed outputs within tolerance!")
     torch.distributed.destroy_process_group()
