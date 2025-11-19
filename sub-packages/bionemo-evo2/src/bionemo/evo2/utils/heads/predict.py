@@ -21,12 +21,11 @@ import argparse
 import tempfile
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, Literal, Optional
+from typing import Callable, Literal, Optional
 
 import nemo.lightning as nl
 import torch
 from lightning.pytorch import LightningDataModule
-from lightning.pytorch.callbacks import RichModelSummary
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
 from nemo.collections import llm
@@ -37,19 +36,20 @@ from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 
 # from bionemo.evo2.run.peft import Evo2LoRA
-from nemo.utils import logging
 from torch import Tensor, nn
 
 from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
+from bionemo.evo2.utils.heads.parallel_head import (
+    ParallelHeadTransform,
+    parallel_head_data_step_fn,
+    parallel_head_forward_step_fn,
+)
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.utils.callbacks import PredictionWriter
-
-from .parallel_head import ParallelHeadTransform, parallel_head_data_step_fn, parallel_head_forward_step_fn
 
 
 CheckpointFormats = Literal["torch_dist", "zarr"]
 
-LOGGING = True
 
 def parse_args():
     """Parse arguments for Evo2 inference."""
@@ -149,6 +149,7 @@ def parse_args():
     return ap.parse_args()
 
 
+
 class PredictDataModule(LightningDataModule):
     """Create a dataloader for prediction."""
 
@@ -184,7 +185,7 @@ def _gather_along_cp_dim(input_, seq_dim: int = 1):
 
     # Use the correct parallel group for context parallelism
     cp_group = parallel_state.get_context_parallel_group()
-
+    
     dim_size = list(input_.size())
     dim_size[0] = dim_size[0] * world_size
 
@@ -216,107 +217,104 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
         self.log_prob_collapse_option = log_prob_collapse_option
         self.model_transform = model_transform
 
+        if self.model_transform is not None:
+            self.model_transform.__call__(self)
+
+
     def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """Enhanced predict_step that handles both single-head and parallel-head inference."""
-        if LOGGING:
-            logging.info(f"🔍 Predict step - Model type: {type(self)}")
-            logging.info("🔍 Model has parallel attributes:")
-            logging.info(f"   - parallel_dna: {getattr(self, 'parallel_dna', 'Not set')}")
-            logging.info(f"   - parallel_rna: {getattr(self, 'parallel_rna', 'Not set')}")
-            logging.info(f"   - parallel_pep: {getattr(self, 'parallel_pep', 'Not set')}")
-            logging.info(f"   - _original_forward: {hasattr(self, '_original_forward')}")
-
+        if len(batch) == 0:
+            return
+        
+        print(f"🔍 Predict step - Model type: {type(self)}")
+        print(f"🔍 Model has parallel attributes:")
+        print(f"   - parallel_dna: {getattr(self, 'parallel_dna', 'Not set')}")
+        print(f"   - parallel_rna: {getattr(self, 'parallel_rna', 'Not set')}")
+        print(f"   - parallel_pep: {getattr(self, 'parallel_pep', 'Not set')}")
+        print(f"   - _original_forward: {hasattr(self, '_original_forward')}")
+        
         forward_out = self.forward_step(batch)
-
-        if LOGGING:
-            logging.info(f"Batch: \n{batch}")
-            logging.info(f"Batch type: {type(batch)}")
-            try:
-                logging.info(f"Batch keys: {list(batch)}")
-            except Exception:
-                pass
-
-            logging.info(f"Forward out type: {type(forward_out)}")
-            try:
-                logging.info(f"Forward shape: {forward_out.shape}")
-            except Exception:
-                pass
-            logging.info(f"Forward out: {forward_out}")
-
+        print(f"Batch: \n{batch}")
+        print(f"Batch type: {type(batch)}")
+        try:
+            print(f"Batch keys: {[i for i in batch]}")
+        except:
+            pass
+        print(f"Forward out type: {type(forward_out)}")
+        try: 
+            print(f"Forward shape: {forward_out.shape}")
+        except:
+            pass
+        print(f"Forward out: {forward_out}")
+        
         # 🔍 CHECK: Are we using parallel heads?
         using_parallel_heads = (
-            hasattr(self, 'parallel_dna') or
-            hasattr(self, 'parallel_rna') or
+            hasattr(self, 'parallel_dna') or 
+            hasattr(self, 'parallel_rna') or 
             hasattr(self, 'parallel_pep')
         )
-
-        if LOGGING:
-            logging.info(f"🔍 Using parallel heads: {using_parallel_heads}")
-
+        
+        print(f"🔍 Using parallel heads: {using_parallel_heads}")
+        
         if using_parallel_heads:
             # 🎯 PARALLEL HEADS: Handle multiple outputs
-            return self._handle_parallel_head_outputs(forward_out, batch) # type: ignore
+            return self._handle_parallel_head_outputs(forward_out, batch)
         else:
-            # 🎯 SINGLE HEAD: Original DNA-only logic
+            # 🎯 SINGLE HEAD: Original DNA-only logic  
             if not isinstance(forward_out, Tensor):
-                logging.warning(f"⚠️ Warning: Expected tensor for single head, got {type(forward_out)}")
+                print(f"⚠️ Warning: Expected tensor for single head, got {type(forward_out)}")
                 return forward_out
-            return self._handle_single_head_outputs(forward_out, batch) # type: ignore
+            return self._handle_single_head_outputs(forward_out, batch)
 
-
-    def _handle_parallel_head_outputs(self, forward_out: torch.Tensor, batch: Dict[str, Any]):
+    def _handle_parallel_head_outputs(self, forward_out, batch):
         """Handle forward outputs when using parallel heads."""
-        if LOGGING:
-            logging.info(f"Handling parallel head outputs, type: {type(forward_out)}")
-
+        
+        print(f"Handling parallel head outputs, type: {type(forward_out)}")
+        
         # Handle dictionary output (expected case)
         if isinstance(forward_out, dict):
             gathered_outputs = {}
-
+            
             # 🔄 Process each head's output separately
             for head_name, logits in forward_out.items():
                 # Skip None values
                 if logits is None:
-                    logging.info(f"Skipping {head_name}: None value")
+                    print(f"Skipping {head_name}: None value")
                     continue
-
-                if LOGGING:
-                    logging.info(f"Processing {head_name} with shape: {logits.shape}")
-
+                    
+                print(f"Processing {head_name} with shape: {logits.shape}")
+                
                 # Gather the logits
                 gathered_logits = self._gather_parallel_output(logits)
                 gathered_outputs[head_name] = gathered_logits.cpu()
-
+                
         elif isinstance(forward_out, (tuple, list)):
             # Alternative: if forward_out is a tuple/list of tensors
             gathered_outputs = {}
             head_names = ['dna_logits', 'rna_seq_logits', 'pep_map_logits']
-
+            
             for i, logits in enumerate(forward_out):
                 if logits is None:
                     continue
-
+                    
                 if i < len(head_names):
                     head_name = head_names[i]
-                    if LOGGING:
-                        logging.info(f"Processing {head_name} with shape: {logits.shape}")
-
+                    print(f"Processing {head_name} with shape: {logits.shape}")
+                    
                     gathered_logits = self._gather_parallel_output(logits)
                     gathered_outputs[head_name] = gathered_logits.cpu()
-
+                    
         elif isinstance(forward_out, torch.Tensor):
             # Single tensor case - this might happen if only one head is active
-            if LOGGING:
-                logging.info("⚠️ Got single tensor for parallel heads - treating as DNA logits")
+            print("⚠️ Got single tensor for parallel heads - treating as DNA logits")
             gathered_logits = self._gather_parallel_output(forward_out)
             gathered_outputs = {"dna_logits": gathered_logits.cpu()}
-
+            
         else:
             # Unexpected case
-            if LOGGING:
-                logging.warning(f"⚠️ Unexpected forward_out type for parallel heads: {type(forward_out)}")
-                logging.warning(f"Forward out value: {forward_out}")
-
+            print(f"⚠️ Unexpected forward_out type for parallel heads: {type(forward_out)}")
+            print(f"Forward out value: {forward_out}")
+            
             # Try to handle as single tensor if it has tensor-like attributes
             if hasattr(forward_out, 'shape') and hasattr(forward_out, 'dtype'):
                 gathered_logits = self._gather_parallel_output(forward_out)
@@ -324,28 +322,27 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
             else:
                 # Return as-is with metadata
                 gathered_outputs = {"raw_output": forward_out}
-
+        
         # 📤 Return all head outputs plus metadata
         result = {
             **gathered_outputs,
             "pad_mask": batch["loss_mask"].cpu() if "loss_mask" in batch else None,
             "seq_idx": batch["seq_idx"].cpu() if "seq_idx" in batch else None,
         }
-
-        if LOGGING:
-            logging.info(f"Final result keys: {list(result.keys())}")
+        
+        print(f"Final result keys: {list(result.keys())}")
         return result
-
 
     def _handle_single_head_outputs(self, forward_out, batch):
         """Handle forward outputs for single-head (DNA-only) inference."""
+        
         forward_out_gathered = self._gather_parallel_output(forward_out)
-
+        
         # Verify DNA vocab size
-        assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1] # type: ignore
-
+        assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1]
+        
         if self.output_log_prob_seqs:
-            # Compute log probabilities
+            # 📊 Compute log probabilities
             softmax_logprobs = torch.log_softmax(forward_out_gathered, dim=-1)
             softmax_logprobs = softmax_logprobs[:, :-1]
             input_ids = batch["tokens"][:, 1:]
@@ -356,13 +353,13 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
                 2,  # along the vocab dimension...
                 input_ids.unsqueeze(-1),  # using the token ids to index.
             ).squeeze(-1)
-
+            
             log_prob_seqs = torch.sum(logprobs * batch["loss_mask"][:, 1:].float(), dim=-1)
             if self.log_prob_collapse_option == "mean":
                 log_prob_seqs = log_prob_seqs / (batch["loss_mask"][:, 1:].float().sum(dim=-1) + 1e-8)
-
+                
             return {
-                "log_probs_seqs": log_prob_seqs.cpu(),
+                "log_probs_seqs": log_prob_seqs.cpu(), 
                 "seq_idx": batch["seq_idx"].cpu()
             }
         else:
@@ -417,7 +414,6 @@ def predict(
         None
     """
     callback_list = [
-        RichModelSummary(max_depth=4),
         PredictionWriter(
             output_dir=output_dir,
             write_interval="epoch",
@@ -425,7 +421,7 @@ def predict(
             seq_dim_key_defaults={"token_logits": 1, "dna_logits": 1, "logits": 1},
         )
     ]
-
+    
     # Asserts for proper configuration of parallel heads
     if args.parallel_heads:
         heads = [args.parallel_dna_head, args.parallel_rna_seq_head, args.parallel_pep_map_head]
@@ -452,17 +448,17 @@ def predict(
             pipeline_model_parallel_size=pipeline_model_parallel_size,
             context_parallel_size=context_parallel_size,
             pipeline_dtype=torch.bfloat16,
-            ckpt_load_optimizer=False,      # Needs to be false for a normal model checkpoint.
+            ckpt_load_optimizer=False,  # Needs to be false for a normal model checkpoint.
             ckpt_save_optimizer=False,
             ckpt_async_save=False,
             sequence_parallel=tensor_parallel_size > 1 and sequence_parallel,
             save_ckpt_format=ckpt_format,
-            ckpt_load_strictness="log_all", # type: ignore
+            ckpt_load_strictness="log_all",
             data_sampler=nl.MegatronDataSampler(
                 micro_batch_size=batch_size,
                 global_batch_size=batch_size,
                 seq_len=8192,
-                output_log=False,           # this is needed for predict step to work
+                output_log=False,  # this is needed for predict step to work
             ),
         ),
         log_every_n_steps=1,
@@ -474,7 +470,7 @@ def predict(
             params_dtype=torch.bfloat16,
             # Only use FP8 in this plugin when using full FP8 precision and FP8.
             #   Otherwise use vortex_style_fp8 in the model config.
-            fp8="hybrid" if fp8 and full_fp8 else None, # type: ignore
+            fp8="hybrid" if fp8 and full_fp8 else None,
             fp8_amax_history_len=16 if fp8 and full_fp8 else 1,
             fp8_amax_compute_algo="max" if fp8 and full_fp8 else "most_recent",
         ),
@@ -487,17 +483,17 @@ def predict(
     if num_layers is not None:
         config_modifiers_init["num_layers"] = num_layers
     config = HYENA_MODEL_OPTIONS[model_size](
-        forward_step_fn=parallel_head_forward_step_fn,
-        data_step_fn=partial(parallel_head_data_step_fn, predict=True), # Use parallel head data step when needed
+        forward_step_fn=partial(parallel_head_forward_step_fn, predict=True),
+        data_step_fn=partial(parallel_head_data_step_fn, predict=True),  # Use parallel head data step when needed
         distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
         # Only use vortex style FP8 in the model config if using FP8 and not full FP8. This will only apply FP8 to
         #   the projection layer of the hyena mixer.
         vortex_style_fp8=fp8 and not full_fp8,
         **config_modifiers_init,
     )
-    trainer.strategy._setup_optimizers = False # type: ignore
+    trainer.strategy._setup_optimizers = False
 
-    nemo_logger = NeMoLogger(log_dir=work_dir) # type: ignore
+    nemo_logger = NeMoLogger(log_dir=work_dir)
     nemo_logger.setup(trainer, resume_if_exists=True)
     resume = nl.AutoResume(
         resume_if_exists=True,
@@ -563,187 +559,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-# --- IGNORE ---
-# CODE FOR THE GRINDER
-
-# def parallel_head_data_step_fn(dataloader_iter, use_mtp=False) -> Dict[str, torch.Tensor]:
-#     """
-#     Inner function used during training steps to retrieve and process the next batch
-#     of data from a dataloader. Supports modular tensor routing across pipeline stages.
-
-#     This function handles the data loading step for GPT models, managing
-#     pipeline parallelism by distributing data appropriately across pipeline stages.
-
-#     Args:
-#         dataloader_iter: Iterator over the dataloader
-#         use_mtp: Whether the Multi-Token Prediction Module is used. Input needs to be passed
-#                 into the last ppieline stage if mtp is used.
-
-#     Returns:
-#         dict[str, torch.Tensor]: Processed batch with required tensors moved to appropriate devices
-
-#     Note:
-#         To add additional arguments to forward, make sure to add to `required_device_keys` by making the key value
-#         exists in `_batch`.
-#             - For example:
-#                 ```
-#                 if "rna_seq_targets" in _batch:
-#                     required_device_keys.add("rna_seq_targets")
-#                 ```
-#     """
-#     from megatron.core import parallel_state
-
-#     # Based on: https://github.com/NVIDIA/Megatron-LM/blob/main/pretrain_gpt.py#L87
-#     # https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/nlp/models/language_modeling/megatron_gpt_model.py#L828-L842
-
-#     # Fetch the next batch from the dataloader
-#     batch = next(dataloader_iter)
-
-#     # Handle both single-dict and (dict, _, _) tuple formats
-#     _batch: dict
-#     if isinstance(batch, tuple) and len(batch) == 3:
-#         _batch = batch[0]
-#     else:
-#         _batch = batch
-
-#     # Sets for determining which keys need to be transferred to which device
-#     required_device_keys = set()    # Tensors needed on GPU
-#     required_host_keys = set()      # Tensors needed on CPU
-
-#     # Add them
-#     if "rna_seq_targets" in _batch:
-#         required_device_keys.add("rna_seq_targets")
-#     if "pep_map_targets" in batch:
-#         required_device_keys.add("pep_map_targets")
-#         # Add masks if they exist
-#     if "rna_mask" in _batch:
-#         required_device_keys.add("rna_mask")
-#     if "pep_mask" in batch:
-#         required_device_keys.add("pep_mask")
-
-#     # cu_seqlens-related values needed for FlashAttention or similar ops
-#     required_device_keys.add("attention_mask")
-#     if "cu_seqlens" in _batch:
-#         required_device_keys.add("cu_seqlens")
-#         required_host_keys.add("cu_seqlens_argmin")
-#         required_host_keys.add("max_seqlen")
-
-#     # If we're in the first pipeline stage or using MTP, we need input tokens
-#     if parallel_state.is_pipeline_first_stage() or use_mtp:
-#         required_device_keys.update(("tokens", "position_ids"))
-#         # RNA head loss may be computed in the final stage
-#         if "rna_seq_targets" in _batch:
-#             required_device_keys.add("rna_seq_targets") # TODO: Not sure if needed here...
-#         if "pep_map_targets" in batch:
-#             required_device_keys.add("pep_map_targets") # TODO: Not sure if needed here...
-#         # Also add masks if they exist
-#         if "rna_mask" in _batch:
-#             required_device_keys.add("rna_mask")  # TODO: Not sure if needed here...
-#         if "pep_mask" in batch:
-#             required_device_keys.add("pep_mask")  # TODO: Not sure if needed here...
-
-#     # If we're in the last pipeline stage, we need output labels for loss computation
-#     if parallel_state.is_pipeline_last_stage():
-#         required_device_keys.update(("labels", "loss_mask", "seq_idx"))
-#         # RNA head loss may be computed in the final stage
-#         if "rna_seq_targets" in _batch:
-#             required_device_keys.add("rna_seq_targets")
-#         if "pep_map_targets" in batch:
-#             required_device_keys.add("pep_map_targets")
-#                 # Also add masks if they exist
-#         if "rna_mask" in _batch:
-#             required_device_keys.add("rna_mask")
-#         if "pep_mask" in batch:
-#             required_device_keys.add("pep_mask")
-
-#     # Dictionary that will hold the appropriately placed tensors (CPU/GPU/None)
-#     _batch_required_keys = {}
-#     for key, val in _batch.items():
-#         if key in required_device_keys:
-#             _batch_required_keys[key] = val.cuda(non_blocking=True)
-#         elif key in required_host_keys:
-#             _batch_required_keys[key] = val.cpu()
-#         else:
-#             _batch_required_keys[key] = None
-
-#     # slice batch along sequence dimension for context parallelism
-#     output = get_batch_on_this_cp_rank(_batch_required_keys)
-
-#     return output
-
-# def hyena_predict_forward_step(model, batch) -> torch.Tensor:
-#     """Performs a forward step for the Hyena model.
-
-#     Args:
-#         model: The Hyena model
-#         batch: Dictionary containing input batch data with keys:
-#             - tokens: Input token IDs
-#             - position_ids: Position IDs
-#             - labels: Labels for loss computation
-#             - loss_mask: Mask for loss computation
-
-#     Returns:
-#         torch.Tensor: Output from the model forward pass
-#     """
-#     forward_args = {
-#         "input_ids": batch["tokens"],
-#         "position_ids": batch["position_ids"],
-#         # "labels": batch["labels"],
-#         # "loss_mask": batch["loss_mask"],
-#     }
-
-#     forward_args["attention_mask"] = None
-#     if "cu_seqlens" in batch:
-#         forward_args["packed_seq_params"] = get_packed_seq_params(batch)
-
-#     output = model(**forward_args)
-#     if LOGGING:
-#         logging.info(f"Output: \n{output}")
-#     return output
-
-
-# def hyena_predict_data_step(dataloader_iter) -> dict[str, torch.Tensor]:
-#     """Data step for the Hyena model prediction. Modified from the original gpt data step to include the seq_idx."""
-#     from megatron.core import parallel_state
-
-#     # Based on: https://github.com/NVIDIA/Megatron-LM/blob/main/pretrain_gpt.py#L87
-#     # https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/nlp/models/language_modeling/megatron_gpt_model.py#L828-L842
-
-#     batch = next(dataloader_iter)
-
-#     _batch: dict
-#     if isinstance(batch, tuple) and len(batch) == 3:
-#         _batch = batch[0]
-#     else:
-#         _batch = batch
-
-#     required_device_keys = set()
-#     required_host_keys = set()
-
-#     required_device_keys.add("attention_mask")
-#     if "cu_seqlens" in _batch:
-#         required_device_keys.add("cu_seqlens")
-#         required_host_keys.add("cu_seqlens_argmin")
-#         required_host_keys.add("max_seqlen")
-
-#     if parallel_state.is_pipeline_first_stage():
-#         required_device_keys.update(("tokens", "position_ids"))
-#     if parallel_state.is_pipeline_last_stage():
-#         required_device_keys.update(("labels", "loss_mask", "seq_idx"))
-
-#     _batch_required_keys = {}
-#     for key, val in _batch.items():
-#         if key in required_device_keys:
-#             _batch_required_keys[key] = val.cuda(non_blocking=True)
-#         elif key in required_host_keys:
-#             _batch_required_keys[key] = val.cpu()
-#         else:
-#             _batch_required_keys[key] = None
-
-#     # slice batch along sequence dimension for context parallelism
-#     output = get_batch_on_this_cp_rank(_batch_required_keys)
-
-#     return output

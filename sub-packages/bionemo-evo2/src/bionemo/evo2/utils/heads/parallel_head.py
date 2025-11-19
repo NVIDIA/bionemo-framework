@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -31,6 +31,91 @@ from nemo.utils import logging
 
 from ..loss.borzoi import BorzoiLoss
 from .debug import debug_heads
+
+
+class BioSignalHead(nn.Module):
+    """Multi-layer head for Biological Signal."""
+
+    def __init__(
+        self,
+        hidden_size: int,
+        intermediate_size: int = 512,
+        num_layers: int = 2,
+        dropout: float = 0.1,
+        config: Optional[HyenaConfig] = None,
+        init_method: Optional[Callable] = None,
+        input_is_parallel: bool = False,
+    ):
+        """Initializes the RNA-seq prediction head."""
+        super().__init__()
+        self.layers = nn.ModuleList()
+
+        # First layer: hidden_size -> intermediate_size
+        self.layers.append(
+            tensor_parallel.ColumnParallelLinear(
+                hidden_size,
+                intermediate_size,
+                config=config,              # type: ignore
+                init_method=init_method,    # type: ignore
+                bias=True,
+                gather_output=False,  # Keep parallel for next layer
+                skip_bias_add=False,
+            )
+        )
+
+        # Middle layers: intermediate_size -> intermediate_size
+        for _ in range(num_layers - 2):
+            self.layers.append(
+                tensor_parallel.RowParallelLinear(
+                    intermediate_size,
+                    intermediate_size,
+                    config=config,              # type: ignore
+                    init_method=init_method,    # type: ignore
+                    bias=True,
+                    input_is_parallel=True,
+                    skip_bias_add=False,
+                )
+            )
+
+        # Final layer: intermediate_size -> 1
+        self.layers.append(
+            tensor_parallel.RowParallelLinear(
+                intermediate_size,
+                1,
+                config=config,              # type: ignore
+                init_method=init_method,    # type: ignore
+                bias=True,
+                input_is_parallel=True if num_layers > 1 else input_is_parallel,
+                skip_bias_add=False,
+            )
+        )
+
+        self.activation = nn.GELU()
+        self.dropout = nn.Dropout(dropout)
+        self.num_layers = num_layers
+
+    def forward(self, hidden_states):
+        """Forward pass through MLP head.
+
+        Args:
+            hidden_states: [seq, batch, hidden_size] or [batch, seq, hidden_size]
+
+        Returns:
+            output: [seq, batch, 1] or [batch, seq, 1]
+            bias: None (bias already added)
+        """
+        x = hidden_states
+
+        # Apply all but last layer with activation + dropout
+        for i, layer in enumerate(self.layers[:-1]):
+            x, _ = layer(x)  # Returns (output, bias)
+            x = self.activation(x)
+            x = self.dropout(x)
+
+        # Final layer (no activation)
+        output, _ = self.layers[-1](x)
+
+        return output, None  # Return None for bias (already added)
 
 
 class ParallelHeadTransform(IOMixin):
@@ -86,6 +171,7 @@ class ParallelHeadTransform(IOMixin):
         parallel_dna: bool = True,
         parallel_rna: bool = True,
         parallel_pep: bool = False,
+        predict: bool = False,
         **kwargs,
     ):
         """Initializes the ParallelHeadTransform with specified loss weights and toggles.
@@ -97,6 +183,7 @@ class ParallelHeadTransform(IOMixin):
             parallel_dna (bool): Whether to enable DNA head.
             parallel_rna (bool): Whether to enable RNA head.
             parallel_pep (bool): Whether to enable peptide mapping head.
+            predict (bool): Whether the model is in prediction mode.
             kwargs: Additional keyword arguments for loss functions.
         """
         # Store configurable loss weights and toggles
@@ -106,6 +193,7 @@ class ParallelHeadTransform(IOMixin):
         self.parallel_dna = parallel_dna
         self.parallel_rna = parallel_rna
         self.parallel_pep = parallel_pep
+        self.predict = predict
 
         # Setup custom loss functions if rna or pep parallelism is enabled
         if self.parallel_rna:
@@ -139,13 +227,12 @@ class ParallelHeadTransform(IOMixin):
         logging.info("🔧 Applying Enhanced ParallelHeadTransform")
 
         # Extract the main model components
+        config = self._get_config(model)
         core_model = self._get_core_hyena_model(model)
         forward_target = self._get_forward_target_model(model)
-        config = self._get_config(model)
-        model = self._transform_core_model(model, core_model, forward_target, config)
 
-        # Return the updated model
-        return model
+        # Transform model
+        return self._transform_core_model(model, core_model, forward_target, config)
 
     def _transform_core_model(
         self, model: nn.Module, core_model: nn.Module, forward_target: nn.Module | None, config: HyenaConfig
@@ -167,36 +254,28 @@ class ParallelHeadTransform(IOMixin):
         # Add RNA seq head to core model
         if not hasattr(core_model, "rna_seq_head") and self.parallel_rna:
             # Create RowParallelLinear for RNA-seq head because output is small
-            core_model.rna_seq_head = tensor_parallel.RowParallelLinear(  # ColumnParallelLinear, alternative
-                config.hidden_size,  # Input dim: model hidden state size
-                1,  # Output dim: one value per token for RNA expression
+            core_model.rna_seq_head = BioSignalHead(
+                hidden_size=config.hidden_size,
+                intermediate_size=config.hidden_size,  # Tune this (256, 512, 1024)
+                num_layers=5,           # 2-3 layers recommended
+                dropout=0.1,
                 config=config,
-                init_method=config.init_method,  # type: ignore # Weight initialization strategy
-                bias=config.add_bias_output,  # Whether to add bias
-                skip_bias_add=False,
-                # gather_output=True,  # Ensures output is gathered across TP ranks <== Needed for ColumnParallelLinear
+                init_method=config.init_method,
                 input_is_parallel=input_is_parallel,
             )
-            # Initialize bias to 0 if bias is used
-            if config.add_bias_output:
-                core_model.rna_seq_head.bias.data.zero_()
 
         # Add pep map head to core model
         if not hasattr(core_model, "pep_map_head") and self.parallel_pep:
             # Create RowParallelLinear for pep map head because output is small
-            core_model.pep_map_head = tensor_parallel.RowParallelLinear(  # ColumnParallelLinear, alternative
-                config.hidden_size,  # Input dim: model hidden state size
-                1,  # Output dim: one value per token for RNA expression
+            core_model.pep_map_head = BioSignalHead(
+                hidden_size=config.hidden_size,
+                intermediate_size=config.hidden_size,  # Tune this (256, 512, 1024)
+                num_layers=5,           # 2-3 layers recommended
+                dropout=0.1,
                 config=config,
-                init_method=config.init_method,  # type: ignore # Weight initialization strategy
-                bias=config.add_bias_output,  # Whether to add bias
-                skip_bias_add=False,
-                # gather_output=True,  # Ensures output is gathered across TP ranks <== Needed for ColumnParallelLinear
+                init_method=config.init_method,
                 input_is_parallel=input_is_parallel,
             )
-            # Initialize bias to 0 if bias is used
-            if config.add_bias_output:
-                core_model.pep_map_head.bias.data.zero_()
 
         # Set attributes on core model
         core_model.dna_loss_weight = self.dna_loss_weight  # type: ignore
@@ -206,8 +285,8 @@ class ParallelHeadTransform(IOMixin):
         core_model.parallel_rna = self.parallel_rna  # type: ignore
         core_model.parallel_pep = self.parallel_pep  # type: ignore
 
-        # Set up forward target
-        if forward_target and forward_target != core_model:
+        # Set up forward target for training
+        if forward_target and forward_target != core_model and not self.predict:
             # Copy attributes to forward target
             forward_target.dna_loss_weight = self.dna_loss_weight  # type: ignore
             forward_target.rna_loss_weight = self.rna_loss_weight  # type: ignore
@@ -226,6 +305,21 @@ class ParallelHeadTransform(IOMixin):
             if not hasattr(forward_target, "_original_forward"):
                 forward_target._original_forward = forward_target.forward  # type: ignore
                 forward_target.forward = self._create_parallel_forward(forward_target, core_model)  # type: ignore
+
+        # Set up forward pass for prediction mode
+        # If predict mode, also modify top level model
+        if self.predict:
+            # Model
+            model.dna_loss_weight = self.dna_loss_weight  # type: ignore
+            model.rna_loss_weight = self.rna_loss_weight  # type: ignore
+            model.pep_loss_weight = self.pep_loss_weight  # type: ignore
+            model.parallel_dna = self.parallel_dna  # type: ignore
+            model.parallel_rna = self.parallel_rna  # type: ignore
+            model.parallel_pep = self.parallel_pep  # type: ignore
+            # Overwrite the top-level model forward as well
+            if not hasattr(model, "_original_forward"):
+                model._original_forward = model.forward  # type: ignore
+                model.forward = self._create_parallel_forward(model, core_model)  # type: ignore
 
         # Log updated model structure
         debug_heads("Model post transform", model)
@@ -559,7 +653,7 @@ class ParallelHeadTransform(IOMixin):
         return parallel_forward
 
 
-def parallel_head_forward_step_fn(model, batch: Dict[str, Any]) -> torch.Tensor:
+def parallel_head_forward_step_fn(model, batch: Dict[str, Any], predict: bool = False) -> torch.Tensor:
     """Executes a forward pass through the model.
 
     This function is designed to be modular and compatible with models like Hyena
@@ -580,6 +674,7 @@ def parallel_head_forward_step_fn(model, batch: Dict[str, Any]) -> torch.Tensor:
             - labels (torch.Tensor): Ground truth labels for loss calculation.
             - loss_mask (torch.Tensor): Mask to indicate which token losses to consider.
             - rna_seq_targets (torch.Tensor, optional): Additional output targets for RNA prediction tasks.
+        predict (bool): Whether the function is being called in prediction mode.
 
     Returns:
         torch.Tensor: The model's output from the forward pass (e.g., loss or logits).
@@ -591,8 +686,6 @@ def parallel_head_forward_step_fn(model, batch: Dict[str, Any]) -> torch.Tensor:
         "attention_mask": batch.get("attention_mask", None),
         "labels": batch.get("labels", None),
         "loss_mask": batch.get("loss_mask", None),
-        "rna_mask": batch.get("rna_mask", None),
-        "pep_mask": batch.get("pep_mask", None),
     }
 
     # Safely add rna_seq_targets to forward args
@@ -604,11 +697,11 @@ def parallel_head_forward_step_fn(model, batch: Dict[str, Any]) -> torch.Tensor:
         forward_args["pep_map_targets"] = batch.get("pep_map_targets", None)
 
     # Safely add rna_mask if present
-    if "rna_mask" in batch:
+    if not predict:
         forward_args["rna_mask"] = batch.get("rna_mask", None)
 
     # Safely add pep_mask if present
-    if "pep_mask" in batch:
+    if not predict:
         forward_args["pep_mask"] = batch.get("pep_mask", None)
 
     # Perform the forward pass using keyword argument unpacking

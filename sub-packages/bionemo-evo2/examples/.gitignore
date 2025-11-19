@@ -12,3 +12,5 @@ preprocessed_data/
 pretraining_demo/
 brca1_fasta_files/
 brca1/
+parallel_head_data/
+parallel_pretraining_demo/

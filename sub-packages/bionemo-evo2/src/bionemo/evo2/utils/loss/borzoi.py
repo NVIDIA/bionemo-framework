@@ -215,7 +215,7 @@ class BorzoiLoss(BaseRegressionLoss):
         multinomial_resolution: int | None = None,
         epsilon: float = 1e-7,
         clamp_predictions: bool = True,
-        max_per_position_loss: float = 50.0,
+        max_per_position_loss: float = 100.0,
     ):
         """Initialize BorzoiLoss.
 
@@ -312,6 +312,8 @@ class BorzoiLoss(BaseRegressionLoss):
             batch_size = borzoi_loss.shape[0]
             # Flatten all dimensions except batch
             borzoi_loss = borzoi_loss.view(batch_size, -1)
+            # Reshape targets to [batch, seq_len] to match for loss normalization
+            targets = targets.view(batch_size, -1)
         else:
             # If multichannel, raise error (not supported)
             # Users need to extend this method for multichannel support
@@ -320,16 +322,14 @@ class BorzoiLoss(BaseRegressionLoss):
         # Prevent extreme per-position losses
         borzoi_loss = torch.clamp(borzoi_loss, min=0.0, max=self.max_per_position_loss)
 
-        # # High coverage regions naturally have higher loss - normalize by this
-        # if mask is not None:
-        #     total_coverage = (targets * mask).sum(dim=1, keepdim=True).clamp(min=1)
-        # else:
-        #     total_coverage = targets.sum(dim=1, keepdim=True).clamp(min=1)
+        # High coverage regions naturally have higher loss - normalize by this
+        total_coverage = torch.clamp_min(targets, self.epsilon).sum(dim=1, keepdim=True)  # shape: [B, 1]
 
-        # # Normalize by log(coverage) to compress range
-        # coverage_factor = torch.log1p(total_coverage)  # log(1 + coverage)
+        # Normalize by log(coverage) to compress range
+        coverage_factor = torch.log1p(total_coverage)  # log(1 + coverage)
 
-        # borzoi_loss = borzoi_loss / coverage_factor
+        # Normalize loss keeping shape [batch, seq_len]
+        borzoi_loss = borzoi_loss / coverage_factor
 
         # Return loss per position
         return borzoi_loss
