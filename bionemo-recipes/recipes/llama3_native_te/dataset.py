@@ -93,23 +93,17 @@ def create_tokenized_dataset(
         # We need to handle both 'text' and potential metadata columns like 'record'
         logger.info(f"Applying dataset.map with windowing (max_seq_length={max_seq_length}, stride={stride})")
 
-        # Define a wrapper that removes ALL columns except tokenizer outputs
-        def tokenize_and_remove_extras(examples):
-            result = tokenize_with_windowing(examples)
-            # Only keep tokenizer output fields, drop everything else (text, record, etc.)
-            return {
-                k: v
-                for k, v in result.items()
-                if k in ["input_ids", "attention_mask", "token_type_ids", "overflow_to_sample_mapping"]
-            }
+        # For IterableDataset, explicitly list all columns that need to be removed
+        # OpenGenome2 has: 'text' (sequence) and 'record' (metadata, not in all shards)
+        # We need to handle both cases, so list both columns - remove_columns handles missing columns gracefully
+        columns_to_remove = [sequence_column, "record"]
+        logger.info(f"Will attempt to remove columns: {columns_to_remove}")
 
-        # For IterableDataset, we need to explicitly remove the input columns
-        # The sequence_column (e.g., 'text') must be removed, and potentially 'record' if present
         tokenized_dataset = dataset.map(
-            tokenize_and_remove_extras,
+            tokenize_with_windowing,
             batched=True,
             batch_size=1,  # Process one huge sequence at a time to avoid OOM
-            remove_columns=[sequence_column],  # Remove the sequence column explicitly
+            remove_columns=columns_to_remove,  # Remove input columns (handles missing columns gracefully)
         )
         logger.info("Dataset tokenization mapping complete")
 
