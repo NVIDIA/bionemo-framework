@@ -88,14 +88,25 @@ def create_tokenized_dataset(
     else:
         # For streaming datasets with huge genomic sequences, process one sequence at a time (batch_size=1)
         # The tokenizer's return_overflowing_tokens will automatically expand windows into separate items
-        # IMPORTANT: Must explicitly remove the sequence column - dataset.column_names is None for IterableDataset!
+        # IMPORTANT: Must explicitly list columns to remove - dataset.column_names is None for IterableDataset!
+        # Note: OpenGenome2 has inconsistent columns across shards (some have 'record', some don't)
+        # We need to handle both 'text' and potential metadata columns like 'record'
         logger.info(f"Applying dataset.map with windowing (max_seq_length={max_seq_length}, stride={stride})")
-        logger.info(f"  Removing column: [{sequence_column}]")
+
+        # Define a wrapper that removes ALL columns except tokenizer outputs
+        def tokenize_and_remove_extras(examples):
+            result = tokenize_with_windowing(examples)
+            # Only keep tokenizer output fields, drop everything else (text, record, etc.)
+            return {
+                k: v
+                for k, v in result.items()
+                if k in ["input_ids", "attention_mask", "token_type_ids", "overflow_to_sample_mapping"]
+            }
+
         tokenized_dataset = dataset.map(
-            tokenize_with_windowing,
+            tokenize_and_remove_extras,
             batched=True,
             batch_size=1,  # Process one huge sequence at a time to avoid OOM
-            remove_columns=[sequence_column],  # Explicitly remove the text column
         )
         logger.info("Dataset tokenization mapping complete")
 
