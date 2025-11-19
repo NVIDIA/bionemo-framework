@@ -103,10 +103,13 @@ def create_tokenized_dataset(
                 if k in ["input_ids", "attention_mask", "token_type_ids", "overflow_to_sample_mapping"]
             }
 
+        # For IterableDataset, we need to explicitly remove the input columns
+        # The sequence_column (e.g., 'text') must be removed, and potentially 'record' if present
         tokenized_dataset = dataset.map(
             tokenize_and_remove_extras,
             batched=True,
             batch_size=1,  # Process one huge sequence at a time to avoid OOM
+            remove_columns=[sequence_column],  # Remove the sequence column explicitly
         )
         logger.info("Dataset tokenization mapping complete")
 
