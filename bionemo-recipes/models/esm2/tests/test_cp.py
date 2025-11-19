@@ -14,20 +14,24 @@ import subprocess
 from pathlib import Path
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 
-def get_dummy_data_thd_with_padding_dp0(cp_size: int = 2):
+def get_dummy_data_thd_with_padding_dp0(cp_size: int = 2, tokenizer=None):
     pid = 1 # The pad token id.
     label_pad = -100 # The label pad id.
 
-    # Make some fake data with longer sequences (64 tokens each)
-    seq1 = torch.arange(2, 34, dtype=torch.long)  # 32 tokens
-    seq2 = torch.arange(3, 35, dtype=torch.long)  # 32 tokens
-    input_ids = torch.cat([seq1, seq2])  # 64 tokens total
+    # Two real protein sequences (30 amino acids each, will be 32 tokens with BOS/EOS)
+    protein1 = "MKTAYIAKQRQISFVKSHFSRQLEERLG"  # 29 AA -> ~31 tokens with special tokens
+    protein2 = "MSHHWGYGKHNGPEHWHKDFPIAKGERF"  # 29 AA -> ~31 tokens with special tokens
     
-    labels1 = torch.arange(10, 42, dtype=torch.long) % 33  # 32 labels
-    labels2 = torch.arange(15, 47, dtype=torch.long) % 33  # 32 labels
-    labels = torch.cat([labels1, labels2])  # 64 labels total
+    tok1 = tokenizer(protein1, return_tensors="pt", add_special_tokens=True)
+    tok2 = tokenizer(protein2, return_tensors="pt", add_special_tokens=True)
     
-    cu_seqlens_q = torch.tensor([0, 32, 64])
+    # Concatenate the token IDs
+    input_ids = torch.cat([tok1['input_ids'].squeeze(), tok2['input_ids'].squeeze()])
+    # Use input_ids as labels (for simplicity in testing)
+    labels = input_ids.clone()
+    
+    cu_seqlens_q = torch.tensor([0, tok1['input_ids'].shape[1], input_ids.shape[0]])
+    
     divisibility_factor = 2 * cp_size
 
     input_ids_padded, labels_padded, cu_seqlens_q_padded = \
@@ -40,6 +44,10 @@ def get_dummy_data_thd_with_padding_dp0(cp_size: int = 2):
                     padding_label_id=label_pad
                 )
 
+    # Calculate max_length based on actual padded sequence lengths
+    seq_lengths = cu_seqlens_q_padded[1:] - cu_seqlens_q_padded[:-1]
+    max_seq_len = int(seq_lengths.max().item())
+    
     batch = {
         "input_ids": input_ids_padded.unsqueeze(0).to(torch.int64), # Add batch dim: [1, seq_len]
         "labels": labels_padded.unsqueeze(0).to(torch.int64), # [1, seq_len]
@@ -47,8 +55,8 @@ def get_dummy_data_thd_with_padding_dp0(cp_size: int = 2):
         "cu_seq_lens_k_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
         "cu_seq_lens_q": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
         "cu_seq_lens_k": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
-        "max_length_q": 64,  # Updated to match larger sequences
-        "max_length_k": 64,  # Updated to match larger sequences
+        "max_length_q": max_seq_len,
+        "max_length_k": max_seq_len,
         "pad_between_seqs": True,
     }
     return batch
@@ -74,7 +82,7 @@ def get_batch_for_cp_rank(batch, cp_rank, cp_world_size):
     batch_shard["labels"] = labels_sharded
     # Now determine the max length of the sequence.
     seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
-    batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64) # TODO(@jomitchell): Not sure if I need this anymore.
+    batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)  # From TE code.
     batch_shard["max_length_k"] = batch_shard["max_length_q"]
     return batch_shard
 
@@ -117,11 +125,11 @@ def test_dummy_runner():
     )
     if result.returncode != 0:
         print(f"STDOUT:\n{result.stdout}")
-        print(f"STDERR:\n{result.stderr}")
+        # print(f"STDERR:\n{result.stderr}")
         pytest.fail(f"Command failed with exit code {result.returncode}")
     # For debugging
     print(f"STDOUT:\n{result.stdout}")
-    print(f"STDERR:\n{result.stderr}")
+    # print(f"STDERR:\n{result.stderr}")
 
 
 if __name__ == "__main__":
@@ -130,7 +138,9 @@ if __name__ == "__main__":
     os.makedirs(tmp_path, exist_ok=True)
     model_ckpt = get_te_model_checkpoint(tmp_path)
 
-    input_data_thd_padded_dp0 = get_dummy_data_thd_with_padding_dp0()
+    # Create tokenizer for real protein sequences
+    tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    input_data_thd_padded_dp0 = get_dummy_data_thd_with_padding_dp0(tokenizer=tokenizer)
 
     model = NVEsmForMaskedLM.from_pretrained(model_ckpt, attn_input_format="thd", token_dropout=False, dtype=torch.bfloat16)
     model.to("cuda")
@@ -141,10 +151,10 @@ if __name__ == "__main__":
     #     print("RANK 0 Outputs non-distributed: ", outputs_nondistributed)
     #     print("RANK 0 Loss: ", outputs_nondistributed.loss)
     #     print("RANK 0 Logits: ", outputs_nondistributed.logits.max())
-    # if os.environ.get("LOCAL_RANK") == "1":
-    #     print("RANK 1 Outputs non-distributed: ", outputs_nondistributed)
-    #     print("RANK 1 Loss: ", outputs_nondistributed.loss)
-    #     print("RANK 1 Logits: ", outputs_nondistributed.logits.max())
+    if os.environ.get("LOCAL_RANK") == "1":
+        print("RANK 1 Outputs non-distributed: ", outputs_nondistributed)
+        print("RANK 1 Loss: ", outputs_nondistributed.loss)
+        print("RANK 1 Logits: ", outputs_nondistributed.logits.max())
 
     # Now do the whole CP thing.
     # TODO(@jomitchell): do i need a barrier here?
@@ -180,7 +190,7 @@ if __name__ == "__main__":
             torch.cuda.Stream()
         )
 
-    batch = get_dummy_data_thd_with_padding_dp0()
+    batch = get_dummy_data_thd_with_padding_dp0(tokenizer=tokenizer)
     # Move batch to CUDA
     batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
     
@@ -191,17 +201,107 @@ if __name__ == "__main__":
 
     batch_cp = get_batch_for_cp_rank(batch, cp_rank=cp_rank, cp_world_size=cp_world_size)
     
-    print(f"[Rank {cp_rank}] AFTER split - batch_cp keys: {batch_cp.keys()}")
+    print(f"[CP Rank {cp_rank}] AFTER split - batch_cp keys: {batch_cp.keys()}")
     if 'input_ids' in batch_cp:
-        print(f"[Rank {cp_rank}] AFTER split - input_ids: {batch_cp['input_ids']}")
-        print(f"[Rank {cp_rank}] AFTER split - input_ids shape: {batch_cp['input_ids'].shape if batch_cp['input_ids'] is not None else 'None'}")
+        print(f"[CP Rank {cp_rank}] AFTER split - input_ids: {batch_cp['input_ids']}")
+        print(f"[CP Rank {cp_rank}] AFTER split - input_ids shape: {batch_cp['input_ids'].shape if batch_cp['input_ids'] is not None else 'None'}")
     else:
-        print(f"[Rank {cp_rank}] AFTER split - input_ids key MISSING from batch_cp!")
+        print(f"[CP Rank {cp_rank}] AFTER split - input_ids key MISSING from batch_cp!")
     
     torch.distributed.barrier(group=cp_group)
 
-    batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+    # batch_cp = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch_cp.items()}
     outputs_cp = model(**batch_cp)
+    # print("CP Rank: ", cp_rank, "Outputs CP: ", outputs_cp)
+    print("CP Rank: ", cp_rank, "Outputs CP Loss: ", outputs_cp.loss)
+    print("CP Rank: ", cp_rank, "Outputs CP Logits shape: ", outputs_cp.logits.shape)
     
+    # Gather the logits from all CP ranks
+    # The logits are split along the sequence dimension (dim=1 for THD format: [batch, seq, vocab])
+    # Make sure the tensor is contiguous before gathering
+    logits_contiguous = outputs_cp.logits.contiguous()
+    logits_list = [torch.zeros_like(logits_contiguous) for _ in range(cp_world_size)]
+    torch.distributed.all_gather(logits_list, logits_contiguous, group=cp_group)
+    
+    # Verify the ordering by checking which tensor came from which rank
+    # Create a rank identifier tensor to verify gather order
+    rank_id = torch.tensor([cp_rank], dtype=torch.int32, device=device)
+    rank_ids = [torch.zeros_like(rank_id) for _ in range(cp_world_size)]
+    torch.distributed.all_gather(rank_ids, rank_id, group=cp_group)
+    
+    if cp_rank == 0:
+        print(f"Verification: logits_list indices correspond to CP ranks: {[r.item() for r in rank_ids]}")
+    
+    # Concatenate along the sequence dimension
+    # logits_full = torch.cat(logits_list, dim=1)
+    
+    if cp_rank == 0:
+        print("Logits list: ", logits_list)
+        print("Logits list[0] shape: ", logits_list[0].shape)
+        print("Logits list[1] shape: ", logits_list[1].shape)
+    
+        # Reconstruct the full logits from CP-split chunks dynamically
+        # Get sequence lengths from cu_seqlens
+        cu_seqlens = batch["cu_seq_lens_q_padded"].cpu()
+        num_seqs = len(cu_seqlens) - 1
+        total_tokens = int(cu_seqlens[-1].item())
+        vocab_size = outputs_nondistributed.logits.shape[-1]
+        
+        reconstructed_logits = torch.zeros((total_tokens, vocab_size), dtype=torch.bfloat16)
+        
+        # For each sequence, reconstruct from CP chunks
+        cp_offset_rank0 = 0
+        cp_offset_rank1 = 0
+        
+        for seq_idx in range(num_seqs):
+            seq_start = int(cu_seqlens[seq_idx].item())
+            seq_end = int(cu_seqlens[seq_idx + 1].item())
+            seq_len = seq_end - seq_start
+            chunk_size = seq_len // (2 * cp_world_size)  # Each sequence split into 2*cp_world_size chunks
+            
+            # CP rank 0 gets chunks [0, 3], CP rank 1 gets chunks [1, 2]
+            for chunk_idx in range(2 * cp_world_size):
+                chunk_start_in_seq = seq_start + chunk_idx * chunk_size
+                chunk_end_in_seq = chunk_start_in_seq + chunk_size
+                
+                if chunk_idx == 0 or chunk_idx == 3:  # Chunks for CP rank 0
+                    reconstructed_logits[chunk_start_in_seq:chunk_end_in_seq, :] = \
+                        logits_list[0][cp_offset_rank0:cp_offset_rank0 + chunk_size, :]
+                    cp_offset_rank0 += chunk_size
+                else:  # Chunks 1, 2 for CP rank 1
+                    reconstructed_logits[chunk_start_in_seq:chunk_end_in_seq, :] = \
+                        logits_list[1][cp_offset_rank1:cp_offset_rank1 + chunk_size, :]
+                    cp_offset_rank1 += chunk_size
 
+        # Now reconstructed logits should match the non-distributed logits
+        print("Reconstructed logits shape: ", reconstructed_logits.shape)
+        print("Reconstructed logits max: ", reconstructed_logits.max())
+        print("Reconstructed logits min: ", reconstructed_logits.min())
+        print("Reconstructed logits mean: ", reconstructed_logits.mean())
+        print("Reconstructed logits std: ", reconstructed_logits.std())
+        print("Reconstructed logits var: ", reconstructed_logits.var())
+        print("Reconstructed logits sum: ", reconstructed_logits.sum())
+
+        print("Non-distributed logits shape: ", outputs_nondistributed.logits.shape)
+        print("Non-distributed logits max: ", outputs_nondistributed.logits.max())
+        print("Non-distributed logits min: ", outputs_nondistributed.logits.min())
+        print("Non-distributed logits mean: ", outputs_nondistributed.logits.mean())
+        print("Non-distributed logits std: ", outputs_nondistributed.logits.std())
+        print("Non-distributed logits var: ", outputs_nondistributed.logits.var())
+        print("Non-distributed logits sum: ", outputs_nondistributed.logits.sum())
+
+        # print hte first 32 values of the reconstructed logits and the non-distributed logits
+        print("Reconstructed logits first 32 values: ", reconstructed_logits[0:32, :])
+        print("Non-distributed logits first 32 values: ", outputs_nondistributed.logits[0:32, :])
+
+        # Use relaxed tolerances for bfloat16 and distributed operations
+        # atol=0.2 handles observed max differences of ~0.125
+        # rtol=0.01 (1%) is reasonable for bfloat16 precision
+        torch.testing.assert_close(
+            reconstructed_logits.cpu(), 
+            outputs_nondistributed.logits.cpu(),
+            atol=0.29, 
+            rtol=0.01,
+        )
+        print("\n✓ CP outputs match non-distributed outputs within tolerance!")
     torch.distributed.destroy_process_group()
