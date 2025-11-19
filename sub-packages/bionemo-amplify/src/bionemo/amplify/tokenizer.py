@@ -21,5 +21,5 @@ from nemo.lightning.io import IOMixin
 class BioNeMoAMPLIFYTokenizer(transformers.PreTrainedTokenizerFast, IOMixin):  # noqa D101
     def __init__(self):
         """A wrapper to make AutoTokenizer serializable for the ESM2 tokenizer."""
-        other = transformers.AutoTokenizer.from_pretrained("chandar-lab/AMPLIFY_350M", use_fast=True)
+        other = transformers.AutoTokenizer.from_pretrained("chandar-lab/AMPLIFY_120M", use_fast=True)
         self.__dict__.update(other.__dict__)
