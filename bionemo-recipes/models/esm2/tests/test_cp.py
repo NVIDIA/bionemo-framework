@@ -125,7 +125,7 @@ def test_dummy_runner():
     )
     if result.returncode != 0:
         print(f"STDOUT:\n{result.stdout}")
-        # print(f"STDERR:\n{result.stderr}")
+        print(f"STDERR:\n{result.stderr}")
         pytest.fail(f"Command failed with exit code {result.returncode}")
     # For debugging
     print(f"STDOUT:\n{result.stdout}")
@@ -198,6 +198,22 @@ if __name__ == "__main__":
     torch.distributed.barrier(group=cp_group)
 
     outputs_cp = model(**batch_cp)
+ 
+    # Gather the losses from all cp ranks (collective operation - all ranks must participate)
+    losses_list = [torch.zeros_like(outputs_cp.loss) for _ in range(cp_world_size)]
+    torch.distributed.all_gather(losses_list, outputs_cp.loss, group=cp_group)
+    
+    if cp_rank == 0:
+        average_cp_loss = torch.mean(torch.stack(losses_list))
+        
+        # The average of per-rank losses should be close to the non-distributed loss
+        # Note: They may not be exactly equal due to how loss is computed on sharded data
+        torch.testing.assert_close(
+            average_cp_loss.cpu(), 
+            outputs_nondistributed.loss.cpu(),
+            atol=0.1,  # Allow some difference due to loss computation on shards
+            rtol=0.05
+        )
 
     # Gather the logits from all CP ranks
     # The logits are split along the sequence dimension (dim=1 for THD format: [batch, seq, vocab])
