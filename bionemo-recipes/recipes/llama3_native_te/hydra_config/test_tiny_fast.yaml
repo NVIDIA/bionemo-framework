@@ -1,0 +1,58 @@
+# Ultra-fast test config for debugging
+defaults:
+  - defaults
+  - _self_
+
+model_tag: ./example_checkpoint  # Tiny model
+
+num_train_steps: 5  # Just 5 steps
+
+dataset:
+  sequence_column: "text"
+  tokenizer_path: ${oc.env:PWD}/example_checkpoint
+  micro_batch_size: 1
+  num_workers: 0
+  max_seq_length: 512  # Much smaller! Faster tokenization
+  stride: 50  # Smaller stride
+  buffer_size: 100
+  use_lazy_tokenization: false
+  use_stateful_dataloader: false
+  load_dataset_kwargs:
+    path: "arcinstitute/opengenome2"
+    split: "train"
+    streaming: true
+
+adamw_kwargs:
+  lr: 5e-4
+  fused: true
+  betas: [0.9, 0.98]
+  eps: 1e-8
+  weight_decay: 0.01
+
+lr_scheduler_kwargs:
+  num_warmup_steps: 1
+  num_training_steps: 5
+
+checkpoint:
+  ckpt_dir: null
+  save_final_model: false
+  resume_from_checkpoint: false
+
+logger:
+  frequency: 1
+
+wandb_init_args:
+  name: "test-fast"
+  project: "llama3-genomic-debug"
+  mode: "offline"
+
+use_meta_device: false
+use_torch_compile: false
+
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
