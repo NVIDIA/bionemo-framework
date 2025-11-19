@@ -147,17 +147,7 @@ if __name__ == "__main__":
     input_data_thd_padded_dp0 = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd_padded_dp0.items()}
     outputs_nondistributed = model(**input_data_thd_padded_dp0)
 
-    # if os.environ.get("LOCAL_RANK") == "0":
-    #     print("RANK 0 Outputs non-distributed: ", outputs_nondistributed)
-    #     print("RANK 0 Loss: ", outputs_nondistributed.loss)
-    #     print("RANK 0 Logits: ", outputs_nondistributed.logits.max())
-    if os.environ.get("LOCAL_RANK") == "1":
-        print("RANK 1 Outputs non-distributed: ", outputs_nondistributed)
-        print("RANK 1 Loss: ", outputs_nondistributed.loss)
-        print("RANK 1 Logits: ", outputs_nondistributed.logits.max())
-
-    # Now do the whole CP thing.
-    # TODO(@jomitchell): do i need a barrier here?
+    # Now setup distributed training for CP.
     dist_config = DistributedConfig()
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="nccl", device_id=device)
@@ -220,7 +210,6 @@ if __name__ == "__main__":
     logits_contiguous = outputs_cp.logits.contiguous()
     logits_list = [torch.zeros_like(logits_contiguous) for _ in range(cp_world_size)]
     torch.distributed.all_gather(logits_list, logits_contiguous, group=cp_group)
-
     
     if cp_rank == 0:
         # Reconstruct the full logits from CP-split chunks dynamically
@@ -263,4 +252,9 @@ if __name__ == "__main__":
             atol=0.29, 
             rtol=0.01,
         )
+
+    # Gradients
+    loss = outputs_cp.loss
+    # TODO: Setup up an optimizer etc to run the backwards pass.
+
     torch.distributed.destroy_process_group()
