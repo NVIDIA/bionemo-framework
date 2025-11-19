@@ -31,7 +31,7 @@ class Evo2LoRA(LoRA):
     def __init__(
         self,
         peft_ckpt_path: Optional[str] = None,
-        skip_freeze_modules: List[str] = ["word_embeddings"], # This modules won't be frozen
+        skip_freeze_modules: List[str] = [], # This modules won't be frozen
         target_modules: List[str] = [
             "linear_qkv", # Belonging to Transformer Layer
             "linear_proj", # Belonging to Transformer Layer
