@@ -10,6 +10,9 @@ use_meta_device: false
 # We leave this off by default since we don't see much of a performance improvement with TE layers.
 use_torch_compile: false
 
+# Whether to use gradient checkpointing to trade compute for memory
+use_gradient_checkpointing: false
+
 dataset:
   tokenizer_path: ./example_checkpoint   # Set to the path of your tokenizer (e.g., ./example_checkpoint)
   micro_batch_size: 8

@@ -78,25 +78,41 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
 
     logger.info("Initialized Model:\n%s", model)
 
+    # Enable gradient checkpointing to trade compute for memory if configured
+    if hasattr(args, "use_gradient_checkpointing") and args.use_gradient_checkpointing:
+        logger.info("Enabling gradient checkpointing to reduce memory usage...")
+        model.gradient_checkpointing_enable()
+        logger.info("Gradient checkpointing enabled")
+
     # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
     # Each decoder layer should be individually sharded before sharding the full model.
+    logger.info("Starting FSDP sharding...")
     transformer_stack = model.model.layers
-    for layer in transformer_stack:
+    for idx, layer in enumerate(transformer_stack):
+        if idx == 0 or idx == len(transformer_stack) - 1:
+            logger.info(f"Sharding layer {idx}/{len(transformer_stack)}")
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
+    logger.info("FSDP sharding complete")
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
+    logger.info("Creating optimizer and scheduler...")
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+    logger.info("Optimizer and scheduler created")
 
     if args.use_meta_device:
+        logger.info("Moving model to device and resetting parameters...")
         model.to_empty(device=device)
         for module in model.modules():
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
+        logger.info("Model moved and reset complete")
 
     # Create BSHD dataloader for genomic sequences.
+    logger.info("Creating dataloader...")
     train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
+    logger.info("Dataloader created successfully")
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
@@ -105,21 +121,25 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
+        logger.info(f"Attempting to load checkpoint from {ckpt_path}")
         model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_fsdp2(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
             ckpt_path=ckpt_path,
             dist_config=dist_config,
-            dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+            dataloader=train_dataloader,
         )
+        logger.info(f"Checkpoint loaded, resuming from step {start_step}, epoch {epoch}")
     else:
+        logger.info("No checkpoint to load, starting from scratch")
         start_step = 0
         epoch = 0
 
     perf_logger = PerfLogger(dist_config, args)
 
     # Training loop
+    logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
     while step < args.num_train_steps:
         for batch in train_dataloader:

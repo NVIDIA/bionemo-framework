@@ -99,7 +99,7 @@ def main(args: DictConfig) -> float | None:
             scheduler=scheduler,
             ckpt_path=ckpt_path,
             dist_config=dist_config,
-            dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+            dataloader=train_dataloader,
         )
     else:
         start_step = 0
