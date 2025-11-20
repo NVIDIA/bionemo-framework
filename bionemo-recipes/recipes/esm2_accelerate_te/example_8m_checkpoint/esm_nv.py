@@ -520,7 +520,6 @@ class NVEsmEmbeddings(nn.Module):
     def __init__(self, config):
         """Initialize a NVEsmEmbeddings."""
         super().__init__()
-        self.config = config
         self.word_embeddings = nn.Embedding(
             config.padded_vocab_size,
             config.hidden_size,
