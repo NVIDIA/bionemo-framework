@@ -518,7 +518,7 @@ def _pt_pad_to_multiple_of(batch: dict[str, Any], pad_to_multiple_of: int, token
 
 # TODO(@jomitchell): Once this gets merged: https://github.com/NVIDIA/TransformerEngine/pull/2387
 # we can replace this with the one in TransformerEngine.
-def split_batch_by_cp_rank(  # noqa: C901
+def split_batch_by_cp_rank(
     cu_seqlens_padded: torch.Tensor,
     input_ids_padded: torch.Tensor,
     labels_padded: torch.Tensor,
