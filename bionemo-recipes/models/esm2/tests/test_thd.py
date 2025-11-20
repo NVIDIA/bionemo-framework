@@ -14,7 +14,7 @@
 # limitations under the License.
 
 import os
-
+import copy
 import pytest
 import torch
 from transformer_engine.pytorch.attention.dot_product_attention import _attention_backends
@@ -27,6 +27,7 @@ from esm.modeling_esm_te import NVEsmConfig, NVEsmEmbeddings, NVEsmForMaskedLM
 compute_capability = torch.cuda.get_device_capability()
 
 
+
 @pytest.fixture
 def input_data_thd(tokenizer, tokenized_proteins):
     data_collator = MLMDataCollatorWithFlattening(
@@ -37,6 +38,25 @@ def input_data_thd(tokenizer, tokenized_proteins):
         bshd_pad_to_multiple_of=32,
     )
     return data_collator(tokenized_proteins)
+
+@pytest.fixture
+def input_data_thd_padded_from_input_data_thd(input_data_thd):
+    input_data_thd_padded = copy.deepcopy(input_data_thd)
+    input_ids_padded, labels_padded, cu_seqlens_padded = pad_thd_sequences_for_cp(
+        input_data_thd_padded["input_ids"],
+        input_data_thd_padded["labels"],
+        input_data_thd_padded["cu_seq_lens_q"],
+        16,
+        padding_token_id=1,
+        padding_label_id=-100,
+    )
+    
+    input_data_thd_padded["input_ids"] = input_ids_padded.unsqueeze(0)
+    input_data_thd_padded["labels"] = labels_padded.unsqueeze(0)
+    input_data_thd_padded["cu_seq_lens_q_padded"] = cu_seqlens_padded.to(torch.int32)
+    input_data_thd_padded["cu_seq_lens_k_padded"] = cu_seqlens_padded.to(torch.int32)
+    input_data_thd_padded["pad_between_seqs"] = True
+    return input_data_thd_padded
 
 
 @pytest.mark.parametrize("use_token_dropout", [True, False])
@@ -242,28 +262,11 @@ def test_thd_backwards_passes_match(te_model_checkpoint, input_data, input_data_
     torch.testing.assert_close(thd_word_embeddings_grad, bshd_word_embeddings_grad, atol=1e-2, rtol=1e-5)
 
 
-def test_thd_vs_padded_thd_equivalence(te_model_checkpoint, input_data_thd, attn_impl):
-    # TODO(@jomitchell): figure out what test this runs on successfully.
+def test_thd_vs_padded_thd_equivalence(te_model_checkpoint, input_data_thd, input_data_thd_padded_from_input_data_thd, attn_impl):
     if attn_impl == "flash_attn":
         pytest.xfail("Flash attention is not supported for padded sequences.")
-    
-    import copy
-    input_data_thd_padded = copy.deepcopy(input_data_thd)
-    input_ids_padded, labels_padded, cu_seqlens_padded = pad_thd_sequences_for_cp(
-        input_data_thd_padded["input_ids"],
-        input_data_thd_padded["labels"],
-        input_data_thd_padded["cu_seq_lens_q"],
-        16,
-        padding_token_id=1,
-        padding_label_id=-100,
-    )
-    
-    input_data_thd_padded["input_ids"] = input_ids_padded.unsqueeze(0)
-    input_data_thd_padded["labels"] = labels_padded.unsqueeze(0)
-    input_data_thd_padded["cu_seq_lens_q_padded"] = cu_seqlens_padded.to(torch.int32)
-    input_data_thd_padded["cu_seq_lens_k_padded"] = cu_seqlens_padded.to(torch.int32)
-    input_data_thd_padded["pad_between_seqs"] = True
-
+        
+    input_data_thd_padded = input_data_thd_padded_from_input_data_thd
     seqlens_q = input_data_thd_padded["cu_seq_lens_q_padded"][1:] - input_data_thd_padded["cu_seq_lens_q_padded"][:-1]
     max_length_q = int((seqlens_q.max().item() + 63) // 64 * 64) # TODO(@jomitchell): Not sure if I need this anymore.
     max_length_k = max_length_q
@@ -298,8 +301,6 @@ def test_thd_vs_padded_thd_equivalence(te_model_checkpoint, input_data_thd, attn
     assert ((input_data_thd['input_ids'].squeeze() - input_data_thd_padded['input_ids'].squeeze().index_select(0, real_idx)).abs().max().item() == 0)
 
     # Now index select the padded logits to get the real logits.
-    # Now apply the same index to the padded thd logits
     logits_unpadded = outputs_thd_padded.logits.index_select(0, real_idx.cuda())
 
     torch.testing.assert_close(outputs_thd.logits, logits_unpadded, atol=1e-8, rtol=1e-5)
-    # You may need to get rid of the logit value corresponding to the padded tokens.

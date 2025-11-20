@@ -29,6 +29,7 @@ import subprocess
 from pathlib import Path
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 
+
 def get_dummy_data_thd_with_padding_dp0(cp_size: int = 2, tokenizer=None):
     """
     Get dummy data for the THD format with padding for context parallelism.
@@ -149,6 +150,7 @@ class DistributedConfig:
         """This is the global rank 0 process, to be used for wandb logging, etc."""
         return self.rank == 0
 
+@requires_multi_gpu
 def test_context_parallel_equivalence_2process():
     """
     Test the context parallel equivalence between 2 processes. In one instance, we run the model in non-distributed mode and in the other
@@ -268,7 +270,6 @@ if __name__ == "__main__":
     torch.distributed.barrier(group=cp_group)
 
     outputs_cp = model(**batch_cp)
-
     loss_cp = outputs_cp.loss
  
     # Gather the losses from all cp ranks (collective operation - all ranks must participate)
@@ -277,7 +278,6 @@ if __name__ == "__main__":
     
     if cp_rank == 0:
         average_cp_loss = torch.mean(torch.stack(losses_list))
-        
         # The average of per-rank losses should be close to the non-distributed loss
         # Note: They may not be exactly equal due to how loss is computed on sharded data
         torch.testing.assert_close(
