@@ -366,6 +366,7 @@ def test_mlm_data_collator_with_flattening_bshd_equivalent(tokenizer, test_prote
             packed_bshd_labels,
         )
 
+
 def test_mlm_data_collator_with_flattening_pad_sequences_to_be_divisible_by(tokenizer, test_proteins):
     """Test MLMDataCollatorWithFlattening with pad_sequences_to_be_divisible_by."""
     collator = MLMDataCollatorWithFlattening(

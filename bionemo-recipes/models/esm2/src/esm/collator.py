@@ -20,13 +20,12 @@ This should eventually get moved to a separate package, or possibly upstreamed i
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, List, Optional
 
 import datasets
 import torch
-from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
-
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
+from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
 
 
 logger = logging.getLogger(__name__)
@@ -247,9 +246,7 @@ class MLMDataCollatorWithFlattening:
                 batch["labels"],
                 batch["cu_seq_lens_q"],
                 self.pad_sequences_to_be_divisible_by,
-                padding_token_id=int(
-                    self.mlm_collator.tokenizer.pad_token_id
-                ),
+                padding_token_id=int(self.mlm_collator.tokenizer.pad_token_id),
                 padding_label_id=-100,
             )
             batch["input_ids"] = input_ids_padded.unsqueeze(0)
@@ -301,11 +298,26 @@ class MLMDataCollatorWithFlattening:
 
 class MLMDataCollatorWithFlatteningCPAware:
     """A collator that is aware of context parallelism."""
+
     def __init__(self, collator: MLMDataCollatorWithFlattening, cp_world_size: int):
+        """Initialize the MLMDataCollatorWithFlatteningCPAware.
+
+        Args:
+            collator: The collator to use for masking tokens.
+            cp_world_size: The size of the context parallelism group.
+        """
         self.collator = collator
         self.cp_world_size = cp_world_size
 
-    def __call__(self, features):
+    def __call__(self, features) -> List[dict[str, Any]]:
+        """Process batches of data and create shards for each context parallelism rank.
+
+        Args:
+            features: List of tokenized sequences, each containing 'input_ids' and optionally 'labels'.
+
+        Returns:
+            A list of dictionaries, each containing a shard of the batch for a given context parallelism rank.
+        """
         batch = self.collator(features)
 
         combined_batch = []
@@ -327,8 +339,8 @@ class MLMDataCollatorWithFlatteningCPAware:
             batch_shard["max_length_k"] = batch_shard["max_length_q"]
             combined_batch.append(batch_shard)
 
-        # Returns a list of dictionaries, each containing a shard of the batch for a given context parallelism rank.
         return combined_batch
+
 
 @dataclass
 class DataCollatorWithFlattening(DefaultDataCollator):
@@ -503,9 +515,10 @@ def _pt_pad_to_multiple_of(batch: dict[str, Any], pad_to_multiple_of: int, token
 
     return batch
 
-# TODO(@jomitchell): Once this gets merged: https://github.com/NVIDIA/TransformerEngine/pull/2387 
+
+# TODO(@jomitchell): Once this gets merged: https://github.com/NVIDIA/TransformerEngine/pull/2387
 # we can replace this with the one in TransformerEngine.
-def split_batch_by_cp_rank(
+def split_batch_by_cp_rank(  # noqa: C901
     cu_seqlens_padded: torch.Tensor,
     input_ids_padded: torch.Tensor,
     labels_padded: torch.Tensor,
@@ -515,12 +528,19 @@ def split_batch_by_cp_rank(
     cp_world_size: Optional[int] = None,
 ):
     """Slice batch input along sequence dimension into multiple chunks for THD format.
+
     This function is inteded for use in self attention. It will not work for cross attention because
     it does not handle the case where the sequence length of the query and key are different.
     Which are parallelized across GPUs in a context parallel group.
     This version works with variable-length sequences using cumulative sequence lengths.
 
     Args:
+        cu_seqlens_padded: Cumulative sequence length.
+        input_ids_padded: Input IDs.
+        labels_padded: Labels.
+        cp_group: Context parallel group.
+        qvk_format: Format of the input data.
+        cp_world_size: The size of the context parallelism group. If provided, the function will use this value to determine the rank.
         cp_rank: Optional manual CP rank index. When provided, the function shards tensors as if it
             were executing on that rank without querying `torch.distributed.get_rank`.
     """
@@ -536,9 +556,7 @@ def split_batch_by_cp_rank(
 
             # Calculate the chunk sizes for each sequence
             total_slices_of_any_sequence = 2 * cp_world_size
-            slice_sizes = (
-                cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]
-            ) // total_slices_of_any_sequence
+            slice_sizes = (cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]) // total_slices_of_any_sequence
 
             # Process each tensor directly instead of using keys_to_change loop
             def process_tensor(val):
@@ -566,9 +584,7 @@ def split_batch_by_cp_rank(
                     elif val.shape[0] == seq_len_val:
                         current_seq_dim = 0
                     else:
-                        raise ValueError(
-                            "Make sure the inputs are in THD format and padded correctly."
-                        )
+                        raise ValueError("Make sure the inputs are in THD format and padded correctly.")
                 else:
                     raise ValueError("Tensor must be at least 1D")
 
