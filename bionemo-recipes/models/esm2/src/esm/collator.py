@@ -242,7 +242,6 @@ class MLMDataCollatorWithFlattening:
             batch = self._pad_batch_to_multiple_of(batch)
 
         elif self.pad_sequences_to_be_divisible_by is not None:
-            # import pdb; pdb.set_trace()
             input_ids_padded, labels_padded, cu_seqlens_padded = pad_thd_sequences_for_cp(
                 batch["input_ids"],
                 batch["labels"],
@@ -324,11 +323,12 @@ class MLMDataCollatorWithFlatteningCPAware:
             batch_shard["labels"] = labels_sharded
             # Now determine the max length of the sequence.
             seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
-            batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64) # TODO(@jomitchell): Not sure if I need this anymore.
+            batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)
             batch_shard["max_length_k"] = batch_shard["max_length_q"]
             combined_batch.append(batch_shard)
 
-        return combined_batch # [<cp_rank_0_shard>, <cp_rank_1_shard>, ..., <cp_rank_n_shard>]
+        # Returns a list of dictionaries, each containing a shard of the batch for a given context parallelism rank.
+        return combined_batch
 
 @dataclass
 class DataCollatorWithFlattening(DefaultDataCollator):

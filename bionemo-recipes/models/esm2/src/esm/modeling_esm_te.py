@@ -590,7 +590,6 @@ class NVEsmEmbeddings(nn.Module):
                 src_lengths = torch.diff(kwargs["cu_seq_lens_q"])
                 # We need to find the number of masked tokens in each sequence in the padded batch.
                 is_masked = (input_ids == self.mask_token_id).squeeze(0)
-                
                 n_masked_per_seq = torch.nested.nested_tensor_from_jagged(
                     is_masked, offsets=kwargs["cu_seq_lens_q"]
                 ).sum(1)
