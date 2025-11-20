@@ -20,7 +20,7 @@ This should eventually get moved to a separate package, or possibly upstreamed i
 
 import logging
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
 
 import datasets
 import torch
@@ -309,7 +309,7 @@ class MLMDataCollatorWithFlatteningCPAware:
         self.collator = collator
         self.cp_world_size = cp_world_size
 
-    def __call__(self, features) -> List[dict[str, Any]]:
+    def __call__(self, features) -> list[dict[str, Any]]:
         """Process batches of data and create shards for each context parallelism rank.
 
         Args:
@@ -525,8 +525,8 @@ def split_batch_by_cp_rank(
     labels_padded: torch.Tensor,
     cp_group: torch.distributed.ProcessGroup = None,
     qvk_format: str = "thd",
-    cp_rank: Optional[int] = None,
-    cp_world_size: Optional[int] = None,
+    cp_rank: int | None = None,
+    cp_world_size: int | None = None,
 ):
     """Slice batch input along sequence dimension into multiple chunks for THD format.
 

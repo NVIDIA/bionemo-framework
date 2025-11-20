@@ -366,31 +366,14 @@ if __name__ == "__main__":
 
     # Now we compare the CP grads from rank 0 to the Grads from the non-distributed run. (they should be the same on each process for non dist)
     if cp_rank == 0:
-        print(f"Captured {len(gradients_cp)} gradient tensors from CP run")
-        print(f"Gradient keys: {list(gradients_cp.keys())}")
-
         # Compare gradients between non-distributed and CP
         for key in gradients_nondistributed.keys():
             if key in gradients_cp:
                 grad_cp = gradients_cp[key]
                 grad_nondist = gradients_nondistributed[key]
 
-                print(f"\nParameter: {key}")
-                print(f"  CP grad shape: {grad_cp.shape}")
-                print(f"  Non-dist grad shape: {grad_nondist.shape}")
-                print(f"  Gradient mean - CP: {grad_cp.mean():.6f}, Non-dist: {grad_nondist.mean():.6f}")
-                print(f"  Gradient std - CP: {grad_cp.std():.6f}, Non-dist: {grad_nondist.std():.6f}")
-                print(f"  Max absolute diff: {(grad_cp - grad_nondist).abs().max():.6f}")
-
-                # Check if they're close
-                try:
-                    torch.testing.assert_close(
-                        grad_cp, grad_nondist, atol=2e-3, rtol=1e-2, msg=f"Gradients don't match for {key}"
-                    )
-                    print("  ✓ Gradients match within tolerance")
-                except AssertionError as e:
-                    print(f"  ✗ Gradients differ: {e}")
-            else:
-                print(f"Warning: {key} not found in CP gradients")
+                torch.testing.assert_close(
+                    grad_cp, grad_nondist, atol=2e-3, rtol=1e-2, msg=lambda x: f"Gradients don't match for {key}: {x}"
+                )
 
     torch.distributed.destroy_process_group()
