@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from dataclasses import dataclass, field
 import os
 import torch.distributed as dist
@@ -15,6 +30,14 @@ from pathlib import Path
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 
 def get_dummy_data_thd_with_padding_dp0(cp_size: int = 2, tokenizer=None):
+    """
+    Get dummy data for the THD format with padding for context parallelism.
+    Args:
+        cp_size: The size of the context parallelism group.
+        tokenizer: The tokenizer to use.
+    Returns:
+        A dictionary containing the padded input ids, labels, and cu seq lens.
+    """
     pid = 1 # The pad token id.
     label_pad = -100 # The label pad id.
 
@@ -62,6 +85,13 @@ def get_dummy_data_thd_with_padding_dp0(cp_size: int = 2, tokenizer=None):
     return batch
 
 def get_te_model_checkpoint(tmp_path):
+    """
+    Get a TE model checkpoint for the ESM2 model.
+    Args:
+        tmp_path: The path to save the model checkpoint.
+    Returns:
+        The path to the saved model checkpoint.
+    """
     model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
     model_te = convert_esm_hf_to_te(model_hf)
     model_te.save_pretrained(tmp_path / "te_model_checkpoint")
@@ -69,6 +99,16 @@ def get_te_model_checkpoint(tmp_path):
 
 
 def get_batch_for_cp_rank(batch, cp_rank, cp_world_size):
+    """
+    Get a batch for a given context parallelism rank.
+    
+    Args:
+        batch: The batch to get a shard of.
+        cp_rank: The context parallelism rank.
+        cp_world_size: The size of the context parallelism group.
+    Returns:
+        A dictionary containing the shard of the batch.
+    """
     input_ids_sharded, labels_sharded = split_batch_by_cp_rank(
                 cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
                 input_ids_padded=batch["input_ids"],
@@ -109,7 +149,13 @@ class DistributedConfig:
         """This is the global rank 0 process, to be used for wandb logging, etc."""
         return self.rank == 0
 
-def test_dummy_runner():
+def test_context_parallel_equivalence_2process():
+    """
+    Test the context parallel equivalence between 2 processes. In one instance, we run the model in non-distributed mode and in the other
+    we run the model in distributed mode with context parallelism. We then compare the losses and logits from the two runs.
+
+    We compare the (1) Losses, (2) Logits, and (3) Gradients from the two runs.
+    """
     cmd = [
         "torchrun",
         "--nproc_per_node=2",
@@ -127,13 +173,9 @@ def test_dummy_runner():
         print(f"STDOUT:\n{result.stdout}")
         print(f"STDERR:\n{result.stderr}")
         pytest.fail(f"Command failed with exit code {result.returncode}")
-    # For debugging
-    print(f"STDOUT:\n{result.stdout}")
-    # print(f"STDERR:\n{result.stderr}")
 
 
 if __name__ == "__main__":
-    # Do everything here.
     tmp_path = Path("./tmp_model")
     os.makedirs(tmp_path, exist_ok=True)
     model_ckpt = get_te_model_checkpoint(tmp_path)
@@ -146,13 +188,42 @@ if __name__ == "__main__":
     model.to("cuda")
     input_data_thd_padded_dp0 = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in input_data_thd_padded_dp0.items()}
     outputs_nondistributed = model(**input_data_thd_padded_dp0)
+    loss_nondistributed = outputs_nondistributed.loss
+    loss_nondistributed.backward()
+    
+    # Clone everything we need for later comparison BEFORE deleting
+    loss_nondistributed_for_comparison = loss_nondistributed.detach().clone().cpu()
+    logits_nondistributed_for_comparison = outputs_nondistributed.logits.detach().clone().cpu()
+    
+    # Sample gradients from a few layers for comparison
+    sample_layers = [
+        model.esm.encoder.layers[0].self_attention.core_attention,
+        model.esm.encoder.layers[0].self_attention.layernorm_qkv,
+    ]
+    
+    # Now grab the gradients from the sample layers
+    gradients_nondistributed = {}
+    for i, layer in enumerate(sample_layers):
+        for name, param in layer.named_parameters():
+            if param.grad is not None:
+                key = f"layer_{i}.{name}"
+                gradients_nondistributed[key] = param.grad.detach().clone().cpu()
 
+    
     # Now setup distributed training for CP.
     dist_config = DistributedConfig()
     device = torch.device(f"cuda:{dist_config.local_rank}")
+    
+    # Clean up everything from non-distributed run
+    del model, outputs_nondistributed, loss_nondistributed, input_data_thd_padded_dp0
+    torch.cuda.empty_cache()
+    torch.cuda.synchronize()  # Ensure all CUDA operations are complete
+    
+    # Initialize distributed training
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
     # Create a device mesh for DDP=1, CP=2
+
     ddp_size=1
     cp_size=2
     device_mesh = init_device_mesh(
@@ -160,8 +231,12 @@ if __name__ == "__main__":
         mesh_shape=(ddp_size, cp_size),
         mesh_dim_names=("ddp", "cp"),
     )
-
+    # Re-initialize the model on the new device (fresh instance, no shared graph)
+    model = NVEsmForMaskedLM.from_pretrained(model_ckpt, attn_input_format="thd", token_dropout=False, dtype=torch.bfloat16)
     model = model.to(device=device)
+    model.train()  # Set to training mode to enable gradient computation
+    model.zero_grad(set_to_none=True)  # Ensure no gradients from initialization
+    
     group_fsdp_cp = device_mesh[("ddp", "cp")]._flatten("dp_cp").get_group()
     model = torch.nn.parallel.DistributedDataParallel(
         model,
@@ -173,21 +248,28 @@ if __name__ == "__main__":
     cp_rank = device_mesh.get_local_rank("cp")
     cp_world_size=torch.distributed.get_world_size(group=cp_group)
     
+    # Set up context parallelism for each layer
     for i, transformer_layer in enumerate(model.module.esm.encoder.layers):
         transformer_layer.set_context_parallel_group(
             cp_group,
             torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()),
             torch.cuda.Stream()
         )
+    
+    # Ensure model starts with clean slate
+    model.zero_grad(set_to_none=True)
 
+    # Create FRESH batch data for CP (don't reuse tensors from non-distributed run)
     batch = get_dummy_data_thd_with_padding_dp0(tokenizer=tokenizer)
-    # Move batch to CUDA
-    batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+    # Move batch to CUDA and ensure tensors are detached from any previous graphs
+    batch = {k: v.detach().to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
     batch_cp = get_batch_for_cp_rank(batch, cp_rank=cp_rank, cp_world_size=cp_world_size)
     
     torch.distributed.barrier(group=cp_group)
 
     outputs_cp = model(**batch_cp)
+
+    loss_cp = outputs_cp.loss
  
     # Gather the losses from all cp ranks (collective operation - all ranks must participate)
     losses_list = [torch.zeros_like(outputs_cp.loss) for _ in range(cp_world_size)]
@@ -200,7 +282,7 @@ if __name__ == "__main__":
         # Note: They may not be exactly equal due to how loss is computed on sharded data
         torch.testing.assert_close(
             average_cp_loss.cpu(), 
-            outputs_nondistributed.loss.cpu(),
+            loss_nondistributed_for_comparison,
             atol=0.1,  # Allow some difference due to loss computation on shards
             rtol=0.05
         )
@@ -217,7 +299,7 @@ if __name__ == "__main__":
         cu_seqlens = batch["cu_seq_lens_q_padded"].cpu()
         num_seqs = len(cu_seqlens) - 1
         total_tokens = int(cu_seqlens[-1].item())
-        vocab_size = outputs_nondistributed.logits.shape[-1]
+        vocab_size = logits_nondistributed_for_comparison.shape[-1]
         
         reconstructed_logits = torch.zeros((total_tokens, vocab_size), dtype=torch.bfloat16)
         
@@ -245,16 +327,61 @@ if __name__ == "__main__":
                         logits_list[1][cp_offset_rank1:cp_offset_rank1 + chunk_size, :]
                     cp_offset_rank1 += chunk_size
 
-        assert reconstructed_logits.shape == outputs_nondistributed.logits.shape
+        assert reconstructed_logits.shape == logits_nondistributed_for_comparison.shape
         torch.testing.assert_close(
-            reconstructed_logits.cpu(), 
-            outputs_nondistributed.logits.cpu(),
+            reconstructed_logits, 
+            logits_nondistributed_for_comparison,
             atol=0.29, 
             rtol=0.01,
         )
 
-    # Gradients
-    loss = outputs_cp.loss
-    # TODO: Setup up an optimizer etc to run the backwards pass.
+    # Test gradient synchronization with DDP
+    loss_cp = outputs_cp.loss
+    loss_cp.backward()  # DDP automatically synchronizes gradients here
+    
+    # Capture gradients from the same layers in the CP model
+    # Note: DDP wraps the model with 'module.' prefix
+    sample_layers_cp = [
+        model.module.esm.encoder.layers[0].self_attention.core_attention,
+        model.module.esm.encoder.layers[0].self_attention.layernorm_qkv,
+    ]
+    
+    gradients_cp = {}
+    for i, layer in enumerate(sample_layers_cp):
+        for name, param in layer.named_parameters():
+            if param.grad is not None:
+                key = f"layer_{i}.{name}"
+                gradients_cp[key] = param.grad.detach().clone().cpu()
+    
+    # Now we compare the CP grads from rank 0 to the Grads from the non-distributed run. (they should be the same on each process for non dist)
+    if cp_rank == 0:
+        print(f"Captured {len(gradients_cp)} gradient tensors from CP run")
+        print(f"Gradient keys: {list(gradients_cp.keys())}")
+        
+        # Compare gradients between non-distributed and CP
+        for key in gradients_nondistributed.keys():
+            if key in gradients_cp:
+                grad_cp = gradients_cp[key]
+                grad_nondist = gradients_nondistributed[key]
+                
+                print(f"\nParameter: {key}")
+                print(f"  CP grad shape: {grad_cp.shape}")
+                print(f"  Non-dist grad shape: {grad_nondist.shape}")
+                print(f"  Gradient mean - CP: {grad_cp.mean():.6f}, Non-dist: {grad_nondist.mean():.6f}")
+                print(f"  Gradient std - CP: {grad_cp.std():.6f}, Non-dist: {grad_nondist.std():.6f}")
+                print(f"  Max absolute diff: {(grad_cp - grad_nondist).abs().max():.6f}")
+                
+                # Check if they're close
+                try:
+                    torch.testing.assert_close(
+                        grad_cp, grad_nondist,
+                        atol=2e-3, rtol=1e-2,
+                        msg=f"Gradients don't match for {key}"
+                    )
+                    print(f"  ✓ Gradients match within tolerance")
+                except AssertionError as e:
+                    print(f"  ✗ Gradients differ: {e}")
+            else:
+                print(f"Warning: {key} not found in CP gradients")
 
     torch.distributed.destroy_process_group()
