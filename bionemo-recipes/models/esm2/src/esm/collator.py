@@ -337,6 +337,7 @@ class MLMDataCollatorWithFlatteningCPAware:
             seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
             batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)
             batch_shard["max_length_k"] = batch_shard["max_length_q"]
+            batch_shard["pad_between_seqs"] = True  # TODO(@jomitchell): Double check this on recipe MR.
             combined_batch.append(batch_shard)
 
         return combined_batch
