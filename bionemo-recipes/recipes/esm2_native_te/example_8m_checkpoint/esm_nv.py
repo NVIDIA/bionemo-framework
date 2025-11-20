@@ -212,7 +212,11 @@ class NVEsmEncoder(nn.Module):
                 if self.config.attn_input_format == "bshd":
                     te_rope_emb = self.rotary_embeddings(max_seq_len=hidden_states.shape[1])
                 elif self.config.attn_input_format == "thd":
-                    te_rope_emb = self.rotary_embeddings(max_seq_len=kwargs["cu_seq_lens_q_padded"][-1] if "cu_seq_lens_q_padded" in kwargs else kwargs["cu_seq_lens_q"][-1])
+                    te_rope_emb = self.rotary_embeddings(
+                        max_seq_len=kwargs["cu_seq_lens_q_padded"][-1]
+                        if "cu_seq_lens_q_padded" in kwargs
+                        else kwargs["cu_seq_lens_q"][-1]
+                    )
             te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
 
         for layer_module in self.layers:
@@ -231,7 +235,6 @@ class NVEsmEncoder(nn.Module):
                 max_seqlen_kv=kwargs.get("max_length_k", None),
                 pad_between_seqs=kwargs.get("pad_between_seqs", None),
             )
-
 
         hidden_states = self.emb_layer_norm_after(hidden_states)
 
@@ -303,6 +306,7 @@ class NVEsmModel(NVEsmPreTrainedModel):
             add_pooling_layer (bool): Whether to add a pooling layer.
         """
         super().__init__(config)
+        self.config = config
 
         # Ensure pad_token_id is set properly, defaulting to 0 if not specified
         if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
@@ -517,7 +521,6 @@ class NVEsmEmbeddings(nn.Module):
     def __init__(self, config):
         """Initialize a NVEsmEmbeddings."""
         super().__init__()
-        self.config = config
         self.word_embeddings = nn.Embedding(
             config.padded_vocab_size,
             config.hidden_size,
@@ -590,7 +593,6 @@ class NVEsmEmbeddings(nn.Module):
                 src_lengths = torch.diff(kwargs["cu_seq_lens_q"])
                 # We need to find the number of masked tokens in each sequence in the padded batch.
                 is_masked = (input_ids == self.mask_token_id).squeeze(0)
-                
                 n_masked_per_seq = torch.nested.nested_tensor_from_jagged(
                     is_masked, offsets=kwargs["cu_seq_lens_q"]
                 ).sum(1)

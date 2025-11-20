@@ -346,7 +346,6 @@ class CPAwareDataloader:
     def __next__(self):
         """Get the batch from the dataloader for the current CP rank."""
         batch = self._send_data_to_cp_ranks()
-        batch['pad_between_seqs'] = True
         return batch
 
     def _send_data_to_cp_ranks(self):
