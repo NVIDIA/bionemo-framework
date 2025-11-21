@@ -19,7 +19,6 @@
 
 import argparse
 
-from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS, HFEdenLlamaImporter
 from bionemo.evo2.run.utils import infer_model_type
 from nemo.collections.llm.gpt.model.hyena import (
     HYENA_MODEL_OPTIONS,
@@ -47,7 +46,7 @@ def parse_args():
     parser.add_argument(
         "--model-size",
         type=str,
-        choices=sorted(set(HYENA_MODEL_OPTIONS.keys()) | set(LLAMA_MODEL_OPTIONS.keys())),
+        choices=sorted(HYENA_MODEL_OPTIONS.keys()),
         required=True,
         help="Model architecture to use, choose between 1b, 7b, 40b, or test (a sub-model of 4 layers, "
         "less than 1B parameters). '*_arc_longcontext' models have GLU / FFN dimensions that support 1M "
@@ -69,8 +68,6 @@ def main():
             importer = HuggingFaceSavannaHyenaImporter(args.model_path.lstrip("hf://"), model_config=evo2_config)
         else:
             importer = PyTorchHyenaImporter(args.model_path, model_config=evo2_config)
-    elif model_type == "llama":
-        importer = HFEdenLlamaImporter(args.model_path)
     else:
         raise ValueError(f"Importer model type: {model_type}.")
     importer.apply(args.output_dir)

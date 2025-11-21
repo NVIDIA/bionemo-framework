@@ -23,7 +23,14 @@ import pytest
 import torch
 from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
 from bionemo.testing.data.fasta import create_fasta_file
-from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
+
+
+# from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
+
+
+def get_nmt_tokenizer(tokenizer_type: str):
+    """FIXME use an automodel HF tokenizer."""
+    raise NotImplementedError("FIXME use an automodel HF tokenizer.")
 
 
 @pytest.fixture

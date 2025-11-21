@@ -19,12 +19,12 @@ import os
 import pytest
 import torch
 import torch.distributed as dist
+from bionemo.evo2.models.hyena import HyenaNVTestConfig, HyenaTestConfig
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
+from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
+from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
-from nemo.collections.llm.gpt.model.hyena import HyenaNVTestConfig, HyenaTestConfig
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_config import HyenaConfig
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_mixer import HyenaMixer
 
 
 # Add skip decorator for GPU tests

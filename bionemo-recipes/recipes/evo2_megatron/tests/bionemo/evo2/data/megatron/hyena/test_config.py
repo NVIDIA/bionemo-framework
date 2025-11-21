@@ -36,7 +36,7 @@ from typing import Union
 
 import pytest
 import yaml
-from nemo.collections.llm.gpt.data.megatron.hyena.config import (
+from bionemo.evo2.data.megatron.hyena.config import (
     Evo2BlendedDatasetConfig,
     infer_global_batch_size,
     parse_dataset_config,

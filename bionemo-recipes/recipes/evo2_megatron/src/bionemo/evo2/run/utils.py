@@ -43,9 +43,5 @@ def infer_model_type(model_size: str) -> Literal["hyena", "mamba", "llama"]:
         )
     if model_size in HYENA_MODEL_OPTIONS:
         return "hyena"
-    elif model_size in MAMBA_MODEL_OPTIONS:
-        return "mamba"
-    elif model_size in LLAMA_MODEL_OPTIONS:
-        return "llama"
     else:
         raise ValueError(f"Invalid model size: {model_size}")

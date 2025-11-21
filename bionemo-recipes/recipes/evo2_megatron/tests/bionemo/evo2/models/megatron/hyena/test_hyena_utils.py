@@ -20,7 +20,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 import torch.distributed as dist
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import (
+from bionemo.evo2.models.megatron.hyena.hyena_utils import (
     B2BCausalConv1dModule,
     ExchangeOverlappingRegionsCausal,
     _get_inverse_zigzag_indices,

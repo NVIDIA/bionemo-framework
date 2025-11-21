@@ -22,6 +22,8 @@ import numpy as np
 import polars as pol
 import pytest
 import torch
+
+# FIXME revive this since it might make some tests/training runs easier.
 from bionemo.evo2.data.sharded_eden_dataloader import (
     ShardedEdenDataModule,
     ShardedEdenDataset,

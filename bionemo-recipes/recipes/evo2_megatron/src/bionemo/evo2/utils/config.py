@@ -20,7 +20,7 @@
 from pathlib import Path
 from typing import Literal
 
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
+from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
 from pydantic import BaseModel
 
 

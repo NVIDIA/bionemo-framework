@@ -22,6 +22,14 @@ from typing import Union
 
 import torch
 import torch.nn as nn
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
+from bionemo.evo2.models.megatron.hyena.hyena_utils import (
+    B2BCausalConv1dModule,
+    ParallelCausalDepthwiseConv1dWithState,
+    ParallelHyenaOperator,
+    ParallelShortHyenaOperator,
+    divide,
+)
 from einops import rearrange
 from megatron.core.parallel_state import (
     get_context_parallel_group,
@@ -32,14 +40,6 @@ from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import sharded_state_dict_default
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_config import HyenaConfig
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import (
-    B2BCausalConv1dModule,
-    ParallelCausalDepthwiseConv1dWithState,
-    ParallelHyenaOperator,
-    ParallelShortHyenaOperator,
-    divide,
-)
 
 
 logger = logging.getLogger(__name__)

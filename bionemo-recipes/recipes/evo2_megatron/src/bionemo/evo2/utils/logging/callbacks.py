@@ -28,11 +28,19 @@
 # limitations under the License.
 
 import torch
-from lightning.pytorch import Callback
+
+# from lightning.pytorch import Callback
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
 
 
+class Callback:
+    """FIXME use base class for callbacks from megatron bridge once available."""
+
+    pass
+
+
+# FIXME convert this to the new megatron bridge style of callbacks
 class TEVCallback(Callback):
     """Callback for logging TEV statistics before each optimizer step.
 

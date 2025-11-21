@@ -24,10 +24,8 @@ from typing import Generator
 import pytest
 import torch
 import torch.distributed as dist
-from megatron.core import parallel_state
-from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
-from nemo.collections.llm.gpt.model.hyena import HyenaTestConfig
-from nemo.collections.llm.gpt.model.megatron.hyena.engine import (
+from bionemo.evo2.models.hyena import HyenaTestConfig
+from bionemo.evo2.models.megatron.hyena.engine import (
     adjust_filter_shape_for_broadcast,
     fftconv_func,
     parallel_fir,
@@ -36,12 +34,14 @@ from nemo.collections.llm.gpt.model.megatron.hyena.engine import (
     step_fir,
     step_iir,
 )
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_config import HyenaConfig
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils import (
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
+from bionemo.evo2.models.megatron.hyena.hyena_utils import (
     ParallelCausalDepthwiseConv1d,
     ParallelHyenaOperator,
     ParallelShortHyenaOperator,
 )
+from megatron.core import parallel_state
+from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 
 
 @contextmanager

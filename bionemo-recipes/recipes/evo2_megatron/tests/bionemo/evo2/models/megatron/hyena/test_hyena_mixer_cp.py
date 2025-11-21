@@ -18,22 +18,29 @@ torchrun --nproc_per_node=2 tests/collections/llm/gpt/model/test_hyena_mixer_cp.
 """
 
 import argparse
+
+# FIXME what's the right way to do logging now?
+import logging
 import os
 import time
 from datetime import timedelta
 
 import torch
 import torch.distributed as dist
+from bionemo.evo2.models.hyena import HyenaTestConfig
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
+from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
+from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
 from einops import rearrange
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
-from nemo.collections.llm.gpt.model.hyena import HyenaTestConfig
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_config import HyenaConfig
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
-from nemo.collections.llm.gpt.model.megatron.hyena.hyena_mixer import HyenaMixer
-from nemo.utils import logging
+
+# from nemo.utils import logging
 from torch.distributed.nn.functional import all_gather as functional_all_gather
 from torch.nn.parallel import DistributedDataParallel as DDP  # noqa: N817
+
+
+logging = logging.getLogger(__name__)
 
 
 def init_parallel_state(tensor_model_parallel_size=1, pipeline_model_parallel_size=1, context_parallel_size=1):

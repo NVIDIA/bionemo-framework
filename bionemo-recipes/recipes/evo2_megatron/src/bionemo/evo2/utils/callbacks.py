@@ -16,7 +16,14 @@
 import gc
 
 import torch
-from lightning.pytorch import Callback
+
+
+# from lightning.pytorch import Callback
+# FIXME convert this to the new megatron bridge style of callbacks
+class Callback:
+    """FIXME use base class for callbacks from megatron bridge once available."""
+
+    pass
 
 
 class GarbageCollectAtInferenceTime(Callback):
