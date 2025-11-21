@@ -21,7 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    'bionemo-testing @ git+https://github.com/NVIDIA/bionemo-framework.git@main#subdirectory=sub-packages/bionemo-testing'
+    #'bionemo-testing @ git+https://github.com/NVIDIA/bionemo-framework.git@main#subdirectory=sub-packages/bionemo-testing'
 ]
 
 [project.scripts]
