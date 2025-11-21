@@ -36,9 +36,9 @@ requires_multi_gpu = pytest.mark.skipif(
 
 # TODO(@jomitchell): Delete once https://nvbugspro.nvidia.com/bug/5458694 is fixed.
 requires_datacenter_hardware = pytest.mark.skipif(
-    not torch.cuda.is_available() or not any(
-        gpu_name in torch.cuda.get_device_name(0).upper() 
-        for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
+    not torch.cuda.is_available()
+    or not any(
+        gpu_name in torch.cuda.get_device_name(0).upper() for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
     ),
     reason="Test requires datacenter hardware (H100, H200, B100, B200, B300)",
 )
