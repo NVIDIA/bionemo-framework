@@ -27,6 +27,14 @@ from esm.modeling_esm_te import NVEsmConfig, NVEsmEmbeddings, NVEsmForMaskedLM
 
 compute_capability = torch.cuda.get_device_capability()
 
+# TODO(@jomitchell): Delete once https://nvbugspro.nvidia.com/bug/5458694 is fixed.
+requires_datacenter_hardware = pytest.mark.skipif(
+    not torch.cuda.is_available() or not any(
+        gpu_name in torch.cuda.get_device_name(0).upper() 
+        for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
+    ),
+    reason="Test requires datacenter hardware (H100, H200, B100, B200, B300)",
+)
 
 @pytest.fixture
 def input_data_thd(tokenizer, tokenized_proteins):
@@ -263,6 +271,7 @@ def test_thd_backwards_passes_match(te_model_checkpoint, input_data, input_data_
     torch.testing.assert_close(thd_word_embeddings_grad, bshd_word_embeddings_grad, atol=1e-2, rtol=1e-5)
 
 
+@requires_datacenter_hardware
 def test_thd_vs_padded_thd_equivalence(
     te_model_checkpoint, input_data_thd, input_data_thd_padded_from_input_data_thd, attn_impl
 ):

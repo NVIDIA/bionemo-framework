@@ -34,6 +34,15 @@ requires_multi_gpu = pytest.mark.skipif(
     reason="Test requires at least 2 GPUs",
 )
 
+# TODO(@jomitchell): Delete once https://nvbugspro.nvidia.com/bug/5458694 is fixed.
+requires_datacenter_hardware = pytest.mark.skipif(
+    not torch.cuda.is_available() or not any(
+        gpu_name in torch.cuda.get_device_name(0).upper() 
+        for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
+    ),
+    reason="Test requires datacenter hardware (H100, H200, B100, B200, B300)",
+)
+
 
 def get_dummy_data_thd_with_padding_dp0(cp_size: int = 2, tokenizer=None):
     """
@@ -157,6 +166,7 @@ class DistributedConfig:
 
 
 @requires_multi_gpu
+@requires_datacenter_hardware
 def test_context_parallel_equivalence_2process():
     """
     Test the context parallel equivalence between 2 processes. In one instance, we run the model in non-distributed mode and in the other
