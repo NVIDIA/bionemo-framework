@@ -83,10 +83,34 @@ def create_tokenized_dataset(
         # Using dataset.map on a non-streaming dataset will automatically perform and cache the transform
         tokenized_dataset = dataset.with_transform(tokenize_with_windowing)
     else:
+        # WORKAROUND for OpenGenome2 inconsistent schema:
+        # OpenGenome2 has inconsistent schemas across shards - some have 'record' column, some don't.
+        # This causes dataset.column_names to be None for streaming IterableDataset.
+        #
+        # For IterableDataset with None column_names (OpenGenome2):
+        #   - Must explicitly list columns to remove: [sequence_column, "record"]
+        #   - IterableDataset.map() handles missing columns gracefully
+        #
+        # For regular Dataset (non-streaming, or streaming with consistent schema like ESM2):
+        #   - Use dataset.column_names (which is available and accurate)
+        #   - Dataset.map() raises error if column doesn't exist
+        #
+        # TODO: Remove this workaround once Arc Institute fixes OpenGenome2 schema consistency.
+        # When all shards have the same columns, dataset.column_names will work for both cases.
+        if isinstance(dataset, datasets.IterableDataset):
+            # Streaming dataset: column_names may be None due to inconsistent schema
+            columns_to_remove = [sequence_column, "record"]
+        else:
+            # Non-streaming dataset: use actual column names
+            columns_to_remove = dataset.column_names
+
+        logger.info(f"Applying dataset.map with columns to remove: {columns_to_remove}")
+
         tokenized_dataset = dataset.map(
             tokenize_with_windowing,
             batched=True,
-            remove_columns=dataset.column_names,
+            batch_size=1,  # Process one sequence at a time to avoid OOM with huge genomic sequences
+            remove_columns=columns_to_remove,
         )
 
     return tokenized_dataset, tokenizer
