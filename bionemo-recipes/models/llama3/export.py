@@ -20,6 +20,7 @@ Llama3 model.
 """
 
 import json
+import shutil
 from pathlib import Path
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
@@ -39,19 +40,21 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     model_hf = AutoModelForCausalLM.from_config(model_hf)
 
     model_te = convert.convert_llama_hf_to_te(model_hf)
-    model_te.save_pretrained(export_path / tag)
+    model_te.save_pretrained(export_path)
 
-    tokenizer = AutoTokenizer.from_pretrained("nucleotide_tokenizer")
-    tokenizer.save_pretrained(export_path / tag)
+    tokenizer = AutoTokenizer.from_pretrained("nucleotide_fast_tokenizer")
+    tokenizer.save_pretrained(export_path)
 
     # Patch the config
-    with open(export_path / tag / "config.json", "r") as f:
+    with open(export_path / "config.json", "r") as f:
         config = json.load(f)
 
     config["auto_map"] = AUTO_MAP
 
-    with open(export_path / tag / "config.json", "w") as f:
+    with open(export_path / "config.json", "w") as f:
         json.dump(config, f, indent=2, sort_keys=True)
+
+    shutil.copy("modeling_llama_te.py", export_path / "llama3_nv.py")
 
 
 if __name__ == "__main__":
