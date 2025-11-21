@@ -69,7 +69,7 @@ checkpoint:
   ckpt_dir: ???
   save_final_model: true
   resume_from_checkpoint: true
-  save_every_n_steps: 50
+  save_every_n_steps: 1_000
 
 logger:
   frequency: 100
