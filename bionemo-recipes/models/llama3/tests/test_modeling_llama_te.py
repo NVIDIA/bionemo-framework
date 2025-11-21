@@ -84,9 +84,12 @@ def test_llama_model_forward_pass_thd_inputs(input_text):
 
 
 @pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
-def test_llama_model_golden_values(input_text):
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
-    model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
+@pytest.mark.parametrize(
+    "upstream_model_name", ["meta-llama/Llama-3.2-1B-Instruct", "meta-llama/Llama-3.1-8B-Instruct"]
+)
+def test_llama_model_golden_values(input_text, upstream_model_name: str):
+    tokenizer = AutoTokenizer.from_pretrained(upstream_model_name)
+    model_hf = AutoModelForCausalLM.from_pretrained(upstream_model_name, dtype=torch.bfloat16)
 
     model_te = convert_llama_hf_to_te(model_hf)
 
