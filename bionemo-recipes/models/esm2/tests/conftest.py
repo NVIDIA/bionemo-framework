@@ -15,11 +15,9 @@
 
 import importlib
 import os
-
 import pytest
 import transformer_engine.pytorch
 from transformers import AutoModelForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
-
 from esm.convert import convert_esm_hf_to_te
 
 
