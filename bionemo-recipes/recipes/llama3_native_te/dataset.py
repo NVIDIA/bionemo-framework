@@ -109,7 +109,6 @@ def create_tokenized_dataset(
         tokenized_dataset = dataset.map(
             tokenize_with_windowing,
             batched=True,
-            batch_size=1,  # Process one sequence at a time to avoid OOM with huge genomic sequences
             remove_columns=columns_to_remove,
         )
 
