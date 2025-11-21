@@ -192,6 +192,9 @@ def apply_transforms(
     if len(keys) != 0:
         raise RuntimeError(f"Additional keys: {keys} in checkpoint but not in model.")
 
+    if hasattr(target, "tie_weights"):
+        target.tie_weights()
+
     meta_tensor_keys = []
     for name, param in target.named_parameters():
         if param.is_meta:

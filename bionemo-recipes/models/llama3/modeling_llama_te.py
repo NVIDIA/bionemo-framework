@@ -29,6 +29,16 @@ from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 from transformers.utils.generic import TransformersKwargs
 
 
+AUTO_MAP = {
+    "AutoConfig": "NVLlamaConfig",
+    "AutoModel": "NVLlamaModel",
+    "AutoModelForCausalLM": "NVLlamaForCausalLM",
+    "AutoModelForSequenceClassification": "NVLlamaForSequenceClassification",
+    "AutoModelForQuestionAnswering": "NVLlamaForQuestionAnswering",
+    "AutoModelForTokenClassification": "NVLlamaForTokenClassification",
+}
+
+
 class NVLlamaConfig(LlamaConfig):
     """NVLlama configuration."""
 
