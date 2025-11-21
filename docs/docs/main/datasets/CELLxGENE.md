@@ -22,43 +22,43 @@ There are various biases apparent in this dataset.
 
 At a high level tissues were heavily biased toward the nervous system, which made up nearly 40 percent of the data.
 
-![Percentage of cells by tissue](../../assets/old_images/cellxgene/pct_cells_by_tissue_category.png)
+![Percentage of cells by tissue](../../assets/images/cellxgene/pct_cells_by_tissue_category.png)
 
 #### Assay distribution
 
 Assays were also imbalanced in this dataset. As the 10x machine is fairly high throughput and currently popular, it makes sense that the majority of cells present would be from this instrument. Various versions of the 10x instrument made up 18M of the 24M cells while the next largest category was `sci-RNA-seq`.
-![Number of cells by assay](../../assets/old_images/cellxgene/num_cells_by_assay.png)
+![Number of cells by assay](../../assets/images/cellxgene/num_cells_by_assay.png)
 
 #### Sex distribution
 
 A bias exists in this dataset for sex. Most of the donor's cells were male-derived at 52%, while female donor's cell contribution made up 42%, and the remaining 6% were not annotated.
-![Percentage of cells by donor sex](../../assets/old_images/cellxgene/pct_cells_by_sex.png).
+![Percentage of cells by donor sex](../../assets/images/cellxgene/pct_cells_by_sex.png).
 
 #### Reported ethnicity distribution
 
 The dataset has a heavy bias toward cells derived from donors with european ethnicity at 40%, while the next largest category, asian, made up 8%. When considering that nearly 50% were unknown, we might expect that as much as 75% of this dataset is made up of cells extracted from donors of self reported european ethnicity.
-![Percentage of cells by self reported ethnicity](../../assets/old_images/cellxgene/pct_cells_by_ethnicity_category.png)
+![Percentage of cells by self reported ethnicity](../../assets/images/cellxgene/pct_cells_by_ethnicity_category.png)
 
 #### Age distribution
 
 This dataset is very heavily balanced toward younger donors. Many of the cells are derived from donors that are under a year of age (over 25%). After that the remaining 75% of cells are dispersed roughly under a normal distribution with a mode of 51-60 other than an additional peak in the 21-30 range. Donors over 61 years old make up approximately 15% of the data.
 
-![Percentage of cells by age](../../assets/old_images/cellxgene/pct_cells_by_age.png)
+![Percentage of cells by age](../../assets/images/cellxgene/pct_cells_by_age.png)
 
 #### Assay size distribution
 
 Different assays have different ranges of reported gene measurements. On the low end `BD Rapsody Targetted mRNA` has only a few genes reported, while 10x instruments tend to report on 30,000 genes.
 
-![Different assays measure different numbers of genes](../../assets/old_images/cellxgene/num_genes_measured_by_assay.png)
+![Different assays measure different numbers of genes](../../assets/images/cellxgene/num_genes_measured_by_assay.png)
 
 #### Dataset distribution
 
 Dataset (for example, a publication that produces data and uploads to CELLxGENE) leads to known batch effects due to different handling procedures, collection procedures, and more. Hence, we stratify our training rather than hold out split by this covariate. Exploring the breakdown of datasets, we see that the top 10 datasets represent approximately 10 million cells of the full CELLxGENE dataset. The largest dataset alone has 4 million cells.
 
-![Top datasets make up a large fraction of cells](../../assets/old_images/cellxgene/num_cells_by_dataset.png)
+![Top datasets make up a large fraction of cells](../../assets/images/cellxgene/num_cells_by_dataset.png)
 
 Looking at the makeup of these top datasets, we see that they represent single tissue categories predominately. Most of these tend to be nervous system datasets, with the exception of one that is balanced between many cell types.
-![Top 9 datasets are largely biased toward single cell types](../../assets/old_images/cellxgene/top9_datasets_tissue_distribution.png)
+![Top 9 datasets are largely biased toward single cell types](../../assets/images/cellxgene/top9_datasets_tissue_distribution.png)
 
 ## References
 

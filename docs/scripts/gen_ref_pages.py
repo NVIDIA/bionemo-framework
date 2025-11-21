@@ -25,6 +25,34 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
+def copy_text_file(source: Path, dest: Path, root: Path, log_message: str) -> None:
+    """Copy a text file and set up edit path.
+
+    Args:
+        source (Path): Source file path.
+        dest (Path): Destination file path.
+        root (Path): Root directory for relative path calculation.
+        log_message (str): Message to log after copying.
+    """
+    with mkdocs_gen_files.open(dest, "w") as fd:
+        fd.write(source.read_text())
+    logger.info(log_message)
+    mkdocs_gen_files.set_edit_path(dest, source.relative_to(root))
+
+
+def copy_binary_file(source: Path, dest: Path, log_message: str) -> None:
+    """Copy a binary file.
+
+    Args:
+        source (Path): Source file path.
+        dest (Path): Destination file path.
+        log_message (str): Message to log after copying.
+    """
+    with mkdocs_gen_files.open(dest, "wb") as fd:
+        fd.write(source.read_bytes())
+    logger.info(log_message)
+
+
 def generate_api_reference() -> None:
     """Generate API reference documentation for a given source directory.
 
@@ -45,10 +73,8 @@ def generate_api_reference() -> None:
             full_doc_path = Path("main/references/API_reference") / doc_path
             parts = tuple(module_path.parts)
 
-            if parts[-1] == "__init__":
-                continue  # Don't generate ref pages for __init__.py
-            elif parts[-1] == "__main__":
-                continue  # Don't generate ref pages for __main__.py
+            if parts[-1] in ("__init__", "__main__"):
+                continue
 
             with mkdocs_gen_files.open(full_doc_path, "w") as fd:
                 identifier = ".".join(parts)
@@ -60,10 +86,7 @@ def generate_api_reference() -> None:
         for path in sorted(src.rglob("*.md")):
             doc_path = path.relative_to(src)
             full_doc_path = Path("main/references/API_reference") / doc_path
-            with mkdocs_gen_files.open(full_doc_path, "w") as fd:
-                fd.write(path.read_text())
-            logger.info(f"Added Markdown file: {full_doc_path}")
-            mkdocs_gen_files.set_edit_path(full_doc_path, path.relative_to(root))
+            copy_text_file(path, full_doc_path, root, f"Added Markdown file: {full_doc_path}")
 
 
 def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
@@ -77,25 +100,21 @@ def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
         None
     """
     examples_dir = sub_package / "examples"
-    if examples_dir.exists():
-        # Copy notebooks
-        for notebook in examples_dir.glob("*.ipynb"):
-            dest_dir = Path("main/examples") / sub_package.name
-            dest_file = dest_dir / notebook.name
+    if not examples_dir.exists():
+        return
 
-            with mkdocs_gen_files.open(dest_file, "wb") as fd:
-                fd.write(notebook.read_bytes())
-            logger.info(f"Added notebook: {dest_file}")
-            mkdocs_gen_files.set_edit_path(dest_file, notebook.relative_to(root))
-        # Copy markdown files
-        for markdown in examples_dir.glob("*.md"):
-            dest_dir = Path("main/examples") / sub_package.name
-            dest_file = dest_dir / markdown.name
+    dest_dir = Path("main/examples") / sub_package.name
 
-            with mkdocs_gen_files.open(dest_file, "wb") as fd:
-                fd.write(markdown.read_bytes())
-            logger.info(f"Added notebook: {dest_file}")
-            mkdocs_gen_files.set_edit_path(dest_file, markdown.relative_to(root))
+    # Copy notebooks
+    for notebook in examples_dir.glob("*.ipynb"):
+        dest_file = dest_dir / notebook.name
+        copy_binary_file(notebook, dest_file, f"Added notebook: {dest_file}")
+        mkdocs_gen_files.set_edit_path(dest_file, notebook.relative_to(root))
+
+    # Copy markdown files
+    for markdown in examples_dir.glob("*.md"):
+        dest_file = dest_dir / markdown.name
+        copy_text_file(markdown, dest_file, root, f"Added markdown: {dest_file}")
 
 
 def get_subpackage_readmes(sub_package: Path, root: Path) -> None:
@@ -112,19 +131,54 @@ def get_subpackage_readmes(sub_package: Path, root: Path) -> None:
     if readme_file.exists():
         dest_dir = Path("main/developer-guide") / sub_package.name
         dest_file = dest_dir / f"{sub_package.name}-Overview.md"
+        copy_text_file(readme_file, dest_file, root, f"Added README: {dest_file}")
 
-        with mkdocs_gen_files.open(dest_file, "w") as fd:
-            fd.write(readme_file.read_text())
-        logger.info(f"Added README: {dest_file}")
-        mkdocs_gen_files.set_edit_path(dest_file, readme_file.relative_to(root))
+
+def get_recipes_readmes(recipes_dir: Path, root: Path) -> None:
+    """Copy README files from bionemo-recipes to the recipes directory.
+
+    Args:
+        recipes_dir (Path): The path to the bionemo-recipes directory.
+        root (Path): The root directory of the project.
+
+    Returns:
+        None
+    """
+    # Main README
+    main_readme = recipes_dir / "README.md"
+    if main_readme.exists():
+        dest_file = Path("main/recipes/index.md")
+        copy_text_file(main_readme, dest_file, root, f"Added recipes README: {dest_file}")
+
+    # Process both models and recipes subdirectories
+    for subdir in ["models", "recipes"]:
+        subdir_path = recipes_dir / subdir
+        if not subdir_path.exists():
+            continue
+
+        # Copy subdirectory README if it exists
+        subdir_readme = subdir_path / "README.md"
+        if subdir_readme.exists():
+            dest_file = Path("main/recipes") / subdir / "index.md"
+            copy_text_file(subdir_readme, dest_file, root, f"Added recipes {subdir} README: {dest_file}")
+
+        # Copy individual model/recipe READMEs
+        for item in subdir_path.iterdir():
+            if not item.is_dir():
+                continue
+
+            readme_file = item / "README.md"
+            if readme_file.exists():
+                dest_dir = Path("main/recipes") / subdir / item.name
+                dest_file = dest_dir / f"{item.name}.md"
+                copy_text_file(readme_file, dest_file, root, f"Added {subdir} README: {dest_file}")
 
 
 def get_subpackage_assets(sub_package: Path, root: Path) -> None:
-    """Copy assets dir from a sub-package to the user guide's developer guide directory so that they are available for render.
+    """Copy assets dir from a sub-package to the user guide's developer guide directory.
 
-    Images will be copied over and must be referenced relative to assets using markdonw image syntax e.g.:
-
-    ![image](assets/image.png)
+    Images will be copied over and must be referenced relative to assets using markdown
+    image syntax e.g.: ![image](assets/image.png)
 
     Args:
         sub_package (Path): The path to the sub-package directory.
@@ -133,41 +187,87 @@ def get_subpackage_assets(sub_package: Path, root: Path) -> None:
     Returns:
         None
     """
-    dest_dir = Path("main/developer-guide") / sub_package.name
     assets_dir = sub_package / "assets"
-    if assets_dir.exists():
-        for asset_path in assets_dir.rglob("*"):
+    if not assets_dir.exists():
+        return
+
+    dest_dir = Path("main/developer-guide") / sub_package.name
+    for asset_path in assets_dir.rglob("*"):
+        if asset_path.is_file():
+            relative_path = asset_path.relative_to(assets_dir)
+            dest_asset = dest_dir / "assets" / relative_path
+            copy_binary_file(asset_path, dest_asset, f"Added asset: {dest_asset}")
+
+
+def get_recipes_assets(recipes_dir: Path, root: Path) -> None:
+    """Copy assets from bionemo-recipes to the recipes directory.
+
+    Args:
+        recipes_dir (Path): The path to the bionemo-recipes directory.
+        root (Path): The root directory of the project.
+
+    Returns:
+        None
+    """
+    if not recipes_dir.exists():
+        return
+
+    # Handle root-level assets directory
+    root_assets_dir = recipes_dir / "assets"
+    if root_assets_dir.exists():
+        for asset_path in root_assets_dir.rglob("*"):
             if asset_path.is_file():
-                relative_path = asset_path.relative_to(assets_dir)
-                dest_asset = dest_dir / "assets" / relative_path
-                # copy bytes bc images most likely
-                with mkdocs_gen_files.open(dest_asset, "wb") as fd:
-                    fd.write(asset_path.read_bytes())
-                logger.info(f"Added asset: {dest_asset}")
+                relative_path = asset_path.relative_to(root_assets_dir)
+                dest_asset = Path("main/recipes/assets") / relative_path
+                copy_binary_file(asset_path, dest_asset, f"Added root recipe asset: {dest_asset}")
+
+    # Process both models and recipes subdirectories
+    for subdir in ["models", "recipes"]:
+        subdir_path = recipes_dir / subdir
+        if not subdir_path.exists():
+            continue
+
+        for item in subdir_path.iterdir():
+            if not item.is_dir():
+                continue
+
+            assets_dir = item / "assets"
+            if assets_dir.exists():
+                dest_dir = Path("main/recipes") / subdir / item.name
+                for asset_path in assets_dir.rglob("*"):
+                    if asset_path.is_file():
+                        relative_path = asset_path.relative_to(assets_dir)
+                        dest_asset = dest_dir / "assets" / relative_path
+                        copy_binary_file(asset_path, dest_asset, f"Added recipe asset: {dest_asset}")
 
 
 def generate_pages() -> None:
     """Generate pages for documentation.
 
     This function orchestrates the entire process of generating API references,
-    copying notebooks, and copying README files for all sub-packages.
+    copying notebooks, and copying README files for all sub-packages and recipes.
 
     Returns:
         None
     """
     root = Path(__file__).parent.parent.parent
     sub_packages_dir = root / "sub-packages"
+    recipes_dir = root / "bionemo-recipes"
 
-    # generate api docs
+    # Generate api docs for sub-packages
     generate_api_reference()
 
+    # Process sub-packages
     for sub_package in sub_packages_dir.glob("bionemo-*"):
         if sub_package.is_dir():
             get_subpackage_assets(sub_package, root)
             get_subpackage_notebooks(sub_package, root)
             get_subpackage_readmes(sub_package, root)
 
+    # Process recipes
+    get_recipes_assets(recipes_dir, root)
+    get_recipes_readmes(recipes_dir, root)
+
 
 if __name__ in {"__main__", "<run_path>"}:
-    # Check if name is either '__main__', or the equivalent default in `runpy.run_path(...)`, which is '<run_path>'
     generate_pages()

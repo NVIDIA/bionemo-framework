@@ -1,3 +1,3 @@
 - [Home](index.md)
-- [BioNeMo Framework](main/)
 - [Models](models/)
+- [Recipes](recipes/)
