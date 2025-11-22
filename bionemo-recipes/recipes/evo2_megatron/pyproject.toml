@@ -16,6 +16,7 @@ dependencies = [
     "bionemo-core @ git+https://github.com/NVIDIA/bionemo-framework.git@main#subdirectory=sub-packages/bionemo-core",
     "megatron-bridge @ git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git@0ef28d62000685d124f3d9ef6b3f04636267dfa7",  # need a version of megatron-bridge that is ok with TE version 2.8 that's installed in the container.
     "nv-grouped-gemm @ git+https://github.com/fanshiqing/grouped_gemm@v1.1.4.post6",
+    "causal_conv1d @ git+https://github.com/trvachov/causal-conv1d.git@52e06e3d5ca10af0c7eb94a520d768c48ef36f1f", # Use a branch of causal_conv1d while the repository works on Blackwell support.
     # external
 ]
 

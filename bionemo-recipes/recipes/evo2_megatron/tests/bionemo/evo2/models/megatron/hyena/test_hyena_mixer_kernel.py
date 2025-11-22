@@ -22,14 +22,15 @@ import os
 import pytest
 import torch
 import torch.distributed as dist
+from einops import rearrange
+from megatron.core import parallel_state
+from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
+
+from bionemo.evo2.models.hyena import HyenaNVTestConfig, HyenaTestConfig
 from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
 from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
 from bionemo.evo2.models.megatron.hyena.hyena_utils import ImplicitModalFilter
-from bionemo.evo2.models.model.hyena import HyenaNVTestConfig, HyenaTestConfig
-from einops import rearrange
-from megatron.core import parallel_state
-from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 
 
 @contextlib.contextmanager
@@ -76,19 +77,19 @@ def init_distributed_parallel_state(
 
 @pytest.fixture(params=[pytest.param(torch.bfloat16, id="bf16"), pytest.param(torch.float32, id="fp32")])
 def dtype(request):
-    """Parametrized dtype fixture"""
+    """Parametrized dtype fixture."""
     return request.param
 
 
 @pytest.fixture(params=[pytest.param("standard", id="non_nv"), pytest.param("nv", id="nv")])
 def config_type(request):
-    """Parametrized config type fixture"""
+    """Parametrized config type fixture."""
     return request.param
 
 
 @pytest.fixture
 def test_config(dtype, config_type) -> HyenaTestConfig:
-    """Create a test config based on the parametrized dtype and config type"""
+    """Create a test config based on the parametrized dtype and config type."""
     if config_type == "standard":
         config = HyenaTestConfig()
     else:  # nv
@@ -99,7 +100,7 @@ def test_config(dtype, config_type) -> HyenaTestConfig:
 
 
 @pytest.fixture
-def hyena_config() -> HyenaConfig:
+def hyena_config() -> HyenaConfig:  # noqa: D103
     config = HyenaConfig()
     config.num_groups_hyena = 4096
     config.num_groups_hyena_short = 256
@@ -115,12 +116,12 @@ def hyena_config() -> HyenaConfig:
     ]
 )
 def operator_type(request):
-    """Parametrized operator type fixture"""
+    """Parametrized operator type fixture."""
     return request.param
 
 
-class MixerModuleWrapper(torch.nn.Module):
-    def __init__(
+class MixerModuleWrapper(torch.nn.Module):  # noqa: D101
+    def __init__(  # noqa: D107
         self, hyena_config, hyena_test_config, seq_len, use_subquadratic_ops=False, operator_type="hyena_medium_conv"
     ):
         super().__init__()
@@ -143,7 +144,7 @@ class MixerModuleWrapper(torch.nn.Module):
             operator_type=self.operator_type,
         )
 
-    def forward(self, x, _use_cp=False):
+    def forward(self, x, _use_cp=False):  # noqa: D102
         if self.use_subquadratic_ops and self.operator_type != "hyena":
             z = self.mixer.b2b_kernel(x, _use_cp=_use_cp)
         else:  # long `hyena` operator internally sets use_subquadratic_ops from config
@@ -157,7 +158,7 @@ class MixerModuleWrapper(torch.nn.Module):
 
 @pytest.fixture
 def mixer(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operator_type: str):
-    """Create a HyenaMixer instance for testing with PyTorch implementation"""
+    """Create a HyenaMixer instance for testing with PyTorch implementation."""
     with init_distributed_parallel_state(world_size=1):
         # Create the mixer
         mixer = MixerModuleWrapper(
@@ -168,7 +169,7 @@ def mixer(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operator_type
 
 @pytest.fixture
 def mixer_kernel(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operator_type: str):
-    """Create a HyenaMixer instance for testing with CUDA kernel implementation"""
+    """Create a HyenaMixer instance for testing with CUDA kernel implementation."""
     with init_distributed_parallel_state(world_size=1):
         # Create the mixer
         mixer_kernel = MixerModuleWrapper(
@@ -179,7 +180,7 @@ def mixer_kernel(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operat
 
 @pytest.fixture
 def mixer_kernel_hyena_only(test_config: HyenaTestConfig, hyena_config: HyenaConfig):
-    """Create a HyenaMixer instance for testing with CUDA kernel implementation - only for hyena operator"""
+    """Create a HyenaMixer instance for testing with CUDA kernel implementation - only for hyena operator."""
     with init_distributed_parallel_state(world_size=1):
         # Create the mixer
         mixer_kernel = MixerModuleWrapper(
@@ -292,7 +293,7 @@ def test_implicit_filter(mixer_kernel_hyena_only: MixerModuleWrapper):
 
 
 @pytest.mark.skipif(importlib.util.find_spec("subquadratic_ops") is None, reason="subquadratic_ops is not installed")
-def test_subquadratic_ops_kernel(
+def test_subquadratic_ops_kernel(  # noqa: D103
     mixer: MixerModuleWrapper, mixer_kernel: MixerModuleWrapper, config_type, operator_type
 ):
     # Skip bf16 with short convolution due to numerical instability
@@ -374,7 +375,7 @@ def test_subquadratic_ops_kernel(
         for (n, g), (n_kernel, g_kernel) in zip(grads, grads_kernel):
             try:
                 torch.testing.assert_close(g, g_kernel, msg=f"Gradient mismatch for {operator_type} - {n}")
-            except AssertionError as e:
+            except AssertionError as e:  # noqa: PERF203
                 gradient_mismatch = True
                 print(f"Gradient mismatch for {operator_type} - {n}: {e}")
 

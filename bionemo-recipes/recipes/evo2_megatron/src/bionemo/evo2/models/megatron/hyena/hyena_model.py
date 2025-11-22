@@ -21,12 +21,6 @@ from copy import deepcopy
 from typing import Literal, Optional
 
 import torch
-from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
-from bionemo.evo2.models.megatron.hyena.hyena_utils import (
-    get_init_method,
-    make_upper_case,
-    reweighted_cross_entropy,
-)
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.config_logger import has_config_logger_enabled, log_config_to_disk
 from megatron.core.inference.contexts import BaseInferenceContext
@@ -34,7 +28,7 @@ from megatron.core.models.common.embeddings.language_model_embedding import Lang
 from megatron.core.models.common.embeddings.rotary_pos_embedding import RotaryEmbedding
 from megatron.core.models.common.language_module.language_module import LanguageModule
 from megatron.core.packed_seq_params import PackedSeqParams
-from megatron.core.process_groups_config import ProcessGroupCollection
+from megatron.core.process_groups_config import ModelCommProcessGroups as ProcessGroupCollection
 from megatron.core.quantization.utils import get_quant_config_or_none
 from megatron.core.transformer.enums import ModelType
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
@@ -44,11 +38,18 @@ from megatron.core.utils import WrappedTensor, deprecate_inference_params
 from torch import Tensor
 from torch.nn.parameter import Parameter
 
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
+from bionemo.evo2.models.megatron.hyena.hyena_utils import (
+    get_init_method,
+    make_upper_case,
+    reweighted_cross_entropy,
+)
+
 
 class HyenaModel(LanguageModule):
     """A class for the HyenaModel."""
 
-    def __init__(  # noqa: C901
+    def __init__(
         self,
         transformer_config: TransformerConfig,  # Actually a hyena.HyenaConfig but avoid circular import
         hyena_stack_spec: ModuleSpec,
