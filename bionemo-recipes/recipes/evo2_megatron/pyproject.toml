@@ -14,8 +14,8 @@ dependencies = [
     # internal
     "bionemo-noodles",
     "bionemo-core @ git+https://github.com/NVIDIA/bionemo-framework.git@main#subdirectory=sub-packages/bionemo-core",
-    "megatron-bridge @ git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git@main",
-    "nv-grouped-gemm @ git+https://github.com/fanshiqing/grouped_gemm@main"
+    "megatron-bridge @ git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git@v0.1.0rc4",
+    "nv-grouped-gemm @ git+https://github.com/fanshiqing/grouped_gemm@v1.1.4.post6",
     # external
 ]
 
