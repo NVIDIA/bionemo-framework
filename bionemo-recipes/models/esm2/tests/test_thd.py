@@ -109,6 +109,8 @@ def attn_impl(request, monkeypatch):
 def test_thd_losses_match(te_model_checkpoint, input_data, input_data_thd, attn_impl):
     if attn_impl == "fused_attn" and torch.cuda.get_device_capability()[0] == 8:
         pytest.xfail("On Ada and Ampere, no THD implementation is available for fused attn.")
+    elif attn_impl == "fused_attn" and torch.cuda.get_device_capability()[0] == 12:
+        pytest.xfail("BIONEMO-2840: On sm120, the THD implementation is not available for fused attn.")
 
     torch.testing.assert_close(
         input_data["input_ids"][input_data["attention_mask"].to(bool)],
@@ -139,6 +141,8 @@ def test_thd_logits_match_with_bf16_autocast(te_model_checkpoint, input_data, in
         pytest.xfail("On Ada and Ampere, no THD implementation is available for fused attn.")
     elif attn_impl == "flash_attn" and torch.cuda.get_device_capability()[0] == 8:
         pytest.xfail("BIONEMO-2801: On Ada and Ampere, the flash attention logits don't seem to match.")
+    elif attn_impl == "fused_attn" and torch.cuda.get_device_capability()[0] == 12:
+        pytest.xfail("BIONEMO-2840: On sm120, the THD implementation is not available for fused attn.")
 
     # Ensure the input data is the same
     torch.testing.assert_close(
