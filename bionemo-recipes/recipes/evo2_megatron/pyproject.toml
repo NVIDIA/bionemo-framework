@@ -14,7 +14,7 @@ dependencies = [
     # internal
     "bionemo-noodles",
     "bionemo-core @ git+https://github.com/NVIDIA/bionemo-framework.git@main#subdirectory=sub-packages/bionemo-core",
-    "megatron-bridge @ git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git@v0.1.0rc4",
+    "megatron-bridge @ git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git@0ef28d62000685d124f3d9ef6b3f04636267dfa7",  # need a version of megatron-bridge that is ok with TE version 2.8 that's installed in the container.
     "nv-grouped-gemm @ git+https://github.com/fanshiqing/grouped_gemm@v1.1.4.post6",
     # external
 ]
