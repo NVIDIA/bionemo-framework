@@ -1,7 +1,8 @@
 # bionemo-evo2
 
 ```
-pip install -e . --no-build-isolation
+pip freeze | grep transformer_engine > pip-constraints.txt
+pip install -c pip-constraints.txt -e . --no-build-isolation
 ```
 
 `bionemo-evo2` is a `pip`-installable package that contains **data preprocessing**, **training**, and **inferencing** code for Evo2, a new `Hyena`-based foundation model for genome generation and understanding. Built upon `Megatron-LM` parallelism and `NeMo2` algorithms, `bionemo-evo2` provides the remaining tools necessary to effectively fine-tune the pre-trained Evo2 model checkpoint on user-provided sequences at scale, and generate state-of-the-art life-like DNA sequences from Evo2 for downstream metagenomic tasks.
