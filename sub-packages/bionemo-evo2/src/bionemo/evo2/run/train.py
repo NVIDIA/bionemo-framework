@@ -39,6 +39,7 @@ from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
     userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192,
 )
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
+from nemo.lightning.callback_group import CallbackGroup
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
 from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
@@ -1142,6 +1143,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     opt.connect(model)
 
     # Remove earlier warmup and hook logic; first-batch blocking is sufficient.
+
+    # Update the config to set OneLogger
+    CallbackGroup.get_instance().update_config(nemo_version='v2', trainer=trainer, data=data_module)
 
     # Start training
     trainer.fit(model, data_module)
