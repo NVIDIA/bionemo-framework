@@ -215,6 +215,7 @@ if __name__ == "__main__":
                 dict_2 = pickle.loads(state_2.detach().numpy(force=True).tobytes())
                 recipe_1 = dict_1.pop("recipe")
                 recipe_2 = dict_2.pop("recipe")
+                breakpoint()
                 torch.testing.assert_close(dict_1, dict_2)
                 assert recipe_1 == recipe_2
 
