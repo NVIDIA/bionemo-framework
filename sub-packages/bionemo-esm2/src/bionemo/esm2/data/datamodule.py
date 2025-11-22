@@ -115,6 +115,11 @@ class ESMDataModule(MegatronDataModule):
         """Returns the tokenizer."""
         return self._tokenizer
 
+    @property
+    def seq_length(self) -> int:
+        """Returns the sequence length."""
+        return self._max_seq_length
+
     def setup(self, stage: str = "") -> None:
         """Setup the ESMDataModule.
 
