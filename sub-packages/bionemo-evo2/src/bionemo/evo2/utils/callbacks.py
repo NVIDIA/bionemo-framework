@@ -14,9 +14,33 @@
 # limitations under the License.
 
 import gc
+import os
 
 import torch
 from lightning.pytorch import Callback
+
+
+class _FirstBatchCudaSync(Callback):
+    # TEMPORARY CALLBACK. Remove once bug is fixed.
+    # First batch CUDA sync callback: adds barriers for the first training batch to avoid race condition
+    # See https://github.com/NVIDIA/bionemo-framework/issues/1301 for more details.
+    def __init__(self):
+        self._done = False
+
+    def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
+        if not self._done and torch.cuda.is_available():
+            torch.cuda.synchronize()
+
+    def on_after_backward(self, trainer, pl_module):
+        if not self._done and torch.cuda.is_available():
+            torch.cuda.synchronize()
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        if not self._done and torch.cuda.is_available():
+            torch.cuda.synchronize()
+            # Unset blocking for subsequent batches
+            os.environ.pop("CUDA_LAUNCH_BLOCKING", None)
+            self._done = True
 
 
 class GarbageCollectAtInferenceTime(Callback):
