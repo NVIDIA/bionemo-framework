@@ -66,7 +66,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     )
 
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
+    config = AutoConfig.from_pretrained(args.model_tag, dtype=torch.bfloat16, **args.config_kwargs)
     # Use SDPA (Scaled Dot-Product Attention) to avoid materializing large causal masks
     # config.attn_implementation = "sdpa"
 

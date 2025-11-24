@@ -11,65 +11,50 @@ defaults:
 # Use tiny Llama config for fast convergence testing
 model_tag: ./example_checkpoint
 
-# Training steps - enough to see convergence on small dataset
-num_train_steps: 1000
+num_train_steps: 270_000
 
-# Dataset configuration - use small test dataset
 dataset:
-  tokenizer_path: ./example_checkpoint  # Tokenizer included in checkpoint directory
-  micro_batch_size: 1  # Conservative for single GPU
-  num_workers: 2
-  max_seq_length: 8192  # Full Llama3 context length
-  stride: 400  # 400bp overlap for 8K context
-  buffer_size: 10_000  # Smaller buffer for faster iteration
-  use_lazy_tokenization: true
-  use_stateful_dataloader: false  # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
+  micro_batch_size: 1 # Conservative for single GPU
   load_dataset_kwargs:
-    path: "parquet"
-    data_files: "genomic_sequences_2mb.parquet"  # 2MB convergence test data in recipe directory
+    path: "arcinstitute/opengenome2"
+    data_dir: "json/pretraining_or_both_phases"
     split: "train"
-    streaming: true  # Use streaming to avoid loading entire dataset into memory
+    streaming: true # Use streaming to avoid loading entire dataset into memory
 
-# Optimizer - higher LR for faster convergence on small model
 adamw_kwargs:
-  lr: 5e-4  # Higher than default for faster convergence
+  lr: 5e-4
   fused: true
   betas: [0.9, 0.98]
   eps: 1e-8
   weight_decay: 0.01
 
-# Learning rate scheduler
 lr_scheduler_kwargs:
-  num_warmup_steps: 100  # Quick warmup (10% of training)
-  num_training_steps: 1000
+  num_warmup_steps: 20_000
+  num_training_steps: 500_000
 
-# Checkpoint configuration - disabled for fast convergence testing
 checkpoint:
-  ckpt_dir: null  # No checkpoints
-  save_final_model: false  # Don't save final model
-  resume_from_checkpoint: false  # Start fresh for convergence test
-  save_every_n_steps: null  # No intermediate checkpoints
+  ckpt_dir: null # No checkpoints
+  save_final_model: false # Don't save final model
+  resume_from_checkpoint: false # Start fresh for convergence test
+  save_every_n_steps: null # No intermediate checkpoints
 
-# Logging - frequent logging to track convergence
 logger:
-  frequency: 10  # Log every 10 steps
+  frequency: 100
 
 # WandB configuration
 wandb_init_args:
   project: "llama3-genomic-convergence"
   name: "tiny-llama-convergence-test"
-  mode: "online"  # Online mode for real-time dashboard
+  mode: "online"
   tags:
     - convergence-test
     - tiny-model
     - 1M-params
     - 8192-context
 
-# Meta device and torch compile
 use_meta_device: false
-use_torch_compile: false  # Disable for debugging
+use_torch_compile: false
 
-# FP8 configuration - disabled for convergence testing
 fp8_config:
   enabled: false
   fp8_recipe: transformer_engine.common.recipe.DelayedScaling
