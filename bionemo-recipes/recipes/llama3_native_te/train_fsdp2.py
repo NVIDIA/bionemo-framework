@@ -20,7 +20,7 @@ import hydra
 import torch
 import transformer_engine.pytorch
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
-from dataset import create_bshd_dataloader
+from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from omegaconf import DictConfig, OmegaConf
 from perf_logger import PerfLogger
@@ -70,6 +70,12 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Use SDPA (Scaled Dot-Product Attention) to avoid materializing large causal masks
     # config.attn_implementation = "sdpa"
 
+    # If using THD format (sequence packing), configure model for THD attention
+    use_thd = args.get("use_sequence_packing", False)
+    if use_thd and hasattr(config, "attn_input_format"):
+        config.attn_input_format = "thd"
+        logger.info("Configured model for THD attention format")
+
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
@@ -109,9 +115,15 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                 module.reset_parameters()
         logger.info("Model moved and reset complete")
 
-    # Create BSHD dataloader for genomic sequences.
+    # Create dataloader for genomic sequences (BSHD or THD format)
     logger.info("Creating dataloader...")
-    train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
+    use_thd = args.get("use_sequence_packing", False)
+    if use_thd:
+        logger.info("Using THD format (sequence packing) with genomic masking")
+        train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
+    else:
+        logger.info("Using BSHD format (standard batching)")
+        train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
     logger.info("Dataloader created successfully")
 
     if args.use_torch_compile:

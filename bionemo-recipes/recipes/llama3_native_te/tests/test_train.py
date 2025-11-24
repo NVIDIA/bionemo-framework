@@ -195,3 +195,30 @@ def test_sanity_fsdp2_with_lazy_tokenization(tmp_path, recipe_path, mock_genomic
 
     # Just check that training runs without errors
     assert final_loss is not None, "Training should complete and return a loss value"
+
+
+def test_sanity_convergence_fsdp2_thd(tmp_path, recipe_path, mock_genomic_parquet):
+    """Test that FSDP2 training converges with THD format (sequence packing).
+
+    This test validates:
+    - THD/sequence packing works with FSDP2
+    - Genomic masking (uppercase, degenerate bases) is applied
+    - Training converges on small dataset
+    - cu_seq_lens and position_ids work correctly with model
+    """
+    # Run the training script with THD configuration
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        thd_config = compose(
+            config_name="L0_sanity_thd",  # Use THD config
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.load_dataset_kwargs.data_files={mock_genomic_parquet}",
+                "checkpoint.resume_from_checkpoint=false",
+            ],
+        )
+
+    final_loss = main_fsdp2(thd_config)
+
+    # THD should converge similarly to BSHD
+    assert final_loss < 5.0, f"Final loss {final_loss} is too high with THD format, expected < 5.0"

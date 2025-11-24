@@ -1,0 +1,83 @@
+# THD (sequence packing) training config for Llama-3-8B on OpenGenome2 metagenomics subset
+# This config matches John's metagenomics training setup with THD format for efficiency
+defaults:
+  - defaults
+  - _self_
+
+# Model configuration
+model_tag: ./llama3_8b_genomic_config  # Local Llama-3-8B architecture for genomic data
+
+# Training duration
+num_train_steps: 100_000  # Adjust based on your needs
+
+# Enable sequence packing (THD format)
+use_sequence_packing: true
+
+# Dataset configuration - METAGENOMICS ONLY (simpler than full OpenGenome2)
+dataset:
+  sequence_column: "text"  # OpenGenome2 uses "text" column
+  tokenizer_path: ${oc.env:PWD}/example_checkpoint
+  micro_batch_size: 4  # Pack ~4 sequences per batch (adjust based on GPU memory)
+  num_workers: 4
+  max_seq_length: 8192  # Full Llama3 context length
+  stride: 7992  # John's setting: 200 token overlap
+  buffer_size: 500_000
+  use_stateful_dataloader: false
+  # Genomic masking options (Milestone 1: metagenomics)
+  uppercase_labels: true              # Uppercase labels, keep inputs mixed case
+  mask_degenerate_bases: true         # Mask N, R, Y, @, # etc.
+  mask_phylo_tags: false              # Disable for metagenomics (no phylo tags expected)
+  pad_to_multiple_of: null            # Set to 16 for FP8 training
+  load_dataset_kwargs:
+    path: "arcinstitute/opengenome2"
+    split: "train"
+    streaming: true  # REQUIRED for THD
+    data_dir: "json/pretraining_or_both_phases/metagenomes"  # METAGENOMICS ONLY
+
+# Optimizer configuration
+adamw_kwargs:
+  lr: 2e-4  # John's learning rate for metagenomics
+  fused: true
+  betas: [0.9, 0.98]
+  eps: 1e-8
+  weight_decay: 0.01
+
+# Learning rate scheduler
+lr_scheduler_kwargs:
+  num_warmup_steps: 2_000
+  num_training_steps: 100_000  # Must match num_train_steps
+
+# Checkpoint configuration
+checkpoint:
+  ckpt_dir: ./checkpoints/llama3_8b_metagenome_thd
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 1_000
+
+# Logging configuration
+logger:
+  frequency: 50
+
+# WandB configuration
+wandb_init_args:
+  name: "llama3-8b-metagenome-thd-${now:%Y%m%d_%H%M%S}"
+  project: "llama3-genomic-training"
+  mode: "online"
+  tags:
+    - llama3-8b
+    - metagenomics
+    - thd-format
+    - milestone-1
+
+# FP8 configuration (optional - for H100+)
+fp8_config:
+  enabled: false  # Set to true for H100 with FP8
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
+
+# Meta device and torch compile
+use_meta_device: false
+use_torch_compile: false

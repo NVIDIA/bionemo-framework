@@ -1,0 +1,67 @@
+# Test config: Tiny model + OpenGenome2 dataset for local debugging
+defaults:
+  - defaults
+  - _self_
+
+# Use tiny model for fast local testing
+model_tag: ./example_checkpoint  # Tiny ~9.6M param model
+
+# Short training run
+num_train_steps: 20
+
+# Dataset configuration - OpenGenome2
+dataset:
+  sequence_column: "text"  # OpenGenome2 uses lowercase "text"
+  tokenizer_path: ${oc.env:PWD}/example_checkpoint
+  micro_batch_size: 1  # Start with 1 for debugging
+  num_workers: 0  # 0 workers for easier debugging (runs in main process)
+  max_seq_length: 1024  # Smaller window for faster testing
+  stride: 100  # Smaller stride
+  buffer_size: 1000  # Small buffer
+  use_lazy_tokenization: false  # Disable for debugging
+  use_stateful_dataloader: false
+  load_dataset_kwargs:
+    path: "arcinstitute/opengenome2"
+    split: "train"
+    streaming: true
+
+# Optimizer
+adamw_kwargs:
+  lr: 5e-4
+  fused: true
+  betas: [0.9, 0.98]
+  eps: 1e-8
+  weight_decay: 0.01
+
+# Learning rate scheduler
+lr_scheduler_kwargs:
+  num_warmup_steps: 5
+  num_training_steps: 20
+
+# No checkpointing for quick test
+checkpoint:
+  ckpt_dir: null
+  save_final_model: false
+  resume_from_checkpoint: false
+
+# Frequent logging
+logger:
+  frequency: 1
+
+# WandB offline
+wandb_init_args:
+  name: "test-tiny-opengenome2"
+  project: "llama3-genomic-debug"
+  mode: "offline"
+
+# Standard settings
+use_meta_device: false
+use_torch_compile: false
+
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false

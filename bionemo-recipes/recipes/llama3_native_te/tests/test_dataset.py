@@ -541,3 +541,276 @@ def test_streaming_dataset_handles_missing_record_column(tokenizer_path, tmp_pat
     assert "text" not in sample, "Column 'text' should have been removed"
     assert "record" not in sample, "Column 'record' was never present, so shouldn't be in output"
     assert "input_ids" in sample, "input_ids should be present"
+
+
+# ============================================================================
+# Tests for THD dataloader (create_thd_dataloader)
+# ============================================================================
+
+
+def test_thd_dataloader_returns_flattened_format(tokenizer_path, tmp_path):
+    """Test that create_thd_dataloader produces THD format batches with cu_seq_lens."""
+    from dataset import create_thd_dataloader
+
+    # Create test parquet with streaming
+    parquet_path = tmp_path / "thd_test.parquet"
+    sequences = ["ACGT" * 10, "GGTA" * 10, "TTAA" * 10]
+    table = pa.table({"text": sequences})  # Use 'text' like OpenGenome2
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+        "streaming": True,  # REQUIRED for THD
+    }
+
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=2,  # Pack ~2 sequences
+        num_workers=1,
+        max_seq_length=50,
+        stride=10,
+        buffer_size=100,
+        sequence_column="text",
+        uppercase_labels=True,
+        mask_degenerate_bases=True,
+    )
+
+    # Get a batch
+    batch = next(iter(dataloader))
+
+    # Verify THD format
+    assert batch["input_ids"].shape[0] == 1, "THD format should have batch_size=1"
+    assert batch["input_ids"].ndim == 2, "Should be 2D tensor"
+    assert "cu_seq_lens_q" in batch, "Should have cumulative sequence lengths for queries"
+    assert "cu_seq_lens_k" in batch, "Should have cumulative sequence lengths for keys"
+    assert "max_length_q" in batch, "Should have max sequence length"
+    assert "position_ids" in batch, "Should have position IDs"
+    assert "labels" in batch, "Should have labels"
+
+
+def test_thd_dataloader_token_packing_efficiency(tokenizer_path, tmp_path):
+    """Test that THD dataloader packs sequences efficiently (reduces padding waste)."""
+    from dataset import create_thd_dataloader
+
+    # Create sequences of varying lengths
+    parquet_path = tmp_path / "variable_length.parquet"
+    sequences = [
+        "A" * 100,  # Short
+        "C" * 50,  # Shorter
+        "G" * 200,  # Long
+        "T" * 75,  # Medium
+    ]
+    table = pa.table({"text": sequences})
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+        "streaming": True,
+    }
+
+    # Set token budget to pack 2-3 short sequences
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        token_micro_batch_size=300,  # Token budget (must be >= max_seq_length)
+        num_workers=1,
+        max_seq_length=250,
+        stride=50,
+        buffer_size=100,
+        sequence_column="text",
+    )
+
+    # Collect batches
+    batches = list(dataloader)
+
+    # Should pack sequences efficiently
+    assert len(batches) > 0, "Should produce at least one batch"
+
+    # Each batch should be in THD format
+    for batch in batches:
+        assert batch["input_ids"].shape[0] == 1, "All batches should be THD format"
+        assert "cu_seq_lens_q" in batch, "Should have sequence boundaries"
+        # Verify total tokens is reasonable (may slightly exceed due to BOS/EOS and windowing)
+        total_tokens = batch["input_ids"].shape[1]
+        # Allow some overhead for special tokens and windowing
+        assert total_tokens <= 400, f"Batch should be reasonably sized (got {total_tokens})"
+
+
+def test_thd_dataloader_cu_seq_lens_correct(tokenizer_path, tmp_path):
+    """Test that cu_seq_lens correctly marks sequence boundaries in THD format."""
+    from dataset import create_thd_dataloader
+
+    # Create 3 sequences of known lengths
+    parquet_path = tmp_path / "known_lengths.parquet"
+    sequences = [
+        "A" * 10,  # 10 chars → expect ~12 tokens (BOS + 10 + EOS)
+        "C" * 15,  # 15 chars → expect ~17 tokens
+        "G" * 8,  # 8 chars → expect ~10 tokens
+    ]
+    table = pa.table({"text": sequences})
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+        "streaming": True,
+    }
+
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        token_micro_batch_size=100,  # Large enough to fit all
+        num_workers=1,
+        max_seq_length=30,
+        stride=5,
+        buffer_size=100,
+        sequence_column="text",
+    )
+
+    batch = next(iter(dataloader))
+
+    # Verify cu_seq_lens structure
+    cu_seq_lens = batch["cu_seq_lens_q"]
+    assert cu_seq_lens[0] == 0, "Should start at 0"
+    assert len(cu_seq_lens) > 1, "Should have at least 2 elements (start + end)"
+
+    # Each element should be greater than previous (cumulative)
+    for i in range(1, len(cu_seq_lens)):
+        assert cu_seq_lens[i] > cu_seq_lens[i - 1], "cu_seq_lens should be strictly increasing"
+
+    # Last element should equal total tokens
+    total_tokens = batch["input_ids"].shape[1]
+    assert cu_seq_lens[-1] == total_tokens, "Last cu_seq_lens should match total tokens"
+
+
+def test_thd_dataloader_position_ids_reset_per_sequence(tokenizer_path, tmp_path):
+    """Test that position_ids reset to 0 for each sequence in THD format."""
+    from dataset import create_thd_dataloader
+
+    parquet_path = tmp_path / "position_test.parquet"
+    sequences = ["ACGT", "GGTA"]  # Two short sequences
+    table = pa.table({"text": sequences})
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+        "streaming": True,
+    }
+
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        token_micro_batch_size=50,
+        num_workers=1,
+        max_seq_length=20,
+        stride=5,
+        buffer_size=100,
+        sequence_column="text",
+    )
+
+    batch = next(iter(dataloader))
+
+    # Verify position_ids exist and reset
+    assert "position_ids" in batch, "Should have position_ids"
+    position_ids = batch["position_ids"]
+    cu_seq_lens = batch["cu_seq_lens_q"]
+
+    # Check that position_ids reset at sequence boundaries
+    for i in range(len(cu_seq_lens) - 1):
+        start = cu_seq_lens[i]
+        # First position of each sequence should be 0
+        if start < position_ids.shape[1]:
+            assert position_ids[0, start] == 0, f"Position should reset to 0 at sequence boundary {i}"
+
+
+def test_thd_dataloader_requires_streaming_dataset(tokenizer_path, tmp_path):
+    """Test that create_thd_dataloader raises error for non-streaming datasets."""
+    from dataset import create_thd_dataloader
+
+    parquet_path = tmp_path / "non_streaming.parquet"
+    sequences = ["ACGT"]
+    table = pa.table({"text": sequences})
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+        "streaming": False,  # NOT streaming
+    }
+
+    # Should raise AssertionError
+    with pytest.raises(AssertionError, match="THD token packing requires a streaming dataset"):
+        dataloader, _ = create_thd_dataloader(
+            distributed_config=distributed_config,
+            tokenizer_path=tokenizer_path,
+            load_dataset_kwargs=load_dataset_kwargs,
+            micro_batch_size=2,
+            num_workers=1,
+            max_seq_length=20,
+            stride=5,
+            buffer_size=100,
+            sequence_column="text",
+        )
+
+
+def test_thd_dataloader_with_windowing(tokenizer_path, tmp_path):
+    """Test that THD dataloader works with windowing (stride < max_seq_length)."""
+    from dataset import create_thd_dataloader
+
+    # Create one long sequence that will be windowed
+    parquet_path = tmp_path / "long_sequence.parquet"
+    long_sequence = "A" * 500  # Long enough to create multiple windows
+    table = pa.table({"text": [long_sequence]})
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+        "streaming": True,
+    }
+
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=3,
+        num_workers=1,
+        max_seq_length=100,  # Window size
+        stride=50,  # Overlap = 50 tokens
+        buffer_size=100,
+        sequence_column="text",
+    )
+
+    batch = next(iter(dataloader))
+
+    # Should produce THD format with multiple windows packed
+    assert batch["input_ids"].shape[0] == 1
+    assert "cu_seq_lens_q" in batch
+    # cu_seq_lens should have multiple sequences (windows from same long sequence)
+    assert len(batch["cu_seq_lens_q"]) > 2, "Should have multiple windows packed"

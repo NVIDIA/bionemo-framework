@@ -1,0 +1,66 @@
+# Quick test config for OpenGenome2 with THD format (for SLURM testing)
+# Uses tiny model and few steps to quickly validate the pipeline
+defaults:
+  - defaults
+  - _self_
+
+model_tag: ./example_checkpoint  # Tiny model for quick testing
+
+num_train_steps: 10  # Just 10 steps for quick validation
+
+# Enable sequence packing (THD format)
+use_sequence_packing: true
+
+dataset:
+  sequence_column: "text"  # OpenGenome2 uses "text" column
+  tokenizer_path: ${oc.env:PWD}/example_checkpoint
+  micro_batch_size: 2  # Pack ~2 sequences
+  num_workers: 2
+  max_seq_length: 1024  # Smaller for faster testing
+  stride: 824  # 200 token overlap
+  buffer_size: 10_000
+  use_stateful_dataloader: false
+  # Genomic masking options
+  uppercase_labels: true
+  mask_degenerate_bases: true
+  mask_phylo_tags: false  # Metagenomics only
+  load_dataset_kwargs:
+    path: "arcinstitute/opengenome2"
+    split: "train"
+    streaming: true  # REQUIRED for THD
+    data_dir: "json/pretraining_or_both_phases/metagenomes"  # Test with metagenomics
+
+adamw_kwargs:
+  lr: 5e-4
+  fused: true
+  betas: [0.9, 0.98]
+  eps: 1e-8
+  weight_decay: 0.01
+
+lr_scheduler_kwargs:
+  num_warmup_steps: 1
+  num_training_steps: 10
+
+checkpoint:
+  ckpt_dir: null  # No checkpointing for quick test
+  save_final_model: false
+  resume_from_checkpoint: false
+
+logger:
+  frequency: 1  # Log every step
+
+wandb_init_args:
+  name: "test-thd-opengenome2-${now:%Y%m%d_%H%M%S}"
+  project: "llama3-genomic-debug"
+  mode: "offline"  # Offline for quick testing
+
+use_meta_device: false
+use_torch_compile: false
+
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false

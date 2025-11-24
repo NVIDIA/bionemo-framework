@@ -188,3 +188,116 @@ def create_bshd_dataloader(
     )
 
     return train_dataloader, tokenized_dataset if sampler is None else sampler
+
+
+def create_thd_dataloader(
+    distributed_config: DistributedConfig,
+    tokenizer_path: str,
+    load_dataset_kwargs: dict,
+    micro_batch_size: int | None = None,
+    token_micro_batch_size: int | None = None,
+    num_workers: int = 1,
+    max_seq_length: int = 8192,
+    stride: int = 200,
+    seed: int = 42,
+    buffer_size: int = 500_000,
+    use_stateful_dataloader: bool = False,
+    use_lazy_tokenization: bool = False,  # Ignored for THD (always uses eager)
+    sequence_column: str = "sequence",
+    uppercase_labels: bool = True,
+    mask_degenerate_bases: bool = True,
+    mask_phylo_tags: bool = False,
+    pad_to_multiple_of: int | None = None,
+):
+    """Create a dataloader that packs sequences into THD format for efficient training.
+
+    This dataloader uses sequence packing to eliminate padding waste by concatenating
+    multiple variable-length sequences into a single flattened tensor. This is more
+    memory-efficient than BSHD format, especially for genomic sequences with high
+    length variability.
+
+    Args:
+        distributed_config: The distributed configuration.
+        tokenizer_path: Path to the nucleotide tokenizer directory.
+        load_dataset_kwargs: Keyword arguments to pass to `load_dataset`.
+        micro_batch_size: The batch size (number of sequences) per device. This will set the
+            token_micro_batch_size to micro_batch_size * max_seq_length. Defaults to None.
+        token_micro_batch_size: The maximum number of tokens per batch. If None, the
+            micro_batch_size * max_seq_length will be used. Defaults to None.
+        num_workers: The number of workers to use for the dataloader. For iterable datasets, use 1.
+        max_seq_length: The maximum length of sequences (window size).
+        stride: The stride for windowing (overlap = stride tokens).
+        seed: The seed to use for the data collator.
+        buffer_size: The buffer size for shuffle.
+        use_stateful_dataloader: Whether to use StatefulDataLoader for checkpointing.
+        use_lazy_tokenization: Ignored for THD (always uses eager tokenization).
+        sequence_column: Name of the column containing genomic sequences.
+        uppercase_labels: Whether to uppercase labels. Default: True.
+        mask_degenerate_bases: Whether to mask non-ACGT bases. Default: True.
+        mask_phylo_tags: Whether to mask phylogenetic tags. Default: False (Milestone 2).
+        pad_to_multiple_of: Pad total tokens to multiple of this value. Useful for FP8 (requires
+            multiple of 16). Default: None.
+
+    Returns:
+        A tuple of (dataloader, dataset).
+
+    Note:
+        THD format requires streaming datasets (IterableDataset). The tokenized dataset
+        must be a streaming dataset, not a map-style Dataset.
+    """
+    tokenized_dataset, tokenizer = create_tokenized_dataset(
+        distributed_config=distributed_config,
+        tokenizer_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        max_seq_length=max_seq_length,
+        stride=stride,
+        buffer_size=buffer_size,
+        use_lazy_tokenization=False,  # THD requires eager tokenization
+        sequence_column=sequence_column,
+    )
+
+    # THD packing requires streaming datasets
+    assert isinstance(tokenized_dataset, datasets.IterableDataset), (
+        "THD token packing requires a streaming dataset (streaming=True in load_dataset_kwargs)."
+    )
+
+    # Calculate token_micro_batch_size if not provided
+    if token_micro_batch_size is None:
+        assert micro_batch_size is not None, "Either micro_batch_size or token_micro_batch_size must be provided."
+        token_micro_batch_size = micro_batch_size * max_seq_length
+    else:
+        assert micro_batch_size is None, "Only one of micro_batch_size or token_micro_batch_size can be provided."
+        assert token_micro_batch_size >= max_seq_length, "token_micro_batch_size must be >= max_seq_length."
+
+    # Create genomic collator with flattening for THD format
+    from data_collator import GenomicCLMCollatorWithFlattening
+
+    data_collator = GenomicCLMCollatorWithFlattening(
+        tokenizer=tokenizer,
+        uppercase_labels=uppercase_labels,
+        mask_degenerate_bases=mask_degenerate_bases,
+        mask_phylo_tags=mask_phylo_tags,
+        pad_to_multiple_of=pad_to_multiple_of,
+    )
+
+    # For THD, we use a special dataset wrapper that packs sequences up to token_micro_batch_size
+    from data_collator import TokenPackingDataset
+
+    packed_dataset = TokenPackingDataset(
+        dataset=tokenized_dataset,
+        max_tokens_per_batch=token_micro_batch_size,
+        drop_last=False,
+    )
+
+    # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
+    dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
+    train_dataloader = dataloader_class(
+        packed_dataset,
+        batch_size=None,  # TokenPackingDataset handles batching
+        collate_fn=data_collator,
+        num_workers=num_workers,
+        pin_memory=True if not use_stateful_dataloader else False,
+        persistent_workers=num_workers > 0,
+    )
+
+    return train_dataloader, tokenized_dataset
