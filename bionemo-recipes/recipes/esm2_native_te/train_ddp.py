@@ -73,13 +73,6 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
-    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
-    # avoid errors with unused parameters.
-    try:
-        del model.esm.contact_head
-    except AttributeError:
-        pass
-
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
@@ -93,10 +86,9 @@ def main(args: DictConfig) -> float | None:
     )
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
+    assert args.use_sequence_packing == False, "Context Parallelism requires THD Sequence Packing."
     train_dataloader, dataset_or_sampler = (
         create_thd_dataloader(dist_config, **args.dataset)
-        if args.use_sequence_packing
-        else create_bshd_dataloader(dist_config, **args.dataset)
     )
 
     if args.use_torch_compile:
