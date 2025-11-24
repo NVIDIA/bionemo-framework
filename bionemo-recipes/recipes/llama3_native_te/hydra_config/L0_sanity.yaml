@@ -1,0 +1,42 @@
+defaults:
+  - defaults
+  - _self_
+
+# Training config
+model_tag: ./example_checkpoint # Use tiny Llama config for testing (4 layers, 384 hidden, ~9.6M params)
+
+config_kwargs:
+  num_hidden_layers: 2
+  hidden_size: 384
+  intermediate_size: 1536
+  num_attention_heads: 6
+  num_key_value_heads: 6
+
+num_train_steps: 250
+
+# We want this on in CI/CD to validate that the script runs successfully with torch.compile.
+use_torch_compile: true # Disable for faster startup during testing
+
+dataset:
+  micro_batch_size: 1 # Small batch size for limited GPU memory
+  load_dataset_kwargs:
+    path: "parquet"
+    split: "train"
+    data_files: "test_genomic_sequences.parquet"  # Use local test file in recipe directory
+    streaming: True
+
+# WandB config
+wandb_init_args:
+  name: "llama3_8B_genomic_sanity"
+  mode: "offline"
+
+# Learning rate scheduler config
+lr_scheduler_kwargs:
+  num_warmup_steps: 10 # Shorter warmup for quick testing
+
+checkpoint:
+  ckpt_dir: null
+  save_final_model: false
+
+logger:
+  frequency: 1

@@ -33,7 +33,8 @@
                 "ms-toolsai.jupyter",
                 "eamodio.gitlens",
                 "tamasfe.even-better-toml",
-                "streetsidesoftware.code-spell-checker"
+                "streetsidesoftware.code-spell-checker",
+                "ms-azuretools.vscode-docker"
             ]
         }
     }

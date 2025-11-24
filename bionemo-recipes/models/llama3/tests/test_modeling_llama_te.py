@@ -45,9 +45,12 @@ def input_text():
     )
 
 
-def test_llama_model_forward_pass(input_text):
+@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
+def test_llama_model_forward_pass(input_text, attn_input_format):
     tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
-    config = NVLlamaConfig.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2)
+    config = NVLlamaConfig.from_pretrained(
+        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format=attn_input_format
+    )
     model = NVLlamaForCausalLM(config)
 
     inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="right")
@@ -59,6 +62,27 @@ def test_llama_model_forward_pass(input_text):
     assert outputs.logits is not None
     assert outputs.hidden_states is not None
     assert len(outputs.hidden_states) == config.num_hidden_layers + 1
+
+
+@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
+def test_llama_model_backward_pass(input_text, attn_input_format):
+    if attn_input_format == "thd" and torch.cuda.get_device_capability()[0] == 12:
+        pytest.xfail("BIONEMO-3294: CUDNN backward pass is not supported for THD inputs on SM120.")
+
+    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
+    config = NVLlamaConfig.from_pretrained(
+        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format=attn_input_format
+    )
+    model = NVLlamaForCausalLM(config)
+
+    inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="right")
+    inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    model.to("cuda")
+    outputs = model(**inputs, output_hidden_states=True)
+    outputs.logits.mean().backward()
+
+    for param in model.parameters():
+        assert param.grad is not None
 
 
 def test_llama_model_forward_pass_thd_inputs(input_text):
@@ -84,9 +108,12 @@ def test_llama_model_forward_pass_thd_inputs(input_text):
 
 
 @pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
-def test_llama_model_golden_values(input_text):
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
-    model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
+@pytest.mark.parametrize(
+    "upstream_model_name", ["meta-llama/Llama-3.2-1B-Instruct", "meta-llama/Llama-3.1-8B-Instruct"]
+)
+def test_llama_model_golden_values(input_text, upstream_model_name: str):
+    tokenizer = AutoTokenizer.from_pretrained(upstream_model_name)
+    model_hf = AutoModelForCausalLM.from_pretrained(upstream_model_name, dtype=torch.bfloat16)
 
     model_te = convert_llama_hf_to_te(model_hf)
 

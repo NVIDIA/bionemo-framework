@@ -27,11 +27,50 @@ bionemo-framework repository. You can download a zipped directory of this folder
 \[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
 \[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
 
+### Installing Dependencies
+
+The easiest way to get started with this recipe is to use the provided Dockerfile, which uses the latest NVIDIA PyTorch
+base image to provide optimized versions of PyTorch and TransformerEngine. To build the container, run:
+
+```bash
+docker build -t esm2_native_te .
+```
+
+To run the container, run:
+
+```bash
+docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bionemo esm2_native_te /bin/bash
+```
+
+Alternatively, the dependencies can be installed manually in an environment with CUDA support. See
+[Dockerfile.cuda](Dockerfile.cuda) for the process of installing dependencies in a fresh python environment (for e.g.,
+CUDA 13.0):
+
+```bash
+uv venv --python 3.12 --seed /workspace/.venv
+source /workspace/.venv/bin/activate
+uv pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cu130
+uv pip install wheel packaging psutil
+pip install --no-build-isolation "flash-attn>=2.1.1,<=2.8.1"
+pip install --no-build-isolation transformer-engine[pytorch]==2.9.0
+uv pip install -r /requirements.txt
+```
+
+To build and run the CUDA base container, run:
+
+```bash
+docker build -t esm2_native_te_cuda -f Dockerfile.cuda .
+docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bionemo esm2_native_te_cuda /bin/bash -c "pytest -v ."
+```
+
 ### Performance Benchmarks
 
 ![Performance Benchmarks](../../../docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg)
 
-Note: "compiled" refers to `torch.compile`. "fa2" is [FlashAttention2](https://github.com/Dao-AILab/flash-attention). Recently, we measured 2800 tokens/second/GPU training speed on H100 with HuggingFace Transformers's ESM-2 implementation of THD sequence packing, however we have not been able to make this configuration work on Blackwell and this work is still in progress.
+Note: "compiled" refers to `torch.compile`. "fa2" is [FlashAttention2](https://github.com/Dao-AILab/flash-attention).
+Recently, we measured 2800 tokens/second/GPU training speed on H100 with HuggingFace Transformers's ESM-2 implementation
+of THD sequence packing, however we have not been able to make this configuration work on Blackwell and this work is
+still in progress.
 
 ### Distributed Training
 
@@ -95,6 +134,40 @@ model tag:
 
 ```bash
 python train_fsdp2.py --config-name L0_sanity model_tag=facebook/esm2_t6_8M_UR50D
+```
+
+## Downloading Pre-Training Data For Offline Training
+
+An example pre-training dataset for ESM-2 is available in the
+[`nvidia/esm2_uniref_pretraining_data`](https://huggingface.co/datasets/nvidia/esm2_uniref_pretraining_data) Hugging
+Face dataset. This dataset can be [streamed](https://huggingface.co/docs/datasets/en/stream) from the Hugging Face Hub via
+
+```python
+>>> from datasets import load_dataset
+>>> dataset = load_dataset('nvidia/esm2_uniref_pretraining_data', split='train', streaming=True)
+>>> print(next(iter(dataset)))
+{'sequence': 'MSPRRTGGARPPGPCTPCGPRPRCPSRRSAAARPAPSAAPARRARPGRRPGCRPGTDCPGTARRPGGGP...',
+ 'ur50_id': 'UniRef50_A0A081XN86',
+ 'ur90_id': 'UniRef90_UPI002FBE17D9'}
+```
+
+For large-scale training, the dataset should be downloaded locally via the [huggingface
+CLI](https://huggingface.co/docs/huggingface_hub/guides/download#download-from-the-cli), with appropriate values set for
+`HF_HOME` and `HF_TOKEN` environment variables. Use `uv tool install huggingface_hub` to install the CLI if not already
+installed.
+
+```bash
+export HF_TOKEN=<your_huggingface_token>
+hf download nvidia/esm2_uniref_pretraining_data --repo-type dataset --local-dir /path/to/download/directory
+# Test to ensure the dataset can be loaded correctly
+python -c "import datasets; datasets.load_dataset('/path/to/download/directory', split='train', streaming=True)"
+```
+
+Pass the downloaded dataset directory to the training script as the `dataset.path` configuration parameter.
+
+```bash
+HF_DATASETS_OFFLINE=1 python train_fsdp2.py --config-name L0_sanity \
+  dataset.load_dataset_kwargs.path=/path/to/download/directory
 ```
 
 ## Saving and Loading Checkpoints

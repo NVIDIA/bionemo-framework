@@ -48,6 +48,11 @@ def convert_llama_hf_to_te(model_hf: LlamaForCausalLM, **config_kwargs) -> NVLla
     with torch.device("meta"):
         model_te = NVLlamaForCausalLM(te_config)
 
+    if model_hf.config.tie_word_embeddings:
+        state_dict_ignored_entries = ["lm_head.weight"]
+    else:
+        state_dict_ignored_entries = []
+
     output_model = state.apply_transforms(
         model_hf,
         model_te,
@@ -71,10 +76,10 @@ def convert_llama_hf_to_te(model_hf: LlamaForCausalLM, **config_kwargs) -> NVLla
                 fn=state.TransformFns.merge_fc1,
             ),
         ],
+        state_dict_ignored_entries=state_dict_ignored_entries,
     )
 
     output_model.model.rotary_emb.inv_freq = model_hf.model.rotary_emb.inv_freq.clone()
-    output_model.tie_weights()
 
     return output_model
 

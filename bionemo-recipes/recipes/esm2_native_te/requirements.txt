@@ -1,6 +1,7 @@
 datasets
 hydra-core
 megatron-fsdp
+pytest
 torch
 torchao!=0.14.0
 torchdata
