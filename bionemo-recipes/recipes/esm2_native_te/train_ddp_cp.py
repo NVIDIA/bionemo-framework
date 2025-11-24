@@ -19,14 +19,14 @@ from pathlib import Path
 import hydra
 import torch
 import transformer_engine.pytorch
-
 from omegaconf import DictConfig
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
+
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
-from dataset import create_bshd_dataloader, create_thd_dataloader, CPAwareDataloader, create_cp_dataloader
+from dataset import create_bshd_dataloader, create_cp_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
@@ -37,7 +37,7 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
-def main(args: DictConfig) -> float | None:
+def main(args: DictConfig) -> float | None:  # noqa: C901
     """Train ESM-2 with TE layers using DDP.
 
     Returns:
@@ -61,8 +61,7 @@ def main(args: DictConfig) -> float | None:
     ddp_size = dist_config.world_size // args.cp_size
 
     logger.info(
-        f"Creating device mesh: world_size={dist_config.world_size}, "
-        f"ddp_size={ddp_size}, cp_size={args.cp_size}"
+        f"Creating device mesh: world_size={dist_config.world_size}, ddp_size={ddp_size}, cp_size={args.cp_size}"
     )
 
     # Create a device mesh for DDP and CP.
@@ -83,7 +82,9 @@ def main(args: DictConfig) -> float | None:
 
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     # Note: token_dropout is set to False because it's not compatible with context parallelism.
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, token_dropout=False, dtype=torch.bfloat16)
+    config = AutoConfig.from_pretrained(
+        args.model_tag, trust_remote_code=True, token_dropout=False, dtype=torch.bfloat16
+    )
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -117,19 +118,23 @@ def main(args: DictConfig) -> float | None:
     )
     cp_group = device_mesh["cp"].get_group()
     cp_rank = device_mesh.get_local_rank("cp")
-    
+
     if args.cp_size > 1:
         for i, transformer_layer in enumerate(model.module.esm.encoder.layers):
             logger.debug(f"Rank {dist_config.rank}: Setting CP group for layer {i}")
             transformer_layer.set_context_parallel_group(
-                cp_group,
-                torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()),
-                torch.cuda.Stream()
+                cp_group, torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()), torch.cuda.Stream()
             )
-    
+
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
     train_dataloader, dataset_or_sampler = (
-        create_cp_dataloader(dist_config, cp_world_size=torch.distributed.get_world_size(group=cp_group), cp_group=cp_group, cp_rank=cp_rank, **args.dataset)
+        create_cp_dataloader(
+            dist_config,
+            cp_world_size=torch.distributed.get_world_size(group=cp_group),
+            cp_group=cp_group,
+            cp_rank=cp_rank,
+            **args.dataset,
+        )
         if args.use_sequence_packing
         else create_bshd_dataloader(dist_config, **args.dataset)
     )

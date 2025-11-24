@@ -20,7 +20,7 @@ This should eventually get moved to a separate package, or possibly upstreamed i
 
 import logging
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any
 
 import datasets
 import torch

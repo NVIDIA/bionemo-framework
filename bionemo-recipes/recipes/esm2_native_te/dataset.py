@@ -15,17 +15,17 @@
 
 import logging
 
-from typing import Optional
-import torch
 import datasets
 import datasets.distributed
+import torch
 from torch.utils.data import DataLoader, DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
-from collator import MLMDataCollatorWithFlattening, TokenPackingDataset, MLMDataCollatorWithFlatteningCPAware
+from collator import MLMDataCollatorWithFlattening, MLMDataCollatorWithFlatteningCPAware, TokenPackingDataset
 from distributed_config import DistributedConfig
+
 
 logger = logging.getLogger(__name__)
 
@@ -239,7 +239,9 @@ def create_cp_dataloader(
     cp_group: torch.distributed.ProcessGroup = None,
     cp_rank: int = 0,
 ):
-    """Create a dataloader that packs up to the maximum number of tokens per batch. This dataload is also 
+    """CP Dataloader.
+
+    Create a dataloader that packs up to the maximum number of tokens per batch. This dataload is also
     amenable toward context parallelism. It produces batches of data on CP rank 0, creates shards from that data for all other
     CP ranks, and then scatters the shards to the other CP ranks.
 
@@ -263,6 +265,7 @@ def create_cp_dataloader(
         cp_world_size: The size of the context parallel group.
         cp_group: The context parallel group.
         cp_rank: The rank of the current context parallel process.
+
     Returns:
         A CPAwareDataloader that can be used for training.
     """
@@ -286,7 +289,6 @@ def create_cp_dataloader(
     if pad_sequences_to_be_divisible_by is not None:
         logger.info(f"Setting padding sequences to be divisible by {2 * cp_world_size} for context parallelism.")
         pad_sequences_to_be_divisible_by = 2 * cp_world_size
-
 
     data_collator = MLMDataCollatorWithFlattening(
         tokenizer=tokenizer,
@@ -316,16 +318,20 @@ def create_cp_dataloader(
 
 class CPAwareDataloader:
     """A dataloader that is aware of context parallelism."""
-    def __init__(self, dataloader: StatefulDataLoader,
-                    cp_group: torch.distributed.ProcessGroup,
-                    cp_rank: int,
-                    ):
+
+    def __init__(
+        self,
+        dataloader: StatefulDataLoader,
+        cp_group: torch.distributed.ProcessGroup,
+        cp_rank: int,
+    ):
         """Initialize the CPAwareDataloader.
-        This class is used to create a dataloader that is aware of context parallelism. It will get the batch from the dataloader on CP rank 0, and then determine 
+
+        This class is used to create a dataloader that is aware of context parallelism. It will get the batch from the dataloader on CP rank 0, and then determine
         the shards for all the different CP group members.
         Then it will scatter the shards to the different CP group members.
         The shards are then returned to the caller for the current CP rank.
-        
+
 
         Args:
             dataloader: The dataloader to use.
@@ -340,7 +346,7 @@ class CPAwareDataloader:
 
     def __iter__(self):
         """Make the dataloader iterable."""
-        self._iterator = iter(self.dataloader) # < --- collator output.
+        self._iterator = iter(self.dataloader)  # < --- collator output.
         return self
 
     def __next__(self):
@@ -349,8 +355,9 @@ class CPAwareDataloader:
         return batch
 
     def _send_data_to_cp_ranks(self):
-        """
-        This function will get the batch from the dataloader on CP rank 0, and then determine 
+        """Send data to all the CP ranks.
+
+        This function will get the batch from the dataloader on CP rank 0, and then determine
         the shards for all the different CP group members.
         combined_batch = [<cp_rank_0_shard>, <cp_rank_1_shard>, ..., <cp_rank_n_shard>]
         Then it will scatter the shards to the different CP group members.
@@ -358,7 +365,7 @@ class CPAwareDataloader:
         for the current CP rank.
 
         Scalability:
-            Rank 0's work grows linearly with CP size, but the other ranks do not need to store all the shards so they do not 
+            Rank 0's work grows linearly with CP size, but the other ranks do not need to store all the shards so they do not
             grow linearly with CP size.
 
         Args:
@@ -386,4 +393,3 @@ class CPAwareDataloader:
             group_src=0,
         )
         return scatter_object_output_list[0]
-

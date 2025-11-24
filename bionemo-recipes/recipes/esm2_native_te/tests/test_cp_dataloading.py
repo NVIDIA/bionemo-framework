@@ -15,48 +15,51 @@
 
 import copy
 import unittest
+from itertools import pairwise
 from typing import Dict, Iterator, List
-
 from unittest import mock
 
 import torch
-
-from dataset import CPAwareDataloader
-from collator import split_batch_by_cp_rank
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
+
+from collator import split_batch_by_cp_rank
+from dataset import CPAwareDataloader
 
 
 def get_dummy_data_thd_with_padding_dp0(cp_size: int):
-    pid = 1 # The pad token id.
-    label_pad = -100 # The label pad id.
+    pid = 1  # The pad token id.
+    label_pad = -100  # The label pad id.
 
     # Make some fake data.
-    input_ids = torch.tensor([
-                1, 2, 3, 5, 6
-            ])
-    labels = torch.tensor([
-        10, 20, 30, 50, 60,
-    ])
+    input_ids = torch.tensor([1, 2, 3, 5, 6])
+    labels = torch.tensor(
+        [
+            10,
+            20,
+            30,
+            50,
+            60,
+        ]
+    )
     cu_seqlens_q = torch.tensor([0, 3, 5])
     divisibility_factor = 2 * cp_size
 
-    input_ids_padded, labels_padded, cu_seqlens_q_padded = \
-                pad_thd_sequences_for_cp(
-                    input_ids.unsqueeze(0),
-                    labels.unsqueeze(0),
-                    cu_seqlens_q,
-                    divisibility_factor,
-                    padding_token_id=pid,
-                    padding_label_id=label_pad
-                )
+    input_ids_padded, labels_padded, cu_seqlens_q_padded = pad_thd_sequences_for_cp(
+        input_ids.unsqueeze(0),
+        labels.unsqueeze(0),
+        cu_seqlens_q,
+        divisibility_factor,
+        padding_token_id=pid,
+        padding_label_id=label_pad,
+    )
 
     batch = {
-        "input_ids": input_ids_padded.unsqueeze(0).to(torch.int64), # Add batch dim: [1, seq_len]
-        "labels": labels_padded.unsqueeze(0).to(torch.int64), # [1, seq_len]
-        "cu_seq_lens_q_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_k_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
+        "input_ids": input_ids_padded.unsqueeze(0).to(torch.int64),  # Add batch dim: [1, seq_len]
+        "labels": labels_padded.unsqueeze(0).to(torch.int64),  # [1, seq_len]
+        "cu_seq_lens_q_padded": cu_seqlens_q_padded.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_k_padded": cu_seqlens_q_padded.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
         "max_length_q": 8,
         "max_length_k": 8,
     }
@@ -64,36 +67,49 @@ def get_dummy_data_thd_with_padding_dp0(cp_size: int):
 
 
 def get_dummy_data_thd_with_padding_dp1(cp_size: int):
-    pid = 1 # The pad token id.
-    label_pad = -100 # The label pad id.
+    pid = 1  # The pad token id.
+    label_pad = -100  # The label pad id.
 
     # Make some fake data.
-    input_ids = torch.tensor([
-                9, 10, 11, 13, 14, 15,
-            ])
-    labels = torch.tensor([
-        90, 100, 110, 130, 140, 150,
-    ])
+    input_ids = torch.tensor(
+        [
+            9,
+            10,
+            11,
+            13,
+            14,
+            15,
+        ]
+    )
+    labels = torch.tensor(
+        [
+            90,
+            100,
+            110,
+            130,
+            140,
+            150,
+        ]
+    )
     cu_seqlens_q = torch.tensor([0, 3, 6])
     divisibility_factor = 2 * cp_size
 
-    input_ids_padded, labels_padded, cu_seqlens_q_padded = \
-                pad_thd_sequences_for_cp(
-                    input_ids.unsqueeze(0),
-                    labels.unsqueeze(0),
-                    cu_seqlens_q,
-                    divisibility_factor,
-                    padding_token_id=pid,
-                    padding_label_id=label_pad
-                )
+    input_ids_padded, labels_padded, cu_seqlens_q_padded = pad_thd_sequences_for_cp(
+        input_ids.unsqueeze(0),
+        labels.unsqueeze(0),
+        cu_seqlens_q,
+        divisibility_factor,
+        padding_token_id=pid,
+        padding_label_id=label_pad,
+    )
 
     batch = {
-        "input_ids": input_ids_padded.unsqueeze(0).to(torch.int64), # Add batch dim: [1, seq_len]
-        "labels": labels_padded.unsqueeze(0).to(torch.int64), # [1, seq_len]
-        "cu_seq_lens_q_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_k_padded": cu_seqlens_q_padded.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
+        "input_ids": input_ids_padded.unsqueeze(0).to(torch.int64),  # Add batch dim: [1, seq_len]
+        "labels": labels_padded.unsqueeze(0).to(torch.int64),  # [1, seq_len]
+        "cu_seq_lens_q_padded": cu_seqlens_q_padded.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_k_padded": cu_seqlens_q_padded.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
         "max_length_q": 8,
         "max_length_k": 8,
     }
@@ -102,20 +118,38 @@ def get_dummy_data_thd_with_padding_dp1(cp_size: int):
 
 def get_dummy_data_thd_dp0_nopadding():
     # Make some fake data.
-    input_ids = torch.tensor([
-                1, 2, 3, 4, 5, 6, 7, 8,  # 8 tokens
-            ])
-    labels = torch.tensor([
-        10, 20, 30, 40, 50, 60, 70, 80,
-    ])
+    input_ids = torch.tensor(
+        [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,  # 8 tokens
+        ]
+    )
+    labels = torch.tensor(
+        [
+            10,
+            20,
+            30,
+            40,
+            50,
+            60,
+            70,
+            80,
+        ]
+    )
     cu_seqlens_q = torch.tensor([0, 8])
     batch = {
-        "input_ids": input_ids.unsqueeze(0).to(torch.int64), # Add batch dim: [1, seq_len]
-        "labels": labels.unsqueeze(0).to(torch.int64), # [1, seq_len]
-        "cu_seq_lens_q_padded": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_k_padded": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
+        "input_ids": input_ids.unsqueeze(0).to(torch.int64),  # Add batch dim: [1, seq_len]
+        "labels": labels.unsqueeze(0).to(torch.int64),  # [1, seq_len]
+        "cu_seq_lens_q_padded": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_k_padded": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
         "max_length_q": 8,
         "max_length_k": 8,
     }
@@ -124,24 +158,43 @@ def get_dummy_data_thd_dp0_nopadding():
 
 def get_dummy_data_thd_dp1_nopadding():
     # Make some fake data.
-    input_ids = torch.tensor([
-                9, 10, 11, 12, 13, 14, 15, 16,  # 8 tokens
-            ])
-    labels = torch.tensor([
-        90, 100, 110, 120, 130, 140, 150, 160,
-    ])
+    input_ids = torch.tensor(
+        [
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,  # 8 tokens
+        ]
+    )
+    labels = torch.tensor(
+        [
+            90,
+            100,
+            110,
+            120,
+            130,
+            140,
+            150,
+            160,
+        ]
+    )
     cu_seqlens_q = torch.tensor([0, 8])
     batch = {
-        "input_ids": input_ids.unsqueeze(0).to(torch.int64), # Add batch dim: [1, seq_len]
-        "labels": labels.unsqueeze(0).to(torch.int64), # [1, seq_len]
-        "cu_seq_lens_q_padded": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_k_padded": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
-        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32), # Keep 1D - int32
+        "input_ids": input_ids.unsqueeze(0).to(torch.int64),  # Add batch dim: [1, seq_len]
+        "labels": labels.unsqueeze(0).to(torch.int64),  # [1, seq_len]
+        "cu_seq_lens_q_padded": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_k_padded": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
+        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
         "max_length_q": 8,
         "max_length_k": 8,
     }
     return batch
+
 
 class _DummyLoader:
     """Minimal iterable that always yields the same object (batch or list)."""
@@ -179,7 +232,7 @@ def _fake_get_batch(
     shard_tokens: List[torch.Tensor] = []
     shard_labels: List[torch.Tensor] = []
 
-    for start, end in zip(cu_seqlens_padded[:-1], cu_seqlens_padded[1:]):
+    for start, end in pairwise(cu_seqlens_padded):
         start_idx = int(start)
         end_idx = int(end)
         slice_size = (end_idx - start_idx) // total_slices
@@ -215,51 +268,93 @@ def _make_cp_shards(base_batch: Dict[str, torch.Tensor], cp_group: _DummyCPGroup
         combined_batch.append(batch_shard)
     return combined_batch
 
+
 def test_pad_thd_sequences_for_cp():
-    pid = 1 # The pad token id.
-    label_pad = -100 # The label pad id.
+    pid = 1  # The pad token id.
+    label_pad = -100  # The label pad id.
 
     # Make some fake data.
-    input_ids = torch.tensor([
-                1, 1, 1, 1, 1, 1, 1,  # 7 tokens
-                2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,  # 11 tokens
-                3, 3, 3, 3, 3  # 5 tokens
-            ])
-    labels = torch.tensor([
-        10, 11, 12, 13, 14, 15, 16,
-        20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30,
-        5, 6, 7, 8, 9
-    ])
+    input_ids = torch.tensor(
+        [
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,
+            1,  # 7 tokens
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,
+            2,  # 11 tokens
+            3,
+            3,
+            3,
+            3,
+            3,  # 5 tokens
+        ]
+    )
+    labels = torch.tensor([10, 11, 12, 13, 14, 15, 16, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 5, 6, 7, 8, 9])
     cu_seqlens_q = torch.tensor([0, 7, 18, 23])
     divisibility_factor = 4
 
-    input_ids_padded, labels_padded, cu_seqlens_q_padded = \
-                pad_thd_sequences_for_cp(
-                    input_ids.unsqueeze(0),
-                    labels.unsqueeze(0),
-                    cu_seqlens_q,
-                    divisibility_factor,
-                    padding_token_id=pid,
-                    padding_label_id=label_pad
-                )
-    expected_input_ids = torch.tensor([
-                1, 1, 1, 1, 1, 1, 1, pid,
-                2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, pid,
-                3, 3, 3, 3, 3, pid, pid, pid
-            ])
+    input_ids_padded, labels_padded, cu_seqlens_q_padded = pad_thd_sequences_for_cp(
+        input_ids.unsqueeze(0),
+        labels.unsqueeze(0),
+        cu_seqlens_q,
+        divisibility_factor,
+        padding_token_id=pid,
+        padding_label_id=label_pad,
+    )
+    expected_input_ids = torch.tensor(
+        [1, 1, 1, 1, 1, 1, 1, pid, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, pid, 3, 3, 3, 3, 3, pid, pid, pid]
+    )
 
-    expected_labels = torch.tensor([
-        10, 11, 12, 13, 14, 15, 16, label_pad,
-        20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, label_pad,
-        5, 6, 7, 8, 9, label_pad, label_pad, label_pad
-    ])
+    expected_labels = torch.tensor(
+        [
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            label_pad,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            label_pad,
+            5,
+            6,
+            7,
+            8,
+            9,
+            label_pad,
+            label_pad,
+            label_pad,
+        ]
+    )
 
     expected_cu_seqlens_padded = torch.tensor([0, 8, 20, 28])
 
     assert torch.equal(input_ids_padded, expected_input_ids)
     assert torch.equal(labels_padded, expected_labels)
     assert torch.equal(cu_seqlens_q_padded, expected_cu_seqlens_padded)
-
 
 
 def test_dataloader_scatter_nopadding():
@@ -319,8 +414,10 @@ def test_dataloader_scatter_nopadding():
             assert "data" in scatter_payload, "Rank 0 payload missing"
             scatter_object_output_list[0] = scatter_payload["data"][current_rank["value"]]
 
-        with mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter), \
-             mock.patch("dataset.torch.distributed.barrier", return_value=None):
+        with (
+            mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter),
+            mock.patch("dataset.torch.distributed.barrier", return_value=None),
+        ):
             iter(loader_rank0)
             iter(loader_rank1)
 
@@ -340,13 +437,14 @@ def test_dataloader_scatter_nopadding():
 
     batch_dp1_cp0, batch_dp1_cp1 = run_roundtrip(get_dummy_data_thd_dp1_nopadding())
 
-    torch.testing.assert_close(batch_dp1_cp0["input_ids"], torch.tensor([[9, 10, 15 ,16]], dtype=torch.int64))
+    torch.testing.assert_close(batch_dp1_cp0["input_ids"], torch.tensor([[9, 10, 15, 16]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp1_cp0["labels"], torch.tensor([[90, 100, 150, 160]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp1_cp1["input_ids"], torch.tensor([[11, 12, 13, 14]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp1_cp1["labels"], torch.tensor([[110, 120, 130, 140]], dtype=torch.int64))
 
+
 def test_dataloader_scatter_with_pad_between_seqs():
-    f"""
+    """
     Here we are going to test two sequences using two dataloaders with padding. We use CP=2, DP=2 and
     ensure that the data is scattered correctly.
     There are going to be 4 shards. CP0, CP1 (for context parallel) and DP0, DP1 (for data parallel).
@@ -403,8 +501,10 @@ def test_dataloader_scatter_with_pad_between_seqs():
             assert "data" in scatter_payload, "Rank 0 payload missing"
             scatter_object_output_list[0] = scatter_payload["data"][current_rank["value"]]
 
-        with mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter), \
-             mock.patch("dataset.torch.distributed.barrier", return_value=None):
+        with (
+            mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter),
+            mock.patch("dataset.torch.distributed.barrier", return_value=None),
+        ):
             iter(loader_rank0)
             iter(loader_rank1)
 
@@ -425,6 +525,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
 
     torch.testing.assert_close(batch_dp1_cp0["input_ids"], torch.tensor([[9, 1, 13, 1]], dtype=torch.int64))
     torch.testing.assert_close(batch_dp1_cp1["input_ids"], torch.tensor([[10, 11, 14, 15]], dtype=torch.int64))
+
 
 if __name__ == "__main__":
     unittest.main()
