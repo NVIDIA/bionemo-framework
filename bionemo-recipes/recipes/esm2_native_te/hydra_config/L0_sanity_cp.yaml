@@ -7,7 +7,8 @@ model_tag: ./example_8m_checkpoint  # E.g., nvidia/esm2_t6_8M_UR50D or facebook/
 num_train_steps: 250
 
 # We want this on in CI/CD to validate that the script runs successfully with torch.compile.
-use_torch_compile: false # TODO: Not sure if this works with CP yet.
+# TODO(@jomitchell): Not sure if this works with CP yet.
+use_torch_compile: false
 
 # Whether to use context parallelism or not.
 cp_size: 2

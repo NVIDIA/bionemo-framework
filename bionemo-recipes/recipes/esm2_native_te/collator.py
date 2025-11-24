@@ -297,7 +297,12 @@ class MLMDataCollatorWithFlattening:
 
 
 class MLMDataCollatorWithFlatteningCPAware:
-    """A collator that is aware of context parallelism."""
+    """A collator that is aware of context parallelism.
+    
+    For the case of context parallelism, padded sequences will be returned from the wrapped collator, and then split into shards for each context parallelism rank.
+
+    The shards are then typically sent to the CPAwareDataloader which will scatter them to the appropriate GPUs.
+    """
 
     def __init__(self, collator: MLMDataCollatorWithFlattening, cp_world_size: int):
         """Initialize the MLMDataCollatorWithFlatteningCPAware.
@@ -337,7 +342,7 @@ class MLMDataCollatorWithFlatteningCPAware:
             seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
             batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)
             batch_shard["max_length_k"] = batch_shard["max_length_q"]
-            batch_shard["pad_between_seqs"] = True  # TODO(@jomitchell): Double check this on recipe MR.
+            batch_shard["pad_between_seqs"] = True
             combined_batch.append(batch_shard)
 
         return combined_batch
