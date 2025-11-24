@@ -26,7 +26,7 @@ from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
-from dataset import create_bshd_dataloader, create_cp_dataloader
+from dataset import create_cp_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
@@ -122,14 +122,12 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Context Parallelism requires THD Sequence Packing.
     assert args.use_sequence_packing, "Context Parallelism requires THD Sequence Packing."
 
-    train_dataloader, dataset_or_sampler = (
-        create_cp_dataloader(
-            dist_config,
-            cp_world_size=torch.distributed.get_world_size(group=cp_group),
-            cp_group=cp_group,
-            cp_rank=cp_rank,
-            **args.dataset,
-        )
+    train_dataloader, dataset_or_sampler = create_cp_dataloader(
+        dist_config,
+        cp_world_size=torch.distributed.get_world_size(group=cp_group),
+        cp_group=cp_group,
+        cp_rank=cp_rank,
+        **args.dataset,
     )
 
     if args.use_torch_compile:
