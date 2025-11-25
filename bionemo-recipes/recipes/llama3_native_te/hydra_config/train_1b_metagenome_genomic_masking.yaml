@@ -26,7 +26,7 @@ dataset:
   micro_batch_size: 4  # Can use larger batch with 1B model
   num_workers: 4
   max_seq_length: 8192  # Full context length
-  stride: 7992  # John's setting: 200 token overlap
+  stride: 200  # HuggingFace stride = overlap amount (John used 200 token overlap)
   buffer_size: 500_000
   use_lazy_tokenization: true
   use_stateful_dataloader: false

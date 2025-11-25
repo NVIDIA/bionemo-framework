@@ -1,16 +1,15 @@
-# Production training config for Llama-3-8B on LOCAL metagenomes with genomic masking
+# Training config for Llama-3.1-8B on LOCAL OpenGenome2 metagenomes dataset
 defaults:
   - defaults
   - _self_
 
-# Model configuration - Full 8B model from HuggingFace
-model_tag: meta-llama/Llama-3.1-8B  # Full Llama-3.1-8B from HuggingFace
+# Model configuration - uses genomic config matching John's model
+model_tag: ./llama3_8b_genomic_config
 
-# Config overrides for genomic tokenizer (using Peter's config_kwargs pattern)
+# Config overrides for genomic tokenizer (Peter's config_kwargs)
 config_kwargs:
   trust_remote_code: true
-  vocab_size: 256  # Genomic tokenizer vocab size
-  tie_word_embeddings: false
+  vocab_size: 256  # Genomic tokenizer
   eos_token_id: 0
   pad_token_id: 1
   bos_token_id: 2
@@ -18,29 +17,29 @@ config_kwargs:
 # Training duration
 num_train_steps: 100_000
 
-# Dataset configuration - LOCAL metagenomes with genomic masking
+# Dataset configuration - LOAD FROM LOCAL FILES
 dataset:
-  sequence_column: "text"
+  sequence_column: "text"  # OpenGenome2 uses "text" column
   tokenizer_path: ${oc.env:PWD}/example_checkpoint
-  micro_batch_size: 2  # Conservative for 8B model
+  micro_batch_size: 2
   num_workers: 4
-  max_seq_length: 8192  # Full context length
+  max_seq_length: 8192
   stride: 200  # HuggingFace stride = overlap amount (John used 200 token overlap)
   buffer_size: 500_000
   use_lazy_tokenization: true
   use_stateful_dataloader: false
-  # Genomic masking options (Milestone 1: metagenomics)
-  uppercase_labels: true              # Uppercase labels, keep inputs mixed case
-  mask_degenerate_bases: true         # Mask N, R, Y, @, # etc.
+  # Genomic masking options
+  uppercase_labels: true
+  mask_degenerate_bases: true
   load_dataset_kwargs:
-    path: "json"  # Use JSON loader for local files
+    path: "json"  # ← Use JSON loader directly (not Hub dataset name!)
     data_files: "/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_bionemo/pstjohn/opengenome2/json/pretraining_or_both_phases/metagenomes/*.jsonl.gz"
     split: "train"
     streaming: true
 
 # Optimizer configuration
 adamw_kwargs:
-  lr: 2e-4  # John's metagenomics learning rate
+  lr: 2e-4
   fused: true
   betas: [0.9, 0.98]
   eps: 1e-8
@@ -53,7 +52,7 @@ lr_scheduler_kwargs:
 
 # Checkpoint configuration
 checkpoint:
-  ckpt_dir: ./checkpoints/llama3_8b_metagenome_genomic_masking
+  ckpt_dir: ./checkpoints/llama3_8b_metagenome
   save_final_model: true
   resume_from_checkpoint: true
   save_every_n_steps: 1_000
@@ -64,17 +63,28 @@ logger:
 
 # WandB configuration
 wandb_init_args:
-  name: "llama3-8b-metagenome-masking-${now:%Y%m%d_%H%M%S}"
+  name: "llama3-8b-metagenome-${now:%Y%m%d_%H%M%S}"
   project: "llama3-genomic-training"
   mode: "online"
   tags:
     - llama3-8b
     - metagenomes
-    - genomic-masking
-    - milestone-1
     - local-data
 
-# FP8 configuration (optional for H100)
+# mFSDP configuration
+fully_shard_kwargs:
+  zero_dp_strategy: "optim_grads_params"
+  calculate_per_token_loss: false
+  init_model_with_meta_device: ${use_meta_device}
+  check_for_nan_in_grad: true
+  grad_reduce_in_fp32: false
+  preserve_fp32_weights: true
+  overlap_grad_reduce: true
+  overlap_param_gather: true
+  sync_model_each_microbatch: true
+  average_in_collective: false
+
+# FP8 configuration
 fp8_config:
   enabled: false
   fp8_recipe: transformer_engine.common.recipe.DelayedScaling
