@@ -3,10 +3,10 @@ defaults:
   - defaults
   - _self_
 
-# Model configuration - Full 8B model from HuggingFace
-model_tag: meta-llama/Llama-3.1-8B  # Full Llama-3.1-8B from HuggingFace
+# Model configuration - Full 8B model with TE layers
+model_tag: ./llama3_8b_genomic_config  # 8B with TE (NVLlamaModel)
 
-# Config overrides for genomic tokenizer (using Peter's config_kwargs pattern)
+# Config overrides for genomic tokenizer
 config_kwargs:
   trust_remote_code: true
   vocab_size: 256  # Genomic tokenizer vocab size

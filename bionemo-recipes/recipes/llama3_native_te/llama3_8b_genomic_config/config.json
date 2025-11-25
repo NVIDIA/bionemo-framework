@@ -1,7 +1,15 @@
 {
   "architectures": [
-    "LlamaForCausalLM"
+    "NVLlamaForCausalLM"
   ],
+  "auto_map": {
+    "AutoConfig": "llama3_nv.NVLlamaConfig",
+    "AutoModel": "llama3_nv.NVLlamaModel",
+    "AutoModelForCausalLM": "llama3_nv.NVLlamaForCausalLM",
+    "AutoModelForQuestionAnswering": "llama3_nv.NVLlamaForQuestionAnswering",
+    "AutoModelForSequenceClassification": "llama3_nv.NVLlamaForSequenceClassification",
+    "AutoModelForTokenClassification": "llama3_nv.NVLlamaForTokenClassification"
+  },
   "attention_bias": false,
   "attention_dropout": 0.0,
   "bos_token_id": null,

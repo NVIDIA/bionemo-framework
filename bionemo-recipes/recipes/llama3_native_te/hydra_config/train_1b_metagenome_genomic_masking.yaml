@@ -4,14 +4,12 @@ defaults:
   - defaults
   - _self_
 
-# Model configuration - Llama-3.2-1B from HuggingFace
-model_tag: meta-llama/Llama-3.2-1B  # 1B parameter model
+# Model configuration - 1B with TE layers
+model_tag: ./example_checkpoint  # 1B with TE (NVLlamaModel)
 
-# Override model config for genomic tokenizer (using Peter's config_kwargs)
+# Config overrides for genomic tokenizer
 config_kwargs:
-  trust_remote_code: true
-  vocab_size: 256  # Genomic tokenizer vocab size
-  tie_word_embeddings: false
+  vocab_size: 256  # Genomic tokenizer
   eos_token_id: 0
   pad_token_id: 1
   bos_token_id: 2
