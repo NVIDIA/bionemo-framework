@@ -1,0 +1,72 @@
+# Training config for standard HuggingFace Llama-3.1-8B with genomic masking (NO TE)
+# Use this to test if convergence issues are from TE or from genomic collator
+defaults:
+  - defaults
+  - _self_
+
+# Model: Local 8B config with standard HuggingFace Llama (NOT TE)
+model_tag: ./llama3_8b_hf_config  # Standard Llama, not NVLlama (TE)
+
+num_train_steps: 10_000
+
+dataset:
+  sequence_column: "text"
+  tokenizer_path: ${oc.env:PWD}/example_checkpoint
+  micro_batch_size: 1  # Conservative for 8B without TE
+  num_workers: 4
+  max_seq_length: 8192
+  stride: 200
+  buffer_size: 500_000
+  use_lazy_tokenization: true
+  use_stateful_dataloader: false
+  # Genomic masking (Milestone 1: metagenomics)
+  uppercase_labels: false  # Metagenomics is 100% uppercase (per EDA)
+  mask_degenerate_bases: true  # Mask N, R, Y, @, # (0.001% of tokens)
+  mask_phylo_tags: false  # Not needed for metagenomics
+  load_dataset_kwargs:
+    path: "json"
+    data_files: "/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_bionemo/pstjohn/opengenome2/json/pretraining_or_both_phases/metagenomes/*.jsonl.gz"
+    split: "train"
+    streaming: true
+
+adamw_kwargs:
+  lr: 2e-4
+  fused: true
+  betas: [0.9, 0.98]
+  eps: 1e-8
+  weight_decay: 0.01
+
+lr_scheduler_kwargs:
+  num_warmup_steps: 2_000
+  num_training_steps: 10_000
+
+checkpoint:
+  ckpt_dir: ./checkpoints/llama3_8b_hf_genomic_masking
+  save_final_model: false
+  resume_from_checkpoint: false
+  save_every_n_steps: 1_000
+
+logger:
+  frequency: 50
+
+wandb_init_args:
+  name: "llama3-8b-hf-genomic-masking-${now:%Y%m%d_%H%M%S}"
+  project: "llama3-genomic-training"
+  mode: "online"
+  tags:
+    - llama3-8b
+    - standard-hf
+    - no-te
+    - genomic-masking
+    - convergence-test
+
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
+
+use_meta_device: false
+use_torch_compile: false
