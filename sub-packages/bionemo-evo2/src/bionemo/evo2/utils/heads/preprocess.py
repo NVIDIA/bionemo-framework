@@ -440,7 +440,7 @@ class Evo2Preprocessor:
                     # Verify lengths match
                     if len(tokens_list[0]) != rna_seq.shape[0]:
                         raise ValueError(
-                            f"Token/RNA-seq length mismatch: tokens={len(tokens_list[0])}, rna_seq={rna_seq.shape[0]}"
+                            f"Token/RNA-seq for file {filepath} length mismatch: tokens={len(tokens_list[0])}, rna_seq={rna_seq.shape[0]}"
                         )
 
                     # Convert to list of list for consistency with token storage format, if problamatic, convert to np

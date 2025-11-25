@@ -80,6 +80,7 @@ def _scale_loss(predictions: torch.Tensor, targets: torch.Tensor, epsilon: float
     scale_loss = (torch.log(pred_mean) - torch.log(target_mean)) ** 2
     return scale_loss.expand_as(predictions)
 
+
 def _borzoi_nll_loss(
     predictions: torch.Tensor,
     targets: torch.Tensor,
@@ -342,7 +343,6 @@ class BorzoiLoss(BaseRegressionLoss):
         return borzoi_loss
 
 
-
 class HuberLoss(BaseRegressionLoss):
     """Smooth L1 loss, robust to outliers."""
 
@@ -352,12 +352,13 @@ class HuberLoss(BaseRegressionLoss):
 
     def compute(self, predictions: torch.Tensor, targets: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
         """Compute Huber loss between predictions and targets."""
-        loss = F.huber_loss(predictions, targets, reduction='none', delta=self.delta)
+        loss = F.huber_loss(predictions, targets, reduction="none", delta=self.delta)
 
         if mask is not None:
             loss = loss * mask
 
         return loss
+
 
 class HybridLoss(BaseRegressionLoss):
     """Combines magnitude loss with distribution loss."""
@@ -370,17 +371,12 @@ class HybridLoss(BaseRegressionLoss):
     def compute(self, predictions: torch.Tensor, targets: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
         """Compute Hybrid loss combining magnitude and distribution losses."""
         # L1 for absolute magnitude
-        l1_loss = F.l1_loss(predictions, targets, reduction='none')
+        l1_loss = F.l1_loss(predictions, targets, reduction="none")
 
         # KL div for distribution/shape
         pred_dist = F.softmax(predictions, dim=1)
         target_dist = targets / (targets.sum(dim=1, keepdim=True) + 1e-7)
-        kl_loss = F.kl_div(
-            torch.log(pred_dist + 1e-7),
-            target_dist,
-            reduction='none',
-            log_target=False
-        )
+        kl_loss = F.kl_div(torch.log(pred_dist + 1e-7), target_dist, reduction="none", log_target=False)
 
         loss = self.magnitude_weight * l1_loss + self.distribution_weight * kl_loss
 
@@ -399,26 +395,16 @@ class PoissonWithDistributionLoss(BaseRegressionLoss):
         distribution_weight: float = 0.5,
         log_input: bool = False,
         full: bool = False,
-        eps: float = 1e-6
+        eps: float = 1e-6,
     ):
         """Initialize PoissonWithDistributionLoss."""
         self.poisson_weight = poisson_weight
         self.distribution_weight = distribution_weight
         self.eps = eps
 
-        self.poisson_loss = nn.PoissonNLLLoss(
-            log_input=log_input,
-            full=full,
-            eps=eps,
-            reduction='none'
-        )
+        self.poisson_loss = nn.PoissonNLLLoss(log_input=log_input, full=full, eps=eps, reduction="none")
 
-    def compute(
-        self,
-        predictions: torch.Tensor,
-        targets: torch.Tensor,
-        mask: Optional[torch.Tensor]
-    ) -> torch.Tensor:
+    def compute(self, predictions: torch.Tensor, targets: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
         """Compute Poisson with distribution loss."""
         # Ensure positivity
         predictions = torch.clamp(predictions, min=self.eps)
@@ -437,18 +423,10 @@ class PoissonWithDistributionLoss(BaseRegressionLoss):
         # KL div for distribution/shape
         pred_dist = F.softmax(predictions, dim=1)
         target_dist = targets / (targets.sum(dim=1, keepdim=True) + 1e-7)
-        kl_loss = F.kl_div(
-            torch.log(pred_dist + 1e-7),
-            target_dist,
-            reduction='none',
-            log_target=False
-        )
+        kl_loss = F.kl_div(torch.log(pred_dist + 1e-7), target_dist, reduction="none", log_target=False)
 
         # Combine
-        total_loss = (
-            self.poisson_weight * poisson_loss +
-            self.distribution_weight * kl_loss
-        )
+        total_loss = self.poisson_weight * poisson_loss + self.distribution_weight * kl_loss
 
         # Apply mask
         if mask is not None:
