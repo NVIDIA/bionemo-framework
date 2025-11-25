@@ -45,8 +45,8 @@ class GenomicDataCollator:
         base_collator: The underlying collator (e.g., DataCollatorForLanguageModeling)
         uppercase_labels: Whether to uppercase labels. Default: False.
         mask_degenerate_bases: Whether to mask non-ACGT bases. Default: True.
-        dna_tokens: List of valid DNA token IDs (A, C, G, T upper+lowercase)
-        control_tags: List of control character token IDs (@, #)
+        dna_tokens: Tuple of valid DNA token IDs (A, C, G, T upper+lowercase)
+        control_tags: Tuple of control character token IDs (@, #)
 
     Example:
         >>> from transformers.data.data_collator import DataCollatorForLanguageModeling
@@ -61,17 +61,8 @@ class GenomicDataCollator:
     base_collator: Any
     uppercase_labels: bool = False
     mask_degenerate_bases: bool = True
-    dna_tokens: list[int] = None  # Will use default in __post_init__
-    control_tags: list[int] = None  # Will use default in __post_init__
-
-    def __post_init__(self):
-        """Set default values for dna_tokens and control_tags."""
-        if self.dna_tokens is None:
-            # Standard DNA tokens: A, C, G, T (both uppercase and lowercase)
-            self.dna_tokens = [65, 67, 71, 84, 97, 99, 103, 116]
-        if self.control_tags is None:
-            # Control characters used in data formatting
-            self.control_tags = [64, 35]  # '@', '#'
+    dna_tokens: tuple[int, ...] = (65, 67, 71, 84, 97, 99, 103, 116)  # A, C, G, T (upper+lower)
+    control_tags: tuple[int, ...] = (64, 35)  # '@', '#'
 
     def __call__(self, features: list) -> dict[str, Any]:
         """Apply base collator, then add genomic masking."""
