@@ -13,7 +13,6 @@
 # @cspades - Cory Ye
 # @dorotat-nv - Dorota Toczydlowska
 # @farhadrgh - Farhad Ramezanghorbani
-# @guoqing-zhou - Guoqing Zhou
 # @gwarmstrong - George Armstrong
 # @jomitchellnv - Jonathan Mitchell
 # @jstjohn - John St. John
@@ -24,14 +23,13 @@
 # @ohadmo - Ohad Mosafi
 # @polinabinder1 - Polina Binder
 # @pstjohn - Peter St. John
-# @sichu2023 - Simon Chu
 # @skothenhill-nv - Steven Kothen-Hill
 # @trvachov - Timur Rvachov
 # @tshimko-nv - Tyler Shimko
 # @yzhang123 - Yang Zhang
 
 # TODO: make this a team of bionemo-core contributors
-* @dorotat-nv @jstjohn @pstjohn @trvachov @sichu2023 @skothenhill-nv @jomitchellnv @jwilber @cspades @polinabinder1 @broland-hat @yzhang123
+* @dorotat-nv @jstjohn @pstjohn @trvachov @skothenhill-nv @jomitchellnv @jwilber @cspades @polinabinder1 @broland-hat @yzhang123
 
 #
 ## LEGAL
@@ -50,25 +48,25 @@ docs @dorotat-nv @jstjohn @pstjohn @trvachov @jwilber @tshimko-nv @polinabinder1
 #
 ## INFRASTRUCTURE
 #
-.* @dorotat-nv @jstjohn @pstjohn @trvachov
+.* @dorotat-nv @jstjohn @pstjohn @trvachov @jomitchellnv
 *.txt @dorotat-nv @jstjohn @pstjohn @trvachov
 CODEOWNERS @jstjohn @pstjohn @trvachov
 Dockerfile @dorotat-nv @jstjohn @ohadmo @pstjohn @trvachov
-ci/ @dorotat-nv @pstjohn @trvachov @jwilber
-.github @dorotat-nv @jstjohn @pstjohn @trvachov
+ci/ @dorotat-nv @pstjohn @trvachov @jwilber @jomitchellnv @jstjohn
+.github @dorotat-nv @jstjohn @pstjohn @trvachov @jomitchellnv
 
 #
 ## LIBRARY CODE
 #
-sub-packages/bionemo-fw @DejunL @dorotat-nv @farhadrgh @guoqing-zhou @jstjohn @pstjohn @skothenhill-nv
+sub-packages/bionemo-fw @DejunL @dorotat-nv @farhadrgh @jstjohn @pstjohn @skothenhill-nv
 
 sub-packages/bionemo-testing @dorotat-nv @farhadrgh @jstjohn @pstjohn @skothenhill-nv
 
-sub-packages/bionemo-core @DejunL @dorotat-nv @farhadrgh @guoqing-zhou @jstjohn @pstjohn @skothenhill-nv
+sub-packages/bionemo-core @DejunL @dorotat-nv @farhadrgh @jstjohn @pstjohn @skothenhill-nv
 
 sub-packages/bionemo-llm @farhadrgh @dorotat-nv @jstjohn @pstjohn @skothenhill-nv
 
-sub-packages/bionemo-esm2 @pstjohn @jstjohn @skothenhill-nv @jomitchellnv @farhadrgh @sichu2023 @yzhang123 @polinabinder1
+sub-packages/bionemo-esm2 @pstjohn @jstjohn @skothenhill-nv @jomitchellnv @farhadrgh @yzhang123 @polinabinder1
 
 sub-packages/bionemo-example_model @jstjohn @skothenhill-nv
 
@@ -78,9 +76,8 @@ sub-packages/bionemo-scdl @jstjohn @polinabinder1 @skothenhill-nv
 
 sub-packages/bionemo-noodles @skothenhill-nv @jstjohn @edawson @cspades
 
-sub-packages/bionemo-moco @nvdreidenbach @DejunL @dorotat-nv @guoqing-zhou @jstjohn @pstjohn @sichu2023 @zcao0420 @youhanl-nvidia
+sub-packages/bionemo-moco @nvdreidenbach @DejunL @dorotat-nv @jstjohn @pstjohn @zcao0420 @youhanl-nvidia
 
 # BioNeMo-Recipes
 .devcontainer/recipes/ @dorotat-nv @jstjohn @pstjohn @trvachov @jwilber @cspades @jomitchellnv
-recipes/ @dorotat-nv @jstjohn @pstjohn @trvachov @jwilber @cspades @jomitchellnv
-models/ @dorotat-nv @jstjohn @pstjohn @trvachov @jwilber @cspades @jomitchellnv
+bionemo-recipes @dorotat-nv @jstjohn @pstjohn @trvachov @jwilber @cspades @jomitchellnv @savitha-eng

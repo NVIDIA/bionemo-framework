@@ -107,7 +107,9 @@ class PerfLogger:
         if outputs.logits.dim() < 3:
             outputs.logits = outputs.logits.unsqueeze(0)
 
-        self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
+        # We need to shift the labels by one to the right to match the logits.
+        labels = batch["labels"][:, 1:]
+        self.metrics["train/perplexity"].update(outputs.logits[:, :-1, :], labels)
 
         if step % self.logging_frequency == 0 and step > 0:
             memory_allocated = torch.cuda.memory_allocated() / (1024**3)

@@ -15,6 +15,7 @@ num_train_steps: 270_000
 
 dataset:
   micro_batch_size: 1 # Conservative for single GPU
+  sequence_column: "text"
   load_dataset_kwargs:
     path: "arcinstitute/opengenome2"
     data_dir: "json/pretraining_or_both_phases"
@@ -29,7 +30,7 @@ adamw_kwargs:
   weight_decay: 0.01
 
 lr_scheduler_kwargs:
-  num_warmup_steps: 20_000
+  num_warmup_steps: 2_000
   num_training_steps: 500_000
 
 checkpoint:

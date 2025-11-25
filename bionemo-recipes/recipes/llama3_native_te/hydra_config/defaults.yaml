@@ -7,6 +7,7 @@ config_kwargs: # Arguments to pass to the AutoConfig.from_pretrained method
   eos_token_id: 0
   pad_token_id: 1
   bos_token_id: 2
+  attn_input_format: "bshd"
 
 num_train_steps: ???
 
