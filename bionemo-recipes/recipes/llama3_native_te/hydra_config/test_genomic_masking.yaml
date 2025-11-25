@@ -1,0 +1,69 @@
+# Quick test config for genomic masking on OpenGenome2 (BSHD format)
+defaults:
+  - defaults
+  - _self_
+
+model_tag: ./example_checkpoint  # 1B model with TE layers
+
+# Override config for genomic tokenizer
+config_kwargs:
+  vocab_size: 256  # Genomic tokenizer (not standard Llama vocab)
+  eos_token_id: 0
+  pad_token_id: 1
+  bos_token_id: 2
+
+num_train_steps: 50  # Just 50 steps for quick testing
+
+dataset:
+  sequence_column: "text"
+  tokenizer_path: ${oc.env:PWD}/example_checkpoint
+  micro_batch_size: 1
+  num_workers: 2
+  max_seq_length: 1024
+  stride: 824
+  buffer_size: 10_000
+  use_lazy_tokenization: false
+  use_stateful_dataloader: false
+  # Genomic masking options (enable to test)
+  uppercase_labels: true
+  mask_degenerate_bases: true
+  load_dataset_kwargs:
+    path: "arcinstitute/opengenome2"
+    split: "train"
+    streaming: true
+    data_dir: "json/pretraining_or_both_phases/metagenomes"
+
+adamw_kwargs:
+  lr: 5e-4
+  fused: true
+  betas: [0.9, 0.98]
+  eps: 1e-8
+  weight_decay: 0.01
+
+lr_scheduler_kwargs:
+  num_warmup_steps: 5
+  num_training_steps: 50
+
+checkpoint:
+  ckpt_dir: null
+  save_final_model: false
+  resume_from_checkpoint: false
+
+logger:
+  frequency: 10
+
+wandb_init_args:
+  name: "test-genomic-masking-${now:%Y%m%d_%H%M%S}"
+  project: "llama3-genomic-debug"
+  mode: "offline"
+
+use_meta_device: false
+use_torch_compile: false
+
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false

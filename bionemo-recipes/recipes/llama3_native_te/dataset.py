@@ -128,6 +128,8 @@ def create_bshd_dataloader(
     use_lazy_tokenization: bool = True,
     use_stateful_dataloader: bool = False,
     sequence_column: str = "sequence",
+    uppercase_labels: bool = False,
+    mask_degenerate_bases: bool = False,
 ):
     """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
 
@@ -144,6 +146,8 @@ def create_bshd_dataloader(
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         sequence_column: Name of the column containing genomic sequences (default: "sequence").
+        uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
+        mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -169,11 +173,25 @@ def create_bshd_dataloader(
             seed=seed,
         )
 
-    # Use DataCollatorForLanguageModeling with mlm=False for CLM
-    data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm=False,  # Causal language modeling (no masking)
-    )
+    # Use genomic collator if masking options are enabled, otherwise use standard collator
+    if uppercase_labels or mask_degenerate_bases:
+        from data_collator import GenomicDataCollatorForCLM
+
+        data_collator = GenomicDataCollatorForCLM(
+            tokenizer=tokenizer,
+            uppercase_labels=uppercase_labels,
+            mask_degenerate_bases=mask_degenerate_bases,
+        )
+        logger.info(
+            f"Using GenomicDataCollatorForCLM (uppercase={uppercase_labels}, mask_degenerate={mask_degenerate_bases})"
+        )
+    else:
+        # Standard collator for backward compatibility
+        data_collator = DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            mlm=False,  # Causal language modeling
+        )
+        logger.info("Using standard DataCollatorForLanguageModeling")
 
     # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
     dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
