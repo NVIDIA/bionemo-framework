@@ -6,8 +6,9 @@ defaults:
 # Model configuration - Full 8B model with TE layers
 model_tag: ./llama3_8b_genomic_config  # 8B with TE (NVLlamaModel)
 
-# Config overrides for genomic tokenizer
+# Config overrides for genomic tokenizer and attention format
 config_kwargs:
+  attn_input_format: "bshd"  # Standard batching (not THD sequence packing)
   trust_remote_code: true
   vocab_size: 256  # Genomic tokenizer vocab size
   tie_word_embeddings: false

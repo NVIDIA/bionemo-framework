@@ -6,13 +6,14 @@ defaults:
 # Model configuration - uses genomic config matching John's model
 model_tag: ./llama3_8b_genomic_config
 
-# Config overrides for genomic tokenizer (Peter's config_kwargs)
+# Config overrides for genomic tokenizer and attention format (Peter's config_kwargs)
 config_kwargs:
   trust_remote_code: true
   vocab_size: 256  # Genomic tokenizer
   eos_token_id: 0
   pad_token_id: 1
   bos_token_id: 2
+  attn_input_format: "bshd"  # Standard batching (not THD sequence packing)
 
 # Training duration
 num_train_steps: 100_000

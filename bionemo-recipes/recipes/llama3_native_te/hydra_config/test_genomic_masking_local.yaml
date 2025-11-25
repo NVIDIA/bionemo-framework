@@ -5,12 +5,13 @@ defaults:
 
 model_tag: ./example_checkpoint  # 1B model with TE layers
 
-# Override config for genomic tokenizer
+# Override config for genomic tokenizer and attention format
 config_kwargs:
   vocab_size: 256  # Genomic tokenizer
   eos_token_id: 0
   pad_token_id: 1
   bos_token_id: 2
+  attn_input_format: "bshd"  # Standard batching (not THD sequence packing)
 
 num_train_steps: 50  # Just 50 steps for validation
 

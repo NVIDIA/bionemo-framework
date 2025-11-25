@@ -7,12 +7,13 @@ defaults:
 # Model configuration - 1B with TE layers
 model_tag: ./example_checkpoint  # 1B with TE (NVLlamaModel)
 
-# Config overrides for genomic tokenizer
+# Config overrides for genomic tokenizer and attention format
 config_kwargs:
   vocab_size: 256  # Genomic tokenizer
   eos_token_id: 0
   pad_token_id: 1
   bos_token_id: 2
+  attn_input_format: "bshd"  # Standard batching (not THD sequence packing)
 
 # Training duration
 num_train_steps: 100_000
