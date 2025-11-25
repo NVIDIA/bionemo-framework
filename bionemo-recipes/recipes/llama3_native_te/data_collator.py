@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch
-from genomic_masking_functions import make_upper_case
+from genomic_masking_functions import Evo2MaskingConstants, make_upper_case, mask_phylogenetic_tags
 
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,7 @@ class GenomicDataCollator:
         base_collator: The underlying collator (e.g., DataCollatorForLanguageModeling)
         uppercase_labels: Whether to uppercase labels. Default: False.
         mask_degenerate_bases: Whether to mask non-ACGT bases. Default: True.
+        mask_phylo_tags: Whether to mask phylogenetic tags. Default: False (Milestone 2).
         dna_tokens: Tuple of valid DNA token IDs (A, C, G, T upper+lowercase)
         control_tags: Tuple of control character token IDs (@, #)
 
@@ -55,27 +56,31 @@ class GenomicDataCollator:
         ...     base_collator=base,
         ...     uppercase_labels=False,
         ...     mask_degenerate_bases=True,
+        ...     mask_phylo_tags=False,
         ... )
     """
 
     base_collator: Any
     uppercase_labels: bool = False
     mask_degenerate_bases: bool = True
+    mask_phylo_tags: bool = False
     dna_tokens: tuple[int, ...] = (65, 67, 71, 84, 97, 99, 103, 116)  # A, C, G, T (upper+lower)
     control_tags: tuple[int, ...] = (64, 35)  # '@', '#'
 
     def __call__(self, features: list) -> dict[str, Any]:
-        """Apply base collator, then add genomic masking."""
+        """Apply base collator, then add genomic masking.
+
+        Order of operations (IMPORTANT):
+        1. Mask degenerate bases (simple character check)
+        2. Mask phylogenetic tags (needs lowercase to detect!)
+        3. Uppercase labels (after detection, since phylo relies on case)
+        """
         # Base collator handles batching and CLM label creation
         batch = self.base_collator(features)
 
         labels = batch["labels"]
 
-        # Step 1: Uppercase labels (inputs stay mixed case)
-        if self.uppercase_labels:
-            labels, _ = make_upper_case(labels)
-
-        # Step 2: Mask degenerate bases and control characters
+        # Step 1: Mask degenerate bases and control characters
         if self.mask_degenerate_bases:
             dna_tokens_tensor = torch.tensor(self.dna_tokens, device=labels.device)
             control_tensor = torch.tensor(self.control_tags, device=labels.device)
@@ -86,6 +91,23 @@ class GenomicDataCollator:
 
             # Mask both, but preserve existing -100 values
             labels[(not_dna | is_control) & (labels != -100)] = -100
+
+        # Step 2: Mask phylogenetic tags (BEFORE uppercase!)
+        # Phylo detection relies on lowercase letters after '|' to identify tags
+        if self.mask_phylo_tags:
+            phylo_mask = mask_phylogenetic_tags(
+                tokenized_sequence=labels,
+                terminal_tag_char=Evo2MaskingConstants.TAG_BOUNDS,
+                other_tag_chars=Evo2MaskingConstants.TAG_CHARS,
+                eod_token_id=Evo2MaskingConstants.DEFAULT_EOD,
+                max_tag_len=Evo2MaskingConstants.MAX_TAG_LEN,
+            )
+            # Where mask is 0, set label to -100 (but preserve existing -100)
+            labels[(phylo_mask == 0) & (labels != -100)] = -100
+
+        # Step 3: Uppercase labels (AFTER phylo detection!)
+        if self.uppercase_labels:
+            labels, _ = make_upper_case(labels)
 
         batch["labels"] = labels
         return batch

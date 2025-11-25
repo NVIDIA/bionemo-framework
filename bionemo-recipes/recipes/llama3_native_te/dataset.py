@@ -130,6 +130,7 @@ def create_bshd_dataloader(
     sequence_column: str = "sequence",
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = True,
+    mask_phylo_tags: bool = False,
 ):
     """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
 
@@ -147,7 +148,8 @@ def create_bshd_dataloader(
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         sequence_column: Name of the column containing genomic sequences (default: "sequence").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
-        mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
+        mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: True.
+        mask_phylo_tags: Whether to mask phylogenetic tags (genomic masking). Default: False (Milestone 2).
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -180,16 +182,17 @@ def create_bshd_dataloader(
     )
 
     # Wrap with genomic collator if masking options are enabled
-    if uppercase_labels or mask_degenerate_bases:
+    if uppercase_labels or mask_degenerate_bases or mask_phylo_tags:
         from data_collator import GenomicDataCollator
 
         data_collator = GenomicDataCollator(
             base_collator=base_collator,
             uppercase_labels=uppercase_labels,
             mask_degenerate_bases=mask_degenerate_bases,
+            mask_phylo_tags=mask_phylo_tags,
         )
         logger.info(
-            f"Using GenomicDataCollator (uppercase={uppercase_labels}, mask_degenerate={mask_degenerate_bases})"
+            f"Using GenomicDataCollator (uppercase={uppercase_labels}, mask_degenerate={mask_degenerate_bases}, mask_phylo={mask_phylo_tags})"
         )
     else:
         # Use base collator directly for backward compatibility

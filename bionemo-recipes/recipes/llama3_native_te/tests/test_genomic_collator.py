@@ -168,3 +168,33 @@ def test_collator_handles_lowercase_degenerate(tokenizer):
     labels = batch["labels"]
     expected_labels = torch.tensor([[65, 67, -100]])
     assert torch.equal(labels, expected_labels), f"Expected {expected_labels}, got {labels}"
+
+
+def test_collator_masks_phylo_tags(tokenizer):
+    """Test that collator masks phylogenetic tags."""
+    base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    collator = GenomicDataCollator(
+        base_collator=base,
+        uppercase_labels=False,
+        mask_degenerate_bases=False,
+        mask_phylo_tags=True,
+    )
+
+    # Input: "AC|d__Bacteria|TG" (simplified phylo tag)
+    # ASCII: A=65, C=67, |=124, d=100, _=95, B=66, a=97, c=99, t=116, e=101, r=114, i=105, T=84, G=71
+    features = [{"input_ids": [65, 67, 124, 100, 95, 95, 66, 97, 99, 124, 84, 71]}]
+    batch = collator(features)
+
+    labels = batch["labels"]
+
+    # DNA before tag (AC) should be present
+    assert 65 in labels, "A before tag should be present"
+    assert 67 in labels, "C before tag should be present"
+
+    # Tag characters should NOT be present (masked to -100)
+    assert 100 not in labels, "d from d__Bacteria should be masked"
+    assert 66 not in labels, "B from Bacteria should be masked"
+
+    # DNA after tag (TG) should be present
+    assert 84 in labels, "T after tag should be present"
+    assert 71 in labels, "G after tag should be present"
