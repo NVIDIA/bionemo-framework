@@ -17,8 +17,15 @@
 # limitations under the License.
 
 import argparse
+import functools
+import inspect
 from pathlib import Path
-from typing import List, Optional
+from typing import (
+    List,
+    Optional,
+)
+
+import lightning.pytorch as pl
 
 # TODO add back support for slurm resilience.
 # import nvidia_resiliency_ext.ptl_resiliency as res_module
@@ -42,7 +49,10 @@ from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCall
 from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
 from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
-from nemo.lightning.pytorch.strategies.utils import RestoreConfig
+from nemo.lightning.pytorch.strategies.utils import (
+    RestoreConfig,
+)
+from nemo.utils import logging
 from nemo.utils.exp_manager import TimingCallback
 
 # Copy debug.py to /usr/local/lib/python3.12/dist-packages/bionemo/evo2/utils/heads
@@ -449,11 +459,157 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Add peptide map expression prediction head to parallel-heads.",
     )
+    # Type of loss for parallel heads
+    parser.add_argument(
+        "--parallel-head-loss-type",
+        type=str,
+        choices=["borzoi", "huber", "poisson_dist", "hybrid"],
+        default="hybrid",
+        help="Loss type to use for parallel heads.",
+    )
 
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
     return parser.parse_args(args=args)
+
+
+class CustomMegatronStrategy(nl.MegatronStrategy):
+    """MegatronStrategy with model_transform applied before optimizer setup."""
+
+    def __init__(self, *args, **kwargs):
+        """Initialize CustomMegatronStrategy."""
+        super().__init__(*args, **kwargs)
+        logging.info("✅ Using CustomMegatronStrategy with early model_transform application")
+
+    def setup_megatron_parallel(self, trainer: pl.Trainer) -> None:
+        """Configure megatron parallel with early model_transform application."""
+        assert self.model is not None, "Model is not set"
+
+        # Get conversion function from precision plugin if available
+        convert_module_fn = None
+        if hasattr(self.precision_plugin, "convert_module"):
+            convert_module_fn = self.precision_plugin.convert_module
+
+        # ✅ CRITICAL FIX PART 1: Apply transform BEFORE creating MegatronParallel
+        # This prevents MegatronParallel from seeing the transform
+        transform_applied = False
+        if getattr(self.lightning_module, "model_transform", None):
+            logging.info("=" * 70)
+            logging.info("🔧 Applying model_transform BEFORE MegatronParallel creation")
+            logging.info("=" * 70)
+
+            # Get and apply the transform
+            model_transform = self.lightning_module.model_transform  # type: ignore
+
+            logging.info(f"   Transform type: {type(model_transform).__name__}")
+            logging.info(f"   Model type before: {type(self.model).__name__}")
+
+            # Apply transform
+            transformed_model = model_transform(self.model)  # type: ignore
+
+            # Update model reference
+            self.model = transformed_model
+
+            logging.info(f"   Model type after: {type(self.model).__name__}")
+
+            # Verify transform worked
+            has_rna_head = False
+            rna_param_count = 0
+
+            for name, param in self.model.named_parameters():
+                if "rna_seq_head" in name or "pep_map_head" in name:
+                    has_rna_head = True
+                    if param.requires_grad:
+                        rna_param_count += 1
+
+            if has_rna_head:
+                logging.info(f"   ✅ Transform successful: {rna_param_count} RNA/PEP head parameters added")
+            else:
+                logging.warning("   ⚠️ Transform ran but no RNA/PEP head found")
+
+            # ✅ CRITICAL: Clear transform from BOTH lightning_module AND model
+            logging.info("   🧹 Clearing model_transform from all references")
+            self.lightning_module.model_transform = None  # type: ignore
+
+            # Also clear from model if it has the attribute
+            if hasattr(self.model, "model_transform"):
+                self.model.model_transform = None
+                logging.info("   🧹 Cleared model.model_transform")
+
+            # Clear from config if it exists
+            if hasattr(self.model, "config") and hasattr(self.model.config, "model_transform"):
+                self.model.config.model_transform = None
+                logging.info("   🧹 Cleared model.config.model_transform")
+
+            transform_applied = True
+            logging.info("=" * 70)
+
+        # Create MegatronParallel wrapper (transform already applied, so it won't run again)
+        from nemo.lightning.megatron_parallel import MegatronParallel
+
+        self.megatron_parallel = MegatronParallel(
+            self.model,
+            precision_plugin=self.precision_plugin,  # type: ignore
+            vp_size=self.virtual_pipeline_model_parallel_size,
+            cpu=isinstance(trainer.accelerator, pl.accelerators.CPUAccelerator),  # type: ignore
+            ddp_config=self.ddp_config,
+            fsdp=self._fsdp,
+            convert_module_fn=convert_module_fn,
+        )
+
+        # Assign trainer reference
+        self.megatron_parallel.trainer = trainer  # type: ignore
+
+        # Initialize model parallel groups
+        if self._init_model_parallel:
+            self.init_model_parallel()
+
+        # ✅ Double-check that transform was applied
+        if transform_applied:
+            logging.info("✅ Verifying transform was applied correctly")
+
+            # Check in the wrapped model
+            wrapped_model = self.megatron_parallel.module
+            has_rna = False
+            for name, _ in wrapped_model.named_parameters():
+                if "rna_seq_head" in name:
+                    has_rna = True
+                    break
+
+            if has_rna:
+                logging.info("   ✅ RNA head confirmed in wrapped model")
+            else:
+                logging.error("   ❌ RNA head NOT found in wrapped model!")
+
+        # Check signature of configure_optimizers
+        sig = inspect.signature(self.model.configure_optimizers)  # type: ignore
+        if "megatron_parallel" in sig.parameters:
+            self.model.configure_optimizers = functools.partial(  # type: ignore
+                self.model.configure_optimizers,  # type: ignore
+                megatron_parallel=self.megatron_parallel,  # type: ignore
+            )
+
+        # ✅ NOW setup optimizers (RNA head already exists!)
+        if self._setup_optimizers:
+            logging.info("🔧 Setting up optimizers with transformed model")
+            self.setup_optimizers(trainer)
+            logging.info("✅ Optimizer setup complete")
+
+        # Wrap with MegatronParallel
+        self.model = self.megatron_parallel
+
+        # Add callbacks
+        trainer_callbacks = getattr(trainer, "callbacks", None)
+        if trainer_callbacks:
+            self.model.callbacks.add(*trainer_callbacks)
+
+        if self.data_sampler:
+            self.model.callbacks.add(self.data_sampler)
+
+        datamodule = getattr(trainer, "datamodule", None)
+        if datamodule:
+            self.model.callbacks.add(datamodule)
 
 
 def train(args: argparse.Namespace) -> nl.Trainer:
@@ -488,7 +644,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
                 micro_batch_size=args.micro_batch_size,
                 global_batch_size=global_batch_size,
                 num_workers=args.workers,
-                tokenizer=tokenizer,
+                tokenizer=tokenizer,  # type: ignore
                 rna_seq=args.parallel_rna_seq_head,
                 pep_map=args.parallel_pep_map_head,
             )
@@ -503,7 +659,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
                 micro_batch_size=args.micro_batch_size,
                 global_batch_size=global_batch_size,
                 num_workers=args.workers,
-                tokenizer=tokenizer,
+                tokenizer=tokenizer,  # type: ignore
             )
     else:
         blended_dataset_config = parse_dataset_config(
@@ -586,10 +742,15 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             parallel_dna=args.parallel_dna_head,
             parallel_rna=args.parallel_rna_seq_head,
             parallel_pep=args.parallel_pep_map_head,
+            loss_type=args.parallel_head_loss_type,
         )
 
     # Instantiate model.
-    model = llm.HyenaModel(evo2_config, tokenizer=data_module.tokenizer, model_transform=model_transform)
+    model = llm.HyenaModel(
+        evo2_config,  # type: ignore
+        tokenizer=data_module.tokenizer,  # type: ignore
+        model_transform=model_transform,
+    )
 
     # Setup callbacks.
     callbacks = [
@@ -598,8 +759,6 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         TimingCallback(),
     ]
 
-    if args.parallel_heads:
-        callbacks.append(nl_callbacks.ModelTransform())
     if args.enable_preemption:
         callbacks.append(nl_callbacks.PreemptionCallback())
     if args.debug_ddp_parity_freq > 0:
@@ -609,7 +768,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     if args.create_tflops_callback:
         # Add callback that logs the tera-FLOPS per second per GPU during training.
         flop_meas_callback = FLOPsMeasurementCallback(
-            evo2_config,
+            evo2_config,  # type: ignore
             data_module,
             "hyena",
         )
@@ -694,7 +853,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     )
 
     if args.create_checkpoint_callback:
-        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
+        checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")  # type: ignore
         checkpoint_callback = nl_callbacks.ModelCheckpoint(
             dirpath=checkpoint_path,
             save_last=args.save_last_checkpoint,
@@ -736,7 +895,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         average_in_collective=not args.no_average_in_collective,
     )
     # Initialize Megatron Strategy and Trainer.
-    strategy = nl.MegatronStrategy(
+    strategy = CustomMegatronStrategy(
         ddp=ddp,
         tensor_model_parallel_size=args.tensor_parallel_size,
         pipeline_model_parallel_size=args.pipeline_model_parallel_size,
@@ -764,7 +923,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             precision="bf16-mixed",
             params_dtype=torch.bfloat16,
             grad_reduce_in_fp32=args.grad_reduce_in_fp32,
-            fp8="hybrid" if args.fp8 else None,
+            fp8="hybrid" if args.fp8 else None,  # type: ignore
             fp8_amax_history_len=16 if args.fp8 else 1,
             fp8_amax_compute_algo="max" if args.fp8 else "most_recent",
             fp8_wgrad=args.fp8

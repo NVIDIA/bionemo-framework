@@ -45,15 +45,50 @@ from typing import Optional
 
 import torch
 import torch.nn.functional as F
+from torch import nn
 
+
+def _absolute_difference_loss(
+    predictions: torch.Tensor,
+    targets: torch.Tensor,
+    epsilon: float = 1e-7,
+) -> torch.Tensor:
+    """Compute per-position absolute difference loss.
+
+    Args:
+        predictions: Predicted values
+            - Shape: [batch, seq_len, channels]
+        targets: Ground truth values
+            - Shape: [batch, seq_len, channels]
+        epsilon: Small constant for numerical stability
+            - default: 1e-7
+
+    Returns:
+        Per-position absolute difference loss
+            - Shape: [batch, seq_len, channels]
+    """
+    loss = torch.abs(predictions - targets)
+    return loss
+
+
+def _scale_loss(predictions: torch.Tensor, targets: torch.Tensor, epsilon: float = 1e-7) -> torch.Tensor:
+    """Penalize differences in overall magnitude."""
+    pred_mean = predictions.mean(dim=1, keepdim=True).clamp(min=epsilon)
+    target_mean = targets.mean(dim=1, keepdim=True).clamp(min=epsilon)
+
+    # Log-space ratio loss
+    scale_loss = (torch.log(pred_mean) - torch.log(target_mean)) ** 2
+    return scale_loss.expand_as(predictions)
 
 def _borzoi_nll_loss(
     predictions: torch.Tensor,
     targets: torch.Tensor,
     sum_axis: int = 1,
-    multinomial_weight: float = 5.0,
+    poisson_weight: float = 3.0,
+    multinomial_weight: float = 1.0,
     multinomial_resolution: int = 1,
     epsilon: float = 1e-7,
+    poisson_absolute: bool = False,
 ) -> torch.Tensor:
     """Compute Borzoi negative log-likelihood loss.
 
@@ -64,31 +99,20 @@ def _borzoi_nll_loss(
             - Shape: [batch, seq_len, channels]
         sum_axis: Axis to sum over for multinomial computation
             - default: 1, seq_len
+        poisson_weight: Weight for poisson component
+            - default: 1.0
         multinomial_weight: Weight for multinomial component
-            - default: 5.0
+            - default: 3.0
         multinomial_resolution: Resolution for binning predictions
             - default: 1, no binning
         epsilon: Small constant for numerical stability
             - default: 1e-7
+        poisson_absolute: Whether to use absolute value for Poisson loss
+            - default: False
 
     Returns:
         Scalar Borzoi NLL loss
     """
-    # Poisson NLL
-    # =========================================================================================
-    # PER POSITION EXAMPLE
-    # Position:                        0     1     2     3     4     5     6     7     8
-    #                                  ─────────────────────────────────────────────────
-    # Predictions:                     2     3    45    75    85    65     1     1     0
-    # Targets:                         0     0    50    80    90    70     0     0     0
-    # STEP 1: Compute sum_pred and sum_target x log(sum_pred + ε)) per position
-    # Position:                        0     1     2     3     4     5     6     7     8
-    #                                  ─────────────────────────────────────────────────
-    # sum_pred:                        2     3    45    75    85    65     1     1     0
-    # sum_target x log(sum_pred + ε)): 0     0    82   150   173   126     0     0     0
-    # STEP 2: Compute poisson loss     --------------------------------------------------
-    # Compute poisson loss             2     3   -37   -75   -88   -61     1     1     0
-    # =========================================================================================
     # Poisson NLL (per-position)
     pred_stable = torch.clamp_min(predictions, epsilon)
     target_stable = torch.clamp_min(targets, epsilon)
@@ -102,29 +126,10 @@ def _borzoi_nll_loss(
     # Shifted per-position Poisson
     poisson_loss = poisson_pos - optimal_poisson_pos  # shape: [B, S, C]
 
-    # Multinomial NLL
-    # =========================================================================================
-    # EXAMPLE from Poisson section above
-    # STEP 1: Compute multinomial probabilities
-    # Position:     0      1      2      3      4      5      6      7      8
-    #             ───────────────────────────────────────────────────────────
-    # Pred:         2      3     45     75     85     65      1      1      0
-    # Sum_pred:                         277
-    #             ────────────────────────────────────────────────────────────
-    # Prob:      0.007  0.011  0.162  0.271  0.307  0.235  0.004  0.004  0.000
-    #            (2/277)(3/277)(45/277)(75/277)(85/277)(65/277)(1/277)(1/277)
-    #
-    # STEP 2: Compute positional loss
-    # Position:     0      1      2      3      4      5      6      7      8
-    #             ───────────────────────────────────────────────────────────
-    # Target:       0      0     50     80     90     70      0      0      0
-    # Prob:      0.007  0.011  0.162  0.271  0.307  0.235  0.004  0.004  0.00
-    #             ───────────────────────────────────────────────────────────
-    # -log(prob): 4.96   4.51   1.82   1.31   1.18   1.45   5.52   5.52     ∞
-    #             ───────────────────────────────────────────────────────────
-    # Loss:        0      0     91.0   104.8  106.2  101.5    0      0      0
-    #            (0x4.96)(0x4.51)(50x1.82)(80x1.31)(90x1.18)(70x1.45)
-    # =========================================================================================
+    # Get absolute value to prevent negative losses
+    if poisson_absolute:
+        poisson_loss = torch.abs(poisson_loss)
+
     # Compute sum over sequence to get single scalar value
     sum_pred = torch.sum(predictions, dim=sum_axis, keepdim=True)  # [B, 1, C]
 
@@ -138,7 +143,7 @@ def _borzoi_nll_loss(
     positional_loss = -targets * torch.log(multinomial_prob_stable)  # [B, S, C]
 
     # Total Borzoi Loss = Poisson NLL + (weight x Multinomial NLL) per-position
-    region_loss = poisson_loss + multinomial_weight * positional_loss  # shape: [B, S, C]
+    region_loss = poisson_weight * poisson_loss + multinomial_weight * positional_loss  # shape: [B, S, C]
     return region_loss
 
 
@@ -215,7 +220,9 @@ class BorzoiLoss(BaseRegressionLoss):
         multinomial_resolution: int | None = None,
         epsilon: float = 1e-7,
         clamp_predictions: bool = True,
-        max_per_position_loss: float = 100.0,
+        max_per_position_loss: float = 2000.0,
+        dynamic_max_loss: bool = False,
+        auxiliary_loss: bool = False,
     ):
         """Initialize BorzoiLoss.
 
@@ -224,13 +231,17 @@ class BorzoiLoss(BaseRegressionLoss):
             multinomial_resolution: Resolution for binning predictions (default: 1, no binning)
             epsilon: Small constant for numerical stability (default: 1e-7)
             clamp_predictions: Whether to clamp predictions to non-negative values (default: True)
-            max_per_position_loss: Maximum allowed loss per position to prevent extreme values (default: 50.0)
+            max_per_position_loss: Maximum allowed loss per position to prevent extreme values (default: 500.0)
+            dynamic_max_loss: Whether to dynamically adjust max loss based on batch statistics (default: True)
+            auxiliary_loss: Whether to include auxiliary absolute difference loss (default: True)
         """
         self.multinomial_weight = multinomial_weight
         self.multinomial_resolution = multinomial_resolution
         self.epsilon = epsilon
         self.clamp_predictions = clamp_predictions
         self.max_per_position_loss = max_per_position_loss
+        self.dynamic_max_loss = dynamic_max_loss
+        self.auxiliary_loss = auxiliary_loss
 
     def compute(self, predictions: torch.Tensor, targets: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
         """Compute Borzoi loss between predictions and targets.
@@ -258,20 +269,6 @@ class BorzoiLoss(BaseRegressionLoss):
             targets = targets.unsqueeze(-1)
             if mask is not None:
                 mask = mask.unsqueeze(-1)
-
-        # 🔍 DEBUG: Check targets BEFORE masking
-        if mask is not None:
-            print("=" * 80)
-            print("BEFORE MASKING:")
-            print(f"Targets shape: {targets.shape}")
-            print(f"Targets min: {targets.min()}, max: {targets.max()}, mean: {targets.mean()}")
-            print(f"Number of non-zero targets: {torch.count_nonzero(targets)}")
-            print(f"First 10 target values: {targets[0, :10, 0]}")
-            print(f"\nMask shape: {mask.shape}")
-            print(f"Mask min: {mask.min()}, max: {mask.max()}, mean: {mask.mean()}")
-            print(f"Number of non-zero mask values: {torch.count_nonzero(mask)}")
-            print(f"First 10 mask values: {mask[0, :10, 0] if mask.dim() == 3 else mask[0, :10]}")
-            print("=" * 80)
 
         # Extract shapes
         batch_size, seq_len, channels = predictions.shape
@@ -306,6 +303,8 @@ class BorzoiLoss(BaseRegressionLoss):
             predictions = predictions * mask
             targets = targets * mask
         borzoi_loss = _borzoi_nll_loss(predictions, targets, sum_axis, self.multinomial_weight)
+        scale_penalty = _scale_loss(predictions, targets) * 0.5  # weight as needed
+        borzoi_loss = borzoi_loss + scale_penalty
 
         if channels == 1:
             # Reshape to [batch, seq_len] to match DNA loss
@@ -314,22 +313,145 @@ class BorzoiLoss(BaseRegressionLoss):
             borzoi_loss = borzoi_loss.view(batch_size, -1)
             # Reshape targets to [batch, seq_len] to match for loss normalization
             targets = targets.view(batch_size, -1)
+            # Reshape predictions to [batch, seq_len] to match for loss normalization
+            predictions = predictions.view(batch_size, -1)
         else:
-            # If multichannel, raise error (not supported)
-            # Users need to extend this method for multichannel support
+            # TODO: support multichannel. Currently not supported.
             raise NotImplementedError("BorzoiLoss currently only supports single-channel outputs.")
 
         # Prevent extreme per-position losses
-        borzoi_loss = torch.clamp(borzoi_loss, min=0.0, max=self.max_per_position_loss)
+        max_loss = self.max_per_position_loss
+        if self.dynamic_max_loss:
+            # Dynamically set max loss to 90th percentile of current batch
+            max_loss = torch.quantile(borzoi_loss.clone().float(), 0.75).item()
+            # Statistically set max loss to median + 2*std of current batch
+            # max_loss = borzoi_loss.mean().item() + 2 * borzoi_loss.std().item()
+        borzoi_loss = torch.clamp(borzoi_loss, min=0.0, max=max_loss)
 
-        # High coverage regions naturally have higher loss - normalize by this
-        total_coverage = torch.clamp_min(targets, self.epsilon).sum(dim=1, keepdim=True)  # shape: [B, 1]
+        # Add auxiliary total count loss
+        if self.auxiliary_loss:
+            absolute_diff_loss = _absolute_difference_loss(
+                predictions=predictions,
+                targets=targets,
+            )
+            borzoi_loss = borzoi_loss * absolute_diff_loss
 
-        # Normalize by log(coverage) to compress range
-        coverage_factor = torch.log1p(total_coverage)  # log(1 + coverage)
+        # For debugging print mean and std of loss
+        # print(f"BorzoiLoss mean: {borzoi_loss.mean().item():.4f}, std: {borzoi_loss.std().item():.4f}")
 
-        # Normalize loss keeping shape [batch, seq_len]
-        borzoi_loss = borzoi_loss / coverage_factor
-
-        # Return loss per position
         return borzoi_loss
+
+
+
+class HuberLoss(BaseRegressionLoss):
+    """Smooth L1 loss, robust to outliers."""
+
+    def __init__(self, delta: float = 1.0):
+        """Initialize HuberLoss."""
+        self.delta = delta
+
+    def compute(self, predictions: torch.Tensor, targets: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
+        """Compute Huber loss between predictions and targets."""
+        loss = F.huber_loss(predictions, targets, reduction='none', delta=self.delta)
+
+        if mask is not None:
+            loss = loss * mask
+
+        return loss
+
+class HybridLoss(BaseRegressionLoss):
+    """Combines magnitude loss with distribution loss."""
+
+    def __init__(self, magnitude_weight: float = 1.0, distribution_weight: float = 0.5):
+        """Initialize HybridLoss."""
+        self.magnitude_weight = magnitude_weight
+        self.distribution_weight = distribution_weight
+
+    def compute(self, predictions: torch.Tensor, targets: torch.Tensor, mask: Optional[torch.Tensor]) -> torch.Tensor:
+        """Compute Hybrid loss combining magnitude and distribution losses."""
+        # L1 for absolute magnitude
+        l1_loss = F.l1_loss(predictions, targets, reduction='none')
+
+        # KL div for distribution/shape
+        pred_dist = F.softmax(predictions, dim=1)
+        target_dist = targets / (targets.sum(dim=1, keepdim=True) + 1e-7)
+        kl_loss = F.kl_div(
+            torch.log(pred_dist + 1e-7),
+            target_dist,
+            reduction='none',
+            log_target=False
+        )
+
+        loss = self.magnitude_weight * l1_loss + self.distribution_weight * kl_loss
+
+        if mask is not None:
+            loss = loss * mask
+
+        return loss
+
+
+class PoissonWithDistributionLoss(BaseRegressionLoss):
+    """Poisson NLL for magnitude + simple distribution matching."""
+
+    def __init__(
+        self,
+        poisson_weight: float = 1.0,
+        distribution_weight: float = 0.5,
+        log_input: bool = False,
+        full: bool = False,
+        eps: float = 1e-6
+    ):
+        """Initialize PoissonWithDistributionLoss."""
+        self.poisson_weight = poisson_weight
+        self.distribution_weight = distribution_weight
+        self.eps = eps
+
+        self.poisson_loss = nn.PoissonNLLLoss(
+            log_input=log_input,
+            full=full,
+            eps=eps,
+            reduction='none'
+        )
+
+    def compute(
+        self,
+        predictions: torch.Tensor,
+        targets: torch.Tensor,
+        mask: Optional[torch.Tensor]
+    ) -> torch.Tensor:
+        """Compute Poisson with distribution loss."""
+        # Ensure positivity
+        predictions = torch.clamp(predictions, min=self.eps)
+        targets = torch.clamp(targets, min=0.0)
+
+        # Flatten if needed
+        if predictions.dim() == 3 and predictions.shape[-1] == 1:
+            predictions = predictions.squeeze(-1)
+            targets = targets.squeeze(-1)
+            if mask is not None and mask.dim() == 3:
+                mask = mask.squeeze(-1)
+
+        # 1. Poisson loss for magnitude
+        poisson_loss = self.poisson_loss(predictions, targets)
+
+        # KL div for distribution/shape
+        pred_dist = F.softmax(predictions, dim=1)
+        target_dist = targets / (targets.sum(dim=1, keepdim=True) + 1e-7)
+        kl_loss = F.kl_div(
+            torch.log(pred_dist + 1e-7),
+            target_dist,
+            reduction='none',
+            log_target=False
+        )
+
+        # Combine
+        total_loss = (
+            self.poisson_weight * poisson_loss +
+            self.distribution_weight * kl_loss
+        )
+
+        # Apply mask
+        if mask is not None:
+            total_loss = total_loss * mask
+
+        return total_loss

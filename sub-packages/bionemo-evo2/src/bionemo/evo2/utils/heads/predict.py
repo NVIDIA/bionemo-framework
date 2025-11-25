@@ -131,9 +131,7 @@ def parse_args():
         help="Train with parallel-heads. NOTE: Add adaptor to prediction scirpt.",
     )
     ap.add_argument(
-        "--parallel-dna-head",
-        action="store_true",
-        help="Add dna token prediction head to parallel-heads."
+        "--parallel-dna-head", action="store_true", help="Add dna token prediction head to parallel-heads."
     )
     ap.add_argument(
         "--parallel-rna-seq-head",
@@ -147,7 +145,6 @@ def parse_args():
     )
 
     return ap.parse_args()
-
 
 
 class PredictDataModule(LightningDataModule):
@@ -185,19 +182,16 @@ def _gather_along_cp_dim(input_, seq_dim: int = 1):
 
     # Use the correct parallel group for context parallelism
     cp_group = parallel_state.get_context_parallel_group()
-    
+
     dim_size = list(input_.size())
     dim_size[0] = dim_size[0] * world_size
 
     output = torch.empty(dim_size, dtype=input_.dtype, device=torch.cuda.current_device())
-    torch.distributed.all_gather_into_tensor(
-        output, input_.contiguous(), group=cp_group
-    )
+    torch.distributed.all_gather_into_tensor(output, input_.contiguous(), group=cp_group)
     tensor_list = output.chunk(world_size, dim=0)
     output = torch.cat(tensor_list, dim=seq_dim).contiguous()
 
     return output
-
 
 
 class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
@@ -220,127 +214,119 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
         if self.model_transform is not None:
             self.model_transform.__call__(self)
 
-
     def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
         """Enhanced predict_step that handles both single-head and parallel-head inference."""
-        if len(batch) == 0:
-            return
-        
         print(f"🔍 Predict step - Model type: {type(self)}")
-        print(f"🔍 Model has parallel attributes:")
+        print("🔍 Model has parallel attributes:")
         print(f"   - parallel_dna: {getattr(self, 'parallel_dna', 'Not set')}")
         print(f"   - parallel_rna: {getattr(self, 'parallel_rna', 'Not set')}")
         print(f"   - parallel_pep: {getattr(self, 'parallel_pep', 'Not set')}")
         print(f"   - _original_forward: {hasattr(self, '_original_forward')}")
-        
+
         forward_out = self.forward_step(batch)
         print(f"Batch: \n{batch}")
         print(f"Batch type: {type(batch)}")
         try:
-            print(f"Batch keys: {[i for i in batch]}")
-        except:
+            print(f"Batch keys: {batch}")
+        except Exception:
             pass
         print(f"Forward out type: {type(forward_out)}")
-        try: 
+        try:
             print(f"Forward shape: {forward_out.shape}")
-        except:
+        except Exception:
             pass
         print(f"Forward out: {forward_out}")
-        
+
         # 🔍 CHECK: Are we using parallel heads?
         using_parallel_heads = (
-            hasattr(self, 'parallel_dna') or 
-            hasattr(self, 'parallel_rna') or 
-            hasattr(self, 'parallel_pep')
+            hasattr(self, "parallel_dna") or hasattr(self, "parallel_rna") or hasattr(self, "parallel_pep")
         )
-        
+
         print(f"🔍 Using parallel heads: {using_parallel_heads}")
-        
+
         if using_parallel_heads:
             # 🎯 PARALLEL HEADS: Handle multiple outputs
-            return self._handle_parallel_head_outputs(forward_out, batch)
+            return self._handle_parallel_head_outputs(forward_out, batch)  # type: ignore
         else:
-            # 🎯 SINGLE HEAD: Original DNA-only logic  
+            # 🎯 SINGLE HEAD: Original DNA-only logic
             if not isinstance(forward_out, Tensor):
                 print(f"⚠️ Warning: Expected tensor for single head, got {type(forward_out)}")
                 return forward_out
-            return self._handle_single_head_outputs(forward_out, batch)
+            return self._handle_single_head_outputs(forward_out, batch)  # type: ignore
 
     def _handle_parallel_head_outputs(self, forward_out, batch):
         """Handle forward outputs when using parallel heads."""
-        
         print(f"Handling parallel head outputs, type: {type(forward_out)}")
-        
+
         # Handle dictionary output (expected case)
         if isinstance(forward_out, dict):
             gathered_outputs = {}
-            
+
             # 🔄 Process each head's output separately
             for head_name, logits in forward_out.items():
                 # Skip None values
                 if logits is None:
                     print(f"Skipping {head_name}: None value")
                     continue
-                    
+
                 print(f"Processing {head_name} with shape: {logits.shape}")
-                
+
                 # Gather the logits
                 gathered_logits = self._gather_parallel_output(logits)
                 gathered_outputs[head_name] = gathered_logits.cpu()
-                
+
         elif isinstance(forward_out, (tuple, list)):
             # Alternative: if forward_out is a tuple/list of tensors
             gathered_outputs = {}
-            head_names = ['dna_logits', 'rna_seq_logits', 'pep_map_logits']
-            
+            head_names = ["dna_logits", "rna_seq_logits", "pep_map_logits"]
+
             for i, logits in enumerate(forward_out):
                 if logits is None:
                     continue
-                    
+
                 if i < len(head_names):
                     head_name = head_names[i]
                     print(f"Processing {head_name} with shape: {logits.shape}")
-                    
+
                     gathered_logits = self._gather_parallel_output(logits)
                     gathered_outputs[head_name] = gathered_logits.cpu()
-                    
+
         elif isinstance(forward_out, torch.Tensor):
             # Single tensor case - this might happen if only one head is active
             print("⚠️ Got single tensor for parallel heads - treating as DNA logits")
             gathered_logits = self._gather_parallel_output(forward_out)
             gathered_outputs = {"dna_logits": gathered_logits.cpu()}
-            
+
         else:
             # Unexpected case
             print(f"⚠️ Unexpected forward_out type for parallel heads: {type(forward_out)}")
             print(f"Forward out value: {forward_out}")
-            
+
             # Try to handle as single tensor if it has tensor-like attributes
-            if hasattr(forward_out, 'shape') and hasattr(forward_out, 'dtype'):
+            if hasattr(forward_out, "shape") and hasattr(forward_out, "dtype"):
                 gathered_logits = self._gather_parallel_output(forward_out)
                 gathered_outputs = {"unknown_logits": gathered_logits.cpu()}
             else:
                 # Return as-is with metadata
                 gathered_outputs = {"raw_output": forward_out}
-        
+
         # 📤 Return all head outputs plus metadata
         result = {
             **gathered_outputs,
             "pad_mask": batch["loss_mask"].cpu() if "loss_mask" in batch else None,
             "seq_idx": batch["seq_idx"].cpu() if "seq_idx" in batch else None,
         }
-        
+
         print(f"Final result keys: {list(result.keys())}")
         return result
 
     def _handle_single_head_outputs(self, forward_out, batch):
         """Handle forward outputs for single-head (DNA-only) inference."""
-        
         forward_out_gathered = self._gather_parallel_output(forward_out)
-        
+
         # Verify DNA vocab size
-        assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1]
-        
+        assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1]  # type: ignore
+
         if self.output_log_prob_seqs:
             # 📊 Compute log probabilities
             softmax_logprobs = torch.log_softmax(forward_out_gathered, dim=-1)
@@ -353,15 +339,12 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
                 2,  # along the vocab dimension...
                 input_ids.unsqueeze(-1),  # using the token ids to index.
             ).squeeze(-1)
-            
+
             log_prob_seqs = torch.sum(logprobs * batch["loss_mask"][:, 1:].float(), dim=-1)
             if self.log_prob_collapse_option == "mean":
                 log_prob_seqs = log_prob_seqs / (batch["loss_mask"][:, 1:].float().sum(dim=-1) + 1e-8)
-                
-            return {
-                "log_probs_seqs": log_prob_seqs.cpu(), 
-                "seq_idx": batch["seq_idx"].cpu()
-            }
+
+            return {"log_probs_seqs": log_prob_seqs.cpu(), "seq_idx": batch["seq_idx"].cpu()}
         else:
             # 📤 Return raw logits
             return {
@@ -373,9 +356,7 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
     def _gather_parallel_output(self, tensor_output):
         """Helper to gather tensor output across both tensor parallel and context parallel dimensions."""
         # Gather across tensor parallel dimension
-        tp_gathered = _gather_along_last_dim(
-            tensor_output, group=parallel_state.get_tensor_model_parallel_group()
-        )
+        tp_gathered = _gather_along_last_dim(tensor_output, group=parallel_state.get_tensor_model_parallel_group())
         # Gather across context parallel dimension
         cp_gathered = _gather_along_cp_dim(tp_gathered)
         return cp_gathered
@@ -383,8 +364,6 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
     def _gather_single_output(self, forward_out):
         """Helper to gather a single tensor output across parallel dimensions."""
         return self._gather_parallel_output(forward_out)
-
-
 
 
 def predict(
@@ -421,11 +400,11 @@ def predict(
             seq_dim_key_defaults={"token_logits": 1, "dna_logits": 1, "logits": 1},
         )
     ]
-    
+
     # Asserts for proper configuration of parallel heads
     if args.parallel_heads:
         heads = [args.parallel_dna_head, args.parallel_rna_seq_head, args.parallel_pep_map_head]
-        callback_list.append(nl_callbacks.ModelTransform())
+        callback_list.append(nl_callbacks.ModelTransform())  # type: ignore
         assert any(heads), "No heads added to parallel heads. Add two or more heads."
 
     if work_dir is None:
@@ -442,7 +421,7 @@ def predict(
     trainer = nl.Trainer(
         accelerator="gpu",
         devices=model_parallel_size,
-        strategy=nl.MegatronStrategy(
+        strategy=nl.MegatronStrategy(  # TODO: MIGHT HAVE TO USE CUSTOM STRATEGY IF USING MODEL TRANSFORM
             drop_last_batch=False,
             tensor_model_parallel_size=tensor_parallel_size,
             pipeline_model_parallel_size=pipeline_model_parallel_size,
@@ -453,7 +432,7 @@ def predict(
             ckpt_async_save=False,
             sequence_parallel=tensor_parallel_size > 1 and sequence_parallel,
             save_ckpt_format=ckpt_format,
-            ckpt_load_strictness="log_all",
+            ckpt_load_strictness="log_all",  # type: ignore
             data_sampler=nl.MegatronDataSampler(
                 micro_batch_size=batch_size,
                 global_batch_size=batch_size,
@@ -464,13 +443,13 @@ def predict(
         log_every_n_steps=1,
         limit_val_batches=10,
         num_sanity_val_steps=0,
-        callbacks=callback_list,
+        callbacks=callback_list,  # type: ignore
         plugins=nl.MegatronMixedPrecision(
             precision="bf16-mixed",
             params_dtype=torch.bfloat16,
             # Only use FP8 in this plugin when using full FP8 precision and FP8.
             #   Otherwise use vortex_style_fp8 in the model config.
-            fp8="hybrid" if fp8 and full_fp8 else None,
+            fp8="hybrid" if fp8 and full_fp8 else None,  # type: ignore
             fp8_amax_history_len=16 if fp8 and full_fp8 else 1,
             fp8_amax_compute_algo="max" if fp8 and full_fp8 else "most_recent",
         ),
@@ -491,9 +470,9 @@ def predict(
         vortex_style_fp8=fp8 and not full_fp8,
         **config_modifiers_init,
     )
-    trainer.strategy._setup_optimizers = False
+    trainer.strategy._setup_optimizers = False  # type: ignore
 
-    nemo_logger = NeMoLogger(log_dir=work_dir)
+    nemo_logger = NeMoLogger(log_dir=work_dir)  # type: ignore
     nemo_logger.setup(trainer, resume_if_exists=True)
     resume = nl.AutoResume(
         resume_if_exists=True,
@@ -518,8 +497,10 @@ def predict(
             pep_loss_weight=0.5,
             parallel_dna=args.parallel_dna_head,
             parallel_rna=args.parallel_rna_seq_head,
-            parallel_pep=args.parallel_pep_map_head
-        ) if args.parallel_heads else None
+            parallel_pep=args.parallel_pep_map_head,
+        )
+        if args.parallel_heads
+        else None,
     )
 
     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
@@ -553,7 +534,7 @@ def main():
         no_sequence_parallel=args.no_sequence_parallel,
         hybrid_override_pattern=args.hybrid_override_pattern,
         num_layers=args.num_layers,
-        args=args
+        args=args,
     )
 
 

@@ -22,7 +22,7 @@ import functools
 import tempfile
 from functools import partial
 from pathlib import Path
-from typing import Any, Callable, Dict, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 import nemo.lightning as nl
 import torch
@@ -53,6 +53,7 @@ from bionemo.llm.utils.callbacks import PredictionWriter
 CheckpointFormats = Literal["torch_dist", "zarr"]
 
 LOGGING = True
+
 
 def parse_args():
     """Parse arguments for Evo2 inference."""
@@ -134,9 +135,7 @@ def parse_args():
         help="Train with parallel-heads. NOTE: Add adaptor to prediction scirpt.",
     )
     ap.add_argument(
-        "--parallel-dna-head",
-        action="store_true",
-        help="Add dna token prediction head to parallel-heads."
+        "--parallel-dna-head", action="store_true", help="Add dna token prediction head to parallel-heads."
     )
     ap.add_argument(
         "--parallel-rna-seq-head",
@@ -151,13 +150,13 @@ def parse_args():
 
     return ap.parse_args()
 
+
 SHUFFLE_MESSAGE = (
     "Per token log probabilities are not supported when using context parallelism. The results will be "
     "zigzag shuffled along the sequence dimension. Raise a feature request if you need this and do "
     "not want to manually do the unshuffling yourself. You need to undo the shuffling that happened in "
     "`megatron.core.utils.get_batch_on_this_cp_rank`."
 )
-
 
 
 class PredictDataModule(LightningDataModule):
@@ -191,6 +190,7 @@ class PredictDataModule(LightningDataModule):
             ),
         )
 
+
 def _gather_along_cp_dim(input_, seq_dim: int = 1):
     """Gather tensors and concatenate along the last dimension."""
     world_size = parallel_state.get_context_parallel_world_size()
@@ -212,6 +212,7 @@ def _gather_along_cp_dim(input_, seq_dim: int = 1):
     output = torch.cat(tensor_list, dim=seq_dim).contiguous()
 
     return output
+
 
 class BasePredictor(LightningPassthroughPredictionMixin):
     """Base predictor for GPT-style models."""
@@ -260,9 +261,7 @@ class BasePredictor(LightningPassthroughPredictionMixin):
 
         # 🔍 CHECK: Are we using parallel heads?
         using_parallel_heads = (
-            hasattr(self, 'parallel_dna') or
-            hasattr(self, 'parallel_rna') or
-            hasattr(self, 'parallel_pep')
+            hasattr(self, "parallel_dna") or hasattr(self, "parallel_rna") or hasattr(self, "parallel_pep")
         )
 
         if LOGGING:
@@ -270,14 +269,13 @@ class BasePredictor(LightningPassthroughPredictionMixin):
 
         if using_parallel_heads:
             # 🎯 PARALLEL HEADS: Handle multiple outputs
-            return self._handle_parallel_head_outputs(forward_out, batch) # type: ignore
+            return self._handle_parallel_head_outputs(forward_out, batch)  # type: ignore
         else:
             # 🎯 SINGLE HEAD: Original DNA-only logic
             if not isinstance(forward_out, Tensor):
                 logging.warning(f"⚠️ Warning: Expected tensor for single head, got {type(forward_out)}")
                 return forward_out
-            return self._handle_single_head_outputs(forward_out, batch) # type: ignore
-
+            return self._handle_single_head_outputs(forward_out, batch)  # type: ignore
 
     def _handle_parallel_head_outputs(self, forward_out: torch.Tensor, batch: Dict[str, Any]):
         """Handle forward outputs when using parallel heads."""
@@ -305,7 +303,7 @@ class BasePredictor(LightningPassthroughPredictionMixin):
         elif isinstance(forward_out, (tuple, list)):
             # Alternative: if forward_out is a tuple/list of tensors
             gathered_outputs = {}
-            head_names = ['dna_logits', 'rna_seq_logits', 'pep_map_logits']
+            head_names = ["dna_logits", "rna_seq_logits", "pep_map_logits"]
 
             for i, logits in enumerate(forward_out):
                 if logits is None:
@@ -333,7 +331,7 @@ class BasePredictor(LightningPassthroughPredictionMixin):
                 logging.warning(f"Forward out value: {forward_out}")
 
             # Try to handle as single tensor if it has tensor-like attributes
-            if hasattr(forward_out, 'shape') and hasattr(forward_out, 'dtype'):
+            if hasattr(forward_out, "shape") and hasattr(forward_out, "dtype"):
                 gathered_logits = self._gather_parallel_output(forward_out)
                 gathered_outputs = {"unknown_logits": gathered_logits.cpu()}
             else:
@@ -351,13 +349,12 @@ class BasePredictor(LightningPassthroughPredictionMixin):
             logging.info(f"Final result keys: {list(result.keys())}")
         return result
 
-
     def _handle_single_head_outputs(self, forward_out, batch):
         """Handle forward outputs for single-head (DNA-only) inference."""
         forward_out_gathered = self._gather_parallel_output(forward_out)
 
         # Verify DNA vocab size
-        assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1] # type: ignore
+        assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1]  # type: ignore
 
         if self.output_log_prob_seqs:
             # Compute log probabilities
@@ -376,10 +373,7 @@ class BasePredictor(LightningPassthroughPredictionMixin):
             if self.log_prob_collapse_option == "mean":
                 log_prob_seqs = log_prob_seqs / (batch["loss_mask"][:, 1:].float().sum(dim=-1) + 1e-8)
 
-            return {
-                "log_probs_seqs": log_prob_seqs.cpu(),
-                "seq_idx": batch["seq_idx"].cpu()
-            }
+            return {"log_probs_seqs": log_prob_seqs.cpu(), "seq_idx": batch["seq_idx"].cpu()}
         else:
             # 📤 Return raw logits
             return {
@@ -391,9 +385,7 @@ class BasePredictor(LightningPassthroughPredictionMixin):
     def _gather_parallel_output(self, tensor_output):
         """Helper to gather tensor output across both tensor parallel and context parallel dimensions."""
         # Gather across tensor parallel dimension
-        tp_gathered = _gather_along_last_dim(
-            tensor_output, group=parallel_state.get_tensor_model_parallel_group()
-        )
+        tp_gathered = _gather_along_last_dim(tensor_output, group=parallel_state.get_tensor_model_parallel_group())
         # Gather across context parallel dimension
         cp_gathered = _gather_along_cp_dim(tp_gathered)
         return cp_gathered
@@ -517,9 +509,9 @@ def predict(
                 parallel_dna=args.parallel_dna_head,
                 parallel_rna=args.parallel_rna_seq_head,
                 parallel_pep=args.parallel_pep_map_head,
-                predict=True
+                predict=True,
             )
-            callbacks.append(nl_callbacks.ModelTransform()) # type: ignore
+            callbacks.append(nl_callbacks.ModelTransform())  # type: ignore
         else:
             model_transform = None
 
@@ -617,13 +609,12 @@ def main():
         no_sequence_parallel=args.no_sequence_parallel,
         hybrid_override_pattern=args.hybrid_override_pattern,
         num_layers=args.num_layers,
-        args=args
+        args=args,
     )
 
 
 if __name__ == "__main__":
     main()
-
 
 
 # --- IGNORE ---
@@ -963,8 +954,6 @@ if __name__ == "__main__":
 #     dataset.write_idx_map(
 #         output_dir
 #     )  # Finally write out the index map so we can match the predictions to the original sequences.
-
-
 
 
 # def parallel_head_data_step_fn(dataloader_iter, use_mtp=False) -> Dict[str, torch.Tensor]:

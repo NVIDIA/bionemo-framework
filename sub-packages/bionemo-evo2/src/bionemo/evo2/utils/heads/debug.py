@@ -15,6 +15,123 @@
 
 import torch
 from nemo.utils import logging
+from torch import nn
+
+
+def debug_rna_head_learning(model, batch, step, rna_seq_targets):
+    """Check if RNA head is actually learning."""
+    if step % 50 != 0:
+        return
+
+    print(f"\n{'=' * 60}")
+    print(f"Step {step} RNA Head Diagnostics")
+    print(f"{'=' * 60}")
+
+    # Get the RNA head
+    if hasattr(model, "rna_seq_head"):
+        head = model.rna_seq_head
+    elif hasattr(model, "module") and hasattr(model.module, "rna_seq_head"):
+        head = model.module.rna_seq_head
+    else:
+        print("❌ No RNA head found!")
+        return
+
+    # ✅ FIX 1: Check if it's a composite module or simple layer
+    if isinstance(head, nn.ModuleList) or hasattr(head, "layers"):
+        # Composite module (like BioSignalHead)
+        print(f"📦 Head Type: Composite ({type(head).__name__})")
+        print(f"   Number of layers: {len(head.layers) if hasattr(head, 'layers') else 'unknown'}")  # type: ignore
+
+        # Check each layer
+        if hasattr(head, "layers"):
+            for i, layer in enumerate(head.layers):  # type: ignore
+                if hasattr(layer, "weight"):
+                    weight_norm = layer.weight.norm().item()
+                    grad_norm = layer.weight.grad.norm().item() if layer.weight.grad is not None else 0.0
+                    print(f"\n   Layer {i} ({type(layer).__name__}):")
+                    print(f"      Weight norm: {weight_norm:.4f}")
+                    print(f"      Gradient norm: {grad_norm:.6f}")
+                    print(f"      Weight shape: {layer.weight.shape}")
+
+                    # ⚠️ Check if gradients are flowing
+                    if grad_norm < 1e-8:
+                        print("      ⚠️  WARNING: Gradient is nearly zero!")
+    else:
+        # Simple single-layer module
+        print(f"📦 Head Type: Simple ({type(head).__name__})")
+        if hasattr(head, "weight"):
+            weight_norm = head.weight.norm().item()
+            grad_norm = head.weight.grad.norm().item() if head.weight.grad is not None else 0.0
+            print(f"   Weight norm: {weight_norm:.4f}")
+            print(f"   Gradient norm: {grad_norm:.6f}")
+
+    # ✅ FIX 2: Check total parameter count and gradient stats
+    total_params = sum(p.numel() for p in head.parameters())
+    trainable_params = sum(p.numel() for p in head.parameters() if p.requires_grad)
+
+    print("\n📊 Overall Statistics:")
+    print(f"   Total parameters: {total_params:,}")
+    print(f"   Trainable parameters: {trainable_params:,}")
+
+    # Check if any gradients exist
+    has_grads = any(p.grad is not None for p in head.parameters())
+    if has_grads:
+        grad_norms = [p.grad.norm().item() for p in head.parameters() if p.grad is not None]
+        avg_grad = sum(grad_norms) / len(grad_norms)
+        max_grad = max(grad_norms)
+        print(f"   Average gradient norm: {avg_grad:.6f}")
+        print(f"   Max gradient norm: {max_grad:.6f}")
+
+        if avg_grad < 1e-8:
+            print("   ⚠️  WARNING: Gradients are vanishing!")
+    else:
+        print("   ❌ NO GRADIENTS! Head may be frozen or not in computation graph")
+
+    # ✅ FIX 3: Check actual predictions vs targets
+    print("\n🎯 Prediction vs Target Analysis:")
+    try:
+        # Get predictions from batch (assuming they're computed during forward)
+        if "rna_seq_logits" in batch:
+            rna_pred = batch["rna_seq_logits"]
+        else:
+            print("   ⚠️  No predictions found in batch")
+            rna_pred = None
+
+        if rna_pred is not None and rna_seq_targets is not None:
+            print("   Predictions:")
+            print(f"      Shape: {rna_pred.shape}")
+            print(f"      Min/Max: {rna_pred.min():.3f} / {rna_pred.max():.3f}")
+            print(f"      Mean/Std: {rna_pred.mean():.3f} / {rna_pred.std():.3f}")
+
+            print("   Targets:")
+            print(f"      Shape: {rna_seq_targets.shape}")
+            print(f"      Min/Max: {rna_seq_targets.min():.3f} / {rna_seq_targets.max():.3f}")
+            print(f"      Mean/Std: {rna_seq_targets.mean():.3f} / {rna_seq_targets.std():.3f}")
+
+            # Check correlation
+            if rna_pred.numel() == rna_seq_targets.numel():
+                pred_flat = rna_pred.flatten()
+                target_flat = rna_seq_targets.flatten()
+
+                # Pearson correlation
+                pred_centered = pred_flat - pred_flat.mean()
+                target_centered = target_flat - target_flat.mean()
+                correlation = (pred_centered * target_centered).sum() / (
+                    pred_centered.norm() * target_centered.norm() + 1e-8
+                )
+                print(f"   Pearson correlation: {correlation.item():.4f}")
+
+                if abs(correlation.item()) < 0.01:
+                    print("   ⚠️  WARNING: Predictions not correlated with targets!")
+
+            # Check if predictions are constant
+            if rna_pred.std() < 1e-4:
+                print("   ❌ PROBLEM: Predictions are nearly constant!")
+                print("      Head may have collapsed to predicting mean value")
+    except Exception as e:
+        print(f"   ❌ Error analyzing predictions: {e}")
+
+    print(f"{'=' * 60}\n")
 
 
 def test_simple_dual_head_approach():
