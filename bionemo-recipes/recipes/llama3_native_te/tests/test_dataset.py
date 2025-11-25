@@ -131,6 +131,8 @@ def test_dataloader_returns_expected_batch(tokenizer_path, tmp_path):
         max_seq_length=10,  # Large enough for 5bp sequence
         stride=5,
         use_lazy_tokenization=False,  # Eager for deterministic behavior
+        uppercase_labels=False,  # Use standard collator for this test
+        mask_degenerate_bases=False,  # Use standard collator for this test
     )
 
     returned_batch = next(iter(dataloader))
@@ -182,6 +184,8 @@ def test_attention_mask_aligns_with_labels(tokenizer_path, simple_parquet):
         num_workers=0,
         max_seq_length=500,
         stride=100,
+        uppercase_labels=False,  # Use standard collator for this test
+        mask_degenerate_bases=False,  # Use standard collator for this test
     )
 
     batch = next(iter(dataloader))
@@ -541,3 +545,55 @@ def test_streaming_dataset_handles_missing_record_column(tokenizer_path, tmp_pat
     assert "text" not in sample, "Column 'text' should have been removed"
     assert "record" not in sample, "Column 'record' was never present, so shouldn't be in output"
     assert "input_ids" in sample, "input_ids should be present"
+
+
+def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
+    """Test that create_bshd_dataloader works with genomic masking enabled.
+
+    Integration test verifying:
+    - GenomicDataCollatorForCLM is used when masking flags are set
+    - Degenerate bases are masked in labels
+    - Batches are produced in correct BSHD format
+    """
+    # Create test data with degenerate bases
+    parquet_path = tmp_path / "genomic_with_degenerate.parquet"
+    sequences = ["ACGTN", "GGTAR"]  # Has degenerate N and R
+    table = pa.table({"sequence": sequences})
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+    }
+
+    # Create dataloader with genomic masking enabled
+    dataloader, _ = create_bshd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=2,
+        num_workers=0,
+        max_seq_length=10,
+        stride=5,
+        use_lazy_tokenization=False,
+        mask_degenerate_bases=True,  # Enable degenerate masking
+    )
+
+    # Get a batch
+    batch = next(iter(dataloader))
+
+    # Verify BSHD format
+    assert batch["input_ids"].ndim == 2, "Should be BSHD format [B, S]"
+    assert batch["labels"].ndim == 2, "Labels should be BSHD format"
+
+    # Verify degenerate bases (N=78, R=82) are masked
+    labels = batch["labels"]
+    assert 78 not in labels, "Degenerate N (78) should be masked"
+    assert 82 not in labels, "Degenerate R (82) should be masked"
+
+    # Verify valid DNA tokens are present
+    valid_dna = [65, 67, 71, 84]  # A, C, G, T
+    assert any(tok in labels for tok in valid_dna), "Should have valid DNA tokens"
