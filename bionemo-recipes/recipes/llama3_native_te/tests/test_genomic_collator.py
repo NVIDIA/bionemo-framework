@@ -15,8 +15,9 @@
 
 import pytest
 import torch
-from data_collator import GenomicDataCollatorForCLM
+from data_collator import GenomicDataCollator
 from genomic_masking_functions import make_upper_case
+from transformers.data.data_collator import DataCollatorForLanguageModeling
 
 
 @pytest.fixture
@@ -49,8 +50,9 @@ def test_make_upper_case_mixed():
 # Tests for GenomicDataCollatorForCLM
 def test_collator_basic(tokenizer):
     """Test basic collator functionality."""
-    collator = GenomicDataCollatorForCLM(
-        tokenizer=tokenizer,
+    base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    collator = GenomicDataCollator(
+        base_collator=base,
         uppercase_labels=False,
         mask_degenerate_bases=False,
     )
@@ -65,8 +67,9 @@ def test_collator_basic(tokenizer):
 
 def test_collator_uppercases(tokenizer):
     """Test that collator uppercases labels while keeping inputs mixed case."""
-    collator = GenomicDataCollatorForCLM(
-        tokenizer=tokenizer,
+    base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    collator = GenomicDataCollator(
+        base_collator=base,
         uppercase_labels=True,
         mask_degenerate_bases=False,
     )
@@ -90,8 +93,9 @@ def test_collator_uppercases(tokenizer):
 
 def test_collator_masks_degenerate(tokenizer):
     """Test that collator masks degenerate bases (N, R, Y, etc.)."""
-    collator = GenomicDataCollatorForCLM(
-        tokenizer=tokenizer,
+    base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    collator = GenomicDataCollator(
+        base_collator=base,
         uppercase_labels=False,
         mask_degenerate_bases=True,
     )
@@ -110,8 +114,9 @@ def test_collator_masks_degenerate(tokenizer):
 
 def test_collator_combined(tokenizer):
     """Test collator with both uppercase and degenerate masking."""
-    collator = GenomicDataCollatorForCLM(
-        tokenizer=tokenizer,
+    base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    collator = GenomicDataCollator(
+        base_collator=base,
         uppercase_labels=True,
         mask_degenerate_bases=True,
     )
@@ -142,8 +147,9 @@ def test_collator_handles_lowercase_degenerate(tokenizer):
     Tests the order of operations: lowercase 'n' should be uppercased to 'N',
     then masked to -100.
     """
-    collator = GenomicDataCollatorForCLM(
-        tokenizer=tokenizer,
+    base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    collator = GenomicDataCollator(
+        base_collator=base,
         uppercase_labels=True,
         mask_degenerate_bases=True,
     )

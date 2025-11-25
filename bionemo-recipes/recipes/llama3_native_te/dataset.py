@@ -173,24 +173,27 @@ def create_bshd_dataloader(
             seed=seed,
         )
 
-    # Use genomic collator if masking options are enabled, otherwise use standard collator
-    if uppercase_labels or mask_degenerate_bases:
-        from data_collator import GenomicDataCollatorForCLM
+    # Create base collator
+    base_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,  # Causal language modeling
+    )
 
-        data_collator = GenomicDataCollatorForCLM(
-            tokenizer=tokenizer,
+    # Wrap with genomic collator if masking options are enabled
+    if uppercase_labels or mask_degenerate_bases:
+        from data_collator import GenomicDataCollator
+
+        data_collator = GenomicDataCollator(
+            base_collator=base_collator,
             uppercase_labels=uppercase_labels,
             mask_degenerate_bases=mask_degenerate_bases,
         )
         logger.info(
-            f"Using GenomicDataCollatorForCLM (uppercase={uppercase_labels}, mask_degenerate={mask_degenerate_bases})"
+            f"Using GenomicDataCollator (uppercase={uppercase_labels}, mask_degenerate={mask_degenerate_bases})"
         )
     else:
-        # Standard collator for backward compatibility
-        data_collator = DataCollatorForLanguageModeling(
-            tokenizer=tokenizer,
-            mlm=False,  # Causal language modeling
-        )
+        # Use base collator directly for backward compatibility
+        data_collator = base_collator
         logger.info("Using standard DataCollatorForLanguageModeling")
 
     # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.

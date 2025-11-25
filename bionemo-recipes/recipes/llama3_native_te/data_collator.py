@@ -13,69 +13,70 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data collator for genomic sequence training with custom masking (BSHD format only).
+"""Data collator for genomic sequence training with custom masking.
 
-This module provides a genomic processing collator for standard batching (BSHD format) with support for:
+This module provides a collator that wraps any base collator and adds genomic masking:
 - Uppercase labels (while keeping inputs mixed case)
 - Mask degenerate bases (non-ACGT characters)
 - Mask control characters (@, #)
+
+The composition design allows easy extension to THD and other formats.
 """
 
 import logging
-from typing import ClassVar
+from dataclasses import dataclass
+from typing import Any
 
 import torch
 from genomic_masking_functions import make_upper_case
-from transformers import PreTrainedTokenizerBase
-from transformers.data.data_collator import DataCollatorForLanguageModeling
 
 
 logger = logging.getLogger(__name__)
 
 
-class GenomicDataCollatorForCLM(DataCollatorForLanguageModeling):
-    """Data collator for genomic CLM training in BSHD format (standard batching with padding).
+@dataclass
+class GenomicDataCollator:
+    """Wrapper collator that adds genomic-specific masking to any base collator.
 
-    This collator applies genomic-specific masking:
-    1. Uppercase labels (model learns to translate mixed-case input to uppercase output)
-    2. Mask degenerate/ambiguous bases (N, R, Y, etc.)
-    3. Mask control characters (@, #)
+    This collator uses composition to wrap any base collator (BSHD, THD, etc.) and
+    applies genomic masking to the labels after batching.
 
     Args:
-        tokenizer: The tokenizer for the genomic sequences.
-        uppercase_labels: Whether to uppercase labels. Default: True.
+        base_collator: The underlying collator (e.g., DataCollatorForLanguageModeling)
+        uppercase_labels: Whether to uppercase labels. Default: False.
         mask_degenerate_bases: Whether to mask non-ACGT bases. Default: True.
+        dna_tokens: List of valid DNA token IDs (A, C, G, T upper+lowercase)
+        control_tags: List of control character token IDs (@, #)
 
     Example:
-        >>> collator = GenomicDataCollatorForCLM(
-        ...     tokenizer=tokenizer,
-        ...     uppercase_labels=True,
+        >>> from transformers.data.data_collator import DataCollatorForLanguageModeling
+        >>> base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+        >>> collator = GenomicDataCollator(
+        ...     base_collator=base,
+        ...     uppercase_labels=False,
         ...     mask_degenerate_bases=True,
         ... )
     """
 
-    # Standard DNA tokens: A, C, G, T (both uppercase and lowercase)
-    DNA_TOKENS: ClassVar[list[int]] = [65, 67, 71, 84, 97, 99, 103, 116]
+    base_collator: Any
+    uppercase_labels: bool = False
+    mask_degenerate_bases: bool = True
+    dna_tokens: list[int] = None  # Will use default in __post_init__
+    control_tags: list[int] = None  # Will use default in __post_init__
 
-    # Control characters used in data formatting
-    CONTROL_TAGS: ClassVar[list[int]] = [64, 35]  # '@', '#'
+    def __post_init__(self):
+        """Set default values for dna_tokens and control_tags."""
+        if self.dna_tokens is None:
+            # Standard DNA tokens: A, C, G, T (both uppercase and lowercase)
+            self.dna_tokens = [65, 67, 71, 84, 97, 99, 103, 116]
+        if self.control_tags is None:
+            # Control characters used in data formatting
+            self.control_tags = [64, 35]  # '@', '#'
 
-    def __init__(
-        self,
-        tokenizer: PreTrainedTokenizerBase,
-        uppercase_labels: bool = False,
-        mask_degenerate_bases: bool = True,
-        **kwargs,
-    ):
-        """Initialize the genomic data collator for BSHD format."""
-        super().__init__(tokenizer=tokenizer, mlm=False, **kwargs)
-        self.uppercase_labels = uppercase_labels
-        self.mask_degenerate_bases = mask_degenerate_bases
-
-    def __call__(self, features):
-        """Apply standard batching, then genomic masking."""
-        # Parent handles batching and CLM label creation
-        batch = super().__call__(features)
+    def __call__(self, features: list) -> dict[str, Any]:
+        """Apply base collator, then add genomic masking."""
+        # Base collator handles batching and CLM label creation
+        batch = self.base_collator(features)
 
         labels = batch["labels"]
 
@@ -85,8 +86,8 @@ class GenomicDataCollatorForCLM(DataCollatorForLanguageModeling):
 
         # Step 2: Mask degenerate bases and control characters
         if self.mask_degenerate_bases:
-            dna_tokens_tensor = torch.tensor(self.DNA_TOKENS, device=labels.device)
-            control_tensor = torch.tensor(self.CONTROL_TAGS, device=labels.device)
+            dna_tokens_tensor = torch.tensor(self.dna_tokens, device=labels.device)
+            control_tensor = torch.tensor(self.control_tags, device=labels.device)
 
             # Identify non-DNA tokens
             not_dna = ~torch.isin(labels, dna_tokens_tensor)
