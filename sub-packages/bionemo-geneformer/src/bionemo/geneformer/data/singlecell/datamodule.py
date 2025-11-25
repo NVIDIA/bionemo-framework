@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import List, Literal, Optional, Sequence
 
 import numpy as np
+from bionemo.geneformer.data.block_sampling import MapStyleScDataset
 from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch.plugins import MegatronDataSampler
 from nemo.utils import logging
@@ -84,6 +85,8 @@ class SingleCellDataModule(MegatronDataModule):
         persistent_workers: bool = True,
         pin_memory: bool = True,
         include_unrecognized_vocab_in_dataset: bool = False,
+        block_size: Optional[int] = None,
+        fetch_factor: Optional[int] = None,
     ) -> None:
         super().__init__()
         if predict_dataset_path is None:
@@ -113,10 +116,16 @@ class SingleCellDataModule(MegatronDataModule):
         self.num_workers = num_workers
         self.persistent_workers = persistent_workers
         self.pin_memory = pin_memory
+        self.global_batch_size = global_batch_size
+        # Block sampling parameters
+        self.block_size = block_size
+        self.fetch_factor = fetch_factor
+        self.block_sampling = block_size and fetch_factor
 
         rng = np.random.default_rng(seed)
         if self.data_path_train is not None:
             assert self.data_path_val is not None and self.data_path_test is not None
+
             self._train_dataset_ori = SingleCellDataset(
                 self.data_path_train,
                 self.tokenizer,
@@ -203,12 +212,31 @@ class SingleCellDataModule(MegatronDataModule):
             num_train_samples = int(max_train_steps * self.data_sampler.global_batch_size)
 
             # This happens exactly once during setup.
-            self._train_ds = MultiEpochDatasetResampler(
-                self._train_dataset_ori,
-                num_samples=num_train_samples,
-                shuffle=True,
-                seed=self.seed,
-            )
+            if self.block_sampling:
+                # We also need associated block sampling parameters.
+
+                # dataset size must divide block size * batch_size
+                if num_train_samples % (self.global_batch_size * self.block_size) != 0:
+                    # Warning
+                    num_train_samples -=  num_train_samples % (self.global_batch_size * self.block_size)
+
+
+                from bionemo.geneformer.data.block_sampling import MapStyleScDataset
+                from bionemo.core.data.multi_epoch_dataset import MultiEpochDatasetResampler
+
+                self._train_ds = MultiEpochDatasetResampler(
+                    self._train_dataset_ori,
+                    num_samples=num_train_samples,
+                    shuffle=False,
+                    seed=self.seed,
+                )
+                self._train_ds = MapStyleScDataset(
+                    self._train_ds,
+                    block_size=self.block_size,
+                    batch_size=self.block_sampling,
+                    fetch_factor=self.fetch_factor,
+                    seed=self.seed * 2,
+                )
             if self.trainer.limit_val_batches == 0:  # disable validation
                 logging.info("Skip creating validation dataset because trainer.limit_val_batches=0.")
             else:
