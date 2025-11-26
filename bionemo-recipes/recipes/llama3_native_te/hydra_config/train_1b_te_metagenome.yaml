@@ -35,7 +35,7 @@ dataset:
   mask_phylo_tags: false  # Not needed for metagenomics
   load_dataset_kwargs:
     path: "json"  # Use JSON loader for local files
-    data_files: "/lustre/fsw/portfolios/healthcareeng/projects/healthcareeng_bionemo/pstjohn/opengenome2/json/pretraining_or_both_phases/metagenomes/*.jsonl.gz"
+    data_files: "/data/opengenome2/json/pretraining_or_both_phases/metagenomes/*.jsonl.gz"
     split: "train"
     streaming: true
 

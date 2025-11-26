@@ -31,10 +31,10 @@ dataset:
   mask_degenerate_bases: true
   mask_phylo_tags: true  # Enable for full pretraining
   load_dataset_kwargs:
-    path: "arcinstitute/opengenome2"
+    path: "json"
+    data_files: "/data/opengenome2/json/pretraining_or_both_phases/*/*.jsonl.gz"  # Full dataset (all splits)
     split: "train"
     streaming: true
-    data_dir: "json/pretraining_or_both_phases"  # Full dataset (not just metagenomes)
 
 adamw_kwargs:
   lr: 5e-4

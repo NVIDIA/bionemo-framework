@@ -31,7 +31,12 @@ from torch.distributed.checkpoint.state_dict import (
     set_state_dict,
 )
 from torch.distributed.checkpoint.stateful import Stateful
-from torchdata.stateful_dataloader import StatefulDataLoader
+
+
+try:
+    from torchdata.stateful_dataloader import StatefulDataLoader
+except ImportError:
+    StatefulDataLoader = None  # Optional dependency
 
 
 logger = logging.getLogger(__name__)

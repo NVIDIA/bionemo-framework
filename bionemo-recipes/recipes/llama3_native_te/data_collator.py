@@ -71,8 +71,8 @@ class GenomicDataCollator:
         """Apply base collator, then add genomic masking.
 
         Order of operations (IMPORTANT):
-        1. Mask degenerate bases (simple character check)
-        2. Mask phylogenetic tags (needs lowercase to detect!)
+        1. Mask phylogenetic tags FIRST (needs pipes and lowercase to detect!)
+        2. Mask degenerate bases (simple character check)
         3. Uppercase labels (after detection, since phylo relies on case)
         """
         # Base collator handles batching and CLM label creation
@@ -80,20 +80,11 @@ class GenomicDataCollator:
 
         labels = batch["labels"]
 
-        # Step 1: Mask degenerate bases and control characters
-        if self.mask_degenerate_bases:
-            dna_tokens_tensor = torch.tensor(self.dna_tokens, device=labels.device)
-            control_tensor = torch.tensor(self.control_tags, device=labels.device)
-
-            # Identify non-DNA tokens
-            not_dna = ~torch.isin(labels, dna_tokens_tensor)
-            is_control = torch.isin(labels, control_tensor)
-
-            # Mask both, but preserve existing -100 values
-            labels[(not_dna | is_control) & (labels != -100)] = -100
-
-        # Step 2: Mask phylogenetic tags (BEFORE uppercase!)
-        # Phylo detection relies on lowercase letters after '|' to identify tags
+        # Step 1: Mask phylogenetic tags FIRST (BEFORE degenerate!)
+        # Phylo detection needs:
+        # - Pipes (|) to detect boundaries
+        # - Lowercase letters to identify tags
+        # - Must run before degenerate masking which would mask pipes!
         if self.mask_phylo_tags:
             phylo_mask = mask_phylogenetic_tags(
                 tokenized_sequence=labels,
@@ -104,6 +95,18 @@ class GenomicDataCollator:
             )
             # Where mask is 0, set label to -100 (but preserve existing -100)
             labels[(phylo_mask == 0) & (labels != -100)] = -100
+
+        # Step 2: Mask degenerate bases and control characters (AFTER phylo!)
+        if self.mask_degenerate_bases:
+            dna_tokens_tensor = torch.tensor(self.dna_tokens, device=labels.device)
+            control_tensor = torch.tensor(self.control_tags, device=labels.device)
+
+            # Identify non-DNA tokens
+            not_dna = ~torch.isin(labels, dna_tokens_tensor)
+            is_control = torch.isin(labels, control_tensor)
+
+            # Mask both, but preserve existing -100 values
+            labels[(not_dna | is_control) & (labels != -100)] = -100
 
         # Step 3: Uppercase labels (AFTER phylo detection!)
         if self.uppercase_labels:
