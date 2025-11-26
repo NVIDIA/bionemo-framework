@@ -24,7 +24,10 @@ dataset:
   buffer_size: 10_000
   use_lazy_tokenization: false
   use_stateful_dataloader: false
-  # No genomic masking for text data
+  # Explicitly disable genomic masking for text data
+  mask_degenerate_bases: false
+  mask_phylo_tags: false
+  uppercase_labels: false
   load_dataset_kwargs:
     path: "wikimedia/wikipedia"
     name: "20231101.en"  # English Wikipedia
