@@ -102,15 +102,10 @@ def create_tokenized_dataset(
         #
         # Determine which columns to remove (keep only tokenizer outputs)
         if isinstance(dataset, datasets.IterableDataset):
-            # Streaming dataset: Try to get column names from first batch
-            try:
-                first_item = next(iter(dataset.take(1)))
-                columns_to_remove = list(first_item.keys())
-                logger.info(f"Detected columns in streaming dataset: {columns_to_remove}")
-            except Exception:
-                # Fallback for OpenGenome2 (inconsistent schema)
-                columns_to_remove = [sequence_column, "record"]
-                logger.warning(f"Could not detect columns, using fallback: {columns_to_remove}")
+            # Streaming dataset: Explicitly list columns based on dataset
+            # Common columns: id, url, title for Wikipedia; text/sequence for genomic
+            columns_to_remove = [sequence_column, "id", "url", "title", "record"]
+            logger.info(f"Removing columns for streaming dataset: {columns_to_remove}")
         else:
             # Non-streaming dataset: use actual column names
             columns_to_remove = dataset.column_names
