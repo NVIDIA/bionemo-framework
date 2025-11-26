@@ -66,6 +66,11 @@ def create_tokenized_dataset(
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
 
+    # Fix: Set pad_token if not already set (needed for Meta Llama models)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        logger.info(f"Set tokenizer.pad_token to EOS token (id={tokenizer.eos_token_id})")
+
     def tokenize_with_windowing(examples):
         """Tokenize nucleotide sequences with windowing (one-to-many mapping)."""
         # Tokenize with windowing using return_overflowing_tokens
