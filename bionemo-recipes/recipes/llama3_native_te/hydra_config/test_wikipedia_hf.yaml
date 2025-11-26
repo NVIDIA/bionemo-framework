@@ -1,0 +1,64 @@
+# Test config: Llama-3.2-1B standard HF on Wikipedia (baseline)
+# Purpose: Compare against TE version for stability
+defaults:
+  - defaults
+  - _self_
+
+# Use Meta's Llama-3.2-1B (standard HF, no TE)
+model_tag: meta-llama/Llama-3.2-1B
+
+# No TE-specific config needed
+config_kwargs: {}
+
+num_train_steps: 150_000  # Full comparison run
+
+dataset:
+  sequence_column: "text"
+  tokenizer_path: meta-llama/Llama-3.2-1B  # Use Meta's tokenizer
+  micro_batch_size: 4
+  num_workers: 2
+  max_seq_length: 8192  # Match genomic configs for fair comparison
+  stride: 200
+  buffer_size: 10_000
+  use_lazy_tokenization: false
+  use_stateful_dataloader: false
+  # No genomic masking for text data
+  load_dataset_kwargs:
+    path: "wikimedia/wikipedia"
+    name: "20231101.en"  # English Wikipedia
+    split: "train"
+    streaming: true
+
+adamw_kwargs:
+  lr: 3e-4
+  fused: true
+  betas: [0.9, 0.95]  # Standard for text
+  eps: 1e-8
+  weight_decay: 0.1
+
+lr_scheduler_kwargs:
+  num_warmup_steps: 2_000
+  num_training_steps: 150_000
+
+checkpoint:
+  ckpt_dir: null
+  save_final_model: false
+  resume_from_checkpoint: false
+
+logger:
+  frequency: 50
+
+wandb_init_args:
+  name: "test-wikipedia-hf-${now:%Y%m%d_%H%M%S}"
+  project: "llama3-wikipedia-test"
+  mode: "offline"
+  tags:
+    - wikipedia
+    - hf
+    - baseline
+
+fp8_config:
+  enabled: false
+
+use_meta_device: false
+use_torch_compile: false
