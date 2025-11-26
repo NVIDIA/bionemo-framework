@@ -24,7 +24,9 @@ dataset:
   buffer_size: 10_000
   use_lazy_tokenization: false
   use_stateful_dataloader: false
-  # Standard collator (no genomic masking parameters on main branch)
+  # Disable genomic masking for text data
+  uppercase_labels: false
+  mask_degenerate_bases: false  # MUST set to false (default is true!)
   load_dataset_kwargs:
     path: "wikimedia/wikipedia"
     name: "20231101.en"  # English Wikipedia
