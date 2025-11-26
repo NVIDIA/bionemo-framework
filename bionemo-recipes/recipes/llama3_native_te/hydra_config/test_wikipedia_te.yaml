@@ -10,6 +10,7 @@ model_tag: ./example_checkpoint  # Has TE layers (NVLlama)
 # TE-specific config
 config_kwargs:
   attn_input_format: "bshd"
+  pad_token_id: 128001  # Meta's EOS token (standard practice)
   # Will load Meta's pretrained weights but use TE architecture
 
 num_train_steps: 150_000  # Full comparison run
