@@ -53,6 +53,33 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
     _no_split_modules = ("TransformerLayer",)
     _skip_keys_device_placement = ("past_key_values",)
 
+    def _init_weights(self, module):
+        """TE-specific weight initialization."""
+        super()._init_weights(module)
+
+        # Copied from transformers.modeling_utils.PreTrainedModel._init_weights
+        if hasattr(self.config, "initializer_range"):
+            std = self.config.initializer_range
+        else:
+            # 0.02 is the standard default value across the library
+            std = getattr(self.config.get_text_config(), "initializer_range", 0.02)
+
+        if isinstance(
+            module, (nn.Linear, transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)
+        ):
+            module.weight.data.normal_(mean=0.0, std=std)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        if isinstance(module, transformer_engine.pytorch.LayerNorm):
+            if hasattr(module, "weight") and module.weight is not None:
+                module.weight.data.fill_(1.0)
+            if hasattr(module, "bias") and module.bias is not None:
+                module.bias.data.zero_()
+        if isinstance(module, transformer_engine.pytorch.LayerNormLinear):
+            module.layer_norm_weight.data.fill_(1.0)
+            if module.layer_norm_bias is not None:
+                module.layer_norm_bias.data.zero_()
+
 
 class NVLlamaModel(NVLlamaPreTrainedModel):
     """Llama3 model implemented in Transformer Engine."""
