@@ -7,10 +7,12 @@ defaults:
 # Use Meta's Llama-3.2-1B (standard architecture, TE layers)
 model_tag: meta-llama/Llama-3.2-1B
 
-# TE-specific config
+# TE-specific config with explicit vocab override
 config_kwargs:
   attn_input_format: "bshd"  # Use TE layers
   trust_remote_code: true  # Allow loading llama3_nv.py
+  vocab_size: 128256  # Meta's text vocab (not 256 genomic!)
+  tie_word_embeddings: false
 
 num_train_steps: 150_000  # Full comparison run
 
