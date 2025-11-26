@@ -32,3 +32,9 @@ def te_model_checkpoint(tmp_path):
     model_te = convert_llama_hf_to_te(model_hf)
     model_te.save_pretrained(tmp_path / "te_model_checkpoint")
     return tmp_path / "te_model_checkpoint"
+
+
+@pytest.fixture
+def recipe_path() -> Path:
+    """Return the root directory of the recipe."""
+    return Path(__file__).parent.parent

@@ -28,9 +28,9 @@ from transformers import AutoTokenizer
 
 
 @pytest.fixture(scope="session")
-def tokenizer():
+def tokenizer(recipe_path: Path):
     """Load the ASCII nucleotide tokenizer."""
-    tokenizer_path = Path(__file__).parent.parent / "nucleotide_fast_tokenizer"
+    tokenizer_path = recipe_path / "nucleotide_fast_tokenizer"
     return AutoTokenizer.from_pretrained(str(tokenizer_path))
 
 
