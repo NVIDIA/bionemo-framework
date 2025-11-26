@@ -100,11 +100,17 @@ def create_tokenized_dataset(
         #   - Use dataset.column_names (which is available and accurate)
         #   - Dataset.map() raises error if column doesn't exist
         #
-        # TODO: Remove this workaround once Arc Institute fixes OpenGenome2 schema consistency.
-        # When all shards have the same columns, dataset.column_names will work for both cases.
+        # Determine which columns to remove (keep only tokenizer outputs)
         if isinstance(dataset, datasets.IterableDataset):
-            # Streaming dataset: column_names may be None due to inconsistent schema
-            columns_to_remove = [sequence_column, "record"]
+            # Streaming dataset: Try to get column names from first batch
+            try:
+                first_item = next(iter(dataset.take(1)))
+                columns_to_remove = list(first_item.keys())
+                logger.info(f"Detected columns in streaming dataset: {columns_to_remove}")
+            except Exception:
+                # Fallback for OpenGenome2 (inconsistent schema)
+                columns_to_remove = [sequence_column, "record"]
+                logger.warning(f"Could not detect columns, using fallback: {columns_to_remove}")
         else:
             # Non-streaming dataset: use actual column names
             columns_to_remove = dataset.column_names
