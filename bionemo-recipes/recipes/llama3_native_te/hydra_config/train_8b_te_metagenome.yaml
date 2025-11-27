@@ -33,7 +33,7 @@ dataset:
   # Genomic masking options (Milestone 1: metagenomics)
   uppercase_labels: false  # Metagenomics is 100% uppercase (per EDA)
   mask_degenerate_bases: true  # Mask N, R, Y, @, # (0.001% of tokens)
-  mask_phylo_tags: false  # Not needed for metagenomics
+  # mask_phylo_tags not available on main (only on phylo branch)
   load_dataset_kwargs:
     path: "json"  # Use JSON loader for local files
     data_files: "/data/opengenome2/json/pretraining_or_both_phases/metagenomes/*.jsonl.gz"
