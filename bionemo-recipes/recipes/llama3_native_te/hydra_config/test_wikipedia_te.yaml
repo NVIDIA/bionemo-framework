@@ -4,11 +4,14 @@ defaults:
   - defaults
   - _self_
 
-# Use local TE config with Meta's 1B architecture and text vocab
-model_tag: ./llama3_1b_te_text_config  # Local config with TE layers + auto_map
+# Use example_checkpoint (proven TE config) with vocab override
+model_tag: ./example_checkpoint  # Has TE layers (NVLlama)
 
-# TE will be loaded automatically via auto_map in config.json
-config_kwargs: {}
+# Override for text vocab (not genomic)
+config_kwargs:
+  vocab_size: 128256  # Meta's text vocab (not 256)
+  tie_word_embeddings: false
+  attn_input_format: "bshd"
 
 num_train_steps: 150_000  # Full comparison run
 
