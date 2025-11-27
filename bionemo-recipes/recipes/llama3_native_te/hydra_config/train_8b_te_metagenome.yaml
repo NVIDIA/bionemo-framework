@@ -1,0 +1,89 @@
+# Production training config for Llama-3-8B on LOCAL metagenomes with genomic masking
+defaults:
+  - defaults
+  - _self_
+
+# Model configuration - Full 8B model with TE layers
+model_tag: ./llama3_8b_genomic_config  # 8B with TE (NVLlamaModel)
+
+# Config overrides for genomic tokenizer and attention format
+config_kwargs:
+  attn_input_format: "bshd"  # Standard batching (not THD sequence packing)
+  trust_remote_code: true
+  vocab_size: 256  # Genomic tokenizer vocab size
+  tie_word_embeddings: false
+  eos_token_id: 0
+  pad_token_id: 1
+  bos_token_id: 2
+
+# Training duration
+num_train_steps: 100_000
+
+# Dataset configuration - LOCAL metagenomes with genomic masking
+dataset:
+  sequence_column: "text"
+  tokenizer_path: ${oc.env:PWD}/example_checkpoint
+  micro_batch_size: 2  # Conservative for 8B model
+  num_workers: 4
+  max_seq_length: 8192  # Full context length
+  stride: 200  # HuggingFace stride = overlap amount (John used 200 token overlap)
+  buffer_size: 500_000
+  use_lazy_tokenization: true
+  use_stateful_dataloader: false
+  # Genomic masking options (Milestone 1: metagenomics)
+  uppercase_labels: false  # Metagenomics is 100% uppercase (per EDA)
+  mask_degenerate_bases: true  # Mask N, R, Y, @, # (0.001% of tokens)
+  mask_phylo_tags: false  # Not needed for metagenomics
+  load_dataset_kwargs:
+    path: "json"  # Use JSON loader for local files
+    data_files: "/data/opengenome2/json/pretraining_or_both_phases/metagenomes/*.jsonl.gz"
+    split: "train"
+    streaming: true
+
+# Optimizer configuration
+adamw_kwargs:
+  lr: 2e-4  # John's metagenomics learning rate
+  fused: true
+  betas: [0.9, 0.98]
+  eps: 1e-8
+  weight_decay: 0.01
+
+# Learning rate scheduler
+lr_scheduler_kwargs:
+  num_warmup_steps: 2_000
+  num_training_steps: 100_000
+
+# Checkpoint configuration
+checkpoint:
+  ckpt_dir: ./checkpoints/llama3_8b_metagenome_genomic_masking
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 1_000
+
+# Logging configuration
+logger:
+  frequency: 50
+
+# WandB configuration
+wandb_init_args:
+  name: "llama3-8b-metagenome-masking-${now:%Y%m%d_%H%M%S}"
+  project: "llama3-genomic-training"
+  mode: "online"
+  tags:
+    - llama3-8b
+    - metagenomes
+    - genomic-masking
+    - milestone-1
+    - local-data
+
+# FP8 configuration (optional for H100)
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
+
+use_meta_device: false
+use_torch_compile: false
