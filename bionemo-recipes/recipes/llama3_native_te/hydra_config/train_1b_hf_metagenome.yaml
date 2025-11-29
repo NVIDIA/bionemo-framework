@@ -4,8 +4,16 @@ defaults:
   - defaults
   - _self_
 
-# Model: Local 1B config with standard HuggingFace Llama (NOT TE)
-model_tag: ./llama3_1b_hf_config  # Standard Llama, not NVLlama (TE)
+# Model: Use example_checkpoint (genomic 1B config)
+model_tag: ./example_checkpoint
+
+# Config overrides for genomic tokenizer (NO attn_input_format = HF, not TE)
+config_kwargs:
+  vocab_size: 256  # Genomic tokenizer
+  eos_token_id: 0
+  pad_token_id: 1
+  bos_token_id: 2
+  # NO attn_input_format = uses standard HF Llama (not TE)
 
 num_train_steps: 10_000
 
