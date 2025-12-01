@@ -51,6 +51,9 @@ except ImportError:
     os.system("pip install pyBigWig")
     import pyBigWig
 
+# Enable for debugging purposes
+LOGGING: bool = False
+
 
 class Evo2Preprocessor:
     """Data preprocessing class for Evo2."""
@@ -362,7 +365,7 @@ class Evo2Preprocessor:
         if config.fasta_rnaseq_bigwig_map:  # type: ignore
             bigwig_path = config.fasta_rnaseq_bigwig_map.get(os.path.basename(filepath))  # type: ignore
             if bigwig_path is None:
-                logging.warning(f"No BigWig mapping found for FASTA file: {filepath}")
+                logging.warning(f"No BigWig mapping found for FASTA file: {os.path.basename(filepath)}")
         else:
             logging.warning("No BigWig mapping provided.")
 
@@ -606,6 +609,9 @@ class Evo2Preprocessor:
         avg_index_time = 0.0
         count = 0
 
+        train_id = 0
+        val_id = 0
+        test_id = 0
         for sequence, elapsed_time in self.preprocess_generator(preproc_config):
             index_start_time = time.time()
 
@@ -630,23 +636,65 @@ class Evo2Preprocessor:
             if split == "train":
                 train_builder.add_item(tokens_tensor)
                 train_builder.end_document()
-                if isinstance(rna_seq_train_builder, IndexedDatasetBuilder) and rna_seq_tensor is not None:
-                    rna_seq_train_builder.add_item(rna_seq_tensor)
+                if isinstance(rna_seq_train_builder, IndexedDatasetBuilder):
+                    if rna_seq_tensor is not None:
+                        rna_seq_train_builder.add_item(rna_seq_tensor)
+                    else:
+                        # Add empty RNA-seq tensor if not available
+                        rna_seq_train_builder.add_item(
+                            torch.full(
+                                (tokens_tensor.shape[0],),
+                                preproc_config.rna_seq_missing_value,  # type: ignore
+                                dtype=torch.float32,
+                            )
+                        )
+                        logging.warning(
+                            f"RNA-seq tensor missing for train split; added placeholder tensor {train_id}."
+                        ) if LOGGING else None
                     rna_seq_train_builder.end_document()
+                    train_id += 1
 
             elif split == "val":
                 val_builder.add_item(tokens_tensor)
                 val_builder.end_document()
-                if isinstance(rna_seq_val_builder, IndexedDatasetBuilder) and rna_seq_tensor is not None:
-                    rna_seq_val_builder.add_item(rna_seq_tensor)
+                if isinstance(rna_seq_val_builder, IndexedDatasetBuilder):
+                    if rna_seq_tensor is not None:
+                        rna_seq_val_builder.add_item(rna_seq_tensor)
+                    else:
+                        # Add empty RNA-seq tensor if not available
+                        rna_seq_val_builder.add_item(
+                            torch.full(
+                                (tokens_tensor.shape[0],),
+                                preproc_config.rna_seq_missing_value,  # type: ignore
+                                dtype=torch.float32,
+                            )
+                        )
+                        logging.warning(
+                            f"RNA-seq tensor missing for val split; added placeholder tensor {val_id}."
+                        ) if LOGGING else None
                     rna_seq_val_builder.end_document()
+                    val_id += 1
 
             elif split == "test":
                 test_builder.add_item(tokens_tensor)
                 test_builder.end_document()
-                if isinstance(rna_seq_test_builder, IndexedDatasetBuilder) and rna_seq_tensor is not None:
-                    rna_seq_test_builder.add_item(rna_seq_tensor)
+                if isinstance(rna_seq_test_builder, IndexedDatasetBuilder):
+                    if rna_seq_tensor is not None:
+                        rna_seq_test_builder.add_item(rna_seq_tensor)
+                    else:
+                        # Add empty RNA-seq tensor if not available
+                        rna_seq_test_builder.add_item(
+                            torch.full(
+                                (tokens_tensor.shape[0],),
+                                preproc_config.rna_seq_missing_value,  # type: ignore
+                                dtype=torch.float32,
+                            )
+                        )
+                        logging.warning(
+                            f"RNA-seq tensor missing for test split; added placeholder tensor {test_id}."
+                        ) if LOGGING else None
                     rna_seq_test_builder.end_document()
+                    test_id += 1
 
             index_end_time = time.time()
             avg_preproc_time = (avg_preproc_time * count + elapsed_time) / (count + 1)

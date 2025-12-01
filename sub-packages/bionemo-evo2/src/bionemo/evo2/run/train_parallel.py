@@ -860,7 +860,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             monitor=args.metric_to_monitor_for_checkpoints,
             save_top_k=args.save_top_k,
             every_n_train_steps=args.val_check_interval,
-            always_save_context=True,
+            always_save_context=True,  # NOTE: Change to `False` to allow for training on Together
             filename="{epoch}-{step}-{consumed_samples}",
             save_weights_only=False,
             save_optim_on_train_end=True,

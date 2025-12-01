@@ -18,25 +18,25 @@
 
 
 import argparse
+import functools
 import tempfile
 from functools import partial
 from pathlib import Path
-from typing import Callable, Literal, Optional
+from typing import Any, Dict, Literal, Optional
 
 import nemo.lightning as nl
 import torch
 from lightning.pytorch import LightningDataModule
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
-from nemo.collections import llm
-from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS
+from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS, HyenaModel
 from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
 from nemo.lightning import NeMoLogger
 from nemo.lightning.data import WrappedDataLoader
 from nemo.lightning.pytorch import callbacks as nl_callbacks
 
 # from bionemo.evo2.run.peft import Evo2LoRA
-from torch import Tensor, nn
+from nemo.utils import logging
 
 from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
 from bionemo.evo2.utils.heads.parallel_head import (
@@ -44,11 +44,15 @@ from bionemo.evo2.utils.heads.parallel_head import (
     parallel_head_data_step_fn,
     parallel_head_forward_step_fn,
 )
+from bionemo.llm.data import collate
 from bionemo.llm.lightning import LightningPassthroughPredictionMixin
 from bionemo.llm.utils.callbacks import PredictionWriter
 
 
 CheckpointFormats = Literal["torch_dist", "zarr"]
+
+# Enable detailed logging for debugging purposes
+LOGGING = False
 
 
 def parse_args():
@@ -147,6 +151,14 @@ def parse_args():
     return ap.parse_args()
 
 
+SHUFFLE_MESSAGE = (
+    "Per token log probabilities are not supported when using context parallelism. The results will be "
+    "zigzag shuffled along the sequence dimension. Raise a feature request if you need this and do "
+    "not want to manually do the unshuffling yourself. You need to undo the shuffling that happened in "
+    "`megatron.core.utils.get_batch_on_this_cp_rank`."
+)
+
+
 class PredictDataModule(LightningDataModule):
     """Create a dataloader for prediction."""
 
@@ -156,7 +168,7 @@ class PredictDataModule(LightningDataModule):
         self.dataset = dataset
         self.batch_size = batch_size
 
-    def setup(self, stage: Optional[str] = None) -> None:
+    def setup(self, stage: str | None = None) -> None:
         """Set up the dataloader."""
         pass
 
@@ -170,145 +182,88 @@ class PredictDataModule(LightningDataModule):
             num_workers=8,
             shuffle=False,
             drop_last=False,
+            collate_fn=functools.partial(
+                collate.padding_collate_fn,
+                padding_values={"tokens": 0, "position_ids": 0, "loss_mask": False},
+                min_length=None,
+                max_length=None,
+            ),
         )
 
 
 def _gather_along_cp_dim(input_, seq_dim: int = 1):
-    """Gather tensors and concatenate along the context parallel dimension."""
+    """Gather tensors and concatenate along the last dimension."""
     world_size = parallel_state.get_context_parallel_world_size()
     # Bypass the function if we are using only 1 GPU.
     if world_size == 1:
         return input_
 
-    # Use the correct parallel group for context parallelism
-    cp_group = parallel_state.get_context_parallel_group()
-
     dim_size = list(input_.size())
     dim_size[0] = dim_size[0] * world_size
 
     output = torch.empty(dim_size, dtype=input_.dtype, device=torch.cuda.current_device())
-    torch.distributed.all_gather_into_tensor(output, input_.contiguous(), group=cp_group)
+    # TODO: handle zigzag packing here. Currently this just gathers along ranks, but if you want to see the sequence in
+    #   the original order you need to undo the zigzag packing that happens in
+    #   `megatron.core.utils.get_batch_on_this_cp_rank`.
+    torch.distributed.all_gather_into_tensor(
+        output, input_.contiguous(), group=parallel_state.get_context_parallel_group()
+    )
     tensor_list = output.chunk(world_size, dim=0)
     output = torch.cat(tensor_list, dim=seq_dim).contiguous()
 
     return output
 
 
-class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
-    """A predictor for the Hyena model. This adds in the predict step and the passthrough method."""
+class BasePredictor(LightningPassthroughPredictionMixin):
+    """Base predictor for GPT-style models."""
 
     def __init__(
         self,
         *args,
         output_log_prob_seqs: bool = False,
-        log_prob_collapse_option: Literal["sum", "mean"] = "mean",
-        model_transform: Optional[Callable[[nn.Module], nn.Module]] = None,
+        log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
         **kwargs,
     ):
-        """Initialize the predictor with our needs around computing log probabilities."""
+        """Initialize the base predictor with arguments needed for writing predictions."""
         super().__init__(*args, **kwargs)
         self.output_log_prob_seqs = output_log_prob_seqs
         self.log_prob_collapse_option = log_prob_collapse_option
-        self.model_transform = model_transform
+        self.shuffle_warning_raised = False
 
-        if self.model_transform is not None:
-            self.model_transform.__call__(self)
-
-    def predict_step(self, batch, batch_idx: Optional[int] = None) -> Tensor:
+    def predict_step(self, batch, batch_idx: Optional[int] = None) -> Dict[str, Any]:
         """Enhanced predict_step that handles both single-head and parallel-head inference."""
-        print(f"🔍 Predict step - Model type: {type(self)}")
-        print("🔍 Model has parallel attributes:")
-        print(f"   - parallel_dna: {getattr(self, 'parallel_dna', 'Not set')}")
-        print(f"   - parallel_rna: {getattr(self, 'parallel_rna', 'Not set')}")
-        print(f"   - parallel_pep: {getattr(self, 'parallel_pep', 'Not set')}")
-        print(f"   - _original_forward: {hasattr(self, '_original_forward')}")
+        if LOGGING:
+            logging.info(f"🔍 Predict step - Model type: {type(self)}")
+            logging.info("🔍 Model has parallel attributes:")
+            logging.info(f"   - parallel_dna: {getattr(self, 'parallel_dna', 'Not set')}")
+            logging.info(f"   - parallel_rna: {getattr(self, 'parallel_rna', 'Not set')}")
+            logging.info(f"   - parallel_pep: {getattr(self, 'parallel_pep', 'Not set')}")
+            logging.info(f"   - _original_forward: {hasattr(self, '_original_forward')}")
+        with torch.no_grad():
+            forward_out = self.forward_step(batch)  # type: ignore
 
-        forward_out = self.forward_step(batch)
-        print(f"Batch: \n{batch}")
-        print(f"Batch type: {type(batch)}")
-        try:
-            print(f"Batch keys: {batch}")
-        except Exception:
-            pass
-        print(f"Forward out type: {type(forward_out)}")
-        try:
-            print(f"Forward shape: {forward_out.shape}")
-        except Exception:
-            pass
-        print(f"Forward out: {forward_out}")
+        # 🔄 Process each head's output separately
+        gathered_outputs = {}
+        for head_name, logits in forward_out.items():
+            # Skip None values (which indicate unused heads)
+            if logits is None:
+                logging.info(f"Skipping {head_name}: None value") if LOGGING else None
+                continue
 
-        # 🔍 CHECK: Are we using parallel heads?
-        using_parallel_heads = (
-            hasattr(self, "parallel_dna") or hasattr(self, "parallel_rna") or hasattr(self, "parallel_pep")
-        )
+            # Gather the logits
+            gathered_logits = self._gather_parallel_output(logits)
 
-        print(f"🔍 Using parallel heads: {using_parallel_heads}")
+            # Reshape rnaseq head output if needed
+            if head_name == "rna_seq_logits" and len(gathered_logits.shape) == 2:
+                gathered_logits = gathered_logits.transpose(0, 1)
 
-        if using_parallel_heads:
-            # 🎯 PARALLEL HEADS: Handle multiple outputs
-            return self._handle_parallel_head_outputs(forward_out, batch)  # type: ignore
-        else:
-            # 🎯 SINGLE HEAD: Original DNA-only logic
-            if not isinstance(forward_out, Tensor):
-                print(f"⚠️ Warning: Expected tensor for single head, got {type(forward_out)}")
-                return forward_out
-            return self._handle_single_head_outputs(forward_out, batch)  # type: ignore
+            # Log shape info if LOGGING is enabled
+            logging.info(
+                f"Head: {head_name}, Original shape: {logits.shape}, Gathered shape: {gathered_logits.shape}"
+            ) if LOGGING else None
 
-    def _handle_parallel_head_outputs(self, forward_out, batch):
-        """Handle forward outputs when using parallel heads."""
-        print(f"Handling parallel head outputs, type: {type(forward_out)}")
-
-        # Handle dictionary output (expected case)
-        if isinstance(forward_out, dict):
-            gathered_outputs = {}
-
-            # 🔄 Process each head's output separately
-            for head_name, logits in forward_out.items():
-                # Skip None values
-                if logits is None:
-                    print(f"Skipping {head_name}: None value")
-                    continue
-
-                print(f"Processing {head_name} with shape: {logits.shape}")
-
-                # Gather the logits
-                gathered_logits = self._gather_parallel_output(logits)
-                gathered_outputs[head_name] = gathered_logits.cpu()
-
-        elif isinstance(forward_out, (tuple, list)):
-            # Alternative: if forward_out is a tuple/list of tensors
-            gathered_outputs = {}
-            head_names = ["dna_logits", "rna_seq_logits", "pep_map_logits"]
-
-            for i, logits in enumerate(forward_out):
-                if logits is None:
-                    continue
-
-                if i < len(head_names):
-                    head_name = head_names[i]
-                    print(f"Processing {head_name} with shape: {logits.shape}")
-
-                    gathered_logits = self._gather_parallel_output(logits)
-                    gathered_outputs[head_name] = gathered_logits.cpu()
-
-        elif isinstance(forward_out, torch.Tensor):
-            # Single tensor case - this might happen if only one head is active
-            print("⚠️ Got single tensor for parallel heads - treating as DNA logits")
-            gathered_logits = self._gather_parallel_output(forward_out)
-            gathered_outputs = {"dna_logits": gathered_logits.cpu()}
-
-        else:
-            # Unexpected case
-            print(f"⚠️ Unexpected forward_out type for parallel heads: {type(forward_out)}")
-            print(f"Forward out value: {forward_out}")
-
-            # Try to handle as single tensor if it has tensor-like attributes
-            if hasattr(forward_out, "shape") and hasattr(forward_out, "dtype"):
-                gathered_logits = self._gather_parallel_output(forward_out)
-                gathered_outputs = {"unknown_logits": gathered_logits.cpu()}
-            else:
-                # Return as-is with metadata
-                gathered_outputs = {"raw_output": forward_out}
+            # Store the gathered logits for this head
+            gathered_outputs[head_name] = gathered_logits.cpu()
 
         # 📤 Return all head outputs plus metadata
         result = {
@@ -317,41 +272,7 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
             "seq_idx": batch["seq_idx"].cpu() if "seq_idx" in batch else None,
         }
 
-        print(f"Final result keys: {list(result.keys())}")
         return result
-
-    def _handle_single_head_outputs(self, forward_out, batch):
-        """Handle forward outputs for single-head (DNA-only) inference."""
-        forward_out_gathered = self._gather_parallel_output(forward_out)
-
-        # Verify DNA vocab size
-        assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1]  # type: ignore
-
-        if self.output_log_prob_seqs:
-            # 📊 Compute log probabilities
-            softmax_logprobs = torch.log_softmax(forward_out_gathered, dim=-1)
-            softmax_logprobs = softmax_logprobs[:, :-1]
-            input_ids = batch["tokens"][:, 1:]
-            assert softmax_logprobs.shape[1] == input_ids.shape[1]
-
-            logprobs = torch.gather(
-                softmax_logprobs,  # Gather likelihoods...
-                2,  # along the vocab dimension...
-                input_ids.unsqueeze(-1),  # using the token ids to index.
-            ).squeeze(-1)
-
-            log_prob_seqs = torch.sum(logprobs * batch["loss_mask"][:, 1:].float(), dim=-1)
-            if self.log_prob_collapse_option == "mean":
-                log_prob_seqs = log_prob_seqs / (batch["loss_mask"][:, 1:].float().sum(dim=-1) + 1e-8)
-
-            return {"log_probs_seqs": log_prob_seqs.cpu(), "seq_idx": batch["seq_idx"].cpu()}
-        else:
-            # 📤 Return raw logits
-            return {
-                "token_logits": forward_out_gathered.cpu(),
-                "pad_mask": batch["loss_mask"].cpu(),
-                "seq_idx": batch["seq_idx"].cpu(),
-            }
 
     def _gather_parallel_output(self, tensor_output):
         """Helper to gather tensor output across both tensor parallel and context parallel dimensions."""
@@ -361,9 +282,17 @@ class HyenaPredictor(LightningPassthroughPredictionMixin, llm.HyenaModel):
         cp_gathered = _gather_along_cp_dim(tp_gathered)
         return cp_gathered
 
-    def _gather_single_output(self, forward_out):
-        """Helper to gather a single tensor output across parallel dimensions."""
-        return self._gather_parallel_output(forward_out)
+
+class HyenaPredictor(BasePredictor, HyenaModel):
+    """A predictor for the Hyena model. This adds in the predict step and the passthrough method."""
+
+    def configure_model(self, *args, **kwargs) -> None:
+        """Configure the model."""
+        super().configure_model(*args, **kwargs)
+        self.trainer.strategy._init_model_parallel = True  # type: ignore
+        # Apply model transform if it exists
+        if self.model_transform is not None:
+            self.model_transform.__call__(self)
 
 
 def predict(
@@ -374,54 +303,124 @@ def predict(
     pipeline_model_parallel_size: int,
     context_parallel_size: int,
     args: argparse.Namespace,
+    num_nodes: int = 1,
+    devices: int | None = None,
     model_size: str = "7b",
+    model_type: str = "hyena",
     ckpt_format: CheckpointFormats = "torch_dist",
     fp8: bool = False,
     full_fp8: bool = False,
     work_dir: Path | None = None,
-    batch_size: int = 1,
+    micro_batch_size: int = 1,
     output_log_prob_seqs: bool = False,
-    log_prob_collapse_option: Literal["sum", "mean"] = "mean",
+    log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
+    write_interval: Literal["epoch", "batch"] = "epoch",
     prepend_bos: bool = False,
     no_sequence_parallel: bool = False,
     hybrid_override_pattern: str | None = None,
     num_layers: int | None = None,
+    seq_len_interpolation_factor: int | None = None,
+    files_per_subdir: int | None = None,
+    lora_checkpoint_path: Path | None = None,
 ):
     """Inference workflow for Evo2.
 
     Returns:
         None
     """
-    callback_list = [
-        PredictionWriter(
-            output_dir=output_dir,
-            write_interval="epoch",
-            batch_dim_key_defaults={"token_logits": 0, "dna_logits": 0, "logits": 0},
-            seq_dim_key_defaults={"token_logits": 1, "dna_logits": 1, "logits": 1},
-        )
-    ]
-
-    # Asserts for proper configuration of parallel heads
-    if args.parallel_heads:
-        heads = [args.parallel_dna_head, args.parallel_rna_seq_head, args.parallel_pep_map_head]
-        callback_list.append(nl_callbacks.ModelTransform())  # type: ignore
-        assert any(heads), "No heads added to parallel heads. Add two or more heads."
-
     if work_dir is None:
         work_dir = Path(tempfile.mkdtemp())
+    if files_per_subdir is None and write_interval == "batch":
+        logging.warning(
+            "--files-per-subdir is not set with --write-interval batch, will write all predictions to a "
+            "single directory. This may cause problems if you are predicting on a very large dataset."
+        )
     sequence_parallel = tensor_parallel_size > 1 and not no_sequence_parallel
     output_dir.mkdir(parents=True, exist_ok=True)  # Make sure the output directory exists, files will be written here.
     model_parallel_size = tensor_parallel_size * pipeline_model_parallel_size * context_parallel_size
-    if model_parallel_size > torch.cuda.device_count():
+    if devices is None:
+        devices = model_parallel_size
+    world_size = num_nodes * devices
+    if world_size % model_parallel_size != 0:
         raise ValueError(
-            f"Requested model parallel size {model_parallel_size} is greater than the "
-            f"number of available CUDA devices {torch.cuda.device_count()}"
+            f"world_size must be divisible by model_parallel_size, got {world_size} and"
+            f" {model_parallel_size}. Please set --num-nodes and --devices such that num_nodes * devices is divisible "
+            "by model_parallel_size, which is TP * CP * PP."
         )
+    global_batch_size = micro_batch_size * world_size // model_parallel_size
+
+    callbacks = [
+        PredictionWriter(
+            output_dir=output_dir,
+            write_interval=write_interval,
+            batch_dim_key_defaults={"token_logits": 0},
+            seq_dim_key_defaults={"token_logits": 1},
+            files_per_subdir=files_per_subdir,
+            save_all_model_parallel_ranks=False,  # only write one copy of predictions.
+        )
+    ]
+
+    # The following two config options are really only used for testing, but may also be useful for getting output from
+    #   specific layers of the model.
+    config_modifiers_init = {}
+    if hybrid_override_pattern is not None:
+        config_modifiers_init["hybrid_override_pattern"] = hybrid_override_pattern
+    if num_layers is not None:
+        config_modifiers_init["num_layers"] = num_layers
+
+    tokenizer = get_nmt_tokenizer("byte-level")
+
+    # Select model config based on model type
+    if model_type == "hyena":
+        if "-1m" in model_size and "nv" not in model_size and seq_len_interpolation_factor is None:
+            # TODO remove this override once we add this as a default upstream in NeMo.
+            #  if you see this, just check the pointed to model option for the 1m model in nemo and see if it already
+            #  has this option set.
+            config_modifiers_init["seq_len_interpolation_factor"] = 128
+
+        if model_size not in HYENA_MODEL_OPTIONS:
+            raise ValueError(f"Invalid model size for Hyena: {model_size}")
+        config = HYENA_MODEL_OPTIONS[model_size](
+            forward_step_fn=partial(parallel_head_forward_step_fn, predict=True),
+            data_step_fn=partial(parallel_head_data_step_fn, predict=True),  # , attention_backend=AttnBackend.fused,
+            distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
+            # Only use vortex style FP8 in the model config if using FP8 and not full FP8. This will only apply FP8 to
+            #   the projection layer of the hyena mixer.
+            vortex_style_fp8=fp8 and not full_fp8,
+            **config_modifiers_init,
+        )
+
+        if args.parallel_heads:
+            model_transform = ParallelHeadTransform(
+                parallel_dna=args.parallel_dna_head,
+                parallel_rna=args.parallel_rna_seq_head,
+                parallel_pep=args.parallel_pep_map_head,
+                predict=True,
+            )
+            callbacks.append(nl_callbacks.ModelTransform())  # type: ignore
+        else:
+            model_transform = None
+
+        model = HyenaPredictor(
+            config,
+            tokenizer=tokenizer,
+            output_log_prob_seqs=output_log_prob_seqs,
+            log_prob_collapse_option=log_prob_collapse_option,
+            model_transform=model_transform,
+        )
+
+        # if args.parallel_heads:
+        #     model.model_transform.__call__(model)  # type: ignore
+
+    else:
+        raise ValueError(f"Invalid model type: {model_type}")
+
     # Create PTL trainer.
     trainer = nl.Trainer(
         accelerator="gpu",
-        devices=model_parallel_size,
-        strategy=nl.MegatronStrategy(  # TODO: MIGHT HAVE TO USE CUSTOM STRATEGY IF USING MODEL TRANSFORM
+        num_nodes=num_nodes,
+        devices=devices,
+        strategy=nl.MegatronStrategy(
             drop_last_batch=False,
             tensor_model_parallel_size=tensor_parallel_size,
             pipeline_model_parallel_size=pipeline_model_parallel_size,
@@ -430,12 +429,12 @@ def predict(
             ckpt_load_optimizer=False,  # Needs to be false for a normal model checkpoint.
             ckpt_save_optimizer=False,
             ckpt_async_save=False,
-            sequence_parallel=tensor_parallel_size > 1 and sequence_parallel,
+            sequence_parallel=sequence_parallel,
             save_ckpt_format=ckpt_format,
             ckpt_load_strictness="log_all",  # type: ignore
             data_sampler=nl.MegatronDataSampler(
-                micro_batch_size=batch_size,
-                global_batch_size=batch_size,
+                micro_batch_size=micro_batch_size,
+                global_batch_size=global_batch_size,
                 seq_len=8192,
                 output_log=False,  # this is needed for predict step to work
             ),
@@ -443,7 +442,7 @@ def predict(
         log_every_n_steps=1,
         limit_val_batches=10,
         num_sanity_val_steps=0,
-        callbacks=callback_list,  # type: ignore
+        callbacks=callbacks,  # type: ignore
         plugins=nl.MegatronMixedPrecision(
             precision="bf16-mixed",
             params_dtype=torch.bfloat16,
@@ -454,22 +453,6 @@ def predict(
             fp8_amax_compute_algo="max" if fp8 and full_fp8 else "most_recent",
         ),
     )
-    # The following two config options are really only used for testing, but may also be useful for getting output from
-    #   specific layers of the model.
-    config_modifiers_init = {}
-    if hybrid_override_pattern is not None:
-        config_modifiers_init["hybrid_override_pattern"] = hybrid_override_pattern
-    if num_layers is not None:
-        config_modifiers_init["num_layers"] = num_layers
-    config = HYENA_MODEL_OPTIONS[model_size](
-        forward_step_fn=partial(parallel_head_forward_step_fn, predict=True),
-        data_step_fn=partial(parallel_head_data_step_fn, predict=True),  # Use parallel head data step when needed
-        distribute_saved_activations=False if sequence_parallel and tensor_parallel_size > 1 else True,
-        # Only use vortex style FP8 in the model config if using FP8 and not full FP8. This will only apply FP8 to
-        #   the projection layer of the hyena mixer.
-        vortex_style_fp8=fp8 and not full_fp8,
-        **config_modifiers_init,
-    )
     trainer.strategy._setup_optimizers = False  # type: ignore
 
     nemo_logger = NeMoLogger(log_dir=work_dir)  # type: ignore
@@ -478,36 +461,15 @@ def predict(
         resume_if_exists=True,
         resume_ignore_no_checkpoint=False,
         resume_past_end=False,
-        restore_config=nl.RestoreConfig(
-            path=str(ckpt_dir),  # NeMo expects a string path.
-            load_model_state=True,
-            load_optim_state=False,
-            load_artifacts=False,
-        ),
-    )
-    tokenizer = get_nmt_tokenizer("byte-level")
-    model = HyenaPredictor(
-        config,
-        tokenizer=tokenizer,
-        output_log_prob_seqs=output_log_prob_seqs,
-        log_prob_collapse_option=log_prob_collapse_option,
-        model_transform=ParallelHeadTransform(
-            dna_loss_weight=1.0,
-            rna_loss_weight=0.5,
-            pep_loss_weight=0.5,
-            parallel_dna=args.parallel_dna_head,
-            parallel_rna=args.parallel_rna_seq_head,
-            parallel_pep=args.parallel_pep_map_head,
-        )
-        if args.parallel_heads
-        else None,
+        resume_from_path=str(ckpt_dir),
+        restore_config=None,
     )
 
     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
 
     dataset = SimpleFastaDataset(fasta_path, tokenizer, prepend_bos=prepend_bos)
-    datamodule = PredictDataModule(dataset, batch_size=batch_size)
-    trainer.predict(model, datamodule=datamodule)
+    datamodule = PredictDataModule(dataset, batch_size=micro_batch_size)
+    trainer.predict(model, datamodule=datamodule)  # TODO return_predictions=False
     dataset.write_idx_map(
         output_dir
     )  # Finally write out the index map so we can match the predictions to the original sequences.
@@ -527,7 +489,6 @@ def main():
         ckpt_format=args.ckpt_format,
         fp8=args.fp8,
         full_fp8=args.full_fp8,
-        batch_size=args.batch_size,
         output_log_prob_seqs=args.output_log_prob_seqs,
         log_prob_collapse_option=args.log_prob_collapse_option,
         prepend_bos=args.prepend_bos,
