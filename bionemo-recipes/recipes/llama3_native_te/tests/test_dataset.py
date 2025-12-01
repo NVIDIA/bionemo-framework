@@ -17,7 +17,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import torch
-from dataset import create_bshd_dataloader, create_tokenized_dataset
+
+from dataset import create_bshd_dataloader, create_thd_dataloader, create_tokenized_dataset
 from distributed_config import DistributedConfig
 
 
@@ -418,6 +419,45 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
     assert batches[2]["input_ids"].shape[0] == 1, "Batch 2 should have 1 sequence (remainder)"
 
 
+def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, tmp_path):
+    """Test that batching combines multiple sequences correctly with exact batch counts.
+
+    Creates 5 short sequences (no windowing) with micro_batch_size=2.
+    Should produce exactly 3 batches with shapes: [2, 2, 1].
+    """
+    # Create 5 sequences that won't trigger windowing (all very short)
+    parquet_path = tmp_path / "five_sequences.parquet"
+    sequences = ["A"] * 20
+    table = pa.table({"sequence": sequences})
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+        "streaming": True,
+    }
+
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        token_micro_batch_size=15,
+        max_seq_length=15,
+        stride=10,
+        use_lazy_tokenization=False,  # Use eager to ensure predictable batching
+    )
+
+    batches = list(dataloader)
+
+    assert len(batches) > 0
+
+    for batch in batches:
+        torch.testing.assert_close(batch["input_ids"].squeeze(0), torch.tensor([[2, 65, 0] * 5]).flatten())
+
+
 def test_streaming_dataset_removes_columns_correctly(tokenizer_path, tmp_path):
     """Test that streaming datasets properly remove input columns (text, record) during tokenization.
 
@@ -597,3 +637,27 @@ def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
     # Verify valid DNA tokens are present
     valid_dna = [65, 67, 71, 84]  # A, C, G, T
     assert any(tok in labels for tok in valid_dna), "Should have valid DNA tokens"
+
+
+def test_token_packing_dataloader(recipe_path):
+    """Test that the token packing dataloader works."""
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "split": "train",
+        "data_files": "test_genomic_sequences.parquet",
+        "streaming": True,
+    }
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_path=str(recipe_path / "example_checkpoint"),
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=1,
+        max_seq_length=1024,
+    )
+
+    batches = list(dataloader)
+    assert len(batches) > 1

@@ -19,6 +19,7 @@ import random
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
+
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
 
@@ -206,3 +207,67 @@ def test_sanity_fsdp2_with_lazy_tokenization(tmp_path, recipe_path, mock_genomic
 
     # Just check that training runs without errors
     assert final_loss is not None, "Training should complete and return a loss value"
+
+
+def test_sanity_convergence_ddp_with_sequence_packing(tmp_path, recipe_path, mock_genomic_parquet):
+    """Test that DDP training works with sequence packing enabled.
+
+    This test validates:
+    - Sequence packing works correctly
+    - Training can run with sequence packing
+    - No errors occur during forward/backward passes
+    """
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.load_dataset_kwargs.data_files={mock_genomic_parquet}",
+                "use_sequence_packing=true",
+                "dataset.max_seq_length=1024",
+                "config_kwargs.attn_input_format=thd",
+                "num_train_steps=10",  # Just verify it runs, don't test convergence
+                "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
+            ],
+        )
+
+    final_loss = main_ddp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # Just check that training runs without errors
+    assert final_loss < 5.0, f"Final loss {final_loss} is too high, expected < 5.0"
+
+
+def test_sanity_convergence_fsdp2_with_sequence_packing(tmp_path, recipe_path, mock_genomic_parquet):
+    """Test that FSDP2 training works with sequence packing enabled.
+
+    This test validates:
+    - Sequence packing works correctly
+    - Training can run with sequence packing
+    - No errors occur during forward/backward passes
+    """
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.load_dataset_kwargs.data_files={mock_genomic_parquet}",
+                "use_sequence_packing=true",
+                "config_kwargs.attn_input_format=thd",
+                "dataset.max_seq_length=1024",
+                "num_train_steps=10",  # Just verify it runs, don't test convergence
+                "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # Just check that training runs without errors
+    assert final_loss < 5.0, f"Final loss {final_loss} is too high, expected < 5.0"

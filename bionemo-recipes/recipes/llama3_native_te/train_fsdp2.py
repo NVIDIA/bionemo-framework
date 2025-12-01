@@ -19,12 +19,7 @@ from pathlib import Path
 import hydra
 import torch
 import transformer_engine.pytorch
-from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
-from dataset import create_bshd_dataloader
-from distributed_config import DistributedConfig
 from omegaconf import DictConfig, OmegaConf
-from perf_logger import PerfLogger
-from scheduler import get_linear_schedule_with_warmup
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard
 from torch.optim import AdamW
@@ -33,6 +28,12 @@ from transformers import AutoConfig, AutoModelForCausalLM
 
 # This import seems to be needed with meta device init and AutoModel.from_config
 from transformers.models.llama.modeling_llama import LlamaForCausalLM  # noqa: F401
+
+from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
+from dataset import create_bshd_dataloader, create_thd_dataloader
+from distributed_config import DistributedConfig
+from perf_logger import PerfLogger
+from scheduler import get_linear_schedule_with_warmup
 
 
 logger = logging.getLogger(__name__)
@@ -109,10 +110,10 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                 module.reset_parameters()
         logger.info("Model moved and reset complete")
 
-    # Create BSHD dataloader for genomic sequences.
-    logger.info("Creating dataloader...")
-    train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
-    logger.info("Dataloader created successfully")
+    if args.use_sequence_packing:
+        train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
+    else:
+        train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.

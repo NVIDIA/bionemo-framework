@@ -15,9 +15,9 @@
 
 import pytest
 import torch
-from data_collator import GenomicDataCollator
-from genomic_masking_functions import make_upper_case
-from transformers.data.data_collator import DataCollatorForLanguageModeling
+from transformers.data.data_collator import DataCollatorForLanguageModeling, DataCollatorWithFlattening
+
+from genomic_dataset import GenomicDataCollator
 
 
 @pytest.fixture
@@ -32,19 +32,6 @@ def tokenizer(tokenizer_path):
     from transformers import AutoTokenizer
 
     return AutoTokenizer.from_pretrained(tokenizer_path)
-
-
-# Tests for make_upper_case()
-def test_make_upper_case_mixed():
-    """Test make_upper_case handles mixed case correctly."""
-    tokens = torch.tensor([[97, 67, 103, 84]])  # "aCgT"
-    upper, mask = make_upper_case(tokens)
-
-    expected_upper = torch.tensor([[65, 67, 71, 84]])  # "ACGT"
-    expected_mask = torch.tensor([[True, False, True, False]])
-
-    assert torch.equal(upper, expected_upper)
-    assert torch.equal(mask, expected_mask)
 
 
 # Tests for GenomicDataCollatorForCLM
@@ -88,6 +75,32 @@ def test_collator_uppercases(tokenizer):
     #                 a   C   g    t   →   A   C   G   T
     labels = batch["labels"]
     expected_labels = torch.tensor([[65, 67, 71, 84]])  # All uppercase
+    assert torch.equal(labels, expected_labels), f"Expected {expected_labels}, got {labels}"
+
+
+def test_collator_uppercases_sequence_packing(tokenizer):
+    """Test that collator uppercases labels while keeping inputs mixed case."""
+    base = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
+    collator = GenomicDataCollator(
+        base_collator=base,
+        uppercase_labels=True,
+        mask_degenerate_bases=False,
+    )
+
+    features = [{"input_ids": [97, 67, 103, 116]}]  # "aCgt"
+    batch = collator(features)
+
+    # Verify inputs unchanged (still mixed case)
+    input_ids = batch["input_ids"]
+    assert input_ids[0, 0].item() == 97, "Input 'a' (97) should stay lowercase"
+    assert input_ids[0, 2].item() == 103, "Input 'g' (103) should stay lowercase"
+
+    # Verify labels uppercased
+    # Parent doesn't shift: labels = [97, 67, 103, 116] (same as input_ids)
+    # Our uppercase: [97, 67, 103, 116] → [65, 67, 71, 84]
+    #                 a   C   g    t   →   A   C   G   T
+    labels = batch["labels"]
+    expected_labels = torch.tensor([[-100, 67, 71, 84]])  # -100 for THD padding, 67, 71, 84 for uppercase
     assert torch.equal(labels, expected_labels), f"Expected {expected_labels}, got {labels}"
 
 
