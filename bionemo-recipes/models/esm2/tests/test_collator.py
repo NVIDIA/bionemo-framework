@@ -367,6 +367,25 @@ def test_mlm_data_collator_with_flattening_bshd_equivalent(tokenizer, test_prote
         )
 
 
+def test_mlm_data_collator_with_flattening_pad_sequences_to_be_divisible_by(tokenizer, test_proteins):
+    """Test MLMDataCollatorWithFlattening with pad_sequences_to_be_divisible_by."""
+    collator = MLMDataCollatorWithFlattening(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        pad_sequences_to_be_divisible_by=16,
+    )
+    features = [tokenizer(protein) for protein in test_proteins]
+    batch = collator(features)
+    assert batch["input_ids"].numel() % 16 == 0, (
+        f"Expected {batch['input_ids'].numel()} tokens to be divisible by 16, got {batch['input_ids'].numel()}"
+    )
+    assert batch["input_ids"].shape == (1, batch["input_ids"].numel()), (
+        f"Expected shape (1, {batch['input_ids'].numel()}), got {batch['input_ids'].shape}"
+    )
+    assert (batch["input_ids"][:, -1] == tokenizer.pad_token_id).all()
+    assert (batch["labels"][:, -1] == -100).all()
+
+
 def test_token_packing_dataset():
     """Test that the token packing dataset works."""
 

@@ -192,6 +192,9 @@ def apply_transforms(
     if len(keys) != 0:
         raise RuntimeError(f"Additional keys: {keys} in checkpoint but not in model.")
 
+    if hasattr(target, "tie_weights"):
+        target.tie_weights()
+
     meta_tensor_keys = []
     for name, param in target.named_parameters():
         if param.is_meta:
@@ -207,12 +210,12 @@ def apply_transforms(
         target.to(cast_dtype)
         logger.info(f"Casting model to {cast_dtype} complete.")
     else:
-        assert target_orig_dtypes == extract_dtypes(target.named_parameters()), (
-            f"dtype mismatch between source and target state dicts. "
-            f"Left side is { {k: v for k, v in target_orig_dtypes.items() if v != torch.bfloat16} }, "
-            f"Right side is "
-            f"{ {k: v for k, v in extract_dtypes(target.named_parameters()).items() if v != torch.bfloat16} }"
-        )
+        target_new_dtypes = extract_dtypes(target.named_parameters())
+        for key in target_orig_dtypes.keys():
+            if key in target_new_dtypes:  # For tied weights, these parameters may disappear.
+                assert target_orig_dtypes[key] == target_new_dtypes[key], (
+                    f"dtype mismatch for key {key}: {target_orig_dtypes[key]} vs {target_new_dtypes[key]}"
+                )
 
     return target
 

@@ -156,5 +156,6 @@ huggingface-cli upload nvidia/${MODEL_NAME} $PWD/checkpoint_export/${MODEL_NAME}
 Or, upload all models at once with:
 
 ```bash
-for dir in *; do huggingface-cli upload nvidia/$(basename "$dir") "$dir/"; done
+cd checkpoint_export
+for dir in */; do hf upload --repo-type model nvidia/$(basename "$dir") "$dir/"; done
 ```

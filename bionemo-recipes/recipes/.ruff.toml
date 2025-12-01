@@ -50,6 +50,7 @@ exclude = [
 
 # Ignore import violations in all `__init__.py` files.
 [lint.per-file-ignores]
+"collator.py" = ["C901"]
 "esm_nv.py" = ["C901"]
 "__init__.py" = ["D104", "E402", "F401", "F403", "F811"]
 "test_*.py" = ["C", "D"]

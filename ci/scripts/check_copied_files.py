@@ -42,6 +42,9 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
         "bionemo-recipes/models/amplify/src/amplify/state.py",
         "bionemo-recipes/models/llama3/state.py",
     ],
+    "bionemo-recipes/models/llama3/modeling_llama_te.py": [
+        "bionemo-recipes/recipes/llama3_native_te/example_checkpoint/llama3_nv.py",
+    ],
 }
 
 

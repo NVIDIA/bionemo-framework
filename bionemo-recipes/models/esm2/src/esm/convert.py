@@ -71,10 +71,7 @@ def convert_esm_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
             _pad_decoder_weights,
             _pad_bias,
         ],
-        state_dict_ignored_entries=["lm_head.decoder.weight"],
     )
-
-    output_model.tie_weights()
 
     return output_model
 

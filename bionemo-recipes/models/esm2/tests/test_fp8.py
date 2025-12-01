@@ -20,11 +20,15 @@ import transformer_engine
 from torch.distributed.checkpoint.state_dict import get_model_state_dict
 from transformer_engine.common import recipe as recipe_module
 from transformer_engine.pytorch import fp8
-from transformer_engine.pytorch.tensor.quantized_tensor import QuantizedTensor
 
 from esm.collator import MLMDataCollatorWithFlattening
 from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
+
+try:
+    from transformer_engine.pytorch.tensor.quantized_tensor import QuantizedTensor
+except ImportError:  # TE nightly uses a new import path for QuantizedTensor
+    from transformer_engine.pytorch.quantized_tensor import QuantizedTensor
 
 ALL_RECIPES = [
     recipe_module.DelayedScaling(),

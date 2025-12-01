@@ -83,10 +83,33 @@ def create_tokenized_dataset(
         # Using dataset.map on a non-streaming dataset will automatically perform and cache the transform
         tokenized_dataset = dataset.with_transform(tokenize_with_windowing)
     else:
+        # WORKAROUND for OpenGenome2 inconsistent schema:
+        # OpenGenome2 has inconsistent schemas across shards - some have 'record' column, some don't.
+        # This causes dataset.column_names to be None for streaming IterableDataset.
+        #
+        # For IterableDataset with None column_names (OpenGenome2):
+        #   - Must explicitly list columns to remove: [sequence_column, "record"]
+        #   - IterableDataset.map() handles missing columns gracefully
+        #
+        # For regular Dataset (non-streaming, or streaming with consistent schema like ESM2):
+        #   - Use dataset.column_names (which is available and accurate)
+        #   - Dataset.map() raises error if column doesn't exist
+        #
+        # TODO: Remove this workaround once Arc Institute fixes OpenGenome2 schema consistency.
+        # When all shards have the same columns, dataset.column_names will work for both cases.
+        if isinstance(dataset, datasets.IterableDataset):
+            # Streaming dataset: column_names may be None due to inconsistent schema
+            columns_to_remove = [sequence_column, "record"]
+        else:
+            # Non-streaming dataset: use actual column names
+            columns_to_remove = dataset.column_names
+
+        logger.info(f"Applying dataset.map with columns to remove: {columns_to_remove}")
+
         tokenized_dataset = dataset.map(
             tokenize_with_windowing,
             batched=True,
-            remove_columns=dataset.column_names,
+            remove_columns=columns_to_remove,
         )
 
     return tokenized_dataset, tokenizer
@@ -105,6 +128,8 @@ def create_bshd_dataloader(
     use_lazy_tokenization: bool = True,
     use_stateful_dataloader: bool = False,
     sequence_column: str = "sequence",
+    uppercase_labels: bool = False,
+    mask_degenerate_bases: bool = True,
 ):
     """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
 
@@ -121,6 +146,8 @@ def create_bshd_dataloader(
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         sequence_column: Name of the column containing genomic sequences (default: "sequence").
+        uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
+        mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -146,11 +173,28 @@ def create_bshd_dataloader(
             seed=seed,
         )
 
-    # Use DataCollatorForLanguageModeling with mlm=False for CLM
-    data_collator = DataCollatorForLanguageModeling(
+    # Create base collator
+    base_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
-        mlm=False,  # Causal language modeling (no masking)
+        mlm=False,  # Causal language modeling
     )
+
+    # Wrap with genomic collator if masking options are enabled
+    if uppercase_labels or mask_degenerate_bases:
+        from data_collator import GenomicDataCollator
+
+        data_collator = GenomicDataCollator(
+            base_collator=base_collator,
+            uppercase_labels=uppercase_labels,
+            mask_degenerate_bases=mask_degenerate_bases,
+        )
+        logger.info(
+            f"Using GenomicDataCollator (uppercase={uppercase_labels}, mask_degenerate={mask_degenerate_bases})"
+        )
+    else:
+        # Use base collator directly for backward compatibility
+        data_collator = base_collator
+        logger.info("Using standard DataCollatorForLanguageModeling")
 
     # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
     dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader

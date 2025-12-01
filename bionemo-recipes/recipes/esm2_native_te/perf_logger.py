@@ -56,8 +56,8 @@ class PerfLogger:
             "train/grad_norm": torchmetrics.MeanMetric(),
             "train/learning_rate": torchmetrics.MeanMetric(),
             "train/step_time": torchmetrics.MeanMetric(),
-            "train/tokens_per_second": torchmetrics.MeanMetric(),
-            "train/unpadded_tokens_per_second": torchmetrics.MeanMetric(),
+            "train/tokens_per_second_per_gpu": torchmetrics.MeanMetric(),
+            "train/unpadded_tokens_per_second_per_gpu": torchmetrics.MeanMetric(),
             "train/total_unpadded_tokens_per_batch": torchmetrics.SumMetric(),
             "train/perplexity": torchmetrics.text.Perplexity(ignore_index=-100),
             "train/gpu_memory_allocated_max_gb": torchmetrics.MaxMetric(),
@@ -102,8 +102,8 @@ class PerfLogger:
         self.metrics["train/learning_rate"].update(lr)
         self.metrics["train/grad_norm"].update(grad_norm)
         self.metrics["train/step_time"].update(step_time)
-        self.metrics["train/tokens_per_second"].update(num_tokens / step_time)
-        self.metrics["train/unpadded_tokens_per_second"].update(num_unpadded_tokens / step_time)
+        self.metrics["train/tokens_per_second_per_gpu"].update(num_tokens / step_time)
+        self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(num_unpadded_tokens / step_time)
         self.metrics["train/total_unpadded_tokens_per_batch"].update(num_unpadded_tokens / self.logging_frequency)
 
         # Handle sequence packing for torchmetrics calculation.

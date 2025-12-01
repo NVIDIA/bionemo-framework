@@ -180,7 +180,6 @@ class NVEsmEncoder(nn.Module):
             **kwargs: Additional arguments, see TransformersKwargs for more details.
         """
         all_hidden_states: tuple[torch.Tensor, ...] = ()
-
         has_thd_input = [
             x is not None
             for x in [
@@ -213,7 +212,11 @@ class NVEsmEncoder(nn.Module):
                 if self.config.attn_input_format == "bshd":
                     te_rope_emb = self.rotary_embeddings(max_seq_len=hidden_states.shape[1])
                 elif self.config.attn_input_format == "thd":
-                    te_rope_emb = self.rotary_embeddings(max_seq_len=kwargs["cu_seq_lens_q"][-1])
+                    te_rope_emb = self.rotary_embeddings(
+                        max_seq_len=kwargs["cu_seq_lens_q_padded"][-1]
+                        if "cu_seq_lens_q_padded" in kwargs
+                        else kwargs["cu_seq_lens_q"][-1]
+                    )
             te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
 
         for layer_module in self.layers:
@@ -226,8 +229,11 @@ class NVEsmEncoder(nn.Module):
                 rotary_pos_emb=te_rope_emb,
                 cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
                 cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
+                cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
                 max_seqlen_q=kwargs.get("max_length_q", None),
                 max_seqlen_kv=kwargs.get("max_length_k", None),
+                pad_between_seqs=kwargs.get("pad_between_seqs", None),
             )
 
         hidden_states = self.emb_layer_norm_after(hidden_states)
