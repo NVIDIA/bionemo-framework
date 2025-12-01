@@ -21,15 +21,17 @@ from dataclasses import dataclass
 from typing import Callable, Literal, Optional, Type
 
 import torch
+from megatron.bridge.models.model_provider import ModelProviderMixin
+from megatron.bridge.models.transformer_config import TransformerConfig
+from megatron.bridge.utils.vocab_utils import calculate_padded_vocab_size
+from megatron.core import parallel_state
+from megatron.core.inference.contexts import StaticInferenceContext
+from megatron.core.transformer.enums import AttnBackend
 
 # from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step  # FIXME do megatron bridge thing instead of this
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import get_hyena_stack_spec
 from bionemo.evo2.models.megatron.hyena.hyena_model import HyenaModel as MCoreHyenaModel
 from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
-from megatron.core import parallel_state
-from megatron.core.inference.contexts import StaticInferenceContext
-from megatron.core.transformer.enums import AttnBackend
-from megatron.core.transformer.transformer_config import TransformerConfig
 
 
 # from nemo.lightning import get_vocab_size, io, teardown
@@ -183,7 +185,7 @@ def hyena_forward_step(model, batch) -> torch.Tensor:
 
 # FIXME make sure these conform to megatron/megatron bridge style.
 @dataclass
-class HyenaConfig(TransformerConfig):
+class HyenaModelProvider(TransformerConfig, ModelProviderMixin[MCoreHyenaModel]):
     """Configuration dataclass for Hyena.
 
     For adjusting ROPE when doing context extension, set seq_len_interpolation_factor relative to 8192.
@@ -250,18 +252,21 @@ class HyenaConfig(TransformerConfig):
     share_embeddings_and_output_weights: bool = True
     unfused_rmsnorm: bool = False  # Use unfused RMSNorm + TELinear for dense projection
     plain_row_linear: bool = False  # Use plain pytorch implementation instead of Megatron's row parallel linears
+    vocab_size: Optional[int] = None
+    should_pad_vocab: bool = False
 
     def __post_init__(self):
         """Post-initialization hook that sets up weight decay conditions."""
         super().__post_init__()
         self.hyena_no_weight_decay_cond_fn = hyena_no_weight_decay_cond if self.hyena_filter_no_wd else None
 
-    def configure_model(self, tokenizer, vp_stage: Optional[int] = None) -> "MCoreHyenaModel":
+    def provide(self, pre_process=None, post_process=None, vp_stage=None) -> MCoreHyenaModel:
         """Configures and returns a Hyena model instance based on the config settings.
 
         Args:
-            tokenizer: Tokenizer to use for the model
-            vp_stage: Virtual pipeline stage
+            pre_process: Whether to preprocess the inputs prior to running the rest of forward. Set to False if this is not the first stage of the pipeline.
+            post_process: Whether to postprocess the outputs after running the rest of forward. Set to False if this is not the last stage of the pipeline, or if you are collecting hidden states.
+            vp_stage: Virtual pipeline stage if using VPP and pipeline parallelism.
 
         Returns:
             MCoreHyenaModel: Configured Hyena model instance
@@ -272,6 +277,14 @@ class HyenaConfig(TransformerConfig):
             "Virtual pipeline model parallelism is temporarily unsupported in Hyena."
         )
 
+        assert self.vocab_size is not None, "vocab_size must be configured before calling provide()"
+        if self.should_pad_vocab:
+            padded_vocab_size = calculate_padded_vocab_size(
+                self.vocab_size, self.make_vocab_size_divisible_by, self.tensor_model_parallel_size
+            )
+        else:
+            padded_vocab_size = self.vocab_size
+
         model = MCoreHyenaModel(
             self,
             hyena_stack_spec=get_hyena_stack_spec(
@@ -280,7 +293,7 @@ class HyenaConfig(TransformerConfig):
                 unfused_rmsnorm=self.unfused_rmsnorm,
                 plain_row_linear=self.plain_row_linear,
             ),
-            vocab_size=get_vocab_size(self, tokenizer.vocab_size, self.make_vocab_size_divisible_by),
+            vocab_size=padded_vocab_size,
             max_sequence_length=self.seq_length,
             num_groups_hyena=self.num_groups_hyena,
             num_groups_hyena_medium=self.num_groups_hyena_medium,
@@ -290,8 +303,8 @@ class HyenaConfig(TransformerConfig):
             rotary_percent=self.rotary_percent,
             rotary_base=self.rotary_base,
             seq_len_interpolation_factor=self.seq_len_interpolation_factor,
-            pre_process=parallel_state.is_pipeline_first_stage(),
-            post_process=parallel_state.is_pipeline_last_stage(),
+            pre_process=pre_process or parallel_state.is_pipeline_first_stage(),
+            post_process=post_process or parallel_state.is_pipeline_last_stage(),
             share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
             hyena_init_method=self.hyena_init_method,
             hyena_output_layer_init_method=self.hyena_output_layer_init_method,
@@ -302,7 +315,7 @@ class HyenaConfig(TransformerConfig):
 
 
 @dataclass
-class HyenaTestConfig(HyenaConfig):
+class HyenaTestModelProvider(HyenaModelProvider):
     """Configuration for testing Hyena models."""
 
     hybrid_override_pattern: str = "SDH*"
@@ -337,7 +350,7 @@ class HyenaTestConfig(HyenaConfig):
 
 
 @dataclass
-class HyenaNVTestConfig(HyenaTestConfig):
+class HyenaNVTestModelProvider(HyenaModelProvider):
     """This config addresses several design improvements over the original implementation, and may provide better training stability for new models."""
 
     remove_activation_post_first_layer: bool = False
@@ -346,7 +359,7 @@ class HyenaNVTestConfig(HyenaTestConfig):
 
 
 @dataclass
-class Hyena1bConfig(HyenaConfig):
+class Hyena1bModelProvider(HyenaModelProvider):
     """Config matching the 1b 8k context Evo2 model."""
 
     hybrid_override_pattern: str = "SDH*SDHSDH*SDHSDH*SDHSDH*"
@@ -380,7 +393,7 @@ class Hyena1bConfig(HyenaConfig):
 
 
 @dataclass
-class HyenaNV1bConfig(Hyena1bConfig):
+class HyenaNV1bModelProvider(Hyena1bModelProvider):
     """This config addresses several design improvements over the original implementation, and may provide better training stability for new models."""
 
     remove_activation_post_first_layer: bool = False
@@ -389,7 +402,7 @@ class HyenaNV1bConfig(Hyena1bConfig):
 
 
 @dataclass
-class Hyena7bConfig(HyenaConfig):
+class Hyena7bModelProvider(HyenaModelProvider):
     """Config matching the 7b 8k context Evo2 model."""
 
     hybrid_override_pattern: str = "SDH*SDHSDH*SDHSDH*SDHSDH*SDHSDH*"
@@ -422,7 +435,7 @@ class Hyena7bConfig(HyenaConfig):
 
 
 @dataclass
-class HyenaNV7bConfig(Hyena7bConfig):
+class HyenaNV7bModelProvider(Hyena7bModelProvider):
     """This config addresses several design improvements over the original implementation, and may provide better training stability for new models."""
 
     remove_activation_post_first_layer: bool = False
@@ -433,7 +446,7 @@ class HyenaNV7bConfig(Hyena7bConfig):
 
 
 @dataclass
-class Hyena40bConfig(HyenaConfig):
+class Hyena40bModelProvider(HyenaModelProvider):
     """Config matching the 40b 8k context Evo2 model."""
 
     hybrid_override_pattern: str = "SDH*SDHSDH*SDHSDH*SDHSDH*SDHSDH*SDH*SDHSDH*SDHSDH*"
@@ -467,7 +480,7 @@ class Hyena40bConfig(HyenaConfig):
 
 
 @dataclass
-class HyenaNV40bConfig(Hyena40bConfig):
+class HyenaNV40bModelProvider(Hyena40bModelProvider):
     """This config addresses several design improvements over the original implementation, and may provide better training stability for new models."""
 
     remove_activation_post_first_layer: bool = False
@@ -477,7 +490,7 @@ class HyenaNV40bConfig(Hyena40bConfig):
 
 
 @dataclass
-class Hyena7bARCLongContextConfig(Hyena7bConfig):
+class Hyena7bARCLongContextModelProvider(Hyena7bModelProvider):
     """The checkpoint from ARC requires padding to the FFN dim due to requirements of large TP size for training at long context.
 
     NOTE: This config _could be used_ for short context as well with a different seq_length.
@@ -505,7 +518,7 @@ class Hyena7bARCLongContextConfig(Hyena7bConfig):
 
 
 @dataclass
-class Hyena40bARCLongContextConfig(Hyena40bConfig):
+class Hyena40bARCLongContextModelProvider(Hyena40bModelProvider):
     """The checkpoint from ARC requires padding to the FFN dim due to requirements of large TP size for training at long context.
 
     NOTE: This config _could be used_ for short context as well with a different seq_length.
@@ -529,7 +542,7 @@ class Hyena40bARCLongContextConfig(Hyena40bConfig):
     seq_len_interpolation_factor: float = 128
 
 
-class HyenaNV1bConfig2(HyenaNV1bConfig):
+class HyenaNV1b2ModelProvider(HyenaNV1bModelProvider):
     """A parallel friendly version of the HyenaNV1bConfig."""
 
     hidden_size: int = 2048  # 1920
@@ -871,32 +884,32 @@ class HyenaNV1bConfig2(HyenaNV1bConfig):
 #         return torch.load(weights_path, map_location="cpu", weights_only=False)
 
 
-HYENA_MODEL_OPTIONS: dict[str, Type[HyenaConfig]] = {
-    "1b": Hyena1bConfig,
-    "1b_nv": HyenaNV1bConfig,
-    "7b": Hyena7bConfig,
-    "7b_arc_longcontext": Hyena7bARCLongContextConfig,
-    "7b_nv": HyenaNV7bConfig,
-    "40b": Hyena40bConfig,
-    "40b_arc_longcontext": Hyena40bARCLongContextConfig,
-    "40b_nv": HyenaNV40bConfig,
-    "test": HyenaTestConfig,
-    "test_nv": HyenaNVTestConfig,
-    "striped_hyena_1b_nv_parallel": HyenaNV1bConfig2,
+HYENA_MODEL_OPTIONS: dict[str, Type[HyenaModelProvider]] = {
+    "1b": Hyena1bModelProvider,
+    "1b_nv": HyenaNV1bModelProvider,
+    "7b": Hyena7bModelProvider,
+    "7b_arc_longcontext": Hyena7bARCLongContextModelProvider,
+    "7b_nv": HyenaNV7bModelProvider,
+    "40b": Hyena40bModelProvider,
+    "40b_arc_longcontext": Hyena40bARCLongContextModelProvider,
+    "40b_nv": HyenaNV40bModelProvider,
+    "test": HyenaTestModelProvider,
+    "test_nv": HyenaNVTestModelProvider,
+    "striped_hyena_1b_nv_parallel": HyenaNV1b2ModelProvider,
 }
 
 
 __all__ = [
     "HYENA_MODEL_OPTIONS",
-    "Hyena1bConfig",
-    "Hyena7bARCLongContextConfig",
-    "Hyena7bConfig",
-    "Hyena40bARCLongContextConfig",
-    "Hyena40bConfig",
-    "HyenaConfig",
-    "HyenaNV1bConfig",
-    "HyenaNV7bConfig",
-    "HyenaNV40bConfig",
-    "HyenaNVTestConfig",
-    "HyenaTestConfig",
+    "Hyena1bModelProvider",
+    "Hyena7bARCLongContextModelProvider",
+    "Hyena7bModelProvider",
+    "Hyena40bARCLongContextModelProvider",
+    "Hyena40bModelProvider",
+    "HyenaModelProvider",
+    "HyenaNV1bModelProvider",
+    "HyenaNV7bModelProvider",
+    "HyenaNV40bModelProvider",
+    "HyenaNVTestModelProvider",
+    "HyenaTestModelProvider",
 ]
