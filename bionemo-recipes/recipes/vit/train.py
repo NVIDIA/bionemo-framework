@@ -86,7 +86,7 @@ def main(cfg) -> None:
             # Megatron-FSDP Device Mesh / Distributed Environment
             device_mesh=device_mesh,
             # Always required to use Megatron-FSDP. What we shard on.
-            dp_shard_dim="dp_cp_shard",
+            dp_shard_dim="dp_shard",
             # Required if using HSDP. The second / intermediate set of data-parallel process groups.
             dp_outer_dim="dp_outer",
             # Required if using TP, either from TransformerEngine (TP=1) / Megatron or DTensor-based TP.

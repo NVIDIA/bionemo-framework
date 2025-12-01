@@ -74,7 +74,11 @@ def initialize_distributed(
     # DP: Only relevant when using HSDP, where we need the flattened DP group for data parallelism. (Otherwise, just pass dp_shard.)
     device_mesh[("dp_outer", "dp_shard")]._flatten("dp")
     # DP-Shard-CP: Only required if using CP. Otherwise, just pass dp_shard to FSDP.
-    device_mesh[("dp_shard", "cp")]._flatten("dp_cp_shard")
+
+    # TODO(BIONEMO-3330, @cspades): Add back this sub-mesh when Megatron-FSDP supports cp in torch 25.11+ container.
+    # device_mesh[("dp_shard", "cp")]._flatten("dp_cp_shard")
+    assert cp == 1, "CP is not supported in the 25.11+ torch container with megatron-fsdp ."
+
     # HSDP (DP-CP): Only required if using HSDP. Otherwise, don't pass hybrid_fsdp_group to Megatron-FSDP.
     device_mesh[("dp_outer", "dp_shard", "cp")]._flatten("hsdp")
 

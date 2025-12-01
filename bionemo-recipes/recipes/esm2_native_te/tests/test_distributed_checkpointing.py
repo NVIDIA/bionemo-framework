@@ -791,7 +791,6 @@ def test_final_model_save_ddp(recipe_path, tmp_path):
         assert os.path.getsize(file_path) > 0, f"File {file} is empty"
 
 
-@pytest.mark.xfail(reason="BIONEMO-3252: mfsdp save_final_model fails with 25.10 torch base image")
 def test_final_model_save_mfsdp(recipe_path, tmp_path):
     """Test final model saving for mFSDP.
 
