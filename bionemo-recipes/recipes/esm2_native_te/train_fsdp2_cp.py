@@ -65,6 +65,11 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Calculate DDP size (number of data parallel replicas)
     ddp_size = dist_config.world_size // args.cp_size
 
+    # Our flattened group must have at least 2 ranks to enable Context Parallelism.
+    if ddp_size * args.cp_size <= 1:
+        raise ValueError(
+            f"ddp_size ({ddp_size}) x cp_size ({args.cp_size}) must be greater than 1 to enable Context Parallelism."
+        )
     logger.info(
         f"Creating device mesh: world_size={dist_config.world_size}, ddp_size={ddp_size}, cp_size={args.cp_size}"
     )
