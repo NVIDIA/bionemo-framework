@@ -145,3 +145,20 @@ def test_multi_gpu_train_te_ddp_cp(tmp_path, recipe_path):
         ],
         recipe_path,
     )
+
+@requires_multi_gpu
+@requires_datacenter_hardware
+def test_multi_gpu_train_te_fsdp2_cp(tmp_path, recipe_path):
+    # Run 'accelerate launch train.py' as a subprocess
+    run_train_cmd(
+        [
+            "torchrun",
+            "--nproc_per_node=2",
+            "train_fsdp2_cp.py",
+            "--config-name",
+            "L0_sanity_cp",
+            "num_train_steps=4",
+            "cp_size=2",
+        ],
+        recipe_path,
+    )
