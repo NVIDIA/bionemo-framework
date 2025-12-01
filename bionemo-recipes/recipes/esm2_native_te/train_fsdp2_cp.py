@@ -65,14 +65,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Calculate DDP size (number of data parallel replicas)
     ddp_size = dist_config.world_size // args.cp_size
 
-    # Our flattened group must have at least 2 ranks to enable Context Parallelism.
-    if ddp_size * args.cp_size <= 1:
-        raise ValueError(
-            f"ddp_size ({ddp_size}) x cp_size ({args.cp_size}) must be greater than 1 to enable Context Parallelism."
-        )
-    logger.info(
-        f"Creating device mesh: world_size={dist_config.world_size}, ddp_size={ddp_size}, cp_size={args.cp_size}"
-    )
+    
 
     # Create a device mesh for DDP and CP.
     # The mesh is organized as [CP_dimension, DDP_dimension] where:
@@ -85,9 +78,16 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         mesh_dim_names=("dp", "cp"),
     )
 
-    cp_dp_flat_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
+    # Our flattened group must have at least 2 ranks to enable Context Parallelism.
+    if ddp_size * args.cp_size <= 1:
+        cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
+    else:
+        cp_dp_mesh = device_mesh
 
-    
+    logger.info(
+        f"Creating device mesh: world_size={dist_config.world_size}, ddp_size={ddp_size}, cp_size={args.cp_size}"
+    )
+
     cp_group = device_mesh["cp"].get_group()
     cp_rank = device_mesh.get_local_rank("cp")
 
@@ -118,14 +118,14 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Fully shard takes in a DeviceMesh object, which is a 2D mesh of dimensions (CP_dimension, DDP_dimension).
     # FSDP2 will shard the model across the DDP (dim=1) dimension and then duplicate across the CP (dim=0) dimension.
     for layer in transformer_stack:
-        fully_shard(layer, mesh=cp_dp_flat_mesh)
+        fully_shard(layer, mesh=cp_dp_mesh)
         # Set CP group for layer if CP is enabled.
         if args.cp_size > 1:
             logger.debug(f"Rank {dist_config.rank}: Setting CP group for layer {layer}")
             layer.set_context_parallel_group(
                 cp_group, torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()), torch.cuda.Stream()
             )
-    fully_shard(model, mesh=cp_dp_flat_mesh)
+    fully_shard(model, mesh=cp_dp_mesh)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
