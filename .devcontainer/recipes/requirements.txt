@@ -1,10 +1,11 @@
-accelerate
+accelerate @ git+https://github.com/huggingface/accelerate.git  # Until huggingface/accelerate#3852 is released.
 datasets
 deepspeed
 hydra-core
 megatron-fsdp
 peft
 torch
+torchao!=0.14.0
 torchdata
 torchmetrics
 tqdm

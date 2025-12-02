@@ -95,6 +95,7 @@ jobs:
             !.gitignore
             !.devcontainer/**
             !ci/scripts/recipes_local_test.py
+            !ci/scripts/check_copied_files.py
             .github/workflows/unit-tests-framework.yml
 
       - name: Show output

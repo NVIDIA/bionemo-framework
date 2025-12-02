@@ -257,7 +257,7 @@ class TestMonotonicDecreasingLoss(unittest.TestCase):
             self.skipTest("CUDA not available - skipping real training test")
 
         loss_values, error = self._run_training_with_config(
-            "l0_sanity", ["model.use_te_layers=true", "training.use_mfsdp=true"]
+            "l0_sanity", ["model.use_te_layers=true", "training.use_mfsdp=true", "training.save_final_model=false"]
         )
 
         if error:
@@ -295,7 +295,7 @@ class TestMonotonicDecreasingLoss(unittest.TestCase):
             self.skipTest("CUDA not available - skipping real training test")
 
         loss_values, error = self._run_training_with_config(
-            "l0_sanity", ["training.use_mfsdp=true", "model.use_te_layers=false"]
+            "l0_sanity", ["training.use_mfsdp=true", "model.use_te_layers=false", "training.save_final_model=false"]
         )
 
         if error:

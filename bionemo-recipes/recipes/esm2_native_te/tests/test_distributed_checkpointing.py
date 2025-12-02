@@ -24,7 +24,7 @@ distributed training configurations:
 Test Strategy:
 1. Phase 1: Train for N steps and save checkpoint
 2. Phase 2: Resume training from checkpoint and continue
-3. Validate: Checkpoints created, resuming works, training continues seamlsessly
+3. Validate: Checkpoints created, resuming works, training continues seamlessly
 
 Each test uses temporary directories and disables wandb logging for isolation.
 """
@@ -73,9 +73,11 @@ def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb_init_args.dir={tmp_path}",
+                f"hydra.run.dir={tmp_path}",
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
+                "dataset.use_stateful_dataloader=true",
             ],
         )
 
@@ -120,9 +122,11 @@ def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb_init_args.dir={tmp_path}",
+                f"hydra.run.dir={tmp_path}",
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+                "dataset.use_stateful_dataloader=true",
             ],
         )
 
@@ -203,6 +207,8 @@ def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=false",  # Start fresh
+        "dataset.use_stateful_dataloader=true",
+        f"hydra.run.dir={tmp_path}",
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -265,6 +271,8 @@ def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
         "num_train_steps=15",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+        "dataset.use_stateful_dataloader=true",
+        f"hydra.run.dir={tmp_path}",
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -343,9 +351,11 @@ def test_checkpoint_save_and_load_single_process_mfsdp(recipe_path, tmp_path):
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb_init_args.dir={tmp_path}",
+                f"hydra.run.dir={tmp_path}",
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
+                "dataset.use_stateful_dataloader=true",
             ],
         )
 
@@ -386,9 +396,11 @@ def test_checkpoint_save_and_load_single_process_mfsdp(recipe_path, tmp_path):
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb_init_args.dir={tmp_path}",
+                f"hydra.run.dir={tmp_path}",
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+                "dataset.use_stateful_dataloader=true",
             ],
         )
 
@@ -452,6 +464,8 @@ def test_checkpoint_save_and_load_two_processes_mfsdp(recipe_path, tmp_path):
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=false",  # Start fresh
+        "dataset.use_stateful_dataloader=true",
+        f"hydra.run.dir={tmp_path}",
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -497,6 +511,8 @@ def test_checkpoint_save_and_load_two_processes_mfsdp(recipe_path, tmp_path):
         "num_train_steps=15",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+        "dataset.use_stateful_dataloader=true",
+        f"hydra.run.dir={tmp_path}",
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -553,9 +569,11 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb_init_args.dir={tmp_path}",
+                f"hydra.run.dir={tmp_path}",
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
+                "dataset.use_stateful_dataloader=true",
             ],
         )
 
@@ -599,6 +617,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+                "dataset.use_stateful_dataloader=true",
             ],
         )
 
@@ -660,7 +679,8 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
         f"checkpoint.ckpt_dir={temp_dir}",
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
-        "checkpoint.resume_from_checkpoint=false",  # Start fresh
+        "dataset.use_stateful_dataloader=true",
+        f"hydra.run.dir={tmp_path}",
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -706,6 +726,8 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
         "num_train_steps=15",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+        "dataset.use_stateful_dataloader=true",
+        f"hydra.run.dir={tmp_path}",
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -788,6 +810,7 @@ def test_final_model_save_mfsdp(recipe_path, tmp_path):
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb_init_args.dir={tmp_path}",
+                f"hydra.run.dir={tmp_path}",
                 "num_train_steps=3",
                 "checkpoint.save_final_model=true",
             ],
@@ -822,6 +845,7 @@ def test_final_model_save_fsdp2(recipe_path, tmp_path):
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb_init_args.dir={tmp_path}",
+                f"hydra.run.dir={tmp_path}",
                 "checkpoint.save_final_model=true",
                 "num_train_steps=3",
             ],
@@ -865,6 +889,7 @@ def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb_init_args.dir={tmp_path}",
+                f"hydra.run.dir={tmp_path}",
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh, don't look for checkpoints
@@ -882,6 +907,7 @@ def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb_init_args.dir={tmp_path}",
+                f"hydra.run.dir={tmp_path}",
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
@@ -943,6 +969,7 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
         "checkpoint.resume_from_checkpoint=false",  # Start fresh, don't look for checkpoints
         "lr_scheduler_kwargs.num_warmup_steps=20",
         "lr_scheduler_kwargs.num_training_steps=100",
+        f"hydra.run.dir={tmp_path}",
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -966,6 +993,7 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         "lr_scheduler_kwargs.num_warmup_steps=20",
         "lr_scheduler_kwargs.num_training_steps=100",
+        f"hydra.run.dir={tmp_path}",
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)

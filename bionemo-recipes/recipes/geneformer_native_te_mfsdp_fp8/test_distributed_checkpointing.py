@@ -87,6 +87,7 @@ def test_checkpoint_save_and_load_single_process_mfsdp():
             "training.resume_from_checkpoint=false",
             "training.save_every_n_steps=5",
             "training.num_train_steps=7",
+            "training.save_final_model=false",
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -112,6 +113,7 @@ def test_checkpoint_save_and_load_single_process_mfsdp():
             "training.resume_from_checkpoint=true",
             "training.save_every_n_steps=5",
             "training.num_train_steps=11",
+            "training.save_final_model=false",
         ]
 
         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -177,6 +179,7 @@ def test_checkpoint_save_and_load_two_processes_mfsdp():
             "training.resume_from_checkpoint=false",
             "training.save_every_n_steps=5",
             "training.num_train_steps=7",
+            "training.save_final_model=false",
         ]
 
         result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -201,6 +204,7 @@ def test_checkpoint_save_and_load_two_processes_mfsdp():
             "training.resume_from_checkpoint=true",
             "training.save_every_n_steps=5",
             "training.num_train_steps=11",
+            "training.save_final_model=false",
         ]
 
         result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
@@ -399,6 +403,7 @@ def test_checkpoint_save_and_load_two_processes_ddp():
 
 
 @pytest.mark.slow
+@pytest.mark.xfail(reason="BIONEMO-3252: mfsdp gather_uneven_dtensor_to_full_tensor fails with 25.10 torch base image")
 def test_safetensors_save_load_roundtrip_mfsdp():
     """Test safetensors save/load round-trip functionality for mfsdp.
 
@@ -565,6 +570,7 @@ def test_safetensors_save_load_roundtrip_mfsdp():
 @pytest.mark.multi_gpu
 @requires_multi_gpu
 @pytest.mark.slow
+@pytest.mark.xfail(reason="BIONEMO-3252: mfsdp gather_uneven_dtensor_to_full_tensor fails with 25.10 torch base image")
 def test_distributed_safetensors_multiprocess_mfsdp():
     """Test safetensors export functionality for mfsdp with multiple processes.
 
@@ -683,6 +689,7 @@ def test_distributed_safetensors_multiprocess_mfsdp():
 @pytest.mark.multi_gpu
 @requires_multi_gpu
 @pytest.mark.slow
+@pytest.mark.xfail(reason="BIONEMO-3252: mfsdp gather_uneven_dtensor_to_full_tensor fails with 25.10 torch base image")
 def test_safetensors_multiprocess_roundtrip_mfsdp():
     """Test safetensors save/load round-trip functionality for mfsdp with multiple processes.
 
@@ -803,6 +810,7 @@ def test_safetensors_multiprocess_roundtrip_mfsdp():
 @pytest.mark.multi_gpu
 @pytest.mark.slow
 @requires_multi_gpu
+@pytest.mark.xfail(reason="BIONEMO-3252: mfsdp gather_uneven_dtensor_to_full_tensor fails with 25.10 torch base image")
 def test_safetensors_unsharded_weights_consistency():
     """Test that unsharded weights from multiprocess training match single-process training.
 

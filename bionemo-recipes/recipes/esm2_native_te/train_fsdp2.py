@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
@@ -75,7 +76,10 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
-    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
+    with (
+        torch.device("meta") if args.use_meta_device else nullcontext(),
+        transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs),
+    ):
         model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
     logger.info("Initialized Model:\n%s", model)
@@ -163,7 +167,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     step=step,
                     epoch=epoch,
                     dist_config=dist_config,
-                    dataloader=train_dataloader,
+                    dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
                 )
 
             step += 1

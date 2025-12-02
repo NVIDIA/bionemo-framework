@@ -26,6 +26,15 @@ requires_multi_gpu = pytest.mark.skipif(
     reason="Test requires at least 2 GPUs",
 )
 
+# TODO(@jomitchell): Delete once https://nvbugspro.nvidia.com/bug/5458694 is fixed.
+requires_datacenter_hardware = pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or not any(
+        gpu_name in torch.cuda.get_device_name(0).upper() for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
+    ),
+    reason="Test requires datacenter hardware (H100, H200, B100, B200, B300)",
+)
+
 
 def run_train_cmd(cmd, recipe_path):
     """Run a training command and check for errors."""
@@ -119,6 +128,24 @@ def test_multi_gpu_train_eager_fsdp2_meta_device(tmp_path, recipe_path):
             "model_tag=facebook/esm2_t6_8M_UR50D",
             "use_meta_device=true",
             "num_train_steps=4",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
+@requires_datacenter_hardware
+def test_multi_gpu_train_te_ddp_cp(tmp_path, recipe_path):
+    # Run 'accelerate launch train.py' as a subprocess
+    run_train_cmd(
+        [
+            "torchrun",
+            "--nproc_per_node=2",
+            "train_ddp_cp.py",
+            "--config-name",
+            "L0_sanity_cp",
+            "num_train_steps=4",
+            "cp_size=2",
         ],
         recipe_path,
     )

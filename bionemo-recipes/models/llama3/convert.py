@@ -14,7 +14,6 @@
 # limitations under the License.
 
 import torch
-import torch.nn as nn
 from transformers import LlamaConfig, LlamaForCausalLM
 
 import state
@@ -35,7 +34,7 @@ mapping = {
 reverse_mapping = {v: k for k, v in mapping.items()}
 
 
-def convert_llama_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
+def convert_llama_hf_to_te(model_hf: LlamaForCausalLM, **config_kwargs) -> NVLlamaForCausalLM:
     """Convert a Hugging Face model to a Transformer Engine model.
 
     Args:
@@ -48,6 +47,11 @@ def convert_llama_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
     te_config = NVLlamaConfig(**model_hf.config.to_dict(), **config_kwargs)
     with torch.device("meta"):
         model_te = NVLlamaForCausalLM(te_config)
+
+    if model_hf.config.tie_word_embeddings:
+        state_dict_ignored_entries = ["lm_head.weight"]
+    else:
+        state_dict_ignored_entries = []
 
     output_model = state.apply_transforms(
         model_hf,
@@ -72,15 +76,15 @@ def convert_llama_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
                 fn=state.TransformFns.merge_fc1,
             ),
         ],
+        state_dict_ignored_entries=state_dict_ignored_entries,
     )
 
     output_model.model.rotary_emb.inv_freq = model_hf.model.rotary_emb.inv_freq.clone()
-    output_model.tie_weights()
 
     return output_model
 
 
-def convert_llama_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
+def convert_llama_te_to_hf(model_te: NVLlamaForCausalLM, **config_kwargs) -> LlamaForCausalLM:
     """Convert a Hugging Face model to a Transformer Engine model.
 
     Args:
@@ -90,7 +94,11 @@ def convert_llama_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
     Returns:
         nn.Module: The Transformer Engine model.
     """
-    hf_config = LlamaConfig(**model_te.config.to_dict(), **config_kwargs)
+    # Filter out keys from model_te.config that are not valid LlamaConfig attributes
+    te_config_dict = model_te.config.to_dict()
+    valid_keys = set(LlamaConfig.__init__.__code__.co_varnames)
+    filtered_config = {k: v for k, v in te_config_dict.items() if k in valid_keys}
+    hf_config = LlamaConfig(**filtered_config, **config_kwargs)
 
     with torch.device("meta"):
         model_hf = LlamaForCausalLM(hf_config)

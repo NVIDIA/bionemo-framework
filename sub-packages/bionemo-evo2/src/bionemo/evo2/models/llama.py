@@ -17,13 +17,17 @@
 from dataclasses import dataclass
 from typing import Optional
 
+import torch
 from nemo.collections import llm
-from nemo.collections.llm.gpt.model.llama import apply_rope_scaling
+from nemo.collections.llm.gpt.model.llama import HFLlamaImporter, LlamaModel
+from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
+from nemo.lightning import io
+from nemo.lightning.pytorch.utils import dtype_from_hf
 
 
 @dataclass
-class EdenConfig(llm.Llama3Config8B):
-    """Eden-flavoured Llama-3.1 ~8B (keeps all Eden behaviors)."""
+class EdenConfig(llm.Llama31Config8B):
+    """Eden-flavoured Llama-3.1 ~8B (keeps all Eden behaviors). Inherits from the llama 3.1 config for proper handling of RoPE when converting checkpoints."""
 
     rotary_base: int = 500_000
     seq_length: int = 8192
@@ -38,22 +42,6 @@ class EdenConfig(llm.Llama3Config8B):
     old_context_len: int = 8192
     init_method_std: float = 0.02
     embedding_init_method_std: Optional[float] = None
-
-    def configure_model(self, *args, **kwargs):
-        """Configure and instantiate a Megatron Core Llama 3.1 model.
-
-        Extends the base configuration with Llama 3.1 specific RoPE scaling.
-        """
-        model = super(EdenConfig, self).configure_model(*args, **kwargs)
-        # Apply rope scaling for Llama3.1 model
-        model.rotary_pos_emb.inv_freq = apply_rope_scaling(
-            model.rotary_pos_emb.inv_freq,
-            factor=self.scale_factor,
-            low_freq_factor=self.low_freq_factor,
-            high_freq_factor=self.high_freq_factor,
-            old_context_len=self.old_context_len,
-        )
-        return model
 
 
 @dataclass
@@ -163,6 +151,78 @@ class Eden35BConfig(EdenConfig):
     num_attention_heads: int = 56
     num_query_groups: int = 8  # GQA
     old_context_len: int = 8192
+
+
+@io.model_importer(LlamaModel, "hf")
+class HFEdenLlamaImporter(HFLlamaImporter):
+    """Importer for Eden-flavoured Llama models which just overrides the tokenizer and config classes from NeMo."""
+
+    @property
+    def config(self) -> EdenConfig:
+        """Create a NeMo LlamaConfig from the HF model config.
+
+        Translates the HF configuration parameters to the equivalent NeMo
+        configuration.
+
+        Returns:
+            LlamaConfig: NeMo configuration for Llama models
+        """
+        from transformers import AutoConfig, GenerationConfig
+
+        source = AutoConfig.from_pretrained(str(self))
+        try:
+            generation_config = GenerationConfig.from_pretrained(str(self))
+        except Exception:
+            generation_config = None
+
+        def make_vocab_size_divisible_by(vocab_size):
+            base = 128
+            while vocab_size % base != 0:
+                base //= 2
+            return base
+
+        cls = EdenConfig
+        scale_factor = source.rope_scaling.get("factor", 8.0) if source.rope_scaling is not None else 8.0
+
+        args = {}
+
+        output = cls(
+            num_layers=source.num_hidden_layers,
+            hidden_size=source.hidden_size,
+            ffn_hidden_size=(
+                source.intermediate_size
+                if not getattr(source, "intermediate_size_mlp", None)
+                else source.intermediate_size_mlp
+            ),
+            num_attention_heads=source.num_attention_heads,
+            init_method_std=source.initializer_range,
+            layernorm_epsilon=source.rms_norm_eps,
+            num_query_groups=source.num_key_value_heads,
+            seq_length=source.max_position_embeddings,
+            rotary_base=source.rope_theta,
+            gated_linear_unit=True,
+            make_vocab_size_divisible_by=make_vocab_size_divisible_by(source.vocab_size),
+            share_embeddings_and_output_weights=getattr(source, "tie_word_embeddings", False),
+            fp16=(dtype_from_hf(source) == torch.float16),
+            bf16=(dtype_from_hf(source) == torch.bfloat16),
+            params_dtype=dtype_from_hf(source),
+            generation_config=generation_config,
+            vocab_size=source.vocab_size,
+            kv_channels=getattr(source, "head_dim", None),
+            scale_factor=scale_factor,
+            **args,
+        )
+
+        return output
+
+    @property
+    def tokenizer(self):
+        """Override the tokenizer to use the Eden-flavoured tokenizer."""
+        from bionemo.evo2.run.utils import patch_eden_tokenizer  # avoid circular import
+
+        tokenizer = get_nmt_tokenizer("byte-level")
+        patch_eden_tokenizer(tokenizer)
+        return tokenizer
 
 
 LLAMA_MODEL_OPTIONS = {

@@ -19,6 +19,7 @@ from pathlib import Path
 
 import anndata as ad
 import numpy as np
+import pandas as pd
 import pytest
 import scipy.sparse as sp
 
@@ -138,8 +139,8 @@ def make_two_datasets(make_random_csr):
 
         h1 = tmp_path / "var1.h5ad"
         h2 = tmp_path / "var2.h5ad"
-        ad.AnnData(X=X1).write_h5ad(h1)
-        ad.AnnData(X=X2).write_h5ad(h2)
+        ad.AnnData(X=None, var=pd.DataFrame(index=np.arange(X1.shape[1])), raw={"X": X1}).write_h5ad(h1)
+        ad.AnnData(X=None, var=pd.DataFrame(index=np.arange(X2.shape[1])), raw={"X": X2}).write_h5ad(h2)
 
         ds1 = SingleCellMemMapDataset(tmp_path / "var_ds1", h5ad_path=h1, data_dtype=dtype1)
         ds2 = SingleCellMemMapDataset(tmp_path / "var_ds2", h5ad_path=h2, data_dtype=dtype2)
@@ -163,9 +164,12 @@ def make_small_and_large_h5ads():
         indices_small_vals = np.array([0, 11, 5, 7], dtype=np.int64)
         indptr_small_vals = np.array([0, 0, 2, 2, 4], dtype=np.int64)
         X_small = ad.AnnData(
-            X=sp.csr_matrix(
-                (small_data_vals, indices_small_vals, indptr_small_vals), shape=(n_rows_small, n_cols_small)
-            )
+            var=pd.DataFrame(index=np.arange(n_cols_small)),
+            raw={
+                "X": sp.csr_matrix(
+                    (small_data_vals, indices_small_vals, indptr_small_vals), shape=(n_rows_small, n_cols_small)
+                )
+            },
         )
         small_path = tmp_path / "small.h5ad"
         X_small.write_h5ad(small_path)
@@ -176,9 +180,12 @@ def make_small_and_large_h5ads():
         indices_large_vals = np.array([10, 65_537], dtype=np.int64)
         indptr_large_vals = np.array([0, 1, 1, 2], dtype=np.int64)
         X_large = ad.AnnData(
-            X=sp.csr_matrix(
-                (large_data_vals, indices_large_vals, indptr_large_vals), shape=(n_rows_large, n_cols_large)
-            )
+            var=pd.DataFrame(index=np.arange(n_cols_large)),
+            raw={
+                "X": sp.csr_matrix(
+                    (large_data_vals, indices_large_vals, indptr_large_vals), shape=(n_rows_large, n_cols_large)
+                )
+            },
         )
         large_path = tmp_path / "large.h5ad"
         X_large.write_h5ad(large_path)
@@ -186,5 +193,19 @@ def make_small_and_large_h5ads():
         small = {"data_vals": small_data_vals, "indices_vals": indices_small_vals, "indptr_vals": indptr_small_vals}
         large = {"data_vals": large_data_vals, "indices_vals": indices_large_vals, "indptr_vals": indptr_large_vals}
         return small_path, large_path, small, large
+
+    return _make
+
+
+@pytest.fixture
+def make_h5ad_with_raw(make_random_csr):
+    """Factory to create an h5ad with uniquely randomized data for the fields .raw.X and .X"""
+
+    def _make(tmp_path):
+        X = make_random_csr(total_nnz=100, n_cols=50, seed=42)
+        X_raw = make_random_csr(total_nnz=100, n_cols=50, seed=43)
+        h = tmp_path / "var.h5ad"
+        ad.AnnData(X=X, var=pd.DataFrame(index=np.arange(X.shape[1])), raw={"X": X_raw}).write_h5ad(h)
+        return h
 
     return _make

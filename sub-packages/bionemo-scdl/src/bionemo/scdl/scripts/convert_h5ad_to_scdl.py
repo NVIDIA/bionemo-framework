@@ -59,6 +59,12 @@ def main():
         default=1_000_000,
         help="The number of rows to load into memory at a time for paginated loading of the AnnData files.",
     )
+    parser.add_argument(
+        "--use-X-not-raw",
+        action="store_true",
+        default=False,
+        help="Use .X instead of raw.X from the anndata file [False].",
+    )
     args = parser.parse_args()
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -70,6 +76,7 @@ def main():
             data_dtype=args.data_dtype,
             paginated_load_cutoff=args.paginated_load_cutoff,
             load_block_row_size=args.load_block_row_size,
+            use_X_not_raw=args.use_X_not_raw,
         )
         coll.flatten(args.save_path, destroy_on_copy=True)
 

@@ -106,6 +106,20 @@ if __name__ == "__main__":
 
     from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
+    def recursive_assert(a, b, path=""):
+        if isinstance(a, dict) and isinstance(b, dict):
+            assert a.keys() == b.keys(), f"Dictionary keys mismatch: {a.keys()} != {b.keys()} at {path}"
+            for k in a:
+                recursive_assert(a[k], b[k], path=f"{path}.{k}")
+        elif isinstance(a, list) and isinstance(b, list):
+            assert len(a) == len(b), f"List lengths mismatch: {len(a)} != {len(b)} at {path}"
+            for i in range(len(a)):
+                recursive_assert(a[i], b[i], path=f"{path}.{i}")
+        elif isinstance(a, torch.Tensor) and isinstance(b, torch.Tensor):
+            torch.testing.assert_close(a, b, msg=f"Tensor mismatch at {path}")
+        else:
+            assert a == b, f"Value mismatch at {path}: {a} != {b}"
+
     class Strategy(enum.StrEnum):
         DDP = "ddp"
         FSDP2 = "fsdp2"
@@ -214,10 +228,7 @@ if __name__ == "__main__":
                 assert len(state_2) > 0, f"No FP8 extra states for {key}, rank 1"
                 dict_1 = pickle.loads(state_1.detach().numpy(force=True).tobytes())
                 dict_2 = pickle.loads(state_2.detach().numpy(force=True).tobytes())
-                recipe_1 = dict_1.pop("recipe")
-                recipe_2 = dict_2.pop("recipe")
-                torch.testing.assert_close(dict_1, dict_2)
-                assert recipe_1 == recipe_2
+                recursive_assert(dict_1, dict_2)
 
     # One rank, test to ensure the correct FP8 extra states are saved
     if torch.distributed.get_world_size() == 1:

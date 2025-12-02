@@ -5,6 +5,8 @@ mkdir -p ~/.devcontainer_cache
 mkdir -p ~/.ssh
 mkdir -p ~/.cache/pre-commit-devcontainer
 mkdir -p ~/.gnupg
+mkdir -p ~/.config
+mkdir -p ~/.cursor
 [ ! -f ~/.netrc ] && touch ~/.netrc
 
 # Create the ~/.bash_history_devcontainer file if it doesn't exist

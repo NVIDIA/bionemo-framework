@@ -21,6 +21,7 @@ training:
   checkpoint_dir: "checkpoints/l0-sanity"
   save_every_n_steps: 50
   resume_from_checkpoint: true
+  save_final_model: true
 
 wandb_init_args: # These arguments are for managing the weights and biases experiment.
   name: "geneformer-l0-sanity" # this setting defines the name of the experiment
