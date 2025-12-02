@@ -3,6 +3,9 @@ hide:
   - navigation
 ---
 
+!!! warning "Documentation revamp is in progress."
+These docs are currently being refactored as we consolidate 5D Parallelism Training code with [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes). The best source of documentation today is the module READMEs + your favorite genai assistant.
+
 <p>
   <strong>NVIDIA BioNeMo Framework</strong> is a collection of programming tools, libraries, and models for computational drug discovery.
   It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources for the fastest performance on the market.

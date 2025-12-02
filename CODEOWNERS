@@ -58,15 +58,11 @@ ci/ @dorotat-nv @pstjohn @trvachov @jwilber @jomitchellnv @jstjohn
 #
 ## LIBRARY CODE
 #
-sub-packages/bionemo-fw @DejunL @dorotat-nv @farhadrgh @jstjohn @pstjohn @skothenhill-nv
-
 sub-packages/bionemo-testing @dorotat-nv @farhadrgh @jstjohn @pstjohn @skothenhill-nv
 
 sub-packages/bionemo-core @DejunL @dorotat-nv @farhadrgh @jstjohn @pstjohn @skothenhill-nv
 
 sub-packages/bionemo-llm @farhadrgh @dorotat-nv @jstjohn @pstjohn @skothenhill-nv
-
-sub-packages/bionemo-esm2 @pstjohn @jstjohn @skothenhill-nv @jomitchellnv @farhadrgh @yzhang123 @polinabinder1
 
 sub-packages/bionemo-example_model @jstjohn @skothenhill-nv
 
