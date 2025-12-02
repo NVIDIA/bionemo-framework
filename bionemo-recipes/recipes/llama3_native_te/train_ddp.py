@@ -63,6 +63,18 @@ def main(args: DictConfig) -> float | None:
     # Use SDPA (Scaled Dot-Product Attention) to avoid materializing large causal masks
     # config.attn_implementation = "sdpa"
 
+    dna_token_ids = [ord("A"), ord("G"), ord("C"), ord("T")]
+
+    def lm_head_bias_init_method(x):
+        """Zero out the weights for the non-nucleotide tokens."""
+        x = torch.nn.init.constant_(x, -1000.0)
+        x[dna_token_ids] = 0.0
+        x[0] = -1.0  # EOS token
+        return x
+
+    config.use_lm_head_bias = True
+    config.lm_head_bias_init_method = lm_head_bias_init_method
+
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.

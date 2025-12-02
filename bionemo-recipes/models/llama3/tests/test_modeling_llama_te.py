@@ -385,7 +385,14 @@ def test_loss_with_random_weights_for_input_gene_sequence(recipe_path, attn_inpu
 
     # This unsloth config is identical to the meta-llama/Llama-3.2-1B config, but is available in CI without having to
     # sign the EULA. Since we don't need any weights here, we can just use this model tag instead.
-    config = AutoConfig.from_pretrained("unsloth/Llama-3.2-1B-Instruct")
+    config = AutoConfig.from_pretrained(
+        "unsloth/Llama-3.2-1B-Instruct",
+        vocab_size=tokenizer.vocab_size,
+        tie_word_embeddings=False,
+        eos_token_id=0,
+        pad_token_id=1,
+        bos_token_id=2,
+    )
     model_hf = AutoModelForCausalLM.from_config(config)
 
     model_hf.to("cuda")
@@ -397,7 +404,16 @@ def test_loss_with_random_weights_for_input_gene_sequence(recipe_path, attn_inpu
     gc.collect()
     torch.cuda.empty_cache()
 
-    config_te = NVLlamaConfig.from_pretrained("unsloth/Llama-3.2-1B-Instruct", attn_input_format=attn_input_format)
+    config_te = NVLlamaConfig.from_pretrained(
+        "unsloth/Llama-3.2-1B-Instruct",
+        attn_input_format=attn_input_format,
+        vocab_size=tokenizer.vocab_size,
+        tie_word_embeddings=False,
+        eos_token_id=0,
+        pad_token_id=1,
+        bos_token_id=2,
+    )
+
     model_te = NVLlamaForCausalLM(config_te)
 
     model_te.to("cuda")
@@ -436,3 +452,41 @@ def test_loss_with_random_weights_similar_grad_norms(recipe_path, attn_input_for
     grad_norm_te = torch.nn.utils.clip_grad_norm_(model_te.parameters(), max_norm=float("inf"))
 
     torch.testing.assert_close(grad_norm_te, grad_norm_hf)
+
+
+@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
+def test_loss_is_better_with_bias_init(recipe_path, attn_input_format: str):
+    tokenizer = AutoTokenizer.from_pretrained(recipe_path / "nucleotide_fast_tokenizer")
+    input_text = "GCACGGTCTGCACCACCGTCTGCCCGGTCAGCGGCGTTAACCCGCGCTATCCCGGTCCGAAACAGGCCGGGCCGGACGGCGAGCGCCTTCGTCTGAAGGA"
+
+    inputs = tokenizer(input_text, return_tensors="pt")
+    inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    labels = inputs["input_ids"].clone()
+
+    dna_token_ids = tokenizer.convert_tokens_to_ids(["A", "C", "G", "T"])
+
+    def lm_head_bias_init_method(x):
+        """Zero out the weights for the non-nucleotide tokens"""
+        x = torch.nn.init.constant_(x, -1000.0)
+        x[dna_token_ids] = 0.0
+        x[tokenizer.eos_token_id] = -1.0
+        return x
+
+    config_te = NVLlamaConfig.from_pretrained(
+        "unsloth/Llama-3.2-1B-Instruct",
+        attn_input_format=attn_input_format,
+        vocab_size=tokenizer.vocab_size,
+        tie_word_embeddings=False,
+        eos_token_id=0,
+        pad_token_id=1,
+        bos_token_id=2,
+        use_lm_head_bias=True,
+    )
+    config_te.lm_head_bias_init_method = lm_head_bias_init_method
+    model_te = NVLlamaForCausalLM(config_te)
+    model_te.to("cuda")
+    with torch.no_grad():
+        outputs_te = model_te(**inputs, labels=labels, output_hidden_states=True)
+    loss_te = outputs_te.loss
+
+    assert loss_te < 2.0

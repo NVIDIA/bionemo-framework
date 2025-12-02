@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from collections import OrderedDict
-from typing import Unpack
+from typing import Callable, Unpack
 
 import torch
 import torch.nn as nn
@@ -43,6 +43,8 @@ class NVLlamaConfig(LlamaConfig):
     """NVLlama configuration."""
 
     attn_input_format: str = "thd"
+    use_lm_head_bias: bool = False
+    lm_head_bias_init_method: Callable | None = None
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -257,12 +259,18 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         self.lm_head = transformer_engine.pytorch.Linear(
             config.hidden_size,
             config.vocab_size,
-            bias=False,
+            bias=config.use_lm_head_bias,
             params_dtype=config.dtype,
         )
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    def post_init(self):
+        """Post-initialization hook."""
+        super().post_init()
+        if self.config.lm_head_bias_init_method is not None:
+            self.lm_head.bias.data = self.config.lm_head_bias_init_method(self.lm_head.bias.data)
 
     def forward(
         self,
