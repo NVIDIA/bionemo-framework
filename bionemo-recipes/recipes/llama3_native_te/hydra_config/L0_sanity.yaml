@@ -26,6 +26,7 @@ use_torch_compile: true # Disable for faster startup during testing
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1 # Small batch size for limited GPU memory
+  text_column: "sequence"
   load_dataset_kwargs:
     path: "parquet"
     split: "train"

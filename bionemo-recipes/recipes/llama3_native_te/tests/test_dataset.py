@@ -38,7 +38,7 @@ def simple_parquet(tmp_path):
 
     table = pa.table(
         {
-            "sequence": sequences,
+            "text": sequences,
         }
     )
 
@@ -55,7 +55,7 @@ def test_dataset_loads_and_tokenizes_sequence(tokenizer_path, tmp_path):
     # Create a Parquet file with a single T sequence of known length
     parquet_path = tmp_path / "genomic_sequences.parquet"
     sequence = "T" * 10  # Small, predictable sequence
-    table = pa.table({"sequence": [sequence]})
+    table = pa.table({"text": [sequence]})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -106,7 +106,7 @@ def test_dataloader_returns_expected_batch(tokenizer_path, tmp_path):
     # Create minimal test parquet with exactly 1 sequence
     parquet_path = tmp_path / "single_sequence.parquet"
     sequence = "A" * 5  # 5 As
-    table = pa.table({"sequence": [sequence]})
+    table = pa.table({"text": [sequence]})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -223,7 +223,7 @@ def test_windowing_in_dataset_creates_multiple_samples(tokenizer_path, tmp_path)
     # Create a 3kbp sequence
     parquet_path = tmp_path / "genomic_sequences.parquet"
     sequence = "A" * 3000
-    table = pa.table({"sequence": [sequence]})
+    table = pa.table({"text": [sequence]})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -379,7 +379,7 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
         "G" * 8,  # Seq 4
         "ATCG" * 3,  # Seq 5 (12bp)
     ]
-    table = pa.table({"sequence": sequences})
+    table = pa.table({"text": sequences})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -422,7 +422,7 @@ def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, t
     # Create 5 sequences that won't trigger windowing (all very short)
     parquet_path = tmp_path / "five_sequences.parquet"
     sequences = ["A"] * 20
-    table = pa.table({"sequence": sequences})
+    table = pa.table({"text": sequences})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -499,7 +499,7 @@ def test_streaming_dataset_removes_columns_correctly(tokenizer_path, tmp_path):
         stride=10,
         buffer_size=1000,
         use_lazy_tokenization=False,
-        sequence_column="text",  # Specify which column has sequences
+        text_column="text",  # Specify which column has sequences
     )
 
     # Get first sample from streaming dataset
@@ -569,7 +569,7 @@ def test_streaming_dataset_handles_missing_record_column(tokenizer_path, tmp_pat
         stride=10,
         buffer_size=1000,
         use_lazy_tokenization=False,
-        sequence_column="text",
+        text_column="text",
     )
 
     # Get first sample - should work without errors
@@ -592,7 +592,7 @@ def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
     # Create test data with degenerate bases
     parquet_path = tmp_path / "genomic_with_degenerate.parquet"
     sequences = ["ACGTN", "GGTAR"]  # Has degenerate N and R
-    table = pa.table({"sequence": sequences})
+    table = pa.table({"text": sequences})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -649,6 +649,7 @@ def test_token_packing_dataloader(tokenizer_path):
         distributed_config=distributed_config,
         tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
+        text_column="sequence",
         micro_batch_size=1,
         max_seq_length=1024,
     )

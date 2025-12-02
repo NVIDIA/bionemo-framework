@@ -13,33 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
+
 from torch.optim.lr_scheduler import LambdaLR
 
 
-def get_linear_schedule_with_warmup(
+def get_cosine_annealing_schedule_with_warmup(
     optimizer,
     num_warmup_steps=2_000,
-    num_training_steps=500_000,
+    num_decay_steps=500_000,
     last_epoch=-1,
 ):
-    """Linear warmup and decay scheduler for ESM-2 pretraining.
+    """Cosine annealing scheduler with warmup.
 
-    The description from Lin 2022 is: The learning rate is warmed up over the first 2,000 steps
-    to a peak value of 4e-4 (1.6e-4 for the 15B parameter model), and then linearly decayed to
-    one tenth of its peak value over the 90% of training duration. We've found internally that a
-    longer warmup helps convergence for larger models (3B+) with bf16 precision.
+    The learning rate is linearly warmed up from 0 to peak over num_warmup_steps,
+    then follows a cosine annealing schedule from peak to 0 over num_decay_steps.
     """
-    decay_steps = int(num_training_steps * 0.9)
 
     def lr_lambda(current_step: int):
         if current_step < num_warmup_steps:
-            # Warmup phase: linearly increase learning rate
+            # Warmup phase: linearly increase learning rate from 0 to 1
             return float(current_step) / float(max(1, num_warmup_steps))
-        # Decay phase: linearly decay to one tenth of peak over 90% of training
-        elif current_step > decay_steps:
-            return 0.1  # one tenth of peak learning rate after decay period
         else:
-            # Linear decay from 1.0 to 0.1 over decay_steps-num_warmup_steps
-            return 1.0 - 0.9 * (current_step - num_warmup_steps) / float(max(1, decay_steps - num_warmup_steps))
+            # Cosine annealing phase: decay from 1 to 0 using cosine schedule
+            progress = float(current_step - num_warmup_steps) / float(max(1, num_decay_steps))
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)

@@ -31,7 +31,7 @@ from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
-from scheduler import get_linear_schedule_with_warmup
+from scheduler import get_cosine_annealing_schedule_with_warmup
 
 
 logger = logging.getLogger(__name__)
@@ -81,7 +81,7 @@ def main(args: DictConfig) -> float | None:
 
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
-    scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+    scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     model = model.to(device=device)
     model = torch.nn.parallel.DistributedDataParallel(

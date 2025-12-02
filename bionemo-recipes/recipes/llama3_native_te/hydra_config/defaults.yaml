@@ -1,6 +1,7 @@
 # Training config
 use_te: true # Whether to use TransformerEngine layers through NVLlamaForCausalLM (if false, use HF's LlamaForCausalLM)
 config_name_or_path: ??? # E.g., meta-llama/Llama-3.2-1B or ./model_configs/meta-llama/Llama-3.2-1B
+config_kwargs: {}
 
 num_train_steps: ???
 
@@ -62,16 +63,16 @@ fp8_config:
 
 # Optimizer config
 adamw_kwargs:
-  lr: 4e-4
+  lr: 3e-4
   fused: true
-  betas: [0.9, 0.98]
-  eps: 1e-8
-  weight_decay: 0.01
+  betas: [0.9, 0.95]
+  eps: 1e-5
+  weight_decay: 0.1
 
 # Learning rate scheduler config
 lr_scheduler_kwargs:
   num_warmup_steps: 2_000
-  num_training_steps: 500_000
+  num_decay_steps: 500_000
 
 # Checkpoint config
 checkpoint:
