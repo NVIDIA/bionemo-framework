@@ -62,28 +62,28 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
             f"Set cp_size to a divisor of world_size."
         )
 
-    # Calculate DDP size (number of data parallel replicas)
-    ddp_size = dist_config.world_size // args.cp_size
+    # Calculate DP size (number of data parallel replicas)
+    dp_size = dist_config.world_size // args.cp_size
 
-    # Create a device mesh for DDP and CP.
+    # Create a device mesh for DP and CP.
     # The mesh is organized as [CP_dimension, DDP_dimension] where:
     # - DDP dimension: number of data parallel replicas (world_size // cp_size)
     # - CP dimension: context parallel size
-    # Total ranks = cp_size * ddp_size = world_size
+    # Total ranks = cp_size * dp_size = world_size
     device_mesh = init_device_mesh(
         "cuda",
-        mesh_shape=(ddp_size, args.cp_size),
+        mesh_shape=(dp_size, args.cp_size),
         mesh_dim_names=("dp", "cp"),
     )
 
     # Our flattened group must have at least 2 ranks to enable Context Parallelism.
-    if ddp_size * args.cp_size <= 1:
+    if dp_size * args.cp_size <= 1:
         cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
     else:
         cp_dp_mesh = device_mesh
 
     logger.info(
-        f"Creating device mesh: world_size={dist_config.world_size}, ddp_size={ddp_size}, cp_size={args.cp_size}"
+        f"Creating device mesh: world_size={dist_config.world_size}, dp_size={dp_size}, cp_size={args.cp_size}"
     )
 
     cp_group = device_mesh["cp"].get_group()
@@ -115,8 +115,8 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
-    # Fully shard takes in a DeviceMesh object, which is a 2D mesh of dimensions (CP_dimension, DDP_dimension).
-    # FSDP2 will shard the model across the DDP (dim=1) dimension and then duplicate across the CP (dim=0) dimension.
+    # Fully shard takes in a DeviceMesh object, which is a 2D mesh of dimensions (CP_dimension, DP_dimension).
+    # FSDP2 will shard the model across the DP (dim=1) dimension and then duplicate across the CP (dim=0) dimension.
     for layer in transformer_stack:
         fully_shard(layer, mesh=cp_dp_mesh)
         # Set CP group for layer if CP is enabled.
