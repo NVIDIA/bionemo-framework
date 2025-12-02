@@ -31,6 +31,12 @@ def recipe_path() -> Path:
     return Path(__file__).parent.parent
 
 
+@pytest.fixture
+def tokenizer_path(recipe_path):
+    """Get the path to the nucleotide tokenizer."""
+    return str(recipe_path / "tokenizers" / "nucleotide_fast_tokenizer")
+
+
 @pytest.fixture(scope="session")
 def mock_genomic_parquet(tmp_path_factory) -> Path:
     """Create a mock genomic sequences parquet file for testing.

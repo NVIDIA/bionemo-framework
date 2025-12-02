@@ -23,12 +23,6 @@ from distributed_config import DistributedConfig
 
 
 @pytest.fixture
-def tokenizer_path(recipe_path):
-    """Get the path to the nucleotide tokenizer."""
-    return str(recipe_path / "example_checkpoint")
-
-
-@pytest.fixture
 def simple_parquet(tmp_path):
     """Create a simple Parquet file with multiple genomic sequences for testing batching."""
     parquet_path = tmp_path / "genomic_sequences.parquet"
@@ -72,9 +66,9 @@ def test_dataset_loads_and_tokenizes_sequence(tokenizer_path, tmp_path):
         "split": "train",
     }
 
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=20,  # Large enough to fit the sequence
         stride=10,
@@ -125,7 +119,7 @@ def test_dataloader_returns_expected_batch(tokenizer_path, tmp_path):
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=1,  # Just one sample per batch
         num_workers=0,
@@ -179,7 +173,7 @@ def test_attention_mask_aligns_with_labels(tokenizer_path, simple_parquet):
     # Use a moderate window size to ensure we get padding in batches
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -240,9 +234,9 @@ def test_windowing_in_dataset_creates_multiple_samples(tokenizer_path, tmp_path)
         "split": "train",
     }
 
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=1000,
         stride=800,  # 800 token overlap, so 200 token step
@@ -271,7 +265,7 @@ def test_lazy_tokenization_returns_batch(tokenizer_path, simple_parquet):
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -317,7 +311,7 @@ def test_multiple_sequences_batch_correctly(tokenizer_path, simple_parquet, stre
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -398,7 +392,7 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -442,7 +436,7 @@ def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, t
 
     dataloader, _ = create_thd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         token_micro_batch_size=15,
         max_seq_length=15,
@@ -497,9 +491,9 @@ def test_streaming_dataset_removes_columns_correctly(tokenizer_path, tmp_path):
         "streaming": True,  # This makes dataset.column_names = None
     }
 
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=100,
         stride=10,
@@ -567,9 +561,9 @@ def test_streaming_dataset_handles_missing_record_column(tokenizer_path, tmp_pat
     }
 
     # This should NOT raise an error even though 'record' is in columns_to_remove
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=100,
         stride=10,
@@ -612,7 +606,7 @@ def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
     # Create dataloader with genomic masking enabled
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -639,7 +633,7 @@ def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
     assert any(tok in labels for tok in valid_dna), "Should have valid DNA tokens"
 
 
-def test_token_packing_dataloader(recipe_path):
+def test_token_packing_dataloader(tokenizer_path):
     """Test that the token packing dataloader works."""
 
     load_dataset_kwargs = {
@@ -653,7 +647,7 @@ def test_token_packing_dataloader(recipe_path):
 
     dataloader, _ = create_thd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=str(recipe_path / "example_checkpoint"),
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=1,
         max_seq_length=1024,

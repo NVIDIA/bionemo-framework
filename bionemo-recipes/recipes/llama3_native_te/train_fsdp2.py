@@ -24,14 +24,13 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
-from transformers import AutoConfig, AutoModelForCausalLM
-
-# This import seems to be needed with meta device init and AutoModel.from_config
-from transformers.models.llama.modeling_llama import LlamaForCausalLM  # noqa: F401
+from transformers.models.llama.configuration_llama import LlamaConfig
+from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
+from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
 
@@ -42,7 +41,7 @@ logger.setLevel(logging.INFO)
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:  # noqa: C901
-    """Train Llama3 with TE layers using FSDP2 for genomic sequences.
+    """Train Llama3 with TE layers using FSDP2.
 
     Returns:
         float: The loss value for the final batch.
@@ -55,60 +54,46 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     torch.cuda.set_device(dist_config.local_rank)
 
     # Create a device mesh for FSDP.
-    device_mesh = init_device_mesh(
-        "cuda",
-        mesh_shape=(dist_config.world_size,),
-        mesh_dim_names=("dp",),
-    )
+    device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
 
     # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
     fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
         fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
     )
 
+    if args.use_te:
+        config_class = NVLlamaConfig
+        model_class = NVLlamaForCausalLM
+    else:
+        config_class = LlamaConfig
+        model_class = LlamaForCausalLM
+
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
-    config = AutoConfig.from_pretrained(args.model_tag, dtype=torch.bfloat16, **args.config_kwargs)
-    # Use SDPA (Scaled Dot-Product Attention) to avoid materializing large causal masks
-    # config.attn_implementation = "sdpa"
+    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
     with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
-        model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+        model = model_class(config)
 
     logger.info("Initialized Model:\n%s", model)
 
-    # Enable gradient checkpointing to trade compute for memory if configured
-    if hasattr(args, "use_gradient_checkpointing") and args.use_gradient_checkpointing:
-        logger.info("Enabling gradient checkpointing to reduce memory usage...")
-        model.gradient_checkpointing_enable()
-        logger.info("Gradient checkpointing enabled")
-
     # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
     # Each decoder layer should be individually sharded before sharding the full model.
-    logger.info("Starting FSDP sharding...")
-    transformer_stack = model.model.layers
-    for idx, layer in enumerate(transformer_stack):
-        if idx == 0 or idx == len(transformer_stack) - 1:
-            logger.info(f"Sharding layer {idx}/{len(transformer_stack)}")
+    for layer in model.model.layers:
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
-    logger.info("FSDP sharding complete")
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    logger.info("Creating optimizer and scheduler...")
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
-    logger.info("Optimizer and scheduler created")
 
     if args.use_meta_device:
-        logger.info("Moving model to device and resetting parameters...")
         model.to_empty(device=device)
         for module in model.modules():
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
-        logger.info("Model moved and reset complete")
 
     if args.use_sequence_packing:
         train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)

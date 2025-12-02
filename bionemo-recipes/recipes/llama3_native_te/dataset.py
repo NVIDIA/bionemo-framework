@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 def create_tokenized_dataset(
     distributed_config: DistributedConfig,
-    tokenizer_path: str,
+    tokenizer_name_or_path: str,
     load_dataset_kwargs: dict,
     max_seq_length: int = 8192,
     stride: int = 200,
@@ -44,7 +44,7 @@ def create_tokenized_dataset(
 
     Args:
         distributed_config: The distributed configuration.
-        tokenizer_path: Path to the nucleotide tokenizer directory.
+        tokenizer_name_or_path: Name or path to the nucleotide tokenizer directory.
         load_dataset_kwargs: Keyword arguments to pass to `load_dataset`.
         max_seq_length: The maximum length of sequences (window size).
         stride: The stride for windowing (overlap = stride tokens).
@@ -67,7 +67,7 @@ def create_tokenized_dataset(
         )
         dataset = dataset.shuffle(seed=42, buffer_size=buffer_size)
 
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
 
     def tokenize_with_windowing(examples):
         """Tokenize nucleotide sequences with windowing (one-to-many mapping)."""
@@ -120,7 +120,7 @@ def create_tokenized_dataset(
 
 def create_bshd_dataloader(
     distributed_config: DistributedConfig,
-    tokenizer_path: str,
+    tokenizer_name_or_path: str,
     load_dataset_kwargs: dict,
     micro_batch_size: int,
     num_workers: int = 1,
@@ -138,7 +138,7 @@ def create_bshd_dataloader(
 
     Args:
         distributed_config: The distributed configuration.
-        tokenizer_path: Path to the nucleotide tokenizer directory.
+        tokenizer_name_or_path: Name or path to the nucleotide tokenizer directory.
         load_dataset_kwargs: Keyword arguments to pass to `load_dataset`.
         micro_batch_size: The batch size per device.
         num_workers: The number of workers to use for the dataloader.
@@ -157,7 +157,7 @@ def create_bshd_dataloader(
     """
     tokenized_dataset, tokenizer = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_name_or_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=max_seq_length,
         stride=stride,
@@ -214,7 +214,7 @@ def create_bshd_dataloader(
 
 def create_thd_dataloader(
     distributed_config: DistributedConfig,
-    tokenizer_path: str,
+    tokenizer_name_or_path: str,
     load_dataset_kwargs: dict,
     micro_batch_size: int | None = None,
     token_micro_batch_size: int | None = None,
@@ -232,7 +232,7 @@ def create_thd_dataloader(
 
     Args:
         distributed_config: The distributed configuration.
-        tokenizer_path: Path to the nucleotide tokenizer directory.
+        tokenizer_name_or_path: Name or path to the nucleotide tokenizer directory.
         load_dataset_kwargs: Keyword arguments to pass to `load_dataset`.
         micro_batch_size: The batch size per device.
         token_micro_batch_size: The maximum number of tokens per batch. If None, the micro_batch_size * max_seq_length
@@ -251,9 +251,9 @@ def create_thd_dataloader(
     Returns:
         A dataloader that can be used for training.
     """
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_name_or_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=max_seq_length,
         stride=stride,

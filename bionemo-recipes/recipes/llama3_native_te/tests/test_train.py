@@ -33,7 +33,7 @@ def set_seed():
         torch.cuda.manual_seed_all(42)
 
 
-def test_sanity_convergence_ddp(tmp_path, recipe_path, mock_genomic_parquet):
+def test_sanity_convergence_ddp_te(tmp_path, recipe_path, mock_genomic_parquet):
     """Test that DDP training converges on mock genomic data.
 
     This test validates:
@@ -60,10 +60,41 @@ def test_sanity_convergence_ddp(tmp_path, recipe_path, mock_genomic_parquet):
 
     # For genomic Causal LM, we expect convergence to < 5.0 on the small test dataset
     # The model should learn to predict simple patterns in the mock data
-    assert final_loss < 5.0, f"Final loss {final_loss} is too high, expected < 5.0"
+    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
 
 
-def test_sanity_convergence_fsdp2(tmp_path, recipe_path, mock_genomic_parquet):
+def test_sanity_convergence_ddp_hf(tmp_path, recipe_path, mock_genomic_parquet):
+    """Test that DDP training converges on mock genomic data.
+
+    This test validates:
+    - The train_ddp.py script runs end-to-end without errors
+    - Model, optimizer, and dataloader integrate correctly
+    - Training converges to reasonable loss on small dataset
+    - Uses L0_sanity config with small model and few training steps
+    """
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.load_dataset_kwargs.data_files={mock_genomic_parquet}",
+                "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
+                "use_te=false",
+            ],
+        )
+
+    final_loss = main_ddp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # For genomic Causal LM, we expect convergence to < 5.0 on the small test dataset
+    # The model should learn to predict simple patterns in the mock data
+    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+
+
+def test_sanity_convergence_fsdp2_te_bshd(tmp_path, recipe_path, mock_genomic_parquet):
     """Test that FSDP2 training converges on mock genomic data.
 
     This test validates:
@@ -81,13 +112,70 @@ def test_sanity_convergence_fsdp2(tmp_path, recipe_path, mock_genomic_parquet):
                 f"checkpoint.ckpt_dir={tmp_path}",
                 f"dataset.load_dataset_kwargs.data_files={mock_genomic_parquet}",
                 "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
+                "config_kwargs.attn_input_format=bshd",
             ],
         )
 
     final_loss = main_fsdp2(sanity_config)
 
     # FSDP2 should achieve similar convergence to DDP
-    assert final_loss < 5.0, f"Final loss {final_loss} is too high, expected < 5.0"
+    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+
+
+def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path, mock_genomic_parquet):
+    """Test that FSDP2 training converges on mock genomic data.
+
+    This test validates:
+    - The train_fsdp2.py script runs end-to-end without errors
+    - FSDP2 wrapping and sharding work correctly
+    - Training converges to reasonable loss on small dataset
+    - Uses L0_sanity config with small model and few training steps
+    """
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.load_dataset_kwargs.data_files={mock_genomic_parquet}",
+                "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
+                "config_kwargs.attn_input_format=thd",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+
+    # FSDP2 should achieve similar convergence to DDP
+    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+
+
+def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path, mock_genomic_parquet):
+    """Test that FSDP2 training converges on mock genomic data.
+
+    This test validates:
+    - The train_fsdp2.py script runs end-to-end without errors
+    - FSDP2 wrapping and sharding work correctly
+    - Training converges to reasonable loss on small dataset
+    - Uses L0_sanity config with small model and few training steps
+    """
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.load_dataset_kwargs.data_files={mock_genomic_parquet}",
+                "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
+                "use_te=false",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+
+    # FSDP2 should achieve similar convergence to DDP
+    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
 
 
 def test_sanity_convergence_ddp_non_streaming_dataset(tmp_path, recipe_path, mock_genomic_parquet):

@@ -44,7 +44,10 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
         "bionemo-recipes/models/llama3/state.py",
     ],
     "bionemo-recipes/models/llama3/modeling_llama_te.py": [
-        "bionemo-recipes/recipes/llama3_native_te/example_checkpoint/llama3_nv.py",
+        "bionemo-recipes/recipes/llama3_native_te/modeling_llama_te.py",
+    ],
+    "bionemo-recipes/models/llama3/nucleotide_fast_tokenizer": [
+        "bionemo-recipes/recipes/llama3_native_te/tokenizers/nucleotide_fast_tokenizer",
     ],
 }
 
@@ -67,30 +70,44 @@ def main():
         return
 
     for source, destinations in SOURCE_TO_DESTINATION_MAP.items():
-        if not Path(source).exists():
+        source_path = Path(source)
+        if not source_path.exists():
             raise ValueError(
                 f"Source file {source} does not exist -- if this file was removed, please update the "
                 f"source-to-destination map in {Path(__file__).relative_to(Path.cwd())}"
             )
 
         for destination in destinations:
-            if not Path(destination).exists():
+            destination_path = Path(destination)
+            if not destination_path.exists():
                 raise ValueError(
                     f"Destination file {destination} does not exist -- if this file was removed, please update the "
                     f"source-to-destination map in {Path(__file__).relative_to(Path.cwd())}"
                 )
 
             if args.fix:
-                shutil.copy(source, destination)
+                if source_path.is_dir():
+                    shutil.copytree(source, destination)
+                else:
+                    shutil.copy(source, destination)
                 logger.info(f"Copied {source} to {destination}")
 
             else:
-                with open(source, "rb") as f1, open(destination, "rb") as f2:
-                    if f1.read() != f2.read():
-                        raise ValueError(
-                            f"Files {source} and {destination} do not match. Run "
-                            f"{Path(__file__).relative_to(Path.cwd())} --fix to fix."
-                        )
+                if source_path.is_dir():
+                    for file in source_path.glob("*"):
+                        with open(file, "rb") as f1, open(destination_path / file.name, "rb") as f2:
+                            if f1.read() != f2.read():
+                                raise ValueError(
+                                    f"Files {file} and {destination_path / file.name} do not match. Run "
+                                    f"{Path(__file__).relative_to(Path.cwd())} --fix to fix."
+                                )
+                else:
+                    with open(source, "rb") as f1, open(destination, "rb") as f2:
+                        if f1.read() != f2.read():
+                            raise ValueError(
+                                f"Files {source} and {destination} do not match. Run "
+                                f"{Path(__file__).relative_to(Path.cwd())} --fix to fix."
+                            )
 
 
 if __name__ == "__main__":

@@ -9,11 +9,20 @@ defaults:
   - _self_
 
 # Use tiny Llama config for fast convergence testing
-model_tag: ./example_checkpoint
+config_name_or_path: ./model_configs/meta-llama/Llama-3.2-1B
+config_kwargs: # Arguments to pass to the AutoConfig.from_pretrained method
+  trust_remote_code: true
+  vocab_size: 256 # Overrides to the default config that comes from meta-llama/Llama-3.2-1B
+  tie_word_embeddings: false
+  eos_token_id: 0
+  pad_token_id: 1
+  bos_token_id: 2
+  attn_input_format: "bshd"
 
 num_train_steps: 270_000
 
 dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1 # Conservative for single GPU
   sequence_column: "text"
   load_dataset_kwargs:
