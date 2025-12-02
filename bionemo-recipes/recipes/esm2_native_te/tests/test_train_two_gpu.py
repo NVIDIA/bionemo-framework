@@ -146,6 +146,7 @@ def test_multi_gpu_train_te_ddp_cp(tmp_path, recipe_path):
         recipe_path,
     )
 
+
 @requires_multi_gpu
 @requires_datacenter_hardware
 def test_multi_gpu_train_te_fsdp2_cp(tmp_path, recipe_path):

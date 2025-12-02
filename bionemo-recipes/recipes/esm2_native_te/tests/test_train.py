@@ -555,6 +555,7 @@ def test_sanity_ddp_thd_token_packing_huggingface_model(tmp_path, recipe_path):
 
     main_ddp(sanity_config)
 
+
 def test_sanity_fsdp2_cp_thd_token_packing(tmp_path, monkeypatch, recipe_path):
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,

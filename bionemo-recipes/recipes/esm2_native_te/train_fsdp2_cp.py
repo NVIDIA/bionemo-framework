@@ -31,7 +31,7 @@ from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
-from dataset import create_bshd_dataloader, create_cp_dataloader, create_thd_dataloader
+from dataset import create_cp_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
@@ -65,8 +65,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     # Calculate DDP size (number of data parallel replicas)
     ddp_size = dist_config.world_size // args.cp_size
 
-    
-
     # Create a device mesh for DDP and CP.
     # The mesh is organized as [CP_dimension, DDP_dimension] where:
     # - DDP dimension: number of data parallel replicas (world_size // cp_size)
@@ -97,7 +95,9 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     )
 
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, token_dropout=False, dtype=torch.bfloat16)
+    config = AutoConfig.from_pretrained(
+        args.model_tag, trust_remote_code=True, token_dropout=False, dtype=torch.bfloat16
+    )
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -136,7 +136,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         for module in model.modules():
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
-    
 
     # Context Parallelism requires THD Sequence Packing.
     assert args.use_sequence_packing, "Context Parallelism requires THD Sequence Packing."
@@ -148,7 +147,6 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         cp_rank=cp_rank,
         **args.dataset,
     )
-    
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
