@@ -547,6 +547,66 @@ def test_streaming_dataset_handles_missing_record_column(tokenizer_path, tmp_pat
     assert "input_ids" in sample, "input_ids should be present"
 
 
+def test_dataloader_with_phylo_masking(tokenizer_path, tmp_path):
+    """Test that create_bshd_dataloader works with phylogenetic tag masking enabled.
+
+    Integration test verifying:
+    - GenomicDataCollator is used when phylo masking enabled
+    - Phylo tags are detected and masked in labels
+    - Batches are produced in correct BSHD format
+    """
+    # Create test data with phylo tags
+    parquet_path = tmp_path / "data_with_phylo_tags.parquet"
+    sequences = [
+        "ACGT|d__Bacteria|GGTA",  # Has phylo tag
+        "TTCC|p__Firmicutes|AACG",  # Has phylo tag
+    ]
+    table = pa.table({"sequence": sequences})
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+    }
+
+    # Create dataloader with phylo masking enabled
+    dataloader, _ = create_bshd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=2,
+        num_workers=0,
+        max_seq_length=30,
+        stride=10,
+        use_lazy_tokenization=False,
+        mask_phylo_tags=True,  # Enable phylo masking
+        mask_degenerate_bases=False,  # Disable for clearer test
+        uppercase_labels=False,
+    )
+
+    # Get a batch
+    batch = next(iter(dataloader))
+
+    # Verify BSHD format
+    assert batch["input_ids"].ndim == 2, "Should be BSHD format [B, S]"
+    assert batch["labels"].ndim == 2, "Labels should be BSHD format"
+
+    # Verify phylo tag characters are masked
+    labels = batch["labels"]
+    # Tag characters that should be masked:
+    assert 100 not in labels, "d (100) from phylo tags should be masked"
+    assert 112 not in labels, "p (112) from phylo tags should be masked"
+    assert 95 not in labels, "_ (95) from phylo tags should be masked"
+    assert 124 not in labels, "| (124) pipes should be masked"
+
+    # Verify valid DNA tokens are present
+    valid_dna = [65, 67, 71, 84]  # A, C, G, T
+    assert any(tok in labels for tok in valid_dna), "Should have valid DNA tokens"
+
+
 def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
     """Test that create_bshd_dataloader works with genomic masking enabled.
 

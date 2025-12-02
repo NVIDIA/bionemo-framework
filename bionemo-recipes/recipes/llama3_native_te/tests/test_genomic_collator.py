@@ -168,3 +168,121 @@ def test_collator_handles_lowercase_degenerate(tokenizer):
     labels = batch["labels"]
     expected_labels = torch.tensor([[65, 67, -100]])
     assert torch.equal(labels, expected_labels), f"Expected {expected_labels}, got {labels}"
+
+
+def test_collator_masks_phylo_tags(tokenizer):
+    """Test that collator masks phylogenetic tags with exact values."""
+    base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    collator = GenomicDataCollator(
+        base_collator=base,
+        uppercase_labels=False,
+        mask_degenerate_bases=False,
+        mask_phylo_tags=True,
+    )
+
+    # Input: "AC|d__Bac|TG"
+    # Tokens: [65, 67, 124, 100, 95, 95, 66, 97, 99, 124, 84, 71]
+    #         A   C   |    d   _   _   B   a   c   |    T   G
+    features = [{"input_ids": [65, 67, 124, 100, 95, 95, 66, 97, 99, 124, 84, 71]}]
+    batch = collator(features)
+
+    # Expected: DNA preserved, tag and pipes masked
+    # Phylo mask detects: positions 2-9 are tag (|d__Bac|)
+    # Result: [65, 67, -100, -100, -100, -100, -100, -100, -100, -100, 84, 71]
+    #         A   C   --------tag masked--------                        T   G
+    labels = batch["labels"]
+    expected = torch.tensor([[65, 67, -100, -100, -100, -100, -100, -100, -100, -100, 84, 71]])
+    assert torch.equal(labels, expected), f"Expected {expected}, got {labels}"
+
+
+def test_collator_phylo_middle_of_sequence(tokenizer):
+    """Test phylo tag in middle of sequence with exact values (inspired by Evo2 tests)."""
+    base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    collator = GenomicDataCollator(
+        base_collator=base,
+        uppercase_labels=False,
+        mask_degenerate_bases=False,
+        mask_phylo_tags=True,
+    )
+
+    # "ATG|d__tag|TCGA"
+    # A=65, T=84, G=71, |=124, d=100, _=95, t=116, a=97, g=103, C=67
+    sequence_str = "ATG|d__tag|TCGA"
+    input_tokens = [ord(c) for c in sequence_str]
+    features = [{"input_ids": input_tokens}]
+    batch = collator(features)
+
+    # Expected: DNA before (ATG) and after (TCGA) preserved, tag masked
+    # Positions: ATG (0-2), |d__tag| (3-10), TCGA (11-14)
+    # Result: [65,84,71, -100,-100,-100,-100,-100,-100,-100,-100, 84,67,71,65]
+    labels = batch["labels"]
+    expected = torch.tensor([[65, 84, 71, -100, -100, -100, -100, -100, -100, -100, -100, 84, 67, 71, 65]])
+    assert torch.equal(labels, expected), f"Expected {expected}, got {labels}"
+
+
+def test_collator_all_three_features(tokenizer):
+    """Test all three masking features together (production scenario).
+
+    Tests: uppercase + degenerate + phylo all enabled
+    Input: "aCg|d__|NaT" - has ALL THREE:
+    - Mixed case (a, g, a)
+    - Phylo tag (|d__|)
+    - Degenerate base (N)
+    """
+    base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    collator = GenomicDataCollator(
+        base_collator=base,
+        uppercase_labels=True,
+        mask_degenerate_bases=True,
+        mask_phylo_tags=True,
+    )
+
+    # "aCg|d__|NaT"
+    # Tokens: [97, 67, 103, 124, 100, 95, 95, 124, 78, 97, 84]
+    #         a   C   g    |    d   _   _   |    N   a   T
+    features = [{"input_ids": [97, 67, 103, 124, 100, 95, 95, 124, 78, 97, 84]}]
+    batch = collator(features)
+
+    # Verify inputs unchanged (mixed case preserved)
+    input_ids = batch["input_ids"]
+    assert input_ids[0, 0].item() == 97, "Input 'a' should stay lowercase"
+    assert input_ids[0, 2].item() == 103, "Input 'g' should stay lowercase"
+
+    labels = batch["labels"]
+
+    # Processing order:
+    # 1. Phylo: [97,67,103,124,100,95,95,124,78,97,84]
+    #         → [97,67,103,-100,-100,-100,-100,-100,78,97,84] (|d__| masked)
+    # 2. Degenerate: [97,67,103,-100,-100,-100,-100,-100,78,97,84]
+    #              → [97,67,103,-100,-100,-100,-100,-100,-100,97,84] (N masked)
+    # 3. Uppercase: [97,67,103,-100,-100,-100,-100,-100,-100,97,84]
+    #             → [65,67,71,-100,-100,-100,-100,-100,-100,65,84] (a→A, g→G)
+    # Expected: [65, 67, 71, -100, -100, -100, -100, -100, -100, 65, 84]
+    #           A   C   G   --------phylo tag--------        ----  A   T
+    expected = torch.tensor([[65, 67, 71, -100, -100, -100, -100, -100, -100, 65, 84]])
+    assert torch.equal(labels, expected), f"Expected {expected}, got {labels}"
+
+
+def test_collator_partial_tag_at_end(tokenizer):
+    """Test partial phylo tag at end of sequence with exact values (edge case from Evo2)."""
+    base = DataCollatorForLanguageModeling(tokenizer, mlm=False)
+    collator = GenomicDataCollator(
+        base_collator=base,
+        uppercase_labels=False,
+        mask_degenerate_bases=False,
+        mask_phylo_tags=True,
+    )
+
+    # "ATG|r_" (partial tag at end - no closing pipe)
+    # Tokens: [65, 84, 71, 124, 114, 95]
+    #         A   T   G   |    r    _
+    sequence_str = "ATG|r_"
+    features = [{"input_ids": [ord(c) for c in sequence_str]}]
+    batch = collator(features)
+
+    # Expected: DNA (ATG) preserved, partial tag (|r_) masked
+    # Result: [65, 84, 71, -100, -100, -100]
+    #         A   T   G   ----partial tag---
+    labels = batch["labels"]
+    expected = torch.tensor([[65, 84, 71, -100, -100, -100]])
+    assert torch.equal(labels, expected), f"Expected {expected}, got {labels}"
