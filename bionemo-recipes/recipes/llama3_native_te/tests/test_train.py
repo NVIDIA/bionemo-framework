@@ -164,6 +164,7 @@ def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path):
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
                 "use_te=false",
+                "use_torch_compile=false",  # Getting occasional errors "AssertionError: s52" with torch.compile.
             ],
         )
 
