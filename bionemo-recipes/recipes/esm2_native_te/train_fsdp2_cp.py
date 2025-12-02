@@ -123,7 +123,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         if args.cp_size > 1:
             logger.debug(f"Rank {dist_config.rank}: Setting CP group for layer {layer}")
             layer.set_context_parallel_group(
-                cp_group, torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()), torch.cuda.Stream()
+                cp_group, torch.distributed.get_process_group_ranks(cp_group), torch.cuda.Stream()
             )
     fully_shard(model, mesh=cp_dp_mesh)
 
