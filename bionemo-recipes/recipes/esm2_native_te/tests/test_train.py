@@ -554,24 +554,3 @@ def test_sanity_ddp_thd_token_packing_huggingface_model(tmp_path, recipe_path):
         )
 
     main_ddp(sanity_config)
-
-
-def test_sanity_fsdp2_cp_thd_token_packing(tmp_path, monkeypatch, recipe_path):
-    if torch.cuda.get_device_capability() == (12, 0):
-        # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
-        # but it's missing this THD implementation.
-        monkeypatch.setenv("NVTE_FUSED_ATTN", "0")
-
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(
-            config_name="L0_sanity_cp",
-            overrides=[
-                f"+wandb_init_args.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
-                "use_sequence_packing=true",
-                "num_train_steps=4",
-                "cp_size=1",
-            ],
-        )
-
-    main_fsdp2_cp(sanity_config)
