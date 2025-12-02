@@ -22,6 +22,8 @@ use_torch_compile: false
 # Whether to use gradient checkpointing to trade compute for memory
 use_gradient_checkpointing: false
 
+use_sequence_packing: false
+
 dataset:
   tokenizer_path: ${model_tag} # Set to the path of your tokenizer (e.g., ./example_checkpoint)
   micro_batch_size: 8

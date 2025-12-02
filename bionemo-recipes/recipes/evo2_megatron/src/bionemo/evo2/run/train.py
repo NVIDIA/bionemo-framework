@@ -24,16 +24,6 @@ from typing import List, Optional
 # TODO add back support for slurm resilience.
 # import nvidia_resiliency_ext.ptl_resiliency as res_module
 import torch
-from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
-from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
-from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
-from bionemo.evo2.models.peft import Evo2LoRA
-from bionemo.evo2.run.utils import infer_model_type, patch_eden_tokenizer
-from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
-from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
-from bionemo.evo2.utils.logging.callbacks import TEVCallback
-from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
-from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 from lightning.pytorch.callbacks import Callback, LearningRateMonitor, RichModelSummary
 from megatron.core.distributed import DistributedDataParallelConfig
 from megatron.core.enums import Fp8Recipe
@@ -57,6 +47,17 @@ from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from nemo.lightning.pytorch.strategies.utils import RestoreConfig
 from nemo.utils import logging as logger
 from nemo.utils.exp_manager import TimingCallback
+
+from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
+from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
+from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
+from bionemo.evo2.models.peft import Evo2LoRA
+from bionemo.evo2.run.utils import infer_model_type, patch_eden_tokenizer
+from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
+from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
+from bionemo.evo2.utils.logging.callbacks import TEVCallback
+from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
+from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
 
 torch._dynamo.config.suppress_errors = True
@@ -273,7 +274,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--constant-steps",
         type=int,
-        help="Number of steps to keep the learning rate constant before annealing. This controls the "
+        help="Number of steps to keep the learning rate constant at minimum after annealing. This controls the "
         "shape of the learning rate curve.",
         default=80000,
     )
@@ -673,7 +674,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(args=args)
 
 
-def train(args: argparse.Namespace) -> nl.Trainer:  # noqa: C901
+def train(args: argparse.Namespace) -> nl.Trainer:
     """Main function to run Evo2 training."""
     tokenizer = get_nmt_tokenizer(
         "byte-level",

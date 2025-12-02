@@ -1,6 +1,7 @@
 - [About](about/)
 - [Get Started](getting-started/)
 - [Developer Guide](developer-guide/)
+- [Recipes](recipes/)
 - [Tutorials](examples/)
 - [Data Sets](datasets/)
 - [Contributing](contributing/)

@@ -14,7 +14,7 @@ The biological AI community is actively prototyping model architectures and need
 ### Performance Benchmarks
 
 <p align="center">
-  <img src="../docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg" width="600">
+  <img src="https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg" width="600">
   <br>
   <em> Training benchmarks for ESM-2 using the <code>esm2_native_te</code> recipe.</em>
 </p>

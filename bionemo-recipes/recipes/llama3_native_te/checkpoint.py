@@ -22,7 +22,6 @@ from typing import NamedTuple
 import torch
 import torch.distributed.checkpoint as dcp
 import transformers
-from distributed_config import DistributedConfig
 from safetensors.torch import save_file
 from torch.distributed.checkpoint.state_dict import (
     StateDictOptions,
@@ -32,6 +31,8 @@ from torch.distributed.checkpoint.state_dict import (
 )
 from torch.distributed.checkpoint.stateful import Stateful
 from torchdata.stateful_dataloader import StatefulDataLoader
+
+from distributed_config import DistributedConfig
 
 
 logger = logging.getLogger(__name__)

@@ -13,25 +13,48 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data collator for genomic sequence training with custom masking.
+"""Genomic sequence masking functions for data preprocessing.
 
-This module provides a collator that wraps any base collator and adds genomic masking:
-- Uppercase labels (while keeping inputs mixed case)
-- Mask degenerate bases (non-ACGT characters)
-- Mask control characters (@, #)
+Core functions for genomic data preprocessing during training:
+- make_upper_case: Convert lowercase tokens to uppercase
+- Evo2MaskingConstants: Standard DNA tokens and control characters
 
-The composition design allows easy extension to THD and other formats.
+Adapted from NeMo's Evo2 implementation.
 """
 
-import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ClassVar
 
 import torch
-from genomic_masking_functions import make_upper_case
 
 
-logger = logging.getLogger(__name__)
+def _make_upper_case(tokens, lowercase_start=97, lowercase_end=122, case_diff=32):
+    """Replace lowercase ASCII characters with uppercase.
+
+    Adapted from: nemo.collections.llm.gpt.model.megatron.hyena.hyena_utils.make_upper_case
+
+    Args:
+        tokens: Input tensor containing token IDs (ASCII values)
+        lowercase_start: ASCII value for 'a' (default: 97)
+        lowercase_end: ASCII value for 'z' (default: 122)
+        case_diff: Difference between lowercase and uppercase (default: 32)
+
+    Returns:
+        tuple: (uppercase_tensor, lowercase_mask)
+    """
+    lowercase_mask = (tokens >= lowercase_start) & (tokens <= lowercase_end)
+    uppercase_tensor = torch.where(lowercase_mask, tokens - case_diff, tokens)
+    return uppercase_tensor, lowercase_mask
+
+
+class Evo2MaskingConstants:
+    """Constants used in Evo2 genomic sequence masking."""
+
+    # Standard DNA tokens: A, C, G, T (both uppercase and lowercase)
+    DNA_TOKENS: ClassVar[list[int]] = [65, 67, 71, 84, 97, 99, 103, 116]
+
+    # Control characters used in data formatting
+    CONTROL_TAGS: ClassVar[list[int]] = [64, 35]  # '@', '#'
 
 
 @dataclass
@@ -73,7 +96,7 @@ class GenomicDataCollator:
 
         # Step 1: Uppercase labels (inputs stay mixed case)
         if self.uppercase_labels:
-            labels, _ = make_upper_case(labels)
+            labels, _ = _make_upper_case(labels)
 
         # Step 2: Mask degenerate bases and control characters
         if self.mask_degenerate_bases:

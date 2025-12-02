@@ -20,10 +20,11 @@ import torch
 import torchmetrics
 import torchmetrics.text
 import wandb
-from distributed_config import DistributedConfig
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
 from transformers.modeling_outputs import CausalLMOutputWithPast
+
+from distributed_config import DistributedConfig
 
 
 logger = logging.getLogger(__name__)

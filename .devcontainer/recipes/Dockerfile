@@ -1,6 +1,7 @@
 # Uncomment to use the latest TE from the NGC registry for debugging changes with latest TE.
 # FROM gitlab-master.nvidia.com/dl/transformerengine/transformerengine:main-pytorch-py3-base
-FROM nvcr.io/nvidia/pytorch:25.10-py3
+FROM nvcr.io/nvidia/pytorch:25.11-py3
+
 # FIXME: Fix for "No such file or directory: /workspace/TransformerEngine"
 #  Remove once bug has been addressed in the nvidia/pytorch container.
 RUN rm -f /usr/local/lib/python*/dist-packages/transformer_engine-*.dist-info/direct_url.json
