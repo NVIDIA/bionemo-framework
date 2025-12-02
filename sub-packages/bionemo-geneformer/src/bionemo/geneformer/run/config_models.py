@@ -143,7 +143,8 @@ class ExposedGeneformerPretrainConfig(ExposedModelConfig[GeneformerConfig]):
     initial_ckpt_path: Optional[str] = None
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=list)
 
-    def model_class(self) -> Type[GeneformerConfig]:  # noqa: D102
+    @classmethod
+    def model_class(cls) -> Type[GeneformerConfig]:  # noqa: D102
         return GeneformerConfig
 
 
@@ -161,6 +162,7 @@ class ExposedFineTuneSeqLenBioBertConfig(ExposedModelConfig[FineTuneSeqLenBioBer
     initial_ckpt_path: Optional[str] = None
     initial_ckpt_skip_keys_with_these_prefixes: List[str] = field(default_factory=lambda: ["regression_head"])
 
-    def model_class(self) -> Type[FineTuneSeqLenBioBertConfig]:
+    @classmethod
+    def model_class(cls) -> Type[FineTuneSeqLenBioBertConfig]:
         """Binds the class to FineTuneSeqLenBioBertConfig."""
         return FineTuneSeqLenBioBertConfig
