@@ -22,7 +22,6 @@ from transformer_engine.pytorch.fp8 import check_fp8_support
 
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
-from train_fsdp2_cp import main as main_fsdp2_cp
 from train_mfsdp import main as main_mfsdp
 
 
