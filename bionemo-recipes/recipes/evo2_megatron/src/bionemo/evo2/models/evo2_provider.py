@@ -18,15 +18,22 @@
 
 
 from dataclasses import dataclass
-from typing import Callable, Literal, Optional, Type
+from functools import partial
+from typing import Callable, Iterable, Literal, Optional, Type
 
 import torch
 from megatron.bridge.models.model_provider import ModelProviderMixin
 from megatron.bridge.models.transformer_config import TransformerConfig
+from megatron.bridge.training.gpt_step import get_batch
+from megatron.bridge.training.losses import masked_next_token_loss
+from megatron.bridge.training.state import GlobalState
+from megatron.bridge.training.utils.packed_seq_utils import get_packed_seq_params
+from megatron.bridge.training.utils.pg_utils import get_pg_collection
 from megatron.bridge.utils.vocab_utils import calculate_padded_vocab_size
 from megatron.core import parallel_state
 from megatron.core.inference.contexts import StaticInferenceContext
 from megatron.core.transformer.enums import AttnBackend
+from megatron.core.utils import get_model_config
 
 # from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step  # FIXME do megatron bridge thing instead of this
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import get_hyena_stack_spec
@@ -142,6 +149,7 @@ class HyenaInferenceContext(StaticInferenceContext):
 #             inference_context: Optional inference parameters
 #             packed_seq_params: Optional parameters for packed sequences
 
+
 #         Returns:
 #             torch.Tensor: Output tensor from the model
 #         """
@@ -157,30 +165,108 @@ class HyenaInferenceContext(StaticInferenceContext):
 #             **extra_kwargs,
 #         )
 #         return output_tensor
-
-
-def hyena_forward_step(model, batch) -> torch.Tensor:
-    """Performs a forward step for the Hyena model.
+def _forward_step_common(
+    state: GlobalState, data_iterator: Iterable, model: MCoreHyenaModel, return_schedule_plan: bool = False
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Forward training step.
 
     Args:
-        model: The Hyena model
-        batch: Dictionary containing input batch data with keys:
-            - tokens: Input token IDs
-            - position_ids: Position IDs
-            - labels: Labels for loss computation
-            - loss_mask: Mask for loss computation
+        state: Global state for the run
+        data_iterator: Input data iterator
+        model: The GPT Model
+        return_schedule_plan (bool): Whether to return the schedule plan instead of the output tensor
 
     Returns:
-        torch.Tensor: Output from the model forward pass
+        tuple containing the output tensor and loss mask
     """
+    timers = state.timers
+    straggler_timer = state.straggler_timer
+
+    config = get_model_config(model)
+    pg_collection = get_pg_collection(model)
+    use_mtp = (getattr(config, "mtp_num_layers", None) or 0) > 0
+
+    timers("batch-generator", log_level=2).start()
+    with straggler_timer(bdata=True):
+        tokens, labels, loss_mask, attention_mask, position_ids, cu_seqlens, cu_seqlens_argmin, max_seqlen = get_batch(
+            data_iterator, state.cfg, use_mtp, pg_collection=pg_collection
+        )
+    timers("batch-generator").stop()
+
     forward_args = {
-        "input_ids": batch["tokens"],
-        "position_ids": batch["position_ids"],
-        "labels": batch["labels"],
-        "loss_mask": batch["loss_mask"],
+        "input_ids": tokens,
+        "position_ids": position_ids,
+        "attention_mask": attention_mask,
+        "loss_mask": loss_mask,
+        "labels": labels,
     }
-    forward_args["attention_mask"] = None
-    return model(**forward_args)
+
+    # Add packed sequence support
+    if cu_seqlens is not None:
+        packed_seq_params = {
+            "cu_seqlens": cu_seqlens,
+            "cu_seqlens_argmin": cu_seqlens_argmin,
+            "max_seqlen": max_seqlen,
+        }
+        forward_args["packed_seq_params"] = get_packed_seq_params(packed_seq_params)
+
+    with straggler_timer:
+        if return_schedule_plan:
+            assert config.overlap_moe_expert_parallel_comm, (
+                "overlap_moe_expert_parallel_comm must be enabled to return the schedule plan"
+            )
+            schedule_plan = model.build_schedule_plan(
+                tokens, position_ids, attention_mask, labels=labels, loss_mask=loss_mask
+            )
+            return schedule_plan, loss_mask
+        else:
+            output_tensor = model(**forward_args)
+
+    return output_tensor, loss_mask
+
+
+def hyena_forward_step(
+    state: GlobalState, data_iterator: Iterable, model: MCoreHyenaModel, return_schedule_plan: bool = False
+) -> tuple[torch.Tensor, partial]:
+    """Forward training step.
+
+    Args:
+        state: Global state for the run
+        data_iterator: Input data iterator
+        model: The GPT Model
+        return_schedule_plan (bool): Whether to return the schedule plan instead of the output tensor
+
+    Returns:
+        tuple containing the output tensor and the loss function
+    """
+    output, loss_mask = _forward_step_common(state, data_iterator, model, return_schedule_plan)
+
+    loss_function = _create_loss_function(
+        loss_mask,
+        check_for_nan_in_loss=state.cfg.rerun_state_machine.check_for_nan_in_loss,
+        check_for_spiky_loss=state.cfg.rerun_state_machine.check_for_spiky_loss,
+    )
+
+    return output, loss_function
+
+
+def _create_loss_function(loss_mask: torch.Tensor, check_for_nan_in_loss: bool, check_for_spiky_loss: bool) -> partial:
+    """Create a partial loss function with the specified configuration.
+
+    Args:
+        loss_mask: Used to mask out some portions of the loss
+        check_for_nan_in_loss: Whether to check for NaN values in the loss
+        check_for_spiky_loss: Whether to check for spiky loss values
+
+    Returns:
+        A partial function that can be called with output_tensor to compute the loss
+    """
+    return partial(
+        masked_next_token_loss,
+        loss_mask,
+        check_for_nan_in_loss=check_for_nan_in_loss,
+        check_for_spiky_loss=check_for_spiky_loss,
+    )
 
 
 # FIXME make sure these conform to megatron/megatron bridge style.

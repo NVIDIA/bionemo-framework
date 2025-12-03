@@ -1,5 +1,7 @@
 [build-system]
-requires = ["setuptools>=64", "wheel"]
+# Learning: Pin setuptools < 80.0.0. Newer versions break some CUDA extension builds
+# by removing legacy distutils functionality.
+requires = ["setuptools>=64,<80.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -11,19 +13,22 @@ requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dynamic = ["version"]
 dependencies = [
-    # internal
+    # internal / standard
     "bionemo-noodles",
-    "bionemo-core @ git+https://github.com/NVIDIA/bionemo-framework.git@main#subdirectory=sub-packages/bionemo-core",
-    "megatron-bridge @ git+https://github.com/NVIDIA-NeMo/Megatron-Bridge.git@0ef28d62000685d124f3d9ef6b3f04636267dfa7",  # need a version of megatron-bridge that is ok with TE version 2.8 that's installed in the container.
-    "nv-grouped-gemm @ git+https://github.com/fanshiqing/grouped_gemm@v1.1.4.post6",
-    "causal_conv1d @ git+https://github.com/trvachov/causal-conv1d.git@52e06e3d5ca10af0c7eb94a520d768c48ef36f1f", # Use a branch of causal_conv1d while the repository works on Blackwell support.
-    # external
+    "nvidia-modelopt[torch]>=0.37.0",
+
+    # These sources are defined in [tool.uv.sources] below
+    "bionemo-core",
+    "megatron-bridge",
+    "causal_conv1d",
+    "nv-grouped-gemm",
+    "megatron-core",
+    "nvidia-resiliency-ext",
+    "emerging_optimizers",
 ]
 
 [project.optional-dependencies]
-test = [
-    #'bionemo-testing @ git+https://github.com/NVIDIA/bionemo-framework.git@main#subdirectory=sub-packages/bionemo-testing'
-]
+test = []
 
 [project.scripts]
 infer_evo2 = "bionemo.evo2.run.infer:main"
@@ -35,7 +40,6 @@ evo2_convert_to_nemo2 = "bionemo.evo2.utils.checkpoint.convert_to_nemo:main"
 evo2_nemo2_to_hf = "bionemo.evo2.utils.checkpoint.nemo2_to_hf:main"
 evo2_remove_optimizer = "bionemo.evo2.utils.checkpoint.evo2_remove_optimizer:main"
 
-
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bionemo.*"]
@@ -45,5 +49,47 @@ exclude = ["test*."]
 [tool.setuptools.dynamic]
 version = { file = "VERSION" }
 
+# ------------------------------------------------------------------
+# UV Configuration
+# ------------------------------------------------------------------
+
 [tool.uv]
 cache-keys = [{ git = true }]
+prerelease = "allow"
+
+# Learning: This list matches the official Megatron-Bridge config.
+# These packages must be built against the SYSTEM PyTorch (no isolation).
+no-build-isolation-package = [
+    "flash_mla",
+    "flash-linear-attention",
+    "causal-conv1d",
+    "nv-grouped-gemm",
+    "mamba-ssm",
+    "transformer-engine",
+    "transformer-engine-torch",
+]
+
+# Learning: The 'sys_platform == "never"' hack is the correct way
+# to force uv to accept the container's pre-installed versions.
+override-dependencies = [
+    "nvidia-modelopt[torch]>=0.37.0",
+    "torch; sys_platform == 'never'",
+    "torchvision; sys_platform == 'never'",
+    "triton; sys_platform == 'never'",
+    "transformer-engine; sys_platform == 'never'",
+    "transformer-engine[pytorch]; sys_platform == 'never'",
+]
+
+[tool.uv.sources]
+# External dependencies with specific git tags/commits
+causal_conv1d = { git = "https://github.com/Dao-AILab/causal-conv1d.git", tag = "v1.5.4" }
+nv-grouped-gemm = { git = "https://github.com/fanshiqing/grouped_gemm", tag = "v1.1.4.post6" }
+
+# Internal dependencies
+bionemo-core = { git = "https://github.com/NVIDIA/bionemo-framework.git", branch = "main", subdirectory = "sub-packages/bionemo-core" }
+nvidia-resiliency-ext = { git = "https://github.com/NVIDIA/nvidia-resiliency-ext.git", rev = "54f85fe422d296cf04ea524130014bd3a2c3add1" }  # pragma: allowlist secret
+#emerging_optimizers = { git = "https://github.com/NVIDIA-NeMo/Emerging-Optimizers.git" }
+
+# Megatron Bundle
+megatron-bridge = { git = "https://github.com/NVIDIA-NeMo/Megatron-Bridge.git", rev = "5a7e66e21643143cdc1d1118679a77d58916c4d5" }  # pragma: allowlist secret
+megatron-core = { git = "https://github.com/NVIDIA-NeMo/Megatron-Bridge.git", rev = "5a7e66e21643143cdc1d1118679a77d58916c4d5", subdirectory = "3rdparty/Megatron-LM" }  # pragma: allowlist secret
