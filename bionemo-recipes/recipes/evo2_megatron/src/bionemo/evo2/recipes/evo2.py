@@ -19,7 +19,6 @@ import warnings
 import torch
 from megatron.bridge.recipes.utils.dataset_utils import get_blend_fields_from_data_paths
 from megatron.bridge.recipes.utils.optimizer_utils import distributed_fused_adam_with_cosine_annealing
-from megatron.bridge.recipes.utils.tokenizer_utils import DEFAULT_NULL_TOKENIZER_VOCAB_SIZE
 from megatron.bridge.training.comm_overlap import CommOverlapConfig
 from megatron.bridge.training.config import (
     CheckpointConfig,
@@ -34,6 +33,8 @@ from megatron.bridge.training.config import (
 from megatron.bridge.training.mixed_precision import MixedPrecisionConfig
 from typing_extensions import TypedDict, Unpack
 
+from bionemo.evo2.data.evo2_dataset_provider import Evo2DatasetProvider
+from bionemo.evo2.data.megatron.hyena.evo2_dataset import Evo2Dataset, Evo2DatasetPadEodLossMask
 from bionemo.evo2.models.evo2_provider import (
     Hyena1bModelProvider,
     HyenaModelProvider,
@@ -77,6 +78,7 @@ class Evo2CommonKwargs(TypedDict, total=False):
     # Precision / overlap configs
     precision_config: MixedPrecisionConfig | str | None
     comm_overlap_config: CommOverlapConfig | None
+    pad_eod_loss_mask: bool = False
 
 
 def evo2_1b_pretrain_config(**user_kwargs: Unpack[Evo2CommonKwargs]) -> ConfigContainer:
@@ -104,10 +106,12 @@ def evo2_1b_pretrain_config(**user_kwargs: Unpack[Evo2CommonKwargs]) -> ConfigCo
 
 def _evo2_common(
     model_provider: type[HyenaModelProvider],
+    dataset_seed: int = 1234,
     tokenizer_model: str | None = None,
     dir: str | None = None,
     name: str = "default",
     # Dataset configuration
+    dataset_config_path: str | None = None,
     data_paths: list[str] | None = None,
     data_args_path: str | None = None,
     train_data_path: list[str] | None = None,
@@ -136,6 +140,7 @@ def _evo2_common(
     # Precision recipe
     precision_config: MixedPrecisionConfig | str | None = "bf16_mixed",
     comm_overlap_config: CommOverlapConfig | None = None,
+    pad_eod_loss_mask: bool = False,
 ) -> ConfigContainer:
     """Create a pre-training configuration for Mamba 2.x models.
 
@@ -145,10 +150,41 @@ def _evo2_common(
     run_output_dir = os.path.join(base_output_dir, name)
     checkpoint_dir = os.path.join(run_output_dir, "checkpoints")
     tensorboard_dir = os.path.join(run_output_dir, "tb_logs")
-
-    blend, blend_per_split, split = get_blend_fields_from_data_paths(
-        data_paths, data_args_path, train_data_path, valid_data_path, test_data_path, per_split_data_args_path, mock
-    )
+    if mock:
+        blend, blend_per_split, split = get_blend_fields_from_data_paths(
+            data_paths,
+            data_args_path,
+            train_data_path,
+            valid_data_path,
+            test_data_path,
+            per_split_data_args_path,
+            mock,
+        )
+        dataset_cfg_or_provider = GPTDatasetConfig(
+            random_seed=dataset_seed,
+            reset_attention_mask=False,
+            reset_position_ids=False,
+            eod_mask_loss=False,
+            seq_length=seq_length,
+            num_dataset_builder_threads=1,
+            blend=blend,
+            blend_per_split=blend_per_split,
+            split=split,
+            data_sharding=True,
+            dataloader_type="single",
+            num_workers=8,
+            skip_getting_attention_mask_from_dataset=True,
+        )
+    elif dataset_config_path:
+        dataset_cfg_or_provider = Evo2DatasetProvider(
+            random_seed=dataset_seed,
+            dataset_config_path=dataset_config_path,
+            seq_length=seq_length,
+            eod_mask_loss=pad_eod_loss_mask,
+            dataset_cls=Evo2DatasetPadEodLossMask if pad_eod_loss_mask else Evo2Dataset,
+        )
+    else:
+        raise ValueError("TODO pull in the BCR dataset provider")
 
     model_cfg = model_provider(
         tensor_model_parallel_size=tensor_model_parallel_size,
@@ -189,21 +225,7 @@ def _evo2_common(
             overlap_param_gather=True,
             use_distributed_optimizer=True,
         ),
-        dataset=GPTDatasetConfig(
-            random_seed=1234,
-            reset_attention_mask=False,
-            reset_position_ids=False,
-            eod_mask_loss=False,
-            seq_length=seq_length,
-            num_dataset_builder_threads=1,
-            blend=blend,
-            blend_per_split=blend_per_split,
-            split=split,
-            data_sharding=True,
-            dataloader_type="single",
-            num_workers=8,
-            skip_getting_attention_mask_from_dataset=True,
-        ),
+        dataset=dataset_cfg_or_provider,
         logger=LoggerConfig(
             log_interval=10,
             tensorboard_dir=tensorboard_dir,
@@ -212,7 +234,7 @@ def _evo2_common(
             TokenizerConfig(
                 tokenizer_type="NullTokenizer",
                 tokenizer_model=None,
-                vocab_size=DEFAULT_NULL_TOKENIZER_VOCAB_SIZE,
+                vocab_size=512,
             )
             if use_null_tokenizer
             else TokenizerConfig(
