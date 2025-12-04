@@ -24,7 +24,7 @@ from typing import ClassVar, Dict, List, Optional, Tuple
 from transformers import PreTrainedTokenizer
 
 
-class Evo2Tokenizer(PreTrainedTokenizer):
+class AsciiOrdTokenizer(PreTrainedTokenizer):
     """A tokenizer that maps characters directly to their ASCII/Unicode ord() values.
 
     Modes:
@@ -159,7 +159,7 @@ if __name__ == "__main__":
     print("--- Testing 256 Limit Tokenizer ---")
 
     # 1. Initialize for the efficient model
-    tokenizer_256 = Evo2Tokenizer(vocab_size_limit=256)
+    tokenizer_256 = AsciiOrdTokenizer(vocab_size_limit=256)
 
     # Check IDs of special tokens to ensure they aren't None
     print(f"BOS ID: {tokenizer_256.bos_token_id}")
@@ -181,7 +181,7 @@ if __name__ == "__main__":
     print("\n--- Testing 512 Limit Tokenizer ---")
 
     # 2. Initialize for the larger model
-    tokenizer_512 = Evo2Tokenizer(vocab_size_limit=512)
+    tokenizer_512 = AsciiOrdTokenizer(vocab_size_limit=512)
 
     # Test with a character outside normal range
     # 'Ĭ' is 300

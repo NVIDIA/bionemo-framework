@@ -12,6 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+from pathlib import Path
 
 from megatron.bridge.training.pretrain import pretrain
 
@@ -28,6 +29,8 @@ if __name__ == "__main__":
         lr_warmup_iters=10,  # Learning rate warmup iterations
         lr_decay_iters=20,  # Learning rate decay iterations
         context_parallel_size=1,  # Context parallelism (1 = disabled)
+        hf_tokenizer_model_or_path=Path("./asciitokenizer_512"),
+        seq_length=512,  # NOTE: mock data does an arange of each sequence length, so it must be less than vocab size
         mock=True,
     )
 

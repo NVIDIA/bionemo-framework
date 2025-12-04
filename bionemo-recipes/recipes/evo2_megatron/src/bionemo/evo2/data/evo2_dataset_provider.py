@@ -47,12 +47,13 @@ class Evo2DatasetProvider(DatasetProvider):
     create_attention_mask: bool = True
     reset_attention_mask: bool | None = None
     eod_mask_loss: bool | None = None
+    dataloader_type: str = "single"  # critical
     dataset_cls: Type[MegatronDataset] = Evo2Dataset
 
     def build_datasets(self, context: DatasetBuildContext) -> tuple[Any | None, Any | None, Any | None]:
         """Build and return the train, validation, and test datasets given the context for this training run."""
         num_train_samples = context.train_samples
-        num_val_samples = context.val_samples
+        num_val_samples = context.valid_samples
         num_test_samples = context.test_samples
 
         dataset_config = self.get_gpt_dataset_config(context.tokenizer)

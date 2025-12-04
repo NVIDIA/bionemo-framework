@@ -15,16 +15,15 @@
 
 import os
 import warnings
+from pathlib import Path
 
 import torch
-from megatron.bridge.recipes.utils.dataset_utils import get_blend_fields_from_data_paths
 from megatron.bridge.recipes.utils.optimizer_utils import distributed_fused_adam_with_cosine_annealing
 from megatron.bridge.training.comm_overlap import CommOverlapConfig
 from megatron.bridge.training.config import (
     CheckpointConfig,
     ConfigContainer,
     DistributedDataParallelConfig,
-    GPTDatasetConfig,
     LoggerConfig,
     RNGConfig,
     TokenizerConfig,
@@ -34,6 +33,7 @@ from megatron.bridge.training.mixed_precision import MixedPrecisionConfig
 from typing_extensions import TypedDict, Unpack
 
 from bionemo.evo2.data.evo2_dataset_provider import Evo2DatasetProvider
+from bionemo.evo2.data.evo2_mock_dataset_provider import MockEvo2DatasetProvider
 from bionemo.evo2.data.megatron.hyena.evo2_dataset import Evo2Dataset, Evo2DatasetPadEodLossMask
 from bionemo.evo2.models.evo2_provider import (
     Hyena1bModelProvider,
@@ -46,7 +46,7 @@ class Evo2CommonKwargs(TypedDict, total=False):
 
     # Core identifiers
     model_provider: type[HyenaModelProvider]
-    tokenizer_model: str | None
+    hf_tokenizer_model_or_path: str | Path | None
     dir: str | None
     name: str
     # Dataset configuration
@@ -101,13 +101,13 @@ def evo2_1b_pretrain_config(**user_kwargs: Unpack[Evo2CommonKwargs]) -> ConfigCo
         "use_null_tokenizer": False,
     }
     kwargs: Evo2CommonKwargs = {**recommended, **user_kwargs}
-    return _evo2_common(tokenizer_model=kwargs.get("tokenizer_model"), **kwargs)
+    return _evo2_common(**kwargs)
 
 
 def _evo2_common(
     model_provider: type[HyenaModelProvider],
     dataset_seed: int = 1234,
-    tokenizer_model: str | None = None,
+    hf_tokenizer_model_or_path: str | Path | None = "EleutherAI/gpt-neox-20b",
     dir: str | None = None,
     name: str = "default",
     # Dataset configuration
@@ -151,29 +151,11 @@ def _evo2_common(
     checkpoint_dir = os.path.join(run_output_dir, "checkpoints")
     tensorboard_dir = os.path.join(run_output_dir, "tb_logs")
     if mock:
-        blend, blend_per_split, split = get_blend_fields_from_data_paths(
-            data_paths,
-            data_args_path,
-            train_data_path,
-            valid_data_path,
-            test_data_path,
-            per_split_data_args_path,
-            mock,
-        )
-        dataset_cfg_or_provider = GPTDatasetConfig(
+        dataset_cfg_or_provider = MockEvo2DatasetProvider(
             random_seed=dataset_seed,
-            reset_attention_mask=False,
-            reset_position_ids=False,
-            eod_mask_loss=False,
             seq_length=seq_length,
-            num_dataset_builder_threads=1,
-            blend=blend,
-            blend_per_split=blend_per_split,
-            split=split,
-            data_sharding=True,
-            dataloader_type="single",
-            num_workers=8,
-            skip_getting_attention_mask_from_dataset=True,
+            eod_mask_loss=pad_eod_loss_mask,
+            overfit_mode=True,  # Does a modulo arange (vocab size) that is rolled by idx so elements are different.
         )
     elif dataset_config_path:
         dataset_cfg_or_provider = Evo2DatasetProvider(
@@ -230,17 +212,10 @@ def _evo2_common(
             log_interval=10,
             tensorboard_dir=tensorboard_dir,
         ),
-        tokenizer=(
-            TokenizerConfig(
-                tokenizer_type="NullTokenizer",
-                tokenizer_model=None,
-                vocab_size=512,
-            )
-            if use_null_tokenizer
-            else TokenizerConfig(
-                tokenizer_type="HuggingFaceTokenizer",
-                tokenizer_model=tokenizer_model or "EleutherAI/gpt-neox-20b",
-            )
+        tokenizer=TokenizerConfig(
+            tokenizer_type="HuggingFaceTokenizer",
+            hf_tokenizer_kwargs={"trust_remote_code": True},
+            tokenizer_model=hf_tokenizer_model_or_path or "EleutherAI/gpt-neox-20b",
         ),
         checkpoint=CheckpointConfig(
             save_interval=2000,
