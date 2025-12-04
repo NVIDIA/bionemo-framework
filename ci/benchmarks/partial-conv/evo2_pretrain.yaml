@@ -24,7 +24,7 @@ script_args:
   workspace: /workspace/bionemo2
   data_path: /data/evo2
   pckg_url: gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple/
-  file_name_wheel: subquadratic-ops
+  file_name_wheel: subquadratic-ops-torch-cu12
   model: evo2
   variant: train
   precision: fp8
