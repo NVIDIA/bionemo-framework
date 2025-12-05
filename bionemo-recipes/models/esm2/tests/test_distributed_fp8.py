@@ -61,6 +61,7 @@ def test_single_process_attaches_correct_fp8_recipe(strategy):
         pytest.fail(f"Command failed with exit code {result.returncode}")
 
 
+@pytest.mark.multi_gpu
 @pytest.mark.parametrize(
     "strategy", ["ddp", "fsdp2", pytest.param("mfsdp", marks=pytest.mark.xfail(reason="BIONEMO-2999"))]
 )
