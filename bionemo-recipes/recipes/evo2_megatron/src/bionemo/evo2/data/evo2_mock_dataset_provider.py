@@ -74,7 +74,7 @@ class MockGPTDataset(Dataset):
             # Somewhat interesting deterministic function for a model to learn.
             tokens = (
                 torch.arange(self.vocab_size, dtype=torch.int64)
-                .repeat(self.seq_length // self.vocab_size + 1)[: self.seq_length]
+                .repeat((self.seq_length + 1) // self.vocab_size + 1)[: self.seq_length + 1]
                 .roll(idx)
             )
         else:
