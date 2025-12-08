@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import NamedTuple
 
 import torch
-import torch.distributed.checkpoint as dcp
 import transformers
 from safetensors.torch import save_file
 from torch.distributed.checkpoint.state_dict import (
@@ -29,6 +28,8 @@ from torch.distributed.checkpoint.state_dict import (
     get_state_dict,
     set_state_dict,
 )
+from torch.distributed.checkpoint.state_dict_loader import load as dcp_load
+from torch.distributed.checkpoint.state_dict_saver import save as dcp_save
 from torch.distributed.checkpoint.stateful import Stateful
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -360,6 +361,7 @@ def load_checkpoint_fsdp2(
     ckpt_path: str | os.PathLike,
     dist_config: DistributedConfig,
     dataloader: StatefulDataLoader | None = None,
+    process_group: torch.distributed.ProcessGroup | None = None,
 ) -> CheckpointOutput:
     """Load FSDP2 checkpoint.
 
@@ -370,6 +372,7 @@ def load_checkpoint_fsdp2(
         ckpt_path: The directory containing checkpoints.
         dist_config: The distributed configuration.
         dataloader: The dataloader to load.
+        process_group: The process group to use for checkpointing.
     """
     checkpoint_path, _ = get_latest_checkpoint(ckpt_path)
     if not checkpoint_path:
@@ -383,7 +386,7 @@ def load_checkpoint_fsdp2(
     )
 
     state_dict = {"app": app_state}
-    dcp.load(state_dict, checkpoint_id=checkpoint_path)
+    dcp_load(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
 
     if dataloader is not None:
         load_dataloader(
@@ -407,6 +410,7 @@ def save_checkpoint_fsdp2(
     epoch: int,
     dist_config: DistributedConfig,
     dataloader: StatefulDataLoader | None = None,
+    process_group: torch.distributed.ProcessGroup | None = None,
 ) -> None:
     """Save FSDP2 checkpoint.
 
@@ -419,6 +423,7 @@ def save_checkpoint_fsdp2(
         epoch: The epoch number to save the checkpoint.
         dist_config: The distributed configuration.
         dataloader: The dataloader to save.
+        process_group: The process group to use for checkpointing.
     """
     ckpt_path = Path(ckpt_path)
     checkpoint_path = ckpt_path / f"step_{step}"
@@ -441,8 +446,11 @@ def save_checkpoint_fsdp2(
             epoch=epoch,
         )
     }
-    dcp.save(state_dict=state_dict, checkpoint_id=checkpoint_path)
-    logger.info(f"Saved distributed FSDP2 checkpoint to {checkpoint_path}")
+
+    dcp_save(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
+
+    if dist_config.is_main_process():
+        logger.info(f"Saved distributed FSDP2 checkpoint to {checkpoint_path}")
 
 
 def save_final_model_fsdp2(

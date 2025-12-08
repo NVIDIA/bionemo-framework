@@ -5,7 +5,9 @@ config_kwargs: {}
 
 num_train_steps: ???
 
-use_meta_device: true
+# TODO: Once BIONEMO-2583 and BIONEMO-2719 are fixed, enable this by default and simplify training scripts to remove the
+# meta-device conditional.
+use_meta_device: false
 
 # Whether to wrap the model in torch.compile. Note, this is currently not supported with mfsdp (BIONEMO-2977).
 # We leave this off by default since we don't see much of a performance improvement with TE layers.
