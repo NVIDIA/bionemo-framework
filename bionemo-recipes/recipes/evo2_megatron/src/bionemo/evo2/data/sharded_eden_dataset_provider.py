@@ -23,25 +23,23 @@ import csv
 import os
 import sqlite3
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 
-import lightning.pytorch as pl
 import numpy as np
 import polars as pol
 import torch
 import torch.distributed as dist
+from megatron.bridge.training.config import DatasetBuildContext, DatasetProvider
+from megatron.core.tokenizers.megatron_tokenizer import MegatronTokenizerBase
+from nemo.utils import logging
+from torch.utils.data import Dataset, default_collate
+
 from bionemo.core.data.multi_epoch_dataset import (
     IdentityMultiEpochDatasetWrapper,
     MultiEpochDatasetResampler,
 )
-from lightning.pytorch.utilities.types import EVAL_DATALOADERS, TRAIN_DATALOADERS
-from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
-from nemo.lightning.data import WrappedDataLoader
-from nemo.lightning.pytorch.plugins import MegatronDataSampler
-from nemo.utils import logging
-from nemo.utils.import_utils import safe_import
-from torch.utils.data import Dataset, default_collate
 
 
 # -----------------------------------------------------------------------------
@@ -54,11 +52,6 @@ SEQUENCE_LENGTH_COLUMN_NAME = "length"
 # Column name for nucleotide/amino-acid sequence in shard SQLite tables
 SEQUENCE_COLUMN_NAME = "nt_sequence"
 
-_, HAVE_TE = safe_import("transformer_engine")
-
-if TYPE_CHECKING:
-    from nemo.collections.common.tokenizers.tokenizer_spec import TokenizerSpec
-
 
 def extract_sample_id(sequence_id: str) -> str:
     """Extract sample ID from sequence ID format: BCR__EXT-SAMPLE1__CT1-1."""
@@ -66,174 +59,37 @@ def extract_sample_id(sequence_id: str) -> str:
     return ".".join(parts)
 
 
-class ShardedEdenDataModule(pl.LightningDataModule):
-    """High-performance DataModule that uses pre-computed splits and SQLite databases.
+@dataclass
+class ShardedEdenDatasetProvider(DatasetProvider):
+    """Dataset provider for ShardedEdenDataset."""
 
-    Key differences from EdenDataModule:
-    - Train/val/test splits are loaded from numpy array files
-    - Sequence data stored in per-sample SQLite databases
-    - Virtual window mappings pre-computed and stored in separate SQLite database
-    """
-
-    def __init__(
-        self,
-        sequence_db_dir: str,  # Directory containing sample SQLite files
-        train_window_db_path: str,  # Path to the pre-computed DB for the training split
-        val_window_db_path: str,  # Path to the pre-computed DB for the validation split
-        test_window_db_path: str,  # Path to the pre-computed DB for the test split
-        seq_length: int = 8192,
-        tokenizer: Optional["TokenizerSpec"] = None,
-        micro_batch_size: int = 1,
-        global_batch_size: int = 4,
-        rampup_batch_size: Optional[List[int]] = None,
-        num_workers: int = 8,
-        pin_memory: bool = True,
-        persistent_workers: bool = False,
-        create_attention_mask: bool = False,
-        vocab_file: Optional[str] = None,
-        merges_file: Optional[str] = None,
-        rc_aug: bool = False,
-        stride: int = 7992,
-        window_min_length_threshold: Optional[int] = None,
-        use_control_tags: bool = False,
-        seed: int = 42,
-        num_epochs: int = 1,
-        log_windows: bool = False,
-        log_dir: Optional[str] = None,
-        **kwargs,
-    ):
-        """Initialize the ShardedEdenDataModule. See sub-packages/bionemo-evo2/src/bionemo/evo2/data/sharded_eden_dataloader.md for how to prepare the input data."""
-        super().__init__()
-        self.sequence_db_dir = sequence_db_dir
-        self.train_window_db_path = train_window_db_path
-        self.val_window_db_path = val_window_db_path
-        self.test_window_db_path = test_window_db_path
-        self.seq_length = seq_length
-        self.micro_batch_size = micro_batch_size
-        self.global_batch_size = global_batch_size
-        self.num_workers = num_workers
-        self.pin_memory = pin_memory
-        self.persistent_workers = persistent_workers
-        self.create_attention_mask = create_attention_mask or not HAVE_TE
-        self.rc_aug = rc_aug
-        self.stride = stride if stride is not None else 7992
-        # Minimum effective window length used at precomputation time. If None or 0, disabled.
-        self.window_min_length_threshold = int(window_min_length_threshold) if window_min_length_threshold else 0
-        self.use_control_tags = use_control_tags
-        self.init_global_step = 0
-        self.seed = seed
-        self.num_epochs = num_epochs
-        self.log_windows = log_windows
-        self.log_dir = log_dir
-
-        if tokenizer is None:
-            self.tokenizer = get_nmt_tokenizer(
-                "megatron",
-                "GPT2BPETokenizer",
-                vocab_file=vocab_file,
-                merges_file=merges_file,
-            )
-        else:
-            self.tokenizer = tokenizer
-
-        # Megatron sampler
-        self.data_sampler = MegatronDataSampler(
-            seq_len=self.seq_length,
-            micro_batch_size=self.micro_batch_size,
-            global_batch_size=self.global_batch_size,
-            rampup_batch_size=rampup_batch_size,
-        )
-
-    def build(
-        self,
-        trainer_max_steps: int,
-        trainer_val_check_interval: Union[int, float],
-        trainer_limit_val_batches: Union[int, float],
-        trainer_limit_test_batches: Union[int, float],
-    ):
-        """Build the datasets using pre-computed, split-specific window databases."""
-        if not dist.is_initialized() or dist.get_rank() == 0:
-            print("Creating datasets from pre-computed, split-specific window databases.")
-
-        # Create datasets wrapped with epoch-based resampler
-        self._train_ds = self._create_epoch_wrapped_sharded_eden_dataset(
-            window_db_path=self.train_window_db_path,
-            split="train",
-            shuffle=True,
-        )
-
-        self._validation_ds = self._create_epoch_wrapped_sharded_eden_dataset(
-            window_db_path=self.val_window_db_path,
-            split="validation",
-            shuffle=False,
-        )
-
-        self._test_ds = self._create_epoch_wrapped_sharded_eden_dataset(
-            window_db_path=self.test_window_db_path,
-            split="test",
-            shuffle=False,
-        )
-
-        if not dist.is_initialized() or dist.get_rank() == 0:
-            print(
-                f"Dataset windows: Train={len(self._train_ds)}, Val={len(self._validation_ds)}, Test={len(self._test_ds)}"
-            )
-
-    def setup(self, stage: str = "") -> None:
-        """Setup the data module."""
-        assert hasattr(self, "trainer") and self.trainer is not None, (
-            "Setup should be completed when trainer and config are attached."
-        )
-
-        self.build(
-            trainer_max_steps=self.trainer.max_steps,
-            trainer_val_check_interval=self.trainer.val_check_interval,
-            trainer_limit_val_batches=self.trainer.limit_val_batches,
-            trainer_limit_test_batches=self.trainer.limit_test_batches,
-        )
-
-    def train_dataloader(self) -> TRAIN_DATALOADERS:
-        """Get the train dataloader."""
-        return self._create_dataloader(self._train_ds, mode="train")
-
-    def val_dataloader(self) -> EVAL_DATALOADERS:
-        """Get the validation dataloader."""
-        return self._create_dataloader(self._validation_ds, mode="validation")
-
-    def test_dataloader(self) -> EVAL_DATALOADERS:
-        """Get the test dataloader."""
-        return self._create_dataloader(self._test_ds, mode="test")
-
-    def _create_dataloader(self, dataset, mode, **kwargs) -> WrappedDataLoader:
-        assert hasattr(self, "trainer") and self.trainer is not None, (
-            "Trainer must be attached before creating dataloaders."
-        )
-        self.init_global_step = self.trainer.global_step
-        self.data_sampler.init_global_step = self.init_global_step
-        dataloader = WrappedDataLoader(
-            mode=mode,
-            dataset=dataset,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
-            collate_fn=getattr(dataset, "collate_fn", default_collate),
-            **kwargs,
-        )
-        return dataloader
+    sequence_db_dir: str
+    train_window_db_path: str
+    val_window_db_path: str
+    test_window_db_path: str
+    rc_aug: bool = False
+    random_seed: int = 42
+    stride: Optional[int] = 7992
+    seq_length: int = 8192
+    window_min_length_threshold: Optional[int] = None
+    use_control_tags: bool = False
+    log_windows: bool = False
+    log_dir: Optional[str] = None
+    skip_stats: bool = True
+    create_attention_mask: bool = False
 
     def _create_epoch_wrapped_sharded_eden_dataset(
         self,
         *,
         window_db_path: str,
+        num_samples: int,
+        tokenizer: MegatronTokenizerBase,
         split: str,
         shuffle: bool,
     ) -> MultiEpochDatasetResampler:
-        """Instantiate `ShardedEdenDataset` and wrap it with `MultiEpochDatasetResampler`.
-
-        By default, `num_epochs=1`, so the wrapped dataset length equals the base dataset length.
-        """
+        """Instantiate `ShardedEdenDataset` and wrap it with `MultiEpochDatasetResampler`."""
         base_dataset = ShardedEdenDataset(
-            tokenizer=self.tokenizer,
+            tokenizer=tokenizer,
             sequence_db_dir=self.sequence_db_dir,
             window_db_path=window_db_path,
             seq_length=self.seq_length,
@@ -249,80 +105,36 @@ class ShardedEdenDataModule(pl.LightningDataModule):
 
         wrapped = MultiEpochDatasetResampler(
             IdentityMultiEpochDatasetWrapper(base_dataset),
-            num_epochs=self.num_epochs,
+            num_samples=num_samples,
             shuffle=shuffle,
-            seed=self.seed,
+            seed=self.random_seed,
         )
         return wrapped
 
-    def state_dict(self) -> Dict[str, Any]:
-        """Called when saving a checkpoint."""
-        consumed_samples = self.data_sampler.compute_consumed_samples(self.trainer.global_step - self.init_global_step)
-        return {"consumed_samples": consumed_samples}
-
-    def load_state_dict(self, state_dict: Dict[str, Any]) -> None:
-        """Called when loading a checkpoint."""
-        try:
-            from megatron.core.num_microbatches_calculator import (
-                update_num_microbatches,
-            )
-        except (ImportError, ModuleNotFoundError):
-            logging.warning("Megatron num_microbatches_calculator not found, using Apex version.")
-            from apex.transformer.pipeline_parallel.utils import update_num_microbatches
-
-        consumed_samples = state_dict["consumed_samples"]
-        self.data_sampler.init_consumed_samples = consumed_samples
-        self.data_sampler.prev_consumed_samples = consumed_samples
-
-        update_num_microbatches(
-            consumed_samples=consumed_samples,
-            consistency_check=False,
+    def build_datasets(self, context: DatasetBuildContext) -> tuple[Any | None, Any | None, Any | None]:
+        """Build and return the train, validation, and test datasets given the context for this training run."""
+        train_ds = self._create_epoch_wrapped_sharded_eden_dataset(
+            window_db_path=self.train_window_db_path,
+            num_samples=context.train_samples,
+            tokenizer=context.tokenizer,
+            split="train",
+            shuffle=True,
         )
-        self.data_sampler.if_first_step = 1
-
-    def reconfigure_limit_batches(self):
-        """Reconfigure trainer.limit_train_batches and trainer.limit_val_batches."""
-        self._reconfigure_limit_batches(self.trainer.limit_train_batches, self._train_ds, "train")
-        self._reconfigure_limit_batches(self.trainer.limit_val_batches, self._validation_ds, "val")
-
-    def _reconfigure_limit_batches(self, limit_batches, dataloader, mode):
-        """Reconfigure limit_batches for distributed training."""
-        try:
-            from megatron.core.num_microbatches_calculator import get_num_microbatches
-        except (ImportError, ModuleNotFoundError):
-            logging.warning("Megatron num_microbatches_calculator not found, using Apex version.")
-            from apex.transformer.pipeline_parallel.utils import get_num_microbatches
-
-        if isinstance(limit_batches, int):
-            limit_batches *= get_num_microbatches()
-        else:
-            assert isinstance(limit_batches, float)
-            if limit_batches == 0.0 or dataloader is None:
-                return
-
-            dl_len_in_micro_batches = len(dataloader)
-            if len(dataloader) != float("inf"):
-                if limit_batches == 1.0:
-                    limit_batches = dl_len_in_micro_batches
-                else:
-                    limit_micro_batches = int(dl_len_in_micro_batches * limit_batches)
-                    if limit_micro_batches == 0 and limit_batches > 0.0:
-                        min_percentage = 1.0 / len(dataloader)
-                        raise ValueError(
-                            f"You requested to check {limit_batches} of the val_dataloader but"
-                            f" {limit_batches} * {len(dataloader)} < 1. Please increase the"
-                            f" `limit_val_batches` argument. Try at least"
-                            f" `limit_val_batches={min_percentage}`"
-                        )
-                    if limit_micro_batches < get_num_microbatches():
-                        limit_batches = get_num_microbatches()
-                    else:
-                        limit_batches = limit_batches - limit_batches % get_num_microbatches()
-
-        if mode == "train":
-            self.trainer.limit_train_batches = limit_batches
-        else:
-            self.trainer.limit_val_batches = limit_batches
+        val_ds = self._create_epoch_wrapped_sharded_eden_dataset(
+            window_db_path=self.val_window_db_path,
+            num_samples=context.valid_samples,
+            tokenizer=context.tokenizer,
+            split="validation",
+            shuffle=False,
+        )
+        test_ds = self._create_epoch_wrapped_sharded_eden_dataset(
+            window_db_path=self.test_window_db_path,
+            num_samples=context.test_samples,
+            tokenizer=context.tokenizer,
+            split="test",
+            shuffle=False,
+        )
+        return train_ds, val_ds, test_ds
 
 
 class ShardedEdenDataset(Dataset):
@@ -399,7 +211,7 @@ class ShardedEdenDataset(Dataset):
                 # URI=true allows for read-only connections if needed and more options
                 conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
                 self.db_connections[sample_id] = conn
-            except sqlite3.Error as e:
+            except sqlite3.Error as e:  # noqa: PERF203
                 logging.error(f"Failed to open/attach database for sample {sample_id} at {db_path}: {e}")
                 raise
 
@@ -422,7 +234,7 @@ class ShardedEdenDataset(Dataset):
         if not dist.is_initialized() or dist.get_rank() == 0:
             print(f"Found {len(self.sample_db_mapping)} sample SQLite files")
 
-    def _validate_and_setup_db(self):  # noqa: C901
+    def _validate_and_setup_db(self):
         """Connects to the window database, validates its metadata, and computes the length of the dataset for the current split."""
         self.window_db_conn = sqlite3.connect(f"file:{self.window_db_path}?mode=ro", uri=True)
         cursor = self.window_db_conn.cursor()
@@ -526,7 +338,7 @@ class ShardedEdenDataset(Dataset):
         cmap = {"A": "T", "C": "G", "G": "C", "T": "A", "N": "N"}
         return "".join(cmap.get(b, b) for b in reversed(seq))
 
-    def __getitem__(self, idx: np.int64) -> Dict[str, torch.Tensor]:  # noqa: C901
+    def __getitem__(self, idx: np.int64) -> Dict[str, torch.Tensor]:
         """Get a single item from the dataset."""
         if idx >= self.length:
             raise IndexError(f"Index {idx} out of range for dataset with length {self.length}")

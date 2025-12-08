@@ -35,6 +35,7 @@ from typing_extensions import TypedDict, Unpack
 from bionemo.evo2.data.evo2_dataset_provider import Evo2DatasetProvider
 from bionemo.evo2.data.evo2_mock_dataset_provider import MockEvo2DatasetProvider
 from bionemo.evo2.data.megatron.hyena.evo2_dataset import Evo2Dataset, Evo2DatasetPadEodLossMask
+from bionemo.evo2.data.sharded_eden_dataset_provider import ShardedEdenDatasetProvider
 from bionemo.evo2.models.evo2_provider import (
     Hyena1bModelProvider,
     HyenaModelProvider,
@@ -51,13 +52,19 @@ class Evo2CommonKwargs(TypedDict, total=False):
     dir: str | None
     name: str
     # Dataset configuration
-    data_paths: list[str] | None
-    data_args_path: str | None
-    train_data_path: list[str] | None
-    valid_data_path: list[str] | None
-    test_data_path: list[str] | None
-    per_split_data_args_path: str | None
+    ## Evo2
+    dataset_config_path: str | None
+    ## Mock
     mock: bool
+    ## Sharded Eden
+    sharded_eden_data: bool
+    sequence_db_dir: str | None
+    train_window_db_path: str | None
+    val_window_db_path: str | None
+    test_window_db_path: str | None
+    rc_aug: bool
+    stride: int
+    window_min_length_threshold: int
     # Model configuration
     tensor_model_parallel_size: int
     pipeline_model_parallel_size: int
@@ -107,19 +114,24 @@ def evo2_1b_pretrain_config(**user_kwargs: Unpack[Evo2CommonKwargs]) -> ConfigCo
 
 def _evo2_common(
     model_provider: type[HyenaModelProvider],
-    dataset_seed: int = 1234,
     hf_tokenizer_model_or_path: str | Path | None = "EleutherAI/gpt-neox-20b",
     dir: str | None = None,
     name: str = "default",
     # Dataset configuration
+    dataset_seed: int = 1234,
+    ## Evo2
     dataset_config_path: str | None = None,
-    data_paths: list[str] | None = None,
-    data_args_path: str | None = None,
-    train_data_path: list[str] | None = None,
-    valid_data_path: list[str] | None = None,
-    test_data_path: list[str] | None = None,
-    per_split_data_args_path: str | None = None,
+    ## Mock
     mock: bool = False,
+    ## Sharded Eden
+    sharded_eden_data: bool = False,
+    sequence_db_dir: str | None = None,
+    train_window_db_path: str | None = None,
+    val_window_db_path: str | None = None,
+    test_window_db_path: str | None = None,
+    rc_aug: bool = False,
+    stride: int = 7992,
+    window_min_length_threshold: int = 0,
     # Model configuration
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
@@ -136,9 +148,9 @@ def _evo2_common(
     min_lr: float = 3e-5,
     lr_warmup_iters: int = 2000,
     lr_decay_iters: int | None = None,
-    # Tokenizer selection
-    use_null_tokenizer: bool = False,
+    # TODO spike-no-more-embedding-init
     # Precision recipe
+    # TODO fp8 etc
     precision_config: MixedPrecisionConfig | str | None = "bf16_mixed",
     comm_overlap_config: CommOverlapConfig | None = None,
     pad_eod_loss_mask: bool = False,
@@ -158,6 +170,27 @@ def _evo2_common(
             eod_mask_loss=pad_eod_loss_mask,
             overfit_mode=True,  # Does a modulo arange (vocab size) that is rolled by idx so elements are different.
         )
+    elif sharded_eden_data:
+        assert sequence_db_dir is not None
+        assert train_window_db_path is not None
+        assert val_window_db_path is not None
+        assert test_window_db_path is not None
+        dataset_cfg_or_provider = ShardedEdenDatasetProvider(
+            random_seed=dataset_seed,
+            sequence_db_dir=sequence_db_dir,
+            train_window_db_path=train_window_db_path,
+            val_window_db_path=val_window_db_path,
+            test_window_db_path=test_window_db_path,
+            seq_length=seq_length,
+            rc_aug=rc_aug,
+            stride=stride,
+            window_min_length_threshold=window_min_length_threshold,
+            use_control_tags=False,
+            log_windows=False,
+            log_dir=None,
+            skip_stats=True,
+            create_attention_mask=False,
+        )
     elif dataset_config_path:
         dataset_cfg_or_provider = Evo2DatasetProvider(
             random_seed=dataset_seed,
@@ -167,7 +200,7 @@ def _evo2_common(
             dataset_cls=Evo2DatasetPadEodLossMask if pad_eod_loss_mask else Evo2Dataset,
         )
     else:
-        raise ValueError("TODO pull in the BCR dataset provider")
+        raise ValueError("TODO unsure how to handle this case")
 
     model_cfg = model_provider(
         tensor_model_parallel_size=tensor_model_parallel_size,
