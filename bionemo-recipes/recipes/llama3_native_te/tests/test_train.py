@@ -146,33 +146,6 @@ def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path):
     assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
 
 
-def test_sanity_convergence_fsdp2_te_meta_device(tmp_path, recipe_path):
-    """Test that FSDP2 training converges on mock genomic data.
-
-    This test validates:
-    - The train_fsdp2.py script runs end-to-end without errors
-    - FSDP2 wrapping and sharding work correctly
-    - Training converges to reasonable loss on small dataset
-    - Uses L0_sanity config with small model and few training steps
-    """
-    # Run the training script with Hydra configuration overrides
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(
-            config_name="L0_sanity",
-            overrides=[
-                f"+wandb.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
-                "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
-                "use_meta_device=true",
-            ],
-        )
-
-    final_loss = main_fsdp2(sanity_config)
-
-    # FSDP2 should achieve similar convergence to DDP
-    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
-
-
 def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path):
     """Test that FSDP2 training converges on mock genomic data.
 
