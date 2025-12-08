@@ -436,7 +436,7 @@ class HyenaTestModelProvider(HyenaModelProvider):
 
 
 @dataclass
-class HyenaNVTestModelProvider(HyenaModelProvider):
+class HyenaNVTestModelProvider(HyenaTestModelProvider):
     """This config addresses several design improvements over the original implementation, and may provide better training stability for new models."""
 
     remove_activation_post_first_layer: bool = False

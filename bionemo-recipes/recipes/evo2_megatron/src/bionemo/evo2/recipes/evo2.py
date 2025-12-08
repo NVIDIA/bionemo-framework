@@ -39,6 +39,7 @@ from bionemo.evo2.models.evo2_provider import (
     Hyena1bModelProvider,
     HyenaModelProvider,
 )
+from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
 
 
 class Evo2CommonKwargs(TypedDict, total=False):
@@ -188,6 +189,7 @@ def _evo2_common(
         max_lr=lr,
         min_lr=min_lr,
     )
+    scheduler.no_weight_decay_cond_type = hyena_no_weight_decay_cond
 
     cfg = ConfigContainer(
         model=model_cfg,
