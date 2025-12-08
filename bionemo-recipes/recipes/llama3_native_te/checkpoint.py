@@ -437,6 +437,10 @@ def save_checkpoint_fsdp2(
         )
         logger.info(f"Saved FSDP2 dataloader to {ckpt_path}")
 
+    # Clear GPU cache before checkpointing to free up fragmented memory.
+    torch.cuda.empty_cache()
+    torch.distributed.barrier(group=process_group)
+
     state_dict = {
         "app": AppState(
             model=model,
