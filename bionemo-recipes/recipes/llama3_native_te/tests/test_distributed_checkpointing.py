@@ -399,7 +399,6 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
                 "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
-                "use_meta_device=true",
             ],
         )
 
@@ -463,7 +462,6 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
         "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
-        "use_meta_device=true",
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
