@@ -15,7 +15,7 @@
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
@@ -328,18 +328,10 @@ class AppState(Stateful):
     scheduler: torch.optim.lr_scheduler.LRScheduler
     step: int = 0
     epoch: int = 0
-    state_dict_options: StateDictOptions = field(
-        default_factory=lambda: StateDictOptions(
-            full_state_dict=False,
-            cpu_offload=True,
-        )
-    )
 
     def state_dict(self):
         """Get the state dict for the model, optimizer, scheduler, and step."""
-        model_state_dict, optimizer_state_dict = get_state_dict(
-            self.model, self.optimizer, options=self.state_dict_options
-        )
+        model_state_dict, optimizer_state_dict = get_state_dict(self.model, self.optimizer)
         return {
             "model": model_state_dict,
             "optim": optimizer_state_dict,
@@ -355,7 +347,6 @@ class AppState(Stateful):
             self.optimizer,
             model_state_dict=state_dict["model"],
             optim_state_dict=state_dict["optim"],
-            options=self.state_dict_options,
         )
         self.scheduler.load_state_dict(state_dict["scheduler"])
         self.step = state_dict["step"]
