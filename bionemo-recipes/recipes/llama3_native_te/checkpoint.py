@@ -15,6 +15,7 @@
 
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -29,7 +30,7 @@ from torch.distributed.checkpoint.state_dict import (
     set_state_dict,
 )
 from torch.distributed.checkpoint.state_dict_loader import load as dcp_load
-from torch.distributed.checkpoint.state_dict_saver import save as dcp_save
+from torch.distributed.checkpoint.state_dict_saver import async_save as dcp_async_save
 from torch.distributed.checkpoint.stateful import Stateful
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -37,6 +38,7 @@ from distributed_config import DistributedConfig
 
 
 logger = logging.getLogger(__name__)
+_ckpt_futures: dict = {}
 
 
 class CheckpointOutput(NamedTuple):
@@ -81,6 +83,20 @@ def should_save_checkpoint(step: int, save_every_n_steps: int) -> bool:
     if save_every_n_steps > 0 and step % save_every_n_steps == 0 and step > 0:
         return True
     return False
+
+
+def prune_checkpoints(ckpt_path: str | os.PathLike, max_checkpoints: int) -> None:
+    """Prune checkpoints to keep only the latest `max_checkpoints` checkpoints."""
+    ckpt_path = Path(ckpt_path)
+    checkpoints = [f for f in ckpt_path.iterdir() if f.name.startswith("step_")]
+    checkpoints.sort(key=lambda x: int(Path(x).stem.split("_")[1]))
+    if len(checkpoints) > max_checkpoints:
+        for checkpoint in checkpoints[:-max_checkpoints]:
+            logger.info(f"Pruning checkpoint {checkpoint}")
+            if checkpoint.is_dir():
+                shutil.rmtree(checkpoint)
+            else:
+                os.remove(checkpoint)
 
 
 # ============================================================================
@@ -132,6 +148,7 @@ def save_checkpoint_ddp(
     epoch: int,
     dist_config: DistributedConfig,
     dataloader: StatefulDataLoader | None = None,
+    max_checkpoints: int | None = None,
 ) -> None:
     """Saves the Dataloader state and the DDP checkpoint."""
     ckpt_path = Path(ckpt_path)
@@ -158,6 +175,9 @@ def save_checkpoint_ddp(
 
     logger.info(f"Saved DDP checkpoint to {checkpoint_path}")
 
+    if max_checkpoints is not None:
+        prune_checkpoints(ckpt_path, max_checkpoints)
+
 
 def save_final_model_ddp(
     model: torch.nn.Module,
@@ -174,142 +194,6 @@ def save_final_model_ddp(
     os.makedirs(save_directory, exist_ok=True)
     underlying_model.save_pretrained(save_directory, state_dict=underlying_model.state_dict(), safe_serialization=True)
     logger.info(f"Saved final DDP model to {save_directory}")
-
-
-# ============================================================================
-# mFSDP Checkpointing
-# ============================================================================
-
-
-def load_checkpoint_mfsdp(
-    model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler.LRScheduler,
-    ckpt_path: str | os.PathLike,
-    dist_config: DistributedConfig,
-    dataloader: StatefulDataLoader | None = None,
-) -> CheckpointOutput:
-    """Load mFSDP distributed checkpoint.
-
-    Args:
-        model: The model to load.
-        optimizer: The optimizer to load.
-        scheduler: The LR scheduler to load.
-        ckpt_path: The directory containing checkpoints.
-        dist_config: The distributed configuration.
-        dataloader: The dataloader to load.
-
-    Returns:
-        Tuple of (model, optimizer, scheduler, step).
-    """
-    checkpoint_path, step = get_latest_checkpoint(ckpt_path)
-    if not checkpoint_path:
-        logger.info("No mFSDP checkpoint found, starting from scratch")
-        return CheckpointOutput(model, optimizer, scheduler, dataloader, 0, 0)
-
-    ckpt_state_dict = {
-        "model": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
-        "scheduler": scheduler.state_dict(),
-        "metadata": {
-            "step": step,  # Initialize with current step from filename
-            "epoch": 0,  # Initialize with default epoch
-        },
-    }
-    torch.distributed.checkpoint.load(state_dict=ckpt_state_dict, checkpoint_id=checkpoint_path)
-
-    model.load_state_dict(ckpt_state_dict["model"])
-    optimizer.load_state_dict(ckpt_state_dict["optimizer"])
-    scheduler.load_state_dict(ckpt_state_dict["scheduler"])
-    dataloader = load_dataloader(dataloader, checkpoint_path, dist_config)
-
-    step = ckpt_state_dict["metadata"]["step"]
-    epoch = ckpt_state_dict["metadata"]["epoch"]
-
-    # Ensure all ranks have completed loading before proceeding
-    torch.distributed.barrier()
-
-    logger.info(f"Loaded mFSDP checkpoint from step {step}")
-
-    # Increment the step by one to avoid re-running the previous step.
-    return CheckpointOutput(model, optimizer, scheduler, dataloader, step + 1, epoch)
-
-
-def save_checkpoint_mfsdp(
-    model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
-    scheduler: torch.optim.lr_scheduler.LRScheduler,
-    ckpt_path: str | os.PathLike,
-    step: int,
-    dist_config: DistributedConfig,
-    dataloader: StatefulDataLoader | None = None,
-    epoch: int = 0,
-) -> None:
-    """Save mFSDP distributed checkpoint.
-
-    Args:
-        model: The model to save.
-        optimizer: The optimizer to save.
-        scheduler: The LR scheduler to save.
-        ckpt_path: The directory to save the checkpoint.
-        step: The step number to save the checkpoint.
-        dist_config: The distributed configuration.
-        dataloader: The dataloader to save.
-        epoch: The epoch number to save the checkpoint.
-    """
-    ckpt_path = Path(ckpt_path)
-    checkpoint_path = ckpt_path / f"step_{step}"
-    checkpoint_path.mkdir(parents=True, exist_ok=True)
-
-    # Save dataloader state, if provided.
-    save_dataloader(dataloader, checkpoint_path, dist_config)
-
-    # Save model, optimizer, scheduler state, and metadata
-    state_dict = {
-        "model": model.state_dict(),
-        "optimizer": optimizer.state_dict(),
-        "scheduler": scheduler.state_dict(),
-        "metadata": {
-            "step": step,
-            "epoch": epoch,
-        },
-    }
-
-    torch.distributed.checkpoint.save(state_dict, checkpoint_id=checkpoint_path)
-
-    if dist_config.is_main_process():
-        logger.info(f"Saved mFSDP checkpoint to {checkpoint_path}")
-
-
-def save_final_model_mfsdp(
-    model: torch.nn.Module,
-    save_directory: str | os.PathLike,
-    dist_config: DistributedConfig,
-) -> None:
-    """Save final model for mFSDP - requires parameter gathering on all ranks."""
-    from megatron_fsdp.uneven_dtensor import gather_uneven_dtensor_to_full_tensor
-
-    if dist_config.is_main_process():
-        logger.info("Starting mFSDP parameter gathering...")
-
-    # Parameter gathering must happen on ALL processes
-    unsharded_state_dict = {
-        # Gather all parameters to CPU, and remove the "module." prefix from the Megatron-FSDP class wrapper.
-        k.removeprefix("module."): gather_uneven_dtensor_to_full_tensor(
-            v, target_device=torch.device("cpu")
-        ).to_local()
-        if isinstance(v, torch.distributed.tensor.DTensor)
-        else v
-        for k, v in model.state_dict().items()
-    }
-
-    # Only main process saves the model
-    if not dist_config.is_main_process():
-        return
-
-    os.makedirs(save_directory, exist_ok=True)
-    model.module.save_pretrained(save_directory, state_dict=unsharded_state_dict, safe_serialization=True)
-    logger.info(f"Saved final mFSDP model to {save_directory}")
 
 
 # ============================================================================
@@ -411,6 +295,7 @@ def save_checkpoint_fsdp2(
     dist_config: DistributedConfig,
     dataloader: StatefulDataLoader | None = None,
     process_group: torch.distributed.ProcessGroup | None = None,
+    max_checkpoints: int | None = None,
 ) -> None:
     """Save FSDP2 checkpoint.
 
@@ -424,6 +309,7 @@ def save_checkpoint_fsdp2(
         dist_config: The distributed configuration.
         dataloader: The dataloader to save.
         process_group: The process group to use for checkpointing.
+        max_checkpoints: The maximum number of checkpoints to keep.
     """
     ckpt_path = Path(ckpt_path)
     checkpoint_path = ckpt_path / f"step_{step}"
@@ -441,20 +327,18 @@ def save_checkpoint_fsdp2(
     torch.cuda.empty_cache()
     torch.distributed.barrier(group=process_group)
 
-    state_dict = {
-        "app": AppState(
-            model=model,
-            optimizer=optimizer,
-            scheduler=scheduler,
-            step=step,
-            epoch=epoch,
-        )
-    }
+    # Wait for any existing checkpoint future to complete before starting a new one
+    if "fsdp2" in _ckpt_futures:
+        _ckpt_futures["fsdp2"].result()
 
-    dcp_save(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
+    state_dict = {"app": AppState(model=model, optimizer=optimizer, scheduler=scheduler, step=step, epoch=epoch)}
+    _ckpt_futures["fsdp2"] = dcp_async_save(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
 
     if dist_config.is_main_process():
         logger.info(f"Saved distributed FSDP2 checkpoint to {checkpoint_path}")
+
+    if max_checkpoints is not None:
+        prune_checkpoints(ckpt_path, max_checkpoints)
 
 
 def save_final_model_fsdp2(

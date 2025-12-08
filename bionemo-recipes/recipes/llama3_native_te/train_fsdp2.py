@@ -51,7 +51,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
     device = torch.device(f"cuda:{dist_config.local_rank}")
-    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
     # Create a device mesh for FSDP.
@@ -118,7 +118,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
             scheduler=scheduler,
             ckpt_path=ckpt_path,
             dist_config=dist_config,
-            dataloader=train_dataloader,
+            dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
             process_group=device_mesh.get_group("dp"),
         )
         logger.info(f"Checkpoint loaded, resuming from step {start_step}, epoch {epoch}")
@@ -171,6 +171,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     dist_config=dist_config,
                     dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
                     process_group=device_mesh.get_group("dp"),
+                    max_checkpoints=args.checkpoint.max_checkpoints,
                 )
 
             step += 1

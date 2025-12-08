@@ -769,3 +769,39 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
         d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
     ]
     assert "step_10" in final_checkpoint_dirs, "Checkpoint at step 10 not found"
+
+
+def test_checkpoint_pruning(tmp_path):
+    """Test checkpoint pruning functionality."""
+
+    from checkpoint import prune_checkpoints
+
+    temp_dir = str(tmp_path / "test_checkpoint_pruning")
+    os.makedirs(temp_dir, exist_ok=True)
+    for i in range(11):
+        os.makedirs(os.path.join(temp_dir, f"step_{i}"), exist_ok=True)
+    assert len(os.listdir(temp_dir)) == 11
+    prune_checkpoints(temp_dir, 5)
+    assert len(os.listdir(temp_dir)) == 5
+    assert "step_6" in os.listdir(temp_dir)
+    assert "step_7" in os.listdir(temp_dir)
+    assert "step_8" in os.listdir(temp_dir)
+    assert "step_9" in os.listdir(temp_dir)
+    assert "step_10" in os.listdir(temp_dir)
+
+
+def test_checkpoint_pruning_with_files(tmp_path):
+    """Test checkpoint pruning functionality."""
+
+    from checkpoint import prune_checkpoints
+
+    for i in range(11):
+        (tmp_path / f"step_{i}.pt").touch()
+    assert len(list(tmp_path.glob("step_*.pt"))) == 11
+    prune_checkpoints(tmp_path, 5)
+    assert len(list(tmp_path.glob("step_*.pt"))) == 5
+    assert (tmp_path / "step_6.pt").exists()
+    assert (tmp_path / "step_7.pt").exists()
+    assert (tmp_path / "step_8.pt").exists()
+    assert (tmp_path / "step_9.pt").exists()
+    assert (tmp_path / "step_10.pt").exists()
