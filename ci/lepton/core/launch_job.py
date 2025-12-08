@@ -83,7 +83,13 @@ def launch_single_job(client, cfg: DictConfig):
     full_cfg_json = json.dumps(OmegaConf.to_container(cfg, resolve=True))
     template_type = getattr(cfg, "template_type", "convergence_tests")
 
-    rendered = render_launcher_string(cfg.script, full_cfg_json, template=template_type)
+    # trigger with logging to kratos, if enabled. Default to True.
+    if getattr(cfg, 'log_to_kratos', True):
+        print(f"Logging to kratos: {full_cfg_json}")
+        rendered = render_launcher_string(cfg.script, full_cfg_json, template=template_type)
+    else: # don't log to kratos
+        print(f"Not logging to kratos: {full_cfg_json}")
+        rendered = cfg.script
 
     command = ["bash", "-c", rendered]
 

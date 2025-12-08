@@ -13,6 +13,7 @@ device_type: gpu
 num_devices: 2
 gpu_type: h100-sxm
 resource_shape: "${device_type}.${num_devices}x${gpu_type}"
+log_to_kratos: false
 
 ############################################################
 # recipe identifiers
