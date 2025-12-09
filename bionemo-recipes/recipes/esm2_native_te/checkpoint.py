@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import logging
 import os
 import shutil
@@ -31,6 +32,7 @@ from torch.distributed.checkpoint.state_dict import (
 )
 from torch.distributed.checkpoint.state_dict_loader import load as dcp_load
 from torch.distributed.checkpoint.state_dict_saver import async_save as dcp_async_save
+from torch.distributed.checkpoint.state_dict_saver import save as dcp_save
 from torch.distributed.checkpoint.stateful import Stateful
 from torchdata.stateful_dataloader import StatefulDataLoader
 
@@ -446,6 +448,7 @@ def save_checkpoint_fsdp2(
     dataloader: StatefulDataLoader | None = None,
     process_group: torch.distributed.ProcessGroup | None = None,
     max_checkpoints: int | None = None,
+    async_save: bool = False,
 ) -> None:
     """Save FSDP2 checkpoint.
 
@@ -460,6 +463,7 @@ def save_checkpoint_fsdp2(
         dataloader: The dataloader to save.
         process_group: The process group to use for checkpointing.
         max_checkpoints: The maximum number of checkpoints to keep.
+        async_save: Whether to save the checkpoint asynchronously.
     """
     ckpt_path = Path(ckpt_path)
     checkpoint_path = ckpt_path / f"step_{step}"
@@ -473,17 +477,21 @@ def save_checkpoint_fsdp2(
         )
         logger.info(f"Saved FSDP2 dataloader to {ckpt_path}")
 
+    # If we're using asynchronous checkpointing, make sure we only have one checkpoint future at a time.
+    if async_save and "fsdp2" in _ckpt_futures and _ckpt_futures["fsdp2"] is not None:
+        _ckpt_futures["fsdp2"].result()
+
     # Clear GPU cache before checkpointing to free up fragmented memory.
+    gc.collect()
     torch.cuda.empty_cache()
     torch.distributed.barrier(group=process_group)
 
-    # Wait for any existing checkpoint future to complete before starting a new one
-    if "fsdp2" in _ckpt_futures:
-        _ckpt_futures["fsdp2"].result()
-
     state_dict = {"app": AppState(model=model, optimizer=optimizer, scheduler=scheduler, step=step, epoch=epoch)}
-    _ckpt_futures["fsdp2"] = dcp_async_save(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
-    logger.info(f"Saved distributed FSDP2 checkpoint to {checkpoint_path}")
+    ckpt_save_func = dcp_async_save if async_save else dcp_save
+    _ckpt_futures["fsdp2"] = ckpt_save_func(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
+
+    if dist_config.is_main_process():
+        logger.info(f"Saved distributed FSDP2 checkpoint to {checkpoint_path}")
 
     if max_checkpoints is not None and dist_config.is_main_process():
         prune_checkpoints(ckpt_path, max_checkpoints)

@@ -52,6 +52,7 @@ checkpoint:
   save_final_model: true
   resume_from_checkpoint: true
   save_every_n_steps: 10_000
+  async_save: false
 
 profiler:
   enabled: false

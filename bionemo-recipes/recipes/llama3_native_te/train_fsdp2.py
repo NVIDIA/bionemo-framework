@@ -172,6 +172,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
                     process_group=device_mesh.get_group("dp"),
                     max_checkpoints=args.checkpoint.max_checkpoints,
+                    async_save=args.checkpoint.async_save,
                 )
 
             step += 1
