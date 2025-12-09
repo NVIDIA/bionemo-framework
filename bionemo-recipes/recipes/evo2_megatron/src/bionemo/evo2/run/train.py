@@ -22,7 +22,6 @@ import argparse
 # from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 # from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 import logging
-import sys
 from pathlib import Path
 from typing import List, Optional
 
@@ -710,6 +709,15 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     recompute_group.add_argument(
         "--selective-activation-checkpointing", action="store_true", default=False
     )  # TODO implement
+
+    mutex_hf_tokenizer_group = parser.add_mutually_exclusive_group(required=False)  # TODO implement
+    mutex_hf_tokenizer_group.add_argument(
+        "--hf-tokenizer-model-path", type=Path, help="Path to a local HF tokenizer model."
+    )  # DONE
+    mutex_hf_tokenizer_group.add_argument(
+        "--hf-tokenizer-model-name", type=str, help="Name of a remote HF tokenizer model."
+    )  # DONE
+
     return parser.parse_args(args=args)
 
 
@@ -1207,6 +1215,14 @@ def train2(args: argparse.Namespace) -> None:
     recipe_kwargs["model_provider"] = model_provider
     logger.info(f"Selected model size: {args.model_size} ({model_provider.__name__})")
 
+    # Tokenizer
+    if args.hf_tokenizer_model_path:
+        recipe_kwargs["hf_tokenizer_model_or_path"] = args.hf_tokenizer_model_path
+    elif args.hf_tokenizer_model_name:
+        recipe_kwargs["hf_tokenizer_model_or_path"] = args.hf_tokenizer_model_name
+    else:
+        logger.warning("No HF tokenizer model provided, using a random tokenizer model: EleutherAI/gpt-neox-20b")
+
     # Dataset
     if args.mock_data:
         recipe_kwargs["mock"] = True
@@ -1299,16 +1315,9 @@ def train2(args: argparse.Namespace) -> None:
                 logger.info("Detected ModelOpt state in checkpoint, enabling restore_modelopt_state.")
 
     # 4. Display or Execute
-    if args.show_config:
-        if get_rank_safe() == 0:
-            logger.info("--- Configuration ---")
-            cfg.print_yaml()
-
-        # Ensure clean exit for distributed processes
-        if torch.distributed.is_initialized():
-            torch.distributed.barrier()
-            torch.distributed.destroy_process_group()
-        sys.exit(0)
+    if get_rank_safe() == 0:
+        logger.info("--- Final Configuration ---")
+        cfg.print_yaml()
 
     logger.info("Starting pretraining...")
     pretrain(cfg, hyena_forward_step)
