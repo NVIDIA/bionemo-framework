@@ -96,9 +96,7 @@ def main(args: DictConfig) -> float | None:
 
     if args.use_meta_device:
         model.to_empty(device=device)
-        for module in model.modules():
-            if hasattr(module, "reset_parameters"):
-                module.reset_parameters()
+        model.apply(model._init_weights)
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
     train_dataloader, dataset_or_sampler = (

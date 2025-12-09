@@ -87,7 +87,7 @@ def main():
 
             if args.fix:
                 if source_path.is_dir():
-                    shutil.copytree(source, destination)
+                    shutil.copytree(source, destination, dirs_exist_ok=True)
                 else:
                     shutil.copy(source, destination)
                 logger.info(f"Copied {source} to {destination}")
