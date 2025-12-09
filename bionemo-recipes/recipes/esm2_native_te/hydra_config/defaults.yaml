@@ -24,6 +24,7 @@ dataset:
     path: "nvidia/esm2_uniref_pretraining_data"
     split: "train"
     streaming: True
+  pad_sequences_to_be_divisible_by: null
 
 # WandB config
 wandb_init_args:
