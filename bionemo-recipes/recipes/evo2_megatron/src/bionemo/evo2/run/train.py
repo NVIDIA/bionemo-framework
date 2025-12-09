@@ -419,6 +419,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     )  # TODO implement
     parser.add_argument("--seed", type=int, default=1234, help="Set random seed for training.")  # DONE
     parser.add_argument(
+        "--dataset-seed",
+        type=int,
+        default=None,
+        help="Set random seed for dataset shuffling. Defaults to training seed if not provided.",
+    )  # DONE
+    parser.add_argument(
         "--workers", type=int, default=8, help="Number of workers to use for data loading."
     )  # TODO implement
     parser.add_argument(
@@ -1261,6 +1267,9 @@ def train2(args: argparse.Namespace) -> None:
     recipe_kwargs["lr"] = args.lr
     recipe_kwargs["min_lr"] = args.min_lr
     recipe_kwargs["lr_warmup_iters"] = args.warmup_steps
+    recipe_kwargs["seed"] = args.seed
+    # same as model seed if not provided, but can be overridden.
+    recipe_kwargs["dataset_seed"] = args.seed if args.dataset_seed is None else args.dataset_seed
     # Note: weight decay is not in the recipe kwargs signature usually, we set it later.
 
     # Directories
@@ -1283,29 +1292,16 @@ def train2(args: argparse.Namespace) -> None:
 
     if args.wandb_project:
         # Assuming WandbConfig is available in megatron.bridge.training.config
-        try:
-            cfg.logger.wandb_project = args.wandb_project
-            cfg.logger.wandb_exp_name = args.wandb_run_name
-            cfg.logger.wandb_entity = args.wandb_entity
-            cfg.logger.wandb_save_dir = ...  # FIXME fill this in
-            # FIXME consider allowing megatron to specify the run id for regularly restarting slurm jobs.
-            # .wandb = WandbConfig(
-            #     project=args.wandb_project,
-            #     name=args.wandb_run_name,
-            #     entity=args.wandb_entity,
-            #     offline=args.wandb_offline,
-            # )
-        except NameError:
-            logger.warning("WandbConfig not found. WandB logging will be disabled.")
-
+        cfg.logger.wandb_project = args.wandb_project
+        cfg.logger.wandb_exp_name = args.wandb_run_name
+        cfg.logger.wandb_entity = args.wandb_entity
+        # cfg.logger.wandb_save_dir = ...  # FIXME fill this in or decide if the default is ok
+        # FIXME consider allowing megatron to specify the run id for regularly restarting slurm jobs.
     # Checkpoint
     if args.ckpt_load_dir:
         cfg.checkpoint.load = args.ckpt_load_dir
     if args.ckpt_save_interval:
         cfg.checkpoint.save_interval = args.ckpt_save_interval
-
-    # RNG
-    cfg.rng.seed = args.seed
 
     # Check for ModelOpt state (restoring from quantized checkpoint)
     if cfg.checkpoint and cfg.checkpoint.load:

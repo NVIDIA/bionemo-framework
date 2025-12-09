@@ -52,6 +52,8 @@ class Evo2CommonKwargs(TypedDict, total=False):
     dir: str | None
     name: str
     # Dataset configuration
+    dataset_seed: int
+    seed: int
     ## Evo2
     dataset_config_path: str | None
     ## Mock
@@ -116,6 +118,7 @@ def _evo2_common(
     name: str = "default",
     # Dataset configuration
     dataset_seed: int = 1234,
+    seed: int = 1234,
     ## Evo2
     dataset_config_path: str | None = None,
     ## Mock
@@ -256,7 +259,7 @@ def _evo2_common(
             ckpt_format="torch_dist",
             fully_parallel_load=True,
         ),
-        rng=RNGConfig(seed=1234),
+        rng=RNGConfig(seed=seed),
         comm_overlap=comm_overlap_config,
         mixed_precision=precision_config,
     )
