@@ -790,6 +790,20 @@ def test_checkpoint_pruning(tmp_path):
     assert "step_10" in os.listdir(temp_dir)
 
 
+def test_checkpoint_pruning_not_enough_checkpoints(tmp_path):
+    """Test checkpoint pruning functionality."""
+
+    from checkpoint import prune_checkpoints
+
+    temp_dir = str(tmp_path / "test_checkpoint_pruning")
+    os.makedirs(temp_dir, exist_ok=True)
+    for i in range(3):
+        os.makedirs(os.path.join(temp_dir, f"step_{i}"), exist_ok=True)
+    assert len(os.listdir(temp_dir)) == 3
+    prune_checkpoints(temp_dir, 5)
+    assert len(os.listdir(temp_dir)) == 3
+
+
 def test_checkpoint_pruning_with_files(tmp_path):
     """Test checkpoint pruning functionality."""
 

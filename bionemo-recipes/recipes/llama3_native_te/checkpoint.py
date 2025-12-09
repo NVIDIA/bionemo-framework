@@ -175,7 +175,7 @@ def save_checkpoint_ddp(
 
     logger.info(f"Saved DDP checkpoint to {checkpoint_path}")
 
-    if max_checkpoints is not None:
+    if max_checkpoints is not None and dist_config.is_main_process():
         prune_checkpoints(ckpt_path, max_checkpoints)
 
 
@@ -337,7 +337,7 @@ def save_checkpoint_fsdp2(
     if dist_config.is_main_process():
         logger.info(f"Saved distributed FSDP2 checkpoint to {checkpoint_path}")
 
-    if max_checkpoints is not None:
+    if max_checkpoints is not None and dist_config.is_main_process():
         prune_checkpoints(ckpt_path, max_checkpoints)
 
 
