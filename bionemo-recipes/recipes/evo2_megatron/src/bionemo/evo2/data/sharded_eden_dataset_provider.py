@@ -20,6 +20,7 @@
 # Contributed by: BaseCamp Research https://basecamp-research.com/ https://github.com/NVIDIA/bionemo-framework/pull/1091
 import argparse
 import csv
+import logging
 import os
 import sqlite3
 import time
@@ -33,7 +34,6 @@ import torch
 import torch.distributed as dist
 from megatron.bridge.training.config import DatasetBuildContext, DatasetProvider
 from megatron.core.tokenizers.megatron_tokenizer import MegatronTokenizerBase
-from nemo.utils import logging
 from torch.utils.data import Dataset, default_collate
 
 from bionemo.core.data.multi_epoch_dataset import (
@@ -41,6 +41,8 @@ from bionemo.core.data.multi_epoch_dataset import (
     MultiEpochDatasetResampler,
 )
 
+
+logger = logging.getLogger(__name__)
 
 # -----------------------------------------------------------------------------
 # Configurable column names
@@ -212,7 +214,7 @@ class ShardedEdenDataset(Dataset):
                 conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
                 self.db_connections[sample_id] = conn
             except sqlite3.Error as e:  # noqa: PERF203
-                logging.error(f"Failed to open/attach database for sample {sample_id} at {db_path}: {e}")
+                logger.error(f"Failed to open/attach database for sample {sample_id} at {db_path}: {e}")
                 raise
 
     def _create_sample_db_mapping(self):

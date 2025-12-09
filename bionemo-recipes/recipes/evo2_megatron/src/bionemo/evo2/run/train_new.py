@@ -14,6 +14,7 @@
 # limitations under the License.
 from pathlib import Path
 
+import torch
 from megatron.bridge.training.pretrain import pretrain
 
 from bionemo.evo2.models.evo2_provider import hyena_forward_step
@@ -33,6 +34,8 @@ if __name__ == "__main__":
         seq_length=512,  # NOTE: mock data does an arange of each sequence length, so it must be less than vocab size
         mock=True,
     )
+    if (not torch.distributed.is_initialized()) or torch.distributed.get_rank() == 0:
+        cfg.to_yaml(yaml_path="base_config.yaml")
 
     # # Configure dataset paths (train, validation, test)
     # cfg.dataset.split = None

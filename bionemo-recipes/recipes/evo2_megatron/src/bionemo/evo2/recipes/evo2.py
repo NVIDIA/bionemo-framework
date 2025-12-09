@@ -81,8 +81,6 @@ class Evo2CommonKwargs(TypedDict, total=False):
     min_lr: float
     lr_warmup_iters: int
     lr_decay_iters: int | None
-    # Tokenizer selection
-    use_null_tokenizer: bool
     # Precision / overlap configs
     precision_config: MixedPrecisionConfig | str | None
     comm_overlap_config: CommOverlapConfig | None
@@ -106,7 +104,6 @@ def evo2_1b_pretrain_config(**user_kwargs: Unpack[Evo2CommonKwargs]) -> ConfigCo
         "pipeline_model_parallel_size": 1,
         "sequence_parallel": False,
         "precision_config": "bf16_mixed",
-        "use_null_tokenizer": False,
     }
     kwargs: Evo2CommonKwargs = {**recommended, **user_kwargs}
     return _evo2_common(**kwargs)

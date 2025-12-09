@@ -25,6 +25,8 @@ dependencies = [
     "megatron-core",
     "nvidia-resiliency-ext",
     "emerging_optimizers",
+    # External
+    "polars", # needed by sharded_eden_dataset_provider
 ]
 
 [project.optional-dependencies]
