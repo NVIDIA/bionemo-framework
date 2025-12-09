@@ -25,6 +25,7 @@ dataset:
     split: "train"
     streaming: True
   pad_sequences_to_be_divisible_by: null
+  pad_to_multiple_of: null
 
 # WandB config
 wandb_init_args:

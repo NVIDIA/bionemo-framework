@@ -162,6 +162,7 @@ def create_thd_dataloader(
     use_stateful_dataloader: bool = False,
     mlm_probability: float = 0.15,
     pad_sequences_to_be_divisible_by: int | None = None,
+    pad_to_multiple_of: int | None = None,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
 
@@ -180,6 +181,8 @@ def create_thd_dataloader(
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
         pad_sequences_to_be_divisible_by: If provided, sequences will be padded to be divisible by this value.
+            This is useful for context parallelism. Defaults to None.
+        pad_to_multiple_of: If provided, sequences will be padded to be divisible by this value.
             This is useful for context parallelism. Defaults to None.
 
     Returns:
@@ -205,7 +208,7 @@ def create_thd_dataloader(
     data_collator = MLMDataCollatorWithFlattening(
         tokenizer=tokenizer,
         mlm_probability=mlm_probability,
-        pad_to_multiple_of=token_micro_batch_size if pad_sequences_to_be_divisible_by is None else None,
+        pad_to_multiple_of=pad_to_multiple_of if pad_to_multiple_of is not None else token_micro_batch_size if pad_sequences_to_be_divisible_by is None else None,
         seed=seed,
         pad_sequences_to_be_divisible_by=pad_sequences_to_be_divisible_by,
     )
