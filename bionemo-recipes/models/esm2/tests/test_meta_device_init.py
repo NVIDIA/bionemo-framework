@@ -13,6 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""
+Test that parameter distributions are identical with and without meta device initialization.
+
+These tests verify that when using meta device initialization (creating the model on meta device, then calling
+`to_empty` and `_init_weights`), the resulting parameter distributions (mean and std) match those from normal
+initialization. This is important because we previously observed differences in convergence between meta-device-init and
+non-meta-device-init training, which suggested that the initialization was not being applied correctly after `to_empty`.
+By explicitly calling `_init_weights` after `to_empty`, we ensure that parameters are properly initialized, leading to
+consistent training behavior regardless of whether meta device initialization is used.
+"""
+
 import os
 import subprocess
 
@@ -35,7 +46,6 @@ def test_meta_device_init():
     config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
 
     set_seed(42)
-
     with torch.device("meta"):
         model_meta_init = NVEsmForMaskedLM(config)
 
