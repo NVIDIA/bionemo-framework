@@ -54,7 +54,16 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
     _skip_keys_device_placement = ("past_key_values",)
 
     def _init_weights(self, module):
-        """TE-specific weight initialization."""
+        """Initialize module weights.
+
+        This method ensures that models with randomly-initialized weights get the correct initial value distribution,
+        which can be critical for training stability. We also call this method directly when using meta-device init, as
+        the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
+        we need to extend it to handle TE-specific modules.
+
+        Args:
+            module (nn.Module): The module to initialize the weights for.
+        """
         super()._init_weights(module)
 
         # Copied from transformers.modeling_utils.PreTrainedModel._init_weights

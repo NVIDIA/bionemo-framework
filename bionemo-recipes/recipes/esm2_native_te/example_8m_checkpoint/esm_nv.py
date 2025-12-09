@@ -259,9 +259,13 @@ class NVEsmPreTrainedModel(PreTrainedModel):
         "EsmEmbeddings",
     )
 
-    # Copied from transformers.models.bert.modeling_bert.BertPreTrainedModel._init_weights
     def _init_weights(self, module: nn.Module):
-        """Initialize the weights.
+        """Initialize model weights.
+
+        This method ensures that models with randomly-initialized weights get the correct initial value distribution,
+        which can be critical for training stability. We also call this method directly when using meta-device init, as
+        the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
+        we need to extend it to handle TE-specific modules.
 
         Args:
             module (nn.Module): The module to initialize the weights for.
