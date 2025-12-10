@@ -164,6 +164,8 @@ class ShardedEdenDataset(Dataset):
         log_windows: bool = False,
         log_dir: Optional[str] = None,
         skip_stats: bool = True,
+        include_eos: bool = True,
+        include_bos: bool = True,
     ) -> None:
         """Initialize the ShardedEdenDataset."""
         super().__init__()
@@ -182,6 +184,8 @@ class ShardedEdenDataset(Dataset):
         self.log_windows = log_windows
         # Remember desired log directory for lazy init in worker processes
         self._log_dir = log_dir
+        self.include_eos = include_eos
+        self.include_bos = include_bos
 
         # Create mapping from sample_id to SQLite file path
         self._create_sample_db_mapping()
@@ -414,13 +418,18 @@ class ShardedEdenDataset(Dataset):
         ctrl_ids = self.ctrl_ids_map.get(sequence_id, []) if self.use_control_tags else []
         bos_id = self.tokenizer.bos_id
         eos_id = self.tokenizer.eos_id
-        sep_id = self.tokenizer._sep_id
+        sep_id = getattr(self.tokenizer, "_sep_id", eos_id)
         pad_id = self.tokenizer.pad_id
-
-        header = [bos_id, *ctrl_ids, sep_id]
-        footer = [eos_id]
-        special_tokens_count = len(header) + len(footer)
-        eff_len = self.seq_length - special_tokens_count
+        if self.use_control_tags:
+            header = [bos_id, *ctrl_ids, sep_id]
+            footer = [eos_id] if self.include_eos else []
+            special_tokens_count = len(header) + len(footer)
+            eff_len = self.seq_length - special_tokens_count
+        else:
+            header = [self.tokenizer.bos_id] if self.include_bos else []
+            footer = [self.tokenizer.eos_id] if self.include_eos else []
+            special_tokens_count = len(header) + len(footer)
+            eff_len = self.seq_length - special_tokens_count
 
         # ------------------------------------------------------------------
         # Retrieve the subsequence directly in SQL to avoid loading the
