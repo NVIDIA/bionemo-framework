@@ -1,1 +1,11 @@
 pip-constraints.txt
+tmp*/
+*.egg-info/
+.ruff_cache
+__pycache__
+.pytest_cache
+.ruff.toml
+.venv/
+.ruff_cache/
+nemo_experiments
+wandb/

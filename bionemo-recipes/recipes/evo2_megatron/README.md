@@ -19,7 +19,7 @@ export NCCL_P2P_DISABLE=1
 ## 3. Run the job:
 torchrun --nproc-per-node 2 --no-python \
   train_evo2 \
-  --hf-tokenizer-model-path asciitokenizer_256 \
+  --hf-tokenizer-model-path tokenizers/nucleotide_fast_tokenizer_256 \
   --model-size striped_hyena_1b_nv_parallel --max-steps 110 --eval-interval 10 \
   --eval-iters 3 --mock-data --result-dir tmp3 \
   --micro-batch-size 32 --global-batch-size 64 --seq-length 1024 \
@@ -34,7 +34,7 @@ torchrun --nproc-per-node 2 --no-python \
 
 torchrun --nproc-per-node 1 --no-python \
   train_evo2 \
-  --hf-tokenizer-model-path asciitokenizer_256 \
+  --hf-tokenizer-model-path tokenizers/nucleotide_fast_tokenizer_256 \
   --model-size striped_hyena_1b_nv_parallel --max-steps 110 --eval-interval 10 \
   --eval-iters 3 --mock-data --result-dir tmp2 \
   --micro-batch-size 32 --global-batch-size 64 --seq-length 1024 \
