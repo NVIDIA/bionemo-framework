@@ -65,10 +65,10 @@ def extract_sample_id(sequence_id: str) -> str:
 class ShardedEdenDatasetProvider(DatasetProvider):
     """Dataset provider for ShardedEdenDataset."""
 
-    sequence_db_dir: str
-    train_window_db_path: str
-    val_window_db_path: str
-    test_window_db_path: str
+    sequence_db_dir: str | None = None
+    train_window_db_path: str | None = None
+    val_window_db_path: str | None = None
+    test_window_db_path: str | None = None
     rc_aug: bool = False
     random_seed: int = 42
     stride: Optional[int] = 7992
@@ -91,6 +91,8 @@ class ShardedEdenDatasetProvider(DatasetProvider):
         shuffle: bool,
     ) -> MultiEpochDatasetResampler:
         """Instantiate `ShardedEdenDataset` and wrap it with `MultiEpochDatasetResampler`."""
+        assert self.sequence_db_dir is not None
+        assert window_db_path is not None
         base_dataset = ShardedEdenDataset(
             tokenizer=tokenizer,
             sequence_db_dir=self.sequence_db_dir,
@@ -116,6 +118,10 @@ class ShardedEdenDatasetProvider(DatasetProvider):
 
     def build_datasets(self, context: DatasetBuildContext) -> tuple[Any | None, Any | None, Any | None]:
         """Build and return the train, validation, and test datasets given the context for this training run."""
+        assert context.tokenizer is not None
+        assert self.train_window_db_path is not None
+        assert self.val_window_db_path is not None
+        assert self.test_window_db_path is not None
         train_ds = self._create_epoch_wrapped_sharded_eden_dataset(
             window_db_path=self.train_window_db_path,
             num_samples=context.train_samples,
