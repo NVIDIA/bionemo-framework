@@ -19,6 +19,7 @@
 
 import json
 import os
+import shutil
 from typing import ClassVar, Dict, List, Optional, Tuple
 
 from transformers import PreTrainedTokenizer
@@ -146,10 +147,41 @@ class AsciiOrdTokenizer(PreTrainedTokenizer):
         vocab_file = os.path.join(save_directory, (filename_prefix + "-" if filename_prefix else "") + "vocab.json")
 
         with open(vocab_file, "w", encoding="utf-8") as f:
-            safe_vocab = dict(self.char_to_id)
+            safe_vocab = {str(k): v for k, v in self.char_to_id.items()}
             json.dump(safe_vocab, f, ensure_ascii=False)
 
         return (vocab_file,)
+
+    def save_pretrained(self, save_directory: str, **kwargs):
+        """Overrides the save_pretrained method to save the tokenizer assets to the output directory."""
+        super().save_pretrained(save_directory, **kwargs)
+        # 3. CRITICAL: Copy the Python source code to the output directory.
+        # AutoTokenizer needs the actual file 'ascii_tokenizer.py' present to import the class.
+
+        src_file = __file__
+        dst_file = os.path.join(save_directory, "ascii_tokenizer.py")
+        shutil.copy(src_file, dst_file)
+        print(f"   - Copied {src_file} to {save_directory}")
+
+        # 4. CRITICAL: Update tokenizer_config.json with 'auto_map' and custom args.
+        config_path = os.path.join(save_directory, "tokenizer_config.json")
+
+        with open(config_path, "r") as f:
+            config = json.load(f)
+
+        # Add the auto_map to tell AutoTokenizer where to find the class
+        # Format: "AutoClass": ["module_name.ClassName", "fast_tokenizer_class_or_None"]
+        config["auto_map"] = {"AutoTokenizer": ["ascii_tokenizer.AsciiOrdTokenizer", None]}
+
+        # Explicitly save custom arguments so they are restored correctly
+        # (PreTrainedTokenizer sometimes misses args not in the base config)
+        config["vocab_size_limit"] = self.vocab_size_limit
+
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+
+        print("   - Updated tokenizer_config.json with auto_map")
+        print("Done. Setup complete.")
 
 
 # ==========================================

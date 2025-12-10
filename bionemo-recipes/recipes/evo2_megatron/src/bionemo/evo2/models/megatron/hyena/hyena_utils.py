@@ -26,7 +26,6 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
-from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
 from megatron.core.parallel_state import (
     get_context_parallel_group,
     get_context_parallel_rank,
@@ -38,6 +37,8 @@ from megatron.core.tensor_parallel import get_cuda_rng_tracker
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import make_sharded_tensors_for_checkpoint, sharded_state_dict_default
 from torch.autograd.function import Function
+
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
 
 
 try:
@@ -445,6 +446,12 @@ def hyena_no_weight_decay_cond(name, param):
     return no_wd
 
 
+def hyena_no_weight_decay_cond_with_embeddings(name, param):
+    """Condition for no weight decay for Hyena parameters with embeddings also excluded."""
+    # ImplicitModalFilter parameters
+    return ("embedding" in name) or hyena_no_weight_decay_cond(name, param)
+
+
 def fftconv_func(u, k, D, dropout_mask, gelu=True, k_rev=None, bidirectional=False, use_subquadratic_ops=False):  # noqa: N803
     """Apply a 1D convolution to the input sequence u using the filter k and the shortcut D."""
     seqlen = u.shape[-1]
@@ -520,6 +527,9 @@ class ImplicitModalFilter(nn.Module):
         self.order = order
         self.d_model = d_model
         self.use_subquadratic_ops = use_subquadratic_ops
+        self.gamma_min = gamma_min
+        self.gamma_max = gamma_max
+        self.L_cache = L_cache
 
         # Determine device safely
         if device is None:
@@ -535,22 +545,36 @@ class ImplicitModalFilter(nn.Module):
             self.t = None
         else:
             # Do not register into buffer, so it doesn't cast to BF16!
-            self.t = torch.arange(L_cache, dtype=torch.float32, device=self.device).view(1, 1, -1)  # 1, 1, L_cache
+            self.t = torch.arange(self.L_cache, dtype=torch.float32, device=self.device).view(
+                1, 1, -1
+            )  # 1, 1, L_cache
 
+        self.gamma = nn.Parameter(torch.empty(d_model, order, dtype=torch.float32, device=self.device))
+
+        self.R = nn.Parameter(torch.empty(d_model, order, dtype=torch.float32, device=self.device))
+        self.p = nn.Parameter(torch.empty(d_model, order, dtype=torch.float32, device=self.device))
+        setattr(self.gamma, "tensor_model_parallel", True)
+        setattr(self.R, "tensor_model_parallel", True)
+        setattr(self.p, "tensor_model_parallel", True)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        """Reset the parameters of the ImplicitModalFilter."""
+        self.t = torch.arange(self.L_cache, dtype=torch.float32, device=self.device).view(1, 1, -1)  # 1, 1, L_cache
         with get_cuda_rng_tracker().fork():
             gamma = (
-                torch.rand(self.d_model, order, dtype=torch.float32, device=self.device) * (gamma_max - gamma_min)
-                + gamma_min
+                torch.rand(self.d_model, self.order, dtype=torch.float32, device=self.device)
+                * (self.gamma_max - self.gamma_min)
+                + self.gamma_min
             )
             gamma = gamma.log()
-            self.gamma = nn.Parameter(gamma)
-
-            R = 1e-1 * torch.randn(d_model, order, dtype=torch.float32, device=self.device) / math.sqrt(order)  # noqa: N806
-            self.R = nn.Parameter(R)
-            self.p = nn.Parameter(-torch.ones(d_model, order, dtype=torch.float32, device=self.device))
-            setattr(self.gamma, "tensor_model_parallel", True)
-            setattr(self.R, "tensor_model_parallel", True)
-            setattr(self.p, "tensor_model_parallel", True)
+            self.gamma.data = gamma
+            self.R.data = (
+                1e-1
+                * torch.randn(self.d_model, self.order, dtype=torch.float32, device=self.device)
+                / math.sqrt(self.order)
+            )
+            self.p.data = -torch.ones(self.d_model, self.order, dtype=torch.float32, device=self.device)
 
     def get_t(self, L: int) -> torch.Tensor:  # noqa: N803
         """Get the t tensor."""
@@ -560,6 +584,7 @@ class ImplicitModalFilter(nn.Module):
         else:
             # We are requesting an L that is longer than the cached t, grow t to the requested length.
             t = torch.arange(L, dtype=torch.float32, device=self.device).view(1, 1, -1)  # 1, 1, L
+            self.L_cache = L
             self.t = t
             return self.t
 
@@ -640,39 +665,56 @@ class ExplicitSingleDecayFilter(nn.Module):
                 device = torch.device("cpu")
 
         self.device = device
-        with get_cuda_rng_tracker().fork():
-            h = torch.randn(d_model, L_cache, device=self.device) / math.sqrt(L_cache)
-        assert decay_preset in ["strong", "normal", "weak"]
-        if decay_preset == "strong":
-            log_r_min = 0
-            log_r_max = 2
-        elif decay_preset == "normal":
-            log_r_min = -1
-            log_r_max = 2
-        elif decay_preset == "weak":
-            log_r_min = -2
-            log_r_max = 2
-
-        if small_init:
-            h = h * 1e-5
-        if unit_passthrough:
-            h[:, :1] = 1.0
+        self.d_model = d_model
+        self.decay_preset = decay_preset
+        self.small_init = small_init
+        self.unit_passthrough = unit_passthrough
         self.num_decay_repeats = num_decay_repeats
-        self.h = nn.Parameter(h)
-        t = torch.linspace(0, 1, L_cache, device=self.device)[None]
+        self.L_cache = L_cache
         self.log_r_min = log_r_min
         self.log_r_max = log_r_max
         self.model_parallel_rank = get_tensor_model_parallel_rank()
         self.model_parallel_size = get_tensor_model_parallel_world_size()
-        global_d_model = d_model * self.model_parallel_size // self.num_decay_repeats
-        decay_domain = torch.logspace(log_r_min, log_r_max, global_d_model, device=self.device)[:, None].repeat(
-            self.num_decay_repeats, 1
-        )
-        decay_domain = decay_domain[self.model_parallel_rank * d_model : (self.model_parallel_rank + 1) * d_model, :]
-        decay = torch.exp(-decay_domain * t)
+        self.global_d_model = d_model * self.model_parallel_size // self.num_decay_repeats
+
+        self.h = nn.Parameter(torch.empty(d_model, L_cache, dtype=torch.float32, device=self.device))
+        decay = torch.empty(self.d_model, self.L_cache, dtype=torch.float32, device=self.device)
         self.register_buffer("decay", decay)
         setattr(self.h, "tensor_model_parallel", True)
         setattr(self.decay, "tensor_model_parallel", True)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        """Reset the parameters of the ExplicitSingleDecayFilter."""
+        with get_cuda_rng_tracker().fork():
+            h = torch.randn(self.d_model, self.L_cache, device=self.device) / math.sqrt(self.L_cache)
+            assert self.decay_preset in ["strong", "normal", "weak"]
+        if self.decay_preset == "strong":
+            log_r_min = 0
+            log_r_max = 2
+        elif self.decay_preset == "normal":
+            log_r_min = -1
+            log_r_max = 2
+        elif self.decay_preset == "weak":
+            log_r_min = -2
+            log_r_max = 2
+        else:
+            raise ValueError(f"Unknown decay preset: {self.decay_preset}")
+
+        if self.small_init:
+            h = h * 1e-5
+        if self.unit_passthrough:
+            h[:, :1] = 1.0
+        t = torch.linspace(0, 1, self.L_cache, device=self.device)[None]
+        decay_domain = torch.logspace(log_r_min, log_r_max, self.global_d_model, device=self.device)[:, None].repeat(
+            self.num_decay_repeats, 1
+        )
+        decay_domain = decay_domain[
+            self.model_parallel_rank * self.d_model : (self.model_parallel_rank + 1) * self.d_model, :
+        ]
+        decay = torch.exp(-decay_domain * t)
+        self.decay.data = decay
+        self.h.data = h
 
     def forward(self, L, *args, **kwargs):  # noqa: N803
         """Forward pass for the explicit single decay filter.
@@ -863,22 +905,26 @@ class ParallelHyenaOperator(nn.Module):
         else:
             raise ValueError(f"Unknown hyena filter class: {self.hyena_filter_cls}")
 
-        with get_cuda_rng_tracker().fork():
-            self.conv_bias = nn.Parameter(
-                torch.empty(
-                    self.width_per_tp_group,
-                    device=self.device,
-                    dtype=transformer_config.params_dtype,
-                )
+        self.conv_bias = nn.Parameter(
+            torch.empty(
+                self.width_per_tp_group,
+                device=self.device,
+                dtype=transformer_config.params_dtype,
             )
-            # Add attribute to prevent automatic casting during model conversion
-            setattr(self.conv_bias, "tensor_model_parallel", True)
+        )
+        # Add attribute to prevent automatic casting during model conversion
+        setattr(self.conv_bias, "tensor_model_parallel", True)
+        setattr(self.conv_bias, "model_parallel", True)
+        setattr(self.conv_bias, "partition_dim", 0)
+        # setattr(self.conv_bias, "stride", 1)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        """Reset the parameters of the ParallelShortHyenaOperator."""
+        with get_cuda_rng_tracker().fork():
             bounds = math.sqrt(1 / self.kernel_size)
             conv_init_method = partial(torch.nn.init.uniform_, a=-bounds, b=bounds)
             self.conv_bias.data = conv_init_method(self.conv_bias.data)
-            self.conv_bias.model_parallel = True
-            self.conv_bias.partition_dim = 0
-            self.conv_bias.stride = 1
 
     def forward_long(self, *, x1, x2, v, h, bias, inference_context):
         """Forward pass long."""
@@ -986,7 +1032,7 @@ class ParallelHyenaOperator(nn.Module):
         update_filter_state("inner_fir", state=fir_state)
         return rearrange(y, "b l d -> b d l")  # b l d
 
-    def forward(self, x1, x2, v, _hyena_use_cp=True, inference_context=None):  # noqa: C901
+    def forward(self, x1, x2, v, _hyena_use_cp=True, inference_context=None):
         """Shape specification for inputs and outputs.
 
         Input shapes: bs, (num_groups, group_size), seq_length
@@ -1116,6 +1162,7 @@ class ParallelShortHyenaOperator(nn.Module):
             assert hyena_config.hyena_short_conv_len <= 4, "fast_conv_mixer requires hyena_short_conv_len <= 4"
 
         kernel_size = hyena_config.hyena_short_conv_len
+        self.kernel_size = kernel_size
         self.pregate = hyena_config.hyena_short_conv_pregate
         self.postgate = hyena_config.hyena_short_conv_postgate
         self.num_groups = (
@@ -1147,21 +1194,26 @@ class ParallelShortHyenaOperator(nn.Module):
 
         self.use_conv_bias = use_conv_bias
         if self.use_conv_bias:
-            with get_cuda_rng_tracker().fork():
-                self.conv_bias = nn.Parameter(
-                    torch.empty(
-                        self.num_groups,
-                        device=torch.cuda.current_device(),
-                        dtype=transformer_config.params_dtype,
-                    )
+            self.conv_bias = nn.Parameter(
+                torch.empty(
+                    self.num_groups,
+                    device=torch.cuda.current_device(),
+                    dtype=transformer_config.params_dtype,
                 )
-                setattr(self.conv_bias, "tensor_model_parallel", True)
-                bounds = math.sqrt(1 / kernel_size)
-                conv_init_method = partial(torch.nn.init.uniform_, a=-bounds, b=bounds)
-                self.conv_bias.data = conv_init_method(self.conv_bias.data)
-                self.conv_bias.model_parallel = True
-                self.conv_bias.partition_dim = 0
-                self.conv_bias.stride = 1
+            )
+            setattr(self.conv_bias, "tensor_model_parallel", True)
+            setattr(self.conv_bias, "model_parallel", True)
+            setattr(self.conv_bias, "partition_dim", 0)
+            # setattr(self.conv_bias, "stride", 1)
+            self.reset_parameters()
+
+    def reset_parameters(self):
+        """Reset the parameters of the ParallelShortHyenaOperator."""
+        with get_cuda_rng_tracker().fork():
+            bounds = math.sqrt(1 / self.kernel_size)
+            conv_init_method = partial(torch.nn.init.uniform_, a=-bounds, b=bounds)
+            self.conv_bias.data = conv_init_method(self.conv_bias.data)
+            self.short_conv.reset_parameters()
 
     def forward(self, x1, x2, v, inference_context=None, _hyena_use_cp=True):
         """Shape specification for inputs and outputs.
@@ -1230,6 +1282,8 @@ class ParallelCausalDepthwiseConv1d(nn.Module):
         self.num_groups = num_groups
         self.transformer_config = transformer_config
         self.use_subquadratic_ops = transformer_config.use_subquadratic_ops
+        self.short_conv_L = hyena_config.short_conv_L
+        self.local_init = local_init
 
         if self.num_groups is None:
             self.num_groups = self.d_model
@@ -1257,21 +1311,24 @@ class ParallelCausalDepthwiseConv1d(nn.Module):
 
                 self.conv_groups = self.num_groups
 
-        with get_cuda_rng_tracker().fork():
-            self.short_conv_weight = nn.Parameter(
-                torch.empty(
-                    weight_shape,
-                    device=torch.cuda.current_device(),
-                    dtype=transformer_config.params_dtype,
-                )
+        self.short_conv_weight = nn.Parameter(
+            torch.empty(
+                weight_shape,
+                device=torch.cuda.current_device(),
+                dtype=transformer_config.params_dtype,
             )
-            setattr(self.short_conv_weight, "tensor_model_parallel", True)
+        )
+        setattr(self.short_conv_weight, "tensor_model_parallel", True)
+        self.reset_parameters()
 
+    def reset_parameters(self):
+        """Reset the parameters of the ParallelCausalDepthwiseConv1d."""
+        with get_cuda_rng_tracker().fork():
             # Use the standard PyTorch Conv1d class init:
             #   https://pytorch.org/docs/master/generated/torch.nn.Conv1d.html
-            bounds = math.sqrt(1 / hyena_config.short_conv_L)
+            bounds = math.sqrt(1 / self.short_conv_L)
             conv_init_method = partial(torch.nn.init.uniform_, a=-bounds, b=bounds)
-            if local_init:
+            if self.local_init:
                 self.short_conv_weight.data = conv_init_method(self.short_conv_weight.data)
             else:
                 # Call this on the module because it also modifies module attributes in addition to the data.
@@ -1394,7 +1451,7 @@ class B2BCausalConv1dModule(nn.Module):
 
         self.effective_pad_size = (self._mixer_kernel_size - 1) + (self._proj_conv_kernel_size - 1)
 
-    def forward(self, x, _use_cp=True):  # noqa: C901
+    def forward(self, x, _use_cp=True):
         """Forward pass for the B2BCausalConv1dModule.
 
         Args:

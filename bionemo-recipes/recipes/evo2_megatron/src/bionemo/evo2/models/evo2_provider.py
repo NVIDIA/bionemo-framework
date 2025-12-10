@@ -17,6 +17,7 @@
 # limitations under the License.
 
 
+import math
 from dataclasses import dataclass
 from functools import partial
 from typing import Callable, Iterable, Literal, Optional, Type
@@ -34,6 +35,8 @@ from megatron.core import parallel_state
 from megatron.core.inference.contexts import StaticInferenceContext
 from megatron.core.transformer.enums import AttnBackend
 from megatron.core.utils import get_model_config
+
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig as _HyenaConfigForFlops
 
 # from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step  # FIXME do megatron bridge thing instead of this
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import get_hyena_stack_spec
@@ -345,6 +348,68 @@ class HyenaModelProvider(TransformerConfig, ModelProviderMixin[MCoreHyenaModel])
         """Post-initialization hook that sets up weight decay conditions."""
         super().__post_init__()
         self.hyena_no_weight_decay_cond_fn = hyena_no_weight_decay_cond if self.hyena_filter_no_wd else None
+
+    def _get_num_floating_point_operations(self, batch_size: int) -> int:
+        """Get the number of floating point operations for the model. This overrides the default in megatron bridge."""
+        # Ported from https://github.com/NVIDIA-NeMo/NeMo/blob/45a3b5cad3434692b1fb805934913d95be8668ea/nemo/utils/hyena_flops_formulas.py
+        """Model FLOPs for Hyena family. FPL = 'flops per layer'."""
+
+        # TODO(@cye): For now, pull the Hyena defaults directly from a constant dataclass. Merge this config with the NeMo
+        #   model config.
+        hyena_config = _HyenaConfigForFlops()
+        # Hyena Parameters
+        hyena_short_conv_L = hyena_config.short_conv_L  # noqa: N806
+        hyena_short_conv_len = hyena_config.hyena_short_conv_len
+        hyena_medium_conv_len = hyena_config.hyena_medium_conv_len
+
+        def _hyena_layer_count(model_pattern: Optional[str]):
+            """Count how many small, medium, and large Hyena layers there are in the model. Also, count the number of Attention layers."""
+            S, D, H, A = 0, 0, 0, 0  # noqa: N806
+            if model_pattern is None:
+                return 0, 0, 0, 0
+            for layer in model_pattern:
+                if layer == "S":
+                    S += 1  # noqa: N806
+                elif layer == "D":
+                    D += 1  # noqa: N806
+                elif layer == "H":
+                    H += 1  # noqa: N806
+                elif layer == "*":
+                    A += 1  # noqa: N806
+            return S, D, H, A
+
+        # Count S, D, H, and * layers in HyenaModel.
+        S, D, H, A = _hyena_layer_count(self.hybrid_override_pattern)  # noqa: N806
+        # Logits FLOPs per batch for a flattened L x H -> V GEMM.
+        logits_fpl = 2 * batch_size * self.seq_length * self.hidden_size * self.vocab_size
+        # Hyena Mixer Common FLOPs - Pre-Attention QKV Projections, Post-Attention Projections, and
+        #   GLU FFN FLOPs per layer.
+        pre_attn_qkv_proj_fpl = 2 * 3 * batch_size * self.seq_length * self.hidden_size**2
+        post_attn_proj_fpl = 2 * batch_size * self.seq_length * self.hidden_size**2
+        # 3 Batched GEMMs: y = A(gelu(Bx) * Cx) where B,C: H -> F and A: F -> H.
+        glu_ffn_fpl = 2 * 3 * batch_size * self.seq_length * self.ffn_hidden_size * self.hidden_size
+        # Transformer (Self) Attention FLOPs - QK Attention Logits ((L, D) x (D, L)) & Attention-Weighted
+        #   Values FLOPs ((L, L) x (L, D))
+        attn_fpl = 2 * 2 * batch_size * self.hidden_size * self.seq_length**2
+        # Hyena Projection
+        hyena_proj_fpl = 2 * 3 * batch_size * self.seq_length * hyena_short_conv_L * self.hidden_size
+        # Hyena Short Conv
+        hyena_short_conv_fpl = 2 * batch_size * self.seq_length * hyena_short_conv_len * self.hidden_size
+        # Hyena Medium Conv
+        hyena_medium_conv_fpl = 2 * batch_size * self.seq_length * hyena_medium_conv_len * self.hidden_size
+        # Hyena Long Conv (FFT)
+        hyena_long_conv_fft_fpl = batch_size * 10 * self.seq_length * math.log2(self.seq_length) * self.hidden_size
+        # Based off of https://gitlab-master.nvidia.com/clara-discovery/savanna/-/blob/main/savanna/mfu.py#L182
+        # Assumption: 1x Backwards Pass FLOPS = 2x Forward Pass FLOPS
+        return 3 * (
+            logits_fpl
+            + self.num_layers * (pre_attn_qkv_proj_fpl + post_attn_proj_fpl + glu_ffn_fpl)
+            + A * attn_fpl
+            + (S + D + H) * hyena_proj_fpl
+            + S * hyena_short_conv_fpl
+            + D * hyena_medium_conv_fpl
+            + H * hyena_long_conv_fft_fpl
+        )
 
     def provide(self, pre_process=None, post_process=None, vp_stage=None) -> MCoreHyenaModel:
         """Configures and returns a Hyena model instance based on the config settings.

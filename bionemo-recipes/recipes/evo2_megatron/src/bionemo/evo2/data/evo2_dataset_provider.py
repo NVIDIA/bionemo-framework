@@ -38,6 +38,7 @@ class Evo2DatasetProvider(DatasetProvider):
     random_seed: int = 42
     seq_length: int = 8192
     dataset_config_path: Path | None = None  # REQUIRED!
+    dataset_dir: str | None = None
     index_mapping_dir: str | None = None
     dataset_path: Path | None = None
     mmap_bin_files: bool = True

@@ -17,7 +17,31 @@ python examples/create_hf_tokenizer.py --output-dir asciitokenizer_512
 ## 2. if on a6000s, you may need to disable p2p to avoid crashing
 export NCCL_P2P_DISABLE=1
 ## 3. Run the job:
-torchrun --nproc-per-node=2 --no-python python src/bionemo/evo2/run/train_new.py
+torchrun --nproc-per-node 2 --no-python \
+  train_evo2 \
+  --hf-tokenizer-model-path asciitokenizer_256 \
+  --model-size 1b_nv --max-steps 110 --eval-interval 10 \
+  --eval-iters 3 --mock-data --result-dir tmp2 \
+  --use-precision-aware-optimizer --dataset-seed 33 \
+  --seed 41 --ckpt-async-save  --spike-no-more-embedding-init \
+  --no-weight-decay-embeddings --cross-entropy-loss-fusion \
+  --align-param-gather --grad-reduce-in-fp32 \
+  --constant-steps 3 --warmup-steps 10 \
+  --eod-pad-in-loss-mask --enable-preemption \
+  --log-interval 5 --debug-ddp-parity-freq 10
+
+torchrun --nproc-per-node 2 --no-python \
+  train_evo2 \
+  --hf-tokenizer-model-path asciitokenizer_256 \
+  --model-size 1b_nv --max-steps 110 --eval-interval 10 \
+  --eval-iters 3 --mock-data --result-dir tmp2 \
+  --use-precision-aware-optimizer --dataset-seed 33 \
+  --seed 41 --ckpt-async-save  --spike-no-more-embedding-init \
+  --no-weight-decay-embeddings --cross-entropy-loss-fusion \
+  --grad-reduce-in-fp32 \
+  --constant-steps 3 --warmup-steps 10 \
+  --eod-pad-in-loss-mask --enable-preemption \
+  --log-interval 5 --debug-ddp-parity-freq 10
 ```
 
 `bionemo-evo2` is a `pip`-installable package that contains **data preprocessing**, **training**, and **inferencing** code for Evo2, a new `Hyena`-based foundation model for genome generation and understanding. Built upon `Megatron-LM` parallelism and `NeMo2` algorithms, `bionemo-evo2` provides the remaining tools necessary to effectively fine-tune the pre-trained Evo2 model checkpoint on user-provided sequences at scale, and generate state-of-the-art life-like DNA sequences from Evo2 for downstream metagenomic tasks.

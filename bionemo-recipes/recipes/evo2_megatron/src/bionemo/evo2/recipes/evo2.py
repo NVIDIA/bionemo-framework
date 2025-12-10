@@ -56,6 +56,7 @@ class Evo2CommonKwargs(TypedDict, total=False):
     seed: int
     ## Evo2
     dataset_config_path: str | None
+    dataset_dir: str | None
     ## Mock
     mock: bool
     ## Sharded Eden
@@ -121,6 +122,7 @@ def _evo2_common(
     seed: int = 1234,
     ## Evo2
     dataset_config_path: str | None = None,
+    dataset_dir: str | None = None,
     ## Mock
     mock: bool = False,
     ## Sharded Eden
@@ -195,6 +197,7 @@ def _evo2_common(
         dataset_cfg_or_provider = Evo2DatasetProvider(
             random_seed=dataset_seed,
             dataset_config_path=dataset_config_path,
+            dataset_dir=dataset_dir,
             seq_length=seq_length,
             eod_mask_loss=pad_eod_loss_mask,
             dataset_cls=Evo2DatasetPadEodLossMask if pad_eod_loss_mask else Evo2Dataset,

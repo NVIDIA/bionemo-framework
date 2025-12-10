@@ -28,15 +28,21 @@ from typing import List, Optional
 # TODO add back support for slurm resilience.
 # import nvidia_resiliency_ext.ptl_resiliency as res_module
 import torch
+from megatron.bridge.training.comm_overlap import (
+    CommOverlapConfig,
+    userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192,
+    userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192,
+)
 from megatron.bridge.training.config import ConfigContainer
+
+# from lightning.pytorch.callbacks import Callback, LearningRateMonitor, RichModelSummary
+from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES
 from megatron.bridge.training.post_training.checkpointing import has_modelopt_state
 from megatron.bridge.training.pretrain import pretrain
 from megatron.bridge.utils.common_utils import get_rank_safe
 
-# from lightning.pytorch.callbacks import Callback, LearningRateMonitor, RichModelSummary
-from megatron.core.enums import Fp8Recipe
-
 from bionemo.evo2.models.evo2_provider import HYENA_MODEL_OPTIONS, hyena_forward_step
+from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.recipes.evo2 import evo2_1b_pretrain_config as pretrain_config
 
 
@@ -166,15 +172,15 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
             "ignored otherwise."
         ),
     )
-    parser.add_argument(
-        "--dataset-num-epochs",
-        type=int,
-        default=1,
-        help=(
-            "When using --sharded-eden-data, wrap each split with a MultiEpochDatasetResampler over this many epochs. "
-            "Default 1 means each split length equals its base dataset length."
-        ),
-    )  # TODO implement
+    # parser.add_argument(
+    #     "--dataset-num-epochs",
+    #     type=int,
+    #     default=1,
+    #     help=(
+    #         "When using --sharded-eden-data, wrap each split with a MultiEpochDatasetResampler over this many epochs. "
+    #         "Default 1 means each split length equals its base dataset length."
+    #     ),
+    # )  # TODO implement
     parser.add_argument(
         "--stride",
         type=int,
@@ -193,18 +199,18 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
             "value in the window DB metadata. Defaults to 0 (disabled)."
         ),
     )  # DONE
-    parser.add_argument(
-        "--log-windows",
-        action="store_true",
-        default=False,
-        help=("Enable window access logging for ShardedEdenDataset (applies only to --sharded-eden-data)."),
-    )  # TODO implement
-    parser.add_argument(
-        "--window-log-dir",
-        type=str,
-        default=None,
-        help=("Directory for window-access logging SQLite files (applies only to --sharded-eden-data)."),
-    )  # TODO implement
+    # parser.add_argument(
+    #     "--log-windows",
+    #     action="store_true",
+    #     default=False,
+    #     help=("Enable window access logging for ShardedEdenDataset (applies only to --sharded-eden-data)."),
+    # )  # TODO implement
+    # parser.add_argument(
+    #     "--window-log-dir",
+    #     type=str,
+    #     default=None,
+    #     help=("Directory for window-access logging SQLite files (applies only to --sharded-eden-data)."),
+    # )  # TODO implement
     parser.add_argument(
         "--rc-aug",
         action="store_true",
@@ -214,18 +220,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--dataset-dir",
         type=str,
-        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths (dataset_prefix) specified in the dataset config YAML. Only used with --dataset-config.",
-    )  # TODO implement
-
-    parser.add_argument(
-        "--num-nodes", type=int, default=1, help="Number of nodes to use for training, defaults to 1."
-    )  # TODO implement
-    parser.add_argument(
-        "--devices", type=int, default=1, help="Number of devices to use for training, defaults to 1."
-    )  # TODO implement
+        help="Absolute path to the dataset directory. Defaults to using the absolute or relative paths"
+        " (dataset_prefix) specified in the dataset config YAML. Only used with --dataset-config.",
+    )  # DONE
     parser.add_argument("--seq-length", type=int, default=8192, help="Training sequence length")  # DONE
     parser.add_argument(
-        "--tensor-parallel-size", type=int, default=1, help="Order of tensor parallelism. Defaults to 1."
+        "--tensor-model-parallel-size", type=int, default=1, help="Order of tensor parallelism. Defaults to 1."
     )  # DONE
     parser.add_argument(
         "--pipeline-model-parallel-size", type=int, default=1, help="Order of pipeline parallelism. Defaults to 1."
@@ -235,7 +235,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     )  # DONE
     parser.add_argument(
         "--create-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."
-    )  # TODO implement
+    )  # DONE
     parser.add_argument("--wandb-entity", type=str, default=None, help="The team posting this run")  # DONE
     parser.add_argument("--wandb-project", type=str, default=None, help="Wandb project name ")  # DONE
     # FIXME wandb tags, group, job type are not supported in megatron.
@@ -265,61 +265,66 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     # parser.add_argument(
     #     "--wandb-log-model", action="store_true", help="Save checkpoints in wandb dir to upload on W&B servers"
     # )  # FIXME not supported in megatron
-    parser.add_argument("--wandb-offline", action="store_true", help="Use wandb in offline mode")  # TODO implement
+    # parser.add_argument("--wandb-offline", action="store_true", help="Use wandb in offline mode")  # TODO implement
     parser.add_argument("--sequence-parallel", action="store_true", help="Set to enable sequence parallelism.")  # DONE
-    parser.add_argument("--fp8", action="store_true", help="Set to enable FP8")  # TODO implement
+    parser.add_argument(
+        "--mixed-precision-recipe",
+        type=str,
+        choices=list(MIXED_PRECISION_RECIPES.keys()),
+        default="bf16_mixed",
+        help="Mixed precision recipe to use for training.",
+    )  # DONE
     parser.add_argument(
         "--micro-batch-size", type=int, default=1, help="Micro-batch size for data-parallel training."
     )  # DONE
     parser.add_argument(
         "--global-batch-size",
         type=int,
-        default=None,
-        help="Global batch size for training. If set to None, infer it from the TP, CP, and PP parameters.",
+        default=8,
+        help="Global batch size for training. "
+        "From this and the model parallel sizes, gradient accumulation is inferred.",
     )  # DONE
-    parser.add_argument(
-        "--grad-acc-batches", type=int, default=1, help="Number of batches to accumulate gradients over."
-    )  # TODO implement
+    # parser.add_argument(
+    #     "--grad-acc-batches", type=int, default=1, help="Number of batches to accumulate gradients over. IGNORED FOR NOW."
+    # )  # TODO implement
     parser.add_argument(
         "--max-steps",
         type=int,
         help="Number of training optimizer update steps. This controls the total number of steps as well as the "
         "shape of the learning rate curve.",
-        default=500000,
+        default=100_000,
     )  # DONE
     parser.add_argument(
         "--constant-steps",
         type=int,
         help="Number of steps to keep the learning rate constant at minimum after annealing. This controls the "
         "shape of the learning rate curve.",
-        default=80000,
-    )  # TODO implement
+        default=2_500,
+    )  # DONE
     parser.add_argument(
         "--early-stop-on-step",
         type=int,
         help="Stop training on this step, if set. This may be useful for testing or debugging purposes.",
     )  # TODO implement
     parser.add_argument(
-        "--val-check-interval", type=int, help="Number of steps between validation measurements and model checkpoints."
-    )  # TODO implement
+        "--eval-interval",
+        type=int,
+        default=100,
+        help="Number of steps between validation measurements and model checkpoints.",
+    )  # DONE
+    parser.add_argument("--eval-iters", type=int, default=32, help="Number of validation iterations.")  # DONE
     parser.add_argument(
         "--grad-reduce-in-fp32", action="store_true", default=False, help="Gradient reduce in FP32."
-    )  # TODO implement
-    parser.add_argument(
-        "--fp8-wgrad",
-        action="store_true",
-        default=False,
-        help="Faster option that is maybe less accurate (TBD) when using fp8.",
-    )  # TODO implement
-    parser.add_argument("--use-megatron-comm-overlap-llama3-8k", action="store_true", default=False)  # TODO implement
+    )  # DONE
+    parser.add_argument("--use-megatron-comm-overlap-llama3-8k", action="store_true", default=False)  # DONE
     parser.add_argument(
         "--tp-comm-overlap-backend",
         type=str,
         choices=["nccl", "mpi", "gloo"],
         default="nccl",
         help="TP communication backend to use. Defaults to 'nccl'.",
-    )  # TODO implement
-    parser.add_argument("--align-param-gather", action="store_true", default=False)  # TODO implement
+    )  # DONE
+    parser.add_argument("--align-param-gather", action="store_true", default=False)  # DONE
     parser.add_argument(
         "--model-size",
         type=str,
@@ -334,7 +339,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Add bias to the output layer to enable learning a simple prior.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--result-dir", type=Path, required=False, default=Path("./results"), help="Path to the result directory."
     )  # DONE
@@ -343,80 +348,49 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     )  # DONE
 
     parser.add_argument(
-        "--limit-val-batches",
-        type=int,
-        default=20,
-        help="Number of validation steps",
-    )  # TODO implement
-    parser.add_argument(
-        "--limit-test-batches",
-        type=int,
-        help="Number of test steps (sometimes useful for getting around megatron errors of too few samples). Defaults "
-        "to the same as limit_val_batches.",
-    )  # TODO implement
-    parser.add_argument(
-        "--log-every-n-steps",
-        type=int,
-        default=1,
-        required=False,
-        help="Number of steps between logging.",
-    )  # TODO implement
-    parser.add_argument(
-        "--ckpt-dir",
+        "--finetune-ckpt-dir",
         type=str,
         default=None,
         help="Directory to restore an initial checkpoint from. Use this for supervised fine-tuning.",
-    )  # TODO implement (use ckpt-load-dir logic?)
-    parser.add_argument(
-        "--ckpt-load-dir",
-        type=str,
-        default=None,
-        help="Directory to load checkpoint from.",
     )  # DONE
-    parser.add_argument("--ckpt-save-interval", type=int, default=2000, help="Steps between checkpoint saves.")  # DONE
     parser.add_argument("--log-interval", type=int, default=10, help="Steps between logging.")  # DONE
     parser.add_argument(
         "--use-precision-aware-optimizer",
         action="store_true",
         default=False,
         help="Use precision aware optimizer that stores main weights in FP32 when doing mixed precision training.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--bf16-main-grads",
         action="store_true",
         default=False,
         help="Use bf16 for main gradients, only use this with --use-precision-aware-optimizer.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument("--wd", type=float, default=0.01, help="Weight decay for optimizer.")  # DONE
     parser.add_argument(
         "--adam-beta1",
         type=float,
         default=0.9,
         help="Adam optimizer beta1 parameter.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--adam-beta2",
         type=float,
         default=0.95,
         help="Adam optimizer beta2 parameter.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--adam-eps",
         type=float,
         default=1e-8,
         help="Adam optimizer epsilon parameter. The inverse of this value (1/eps) represents the maximum adaptive learning rate per parameter.",
-    )  # TODO implement
-    parser.add_argument(
-        "--restore-optimizer-from-ckpt",
-        action="store_true",
-        help="Restore optimizer state from initial checkpoint. Defaults to False.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--average-in-collective",
         action="store_true",
         default=False,
         help="Avaerage optimizer state in collective rather than dividing by dp size and summing.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument("--seed", type=int, default=1234, help="Set random seed for training.")  # DONE
     parser.add_argument(
         "--dataset-seed",
@@ -424,26 +398,24 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Set random seed for dataset shuffling. Defaults to training seed if not provided.",
     )  # DONE
-    parser.add_argument(
-        "--workers", type=int, default=8, help="Number of workers to use for data loading."
-    )  # TODO implement
+    parser.add_argument("--workers", type=int, default=8, help="Number of workers to use for data loading.")  # DONE
     parser.add_argument(
         "--gc-interval",
         type=int,
         default=0,
         help="Set to a value > 0 if you want to synchronize garbage collection, will do gc every gc-interval steps.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--enable-preemption",
         action="store_true",
         default=False,
         help="Enable preemption hooks. If enabled this will save a checkpoint whenever slurm exits.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--ckpt-async-save",
         action="store_true",
         default=False,
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--ckpt-format",
         type=str,
@@ -451,67 +423,46 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default="torch_dist",
         help="Specify checkpoint format to use. Defaults to 'torch_dist', as 'zarr' is deprecated. Only use if "
         "resuming training from a zarr checkpoint.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--eod-pad-in-loss-mask",
         action="store_true",
         default=False,
         help="Do not predict EOD/Pad tokens (typical default, but not default in original evo2).",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--cross-entropy-loss-fusion",
         action="store_true",
         default=False,
         help="Use the faster, but maybe less accurate fused form of cross entropy, "
         "which also has bf16 grads internally.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--no-fp32-residual-connection",
         action="store_true",
         default=False,
         help="If set, turn off fp32 residual connections which may be faster but may impact accuracy.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--debug-ddp-parity-freq",
         type=int,
         default=0,
         help="Set to value > 0 to debug DDP weight parity between ranks.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--hybrid-override-pattern",
         type=str,
         help="Override the hybrid override pattern in the config (specifies hyena layer ordering and type).",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--num-layers", type=int, help="If set, override the number of layers specified in the requested config."
-    )  # TODO implement
-    parser.add_argument(
-        "--create-tflops-callback",
-        action="store_true",
-        default=False,
-        help="Enable tflops calculation callback for Hyena / Evo2. Defaults to False.",
-    )  # TODO implement
-    parser.add_argument(
-        "--log-parameters-and-shapes",
-        action="store_true",
-        default=False,
-        help="Log training parameters shapes and dtypes for debugging.",
-    )  # TODO implement
+    )  # DONE
+
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate.")  # DONE
     parser.add_argument("--min-lr", type=float, default=3e-5, help="Min learning rate in cosine annealing.")  # DONE
     parser.add_argument(
         "--warmup-steps", type=int, default=2500, help="Number of warmup steps in cosine annealing"
     )  # DONE
-    parser.add_argument(
-        "--fp8-recipe",
-        type=str,
-        default="delayed",
-        choices=list(Fp8Recipe.__members__.keys()),
-        help="FP8 recipe to use for FP8 tensors in the forward and backward pass. Note that some recipes are only "
-        "supported by certain architectures. For example 'mxfp8' requires at least blackwell, and 'blockwise' is only "
-        "implemented for hopper (but not blackwell). 'tensorwise' and 'delayed' are currently supported by all "
-        "architectures, but 'tensorwise' is preferred over 'delayed' which is the default for historical reasons.",
-    )  # TODO implement
     # NSYS profiling/tooling arguments
     parser.add_argument(
         "--nsys-profiling",
@@ -521,7 +472,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         " output you must run the whole program with `nsys`. For example: "
         " `nsys profile -s none -o output_report_name -t cuda,nvtx --force-overwrite true "
         "--capture-range=cudaProfilerApi --capture-range-end=stop  [regular python command here]`",
-    )  # TODO implement
+    )  # DONE
     # start, end, rank
     parser.add_argument(
         "--nsys-start-step",
@@ -529,7 +480,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         required=False,
         default=0,
         help="Start nsys profiling after this step.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--spike-no-more-embedding-init",
         action="store_true",
@@ -539,38 +490,38 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "--no-weight-decay-embeddings to avoid shrinking the embeddings to 0 by skipping weight decay on these layers, "
         "or with --use-targeted-variance-loss to maintain a 1.0 variance during training even with weight decay. This "
         "also turns off shared weights between embeddings and outputs.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--no-weight-decay-embeddings",
         action="store_true",
         default=False,
         help="If set, do not apply weight decay to the embeddings.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--use-targeted-variance-loss",
         action="store_true",
         default=False,
         help="Use targeted variance loss.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--nsys-end-step",
         type=int,
         required=False,
         help="End nsys profiling after this step.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--no-renormalize-loss",
         action="store_true",
         default=False,
         help="Do not renormalize the loss weights.",
-    )  # TODO implement
-    parser.add_argument(
-        "--mamba-lowercase-loss-weight",
-        type=float,
-        default=0.1,
-        help="Loss weight for the Mamba model for lowercase bases, if you are using a Mamba model. "
-        "Default is 0.1 like the Evo2 paper. Set to 1.0 to disable differential loss weighting.",
-    )  # TODO implement
+    )  # DONE
+    # parser.add_argument(
+    #     "--mamba-lowercase-loss-weight",
+    #     type=float,
+    #     default=0.1,
+    #     help="Loss weight for the Mamba model for lowercase bases, if you are using a Mamba model. "
+    #     "Default is 0.1 like the Evo2 paper. Set to 1.0 to disable differential loss weighting.",
+    # )  # TODO implement
     # rank as list of integers
     parser.add_argument(
         "--nsys-ranks",
@@ -579,99 +530,99 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         required=False,
         default=[0],
         help="Enable nsys profiling for these ranks.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--activation-checkpoint-recompute-num-layers",
         type=int,
         help="If set, override the default value set in the config.",
-    )  # TODO implement
-    parser.add_argument(
-        "--disable-checkpointing",
-        action="store_false",
-        default=True,
-        dest="create_checkpoint_callback",
-        help="Disable creating a ModelCheckpoint callback.",
-    )  # TODO implement
+    )  # DONE
+    # parser.add_argument(
+    #     "--disable-checkpointing",
+    #     action="store_false",
+    #     default=True,
+    #     dest="create_checkpoint_callback",
+    #     help="Disable creating a ModelCheckpoint callback.",
+    # )  # TODO implement
     parser.add_argument(
         "--clip-grad",
         type=float,
         default=1.0,
         help="Grad clip value. Note that when using DDP this may need to be inflated.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--seq-len-interpolation-factor",
         type=float,
         help="Adjusts the linear scaling of ROPE (Rotary Position Embedding) for context extension. "
         "Set this factor relative to your base context length e.g., for an original context length of 8192 and "
         "an extended context length of 524288, use 524288/8192 = 64.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--overlap-param-gather",
         action="store_true",
         default=False,
         help="Overlap the parameter gather with the optimizer step. This is currently disabled due to a NeMo bug "
         "when using DDP. Making this an option defaulting to False is a temporary solution until the bug is fixed.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--overlap-grad-reduce",
         action="store_true",
         default=False,
         help="Overlap the gradient reduce with the optimizer step.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--hidden-dropout",
         type=float,
         default=0.0,
         help="Dropout probability for the hyena layers",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--ffn-hidden-size",
         type=int,
         default=None,
         help="FFN hidden size for the hyena layers",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--log-num-zeros-in-grad",
         action="store_true",
         default=False,
         help="Log the number of zeros in the gradient.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--attention-dropout",
         type=float,
         default=0.0,
         help="Dropout probability for the attention layers.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--use-subquadratic_ops",
         action="store_true",
         help="Use subquadratic_ops for improved performance.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
-        "--save-top-k",
+        "--most-recent-k",
         type=int,
         default=5,
-        help="Number of best checkpoints to keep. Set to -1 to save all checkpoints.",
-    )  # TODO implement
-    parser.add_argument(
-        "--metric-to-monitor-for-checkpoints",
-        type=str,
-        default="val_loss",
-        help="Metric to monitor for checkpoints.",
-    )  # TODO implement
-    parser.add_argument(
-        "--save-last-checkpoint",
-        action="store_true",
-        default=True,
-        help="Save the last checkpoint.",
-    )  # TODO implement
-    parser.add_argument(
-        "--no-save-last-checkpoint",
-        action="store_false",
-        dest="save_last_checkpoint",
-        default=True,
-        help="Disable saving the last checkpoint.",
-    )  # TODO implement
+        help="Number of most recent checkpoints to keep. Set to -1 to save all checkpoints.",
+    )  # DONE
+    # parser.add_argument(
+    #     "--metric-to-monitor-for-checkpoints",
+    #     type=str,
+    #     default="val_loss",
+    #     help="Metric to monitor for checkpoints.",
+    # )  # TODO implement
+    # parser.add_argument(
+    #     "--save-last-checkpoint",
+    #     action="store_true",
+    #     default=True,
+    #     help="Save the last checkpoint.",
+    # )  # TODO implement
+    # parser.add_argument(
+    #     "--no-save-last-checkpoint",
+    #     action="store_false",
+    #     dest="save_last_checkpoint",
+    #     default=True,
+    #     help="Disable saving the last checkpoint.",
+    # )  # TODO implement
     parser.add_argument(
         "--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False
     )  # TODO implement
@@ -684,19 +635,19 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Calculate a simpler mean across the microbatch of the loss prior to DDP reduction rather than the global"
         " per-token mean loss. Use this if speed is critical and if you do not need token masking in your loss.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--no-check-for-nan-in-grad",
         action="store_true",
         default=False,
         help="Skip checking for NaNs in gradients. Only use this for debugging purposes.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--garbage-collect-at-inference",
         action="store_true",
         default=False,
         help="Enable CUDA memory cleanup before validation to prevent initialization errors.",
-    )  # TODO implement
+    )  # DONE
     parser.add_argument(
         "--lora-alpha",
         type=int,
@@ -709,14 +660,17 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Dim parameter for LoRA fine-tuning.",
     )  # TODO implement
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Debug level in logging.",
+    )  # DONE
+    recompute_group = parser.add_mutually_exclusive_group(required=False)  # DONE
+    recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)  # DONE
+    recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)  # DONE
 
-    recompute_group = parser.add_mutually_exclusive_group(required=False)  # TODO implement
-    recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)  # TODO implement
-    recompute_group.add_argument(
-        "--selective-activation-checkpointing", action="store_true", default=False
-    )  # TODO implement
-
-    mutex_hf_tokenizer_group = parser.add_mutually_exclusive_group(required=False)  # TODO implement
+    mutex_hf_tokenizer_group = parser.add_mutually_exclusive_group(required=False)  # DONE
     mutex_hf_tokenizer_group.add_argument(
         "--hf-tokenizer-model-path", type=Path, help="Path to a local HF tokenizer model."
     )  # DONE
@@ -1242,16 +1196,10 @@ def train2(args: argparse.Namespace) -> None:
         recipe_kwargs["window_min_length_threshold"] = args.window_min_length_threshold
         recipe_kwargs["rc_aug"] = args.rc_aug
     elif args.dataset_config_path:
+        recipe_kwargs["dataset_dir"] = args.dataset_dir
         recipe_kwargs["dataset_config_path"] = args.dataset_config_path
-    elif args.show_config:
-        # Default to mock if just showing config and no data args provided
-        recipe_kwargs["mock"] = True
 
-    # Tokenizer
-    if args.hf_tokenizer_path:
-        recipe_kwargs["hf_tokenizer_model_or_path"] = args.hf_tokenizer_path
-    elif args.hf_tokenizer_model:
-        recipe_kwargs["hf_tokenizer_model_or_path"] = args.hf_tokenizer_model
+    recipe_kwargs["pad_eod_loss_mask"] = args.eod_pad_in_loss_mask
 
     # Parallelism
     recipe_kwargs["tensor_model_parallel_size"] = args.tensor_model_parallel_size
@@ -1271,6 +1219,7 @@ def train2(args: argparse.Namespace) -> None:
     # same as model seed if not provided, but can be overridden.
     recipe_kwargs["dataset_seed"] = args.seed if args.dataset_seed is None else args.dataset_seed
     # Note: weight decay is not in the recipe kwargs signature usually, we set it later.
+    recipe_kwargs["precision_config"] = args.mixed_precision_recipe
 
     # Directories
     if args.result_dir:
@@ -1280,29 +1229,182 @@ def train2(args: argparse.Namespace) -> None:
     # 2. Generate Base Configuration
     cfg: ConfigContainer = pretrain_config(**recipe_kwargs)
 
-    # 3. Apply Manual Overrides (for settings not exposed in recipe kwargs)
+    cfg.checkpoint.async_save = args.ckpt_async_save
+    cfg.checkpoint.ckpt_format = args.ckpt_format
+    cfg.checkpoint.save_interval = args.eval_interval
+    cfg.checkpoint.save_optim = True
+    cfg.checkpoint.save_rng = True
+    cfg.checkpoint.fully_parallel_load = True
+    cfg.checkpoint.fully_parallel_save = True
+    # cfg.checkpoint.save_tokenizer_assets = True
+    cfg.checkpoint.strict_fsdp_dtensor_load = False
+    cfg.checkpoint.use_checkpoint_args = False
+    cfg.checkpoint.use_persistent_ckpt_worker = True
+    cfg.checkpoint.exit_on_missing_checkpoint = False
+    cfg.checkpoint.dist_ckpt_strictness = "assume_ok_unexpected"
 
+    # 3. Apply Manual Overrides (for settings not exposed in recipe kwargs)
+    if args.no_renormalize_loss:
+        cfg.model.to_upper = "weighted"  # rather than "normalized_weighted"
+    if args.seq_len_interpolation_factor is not None:
+        cfg.model.seq_len_interpolation_factor = args.seq_len_interpolation_factor
+    cfg.model.calculate_per_token_loss = not args.no_calculate_per_token_loss
+    cfg.model.fp32_residual_connection = not args.no_fp32_residual_connection
+    cfg.model.cross_entropy_loss_fusion = args.cross_entropy_loss_fusion
+
+    if args.hidden_dropout is not None:
+        cfg.model.hidden_dropout = args.hidden_dropout
+    if args.attention_dropout is not None:
+        cfg.model.attention_dropout = args.attention_dropout
+    if args.ffn_hidden_size is not None:
+        cfg.model.ffn_hidden_size = args.ffn_hidden_size
+
+    if args.spike_no_more_embedding_init:
+        # Spike-no-more-embedding means that the initialization of the embeddings is done with a Normal(0, 1.0)
+        #  distribution rather than the default Normal(0, 0.02). This may help avoid loss spiking during training.
+        cfg.model.share_embeddings_and_output_weights = False
+        cfg.model.embedding_init_method_std = 1.0
+    if args.use_targeted_variance_loss:
+        cfg.model.use_targeted_variance_loss = True
+    if args.hybrid_override_pattern:
+        cfg.model.hybrid_override_pattern = args.hybrid_override_pattern
+    if args.num_layers:
+        cfg.model.num_layers = args.num_layers
+    if args.use_subquadratic_ops:
+        # TODO assert that it is installed
+        cfg.model.use_subquadratic_ops = True
+
+    if args.no_activation_checkpointing:
+        cfg.model.recompute_granularity = None
+        cfg.model.recompute_method = None
+        cfg.model.recompute_num_layers = None
+    elif args.selective_activation_checkpointing:
+        cfg.model.recompute_granularity = "selective"
+        cfg.model.recompute_method = None
+        cfg.model.recompute_num_layers = None
+    else:
+        if args.activation_checkpoint_recompute_num_layers is not None:
+            cfg.model.recompute_num_layers = args.activation_checkpoint_recompute_num_layers
+
+    if args.no_weight_decay_embeddings:
+        cfg.scheduler.no_weight_decay_cond_type = hyena_no_weight_decay_cond_with_embeddings
     # Optimizer
     if args.wd is not None:
         cfg.optimizer.weight_decay = args.wd
+    cfg.optimizer.adam_beta1 = args.adam_beta1
+    cfg.optimizer.adam_beta2 = args.adam_beta2
+    cfg.optimizer.adam_eps = args.adam_eps
+    cfg.optimizer.use_precision_aware_optimizer = args.use_precision_aware_optimizer
+    cfg.optimizer.main_grads_dtype = torch.bfloat16 if args.bf16_main_grads else torch.float32
+    cfg.optimizer.log_num_zeros_in_grad = args.log_num_zeros_in_grad
+    cfg.optimizer.clip_grad = args.clip_grad
 
+    cfg.dataset.num_workers = args.workers
+
+    cfg.ddp.average_in_collective = args.average_in_collective
+    cfg.ddp.align_param_gather = args.align_param_gather
+    cfg.ddp.overlap_param_gather = args.overlap_param_gather
+    cfg.ddp.overlap_grad_reduce = args.overlap_grad_reduce
+    cfg.ddp.grad_reduce_in_fp32 = args.grad_reduce_in_fp32
+    cfg.ddp.check_for_nan_in_grad = not args.no_check_for_nan_in_grad
+    if args.use_megatron_comm_overlap_llama3_8k:
+        # Pick the floating point appropriate config.
+        fp8 = "fp8" in args.mixed_precision_recipe
+        if fp8:
+            tp_comm_overlap_cfg = userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192
+        else:
+            tp_comm_overlap_cfg = userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192
+        if cfg.comm_overlap is None:
+            cfg.comm_overlap = CommOverlapConfig(
+                tp_comm_overlap=True,
+                tp_comm_overlap_cfg=tp_comm_overlap_cfg,
+                tp_comm_bootstrap_backend=args.tp_comm_overlap_backend,
+                wgrad_deferral_limit=22,
+                overlap_param_gather_with_optimizer_step=False,
+                align_param_gather=args.align_param_gather,
+            )
+    cfg.train.eval_interval = args.eval_interval
+    cfg.train.eval_iters = args.eval_iters
+
+    if args.debug_ddp_parity_freq > 0:
+        cfg.train.check_weight_hash_across_dp_replicas_interval = args.debug_ddp_parity_freq
+    if args.gc_interval > 0:
+        cfg.train.manual_gc = True
+        cfg.train.manual_gc_interval = args.gc_interval
+    if args.garbage_collect_at_inference:
+        cfg.train.manual_gc = True
+        cfg.train.manual_gc_eval = True
+    if args.enable_preemption:
+        cfg.train.exit_signal_handler = True
+    # Scheduler
+    cfg.scheduler.lr_decay_style = "cosine"
+    cfg.scheduler.lr_warmup_iters = args.warmup_steps
+    cfg.scheduler.lr_decay_iters = args.max_steps - args.warmup_steps - args.constant_steps
+    if args.add_bias_output:
+        cfg.model.add_bias_output = True
     # Logger & WandB
     if args.log_interval:
         cfg.logger.log_interval = args.log_interval
-
+    if args.create_tensorboard_logger:
+        assert args.logger.log_dir is not None
+        cfg.logger.tensorboard_dir = str(Path(args.logger.log_dir) / "tb_logs")
     if args.wandb_project:
         # Assuming WandbConfig is available in megatron.bridge.training.config
+        default_wandb_run_name = (
+            f"evo2-size-{args.model_size}-TP{args.tensor_parallel_size}-"
+            f"PP{args.pipeline_model_parallel_size}-CP{args.context_parallel_size}"
+            f"-GBS{args.global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
+            f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
+            f"-ACRNL{cfg.model.recompute_num_layers}"
+            f"-PAT{getattr(cfg.model, 'hybrid_override_pattern', 'None')}"
+            f"-F32R{cfg.model.fp32_residual_connection}"
+            f"-FCE{cfg.model.cross_entropy_loss_fusion}"
+            f"-AIC{cfg.ddp.average_in_collective}"
+            f"-PTL{not args.no_calculate_per_token_loss}"
+            f"-PEOD{args.eod_pad_in_loss_mask}"
+            f"-BO{args.add_bias_output}"
+            f"-GCLP{args.clip_grad}"
+            f"-HDO{args.hidden_dropout}"
+            f"-ADO{args.attention_dropout}"
+            f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-CONSTSTEPS{args.constant_steps}-WD{args.wd}"
+            f"-GRFP32{args.grad_reduce_in_fp32}"
+            f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
+            f"-PAO{args.use_precision_aware_optimizer}"
+            f"-B16MG{args.bf16_main_grads}"
+            f"-EWD{args.no_weight_decay_embeddings}-SNI{args.spike_no_more_embedding_init}"
+            f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
+            f"-TVL{args.use_targeted_variance_loss}"
+            f"-NODES{args.num_nodes}-MPR{args.mixed_precision_recipe}"
+        )
         cfg.logger.wandb_project = args.wandb_project
-        cfg.logger.wandb_exp_name = args.wandb_run_name
+        cfg.logger.wandb_exp_name = args.wandb_run_name or default_wandb_run_name
         cfg.logger.wandb_entity = args.wandb_entity
         # cfg.logger.wandb_save_dir = ...  # FIXME fill this in or decide if the default is ok
         # FIXME consider allowing megatron to specify the run id for regularly restarting slurm jobs.
     # Checkpoint
-    if args.ckpt_load_dir:
-        cfg.checkpoint.load = args.ckpt_load_dir
-    if args.ckpt_save_interval:
-        cfg.checkpoint.save_interval = args.ckpt_save_interval
+    # TODO verify that this is the right thing to do here.
+    if args.eval_interval:
+        cfg.checkpoint.save_interval = args.eval_interval
+    cfg.checkpoint.most_recent_k = args.most_recent_k
 
+    if args.finetune_ckpt_dir:
+        cfg.checkpoint.finetune = True
+        cfg.checkpoint.pretrained_checkpoint = args.finetune_ckpt_dir
+
+    if args.nsys_profiling:
+        """Enable Nsys profiling.
+        Example:
+            nsys profile -s none -t nvtx,cuda -o <path/to/output_file> --force-overwrite true \
+              --capture-range=cudaProfilerApi --capture-range-end=stop
+        """
+        cfg.profiling.use_nsys_profiler = True
+        cfg.profiling.profile_step_start = args.nsys_start_step
+        cfg.profiling.profile_step_end = args.nsys_end_step
+        cfg.profiling.profile_ranks = args.nsys_ranks
+        cfg.profiling.record_memory_history = True
+        cfg.profiling.memory_snapshot_path = "memory_snapshot.pickle"
+        cfg.profiling.record_shapes = True
+        cfg.profiling.nvtx_ranges = True
     # Check for ModelOpt state (restoring from quantized checkpoint)
     if cfg.checkpoint and cfg.checkpoint.load:
         if has_modelopt_state(cfg.checkpoint.load):

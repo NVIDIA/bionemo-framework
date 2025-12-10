@@ -17,9 +17,6 @@
 # limitations under the License.
 
 
-import json
-import os
-import shutil
 from pathlib import Path
 
 from transformers import AutoTokenizer
@@ -36,35 +33,6 @@ def setup_and_save_tokenizer(output_dir: Path, vocab_size_limit: int):
     # 2. Save the standard tokenizer files (vocab.json, etc.)
     print(f"2. Saving to '{output_dir}'...")
     tokenizer.save_pretrained(output_dir)
-
-    # 3. CRITICAL: Copy the Python source code to the output directory.
-    # AutoTokenizer needs the actual file 'ascii_tokenizer.py' present to import the class.
-    import bionemo.evo2.data.tokenizer
-
-    src_file = bionemo.evo2.data.tokenizer.__file__
-    dst_file = os.path.join(output_dir, "ascii_tokenizer.py")
-    shutil.copy(src_file, dst_file)
-    print(f"   - Copied {src_file} to {output_dir}")
-
-    # 4. CRITICAL: Update tokenizer_config.json with 'auto_map' and custom args.
-    config_path = os.path.join(output_dir, "tokenizer_config.json")
-
-    with open(config_path, "r") as f:
-        config = json.load(f)
-
-    # Add the auto_map to tell AutoTokenizer where to find the class
-    # Format: "AutoClass": ["module_name.ClassName", "fast_tokenizer_class_or_None"]
-    config["auto_map"] = {"AutoTokenizer": ["ascii_tokenizer.AsciiOrdTokenizer", None]}
-
-    # Explicitly save custom arguments so they are restored correctly
-    # (PreTrainedTokenizer sometimes misses args not in the base config)
-    config["vocab_size_limit"] = tokenizer.vocab_size_limit
-
-    with open(config_path, "w") as f:
-        json.dump(config, f, indent=2)
-
-    print("   - Updated tokenizer_config.json with auto_map")
-    print("Done. Setup complete.")
 
 
 def test_loading(model_path="ascii_tokenizer_model"):
