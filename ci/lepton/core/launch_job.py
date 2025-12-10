@@ -84,11 +84,11 @@ def launch_single_job(client, cfg: DictConfig):
     template_type = getattr(cfg, "template_type", "convergence_tests")
 
     # trigger with logging to kratos, if enabled. Default to True.
-    if getattr(cfg, 'log_to_kratos', True):
-        print(f"Logging to kratos")
+    if getattr(cfg, "log_to_kratos", True):
+        print("Logging to kratos")
         rendered = render_launcher_string(cfg.script, full_cfg_json, template=template_type)
-    else: # don't log to kratos
-        print(f"Not logging to kratos")
+    else:  # don't log to kratos
+        print("Not logging to kratos")
         rendered = cfg.script
 
     command = ["bash", "-c", rendered]
