@@ -78,6 +78,8 @@ class Evo2DatasetTokenizer:
         for i, t in enumerate(text):
             if use_ftfy:
                 t_fixed = ftfy.fix_text(t)
+            else:
+                t_fixed = t
             # Tokenize the string.
             text_ids: list = self.tokenizer.text_to_ids(t_fixed)
             if drop_empty_sequences and len(text_ids) == 0:

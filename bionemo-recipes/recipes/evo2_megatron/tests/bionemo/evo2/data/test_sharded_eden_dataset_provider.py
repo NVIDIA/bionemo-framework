@@ -16,17 +16,20 @@
 import sqlite3
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import numpy as np
 import polars as pol
 import pytest
 import torch
+from megatron.bridge.training.tokenizers.config import TokenizerConfig
+from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
 
 # FIXME revive this since it might make some tests/training runs easier.
-from bionemo.evo2.data.sharded_eden_dataloader import (
-    ShardedEdenDataModule,
+from bionemo.evo2.data.sharded_eden_dataset_provider import (
+    DatasetBuildContext,
     ShardedEdenDataset,
+    ShardedEdenDatasetProvider,
     extract_sample_id,
     precompute_window_database,
 )
@@ -228,8 +231,7 @@ def test_sharded_eden_dataset_initialization(sequence_db_dir, window_dbs):
     dataset.__del__()
 
 
-@patch("bionemo.evo2.data.sharded_eden_dataloader.get_nmt_tokenizer")
-def test_sharded_eden_datamodule_initialization(mock_get_tokenizer, sequence_db_dir, window_dbs):
+def test_sharded_eden_datamodule_initialization(sequence_db_dir, window_dbs):
     """Test ShardedEdenDataModule initialization."""
     # Mock tokenizer
     mock_tokenizer = Mock()
@@ -238,55 +240,46 @@ def test_sharded_eden_datamodule_initialization(mock_get_tokenizer, sequence_db_
     mock_tokenizer._sep_id = 3
     mock_tokenizer.pad_id = 0
     mock_tokenizer.text_to_ids.return_value = [10, 11, 12]
-    mock_get_tokenizer.return_value = mock_tokenizer
 
     # Create data module
-    data_module = ShardedEdenDataModule(
+    data_provider = ShardedEdenDatasetProvider(
         sequence_db_dir=sequence_db_dir,
         train_window_db_path=window_dbs["train"],
         val_window_db_path=window_dbs["val"],
         test_window_db_path=window_dbs["test"],
         seq_length=8192,
-        micro_batch_size=1,
-        global_batch_size=4,
         num_workers=0,  # Use 0 for testing
         rc_aug=False,
         use_control_tags=False,
     )
-
-    # Verify data module properties
-    assert data_module.sequence_db_dir == sequence_db_dir
-    assert data_module.train_window_db_path == window_dbs["train"]
-    assert data_module.val_window_db_path == window_dbs["val"]
-    assert data_module.test_window_db_path == window_dbs["test"]
-    assert data_module.seq_length == 8192
-    assert data_module.micro_batch_size == 1
-    assert data_module.global_batch_size == 4
-    assert data_module.num_workers == 0
-
-    # Verify tokenizer was created
-    assert data_module.tokenizer is not None
-
-    # Verify data sampler was created
-    assert data_module.data_sampler is not None
-    assert data_module.data_sampler.seq_len == 8192
-    assert data_module.data_sampler.micro_batch_size == 1
-    assert data_module.data_sampler.global_batch_size == 4
+    context = DatasetBuildContext(
+        tokenizer=mock_tokenizer,
+        train_samples=100,
+        valid_samples=50,
+        test_samples=50,
+    )
+    train_ds, val_ds, test_ds = data_provider.build_datasets(context)
+    assert len(train_ds) == 100
+    assert len(val_ds) == 50
+    assert len(test_ds) == 50
 
 
 def test_dataset_getitem(sequence_db_dir, window_dbs):
     """Test dataset item retrieval."""
     # Mock tokenizer
-    mock_tokenizer = Mock()
-    mock_tokenizer.bos_id = 1
-    mock_tokenizer.eos_id = 2
-    mock_tokenizer._sep_id = 3
-    mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [10, 11, 12]
+    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
+
+    tokenizer = build_tokenizer(
+        TokenizerConfig(
+            tokenizer_type="HuggingFaceTokenizer",
+            hf_tokenizer_kwargs={"trust_remote_code": False},
+            tokenizer_model=DEFAULT_HF_TOKENIZER_MODEL_PATH,
+        )
+    )
 
     # Create dataset
     dataset = ShardedEdenDataset(
-        tokenizer=mock_tokenizer,
+        tokenizer=tokenizer,
         sequence_db_dir=sequence_db_dir,
         window_db_path=window_dbs["train"],
         seq_length=8192,

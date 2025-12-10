@@ -20,8 +20,8 @@
 from pathlib import Path
 
 from bionemo.evo2.data.preprocess import Evo2Preprocessor
+from bionemo.evo2.data.test_utils.create_fasta_file import create_fasta_file
 from bionemo.evo2.utils.config import Evo2PreprocessingConfig
-from bionemo.testing.data.fasta import create_fasta_file
 
 
 def create_preprocessing_config(
@@ -42,10 +42,6 @@ def create_preprocessing_config(
         "include_sequence_id": False,
         "transcribe": "back_transcribe",
         "indexed_dataset_dtype": "uint8",
-        "tokenizer_type": "Byte-Level",
-        "vocab_file": None,
-        "vocab_size": None,
-        "merges_file": None,
         "pretrained_tokenizer_model": None,
         "special_tokens": None,
         "fast_hf_tokenizer": True,
@@ -76,7 +72,7 @@ def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
     output_dir = Path(preprocessing_config.output_dir)
     prefix = preprocessing_config.output_prefix
     expected_files = [
-        output_dir / Path(prefix + "_byte-level_" + split + suffix)
+        output_dir / Path(prefix + "_nucleotide_fast_tokenizer_256_" + split + suffix)
         for suffix in [".bin", ".idx"]
         for split in ["train", "val", "test"]
     ]

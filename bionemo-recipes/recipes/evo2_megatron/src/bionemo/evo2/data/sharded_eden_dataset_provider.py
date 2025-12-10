@@ -416,10 +416,10 @@ class ShardedEdenDataset(Dataset):
 
         # Build token window
         ctrl_ids = self.ctrl_ids_map.get(sequence_id, []) if self.use_control_tags else []
-        bos_id = self.tokenizer.bos_id
-        eos_id = self.tokenizer.eos_id
-        sep_id = getattr(self.tokenizer, "_sep_id", eos_id)
-        pad_id = self.tokenizer.pad_id
+        bos_id = self.bos_id
+        eos_id = self.eos_id
+        sep_id = self.sep_id
+        pad_id = self.pad_id
         if self.use_control_tags:
             header = [bos_id, *ctrl_ids, sep_id]
             footer = [eos_id] if self.include_eos else []
@@ -499,6 +499,44 @@ class ShardedEdenDataset(Dataset):
     def collate_fn(self, batch):
         """Collate a batch of items into a single dictionary."""
         return default_collate(batch)
+
+    @property
+    def bos_id(self) -> int:
+        """Get the beginning of sequence token ID."""
+        return self.tokenizer.bos_id
+
+    @property
+    def eos_id(self) -> int:
+        """Get the end of sequence token ID."""
+        return self.tokenizer.eos_id
+
+    @property
+    def sep_id(self) -> int:
+        """Get the separator token ID."""
+        sep_id = getattr(self.tokenizer, "_sep_id", None)
+        if sep_id is None:
+            sep_id = self.tokenizer.text_to_ids("<SEP>")
+            if len(sep_id) == 1:
+                sep_id = sep_id[0]
+            else:
+                sep_id = None
+        if sep_id is None:
+            return self.eos_id
+        return sep_id
+
+    @property
+    def pad_id(self) -> int:
+        """Get the padding token ID."""
+        pad_id = getattr(self.tokenizer, "pad_id", None)
+        if pad_id is None:
+            pad_id = self.tokenizer.text_to_ids("<PAD>")
+            if len(pad_id) == 1:
+                pad_id = pad_id[0]
+            else:
+                pad_id = None
+        if pad_id is None:
+            return self.eos_id
+        return pad_id
 
     def __del__(self):
         """Close all database connections when the dataset is destroyed."""
