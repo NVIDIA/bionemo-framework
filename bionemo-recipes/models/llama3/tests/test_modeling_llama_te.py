@@ -66,6 +66,25 @@ def test_llama_model_forward_pass(input_text, attn_input_format):
     assert len(outputs.hidden_states) == config.num_hidden_layers + 1
 
 
+def test_llama_model_forward_pass_no_attention_mask():
+    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
+    config = NVLlamaConfig.from_pretrained(
+        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format="bshd"
+    )
+    model = NVLlamaForCausalLM(config)
+
+    input_text = ["Hello, world!"]
+    inputs = tokenizer(input_text, return_tensors="pt")
+    inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    model.to("cuda")
+    with torch.no_grad():
+        outputs = model(**inputs, output_hidden_states=True)
+
+    assert outputs.logits is not None
+    assert outputs.hidden_states is not None
+    assert len(outputs.hidden_states) == config.num_hidden_layers + 1
+
+
 @pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
 def test_llama_model_backward_pass(input_text, attn_input_format):
     if attn_input_format == "thd" and torch.cuda.get_device_capability()[0] == 12:
