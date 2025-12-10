@@ -1353,7 +1353,7 @@ def train2(args: argparse.Namespace) -> None:
     if args.wandb_project:
         # Assuming WandbConfig is available in megatron.bridge.training.config
         default_wandb_run_name = (
-            f"evo2-size-{args.model_size}-TP{args.tensor_parallel_size}-"
+            f"evo2-size-{args.model_size}-TP{args.tensor_model_parallel_size}-"
             f"PP{args.pipeline_model_parallel_size}-CP{args.context_parallel_size}"
             f"-GBS{args.global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
             f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
