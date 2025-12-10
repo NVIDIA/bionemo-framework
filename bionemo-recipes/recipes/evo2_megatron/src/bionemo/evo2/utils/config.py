@@ -20,8 +20,9 @@
 from pathlib import Path
 from typing import Literal
 
-from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
 from pydantic import BaseModel
+
+from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
 
 
 def hyena_no_weight_decay_cond_with_embeddings(name, param):
@@ -68,21 +69,11 @@ class Evo2PreprocessingConfig(BaseModel):
     enforce_sample_length: None | int = None
     ftfy: bool = False
     # NeMo Tokenizer Configuration
-    tokenizer_type: Literal[
-        "Byte-Level",
-        "HuggingFace",
-        "SentencePiece",
-        "Regex",
-        "Megatron",
-        "Tiktoken",
-    ] = "Byte-Level"
-    vocab_file: None | Path = None
-    vocab_size: None | int = 512
-    merges_file: None | Path = None
-    tokenizer_model_name: None | str = None
-    pretrained_tokenizer_model: None | str = None
-    special_tokens: None | dict[str, str] = {}
-    fast_hf_tokenizer: bool = False
+    hf_tokenizer_model_path: None | Path = None  # if left None, the 256-character nucleotide tokenizer will be used.
+    hf_tokenizer_model_name: None | str = None
+    hf_tokenizer_trust_remote_code: bool = (
+        False  # Set to True for some custom local tokenizers. Not needed for the default.
+    )
     # Compute Configuration
     # NOTE: If preprocessing a large amount of short individual sequences (< 1000 bp), do NOT use
     # multiprocessing (workers > 1) because sequence-level parallel IPC will dominate the preprocessing time!

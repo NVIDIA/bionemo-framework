@@ -18,6 +18,7 @@
 
 
 import argparse
+import logging
 import math
 import re
 import sys
@@ -25,7 +26,9 @@ from collections import defaultdict
 
 from bionemo.noodles import complement_sequence, reverse_sequence
 from bionemo.noodles.nvfaidx import NvFaidx
-from nemo.utils import logging
+
+
+logger = logging.getLogger(__name__)
 
 
 def parse_gtf_attributes(attributes: str):
@@ -49,7 +52,7 @@ def parse_gtf_attributes(attributes: str):
     return out
 
 
-def extract_transcript_exons(gtf_path: str, only_longest_transcript: bool):  # noqa: C901
+def extract_transcript_exons(gtf_path: str, only_longest_transcript: bool):
     """Extracts transcript exons from a GTF file and optionally keeps only the longest transcript per gene.
 
     Args:
@@ -181,7 +184,7 @@ def extract_transcript_exons(gtf_path: str, only_longest_transcript: bool):  # n
     }
 
 
-def extract_default_transcript_sequences(transcript_info, fasta_records, output_file):  # noqa: C901
+def extract_default_transcript_sequences(transcript_info, fasta_records, output_file):
     """Extracts default transcript sequences from the provided transcript information and writes them to an output file.
 
     Args:
@@ -226,7 +229,7 @@ def extract_default_transcript_sequences(transcript_info, fasta_records, output_
         print(f">{seqname}|{gene_id}|{transcript_id}\n{transcript_seq}", file=output_file)
 
 
-def extract_stitched_transcript_sequences(  # noqa: C901
+def extract_stitched_transcript_sequences(
     transcript_info, fasta_records, output_file, stitch_token="@", promoter_size=1024, intron_window=32, overlap=False
 ):
     """Extracts stitched transcript sequences from the provided transcript information and writes them to an output file.
@@ -327,25 +330,25 @@ def run(args):
     """
     with open(args.output_path, "w") if args.output_path is not None else sys.stdout as output_file:
         if args.verbose:
-            logging.info("Indexing FASTA file...")
+            logger.info("Indexing FASTA file...")
 
         fasta_index = NvFaidx(args.fasta_path)
 
         if args.transcript_type == "default":
             if args.verbose:
-                logging.info("Extracting default transcripts...")
+                logger.info("Extracting default transcripts...")
                 if args.only_longest_transcript:
-                    logging.info("Only extracting the longest transcript per gene.")
+                    logger.info("Only extracting the longest transcript per gene.")
                 else:
-                    logging.info("Extracting all transcripts regardless of length.")
+                    logger.info("Extracting all transcripts regardless of length.")
 
         elif args.transcript_type == "stitched":
             if args.verbose:
-                logging.info("Extracting stitched transcripts...")
+                logger.info("Extracting stitched transcripts...")
                 if args.only_longest_transcript:
-                    logging.info("Only extracting the longest transcript per gene.")
+                    logger.info("Only extracting the longest transcript per gene.")
                 else:
-                    logging.info("Extracting all transcripts regardless of length.")
+                    logger.info("Extracting all transcripts regardless of length.")
 
         transcript_info = extract_transcript_exons(args.gtf_path, args.only_longest_transcript)
 
@@ -412,7 +415,7 @@ def main():
     """Entry point for the script. Parses arguments and runs the extraction process."""
     args = parse_args()
     if args.verbose:
-        logging.info(args)
+        logger.info(args)
     run(args)
 
 

@@ -35,12 +35,13 @@ from typing import Optional
 import numpy as np
 import torch
 import yaml
-from bionemo.evo2.data.tokenizer import Evo2Tokenizer
+from megatron.core.datasets.indexed_dataset import IndexedDatasetBuilder
+from nemo.utils import logging
+
+from bionemo.evo2.data.dataset_tokenizer import Evo2DatasetTokenizer
 from bionemo.evo2.utils.config import Evo2PreprocessingConfig, Evo2TaxonomyLineage
 from bionemo.noodles import back_transcribe_sequence, complement_sequence, reverse_sequence, transcribe_sequence
 from bionemo.noodles.nvfaidx import NvFaidx
-from megatron.core.datasets.indexed_dataset import IndexedDatasetBuilder
-from nemo.utils import logging
 
 
 class Evo2Preprocessor:
@@ -58,7 +59,7 @@ class Evo2Preprocessor:
         Args:
             params (Evo2PreprocessingConfig | None): Configuration parameters for preprocessing.
         """
-        self.tokenizer: Evo2Tokenizer = Evo2Tokenizer(params)
+        self.tokenizer: Evo2DatasetTokenizer = Evo2DatasetTokenizer(params)
 
     @staticmethod
     @contextmanager

@@ -53,32 +53,14 @@
     "type": "TemplateProcessing",
     "single": [
       {
-        "SpecialToken": {
-          "id": "<BOS>",
-          "type_id": 0
-        }
-      },
-      {
         "Sequence": {
           "id": "A",
-          "type_id": 0
-        }
-      },
-      {
-        "SpecialToken": {
-          "id": "<EOS>",
           "type_id": 0
         }
       }
     ],
     "pair": [
       {
-        "SpecialToken": {
-          "id": "<BOS>",
-          "type_id": 0
-        }
-      },
-      {
         "Sequence": {
           "id": "A",
           "type_id": 0
@@ -91,20 +73,8 @@
         }
       },
       {
-        "SpecialToken": {
-          "id": "<BOS>",
-          "type_id": 0
-        }
-      },
-      {
         "Sequence": {
           "id": "B",
-          "type_id": 0
-        }
-      },
-      {
-        "SpecialToken": {
-          "id": "<EOS>",
           "type_id": 0
         }
       }
