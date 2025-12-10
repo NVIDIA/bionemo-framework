@@ -23,6 +23,7 @@ It can also be utilized as a script to dump pre-processed data to JSON.
 """
 
 import argparse
+import logging
 import multiprocessing as mp
 import os
 import random
@@ -36,12 +37,14 @@ import numpy as np
 import torch
 import yaml
 from megatron.core.datasets.indexed_dataset import IndexedDatasetBuilder
-from nemo.utils import logging
 
 from bionemo.evo2.data.dataset_tokenizer import Evo2DatasetTokenizer
 from bionemo.evo2.utils.config import Evo2PreprocessingConfig, Evo2TaxonomyLineage
 from bionemo.noodles import back_transcribe_sequence, complement_sequence, reverse_sequence, transcribe_sequence
 from bionemo.noodles.nvfaidx import NvFaidx
+
+
+logger = logging.getLogger(__name__)
 
 
 class Evo2Preprocessor:
@@ -394,12 +397,12 @@ class Evo2Preprocessor:
         ):
             if not preproc_config.overwrite:
                 # Skip this dataset!
-                logging.info(
+                logger.info(
                     f"Skipped overwriting (overwrite: False) existing preprocessed data: {preproc_config.output_prefix}"
                 )
                 return
             else:
-                logging.info(
+                logger.info(
                     f"Overwriting (overwrite: True) existing preprocessed data: {preproc_config.output_prefix}"
                 )
 
@@ -411,7 +414,7 @@ class Evo2Preprocessor:
         train_builder: IndexedDatasetBuilder = IndexedDatasetBuilder(bin_path=str(temp_train_bin), dtype=dataset_dtype)
         val_builder: IndexedDatasetBuilder = IndexedDatasetBuilder(bin_path=str(temp_val_bin), dtype=dataset_dtype)
         test_builder: IndexedDatasetBuilder = IndexedDatasetBuilder(bin_path=str(temp_test_bin), dtype=dataset_dtype)
-        logging.info(f"Created temporary binary datasets: {temp_train_bin} {temp_val_bin} {temp_test_bin}")
+        logger.info(f"Created temporary binary datasets: {temp_train_bin} {temp_val_bin} {temp_test_bin}")
 
         # Preprocess data and split results into train, validation, or test.
         avg_preproc_time = 0.0
@@ -435,9 +438,9 @@ class Evo2Preprocessor:
             count += 1
 
         # Report timing.
-        logging.info(f"Average preprocessing time per sequence: {avg_preproc_time}")
-        logging.info(f"Average indexing time per sequence: {avg_index_time}")
-        logging.info(f"Number of sequences processed: {count}")
+        logger.info(f"Average preprocessing time per sequence: {avg_preproc_time}")
+        logger.info(f"Average indexing time per sequence: {avg_index_time}")
+        logger.info(f"Number of sequences processed: {count}")
 
         # Write preprocessed index data to disk. Rename temporary binaries to denote preprocessing completion.
         train_builder.finalize(idx_path=str(self._get_output_filename(preproc_config, self.IDX, self.TRAIN)))
@@ -477,7 +480,7 @@ def main():
         # Preprocess data specified in config.
         evo2_preprocessor.preprocess_offline(evo2_preproc_config)
         end = time.time()
-        logging.info(
+        logger.info(
             f"Finished preprocessing {evo2_preproc_config.output_prefix} ({evo2_preproc_config.datapaths}) in {end - start:.3f} seconds with {evo2_preproc_config.workers} workers."
         )
 
