@@ -106,7 +106,7 @@ class EnCodonTE(nn.Module):
         self.te_rope_emb = None
         self._init_weights()
 
-    def reset_cls_parameters(self):  # noqa: C901
+    def reset_cls_parameters(self):
         """Resets the parameters of the classification head."""
         for module in self.cls.modules():
             if isinstance(module, (nn.Linear, transformer_engine.pytorch.Linear)):
@@ -136,7 +136,7 @@ class EnCodonTE(nn.Module):
                 if module.layer_norm_bias is not None:
                     module.layer_norm_bias.data.zero_()
 
-    def _init_weights(self):  # noqa: C901
+    def _init_weights(self):
         """Initializes the weights of the model using the MAGNETO initialization scheme."""
         for name, module in self.named_modules():
             if isinstance(module, (nn.Linear, transformer_engine.pytorch.Linear)):

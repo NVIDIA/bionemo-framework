@@ -1,19 +1,11 @@
 # Training config
-model_tag: ??? # E.g., meta-llama/Llama-3.2-1B or a local path
-config_kwargs: # Arguments to pass to the AutoConfig.from_pretrained method
-  trust_remote_code: true
-  vocab_size: 256  # Overrides to the default config that comes from meta-llama/Llama-3.2-1B
-  tie_word_embeddings: false
-  eos_token_id: 0
-  pad_token_id: 1
-  bos_token_id: 2
-  attn_input_format: "bshd"
+use_te: true # Whether to use TransformerEngine layers through NVLlamaForCausalLM (if false, use HF's LlamaForCausalLM)
+config_name_or_path: ??? # E.g., meta-llama/Llama-3.2-1B or ./model_configs/meta-llama/Llama-3.2-1B
+config_kwargs: {}
 
 num_train_steps: ???
 
-# TODO: Once BIONEMO-2583 and BIONEMO-2719 are fixed, enable this by default and simplify training scripts to remove the
-# meta-device conditional.
-use_meta_device: false
+use_meta_device: true
 
 # Whether to wrap the model in torch.compile. Note, this is currently not supported with mfsdp (BIONEMO-2977).
 # We leave this off by default since we don't see much of a performance improvement with TE layers.
@@ -25,7 +17,7 @@ use_gradient_checkpointing: false
 use_sequence_packing: false
 
 dataset:
-  tokenizer_path: ${model_tag} # Set to the path of your tokenizer (e.g., ./example_checkpoint)
+  tokenizer_name_or_path: ??? # Set to the path of your tokenizer (e.g.,  meta-llama/Llama-3.1-8B or ./tokenizers/nucleotide_fast_tokenizer)
   micro_batch_size: 8
   num_workers: 1
   max_seq_length: 8192 # Window size for genomic sequences
@@ -39,22 +31,9 @@ dataset:
     streaming: True
 
 # WandB config
-wandb_init_args:
+wandb:
   name: ???
   project: null # Optional: set to your wandb project name
-
-# mFSDP config
-fully_shard_kwargs:
-  zero_dp_strategy: "optim_grads_params"
-  calculate_per_token_loss: false
-  init_model_with_meta_device: ${use_meta_device}
-  check_for_nan_in_grad: true
-  grad_reduce_in_fp32: false
-  preserve_fp32_weights: true
-  overlap_grad_reduce: true
-  overlap_param_gather: true
-  sync_model_each_microbatch: true
-  average_in_collective: false
 
 # TransformerEngine FP8 config. See
 # https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html for more information on
@@ -69,16 +48,17 @@ fp8_config:
 
 # Optimizer config
 adamw_kwargs:
-  lr: 4e-4
+  lr: 3e-3
   fused: true
-  betas: [0.9, 0.98]
-  eps: 1e-8
-  weight_decay: 0.01
+  betas: [0.9, 0.95]
+  eps: 1e-5
+  weight_decay: 0.1
 
 # Learning rate scheduler config
 lr_scheduler_kwargs:
   num_warmup_steps: 2_000
-  num_training_steps: 500_000
+  num_decay_steps: 498_000
+  min_lr_ratio: 0.000001
 
 # Checkpoint config
 checkpoint:
@@ -89,3 +69,11 @@ checkpoint:
 
 logger:
   frequency: 100
+
+profiler:
+  enabled: false
+  schedule:
+    wait: 10
+    warmup: 10
+    active: 3
+    repeat: 1

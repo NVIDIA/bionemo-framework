@@ -21,12 +21,6 @@ from genomic_dataset import GenomicDataCollator
 
 
 @pytest.fixture
-def tokenizer_path(recipe_path):
-    """Get the path to the nucleotide tokenizer."""
-    return str(recipe_path / "example_checkpoint")
-
-
-@pytest.fixture
 def tokenizer(tokenizer_path):
     """Load the nucleotide tokenizer."""
     from transformers import AutoTokenizer

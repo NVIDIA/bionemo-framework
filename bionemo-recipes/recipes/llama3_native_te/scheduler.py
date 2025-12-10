@@ -13,33 +13,53 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
+
 from torch.optim.lr_scheduler import LambdaLR
 
 
-def get_linear_schedule_with_warmup(
+def get_cosine_annealing_schedule_with_warmup(
     optimizer,
     num_warmup_steps=2_000,
-    num_training_steps=500_000,
+    num_decay_steps=500_000,
+    min_lr_ratio=0.0,
     last_epoch=-1,
 ):
-    """Linear warmup and decay scheduler for ESM-2 pretraining.
+    """Cosine annealing scheduler with warmup.
 
-    The description from Lin 2022 is: The learning rate is warmed up over the first 2,000 steps
-    to a peak value of 4e-4 (1.6e-4 for the 15B parameter model), and then linearly decayed to
-    one tenth of its peak value over the 90% of training duration. We've found internally that a
-    longer warmup helps convergence for larger models (3B+) with bf16 precision.
+    The learning rate is linearly warmed up from 0 to max_lr over num_warmup_steps,
+    then follows a cosine annealing schedule from max_lr to min_lr over num_decay_steps.
+    After warmup_steps + decay_steps, the learning rate remains at min_lr.
+
+    Args:
+        optimizer: The optimizer to schedule.
+        num_warmup_steps: Number of warmup steps.
+        num_decay_steps: Number of decay steps after warmup.
+        min_lr_ratio: Minimum learning rate as a ratio of the initial learning rate.
+            If 0.0, decays to 0. Otherwise, decays to max_lr * min_lr_ratio.
+        last_epoch: The index of the last epoch. Default: -1.
     """
-    decay_steps = int(num_training_steps * 0.9)
+    # Get the initial learning rate (max_lr) from the optimizer
+    max_lr = optimizer.param_groups[0]["lr"]
+    min_lr = max_lr * min_lr_ratio
 
     def lr_lambda(current_step: int):
-        if current_step < num_warmup_steps:
-            # Warmup phase: linearly increase learning rate
+        if num_warmup_steps > 0 and current_step <= num_warmup_steps:
+            # Warmup phase: linearly increase learning rate from 0 to max_lr
+            # LambdaLR multiplies by this value, so return step/warmup_steps
             return float(current_step) / float(max(1, num_warmup_steps))
-        # Decay phase: linearly decay to one tenth of peak over 90% of training
-        elif current_step > decay_steps:
-            return 0.1  # one tenth of peak learning rate after decay period
-        else:
-            # Linear decay from 1.0 to 0.1 over decay_steps-num_warmup_steps
-            return 1.0 - 0.9 * (current_step - num_warmup_steps) / float(max(1, decay_steps - num_warmup_steps))
+        # For any steps larger than warmup_steps + decay_steps, use min_lr
+        if current_step > num_warmup_steps + num_decay_steps:
+            # Return multiplier that gives min_lr when multiplied by max_lr
+            return min_lr_ratio
+        # Cosine annealing phase: decay from max_lr to min_lr
+        num_steps_ = current_step - num_warmup_steps
+        decay_steps_ = num_decay_steps
+        decay_ratio = float(num_steps_) / float(decay_steps_)
+        delta_lr = max_lr - min_lr
+        coeff = 0.5 * (math.cos(math.pi * decay_ratio) + 1.0)
+        # Calculate the actual LR, then convert to multiplier
+        actual_lr = min_lr + coeff * delta_lr
+        return actual_lr / max_lr
 
     return LambdaLR(optimizer, lr_lambda, last_epoch)

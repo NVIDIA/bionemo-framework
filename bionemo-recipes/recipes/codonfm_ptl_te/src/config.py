@@ -41,7 +41,7 @@ from src.utils.timer import StepTimingCallback
 
 
 # Datasets
-def get_dataset_config(args: Any, process_item_cfg: fdl.Partial) -> fdl.Config:  # noqa: C901
+def get_dataset_config(args: Any, process_item_cfg: fdl.Partial) -> fdl.Config:
     """Builds the dataset configuration."""
     class_name = args.dataset_name
     if class_name == "CodonMemmapDataset":

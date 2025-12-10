@@ -24,6 +24,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     DataCollatorWithFlattening,
+    set_seed,
 )
 
 from convert import convert_llama_hf_to_te
@@ -376,6 +377,7 @@ def test_te_llama_model_generate_with_cache_bshd_beam_search():
 
 @pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
 def test_loss_with_random_weights_for_input_gene_sequence(recipe_path, attn_input_format: str):
+    set_seed(42)
     tokenizer = AutoTokenizer.from_pretrained(recipe_path / "nucleotide_fast_tokenizer")
     input_text = "GCACGGTCTGCACCACCGTCTGCCCGGTCAGCGGCGTTAACCCGCGCTATCCCGGTCCGAAACAGGCCGGGCCGGACGGCGAGCGCCTTCGTCTGAAGGA"
 

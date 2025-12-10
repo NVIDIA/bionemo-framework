@@ -23,13 +23,15 @@ from omegaconf import DictConfig
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
-from transformers import AutoConfig, AutoModelForCausalLM
+from transformers.models.llama.configuration_llama import LlamaConfig
+from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
+from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
-from scheduler import get_linear_schedule_with_warmup
+from scheduler import get_cosine_annealing_schedule_with_warmup
 
 
 logger = logging.getLogger(__name__)
@@ -52,36 +54,41 @@ def main(args: DictConfig) -> float | None:
 
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
     # and MFSDP.
-    device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("ddp",))
+    device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
 
     # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
     fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
         fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
     )
 
+    if args.use_te:
+        config_class = NVLlamaConfig
+        model_class = NVLlamaForCausalLM
+    else:
+        config_class = LlamaConfig
+        model_class = LlamaForCausalLM
+
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
-    config = AutoConfig.from_pretrained(args.model_tag, dtype=torch.bfloat16, **args.config_kwargs)
-    # Use SDPA (Scaled Dot-Product Attention) to avoid materializing large causal masks
-    # config.attn_implementation = "sdpa"
+    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
     with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
-        model = AutoModelForCausalLM.from_config(config, trust_remote_code=True)
+        model = model_class(config)
 
     logger.info("Initialized Model:\n%s", model)
 
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
-    scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+    scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     model = model.to(device=device)
     model = torch.nn.parallel.DistributedDataParallel(
         model,
         device_ids=[dist_config.local_rank],
         output_device=dist_config.local_rank,
-        device_mesh=device_mesh["ddp"],
+        device_mesh=device_mesh["dp"],
     )
 
     if args.use_sequence_packing:

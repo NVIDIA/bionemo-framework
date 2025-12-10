@@ -158,7 +158,7 @@ def apply_transforms(
             _params[name] = nn.Parameter(target_param, requires_grad=param.requires_grad)
             target_state.pop(name)
         else:
-            print(f"Unexpected key: {name} not in checkpoint but in model.")
+            print(f"Unexpected key: {name} not in target model but is in source model.")
 
     for key, val in _params.items():
         _module, _key = target, key
@@ -190,7 +190,7 @@ def apply_transforms(
     keys = list(filter(lambda x: x is not None and not x.endswith("_extra_state"), target_state.keys()))
     keys = [key for key in keys if key not in state_dict_ignored_entries]
     if len(keys) != 0:
-        raise RuntimeError(f"Additional keys: {keys} in checkpoint but not in model.")
+        raise RuntimeError(f"Additional keys: {keys} in target model but not in source model.")
 
     if hasattr(target, "tie_weights"):
         target.tie_weights()

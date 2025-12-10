@@ -266,7 +266,7 @@ class EncodonTELayer(torch.nn.Module):
                     QK normalization at different points.
     """  # noqa: D205
 
-    def __init__(  # noqa: D107, C901
+    def __init__(  # noqa: D107
         self,
         hidden_size: int,
         ffn_hidden_size: int,
@@ -573,7 +573,7 @@ class EncodonTELayer(torch.nn.Module):
             if hasattr(child, "set_context_parallel_group"):
                 child.set_context_parallel_group(cp_group, cp_global_ranks, cp_stream, cp_comm_type)
 
-    def forward(  # noqa: C901
+    def forward(
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,

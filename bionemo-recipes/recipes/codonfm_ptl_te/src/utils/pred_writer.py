@@ -104,7 +104,7 @@ class PredWriter(BasePredictionWriter):
             np.save(file_path, value)
         self.predictions_buffer.clear()
 
-    def _merge_predictions(self):  # noqa: C901
+    def _merge_predictions(self):
         """Merge per-rank shard files into a single array per key.
 
         The method reconstructs the original sample ordering based on the DDP

@@ -31,7 +31,7 @@ from transformers import AutoConfig, AutoModelForMaskedLM
 from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
-from dataset import create_bshd_dataloader, create_thd_dataloader
+from dataset import create_cp_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-@hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
+@hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using fsdp2.
 
@@ -55,12 +55,39 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
-    # Create a device mesh for FSDP.
+    # Validate that world_size is divisible by cp_size
+    if dist_config.world_size % args.cp_size != 0:
+        raise ValueError(
+            f"world_size ({dist_config.world_size}) must be divisible by cp_size ({args.cp_size}). "
+            f"Set cp_size to a divisor of world_size."
+        )
+
+    # Calculate DP size (number of data parallel replicas)
+    dp_size = dist_config.world_size // args.cp_size
+
+    # Create a device mesh for DP and CP.
+    # The mesh is organized as [CP_dimension, DDP_dimension] where:
+    # - DDP dimension: number of data parallel replicas (world_size // cp_size)
+    # - CP dimension: context parallel size
+    # Total ranks = cp_size * dp_size = world_size
     device_mesh = init_device_mesh(
         "cuda",
-        mesh_shape=(dist_config.world_size,),
-        mesh_dim_names=("dp",),
+        mesh_shape=(dp_size, args.cp_size),
+        mesh_dim_names=("dp", "cp"),
     )
+
+    # Our flattened group must have at least 2 ranks to enable Context Parallelism.
+    if dp_size * args.cp_size <= 1:
+        cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
+    else:
+        cp_dp_mesh = device_mesh
+
+    logger.info(
+        f"Creating device mesh: world_size={dist_config.world_size}, dp_size={dp_size}, cp_size={args.cp_size}"
+    )
+
+    cp_group = device_mesh["cp"].get_group()
+    cp_rank = device_mesh.get_local_rank("cp")
 
     # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
     fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
@@ -68,7 +95,9 @@ def main(args: DictConfig) -> float | None:
     )
 
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
+    config = AutoConfig.from_pretrained(
+        args.model_tag, trust_remote_code=True, token_dropout=False, dtype=torch.bfloat16
+    )
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -86,9 +115,17 @@ def main(args: DictConfig) -> float | None:
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
+    # Fully shard takes in a DeviceMesh object, which is a 2D mesh of dimensions (CP_dimension, DP_dimension).
+    # FSDP2 will shard the model across the DP (dim=1) dimension and then duplicate across the CP (dim=0) dimension.
     for layer in transformer_stack:
-        fully_shard(layer, mesh=device_mesh["dp"])
-    fully_shard(model, mesh=device_mesh["dp"])
+        fully_shard(layer, mesh=cp_dp_mesh)
+        # Set CP group for layer if CP is enabled.
+        if args.cp_size > 1:
+            logger.debug(f"Rank {dist_config.rank}: Setting CP group for layer {layer}")
+            layer.set_context_parallel_group(
+                cp_group, torch.distributed.get_process_group_ranks(cp_group), torch.cuda.Stream()
+            )
+    fully_shard(model, mesh=cp_dp_mesh)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
@@ -98,11 +135,15 @@ def main(args: DictConfig) -> float | None:
         model.to_empty(device=device)
         model.apply(model._init_weights)
 
-    # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
-    train_dataloader, dataset_or_sampler = (
-        create_thd_dataloader(dist_config, **args.dataset)
-        if args.use_sequence_packing
-        else create_bshd_dataloader(dist_config, **args.dataset)
+    # Context Parallelism requires THD Sequence Packing.
+    assert args.use_sequence_packing, "Context Parallelism requires THD Sequence Packing."
+
+    train_dataloader, dataset_or_sampler = create_cp_dataloader(
+        dist_config,
+        cp_world_size=torch.distributed.get_world_size(group=cp_group),
+        cp_group=cp_group,
+        cp_rank=cp_rank,
+        **args.dataset,
     )
 
     if args.use_torch_compile:
