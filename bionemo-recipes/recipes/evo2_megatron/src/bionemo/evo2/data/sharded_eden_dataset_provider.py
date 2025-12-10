@@ -79,6 +79,7 @@ class ShardedEdenDatasetProvider(DatasetProvider):
     log_dir: Optional[str] = None
     skip_stats: bool = True
     create_attention_mask: bool = False
+    dataloader_type: str = "single"  # critical
 
     def _create_epoch_wrapped_sharded_eden_dataset(
         self,
