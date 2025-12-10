@@ -57,6 +57,7 @@ class Evo2DatasetProvider(DatasetProvider):
         num_val_samples = context.valid_samples
         num_test_samples = context.test_samples
 
+        assert context.tokenizer is not None
         dataset_config = self.get_gpt_dataset_config(context.tokenizer)
 
         train_valid_test_num_samples = [num_train_samples, num_val_samples, num_test_samples]
@@ -73,6 +74,7 @@ class Evo2DatasetProvider(DatasetProvider):
         """Get the GPT dataset configuration."""
         from megatron.core.datasets.gpt_dataset import GPTDatasetConfig
 
+        assert self.dataset_config_path is not None
         paths = parse_dataset_config(
             dataset_config_path=str(self.dataset_config_path),
             dataset_path=str(self.dataset_path) if self.dataset_path is not None else None,
