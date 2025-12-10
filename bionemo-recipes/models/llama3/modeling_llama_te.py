@@ -48,13 +48,22 @@ class NVLlamaConfig(LlamaConfig):
 class NVLlamaPreTrainedModel(PreTrainedModel):
     """Base class for NVLlama models."""
 
-    config: NVLlamaConfig
+    config_class = NVLlamaConfig
     base_model_prefix = "model"
     _no_split_modules = ("TransformerLayer",)
     _skip_keys_device_placement = ("past_key_values",)
 
     def _init_weights(self, module):
-        """TE-specific weight initialization."""
+        """Initialize module weights.
+
+        This method ensures that models with randomly-initialized weights get the correct initial value distribution,
+        which can be critical for training stability. We also call this method directly when using meta-device init, as
+        the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
+        we need to extend it to handle TE-specific modules.
+
+        Args:
+            module (nn.Module): The module to initialize the weights for.
+        """
         super()._init_weights(module)
 
         # Copied from transformers.modeling_utils.PreTrainedModel._init_weights
@@ -75,10 +84,25 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
                 module.weight.data.fill_(1.0)
             if hasattr(module, "bias") and module.bias is not None:
                 module.bias.data.zero_()
+        if isinstance(module, transformer_engine.pytorch.RMSNorm):
+            if hasattr(module, "weight") and module.weight is not None:
+                module.weight.data.fill_(1.0)
         if isinstance(module, transformer_engine.pytorch.LayerNormLinear):
             module.layer_norm_weight.data.fill_(1.0)
             if module.layer_norm_bias is not None:
                 module.layer_norm_bias.data.zero_()
+        if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
+            module.layer_norm_weight.data.fill_(1.0)
+            if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
+                module.fc1_weight.data.normal_(mean=0.0, std=std)
+            if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
+                module.fc2_weight.data.normal_(mean=0.0, std=std)
+            if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
+                module.fc1_bias.data.zero_()
+            if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
+                module.fc2_bias.data.zero_()
+        if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
+            module.inv_freq = LlamaRotaryEmbedding(config=self.config).inv_freq.to(module.inv_freq.device)
 
 
 class NVLlamaModel(NVLlamaPreTrainedModel):

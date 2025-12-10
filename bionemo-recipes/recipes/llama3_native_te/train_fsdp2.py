@@ -40,7 +40,7 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
-def main(args: DictConfig) -> float | None:  # noqa: C901
+def main(args: DictConfig) -> float | None:
     """Train Llama3 with TE layers using FSDP2.
 
     Returns:
@@ -91,9 +91,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
 
     if args.use_meta_device:
         model.to_empty(device=device)
-        for module in model.modules():
-            if hasattr(module, "reset_parameters"):
-                module.reset_parameters()
+        model.apply(model._init_weights)
 
     if args.use_sequence_packing:
         train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)

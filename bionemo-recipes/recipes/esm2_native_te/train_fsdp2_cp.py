@@ -42,7 +42,7 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
-def main(args: DictConfig) -> float | None:  # noqa: C901
+def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using fsdp2.
 
     Returns:
@@ -133,9 +133,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
 
     if args.use_meta_device:
         model.to_empty(device=device)
-        for module in model.modules():
-            if hasattr(module, "reset_parameters"):
-                module.reset_parameters()
+        model.apply(model._init_weights)
 
     # Context Parallelism requires THD Sequence Packing.
     assert args.use_sequence_packing, "Context Parallelism requires THD Sequence Packing."

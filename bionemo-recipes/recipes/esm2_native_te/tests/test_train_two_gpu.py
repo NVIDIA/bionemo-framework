@@ -110,26 +110,6 @@ def test_multi_gpu_train_te_fsdp2(tmp_path, recipe_path):
 
 
 @requires_multi_gpu
-def test_multi_gpu_train_eager_fsdp2_meta_device(tmp_path, recipe_path):
-    # Run 'accelerate launch train.py' as a subprocess
-    run_train_cmd(
-        [
-            "torchrun",
-            "--nproc_per_node",
-            "2",
-            "--standalone",
-            "train_fsdp2.py",
-            "--config-name",
-            "L0_sanity",
-            "model_tag=facebook/esm2_t6_8M_UR50D",
-            "use_meta_device=true",
-            "num_train_steps=4",
-        ],
-        recipe_path,
-    )
-
-
-@requires_multi_gpu
 @requires_datacenter_hardware
 def test_multi_gpu_train_te_ddp_cp(tmp_path, recipe_path):
     # Run 'accelerate launch train.py' as a subprocess

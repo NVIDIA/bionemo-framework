@@ -72,9 +72,33 @@ def test_convert_hf_to_te_with_bf16():
     convert_llama_hf_to_te(model_hf)
 
 
+def test_convert_hf_to_te_with_bf16_tied_weights():
+    config = AutoConfig.from_pretrained(
+        "nvidia/Llama-3.1-8B-Instruct-FP8",
+        dtype=torch.bfloat16,
+        num_hidden_layers=2,
+        tie_word_embeddings=True,
+    )
+    model_hf = LlamaForCausalLM(config)
+    model_hf.to(dtype=torch.bfloat16)  # I think the original llama3 model doesn't initialize in bf16.
+    convert_llama_hf_to_te(model_hf)
+
+
 def test_convert_te_to_hf_with_bf16():
     config = NVLlamaConfig.from_pretrained(
         "nvidia/Llama-3.1-8B-Instruct-FP8", dtype=torch.bfloat16, num_hidden_layers=2
+    )
+    model_te = NVLlamaForCausalLM(config)
+    model_te.to(dtype=torch.float32)  # I think the original llama3 model doesn't initialize in bf16.
+    convert_llama_te_to_hf(model_te)
+
+
+def test_convert_te_to_hf_with_bf16_tied_weights():
+    config = NVLlamaConfig.from_pretrained(
+        "nvidia/Llama-3.1-8B-Instruct-FP8",
+        dtype=torch.bfloat16,
+        num_hidden_layers=2,
+        tie_word_embeddings=True,
     )
     model_te = NVLlamaForCausalLM(config)
     model_te.to(dtype=torch.float32)  # I think the original llama3 model doesn't initialize in bf16.

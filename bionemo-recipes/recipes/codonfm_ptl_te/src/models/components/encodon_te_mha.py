@@ -591,7 +591,7 @@ class EncodonTEMultiheadAttention(torch.nn.Module):
             if hasattr(child, "set_context_parallel_group"):
                 child.set_context_parallel_group(cp_group, cp_global_ranks, cp_stream, cp_comm_type)
 
-    def forward(  # noqa: C901
+    def forward(
         self,
         hidden_states: torch.Tensor,
         attention_mask: Optional[Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]] = None,

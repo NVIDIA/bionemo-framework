@@ -126,6 +126,7 @@ def convert_llama_te_to_hf(model_te: NVLlamaForCausalLM, **config_kwargs) -> Lla
                 fn=state.TransformFns.split_fc1,
             ),
         ],
+        state_dict_ignored_entries=model_hf._tied_weights_keys,
     )
 
     output_model.model.rotary_emb.inv_freq = model_te.model.rotary_emb.inv_freq.clone()
