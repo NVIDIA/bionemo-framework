@@ -1376,7 +1376,7 @@ def train2(args: argparse.Namespace) -> None:
             f"-EWD{args.no_weight_decay_embeddings}-SNI{args.spike_no_more_embedding_init}"
             f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
             f"-TVL{args.use_targeted_variance_loss}"
-            f"-NODES{args.num_nodes}-MPR{args.mixed_precision_recipe}"
+            f"-MPR{args.mixed_precision_recipe}"
         )
         cfg.logger.wandb_project = args.wandb_project
         cfg.logger.wandb_exp_name = args.wandb_run_name or default_wandb_run_name
