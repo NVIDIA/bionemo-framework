@@ -693,6 +693,7 @@ class Hyena40bARCLongContextModelProvider(Hyena40bModelProvider):
     seq_len_interpolation_factor: float = 128
 
 
+@dataclass
 class HyenaNV1b2ModelProvider(HyenaNV1bModelProvider):
     """A parallel friendly version of the HyenaNV1bConfig."""
 

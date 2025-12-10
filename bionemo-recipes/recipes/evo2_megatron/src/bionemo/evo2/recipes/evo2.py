@@ -140,7 +140,7 @@ def _evo2_common(
     pipeline_dtype: torch.dtype | None = None,
     virtual_pipeline_model_parallel_size: int | None = None,
     context_parallel_size: int = 1,
-    sequence_parallel: bool = False,
+    sequence_parallel: bool | None = None,
     # Training hyperparameters
     train_iters: int = 1_168_251,
     global_batch_size: int = 8,
@@ -211,7 +211,7 @@ def _evo2_common(
         pipeline_dtype=pipeline_dtype or torch.bfloat16,
         virtual_pipeline_model_parallel_size=virtual_pipeline_model_parallel_size,
         context_parallel_size=context_parallel_size,
-        sequence_parallel=sequence_parallel,
+        sequence_parallel=sequence_parallel if sequence_parallel is not None else tensor_model_parallel_size > 1,
         seq_length=seq_length,
     )
 

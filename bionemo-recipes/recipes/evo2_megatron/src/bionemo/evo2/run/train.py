@@ -1205,7 +1205,9 @@ def train2(args: argparse.Namespace) -> None:
     recipe_kwargs["tensor_model_parallel_size"] = args.tensor_model_parallel_size
     recipe_kwargs["pipeline_model_parallel_size"] = args.pipeline_model_parallel_size
     recipe_kwargs["context_parallel_size"] = args.context_parallel_size
-    recipe_kwargs["sequence_parallel"] = args.sequence_parallel
+    recipe_kwargs["sequence_parallel"] = (
+        args.tensor_model_parallel_size > 1
+    )  # args.sequence_parallel # TODO: remove this arg.
 
     # Training
     recipe_kwargs["train_iters"] = args.max_steps
