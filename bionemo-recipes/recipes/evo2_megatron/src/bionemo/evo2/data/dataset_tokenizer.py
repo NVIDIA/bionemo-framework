@@ -40,16 +40,20 @@ class Evo2DatasetTokenizer:
         self.params: Evo2PreprocessingConfig = params if params is not None else Evo2PreprocessingConfig()
         if self.params.hf_tokenizer_model_path is not None:
             hf_tokenizer_model_or_path = Path(self.params.hf_tokenizer_model_path)
+            hf_tokenizer_desc: str = hf_tokenizer_model_or_path.name
             assert hf_tokenizer_model_or_path.exists(), (
                 f"Hugging Face tokenizer model path {hf_tokenizer_model_or_path} does not exist."
             )
         elif self.params.hf_tokenizer_model_name is not None:
             hf_tokenizer_model_or_path = str(self.params.hf_tokenizer_model_name)
+            hf_tokenizer_desc = hf_tokenizer_model_or_path.replace("/", "--").replace(":", "--")
         else:
             hf_tokenizer_model_or_path = DEFAULT_HF_TOKENIZER_MODEL_PATH
+            hf_tokenizer_desc = hf_tokenizer_model_or_path.name
             assert hf_tokenizer_model_or_path.exists(), (
                 f"Default Hugging Face tokenizer model path {hf_tokenizer_model_or_path} does not exist."
             )
+        self.hf_tokenizer_desc = hf_tokenizer_desc
         self.tokenizer: MegatronTokenizer = build_tokenizer(
             TokenizerConfig(
                 tokenizer_type="HuggingFaceTokenizer",

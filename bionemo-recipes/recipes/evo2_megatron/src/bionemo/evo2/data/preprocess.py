@@ -82,9 +82,12 @@ class Evo2Preprocessor:
             # Restore random state.
             random.setstate(current_state)
 
-    @staticmethod
     def _get_output_filename(
-        config: Evo2PreprocessingConfig, ext: Optional[str] = None, split: Optional[str] = None, temp: bool = False
+        self,
+        config: Evo2PreprocessingConfig,
+        ext: Optional[str] = None,
+        split: Optional[str] = None,
+        temp: bool = False,
     ) -> Path:
         """Generate the output filename for the preprocessed data.
 
@@ -102,7 +105,7 @@ class Evo2Preprocessor:
         if output_dir is None:
             output_dir = Path.cwd()
         # Pickup output file prefix.
-        config_prefix = "{}_{}".format(config.output_prefix, config.tokenizer_type.lower().replace(" ", ""))
+        config_prefix = "{}_{}".format(config.output_prefix, self.tokenizer.hf_tokenizer_desc.lower().replace(" ", ""))
         output_filepath = Path(output_dir) / (
             config_prefix
             + (f"_{split}" if split is not None else "")
