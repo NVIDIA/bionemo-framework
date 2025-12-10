@@ -75,7 +75,7 @@ def test_llama_model_forward_pass_no_attention_mask():
 
     input_text = ["Hello, world!"]
     inputs = tokenizer(input_text, return_tensors="pt")
-    inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    inputs = {k: v.to("cuda") for k, v in inputs.items() if k != "attention_mask"}
     model.to("cuda")
     with torch.no_grad():
         outputs = model(**inputs, output_hidden_states=True)
