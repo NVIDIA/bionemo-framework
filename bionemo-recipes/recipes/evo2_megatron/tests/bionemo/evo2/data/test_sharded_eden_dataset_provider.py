@@ -25,6 +25,8 @@ import torch
 from megatron.bridge.training.tokenizers.config import TokenizerConfig
 from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
 
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH, DEFAULT_HF_TOKENIZER_MODEL_PATH_512
+
 # FIXME revive this since it might make some tests/training runs easier.
 from bionemo.evo2.data.sharded_eden_dataset_provider import (
     DatasetBuildContext,
@@ -264,16 +266,21 @@ def test_sharded_eden_datamodule_initialization(sequence_db_dir, window_dbs):
     assert len(test_ds) == 50
 
 
-def test_dataset_getitem(sequence_db_dir, window_dbs):
+@pytest.mark.parametrize(
+    "hf_tokenizer_model_path",
+    [
+        DEFAULT_HF_TOKENIZER_MODEL_PATH,
+        DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+    ],
+)
+def test_dataset_getitem(hf_tokenizer_model_path, sequence_db_dir, window_dbs):
     """Test dataset item retrieval."""
     # Mock tokenizer
-    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
-
     tokenizer = build_tokenizer(
         TokenizerConfig(
             tokenizer_type="HuggingFaceTokenizer",
             hf_tokenizer_kwargs={"trust_remote_code": False},
-            tokenizer_model=DEFAULT_HF_TOKENIZER_MODEL_PATH,
+            tokenizer_model=hf_tokenizer_model_path,
         )
     )
 

@@ -26,9 +26,9 @@ from megatron.bridge.training.tokenizers.tokenizer import MegatronTokenizer, bui
 from bionemo.evo2.utils.config import Evo2PreprocessingConfig
 
 
-DEFAULT_HF_TOKENIZER_MODEL_PATH = (
-    Path(__file__).parent.parent.parent.parent.parent / "tokenizers" / "nucleotide_fast_tokenizer_256"
-)
+REPO_BASE_DIR = Path(__file__).parent.parent.parent.parent.parent
+DEFAULT_HF_TOKENIZER_MODEL_PATH = REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_256"
+DEFAULT_HF_TOKENIZER_MODEL_PATH_512 = REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_512"
 
 
 class Evo2DatasetTokenizer:
