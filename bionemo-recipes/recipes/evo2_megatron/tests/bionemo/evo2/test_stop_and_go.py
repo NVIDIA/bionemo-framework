@@ -255,6 +255,7 @@ def find_free_network_port() -> int:
         (2, 1, 1, 1, False),
     ],
 )
+@pytest.mark.slow
 def test_stop_and_go(
     tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, pp_size: int = 1, dp_rank_check: bool = False
 ):
