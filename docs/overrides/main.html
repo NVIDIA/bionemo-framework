@@ -30,11 +30,16 @@
   // Otherwise, keep the original outdated banner visible (default behavior)
 </script>
 {% endblock %}
-
 {% block styles %} {{ super() }}
 <link rel="stylesheet" href="{{ 'assets/css/chatbot.css' | url }}" />
-{% endblock %} {% block scripts %} {{ super() }}
-<script src="{{ 'assets/javascripts/chatbot.js' | url }}"></script>
-{% endblock %} {% block content %} {{ super() }}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script src="https://d4j85rjepgcta.cloudfront.net/nvidiadocs/chatbot.js"></script>
+{% endblock %}
+
+{% block content %}
+{{ super() }}
 <div id="chatbot"></div>
 {% endblock %}
