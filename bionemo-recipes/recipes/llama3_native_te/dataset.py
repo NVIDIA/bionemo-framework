@@ -219,6 +219,7 @@ def create_thd_dataloader(
     text_column: str = "text",
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = True,
+    split_samples_in_token_packing: bool = True,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
 
@@ -240,6 +241,8 @@ def create_thd_dataloader(
         text_column: Name of the column containing genomic sequences (default: "text").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
         mask_degenerate_bases: Whether to mask degenerate bases (genomic masking). Default: True.
+        split_samples_in_token_packing: Whether to split samples to form batches with exactly token_micro_batch_size
+            tokens. Default: True.
 
     Returns:
         A dataloader that can be used for training.
@@ -279,7 +282,11 @@ def create_thd_dataloader(
     # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
     dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
     train_dataloader = dataloader_class(
-        TokenPackingDataset(tokenized_dataset, max_tokens_per_batch=token_micro_batch_size),
+        TokenPackingDataset(
+            tokenized_dataset,
+            max_tokens_per_batch=token_micro_batch_size,
+            split_samples=split_samples_in_token_packing,
+        ),
         batch_size=None,  # The TokenPackingDataset will handle the batching.
         collate_fn=data_collator,
         num_workers=num_workers,
