@@ -258,7 +258,8 @@ class HyenaMixer(MegatronModule):
             is_expert=False,
             tp_comm_buffer_name="fc2",
         )
-        self.reset_parameters()
+        if self.config.perform_initialization:
+            self.reset_parameters()
 
     def reset_parameters(self):
         """Reset the parameters of the HyenaMixer."""

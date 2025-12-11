@@ -214,6 +214,7 @@ def _evo2_common(
         context_parallel_size=context_parallel_size,
         sequence_parallel=sequence_parallel if sequence_parallel is not None else tensor_model_parallel_size > 1,
         seq_length=seq_length,
+        perform_initialization=True,
     )
 
     opt_config, scheduler = distributed_fused_adam_with_cosine_annealing(
@@ -274,6 +275,7 @@ def _evo2_common(
             load=checkpoint_dir,
             ckpt_format="torch_dist",
             fully_parallel_load=True,
+            dist_ckpt_optim_fully_reshardable=True,
         ),
         rng=RNGConfig(seed=seed),
         comm_overlap=comm_overlap_config,

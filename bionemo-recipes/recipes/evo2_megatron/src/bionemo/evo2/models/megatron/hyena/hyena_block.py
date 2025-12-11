@@ -146,7 +146,8 @@ class HyenaStack(MegatronModule):
             )
         # Required for activation recomputation
         self.num_layers_per_pipeline_rank = len(self.layers)
-        self.reset_parameters()
+        if self.config.perform_initialization:
+            self.reset_parameters()
 
     def set_input_tensor(self, input_tensor: Tensor):
         """Set input tensor to be used instead of forward()'s input.

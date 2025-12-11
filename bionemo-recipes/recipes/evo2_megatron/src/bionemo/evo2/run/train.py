@@ -18,15 +18,12 @@
 
 import argparse
 
+# TODO add back support for TEV logging
 # from bionemo.evo2.utils.logging.callbacks import TEVCallback
-# from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
-# from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 import logging
 from pathlib import Path
 from typing import List, Optional
 
-# TODO add back support for slurm resilience.
-# import nvidia_resiliency_ext.ptl_resiliency as res_module
 import torch
 from megatron.bridge.training.comm_overlap import (
     CommOverlapConfig,
@@ -34,43 +31,15 @@ from megatron.bridge.training.comm_overlap import (
     userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192,
 )
 from megatron.bridge.training.config import ConfigContainer, FaultToleranceConfig
-
-# from lightning.pytorch.callbacks import Callback, LearningRateMonitor, RichModelSummary
 from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES
 from megatron.bridge.training.post_training.checkpointing import has_modelopt_state
 from megatron.bridge.training.pretrain import pretrain
 from megatron.bridge.utils.common_utils import get_rank_safe
 
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
 from bionemo.evo2.models.evo2_provider import HYENA_MODEL_OPTIONS, hyena_forward_step
 from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.recipes.evo2 import evo2_1b_pretrain_config as pretrain_config
-
-
-# from nemo import lightning as nl
-# from nemo.collections import llm
-# from nemo.collections.llm.gpt.data import MockDataModule, PreTrainingDataModule
-# from nemo.collections.llm.gpt.data.megatron.hyena.config import parse_dataset_config
-# from nemo.collections.llm.gpt.data.megatron.hyena.evo2_dataset import Evo2Dataset, Evo2DatasetPadEodLossMask
-# from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS
-# from nemo.collections.llm.recipes.tp_overlap_configs.userbuffers import (
-#     userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192,
-#     userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192,
-# )
-# from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
-# from nemo.lightning.pytorch import callbacks as nl_callbacks
-# from nemo.lightning.pytorch.callbacks.flops_callback import FLOPsMeasurementCallback
-# from nemo.lightning.pytorch.callbacks.megatron_comm_overlap import MegatronCommOverlapCallback
-# from nemo.lightning.pytorch.optim import CosineAnnealingScheduler
-# from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
-# from nemo.lightning.pytorch.strategies.utils import RestoreConfig
-# from nemo.utils import logging as logger
-# from nemo.utils.exp_manager import TimingCallback
-# from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataModule
-# from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
-# from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
-# from bionemo.evo2.models.peft import Evo2LoRA
-
-# from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime
 
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -300,6 +269,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Number of steps to keep the learning rate constant at minimum after annealing. This controls the "
         "shape of the learning rate curve.",
         default=2_500,
+    )  # DONE
+    parser.add_argument(
+        "--decay-steps",
+        type=int,
+        help="Number of steps to decay the learning rate to minimum after annealing. If provided, --constant-steps is ignored.",
+        default=None,
     )  # DONE
     parser.add_argument(
         "--early-stop-on-step",
@@ -671,7 +646,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Enable NVIDIA fault tolerance. This only works on internal NVIDIA clusters.",
-    )  # TODO implement
+    )  # DONE
 
     recompute_group = parser.add_mutually_exclusive_group(required=False)  # DONE
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)  # DONE
@@ -688,487 +663,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(args=args)
 
 
-# def train(args: argparse.Namespace) -> nl.Trainer:
-#     """Main function to run Evo2 training."""
-#     tokenizer = get_nmt_tokenizer(
-#         "byte-level",
-#     )
-
-#     # Infer global batch size.
-#     global_batch_size = args.global_batch_size
-#     if global_batch_size is None:
-#         global_batch_size = infer_global_batch_size(
-#             micro_batch_size=args.micro_batch_size,
-#             num_nodes=args.num_nodes,
-#             devices=args.devices,
-#             accumulate_grad_batches=args.grad_acc_batches,
-#             tensor_model_parallel_size=args.tensor_parallel_size,
-#             pipeline_model_parallel_size=args.pipeline_model_parallel_size,
-#             context_model_parallel_size=args.context_parallel_size,
-#         )
-#     if args.mock_data:
-#         data_module = MockDataModule(
-#             seq_length=args.seq_length,
-#             micro_batch_size=args.micro_batch_size,
-#             global_batch_size=global_batch_size,
-#             num_train_samples=args.max_steps * global_batch_size,
-#             num_val_samples=args.limit_val_batches * global_batch_size,
-#             num_test_samples=1,
-#             num_workers=args.workers,
-#             tokenizer=tokenizer,
-#         )
-#     elif args.fasta_data:
-#         raise NotImplementedError("Fasta data is not supported yet. Need to add EdenDataModule")
-#         # data_module = EdenDataModule(
-#         #     fasta_file=args.fasta_file,
-#         #     seq_length=args.seq_length,
-#         #     micro_batch_size=args.micro_batch_size,
-#         #     global_batch_size=global_batch_size,
-#         #     num_workers=args.workers,
-#         #     tokenizer=tokenizer,
-#         #     seed=args.seed,
-#         # )
-#     elif args.sharded_eden_data:
-#         # Validate required arguments for sharded data
-#         if not args.sequence_db_dir or not args.train_window_db or not args.val_window_db or not args.test_window_db:
-#             raise ValueError(
-#                 "--sequence-db-dir, --train-window-db, --val-window-db, and --test-window-db are required when using --sharded-eden-data."
-#             )
-#         logger.info(f"Patching the tokenizer for compatibility with Eden model training: {tokenizer}")
-#         patch_eden_tokenizer(tokenizer)  # Eden tokenizer uses different IDs for BOS, EOS, SEP, and PAD than default.
-#         data_module = ShardedEdenDataModule(
-#             sequence_db_dir=args.sequence_db_dir,
-#             train_window_db_path=args.train_window_db,
-#             val_window_db_path=args.val_window_db,
-#             test_window_db_path=args.test_window_db,
-#             seq_length=args.seq_length,
-#             tokenizer=tokenizer,
-#             micro_batch_size=args.micro_batch_size,
-#             global_batch_size=global_batch_size,
-#             num_workers=args.workers,
-#             rc_aug=args.rc_aug,
-#             stride=args.stride,
-#             window_min_length_threshold=args.window_min_length_threshold,
-#             seed=args.seed,
-#             num_epochs=args.dataset_num_epochs,
-#             log_windows=args.log_windows,
-#             log_dir=args.window_log_dir,
-#         )
-#     else:
-#         blended_dataset_config = parse_dataset_config(
-#             dataset_config_path=args.dataset_config, dataset_path=args.dataset_dir
-#         )
-#         dataset_cls = Evo2DatasetPadEodLossMask if args.eod_pad_in_loss_mask else Evo2Dataset
-#         # Instantiate pre-training module.
-#         data_module = PreTrainingDataModule(
-#             paths=blended_dataset_config,
-#             dataset_cls=dataset_cls,
-#             seq_length=args.seq_length,
-#             micro_batch_size=args.micro_batch_size,
-#             global_batch_size=global_batch_size,
-#             seed=args.seed,
-#             num_workers=args.workers,
-#             tokenizer=tokenizer,
-#             eod_mask_loss=args.eod_pad_in_loss_mask,
-#         )
-#     if args.no_activation_checkpointing:
-#         activation_checkpointing_args = {
-#             "recompute_granularity": None,
-#             "recompute_method": None,
-#             "recompute_num_layers": None,
-#         }
-#     elif args.selective_activation_checkpointing:
-#         activation_checkpointing_args = {
-#             "recompute_granularity": "selective",
-#             "recompute_method": None,
-#             "recompute_num_layers": None,
-#         }
-#     else:
-#         if args.activation_checkpoint_recompute_num_layers is not None:
-#             activation_checkpointing_args = {
-#                 "recompute_num_layers": args.activation_checkpoint_recompute_num_layers,
-#             }
-#         else:
-#             activation_checkpointing_args = {}
-#     # Retrieve model config.
-#     config_modifiers_init = {
-#         "calculate_per_token_loss": not args.no_calculate_per_token_loss,  # override megatron internal behavior.
-#         "tp_comm_overlap": args.use_megatron_comm_overlap_llama3_8k,
-#         "seq_length": args.seq_length,
-#         "hidden_dropout": args.hidden_dropout,
-#         "attention_dropout": args.attention_dropout,
-#         "to_upper": "weighted" if args.no_renormalize_loss else "normalized_weighted",
-#         "distribute_saved_activations": False if args.sequence_parallel else True,
-#         "cross_entropy_loss_fusion": args.cross_entropy_loss_fusion,
-#         "fp32_residual_connection": not args.no_fp32_residual_connection,
-#         **activation_checkpointing_args,
-#     }
-#     if args.add_bias_output:
-#         config_modifiers_init["add_bias_output"] = args.add_bias_output
-#     if args.spike_no_more_embedding_init:
-#         config_modifiers_init["embedding_init_method_std"] = 1.0
-#         # When using spike_no_more_embedding_init, we don't want to share embeddings and outputs.
-#         config_modifiers_init["share_embeddings_and_output_weights"] = False
-#     if args.ffn_hidden_size:
-#         config_modifiers_init["ffn_hidden_size"] = args.ffn_hidden_size
-#     if args.use_targeted_variance_loss:
-#         config_modifiers_init["use_targeted_variance_loss"] = True
-#     if args.use_subquadratic_ops:
-#         config_modifiers_init["use_subquadratic_ops"] = True
-#     if args.hybrid_override_pattern:
-#         config_modifiers_init["hybrid_override_pattern"] = args.hybrid_override_pattern
-#     if args.num_layers:
-#         config_modifiers_init["num_layers"] = args.num_layers
-
-#     model_type = infer_model_type(args.model_size)
-
-#     # Create model based on selected model type
-#     if model_type == "hyena":
-#         if args.model_size not in HYENA_MODEL_OPTIONS:
-#             raise ValueError(f"Invalid model size for Hyena: {args.model_size}")
-#         model_config = HYENA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
-#         if args.no_weight_decay_embeddings:
-#             # Override the default weight decay condition for Hyena with our bionemo version that also excludes
-#             #  embeddings
-#             model_config.hyena_no_weight_decay_cond_fn = hyena_no_weight_decay_cond_with_embeddings
-#         # Lora adaptors configuration
-#         lora_transform = None
-#         if args.lora_finetune:
-#             lora_kwargs = {
-#                 k: v
-#                 for k, v in {
-#                     "alpha": args.lora_alpha,
-#                     "dim": args.lora_dim,
-#                 }.items()
-#                 if v is not None
-#             }
-
-#             lora_transform = Evo2LoRA(peft_ckpt_path=args.lora_checkpoint_path, **lora_kwargs)
-
-#         model = llm.HyenaModel(model_config, tokenizer=data_module.tokenizer, model_transform=lora_transform)
-#     elif model_type == "mamba":  # mamba
-#         if args.no_weight_decay_embeddings:
-#             config_modifiers_init["hyena_no_weight_decay_cond_fn"] = mamba_no_weight_decay_cond_with_embeddings
-#         config_modifiers_init["lowercase_loss_reweighting"] = args.mamba_lowercase_loss_weight
-#         if args.model_size not in MAMBA_MODEL_OPTIONS:
-#             raise ValueError(f"Invalid model size for Mamba: {args.model_size}")
-#         model_config = MAMBA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
-#         model = MambaModel(model_config, tokenizer=data_module.tokenizer)
-#     elif model_type == "llama":
-#         config_modifiers_init.pop("to_upper")  # llama model does not handle custom loss renormalization settings.
-#         model_config = LLAMA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
-#         model = llm.LlamaModel(model_config, tokenizer=data_module.tokenizer)
-
-#     # Setup callbacks.
-#     callbacks = [
-#         RichModelSummary(max_depth=4),
-#         LearningRateMonitor(),
-#         TimingCallback(),
-#         TEVCallback(),
-#     ]
-
-#     # First batch CUDA sync callback: adds barriers for the first training batch to avoid race condition
-#     # See https://github.com/NVIDIA/bionemo-framework/issues/1301 for more details.
-#     class _FirstBatchCudaSync(Callback):
-#         def __init__(self):
-#             self._done = False
-
-#         def on_train_batch_start(self, trainer, pl_module, batch, batch_idx):
-#             if not self._done and torch.cuda.is_available():
-#                 torch.cuda.synchronize()
-
-#         def on_after_backward(self, trainer, pl_module):
-#             if not self._done and torch.cuda.is_available():
-#                 torch.cuda.synchronize()
-
-#         def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-#             if not self._done and torch.cuda.is_available():
-#                 torch.cuda.synchronize()
-#                 # Unset blocking for subsequent batches
-#                 os.environ.pop("CUDA_LAUNCH_BLOCKING", None)
-#                 self._done = True
-
-#     callbacks.append(_FirstBatchCudaSync())
-
-#     if args.garbage_collect_at_inference:
-#         callbacks.append(GarbageCollectAtInferenceTime())
-
-#     if args.lora_finetune:
-#         callbacks.append(lora_transform)
-#     if args.enable_preemption:
-#         callbacks.append(nl_callbacks.PreemptionCallback())
-#     if args.debug_ddp_parity_freq > 0:
-#         callbacks.append(nl_callbacks.DdpParityChecker(interval=args.debug_ddp_parity_freq))
-#     if args.log_parameters_and_shapes:
-#         callbacks.append(nl_callbacks.ParameterDebugger())
-#     if args.create_tflops_callback:
-#         # Add callback that logs the tera-FLOPS per second per GPU during training.
-#         flop_meas_callback = FLOPsMeasurementCallback(
-#             model_config,
-#             data_module,
-#             "hyena",
-#         )
-#         callbacks.append(flop_meas_callback)
-
-#     # TODO(@cye): Add this back when it works with 24.12.
-#     # if args.straggler_detection:
-#     #     callbacks.append(
-#     #         res_module.StragglerDetectionCallback(
-#     #             report_time_interval=300,
-#     #             calc_relative_gpu_perf=True,
-#     #             calc_individual_gpu_perf=True,
-#     #             num_gpu_perf_scores_to_print=5,
-#     #             gpu_relative_perf_threshold=0.7,
-#     #             gpu_individual_perf_threshold=0.7,
-#     #             stop_if_detected=True,
-#     #             enable_ptl_logging=True,
-#     #         )
-#     #     )
-#     if args.use_megatron_comm_overlap_llama3_8k:
-#         # Pick the floating point appropriate config.
-#         if args.fp8:
-#             tp_comm_overlap_cfg = userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192
-#         else:
-#             tp_comm_overlap_cfg = userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192
-#         callbacks.append(
-#             MegatronCommOverlapCallback(
-#                 tp_comm_overlap=model_config.tp_comm_overlap,
-#                 tp_comm_overlap_cfg=tp_comm_overlap_cfg,
-#                 tp_comm_bootstrap_backend=args.tp_comm_overlap_backend,
-#                 wgrad_deferral_limit=22,  # default from NeMo
-#                 overlap_param_gather_with_optimizer_step=False,  # Currently disabled due to an issue with checkpointing.
-#                 align_param_gather=args.align_param_gather,
-#             )
-#         )
-
-#     if args.gc_interval > 0:
-#         callbacks.append(
-#             nl_callbacks.GarbageCollectionCallback(
-#                 gc_interval_train=args.gc_interval, gc_interval_val=args.gc_interval
-#             )
-#         )
-#     if args.nsys_profiling:
-#         if args.nsys_end_step is None:
-#             nsys_end_step = args.max_steps
-#         else:
-#             nsys_end_step = args.nsys_end_step
-#         callbacks.append(
-#             nl_callbacks.NsysCallback(
-#                 start_step=args.nsys_start_step, end_step=nsys_end_step, ranks=args.nsys_ranks, gen_shape=True
-#             )
-#         )
-#     # Average in collective is only supported when per-token loss is not calculated.
-#     average_in_collective = args.average_in_collective and args.no_calculate_per_token_loss
-#     wandb_run_name = (
-#         f"evo2-size-{args.model_size}-TP{args.tensor_parallel_size}-"
-#         f"PP{args.pipeline_model_parallel_size}-CP{args.context_parallel_size}"
-#         f"-GBS{global_batch_size}-MBS{args.micro_batch_size}-SkipLossRenorm{args.no_renormalize_loss}"
-#         f"-NOAC{args.no_activation_checkpointing}-SELAC{args.selective_activation_checkpointing}"
-#         f"-ACRNL{model_config.recompute_num_layers}"
-#         f"-PAT{getattr(model_config, 'hybrid_override_pattern', 'None')}"
-#         f"-F32R{model_config.fp32_residual_connection}"
-#         f"-FCE{model_config.cross_entropy_loss_fusion}"
-#         f"-AIC{average_in_collective}"
-#         f"-PTL{not args.no_calculate_per_token_loss}"
-#         f"-PEOD{args.eod_pad_in_loss_mask}"
-#         f"-BO{args.add_bias_output}"
-#         f"-GCLP{args.clip_grad}"
-#         f"-HDO{args.hidden_dropout}"
-#         f"-ADO{args.attention_dropout}"
-#         f"-LR{args.lr}-MINLR{args.min_lr}-WUSTEPS{args.warmup_steps}-CONSTSTEPS{args.constant_steps}-WD{args.wd}"
-#         f"-GRFP32{args.grad_reduce_in_fp32}-FP8WG{args.fp8_wgrad and args.fp8}"
-#         f"-B1{args.adam_beta1}-B2{args.adam_beta2}-EPS{args.adam_eps}"
-#         f"-PAO{args.use_precision_aware_optimizer}"
-#         f"-B16MG{args.bf16_main_grads}"
-#         f"-EWD{args.no_weight_decay_embeddings}-SNI{args.spike_no_more_embedding_init}"
-#         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
-#         f"-TVL{args.use_targeted_variance_loss}"
-#         f"-NODES{args.num_nodes}-FP8{args.fp8}"
-#     )
-#     if model_type == "mamba":
-#         # Include this setting for mamba models.
-#         wandb_run_name += f"-LLW{args.mamba_lowercase_loss_weight}"
-#     elif model_type == "llama":
-#         wandb_run_name += f"-LLAMA{args.model_size}"
-
-#     wandb_config: Optional[WandbConfig] = (
-#         None
-#         if args.wandb_project is None
-#         else WandbConfig(
-#             offline=args.wandb_offline,
-#             project=args.wandb_project,
-#             name=args.wandb_run_name if args.wandb_run_name is not None else wandb_run_name,
-#             entity=args.wandb_entity,
-#             tags=args.wandb_tags,
-#             group=args.wandb_group,
-#             job_type=args.wandb_job_type,
-#             id=args.wandb_id,
-#             anonymous=args.wandb_anonymous,
-#             log_model=args.wandb_log_model,
-#         )
-#     )
-#     nemo_logger = setup_nemo_lightning_logger(
-#         root_dir=args.result_dir,
-#         name=args.experiment_name,
-#         initialize_tensorboard_logger=args.create_tensorboard_logger,
-#         wandb_config=wandb_config,
-#     )
-
-#     # Ensure window logging directory lives under the run directory
-#     if args.sharded_eden_data and args.log_windows:
-#         window_log_leaf = Path(args.window_log_dir).name if args.window_log_dir else "window_logs"
-#         window_log_dir = Path(nemo_logger.save_dir) / window_log_leaf
-#         try:
-#             window_log_dir.mkdir(parents=True, exist_ok=True)
-#         except Exception:
-#             pass
-#         # Propagate to data module (datasets are built later during setup)
-#         if isinstance(data_module, ShardedEdenDataModule):
-#             data_module.log_dir = str(window_log_dir)
-
-#     if args.create_checkpoint_callback:
-#         checkpoint_path = str(Path(nemo_logger.save_dir) / "checkpoints")
-#         checkpoint_callback = nl_callbacks.ModelCheckpoint(
-#             dirpath=checkpoint_path,
-#             save_last=args.save_last_checkpoint,
-#             monitor=args.metric_to_monitor_for_checkpoints,
-#             save_top_k=args.save_top_k,
-#             every_n_train_steps=args.val_check_interval,
-#             always_save_context=True,
-#             filename="{epoch}-{step}-{consumed_samples}",
-#             save_weights_only=False,
-#             save_optim_on_train_end=True,
-#             save_context_on_train_end=True,
-#         )
-#         callbacks.append(checkpoint_callback)
-
-#         # Note: `nl.AutoResume` is only created if a `ModelCheckpoint` exists, because `nl.AutoResume.setup()`
-#         # expects the trainer to have a `checkpoint_callback` set. See: https://github.com/NVIDIA/NeMo/blob/29c230b8a3352bef2128ba2d226a327d52d05be3/nemo/lightning/resume.py#L128
-#         #
-#         # In principle, this shouldn't be a constraint — it should be possible to create `nl.AutoResume` even if
-#         # checkpointing is not enabled.
-#         auto_resume = nl.AutoResume(
-#             resume_if_exists=True,
-#             resume_ignore_no_checkpoint=True,
-#             resume_past_end=False,
-#             resume_from_directory=checkpoint_path,
-#             restore_config=(
-#                 RestoreConfig(
-#                     path=args.ckpt_dir,
-#                     load_model_state=True,
-#                     load_optim_state=args.restore_optimizer_from_ckpt,
-#                 )
-#                 if args.ckpt_dir
-#                 else None
-#             ),
-#         )
-#     else:
-#         auto_resume = None
-
-#     ddp: DistributedDataParallelConfig = DistributedDataParallelConfig(
-#         check_for_nan_in_grad=not args.no_check_for_nan_in_grad,
-#         overlap_grad_reduce=args.overlap_grad_reduce,
-#         overlap_param_gather=args.overlap_param_gather,  # Verify that this works using
-#         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
-#         align_param_gather=args.align_param_gather,
-#         average_in_collective=average_in_collective,
-#     )
-#     # Initialize Megatron Strategy and Trainer.
-#     strategy = nl.MegatronStrategy(
-#         ddp=ddp,
-#         tensor_model_parallel_size=args.tensor_parallel_size,
-#         pipeline_model_parallel_size=args.pipeline_model_parallel_size,
-#         context_parallel_size=args.context_parallel_size,
-#         pipeline_dtype=torch.bfloat16,
-#         sequence_parallel=args.sequence_parallel,
-#         ckpt_load_optimizer=True,
-#         ckpt_save_optimizer=True,
-#         ckpt_async_save=args.ckpt_async_save,
-#         save_ckpt_format=args.ckpt_format,
-#         ckpt_load_strictness="log_all",  # or rebasing to https://github.com/NVIDIA/NeMo/pull/11988/files#diff-7667eae242a8ef776bff78cd08e79bc81df4896a450f0a781f6ed317a3dfb7ffR139
-#         fp8_recipe=None,
-#     )
-#     trainer = nl.Trainer(
-#         devices=args.devices,
-#         num_nodes=args.num_nodes,
-#         max_steps=args.max_steps if args.early_stop_on_step is None else args.early_stop_on_step,
-#         accelerator="gpu",
-#         strategy=strategy,
-#         callbacks=callbacks,
-#         log_every_n_steps=args.log_every_n_steps,
-#         limit_val_batches=args.limit_val_batches,
-#         limit_test_batches=args.limit_test_batches if args.limit_test_batches is not None else args.limit_val_batches,
-#         num_sanity_val_steps=0,
-#         use_distributed_sampler=False,
-#         plugins=nl.MegatronMixedPrecision(
-#             precision="bf16-mixed",
-#             fp8_recipe=args.fp8_recipe,
-#             params_dtype=torch.bfloat16,
-#             grad_reduce_in_fp32=args.grad_reduce_in_fp32,
-#             fp8="hybrid" if args.fp8 else None,
-#             fp8_amax_history_len=16 if args.fp8 else 1,
-#             fp8_amax_compute_algo="max" if args.fp8 else "most_recent",
-#             fp8_wgrad=args.fp8
-#             and (
-#                 args.fp8_wgrad or args.use_megatron_comm_overlap_llama3_8k
-#             ),  # faster and less accurate when set to True, and MUST be True if using TP communication overlap
-#         ),
-#         val_check_interval=args.val_check_interval,
-#         enable_checkpointing=args.create_checkpoint_callback,
-#     )
-
-#     # Logger setup
-#     nemo_logger.setup(
-#         trainer,
-#         resume_if_exists=True,
-#     )
-
-#     if auto_resume is not None:
-#         auto_resume.setup(trainer, model)
-
-#     # Optimizer and scheduler setup
-#     opt_config = OptimizerConfig(
-#         optimizer="adam",
-#         lr=args.lr,
-#         adam_beta1=args.adam_beta1,
-#         adam_beta2=args.adam_beta2,
-#         weight_decay=args.wd,
-#         clip_grad=args.clip_grad,
-#         adam_eps=args.adam_eps,
-#         use_distributed_optimizer=True,
-#         log_num_zeros_in_grad=args.log_num_zeros_in_grad,
-#         use_precision_aware_optimizer=args.use_precision_aware_optimizer,
-#         main_grads_dtype=torch.bfloat16 if args.bf16_main_grads else torch.float32,
-#         bf16=True,
-#         fp8_recipe=None,
-#     )
-
-#     sched = CosineAnnealingScheduler(
-#         max_steps=trainer.max_steps,
-#         warmup_steps=args.warmup_steps,
-#         min_lr=args.min_lr,
-#         constant_steps=args.constant_steps,
-#     )
-#     # This is where the no weight decay condition is applied to the optimizer state.
-#     opt = MegatronOptimizerModule(
-#         opt_config, sched, no_weight_decay_cond=getattr(model_config, "hyena_no_weight_decay_cond_fn", None)
-#     )
-#     opt.connect(model)
-
-#     # Remove earlier warmup and hook logic; first-batch blocking is sufficient.
-
-#     # Start training
-#     trainer.fit(model, data_module)
-#     return trainer
-
-
 def main():
     """Parsing args and running evo2 training."""
     args = parse_args()
-    train2(args=args)
+    train(args=args)
 
 
-def train2(args: argparse.Namespace) -> None:
+def train(args: argparse.Namespace) -> None:
     """Train the Evo2 model using the Megatron framework."""
     # Configure logging
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
@@ -1188,7 +689,7 @@ def train2(args: argparse.Namespace) -> None:
     elif args.hf_tokenizer_model_name:
         recipe_kwargs["hf_tokenizer_model_or_path"] = args.hf_tokenizer_model_name
     else:
-        logger.warning("No HF tokenizer model provided, using a random tokenizer model: EleutherAI/gpt-neox-20b")
+        recipe_kwargs["hf_tokenizer_model_or_path"] = DEFAULT_HF_TOKENIZER_MODEL_PATH
 
     # Dataset
     if args.mock_data:
@@ -1348,7 +849,9 @@ def train2(args: argparse.Namespace) -> None:
     # Scheduler
     cfg.scheduler.lr_decay_style = "cosine"
     cfg.scheduler.lr_warmup_iters = args.warmup_steps
-    cfg.scheduler.lr_decay_iters = args.max_steps - args.warmup_steps - args.constant_steps
+    cfg.scheduler.lr_decay_iters = (
+        args.decay_steps if args.decay_steps is not None else args.max_steps - args.warmup_steps - args.constant_steps
+    )
     if args.add_bias_output:
         cfg.model.add_bias_output = True
     # Logger & WandB

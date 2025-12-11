@@ -231,8 +231,8 @@ class HyenaModel(LanguageModule):
             if hasattr(module, "finish_init"):
                 quant_config = get_quant_config_or_none(name, self.config.quant_recipe)
                 module.finish_init(quant_config)
-
-        self.reset_parameters()
+        if self.config.perform_initialization:
+            self.reset_parameters()
 
     def set_input_tensor(self, input_tensor: Tensor) -> None:
         """Sets input tensor to the model.

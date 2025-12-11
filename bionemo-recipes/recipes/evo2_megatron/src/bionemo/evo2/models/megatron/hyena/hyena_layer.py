@@ -101,6 +101,8 @@ class HyenaLayer(MegatronModule):
         for layer in [self.mlp, self.mlp_bda, self.hyena_bda]:
             if hasattr(layer, "set_layer_number"):
                 layer.set_layer_number(self.layer_number)
+        if self.config.perform_initialization:
+            self.reset_parameters()
 
     def reset_parameters(self):
         """Reset the parameters of the HyenaLayer."""
