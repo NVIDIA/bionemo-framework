@@ -25,7 +25,8 @@ from typing import Callable, Iterable, Literal, Optional, Type
 import torch
 from megatron.bridge.models.model_provider import ModelProviderMixin
 from megatron.bridge.models.transformer_config import TransformerConfig
-from megatron.bridge.training.gpt_step import get_batch
+from megatron.bridge.training.config import ConfigContainer
+from megatron.bridge.training.gpt_step import get_batch_from_iterator
 from megatron.bridge.training.losses import masked_next_token_loss
 from megatron.bridge.training.state import GlobalState
 from megatron.bridge.training.utils.packed_seq_utils import get_packed_seq_params
@@ -33,8 +34,9 @@ from megatron.bridge.training.utils.pg_utils import get_pg_collection
 from megatron.bridge.utils.vocab_utils import calculate_padded_vocab_size
 from megatron.core import parallel_state
 from megatron.core.inference.contexts import StaticInferenceContext
+from megatron.core.pipeline_parallel.utils import is_pp_first_stage, is_pp_last_stage
 from megatron.core.transformer.enums import AttnBackend
-from megatron.core.utils import get_model_config
+from megatron.core.utils import get_batch_on_this_cp_rank, get_model_config
 
 from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig as _HyenaConfigForFlops
 
@@ -168,6 +170,63 @@ class HyenaInferenceContext(StaticInferenceContext):
 #             **extra_kwargs,
 #         )
 #         return output_tensor
+
+
+def get_batch(
+    data_iterator: Iterable, cfg: ConfigContainer, use_mtp: bool = False, *, pg_collection
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
+    """Generate a batch.
+
+    Args:
+        data_iterator: Input data iterator
+        cfg: Configuration container
+        use_mtp: Whether Multi-Token Prediction layers are enabled
+        pg_collection: Process group collection
+    Returns:
+        tuple of tensors containing tokens, labels, loss_mask, attention_mask, position_ids,
+        cu_seqlens, cu_seqlens_argmin, and max_seqlen
+    """
+    # Determine pipeline stage role via process group collection
+    is_first = is_pp_first_stage(pg_collection.pp)
+    is_last = is_pp_last_stage(pg_collection.pp)
+    if (not is_first) and (not is_last):
+        return None, None, None, None, None, None, None, None
+    need_attention_mask = not getattr(cfg.dataset, "skip_getting_attention_mask_from_dataset", True)
+    batch = get_batch_from_iterator(
+        data_iterator,
+        use_mtp,
+        need_attention_mask,
+        is_first_pp_stage=is_first,
+        is_last_pp_stage=is_last,
+    )
+
+    # slice batch along sequence dimension for context parallelism
+    batch = get_batch_on_this_cp_rank(batch)
+    attention_mask = batch.get("attention_mask")
+    if need_attention_mask and attention_mask is None:
+        raise ValueError("Attention mask is required but not found in the batch")
+
+    return (
+        batch["tokens"],
+        batch["labels"],
+        batch["loss_mask"],
+        attention_mask,
+        batch["position_ids"],
+        batch.get("cu_seqlens"),
+        batch.get("cu_seqlens_argmin"),
+        batch.get("max_seqlen"),
+    )
+
+
 def _forward_step_common(
     state: GlobalState, data_iterator: Iterable, model: MCoreHyenaModel, return_schedule_plan: bool = False
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -191,7 +250,7 @@ def _forward_step_common(
 
     timers("batch-generator", log_level=2).start()
     with straggler_timer(bdata=True):
-        tokens, labels, loss_mask, attention_mask, position_ids, cu_seqlens, cu_seqlens_argmin, max_seqlen = get_batch(
+        tokens, labels, loss_mask, _, position_ids, cu_seqlens, cu_seqlens_argmin, max_seqlen = get_batch(
             data_iterator, state.cfg, use_mtp, pg_collection=pg_collection
         )
     timers("batch-generator").stop()
@@ -199,7 +258,7 @@ def _forward_step_common(
     forward_args = {
         "input_ids": tokens,
         "position_ids": position_ids,
-        "attention_mask": attention_mask,
+        "attention_mask": None,
         "loss_mask": loss_mask,
         "labels": labels,
     }
@@ -218,9 +277,7 @@ def _forward_step_common(
             assert config.overlap_moe_expert_parallel_comm, (
                 "overlap_moe_expert_parallel_comm must be enabled to return the schedule plan"
             )
-            schedule_plan = model.build_schedule_plan(
-                tokens, position_ids, attention_mask, labels=labels, loss_mask=loss_mask
-            )
+            schedule_plan = model.build_schedule_plan(tokens, position_ids, None, labels=labels, loss_mask=loss_mask)
             return schedule_plan, loss_mask
         else:
             output_tensor = model(**forward_args)

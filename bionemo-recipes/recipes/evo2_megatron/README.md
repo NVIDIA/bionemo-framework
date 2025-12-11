@@ -12,8 +12,6 @@ uv pip install -r build_requirements.txt --no-build-isolation  # some extra requ
 uv pip install -c pip-constraints.txt -e . --no-build-isolation
 
 # 3. Run an example job
-## 1. create local hf tokenizer (can publish this to HF at some point).
-python examples/create_hf_tokenizer.py --output-dir asciitokenizer_512
 ## 2. if on a6000s, you may need to disable p2p to avoid crashing
 export NCCL_P2P_DISABLE=1
 ## 3. Run the job:

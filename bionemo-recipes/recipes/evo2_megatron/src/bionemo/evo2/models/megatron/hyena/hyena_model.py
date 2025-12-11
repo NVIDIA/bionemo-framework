@@ -232,6 +232,8 @@ class HyenaModel(LanguageModule):
                 quant_config = get_quant_config_or_none(name, self.config.quant_recipe)
                 module.finish_init(quant_config)
 
+        self.reset_parameters()
+
     def set_input_tensor(self, input_tensor: Tensor) -> None:
         """Sets input tensor to the model.
 
@@ -247,6 +249,17 @@ class HyenaModel(LanguageModule):
 
         assert len(input_tensor) == 1, "input_tensor should only be length 1 for gpt/bert"
         self.decoder.set_input_tensor(input_tensor[0])
+
+    def reset_parameters(self):
+        """Reset the parameters of the HyenaModel."""
+        if hasattr(self.decoder, "reset_parameters"):
+            self.decoder.reset_parameters()
+        if hasattr(self.output_layer, "reset_parameters"):
+            self.output_layer.reset_parameters()
+        if hasattr(self.embedding, "reset_parameters"):
+            self.embedding.reset_parameters()
+        if hasattr(self.rotary_pos_emb, "reset_parameters"):
+            self.rotary_pos_emb.reset_parameters()
 
     def _preprocess(
         self,

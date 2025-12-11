@@ -133,10 +133,11 @@ class MockEvo2DatasetProvider(DatasetProvider):
     mmap_bin_files: bool = True
     object_storage_cache_path: str | None = None
     num_dataset_builder_threads: int = 1
-    reset_position_ids: bool | None = None
-    create_attention_mask: bool = True
-    reset_attention_mask: bool | None = None
-    eod_mask_loss: bool | None = None
+    reset_position_ids: bool | None = False
+    create_attention_mask: bool = False
+    skip_getting_attention_mask_from_dataset: bool = True
+    reset_attention_mask: bool | None = False
+    eod_mask_loss: bool | None = True
     dataloader_type: str = "single"  # critical
     overfit_mode: bool = False  # if True, return the same batch all the time.
     dataset_cls: Type[MegatronDataset] = Evo2Dataset

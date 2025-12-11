@@ -22,14 +22,6 @@ from typing import Union
 
 import torch
 import torch.nn as nn
-from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
-from bionemo.evo2.models.megatron.hyena.hyena_utils import (
-    B2BCausalConv1dModule,
-    ParallelCausalDepthwiseConv1dWithState,
-    ParallelHyenaOperator,
-    ParallelShortHyenaOperator,
-    divide,
-)
 from einops import rearrange
 from megatron.core.parallel_state import (
     get_context_parallel_group,
@@ -40,6 +32,15 @@ from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import sharded_state_dict_default
+
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
+from bionemo.evo2.models.megatron.hyena.hyena_utils import (
+    B2BCausalConv1dModule,
+    ParallelCausalDepthwiseConv1dWithState,
+    ParallelHyenaOperator,
+    ParallelShortHyenaOperator,
+    divide,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -257,6 +258,14 @@ class HyenaMixer(MegatronModule):
             is_expert=False,
             tp_comm_buffer_name="fc2",
         )
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        """Reset the parameters of the HyenaMixer."""
+        self.dense_projection.reset_parameters()
+        self.hyena_proj_conv.reset_parameters()
+        self.mixer.reset_parameters()
+        self.dense.reset_parameters()
 
     def sharded_state_dict(self, prefix="", sharded_offsets=(), metadata=None):
         """Sharded state dictionary for the HyenaMixer."""

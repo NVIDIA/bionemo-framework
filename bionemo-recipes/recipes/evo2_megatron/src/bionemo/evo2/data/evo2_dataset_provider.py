@@ -44,10 +44,10 @@ class Evo2DatasetProvider(DatasetProvider):
     mmap_bin_files: bool = True
     object_storage_cache_path: str | None = None
     num_dataset_builder_threads: int = 1
-    reset_position_ids: bool | None = None
-    create_attention_mask: bool = True
-    reset_attention_mask: bool | None = None
-    eod_mask_loss: bool | None = None
+    reset_position_ids: bool | None = False
+    reset_attention_mask: bool | None = False
+    create_attention_mask: bool = False
+    eod_mask_loss: bool | None = False
     dataloader_type: str = "single"  # critical
     dataset_cls: Type[MegatronDataset] = Evo2Dataset
 

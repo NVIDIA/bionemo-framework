@@ -19,6 +19,11 @@
 
 from pathlib import Path
 
+from megatron.bridge.training.tokenizers.config import TokenizerConfig
+from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
+
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
+from bionemo.evo2.data.evo2_dataset_provider import DatasetBuildContext, Evo2DatasetProvider
 from bionemo.evo2.data.preprocess import Evo2Preprocessor
 from bionemo.evo2.data.test_utils.create_fasta_file import create_fasta_file
 from bionemo.evo2.utils.config import Evo2PreprocessingConfig
@@ -29,6 +34,7 @@ def create_preprocessing_config(
 ) -> Evo2PreprocessingConfig:
     """Creates a preprocessing configuration with test settings."""
     config_dict = {
+        "seed": 42,
         "datapaths": [str(sample_data_path)],
         "output_dir": str(tmp_path),
         "output_prefix": output_prefix,
@@ -59,7 +65,7 @@ def create_preprocessing_config(
 
 def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
     """Verifies that preprocessing creates all expected output files."""
-    test_fasta_file_path = create_fasta_file(tmp_path / "test.fasta", num_sequences=10, sequence_length=10000)
+    test_fasta_file_path = create_fasta_file(tmp_path / "test.fasta", num_sequences=20, sequence_length=10000)
     output_dir = tmp_path / "processed_data"
     output_dir.mkdir(parents=True, exist_ok=True)
     preprocessing_config = create_preprocessing_config(
@@ -83,3 +89,51 @@ def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
     # Check that no unexpected files were created
     all_files = [f for f in output_dir.iterdir() if f.is_file()]
     assert set(all_files) == set(expected_files), "Unexpected files were created"
+
+    # check that we can use these files to create a dataset
+    dataset_config = [
+        {
+            "dataset_prefix": str(output_dir / (prefix + "_nucleotide_fast_tokenizer_256_test")),
+            "dataset_split": "test",
+            "dataset_weight": 1,
+        },
+        {
+            "dataset_prefix": str(output_dir / (prefix + "_nucleotide_fast_tokenizer_256_train")),
+            "dataset_split": "train",
+            "dataset_weight": 1,
+        },
+        {
+            "dataset_prefix": str(output_dir / (prefix + "_nucleotide_fast_tokenizer_256_val")),
+            "dataset_split": "validation",
+            "dataset_weight": 1,
+        },
+    ]
+    import yaml
+
+    config_file_path = tmp_path / "dataset_config.yaml"
+    with open(config_file_path, "w") as f:
+        yaml.dump(dataset_config, f)
+
+    dataset_provider = Evo2DatasetProvider(random_seed=42, dataset_config_path=config_file_path)
+    tokenizer = build_tokenizer(
+        TokenizerConfig(
+            tokenizer_type="HuggingFaceTokenizer",
+            hf_tokenizer_kwargs={"trust_remote_code": False},
+            tokenizer_model=DEFAULT_HF_TOKENIZER_MODEL_PATH,
+        )
+    )
+    train_ds, val_ds, test_ds = dataset_provider.build_datasets(
+        DatasetBuildContext(
+            tokenizer=tokenizer, train_samples=int(20 * 0.6), valid_samples=int(20 * 0.2), test_samples=int(20 * 0.2)
+        )
+    )
+    assert train_ds is not None
+    assert val_ds is not None
+    assert test_ds is not None
+    assert int(20 * 0.6) <= len(train_ds) and len(train_ds) > len(val_ds)
+    assert int(20 * 0.2) <= len(val_ds)
+    assert int(20 * 0.2) <= len(test_ds)
+
+    # check that the dataset is correct
+    assert train_ds[0] is not None
+    assert False

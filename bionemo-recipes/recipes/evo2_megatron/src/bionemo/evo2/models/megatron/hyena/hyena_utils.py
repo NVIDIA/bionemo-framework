@@ -925,6 +925,8 @@ class ParallelHyenaOperator(nn.Module):
             bounds = math.sqrt(1 / self.kernel_size)
             conv_init_method = partial(torch.nn.init.uniform_, a=-bounds, b=bounds)
             self.conv_bias.data = conv_init_method(self.conv_bias.data)
+        if hasattr(self.filter, "reset_parameters"):
+            self.filter.reset_parameters()
 
     def forward_long(self, *, x1, x2, v, h, bias, inference_context):
         """Forward pass long."""

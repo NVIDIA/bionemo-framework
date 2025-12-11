@@ -20,9 +20,6 @@ from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Optional, Union
 
-from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
-from bionemo.evo2.models.megatron.hyena.hyena_hybrid_layer_allocation import Symbols as LayerSymbols
-from bionemo.evo2.models.megatron.hyena.hyena_hybrid_layer_allocation import allocate_layers
 from megatron.core import parallel_state, tensor_parallel
 from megatron.core.dist_checkpointing.mapping import ShardedStateDict
 from megatron.core.dist_checkpointing.utils import replace_prefix_for_sharding
@@ -36,6 +33,10 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import sharded_state_dict_default
 from megatron.core.utils import WrappedTensor, deprecate_inference_params, make_viewless_tensor
 from torch import Tensor, nn
+
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
+from bionemo.evo2.models.megatron.hyena.hyena_hybrid_layer_allocation import Symbols as LayerSymbols
+from bionemo.evo2.models.megatron.hyena.hyena_hybrid_layer_allocation import allocate_layers
 
 
 try:
@@ -142,6 +143,7 @@ class HyenaStack(MegatronModule):
             )
         # Required for activation recomputation
         self.num_layers_per_pipeline_rank = len(self.layers)
+        self.reset_parameters()
 
     def set_input_tensor(self, input_tensor: Tensor):
         """Set input tensor to be used instead of forward()'s input.
@@ -172,7 +174,7 @@ class HyenaStack(MegatronModule):
     def _get_layer(self, layer_number: int):
         return self.layers[layer_number]
 
-    def _checkpointed_forward(  # noqa: C901
+    def _checkpointed_forward(
         self,
         hidden_states: Tensor,
         attention_mask: Tensor,
@@ -261,7 +263,7 @@ class HyenaStack(MegatronModule):
 
         return hidden_states
 
-    def forward(  # noqa: C901
+    def forward(
         self,
         hidden_states: Union[Tensor, WrappedTensor],
         attention_mask: Optional[Tensor],
@@ -358,6 +360,15 @@ class HyenaStack(MegatronModule):
         if self.post_process and self.post_layer_norm:
             hidden_states = self.final_norm(hidden_states)
         return hidden_states
+
+    def reset_parameters(self):
+        """Reset the parameters of the HyenaStack."""
+        for layer in self.layers:
+            if hasattr(layer, "reset_parameters"):
+                layer.reset_parameters()
+        if self.post_process and self.post_layer_norm:
+            if hasattr(self.final_norm, "reset_parameters"):
+                self.final_norm.reset_parameters()
 
     def sharded_state_dict(
         self, prefix: str = "", sharded_offsets: tuple = (), metadata: dict | None = None
