@@ -165,6 +165,7 @@ def _evo2_common(
     run_output_dir = os.path.join(base_output_dir, name)
     checkpoint_dir = os.path.join(run_output_dir, "checkpoints")
     tensorboard_dir = os.path.join(run_output_dir, "tb_logs")
+    wandb_save_dir = os.path.join(run_output_dir, "wandb")
     if mock:
         dataset_cfg_or_provider = MockEvo2DatasetProvider(
             random_seed=dataset_seed,
@@ -249,6 +250,18 @@ def _evo2_common(
         logger=LoggerConfig(
             log_interval=10,
             tensorboard_dir=tensorboard_dir,
+            log_params_norm=True,
+            log_throughput=True,
+            log_progress=True,
+            log_timers_to_tensorboard=True,
+            log_throughput_to_tensorboard=True,
+            log_loss_scale_to_tensorboard=True,
+            log_validation_ppl_to_tensorboard=True,
+            log_memory_to_tensorboard=True,
+            log_l2_norm_grad_to_tensorboard=True,
+            log_runtime_to_tensorboard=True,
+            log_world_size_to_tensorboard=True,
+            wandb_save_dir=wandb_save_dir,
         ),
         tokenizer=TokenizerConfig(
             tokenizer_type="HuggingFaceTokenizer",

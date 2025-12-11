@@ -33,7 +33,7 @@ from megatron.bridge.training.comm_overlap import (
     userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192,
     userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192,
 )
-from megatron.bridge.training.config import ConfigContainer
+from megatron.bridge.training.config import ConfigContainer, FaultToleranceConfig
 
 # from lightning.pytorch.callbacks import Callback, LearningRateMonitor, RichModelSummary
 from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES
@@ -234,7 +234,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         "--context-parallel-size", type=int, default=1, help="Order of context parallelism. Defaults to 1."
     )  # DONE
     parser.add_argument(
-        "--create-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."
+        "--disable-tensorboard-logger", action="store_true", default=False, help="Create a tensorboard logger."
     )  # DONE
     parser.add_argument("--wandb-entity", type=str, default=None, help="The team posting this run")  # DONE
     parser.add_argument("--wandb-project", type=str, default=None, help="Wandb project name ")  # DONE
@@ -666,6 +666,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Debug level in logging.",
     )  # DONE
+    parser.add_argument(
+        "--nvidia-fault-tolerance",
+        action="store_true",
+        default=False,
+        help="Enable NVIDIA fault tolerance. This only works on internal NVIDIA clusters.",
+    )  # TODO implement
+
     recompute_group = parser.add_mutually_exclusive_group(required=False)  # DONE
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)  # DONE
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)  # DONE
@@ -1347,9 +1354,8 @@ def train2(args: argparse.Namespace) -> None:
     # Logger & WandB
     if args.log_interval:
         cfg.logger.log_interval = args.log_interval
-    if args.create_tensorboard_logger:
-        assert args.logger.log_dir is not None
-        cfg.logger.tensorboard_dir = str(Path(args.logger.log_dir) / "tb_logs")
+    if args.disable_tensorboard_logger:
+        cfg.logger.tensorboard_dir = None
     if args.wandb_project:
         # Assuming WandbConfig is available in megatron.bridge.training.config
         default_wandb_run_name = (
@@ -1392,7 +1398,11 @@ def train2(args: argparse.Namespace) -> None:
     if args.finetune_ckpt_dir:
         cfg.checkpoint.finetune = True
         cfg.checkpoint.pretrained_checkpoint = args.finetune_ckpt_dir
-
+    if args.nvidia_fault_tolerance:
+        cfg.ft = FaultToleranceConfig(
+            enable_ft_package=True,
+            calc_ft_timeouts=True,
+        )
     if args.nsys_profiling:
         """Enable Nsys profiling.
         Example:
@@ -1422,9 +1432,11 @@ def train2(args: argparse.Namespace) -> None:
     logger.info("Starting pretraining...")
     pretrain(cfg, hyena_forward_step)
 
-    if torch.distributed.is_initialized():
-        torch.distributed.barrier()
-        torch.distributed.destroy_process_group()
+    if not args.ckpt_async_save:
+        # Async checkpoint saving will lazily destroy the process group when the last checkpoint is saved.
+        if torch.distributed.is_initialized():
+            torch.distributed.barrier()
+            torch.distributed.destroy_process_group()
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@ from typing import Optional, Union
 import torch
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.packed_seq_params import PackedSeqParams
+from megatron.core.process_groups_config import ProcessGroupCollection
 from megatron.core.transformer.identity_op import IdentityOp
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
@@ -66,6 +67,9 @@ class HyenaLayer(MegatronModule):
         self.layer_number = layer_number
         self.hidden_dropout = transformer_config.hidden_dropout
         self.residual_in_fp32 = residual_in_fp32
+        if pg_collection is None:
+            pg_collection = ProcessGroupCollection.use_mpu_process_groups()
+        self.pg_collection = pg_collection
         self.mixer = build_module(
             submodules.mixer,
             self.transformer_config,
@@ -73,6 +77,7 @@ class HyenaLayer(MegatronModule):
             max_sequence_length,
             layer_number=layer_number,
             operator_type=operator_type,
+            pg_collection=self.pg_collection,
         )
         self.norm = build_module(
             submodules.norm,

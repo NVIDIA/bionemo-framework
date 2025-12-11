@@ -23,11 +23,7 @@ from typing import Union
 import torch
 import torch.nn as nn
 from einops import rearrange
-from megatron.core.parallel_state import (
-    get_context_parallel_group,
-    get_context_parallel_world_size,
-    get_tensor_model_parallel_world_size,
-)
+from megatron.core.process_groups_config import ProcessGroupCollection
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
 from megatron.core.transformer.transformer_config import TransformerConfig
@@ -102,6 +98,7 @@ class HyenaMixer(MegatronModule):
         submodules,
         layer_number=1,
         operator_type="H",
+        pg_collection=None,
     ):
         """Initialize the HyenaMixer."""
         super().__init__(transformer_config)
@@ -110,7 +107,10 @@ class HyenaMixer(MegatronModule):
         self.operator_type = operator_type
         self.layer_number = layer_number
         self.grouped_attention = self.hyena_config.grouped_attention
-
+        if pg_collection is None:
+            pg_collection = ProcessGroupCollection.use_mpu_process_groups()
+        self.pg_collection = pg_collection
+        self.tp_group = self.pg_collection.tp
         self.fast_conv_proj = self.hyena_config.fast_conv_proj
         self.fast_conv_mixer = self.hyena_config.fast_conv_mixer
 
@@ -119,8 +119,8 @@ class HyenaMixer(MegatronModule):
 
         # Per attention head and per partition values.
         assert torch.distributed.is_initialized()
-        self.model_parallel_size = get_tensor_model_parallel_world_size()
-        world_size: int = get_tensor_model_parallel_world_size()
+        self.model_parallel_size = self.tp_group.size() if self.tp_group is not None else 1
+        world_size: int = self.model_parallel_size
 
         # Width expansion for Hyena
         self.hyena_width_expansion = self.hyena_config.hyena_width_expansion
@@ -273,7 +273,9 @@ class HyenaMixer(MegatronModule):
         # Submodules
         for name, module in self.named_children():
             if name != "attention_dropout" and name != "b2b_kernel":  # Don't register b2b_kernel (it's a wrapper)
-                module_sharded_sd = sharded_state_dict_default(module, f"{prefix}{name}.", sharded_offsets, metadata)
+                module_sharded_sd = sharded_state_dict_default(
+                    module, f"{prefix}{name}.", sharded_offsets, metadata, tp_group=self.pg_collection.tp
+                )
 
                 sharded_state_dict.update(module_sharded_sd)
 
@@ -293,11 +295,12 @@ class HyenaMixer(MegatronModule):
         """
         # CP control
         if _hyena_use_cp:
-            cp_group = get_context_parallel_group()
+            cp_group = self.pg_collection.cp
+            cp_size = cp_group.size()
         else:
             cp_group = None
-
-        if cp_group is not None and get_context_parallel_world_size() > 1:
+            cp_size = 1
+        if cp_group is not None and cp_size > 1:
             _proj_use_cp = True
         else:
             _proj_use_cp = False

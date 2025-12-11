@@ -26,13 +26,7 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F  # noqa: N812
-from megatron.core.parallel_state import (
-    get_context_parallel_group,
-    get_context_parallel_rank,
-    get_context_parallel_world_size,
-    get_tensor_model_parallel_rank,
-    get_tensor_model_parallel_world_size,
-)
+from megatron.core.process_groups_config import ProcessGroupCollection
 from megatron.core.tensor_parallel import get_cuda_rng_tracker
 from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.utils import make_sharded_tensors_for_checkpoint, sharded_state_dict_default
@@ -521,6 +515,7 @@ class ImplicitModalFilter(nn.Module):
         lr=None,
         device=None,
         use_subquadratic_ops=False,
+        pg_collection=None,
     ):
         """Initialize the ImplicitModalFilter."""
         super().__init__()
@@ -530,6 +525,9 @@ class ImplicitModalFilter(nn.Module):
         self.gamma_min = gamma_min
         self.gamma_max = gamma_max
         self.L_cache = L_cache
+        if pg_collection is None:
+            pg_collection = ProcessGroupCollection.use_mpu_process_groups()
+        self.pg_collection = pg_collection
 
         # Determine device safely
         if device is None:
@@ -636,7 +634,14 @@ class ImplicitModalFilter(nn.Module):
     def sharded_state_dict(self, prefix="", sharded_offsets=(), metadata=None):
         """Sharding along axis 0, bias not sharded."""
         state_dict = self.state_dict(prefix="", keep_vars=True)
-        return make_sharded_tensors_for_checkpoint(state_dict, prefix, {"gamma": 0, "R": 0, "p": 0}, sharded_offsets)
+        return make_sharded_tensors_for_checkpoint(
+            state_dict,
+            prefix,
+            {"gamma": 0, "R": 0, "p": 0},
+            sharded_offsets,
+            tp_group=self.pg_collection.tp,
+            dp_cp_group=self.pg_collection.dp_cp,
+        )
 
 
 class ExplicitSingleDecayFilter(nn.Module):
@@ -653,10 +658,13 @@ class ExplicitSingleDecayFilter(nn.Module):
         small_init=True,
         num_decay_repeats=1,
         device=None,
+        pg_collection=None,
     ):
         """Initialize the ExplicitSingleDecayFilter."""
         super().__init__()
-
+        if pg_collection is None:
+            pg_collection = ProcessGroupCollection.use_mpu_process_groups()
+        self.pg_collection = pg_collection
         # Determine device safely
         if device is None:
             if torch.cuda.is_available():
@@ -673,8 +681,8 @@ class ExplicitSingleDecayFilter(nn.Module):
         self.L_cache = L_cache
         self.log_r_min = log_r_min
         self.log_r_max = log_r_max
-        self.model_parallel_rank = get_tensor_model_parallel_rank()
-        self.model_parallel_size = get_tensor_model_parallel_world_size()
+        self.model_parallel_rank = self.pg_collection.tp.rank() if self.pg_collection.tp is not None else 0
+        self.model_parallel_size = self.pg_collection.tp.size() if self.pg_collection.tp is not None else 1
         self.global_d_model = d_model * self.model_parallel_size // self.num_decay_repeats
 
         self.h = nn.Parameter(torch.empty(d_model, L_cache, dtype=torch.float32, device=self.device))
@@ -741,6 +749,8 @@ class ExplicitSingleDecayFilter(nn.Module):
                 "decay": 0,
             },
             sharded_offsets,
+            tp_group=self.pg_collection.tp,
+            dp_cp_group=self.pg_collection.dp_cp,
         )
 
 
@@ -799,7 +809,7 @@ def initialize_affine_weight_gpu(weight, init_method, partition_dim, stride=1):
 
 
 def get_groups_and_group_sizes(hidden_size, num_groups, world_size, expand_factor):
-    """Get the groups and group sizes for the model."""
+    """Get the groups and group sizes for the model given information about TP groups."""
     width_per_tp_group = divide(hidden_size, world_size)
     num_groups_per_tp = int(divide(num_groups, world_size) * expand_factor)
     group_dim = width_per_tp_group // num_groups_per_tp
@@ -818,6 +828,7 @@ class ParallelHyenaOperator(nn.Module):
         operator_type,
         max_sequence_length,
         zigzag=True,
+        pg_collection=None,
     ):
         """Initialize the ParallelHyenaOperator."""
         super().__init__()
@@ -827,7 +838,9 @@ class ParallelHyenaOperator(nn.Module):
             self.device = torch.cuda.current_device()
         else:
             self.device = torch.device("cpu")
-
+        if pg_collection is None:
+            pg_collection = ProcessGroupCollection.use_mpu_process_groups()
+        self.pg_collection = pg_collection
         self.hidden_size = hidden_size
         self.transformer_config = transformer_config
         self.hyena_config = hyena_config
@@ -847,8 +860,8 @@ class ParallelHyenaOperator(nn.Module):
 
         self.use_subquadratic_ops = transformer_config.use_subquadratic_ops
 
-        self.model_parallel_size = get_tensor_model_parallel_world_size()
-        self.model_parallel_rank = get_tensor_model_parallel_rank()
+        self.model_parallel_size = self.pg_collection.tp.size() if self.pg_collection.tp is not None else 1
+        self.model_parallel_rank = self.pg_collection.tp.rank() if self.pg_collection.tp is not None else 0
 
         self.L = max_sequence_length
 
@@ -871,7 +884,7 @@ class ParallelHyenaOperator(nn.Module):
         if self.num_groups is None:
             self.num_groups = transformer_config.hidden_size
 
-        world_size: int = get_tensor_model_parallel_world_size()
+        world_size: int = self.model_parallel_size
 
         self.width_per_tp_group, self.num_groups, self.group_dim = get_groups_and_group_sizes(
             self.hidden_size, self.num_groups, world_size, hyena_config.hyena_width_expansion
@@ -889,6 +902,7 @@ class ParallelHyenaOperator(nn.Module):
                 L_cache=self.hyena_medium_conv_len,
                 decay_preset=hyena_config.explicit_filter_decay_preset,
                 device=self.device,
+                pg_collection=self.pg_collection,
             )
             self.kernel_size = self.hyena_medium_conv_len
         elif self.hyena_filter_cls == "implicit_modal":
@@ -900,6 +914,7 @@ class ParallelHyenaOperator(nn.Module):
                 gamma_max=hyena_config.modal_gamma_max,
                 use_subquadratic_ops=self.use_subquadratic_ops,
                 device=self.device,
+                pg_collection=self.pg_collection,
             )
             self.kernel_size = self.L
         else:
@@ -1045,12 +1060,14 @@ class ParallelHyenaOperator(nn.Module):
 
         # CP control
         if _hyena_use_cp:
-            cp_group = get_context_parallel_group()
+            cp_group = self.pg_collection.cp
+            cp_size = cp_group.size()
         else:
             cp_group = None
+            cp_size = 1
 
         # The kernel length must be adjusted in CP settings
-        _L_kernel = L if cp_group is None else L * len(torch.distributed.get_process_group_ranks(cp_group))  # noqa: N806
+        _L_kernel = L if cp_group is None else L * cp_size  # noqa: N806
         if self.use_medium_hyena:
             h = self.filter(self.hyena_medium_conv_len)
         else:
@@ -1065,7 +1082,7 @@ class ParallelHyenaOperator(nn.Module):
         # Initialize z split for non-inference cases
         z = x2 * v
 
-        if cp_group is not None and len(torch.distributed.get_process_group_ranks(cp_group)) > 1:
+        if cp_group is not None and cp_size > 1:
             if inference_context is not None:  # reconstruct ALL tensors from split to full
                 x1, x2, v = [
                     AllToAllSingleFunction.apply(tensor, cp_group, "split_to_full", True) for tensor in [x1, x2, v]
@@ -1076,8 +1093,8 @@ class ParallelHyenaOperator(nn.Module):
             # the tensors are now split across channels, but have full length.
             # [ B, H // num_ranks, L]
 
-            rank = torch.distributed.get_rank(cp_group)
-            local_size = self.num_groups // get_context_parallel_world_size()
+            rank = cp_group.rank()
+            local_size = self.num_groups // cp_size
 
             if isinstance(self.filter, (ImplicitModalFilter)):
                 h = h[:, rank * local_size : (rank + 1) * local_size]
@@ -1086,7 +1103,7 @@ class ParallelHyenaOperator(nn.Module):
             else:
                 raise ValueError(f"Kernels of type {self.filter.__class__} have not been verified with CP.")
 
-            local_bias_size = self.width_per_tp_group // get_context_parallel_world_size()
+            local_bias_size = self.width_per_tp_group // cp_size
             conv_bias = self.conv_bias[rank * local_bias_size : (rank + 1) * local_bias_size]
 
         h = h.repeat_interleave(self.group_dim, dim=-2)
@@ -1109,7 +1126,7 @@ class ParallelHyenaOperator(nn.Module):
             )
             z = z.to(v.dtype)
 
-            if cp_group is not None and len(torch.distributed.get_process_group_ranks(cp_group)) > 1:
+            if cp_group is not None and cp_size > 1:
                 z = AllToAllSingleFunction.apply(z, cp_group, "full_to_split", True)
                 # [ B, H, L // num_ranks]
 
@@ -1128,10 +1145,14 @@ class ParallelHyenaOperator(nn.Module):
                 "conv_bias": 0,
             },  # parameters sharded across TP
             sharded_offsets=sharded_offsets,
+            tp_group=self.pg_collection.tp,
+            dp_cp_group=self.pg_collection.dp_cp,
         )
         # Submodules
         for name, module in self.named_children():
-            module_sharded_sd = sharded_state_dict_default(module, f"{prefix}{name}.", sharded_offsets, metadata)
+            module_sharded_sd = sharded_state_dict_default(
+                module, f"{prefix}{name}.", sharded_offsets, metadata, tp_group=self.pg_collection.tp
+            )
 
             sharded_state_dict.update(module_sharded_sd)
         return sharded_state_dict
@@ -1150,15 +1171,21 @@ class ParallelShortHyenaOperator(nn.Module):
         use_fast_causal_conv=False,
         local_init=False,
         use_conv_bias=True,
+        pg_collection=None,
     ):
         """Initialize the ParallelShortHyenaOperator."""
         super().__init__()
+        if pg_collection is None:
+            pg_collection = ProcessGroupCollection.use_mpu_process_groups()
+        self.pg_collection = pg_collection
         self.transformer_config = transformer_config
         self.hyena_config = hyena_config
         self.hidden_size = hidden_size
         self.use_fast_causal_conv = use_fast_causal_conv
 
-        world_size: int = get_tensor_model_parallel_world_size() if not local_init else 1
+        tp_world_size: int = (
+            self.pg_collection.tp.size() if self.pg_collection.tp is not None and not local_init else 1
+        )
         # assert, if using fast_conv_mixer, then the hyena_short_conv_len must be 3
         if use_fast_causal_conv and not transformer_config.use_subquadratic_ops:
             assert hyena_config.hyena_short_conv_len <= 4, "fast_conv_mixer requires hyena_short_conv_len <= 4"
@@ -1178,7 +1205,7 @@ class ParallelShortHyenaOperator(nn.Module):
         self.num_groups = int(self.num_groups * hyena_config.hyena_width_expansion)
 
         self.width_per_tp_group, self.num_groups, self.group_dim = get_groups_and_group_sizes(
-            self.hidden_size, self.num_groups, world_size, hyena_config.hyena_width_expansion
+            self.hidden_size, self.num_groups, tp_world_size, hyena_config.hyena_width_expansion
         )
 
         self.short_conv = short_conv_class(
@@ -1192,6 +1219,7 @@ class ParallelShortHyenaOperator(nn.Module):
             num_groups=self.num_groups,
             repeat_h_dg=False,
             local_init=local_init,
+            pg_collection=self.pg_collection,
         )
 
         self.use_conv_bias = use_conv_bias
@@ -1253,7 +1281,9 @@ class ParallelShortHyenaOperator(nn.Module):
         )
         # Submodules
         for name, module in self.named_children():
-            module_sharded_sd = sharded_state_dict_default(module, f"{prefix}{name}.", sharded_offsets, metadata)
+            module_sharded_sd = sharded_state_dict_default(
+                module, f"{prefix}{name}.", sharded_offsets, metadata, tp_group=self.pg_collection.tp
+            )
 
             sharded_state_dict.update(module_sharded_sd)
         return sharded_state_dict
@@ -1274,6 +1304,7 @@ class ParallelCausalDepthwiseConv1d(nn.Module):
         num_groups=None,  # enables some weight sharing
         repeat_h_dg=True,
         local_init=False,
+        pg_collection=None,
     ):
         """Initialize the ParallelCausalDepthwiseConv1d."""
         super().__init__()
@@ -1286,7 +1317,9 @@ class ParallelCausalDepthwiseConv1d(nn.Module):
         self.use_subquadratic_ops = transformer_config.use_subquadratic_ops
         self.short_conv_L = hyena_config.short_conv_L
         self.local_init = local_init
-
+        if pg_collection is None:
+            pg_collection = ProcessGroupCollection.use_mpu_process_groups()
+        self.pg_collection = pg_collection
         if self.num_groups is None:
             self.num_groups = self.d_model
 
@@ -1346,10 +1379,13 @@ class ParallelCausalDepthwiseConv1d(nn.Module):
 
         # maybe handle num_groups
         weight = weight.repeat_interleave(self.group_dim, dim=0)
-
-        if _use_cp and get_context_parallel_world_size() > 1:
-            cp_group = get_context_parallel_group()
-            cp_rank = get_context_parallel_rank()
+        cp_group = self.pg_collection.cp
+        if cp_group is not None:
+            cp_size = cp_group.size()
+        else:
+            cp_size = 1
+        if _use_cp and cp_size > 1:
+            cp_rank = cp_group.rank()
 
             # Transfer patches across ranks.
             seq_dim = 2  # Last dimension.
@@ -1382,7 +1418,7 @@ class ParallelCausalDepthwiseConv1d(nn.Module):
                 groups=self.conv_groups,
             )
 
-        if _use_cp and get_context_parallel_world_size() > 1:
+        if _use_cp and cp_size > 1:
             y = rearrange(y, "(nc b) h s -> b h (nc s)", nc=2)
 
         assert y.shape == x_shape, f"y.shape = {y.shape} | x.shape = {x_shape}"
@@ -1399,6 +1435,8 @@ class ParallelCausalDepthwiseConv1d(nn.Module):
                 "short_conv_weight": 0,
             },
             sharded_offsets,
+            tp_group=self.pg_collection.tp,
+            dp_cp_group=self.pg_collection.dp_cp,
         )
 
 
@@ -1419,6 +1457,7 @@ class B2BCausalConv1dModule(nn.Module):
         operator_type="hyena_short_conv",
         b2b_causal_conv1d=b2b_causal_conv1d,
         flip_mixer_weight: bool = False,
+        pg_collection=None,
     ):
         """Initialize the B2BCausalConv1dModule.
 
@@ -1428,9 +1467,14 @@ class B2BCausalConv1dModule(nn.Module):
             operator_type: The type of hyena operator to use, either "hyena_short_conv" or "hyena_medium_conv"
             b2b_causal_conv1d: The CUDA kernel function for optimized back-to-back causal convolution
             flip_mixer_weight: Whether to flip the mixer weight, when weights are coming from FFTConv mixer
+            pg_collection: The process group collection to use. Ideally this is passed from the parent module, but
+              but if not passed, it will be created using the default process group collection.
         """
         super().__init__()
         self.b2b_causal_conv1d_fn = b2b_causal_conv1d
+        if pg_collection is None:
+            pg_collection = ProcessGroupCollection.use_mpu_process_groups()
+        self.pg_collection = pg_collection
         # Store references to the modules WITHOUT registering them as child modules
         # Using object.__setattr__ bypasses PyTorch's module registration system
         # This prevents their parameters from appearing in the state dict with the b2b_kernel prefix
@@ -1515,14 +1559,18 @@ class B2BCausalConv1dModule(nn.Module):
         mixer_weight = mixer_weight.repeat_interleave(self._mixer_module.group_dim, dim=0)
 
         # Support context parallelism similar to how it's done in ParallelCausalDepthwiseConv1d
-        if _use_cp and get_context_parallel_world_size() > 1:
+        cp_group = self.pg_collection.cp
+        if cp_group is not None:
+            cp_size = cp_group.size()
+        else:
+            cp_size = 1
+        if _use_cp and cp_size > 1:
             # Validate sequence length for CP mode
-            cp_size = get_context_parallel_world_size()
             if x.size(-1) % cp_size != 0:
                 raise ValueError("Sequence length must be divisible by context parallel size")
 
-            cp_group = get_context_parallel_group()
-            cp_rank = get_context_parallel_rank()
+            cp_group = self.pg_collection.cp
+            cp_rank = self.pg_collection.cp.rank()
 
             # Transfer patches across ranks
             seq_dim = 2  # Last dimension (L)

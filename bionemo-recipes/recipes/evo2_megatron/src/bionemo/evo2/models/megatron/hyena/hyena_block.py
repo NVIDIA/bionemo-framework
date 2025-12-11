@@ -26,6 +26,7 @@ from megatron.core.dist_checkpointing.utils import replace_prefix_for_sharding
 from megatron.core.fusions.fused_layer_norm import FusedLayerNorm
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.packed_seq_params import PackedSeqParams
+from megatron.core.process_groups_config import ProcessGroupCollection
 from megatron.core.transformer.identity_op import IdentityOp
 from megatron.core.transformer.module import MegatronModule
 from megatron.core.transformer.spec_utils import ModuleSpec, build_module
@@ -99,6 +100,8 @@ class HyenaStack(MegatronModule):
         self.pre_process = pre_process
         self.post_process = post_process
         self.post_layer_norm = post_layer_norm
+        if pg_collection is None:
+            pg_collection = ProcessGroupCollection.use_mpu_process_groups()
         self.pg_collection = pg_collection
 
         # Required for pipeline parallel schedules
@@ -107,7 +110,7 @@ class HyenaStack(MegatronModule):
         layer_type_list = allocate_layers(self.transformer_config.num_layers, self.hybrid_override_pattern)
 
         pp_layer_offset = 0
-        if parallel_state.get_pipeline_model_parallel_world_size() > 1:
+        if self.pg_collection.pp is not None and self.pg_collection.pp.size() > 1:
             pp_layer_offset, layer_type_list = self._select_layers_for_pipeline_parallel(layer_type_list)
 
         self.layers = nn.ModuleList()
@@ -157,9 +160,9 @@ class HyenaStack(MegatronModule):
         self.input_tensor = input_tensor
 
     def _select_layers_for_pipeline_parallel(self, layer_type_list):
-        pipeline_rank = parallel_state.get_pipeline_model_parallel_rank()
-        num_layers_per_pipeline_rank = (
-            self.transformer_config.num_layers // parallel_state.get_pipeline_model_parallel_world_size()
+        pipeline_rank = self.pg_collection.pp.rank() if self.pg_collection.pp is not None else 0
+        num_layers_per_pipeline_rank = self.transformer_config.num_layers // (
+            self.pg_collection.pp.size() if self.pg_collection.pp is not None else 1
         )
 
         assert getattr(self.transformer_config, "virtual_pipeline_model_parallel_size", None) is None, (
@@ -211,7 +214,7 @@ class HyenaStack(MegatronModule):
                     forward_func,
                     self.config.distribute_saved_activations,
                     tensor_parallel.random.get_cuda_rng_tracker,
-                    parallel_state.get_tensor_model_parallel_group(),
+                    self.pg_collection.tp,
                     hidden_states,
                     attention_mask,
                     context,
@@ -407,7 +410,9 @@ class HyenaStack(MegatronModule):
         for name, module in self.named_children():
             if module is not self.layers:
                 sharded_state_dict.update(
-                    sharded_state_dict_default(module, f"{prefix}{name}.", sharded_offsets, metadata)
+                    sharded_state_dict_default(
+                        module, f"{prefix}{name}.", sharded_offsets, metadata, tp_group=self.pg_collection.tp
+                    )
                 )
 
         return sharded_state_dict
