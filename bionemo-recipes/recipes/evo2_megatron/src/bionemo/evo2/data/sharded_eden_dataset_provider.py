@@ -427,8 +427,8 @@ class ShardedEdenDataset(Dataset):
             special_tokens_count = len(header) + len(footer)
             eff_len = self.seq_length - special_tokens_count
         else:
-            header = [self.tokenizer.bos_id] if self.include_bos else []
-            footer = [self.tokenizer.eos_id] if self.include_eos else []
+            header = [bos_id] if self.include_bos else []
+            footer = [eos_id] if self.include_eos else []
             special_tokens_count = len(header) + len(footer)
             eff_len = self.seq_length - special_tokens_count
 
