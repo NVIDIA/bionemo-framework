@@ -228,7 +228,7 @@ def get_parser():  # noqa: D103
     return parser
 
 
-def main():  # noqa: C901, D103
+def main():  # noqa: D103
     parser = get_parser()
     args = parser.parse_args()
     if args.mode in ["eval"] and not args.checkpoint_path:

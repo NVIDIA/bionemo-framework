@@ -259,9 +259,13 @@ class NVEsmPreTrainedModel(PreTrainedModel):
         "EsmEmbeddings",
     )
 
-    # Copied from transformers.models.bert.modeling_bert.BertPreTrainedModel._init_weights
     def _init_weights(self, module: nn.Module):
-        """Initialize the weights.
+        """Initialize model weights.
+
+        This method ensures that models with randomly-initialized weights get the correct initial value distribution,
+        which can be critical for training stability. We also call this method directly when using meta-device init, as
+        the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
+        we need to extend it to handle TE-specific modules.
 
         Args:
             module (nn.Module): The module to initialize the weights for.
@@ -282,9 +286,29 @@ class NVEsmPreTrainedModel(PreTrainedModel):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
         if isinstance(module, transformer_engine.pytorch.LayerNormLinear):
+            if module.layer_norm_bias is not None:
+                module.layer_norm_bias.data.zero_()
             module.layer_norm_weight.data.fill_(1.0)
             if module.layer_norm_bias is not None:
                 module.layer_norm_bias.data.zero_()
+        if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
+            if module.layer_norm_bias is not None:
+                module.layer_norm_bias.data.zero_()
+            module.layer_norm_weight.data.fill_(1.0)
+            if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
+                module.fc1_weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
+                module.fc2_weight.data.normal_(mean=0.0, std=self.config.initializer_range)
+            if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
+                module.fc1_bias.data.zero_()
+            if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
+                module.fc2_bias.data.zero_()
+        if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
+            # When we initialize the model with `to_empty`, the `inv_freq` attribute is not initialized, so we need to
+            # re-initialize it here with the correct values.
+            module.inv_freq = RotaryPositionEmbedding(
+                self.config.hidden_size // self.config.num_attention_heads
+            ).inv_freq.to(module.inv_freq.device)
 
     @classmethod
     def get_init_context(cls, is_quantized: bool, _is_ds_init_called: bool):

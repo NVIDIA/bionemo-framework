@@ -139,7 +139,7 @@ class EncodonPL(LightningModule):
             # When downstream head is disabled, use cross-entropy for language modeling
             self.loss = torch.nn.CrossEntropyLoss(ignore_index=ignore_index)
 
-    def configure_model(self, state_dict: Optional[Dict[str, Any]] = None) -> None:  # noqa: C901
+    def configure_model(self, state_dict: Optional[Dict[str, Any]] = None) -> None:
         """Configure the underlying model and optionally load weights.
 
         Sets up the base EnCodon model, attaches optional downstream heads, and

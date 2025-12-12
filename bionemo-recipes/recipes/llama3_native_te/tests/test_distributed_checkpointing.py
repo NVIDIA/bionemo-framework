@@ -71,7 +71,7 @@ def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
             config_name="L0_sanity",
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
+                f"+wandb.dir={tmp_path}",
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
@@ -121,7 +121,7 @@ def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
             config_name="L0_sanity",
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
+                f"+wandb.dir={tmp_path}",
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
@@ -348,7 +348,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
             config_name="L0_sanity",
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
+                f"+wandb.dir={tmp_path}",
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
@@ -394,7 +394,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
             config_name="L0_sanity",
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
+                f"+wandb.dir={tmp_path}",
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
@@ -561,12 +561,12 @@ def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
             config_name="L0_sanity",
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
+                f"+wandb.dir={tmp_path}",
                 "num_train_steps=10",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
                 "lr_scheduler_kwargs.num_warmup_steps=20",
-                "lr_scheduler_kwargs.num_training_steps=100",
+                "lr_scheduler_kwargs.num_decay_steps=100",
                 "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
             ],
         )
@@ -581,12 +581,12 @@ def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
             config_name="L0_sanity",
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
+                f"+wandb.dir={tmp_path}",
                 "num_train_steps=15",
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
                 "lr_scheduler_kwargs.num_warmup_steps=20",
-                "lr_scheduler_kwargs.num_training_steps=100",
+                "lr_scheduler_kwargs.num_decay_steps=100",
                 "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
             ],
         )
@@ -632,7 +632,7 @@ def test_final_model_save_ddp(recipe_path, tmp_path):
             config_name="L0_sanity",
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
+                f"+wandb.dir={tmp_path}",
                 "checkpoint.save_final_model=true",
                 "num_train_steps=3",
                 "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
@@ -674,7 +674,7 @@ def test_final_model_save_fsdp2(recipe_path, tmp_path):
             config_name="L0_sanity",
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
-                f"+wandb_init_args.dir={tmp_path}",
+                f"+wandb.dir={tmp_path}",
                 "checkpoint.save_final_model=true",
                 "num_train_steps=3",
                 "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
@@ -730,7 +730,7 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=false",  # Start fresh
         "lr_scheduler_kwargs.num_warmup_steps=20",
-        "lr_scheduler_kwargs.num_training_steps=100",
+        "lr_scheduler_kwargs.num_decay_steps=100",
         "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
     ]
 
@@ -754,7 +754,7 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         "lr_scheduler_kwargs.num_warmup_steps=20",
-        "lr_scheduler_kwargs.num_training_steps=100",
+        "lr_scheduler_kwargs.num_decay_steps=100",
         "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
     ]
 
@@ -769,3 +769,53 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
         d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
     ]
     assert "step_10" in final_checkpoint_dirs, "Checkpoint at step 10 not found"
+
+
+def test_checkpoint_pruning(tmp_path):
+    """Test checkpoint pruning functionality."""
+
+    from checkpoint import prune_checkpoints
+
+    temp_dir = str(tmp_path / "test_checkpoint_pruning")
+    os.makedirs(temp_dir, exist_ok=True)
+    for i in range(11):
+        os.makedirs(os.path.join(temp_dir, f"step_{i}"), exist_ok=True)
+    assert len(os.listdir(temp_dir)) == 11
+    prune_checkpoints(temp_dir, 5)
+    assert len(os.listdir(temp_dir)) == 5
+    assert "step_6" in os.listdir(temp_dir)
+    assert "step_7" in os.listdir(temp_dir)
+    assert "step_8" in os.listdir(temp_dir)
+    assert "step_9" in os.listdir(temp_dir)
+    assert "step_10" in os.listdir(temp_dir)
+
+
+def test_checkpoint_pruning_not_enough_checkpoints(tmp_path):
+    """Test checkpoint pruning functionality."""
+
+    from checkpoint import prune_checkpoints
+
+    temp_dir = str(tmp_path / "test_checkpoint_pruning")
+    os.makedirs(temp_dir, exist_ok=True)
+    for i in range(3):
+        os.makedirs(os.path.join(temp_dir, f"step_{i}"), exist_ok=True)
+    assert len(os.listdir(temp_dir)) == 3
+    prune_checkpoints(temp_dir, 5)
+    assert len(os.listdir(temp_dir)) == 3
+
+
+def test_checkpoint_pruning_with_files(tmp_path):
+    """Test checkpoint pruning functionality."""
+
+    from checkpoint import prune_checkpoints
+
+    for i in range(11):
+        (tmp_path / f"step_{i}.pt").touch()
+    assert len(list(tmp_path.glob("step_*.pt"))) == 11
+    prune_checkpoints(tmp_path, 5)
+    assert len(list(tmp_path.glob("step_*.pt"))) == 5
+    assert (tmp_path / "step_6.pt").exists()
+    assert (tmp_path / "step_7.pt").exists()
+    assert (tmp_path / "step_8.pt").exists()
+    assert (tmp_path / "step_9.pt").exists()
+    assert (tmp_path / "step_10.pt").exists()

@@ -2,7 +2,7 @@ line-length = 119
 target-version = "py312"
 
 [lint]
-ignore = ["D100", "E501", "N811", "N814"]
+ignore = ["C901", "D100", "E501", "N811", "N814"]
 select = [
     "C",    # Pylint conventions
     "D",    # Documentation formatting

@@ -411,9 +411,14 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
     """Maximum number of tokens per batch."""
     drop_last: bool = True
     """Whether to drop the last batch if it's less than max_length."""
+    split_samples: bool = False
+    """Whether to split samples to ensure batches have exactly max_tokens_per_batch tokens."""
 
     def __iter__(self):
         """Yield batches of samples, each with a variable number of tokens up to the maximum length.
+
+        When split_samples=True, ensures each batch has exactly max_tokens_per_batch by splitting
+        the final sample if needed. The remaining tokens from the split sample start the next batch.
 
         Returns:
             A generator of batches of samples, each with a variable number of tokens up to the maximum length.
@@ -422,10 +427,28 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         current_length = 0
         for sample in iter(self.dataset):
             current_length += len(sample["input_ids"])
-            if current_length > self.max_tokens_per_batch:
-                yield samples
-                samples = [sample]
-                current_length = len(sample["input_ids"])
+            if current_length == self.max_tokens_per_batch:
+                yield [*samples, sample]
+                samples = []
+                current_length = 0
+
+            elif current_length > self.max_tokens_per_batch:
+                if not self.split_samples:
+                    # If we are not splitting samples, we can just yield the current batch (before this sample) and
+                    # start a new one.
+                    yield samples
+                    samples = [sample]
+
+                else:
+                    # Calculate how many tokens are already in the batch
+                    tokens_in_batch = current_length - len(sample["input_ids"])
+                    # Calculate how many tokens we can fit from this sample
+                    tokens_available = self.max_tokens_per_batch - tokens_in_batch
+                    first_part, remaining_part = split_sample_by_num_tokens(sample, tokens_available)
+                    yield [*samples, first_part]
+                    samples = [remaining_part]
+
+                current_length = len(samples[0]["input_ids"])
             else:
                 samples.append(sample)
 
@@ -435,6 +458,74 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
     def set_epoch(self, epoch: int):
         """Set the epoch for the dataset."""
         self.dataset.set_epoch(epoch)
+
+
+def split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split a sample dictionary at a specified number of tokens.
+
+    This function splits a sample into two parts: the first part contains exactly `num_tokens` tokens,
+    and the second part contains the remaining tokens. All fields that are sequences (input_ids, attention_mask,
+    token_type_ids, labels, etc.) are split accordingly.
+
+    Args:
+        sample: Dictionary containing sample data with fields like input_ids, attention_mask, token_type_ids, labels, etc.
+        num_tokens: Number of tokens to include in the first part of the split.
+
+    Returns:
+        A tuple of two dictionaries: (first_part, remaining_part), where:
+        - first_part contains the first `num_tokens` tokens from each sequence field
+        - remaining_part contains the remaining tokens from each sequence field
+
+    Example:
+        >>> sample = {
+        ...     "input_ids": [0, 5, 6, 7, 8, 9, 2],
+        ...     "attention_mask": [1, 1, 1, 1, 1, 1, 1],
+        ...     "labels": [0, 5, 6, 7, 8, 9, 2]
+        ... }
+        >>> first, remaining = split_sample_by_num_tokens(sample, 3)
+        >>> first["input_ids"]  # [0, 5, 6]
+        >>> remaining["input_ids"]  # [7, 8, 9, 2]
+    """
+    sample_length = len(sample["input_ids"])
+    if num_tokens >= sample_length:
+        raise ValueError(
+            f"num_tokens ({num_tokens}) must be less than sample length ({sample_length}) to split the sample"
+        )
+    if num_tokens <= 0:
+        raise ValueError(f"num_tokens ({num_tokens}) must be positive")
+
+    first_part = {}
+    remaining_part = {}
+
+    # Fields that should be split by tokens (sequence fields)
+    sequence_fields = ["input_ids", "attention_mask", "token_type_ids", "token_type", "labels"]
+
+    for key, value in sample.items():
+        if key in sequence_fields:
+            # Handle both list and tensor inputs
+            if isinstance(value, torch.Tensor):
+                first_part[key] = value[:num_tokens].clone()
+                remaining_part[key] = value[num_tokens:].clone()
+            elif isinstance(value, list):
+                first_part[key] = value[:num_tokens]
+                remaining_part[key] = value[num_tokens:]
+            else:
+                # For other types, try to slice if possible
+                try:
+                    first_part[key] = value[:num_tokens]
+                    remaining_part[key] = value[num_tokens:]
+                except (TypeError, IndexError):
+                    # If slicing doesn't work, copy the value to both parts
+                    # This handles fields that shouldn't be split (like metadata)
+                    first_part[key] = value
+                    remaining_part[key] = value
+        else:
+            # For non-sequence fields, copy to both parts
+            # This handles metadata fields that shouldn't be split
+            first_part[key] = value
+            remaining_part[key] = value
+
+    return first_part, remaining_part
 
 
 def _pt_flatten_collate(features: list[dict[str, list[int]]], return_position_ids: bool = False):

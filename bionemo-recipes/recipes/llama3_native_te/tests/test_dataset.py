@@ -23,12 +23,6 @@ from distributed_config import DistributedConfig
 
 
 @pytest.fixture
-def tokenizer_path(recipe_path):
-    """Get the path to the nucleotide tokenizer."""
-    return str(recipe_path / "example_checkpoint")
-
-
-@pytest.fixture
 def simple_parquet(tmp_path):
     """Create a simple Parquet file with multiple genomic sequences for testing batching."""
     parquet_path = tmp_path / "genomic_sequences.parquet"
@@ -44,7 +38,7 @@ def simple_parquet(tmp_path):
 
     table = pa.table(
         {
-            "sequence": sequences,
+            "text": sequences,
         }
     )
 
@@ -61,7 +55,7 @@ def test_dataset_loads_and_tokenizes_sequence(tokenizer_path, tmp_path):
     # Create a Parquet file with a single T sequence of known length
     parquet_path = tmp_path / "genomic_sequences.parquet"
     sequence = "T" * 10  # Small, predictable sequence
-    table = pa.table({"sequence": [sequence]})
+    table = pa.table({"text": [sequence]})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -72,9 +66,9 @@ def test_dataset_loads_and_tokenizes_sequence(tokenizer_path, tmp_path):
         "split": "train",
     }
 
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=20,  # Large enough to fit the sequence
         stride=10,
@@ -112,7 +106,7 @@ def test_dataloader_returns_expected_batch(tokenizer_path, tmp_path):
     # Create minimal test parquet with exactly 1 sequence
     parquet_path = tmp_path / "single_sequence.parquet"
     sequence = "A" * 5  # 5 As
-    table = pa.table({"sequence": [sequence]})
+    table = pa.table({"text": [sequence]})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -125,7 +119,7 @@ def test_dataloader_returns_expected_batch(tokenizer_path, tmp_path):
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=1,  # Just one sample per batch
         num_workers=0,
@@ -179,7 +173,7 @@ def test_attention_mask_aligns_with_labels(tokenizer_path, simple_parquet):
     # Use a moderate window size to ensure we get padding in batches
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -229,7 +223,7 @@ def test_windowing_in_dataset_creates_multiple_samples(tokenizer_path, tmp_path)
     # Create a 3kbp sequence
     parquet_path = tmp_path / "genomic_sequences.parquet"
     sequence = "A" * 3000
-    table = pa.table({"sequence": [sequence]})
+    table = pa.table({"text": [sequence]})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -240,9 +234,9 @@ def test_windowing_in_dataset_creates_multiple_samples(tokenizer_path, tmp_path)
         "split": "train",
     }
 
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=1000,
         stride=800,  # 800 token overlap, so 200 token step
@@ -271,7 +265,7 @@ def test_lazy_tokenization_returns_batch(tokenizer_path, simple_parquet):
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -317,7 +311,7 @@ def test_multiple_sequences_batch_correctly(tokenizer_path, simple_parquet, stre
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -385,7 +379,7 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
         "G" * 8,  # Seq 4
         "ATCG" * 3,  # Seq 5 (12bp)
     ]
-    table = pa.table({"sequence": sequences})
+    table = pa.table({"text": sequences})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -398,7 +392,7 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -420,15 +414,10 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
 
 
 def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, tmp_path):
-    """Test that batching combines multiple sequences correctly with exact batch counts.
-
-    Creates 5 short sequences (no windowing) with micro_batch_size=2.
-    Should produce exactly 3 batches with shapes: [2, 2, 1].
-    """
-    # Create 5 sequences that won't trigger windowing (all very short)
+    """Test that batching combines multiple sequences correctly with exact batch counts"""
     parquet_path = tmp_path / "five_sequences.parquet"
     sequences = ["A"] * 20
-    table = pa.table({"sequence": sequences})
+    table = pa.table({"text": sequences})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -442,12 +431,13 @@ def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, t
 
     dataloader, _ = create_thd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         token_micro_batch_size=15,
         max_seq_length=15,
         stride=10,
         use_lazy_tokenization=False,  # Use eager to ensure predictable batching
+        split_samples_in_token_packing=False,
     )
 
     batches = list(dataloader)
@@ -455,6 +445,7 @@ def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, t
     assert len(batches) > 0
 
     for batch in batches:
+        # BOS, 'A', 'EOS' * 5
         torch.testing.assert_close(batch["input_ids"].squeeze(0), torch.tensor([[2, 65, 0] * 5]).flatten())
 
 
@@ -497,15 +488,15 @@ def test_streaming_dataset_removes_columns_correctly(tokenizer_path, tmp_path):
         "streaming": True,  # This makes dataset.column_names = None
     }
 
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=100,
         stride=10,
         buffer_size=1000,
         use_lazy_tokenization=False,
-        sequence_column="text",  # Specify which column has sequences
+        text_column="text",  # Specify which column has sequences
     )
 
     # Get first sample from streaming dataset
@@ -567,15 +558,15 @@ def test_streaming_dataset_handles_missing_record_column(tokenizer_path, tmp_pat
     }
 
     # This should NOT raise an error even though 'record' is in columns_to_remove
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=100,
         stride=10,
         buffer_size=1000,
         use_lazy_tokenization=False,
-        sequence_column="text",
+        text_column="text",
     )
 
     # Get first sample - should work without errors
@@ -598,7 +589,7 @@ def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
     # Create test data with degenerate bases
     parquet_path = tmp_path / "genomic_with_degenerate.parquet"
     sequences = ["ACGTN", "GGTAR"]  # Has degenerate N and R
-    table = pa.table({"sequence": sequences})
+    table = pa.table({"text": sequences})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -612,7 +603,7 @@ def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
     # Create dataloader with genomic masking enabled
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -639,7 +630,7 @@ def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
     assert any(tok in labels for tok in valid_dna), "Should have valid DNA tokens"
 
 
-def test_token_packing_dataloader(recipe_path):
+def test_token_packing_dataloader(tokenizer_path):
     """Test that the token packing dataloader works."""
 
     load_dataset_kwargs = {
@@ -653,8 +644,9 @@ def test_token_packing_dataloader(recipe_path):
 
     dataloader, _ = create_thd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=str(recipe_path / "example_checkpoint"),
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
+        text_column="sequence",
         micro_batch_size=1,
         max_seq_length=1024,
     )

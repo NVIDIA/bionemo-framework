@@ -37,7 +37,7 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
-def main(args: DictConfig) -> float | None:  # noqa: C901
+def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using DDP.
 
     Returns:
@@ -188,9 +188,10 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     scheduler=scheduler,
                     ckpt_path=ckpt_path,
                     step=step,
-                    dist_config=dist_config,
-                    dataloader=train_dataloader,
                     epoch=epoch,
+                    dist_config=dist_config,
+                    dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                    max_checkpoints=args.checkpoint.max_checkpoints,
                 )
 
             step += 1

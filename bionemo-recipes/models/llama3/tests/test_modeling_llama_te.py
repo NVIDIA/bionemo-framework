@@ -24,6 +24,7 @@ from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
     DataCollatorWithFlattening,
+    set_seed,
 )
 
 from convert import convert_llama_hf_to_te
@@ -56,6 +57,25 @@ def test_llama_model_forward_pass(input_text, attn_input_format):
 
     inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="right")
     inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    model.to("cuda")
+    with torch.no_grad():
+        outputs = model(**inputs, output_hidden_states=True)
+
+    assert outputs.logits is not None
+    assert outputs.hidden_states is not None
+    assert len(outputs.hidden_states) == config.num_hidden_layers + 1
+
+
+def test_llama_model_forward_pass_no_attention_mask():
+    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
+    config = NVLlamaConfig.from_pretrained(
+        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format="bshd"
+    )
+    model = NVLlamaForCausalLM(config)
+
+    input_text = ["Hello, world!"]
+    inputs = tokenizer(input_text, return_tensors="pt")
+    inputs = {k: v.to("cuda") for k, v in inputs.items() if k != "attention_mask"}
     model.to("cuda")
     with torch.no_grad():
         outputs = model(**inputs, output_hidden_states=True)
@@ -376,6 +396,7 @@ def test_te_llama_model_generate_with_cache_bshd_beam_search():
 
 @pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
 def test_loss_with_random_weights_for_input_gene_sequence(recipe_path, attn_input_format: str):
+    set_seed(42)
     tokenizer = AutoTokenizer.from_pretrained(recipe_path / "nucleotide_fast_tokenizer")
     input_text = "GCACGGTCTGCACCACCGTCTGCCCGGTCAGCGGCGTTAACCCGCGCTATCCCGGTCCGAAACAGGCCGGGCCGGACGGCGAGCGCCTTCGTCTGAAGGA"
 
