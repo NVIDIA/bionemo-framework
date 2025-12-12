@@ -1,0 +1,2 @@
+poetry-core
+ninja  # should speed up causal-conv1d build
