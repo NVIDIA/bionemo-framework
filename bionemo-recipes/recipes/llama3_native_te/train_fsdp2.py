@@ -116,7 +116,7 @@ def main(args: DictConfig) -> float | None:
             scheduler=scheduler,
             ckpt_path=ckpt_path,
             dist_config=dist_config,
-            dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+            dataloader=train_dataloader,
             process_group=device_mesh.get_group("dp"),
         )
         logger.info(f"Checkpoint loaded, resuming from step {start_step}, epoch {epoch}")
