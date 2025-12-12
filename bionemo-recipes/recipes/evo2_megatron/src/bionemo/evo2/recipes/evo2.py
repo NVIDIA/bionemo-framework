@@ -243,8 +243,9 @@ def _evo2_common(
         ddp=DistributedDataParallelConfig(
             check_for_nan_in_grad=True,
             grad_reduce_in_fp32=True,
-            overlap_grad_reduce=True,
-            overlap_param_gather=True,
+            overlap_grad_reduce=False,
+            overlap_param_gather=False,
+            align_param_gather=False,
             use_distributed_optimizer=True,
         ),
         dataset=dataset_cfg_or_provider,

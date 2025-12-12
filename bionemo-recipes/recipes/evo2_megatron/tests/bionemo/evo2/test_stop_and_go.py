@@ -248,11 +248,11 @@ def find_free_network_port() -> int:
 @pytest.mark.parametrize(
     "tp_size,cp_size,dp_size,dp_rank_check",
     [
-        (1, 1, 1, 1, False),
-        (1, 1, 2, 1, True),
-        (1, 1, 2, 1, False),
-        (1, 2, 1, 1, True),
-        (2, 1, 1, 1, False),
+        (1, 1, 1, False),
+        (1, 1, 2, True),
+        (1, 1, 2, False),
+        (1, 2, 1, True),
+        (2, 1, 1, False),
     ],
 )
 @pytest.mark.slow
@@ -264,7 +264,7 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
     num_gpus = torch.cuda.device_count()
     if world_size > num_gpus:
         pytest.skip(f"World size {world_size} is greater than the number of GPUs {num_gpus}")
-    run_dir = tmp_path / f"run_tp{tp_size}_pp{pp_size}_cp{cp_size}_dp{dp_size}"
+    run_dir = tmp_path / f"run_tp{tp_size}_pp{pp_size}_cp{cp_size}_dp{dp_size}_rank_check{dp_rank_check}"
     run_dir.mkdir(parents=True, exist_ok=True)
     dp_rank_check_str = "--debug-ddp-parity-freq 5" if dp_rank_check else ""
     cmd1 = f"""torchrun --nproc-per-node {world_size} --no-python \

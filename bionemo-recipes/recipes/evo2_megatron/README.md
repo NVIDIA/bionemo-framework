@@ -19,16 +19,19 @@ torchrun --nproc-per-node 2 --no-python \
   train_evo2 \
   --hf-tokenizer-model-path tokenizers/nucleotide_fast_tokenizer_256 \
   --model-size striped_hyena_1b_nv_parallel --max-steps 110 --eval-interval 10 \
-  --eval-iters 3 --mock-data --result-dir tmp3 \
+  --eval-iters 3 --mock-data \
   --micro-batch-size 32 --global-batch-size 64 --seq-length 1024 \
-  --tensor-model-parallel 2 \
+  --tensor-model-parallel 1 \
   --use-precision-aware-optimizer --dataset-seed 33 \
   --seed 41 --ckpt-async-save  --spike-no-more-embedding-init \
   --no-weight-decay-embeddings --cross-entropy-loss-fusion \
   --align-param-gather --grad-reduce-in-fp32 \
   --constant-steps 3 --warmup-steps 10 \
   --eod-pad-in-loss-mask --enable-preemption \
-  --log-interval 5 --debug-ddp-parity-freq 10
+  --log-interval 5 --debug-ddp-parity-freq 10 \
+  --wandb-project evo2-recipes-verification \
+  --wandb-run-name tmp_workstation_run_mock_data \
+  --result-dir tmp3
 
 torchrun --nproc-per-node 1 --no-python \
   train_evo2 \

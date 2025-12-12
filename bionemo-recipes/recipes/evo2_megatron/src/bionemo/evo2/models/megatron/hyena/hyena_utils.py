@@ -554,11 +554,6 @@ class ImplicitModalFilter(nn.Module):
         setattr(self.gamma, "tensor_model_parallel", True)
         setattr(self.R, "tensor_model_parallel", True)
         setattr(self.p, "tensor_model_parallel", True)
-        if torch.distributed.get_rank() == 0:
-            import pdb
-
-            pdb.set_trace()
-        torch.distributed.barrier()
         self.reset_parameters()
 
     def reset_parameters(self):
@@ -767,7 +762,8 @@ def small_init_init_method(dim):
     std = math.sqrt(2 / (5 * dim))
 
     def init_(tensor):
-        return torch.nn.init.normal_(tensor, mean=0.0, std=std)
+        res = torch.nn.init.normal_(tensor, mean=0.0, std=std)
+        return res
 
     return init_
 
@@ -777,7 +773,8 @@ def wang_init_method(n_layers, dim):
     std = 2 / n_layers / math.sqrt(dim)
 
     def init_(tensor):
-        return torch.nn.init.normal_(tensor, mean=0.0, std=std)
+        res = torch.nn.init.normal_(tensor, mean=0.0, std=std)
+        return res
 
     return init_
 
@@ -936,7 +933,7 @@ class ParallelHyenaOperator(nn.Module):
         setattr(self.conv_bias, "tensor_model_parallel", True)
         setattr(self.conv_bias, "model_parallel", True)
         setattr(self.conv_bias, "partition_dim", 0)
-        # setattr(self.conv_bias, "stride", 1)
+        setattr(self.conv_bias, "partition_stride", 1)
         if transformer_config.perform_initialization:
             self.reset_parameters()
 
@@ -944,8 +941,7 @@ class ParallelHyenaOperator(nn.Module):
         """Reset the parameters of the ParallelShortHyenaOperator."""
         with get_cuda_rng_tracker().fork(), torch.no_grad():
             bounds = math.sqrt(1 / self.kernel_size)
-            conv_init_method = partial(torch.nn.init.uniform_, a=-bounds, b=bounds)
-            self.conv_bias.data = conv_init_method(self.conv_bias.data)
+            torch.nn.init.uniform_(self.conv_bias, a=-bounds, b=bounds)
         if hasattr(self.filter, "reset_parameters"):
             self.filter.reset_parameters()
 
@@ -1240,7 +1236,7 @@ class ParallelShortHyenaOperator(nn.Module):
             setattr(self.conv_bias, "tensor_model_parallel", True)
             setattr(self.conv_bias, "model_parallel", True)
             setattr(self.conv_bias, "partition_dim", 0)
-            # setattr(self.conv_bias, "stride", 1)
+            setattr(self.conv_bias, "partition_stride", 1)
         if transformer_config.perform_initialization:
             self.reset_parameters()
 
@@ -1248,8 +1244,8 @@ class ParallelShortHyenaOperator(nn.Module):
         """Reset the parameters of the ParallelShortHyenaOperator."""
         with get_cuda_rng_tracker().fork(), torch.no_grad():
             bounds = math.sqrt(1 / self.kernel_size)
-            conv_init_method = partial(torch.nn.init.uniform_, a=-bounds, b=bounds)
-            self.conv_bias.data = conv_init_method(self.conv_bias.data)
+            if self.use_conv_bias:
+                torch.nn.init.uniform_(self.conv_bias, a=-bounds, b=bounds)
             self.short_conv.reset_parameters()
 
     def forward(self, x1, x2, v, inference_context=None, _hyena_use_cp=True):
@@ -1372,7 +1368,7 @@ class ParallelCausalDepthwiseConv1d(nn.Module):
             bounds = math.sqrt(1 / self.short_conv_L)
             conv_init_method = partial(torch.nn.init.uniform_, a=-bounds, b=bounds)
             if self.local_init:
-                self.short_conv_weight.data = conv_init_method(self.short_conv_weight.data)
+                conv_init_method(self.short_conv_weight)
             else:
                 # Call this on the module because it also modifies module attributes in addition to the data.
                 initialize_affine_weight_gpu(self.short_conv_weight, conv_init_method, partition_dim=0)

@@ -164,6 +164,7 @@ class HyenaMixer(MegatronModule):
             skip_bias_add=False,
             is_expert=False,
             tp_comm_buffer_name="fc1",
+            tp_group=self.tp_group,
         )
 
         hyena_proj_groups = self.proj_groups if not self.grouped_attention else 1
