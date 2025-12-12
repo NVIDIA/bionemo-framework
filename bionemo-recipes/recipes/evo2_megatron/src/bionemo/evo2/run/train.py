@@ -647,6 +647,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Enable NVIDIA fault tolerance. This only works on internal NVIDIA clusters.",
     )  # DONE
+    parser.add_argument(
+        "--optim-full-reshardable",
+        action="store_true",
+        default=False,
+        help="Enable full optimizer resharding. This is useful for cases where you want to change model parallelism "
+        "but keep the same optimizer state.",
+    )  # DONE
 
     recompute_group = parser.add_mutually_exclusive_group(required=False)  # DONE
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)  # DONE
@@ -808,6 +815,8 @@ def train(args: argparse.Namespace) -> None:
     cfg.optimizer.main_grads_dtype = torch.bfloat16 if args.bf16_main_grads else torch.float32
     cfg.optimizer.log_num_zeros_in_grad = args.log_num_zeros_in_grad
     cfg.optimizer.clip_grad = args.clip_grad
+    # Optimizer checkpointing resharding
+    cfg.checkpoint.dist_ckpt_optim_fully_reshardable = args.optim_full_reshardable
 
     cfg.dataset.num_workers = args.workers
 

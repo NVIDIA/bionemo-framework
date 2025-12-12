@@ -276,7 +276,7 @@ def _evo2_common(
             load=checkpoint_dir,
             ckpt_format="torch_dist",
             fully_parallel_load=True,
-            dist_ckpt_optim_fully_reshardable=True,
+            dist_ckpt_optim_fully_reshardable=False,
         ),
         rng=RNGConfig(seed=seed),
         comm_overlap=comm_overlap_config,
