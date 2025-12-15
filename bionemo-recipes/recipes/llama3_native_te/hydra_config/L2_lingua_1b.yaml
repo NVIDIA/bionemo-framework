@@ -4,7 +4,7 @@ defaults:
   - defaults
   - _self_
 
-config_name_or_path: ./model_configs/meta-llama/Llama-3.2-1B
+config_name_or_path: ./model_configs/lingua-1B
 
 config_kwargs:
   attn_input_format: thd
@@ -18,7 +18,7 @@ wandb:
 num_train_steps: 60_000
 
 dataset:
-  tokenizer_name_or_path: nvidia/Llama-3.1-8B-Instruct-FP8
+  tokenizer_name_or_path: meta-llama/Meta-Llama-3-8B
   micro_batch_size: 4
   num_workers: 8
   max_seq_length: 4096
