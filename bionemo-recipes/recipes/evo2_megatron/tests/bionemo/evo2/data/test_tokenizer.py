@@ -17,9 +17,17 @@
 # limitations under the License.
 
 
-import pytest
+from pathlib import Path
 
-from bionemo.evo2.data.dataset_tokenizer import Evo2DatasetTokenizer
+import pytest
+from megatron.bridge.training.tokenizers.config import TokenizerConfig
+from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
+
+from bionemo.evo2.data.dataset_tokenizer import (
+    DEFAULT_HF_TOKENIZER_MODEL_PATH,
+    DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+    Evo2DatasetTokenizer,
+)
 from bionemo.evo2.utils.config import Evo2PreprocessingConfig
 
 
@@ -27,6 +35,25 @@ from bionemo.evo2.utils.config import Evo2PreprocessingConfig
 def tokenizer() -> Evo2DatasetTokenizer:
     """Return a dataset tokenizer for the Evo2Dataset."""
     return Evo2DatasetTokenizer(Evo2PreprocessingConfig())
+
+
+@pytest.mark.parametrize(
+    "tokenizer_path, expected_vocab_size",
+    [
+        (DEFAULT_HF_TOKENIZER_MODEL_PATH, 256),
+        (DEFAULT_HF_TOKENIZER_MODEL_PATH_512, 512),
+    ],
+)
+def test_tokenizer_vocab_size(tokenizer_path: Path, expected_vocab_size: int) -> None:
+    """Verifies key tokenizers have the expected vocabulary size."""
+    tokenizer = build_tokenizer(
+        TokenizerConfig(
+            tokenizer_type="HuggingFaceTokenizer",
+            hf_tokenizer_kwargs={"trust_remote_code": False},
+            tokenizer_model=tokenizer_path,
+        )
+    )
+    assert tokenizer.vocab_size == expected_vocab_size
 
 
 def test_tokenizer_handles_long_dna_sequence(tokenizer: Evo2DatasetTokenizer) -> None:
