@@ -47,6 +47,12 @@ def main(args: DictConfig) -> float | None:
     Returns:
         float: The loss value for the final batch.
     """
+    # Validate arguments.
+    if not args.grad_acc_steps >= 1:
+        raise ValueError(
+            f"Gradient accumulation steps must be an integer greater than or equal to 1, but got: {args.grad_acc_steps}"
+        )
+
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
@@ -125,57 +131,68 @@ def main(args: DictConfig) -> float | None:
         start_step = 0
         epoch = 0
 
-    perf_logger = PerfLogger(dist_config, args)
+    # Get padding token from config for logging
+    config_for_pad_token = config if hasattr(config, "pad_token_id") else None
+    pad_token_id = config_for_pad_token.pad_token_id if config_for_pad_token else 1
+    perf_logger = PerfLogger(dist_config, args, pad_token_id=pad_token_id)
 
     # Training loop
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
+    micro_step = 0
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
+
+            micro_step += 1
 
             # Forward pass with mixed precision.
             with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
                 outputs = model(**batch)
 
-            # Backward pass.
-            loss = outputs.loss
+            # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
+            loss = outputs.loss / args.grad_acc_steps
             loss.backward()
 
-            # Compute and clip gradient norms.
-            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+            # Log microbatch step data for accumulation metrics
+            perf_logger.log_micro_step(batch=batch, outputs=outputs)
 
-            # Step optimizer.
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
+            # Gradient accumulation - only step optimizer after accumulating gradients
+            if micro_step % args.grad_acc_steps == 0:
+                micro_step = 0
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
+                # Compute and clip gradient norms.
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
-            if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
-                save_checkpoint_fsdp2(
-                    model=model,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    ckpt_path=ckpt_path,
+                # Step optimizer.
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+
+                perf_logger.log_step(
                     step=step,
-                    epoch=epoch,
-                    dist_config=dist_config,
-                    dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                    process_group=device_mesh.get_group("dp"),
-                    max_checkpoints=args.checkpoint.max_checkpoints,
-                    async_save=args.checkpoint.async_save,
+                    grad_norm=total_norm,
+                    lr=optimizer.param_groups[0]["lr"],
                 )
 
-            step += 1
-            if step >= args.num_train_steps:
-                break
+                if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
+                    save_checkpoint_fsdp2(
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        ckpt_path=ckpt_path,
+                        step=step,
+                        epoch=epoch,
+                        dist_config=dist_config,
+                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                        process_group=device_mesh.get_group("dp"),
+                        max_checkpoints=args.checkpoint.max_checkpoints,
+                        async_save=args.checkpoint.async_save,
+                    )
+
+                step += 1
+                if step >= args.num_train_steps:
+                    break
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1
