@@ -24,9 +24,11 @@ Still needs:
  - [ ] Perf / wandb logging.
 """
 
+import hydra
 import peft
 import torch
 from datasets import load_dataset
+from omegaconf import DictConfig
 from tqdm import tqdm
 from transformers import (
     AutoConfig,
@@ -35,21 +37,37 @@ from transformers import (
     DataCollatorForTokenClassification,
 )
 
+from distributed_config import DistributedConfig
+from perf_logger import PerfLogger
 
-def create_dataloader(use_sanity_dataset: bool = False) -> torch.utils.data.DataLoader:
+
+def create_dataloader(
+    use_sanity_dataset: bool = False,
+    micro_batch_size: int = 2,
+    max_seq_length: int = 1024,
+    perform_validation: bool = False,
+    validation_samples: int = 1024,
+    **kwargs,
+) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader | None]:
     """Create a dataloader for the secondary structure dataset."""
     if use_sanity_dataset:
         # 5000 row sanity dataset.
-        ss_dataset = load_dataset("parquet", data_files="peft_sanity_dataset.parquet", split="train", streaming=True)
+        train_dataset = load_dataset(
+            "parquet", data_files="peft_sanity_dataset.parquet", split="train", streaming=True
+        )
     else:
         # Full-scale source dataset.
-        ss_dataset = load_dataset("lamm-mit/protein_secondary_structure_from_PDB", split="train", streaming=True)
+        train_dataset = load_dataset("lamm-mit/protein_secondary_structure_from_PDB", split="train", streaming=True)
+
+    if perform_validation:
+        val_dataset = train_dataset.take(validation_samples)
+        train_dataset = train_dataset.skip(validation_samples)
 
     ss_token_map = {"H": 0, "E": 1, "I": 2, "S": 3, "T": 4, "C": 5, "B": 6, "G": 7, "~": -100}
 
     tokenizer = AutoTokenizer.from_pretrained("example_8m_checkpoint")
     tokenize_args = {
-        "max_length": 128,
+        "max_length": max_seq_length,
         "truncation": True,
         "stride": 16,  # TODO: figure this out later
         "return_overflowing_tokens": True,
@@ -87,32 +105,67 @@ def create_dataloader(use_sanity_dataset: bool = False) -> torch.utils.data.Data
 
         return {"input_ids": result["input_ids"], "labels": labels}
 
-    tokenized_dataset = ss_dataset.map(
+    train_tokenized_dataset = train_dataset.map(
         tokenize,
         batched=True,
-        remove_columns=[col for col in ss_dataset.features if col not in ["input_ids", "labels"]],
+        remove_columns=[col for col in train_dataset.features if col not in ["input_ids", "labels"]],
     )
 
     collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding="max_length", max_length=1024)
-    dataloader = torch.utils.data.DataLoader(tokenized_dataset, batch_size=16, collate_fn=collator)
+    train_dataloader = torch.utils.data.DataLoader(
+        train_tokenized_dataset, batch_size=micro_batch_size, collate_fn=collator
+    )
 
-    return dataloader
+    if perform_validation:
+        val_tokenized_dataset = val_dataset.map(
+            tokenize,
+            batched=True,
+            remove_columns=[col for col in val_dataset.features if col not in ["input_ids", "labels"]],
+        )
+
+        collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding="max_length", max_length=1024)
+        val_dataloader = torch.utils.data.DataLoader(
+            val_tokenized_dataset, batch_size=micro_batch_size, collate_fn=collator
+        )
+    else:
+        val_dataloader = None
+
+    return train_dataloader, val_dataloader
 
 
-def train_lora(dataloader: torch.utils.data.DataLoader) -> float:
+def compute_accuracy(preds, labels, ignore_index=-100) -> float:
+    """Calculate the accuracy."""
+    preds_labels = torch.argmax(preds, dim=-1)
+    mask = labels != ignore_index
+    correct = (preds_labels == labels) & mask
+    total = mask.sum()
+    if total == 0:
+        return 0.0
+    return correct.sum().item() / total.item()
+
+
+@hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
+def main(args: DictConfig) -> float:
     """Training loop for LoRA fine-tuning of ESM-2 with Transformer Engine and PEFT.
 
     Args:
-        dataloader: DataLoader for the secondary structure dataset.
+        args: Configuration arguments from hydra.
 
     Returns:
         Final loss value.
     """
+    train_dataloader, val_dataloader = create_dataloader(perform_validation=args.perform_validation, **args.dataset)
+
+    # Initialize the distributed configuration, including creating the distributed process group.
+    dist_config = DistributedConfig()
+
     # For testing, we don't want to depend on loading pre-trained weights.
-    config = AutoConfig.from_pretrained("example_8m_checkpoint", trust_remote_code=True)
+    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     config.num_labels = 8
     model = AutoModelForTokenClassification.from_config(config, trust_remote_code=True)
-
+    print("----- Model --------")
+    print(model)
+    print("-------------------------")
     # Alternatively, we'd want to load an actual pre-trained checkpoint.
     # model = AutoModelForTokenClassification.from_pretrained(
     #     "example_8m_checkpoint", num_labels=8, trust_remote_code=True, dtype="bfloat16"
@@ -123,36 +176,89 @@ def train_lora(dataloader: torch.utils.data.DataLoader) -> float:
         inference_mode=False,
         r=16,
         lora_alpha=16,
-        # target_modules=["layernorm_qkv"],  # TODO: figure out if this could work?
-        target_parameters=["layernorm_qkv.weight"],
+        target_modules=["layernorm_qkv"],  # TODO: figure out if this could work?
+        # target_parameters=["layernorm_qkv.weight"],
         bias="none",
     )
 
     peft_model = peft.get_peft_model(model, peft_config)
     peft_model.to("cuda", dtype=torch.bfloat16)
+    print("----- PEFT Model --------")
+    print(peft_model)
+    print("-------------------------")
+    peft_model.print_trainable_parameters()
 
     # Create optimizer.
-    optimizer = torch.optim.AdamW(peft_model.parameters(), lr=1e-3, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(peft_model.parameters(), lr=1e-5, weight_decay=0.01)
+
+    perf_logger = PerfLogger(dist_config, args)
 
     # Training loop.
     step = 0
-    with tqdm(dataloader, desc="Training") as progress_bar:
-        for batch in progress_bar:
-            batch = {k: v.to("cuda") for k, v in batch.items()}  # noqa PLW2901
-            output = peft_model(**batch)
-            loss = output.loss
-            loss.backward()
-            progress_bar.set_postfix({"loss": loss.item()})
+    while step < args.num_train_steps:
+        with tqdm(train_dataloader, desc="Training") as progress_bar:
+            for batch in progress_bar:
+                batch = {k: v.to("cuda") for k, v in batch.items()}  # noqa PLW2901
+                output = peft_model(**batch)
+                loss = output.loss
+                loss.backward()
+                progress_bar.set_postfix({"loss": loss.item()})
 
-            # Step optimizer.
-            optimizer.step()
-            optimizer.zero_grad()
+                # Compute and clip gradient norms.
+                total_norm = torch.nn.utils.clip_grad_norm_(peft_model.parameters(), max_norm=1.0).item()
 
-            step += 1
-            if step >= 100:
-                return loss.item()
+                # Step optimizer.
+                optimizer.step()
+                optimizer.zero_grad()
+
+                step += 1
+
+                # Validation
+                avg_val_loss = None
+                avg_val_acc = None
+                if args.perform_validation and step % args.validation_interval == 0:
+                    peft_model.eval()
+                    val_loss_total = 0.0
+                    val_acc_total = 0.0
+                    val_steps = 1
+                    with torch.no_grad():
+                        for val_batch in val_dataloader:
+                            val_batch = {k: v.to("cuda") for k, v in val_batch.items()}  # noqa PLW2901
+                            val_output = peft_model(**val_batch)
+
+                            # Loss
+                            val_loss_total += val_output.loss.item()
+
+                            # Accuracy
+                            logits = val_output.logits
+                            labels = val_batch["labels"]
+                            val_acc_total += compute_accuracy(logits, labels)
+
+                            val_steps += 1
+
+                    avg_val_loss = val_loss_total / val_steps
+                    avg_val_acc = val_acc_total / val_steps
+
+                    print(f"\nStep: {step}: Validation Loss = {avg_val_loss:.4f}, Accuracy: {avg_val_acc:.4f}\n")
+                    peft_model.train()
+
+                perf_logger.log_step(
+                    step=step,
+                    batch=batch,
+                    outputs=output,
+                    grad_norm=total_norm,
+                    lr=optimizer.param_groups[0]["lr"],
+                    val_loss=avg_val_loss,
+                    val_acc=avg_val_acc,
+                )
+
+                if step >= args.num_train_steps:
+                    break
+
+    perf_logger.finish()
+
+    return perf_logger.min_loss
 
 
 if __name__ == "__main__":
-    dataloader = create_dataloader(use_sanity_dataset=True)
-    train_lora(dataloader)
+    main()
