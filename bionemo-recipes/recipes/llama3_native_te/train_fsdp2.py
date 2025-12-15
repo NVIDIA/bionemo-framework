@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import logging
 from contextlib import nullcontext
 from pathlib import Path
@@ -126,6 +127,9 @@ def main(args: DictConfig) -> float | None:
         epoch = 0
 
     perf_logger = PerfLogger(dist_config, args)
+
+    gc.collect()
+    torch.cuda.empty_cache()
 
     # Training loop
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
