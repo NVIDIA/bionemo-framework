@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import logging
 from contextlib import nullcontext
 from pathlib import Path
@@ -135,6 +136,9 @@ def main(args: DictConfig) -> float | None:
     config_for_pad_token = config if hasattr(config, "pad_token_id") else None
     pad_token_id = config_for_pad_token.pad_token_id if config_for_pad_token else 1
     perf_logger = PerfLogger(dist_config, args, pad_token_id=pad_token_id)
+
+    gc.collect()
+    torch.cuda.empty_cache()
 
     # Training loop
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")

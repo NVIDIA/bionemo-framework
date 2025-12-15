@@ -13,10 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import gc
 import logging
 import os
 import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
@@ -315,6 +315,7 @@ def save_checkpoint_fsdp2(
         max_checkpoints: The maximum number of checkpoints to keep.
         async_save: Whether to save the checkpoint asynchronously.
     """
+    start_time = time.perf_counter()
     ckpt_path = Path(ckpt_path)
     checkpoint_path = ckpt_path / f"step_{step}"
     checkpoint_path.mkdir(parents=True, exist_ok=True)
@@ -331,20 +332,17 @@ def save_checkpoint_fsdp2(
     if async_save and "fsdp2" in _ckpt_futures and _ckpt_futures["fsdp2"] is not None:
         _ckpt_futures["fsdp2"].result()
 
-    # Clear GPU cache before checkpointing to free up fragmented memory.
-    gc.collect()
-    torch.cuda.empty_cache()
-    torch.distributed.barrier(group=process_group)
-
     state_dict = {"app": AppState(model=model, optimizer=optimizer, scheduler=scheduler, step=step, epoch=epoch)}
     ckpt_save_func = dcp_async_save if async_save else dcp_save
     _ckpt_futures["fsdp2"] = ckpt_save_func(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
 
-    if dist_config.is_main_process():
-        logger.info(f"Saved distributed FSDP2 checkpoint to {checkpoint_path}")
-
     if max_checkpoints is not None and dist_config.is_main_process():
         prune_checkpoints(ckpt_path, max_checkpoints)
+
+    if dist_config.is_main_process():
+        logger.info(
+            f"Saved distributed FSDP2 checkpoint to {checkpoint_path} in {time.perf_counter() - start_time:.2f} seconds"
+        )
 
 
 def save_final_model_fsdp2(
