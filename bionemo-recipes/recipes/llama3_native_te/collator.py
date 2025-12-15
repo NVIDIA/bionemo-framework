@@ -411,9 +411,11 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
 class DataCollatorForContextParallel:
     """A collator that is aware of context parallelism.
 
-    For the case of context parallelism, padded sequences will be returned from the wrapped collator, and then split into shards for each context parallelism rank.
+    For the case of context parallelism, padded sequences will be returned from the wrapped collator, and then split
+    into shards for each context parallelism rank.
 
-    The shards are then typically sent to the CPAwareDataloader which will scatter them to the appropriate GPUs.
+    The shards are then typically sent to the ContextParallelDataLoaderWrapper which will scatter them to the
+    appropriate GPUs.
     """
 
     def __init__(self, collator: DefaultDataCollator, cp_world_size: int):
