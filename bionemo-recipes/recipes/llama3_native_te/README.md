@@ -46,16 +46,21 @@ Alternatively, the dependencies can be installed manually in an environment with
 
 ### Performance Benchmarks
 
-![Llama 3 Lingua 1B Validation](../../../docs/docs/assets/images/recipes/llama3_lingua_1b_validation.png)
+<p align="center">
+  <img src="../../../docs/docs/assets/images/recipes/lingua-1b-loss-curve.png" alt="Llama 3 Lingua 1B Loss Curve" width="49%" />
+  <img src="../../../docs/docs/assets/images/recipes/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
+</p>
 
-We compared the performance and convergence of this Llama3 recipe (with FSDP2) against NeMo 2.0 (https://github.com/NVIDIA-NeMo/NeMo)
-on the Lingua-1B dataset. See [Training on Natural Language Data (Lingua Reproduction)](#lingua-reproduction) for more
-details. The figure above shows similar loss convergence and step time to the NeMo 2.0 training example, and the
-following table shows downstream performance on various tasks using the
+We compared the performance and convergence of this Llama3 recipe (with FSDP2) against NeMo 2.0
+(https://github.com/NVIDIA-NeMo/NeMo) and the [facebookresearch/lingua](https://github.com/facebookresearch/lingua)
+implementation on the DCLM Baseline 1.0 dataset. See [Training on Natural Language Data (Lingua
+Reproduction)](#lingua-reproduction) for more details. The figure above shows similar loss convergence and step time to
+the NeMo 2.0 training example, and the following table shows downstream performance on various tasks using the
 [lm-eval](github.com/eleutherai/lm-evaluation-harness) library.
 
 | name                | arc_challenge | arc_easy | boolq | copa | hella_swag | piqa  | winogrande |
 | ------------------- | ------------- | -------- | ----- | ---- | ---------- | ----- | ---------- |
+| Llama3 1B (Lingua)  | 32            | 69.32    | 62.94 | 77   | 47.16      | 73.34 | 63.06      |
 | Llama3 1B (NeMo2)   | 32.34         | 67       | 59.79 | 78   | 59.09      | 74.43 | 59.83      |
 | Llama3 1B (Recipes) | 30.63         | 65.57    | 55.6  | 80   | 44.57      | 73.29 | 58.72      |
 
