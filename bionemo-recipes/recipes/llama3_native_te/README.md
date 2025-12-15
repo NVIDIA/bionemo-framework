@@ -18,7 +18,7 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 | Model                                    | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP8 with THD Input Format | MXFP8<sup>[2]</sup> | Context Parallelism |
 | ---------------------------------------- | ---- | ----------------- | ---------------- | ------------------------- | ------------------- | ------------------- |
-| [Llama 3](../../models/llama3/README.md) | ✅   | ✅                | ✅               | ✅                        | ✅                  | 🚧                  |
+| [Llama 3](../../models/llama3/README.md) | ✅   | ✅                | ✅               | 🚧                        | 🚧                  | 🚧                  |
 
 ✅: Supported <br/>
 🚧: Under development <br/>
@@ -56,7 +56,7 @@ We compared the performance and convergence of this Llama3 recipe (with FSDP2) a
 implementation on the DCLM Baseline 1.0 dataset. See [Training on Natural Language Data (Lingua
 Reproduction)](#lingua-reproduction) for more details. The figure above shows similar loss convergence and step time to
 the NeMo 2.0 training example, and the following table shows downstream performance on various tasks using the
-[lm-eval](github.com/eleutherai/lm-evaluation-harness) library.
+[lm-eval](github.com/eleutherai/lm-evaluation-harness) library. The spike in training step time every 10,000 steps are due
 
 | name                | arc_challenge | arc_easy | boolq | copa | hella_swag | piqa  | winogrande |
 | ------------------- | ------------- | -------- | ----- | ---- | ---------- | ----- | ---------- |
