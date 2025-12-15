@@ -155,6 +155,9 @@ jobs:
         with:
           sparse-checkout: "${{ matrix.recipe.dir }}"
           sparse-checkout-cone-mode: false
+      - name: Include symlink targets for esm2_peft_te
+        if: ${{ matrix.recipe.dir == 'bionemo-recipes/recipes/esm2_peft_te' }}
+        run: git -c safe.directory=/__w/bionemo-framework/bionemo-framework sparse-checkout add bionemo-recipes/recipes/esm2_native_te
 
       - name: Cache Hugging Face models
         uses: actions/cache@v4

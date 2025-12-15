@@ -194,6 +194,15 @@ def save_final_model_ddp(
     underlying_model: transformers.PreTrainedModel = model.module if hasattr(model, "module") else model  # type: ignore
 
     os.makedirs(save_directory, exist_ok=True)
+    # If we are saving a PEFT model we also save the base_model config.
+    # This allows for an streamlined reload of the PEFT model without having to manually reconstruct the config of
+    # the base_model.
+    # For example:
+    # >>> config = AutoConfig.from_pretrained(<save_directory>)
+    # >>> base_model = AutoModelForTokenClassification.from_pretrained(<model.tag>, config=config)
+    # >>> peft_model = PeftModel.from_pretrained(base_model, <save_directory>)
+    if hasattr(underlying_model, "peft_config"):
+        underlying_model.config.save_pretrained(save_directory)
     underlying_model.save_pretrained(save_directory, state_dict=underlying_model.state_dict(), safe_serialization=True)
     logger.info(f"Saved final DDP model to {save_directory}")
 

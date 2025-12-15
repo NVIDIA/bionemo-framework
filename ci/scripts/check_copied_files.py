@@ -33,6 +33,7 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     "bionemo-recipes/models/esm2/src/esm/modeling_esm_te.py": [
         "bionemo-recipes/recipes/esm2_native_te/example_8m_checkpoint/esm_nv.py",
         "bionemo-recipes/recipes/esm2_peft_te/example_8m_checkpoint/esm_nv.py",
+        "bionemo-recipes/recipes/esm2_peft_te/example_nv_esm2_t6_8M_UR50D_peft_checkpoint/esm_nv.py",
         "bionemo-recipes/recipes/esm2_accelerate_te/example_8m_checkpoint/esm_nv.py",
     ],
     "bionemo-recipes/models/esm2/src/esm/collator.py": [

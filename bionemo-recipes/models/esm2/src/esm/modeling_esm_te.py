@@ -679,3 +679,81 @@ class NVEsmForTokenClassification(NVEsmPreTrainedModel):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
+
+
+class NVConvNetHead(nn.Module):
+    """Convolution based head for token classification."""
+
+    def __init__(self, config: NVEsmConfig):
+        """Initialize the NVConvNetHead."""
+        super().__init__()
+        self.conv_head = torch.nn.Sequential(
+            torch.nn.Conv1d(config.hidden_size, config.hidden_size // 2, kernel_size=7, padding=3),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(config.hidden_dropout_prob),
+            torch.nn.Conv1d(config.hidden_size // 2, config.num_labels, kernel_size=7, padding=3),
+        )
+
+    def forward(self, features, **kwargs):
+        """Forward pass for the convolutional token classification head."""
+        return self.conv_head(features).transpose(1, 2)
+
+
+class NVEsmForConvTokenClassification(NVEsmPreTrainedModel):
+    """Adds a convolutional classification head to the model."""
+
+    def __init__(self, config):
+        """Initialize NVEsmForTokenClassification."""
+        super().__init__(config)
+        self.num_labels = config.num_labels
+
+        self.esm = NVEsmModel(config, add_pooling_layer=False)
+        self.classifier = NVConvNetHead(config)
+
+        self.init_weights()
+        self.post_init()
+
+    def forward(
+        self,
+        input_ids: Optional[torch.LongTensor] = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        labels: Optional[torch.LongTensor] = None,
+        **kwargs: Unpack[TransformersKwargs],
+    ) -> TokenClassifierOutput:
+        """Forward pass for the token classification head.
+
+        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+            Labels for computing the token classification loss. Indices should be in `[0, ..., config.num_labels - 1]`.
+        """
+        outputs = self.esm(
+            input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            inputs_embeds=inputs_embeds,
+            **kwargs,
+        )
+
+        if outputs[0].dim() == 3:
+            sequence_output = outputs[0]
+        else:
+            sequence_output = outputs[0].unsqueeze(0)
+
+        sequence_output = sequence_output.transpose(1, 2)
+
+        logits = self.classifier(sequence_output)
+
+        loss = None
+        if labels is not None:
+            loss_fct = CrossEntropyLoss()
+
+            labels = labels.to(logits.device)
+            loss = loss_fct(logits.reshape(-1, self.num_labels), labels.view(-1))
+
+        return TokenClassifierOutput(
+            loss=loss,
+            logits=logits,
+            hidden_states=outputs.hidden_states,
+            attentions=outputs.attentions,
+        )
