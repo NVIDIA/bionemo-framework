@@ -22,8 +22,7 @@ from unittest import mock
 import torch
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 
-from collator import split_batch_by_cp_rank
-from dataset import CPAwareDataloader
+from esm.collator import ContextParallelDataLoaderWrapper, _split_batch_by_cp_rank
 
 
 def get_dummy_data_thd_with_padding_dp0(cp_size: int):
@@ -376,7 +375,7 @@ def test_dataloader_scatter_nopadding():
             dict(
                 base_batch,
                 **{
-                    "input_ids": split_batch_by_cp_rank(
+                    "input_ids": _split_batch_by_cp_rank(
                         cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
                         input_ids_padded=base_batch["input_ids"],
                         labels_padded=base_batch["labels"],
@@ -384,7 +383,7 @@ def test_dataloader_scatter_nopadding():
                         cp_rank=cp_rank,
                         cp_world_size=cp_group.size(),
                     )[0],
-                    "labels": split_batch_by_cp_rank(
+                    "labels": _split_batch_by_cp_rank(
                         cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
                         input_ids_padded=base_batch["input_ids"],
                         labels_padded=base_batch["labels"],
@@ -396,8 +395,8 @@ def test_dataloader_scatter_nopadding():
             )
             for cp_rank in range(cp_group.size())
         ]
-        loader_rank0 = CPAwareDataloader(_DummyLoader(combined_batch), cp_group, cp_rank=0)
-        loader_rank1 = CPAwareDataloader(_DummyLoader(combined_batch), cp_group, cp_rank=1)
+        loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=0)
+        loader_rank1 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=1)
 
         scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
         current_rank = {"value": None}
@@ -415,8 +414,8 @@ def test_dataloader_scatter_nopadding():
             scatter_object_output_list[0] = scatter_payload["data"][current_rank["value"]]
 
         with (
-            mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter),
-            mock.patch("dataset.torch.distributed.barrier", return_value=None),
+            mock.patch("esm.collator.torch.distributed.scatter_object_list", side_effect=fake_scatter),
+            mock.patch("esm.collator.torch.distributed.barrier", return_value=None),
         ):
             iter(loader_rank0)
             iter(loader_rank1)
@@ -463,7 +462,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
             dict(
                 base_batch,
                 **{
-                    "input_ids": split_batch_by_cp_rank(
+                    "input_ids": _split_batch_by_cp_rank(
                         cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
                         input_ids_padded=base_batch["input_ids"],
                         labels_padded=base_batch["labels"],
@@ -471,7 +470,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
                         cp_rank=cp_rank,
                         cp_world_size=cp_group.size(),
                     )[0],
-                    "labels": split_batch_by_cp_rank(
+                    "labels": _split_batch_by_cp_rank(
                         cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
                         input_ids_padded=base_batch["input_ids"],
                         labels_padded=base_batch["labels"],
@@ -483,8 +482,8 @@ def test_dataloader_scatter_with_pad_between_seqs():
             )
             for cp_rank in range(cp_group.size())
         ]
-        loader_rank0 = CPAwareDataloader(_DummyLoader(combined_batch), cp_group, cp_rank=0)
-        loader_rank1 = CPAwareDataloader(_DummyLoader(combined_batch), cp_group, cp_rank=1)
+        loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=0)
+        loader_rank1 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=1)
 
         scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
         current_rank = {"value": None}
@@ -502,8 +501,8 @@ def test_dataloader_scatter_with_pad_between_seqs():
             scatter_object_output_list[0] = scatter_payload["data"][current_rank["value"]]
 
         with (
-            mock.patch("dataset.torch.distributed.scatter_object_list", side_effect=fake_scatter),
-            mock.patch("dataset.torch.distributed.barrier", return_value=None),
+            mock.patch("esm.collator.torch.distributed.scatter_object_list", side_effect=fake_scatter),
+            mock.patch("esm.collator.torch.distributed.barrier", return_value=None),
         ):
             iter(loader_rank0)
             iter(loader_rank1)

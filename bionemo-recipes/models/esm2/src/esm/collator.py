@@ -296,7 +296,7 @@ class MLMDataCollatorWithFlattening:
         )
 
 
-class MLMDataCollatorWithFlatteningCPAware:
+class DataCollatorForContextParallel:
     """A collator that is aware of context parallelism.
 
     For the case of context parallelism, padded sequences will be returned from the wrapped collator, and then split into shards for each context parallelism rank.
@@ -304,8 +304,8 @@ class MLMDataCollatorWithFlatteningCPAware:
     The shards are then typically sent to the CPAwareDataloader which will scatter them to the appropriate GPUs.
     """
 
-    def __init__(self, collator: MLMDataCollatorWithFlattening, cp_world_size: int):
-        """Initialize the MLMDataCollatorWithFlatteningCPAware.
+    def __init__(self, collator: DefaultDataCollator, cp_world_size: int):
+        """Initialize the DataCollatorForContextParallel.
 
         Args:
             collator: The collator to use for masking tokens.
@@ -327,7 +327,7 @@ class MLMDataCollatorWithFlatteningCPAware:
 
         combined_batch = []
         for cp_rank in range(self.cp_world_size):
-            input_ids_sharded, labels_sharded = split_batch_by_cp_rank(
+            input_ids_sharded, labels_sharded = _split_batch_by_cp_rank(
                 cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
                 input_ids_padded=batch["input_ids"],
                 labels_padded=batch["labels"],
@@ -444,7 +444,7 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
                     tokens_in_batch = current_length - len(sample["input_ids"])
                     # Calculate how many tokens we can fit from this sample
                     tokens_available = self.max_tokens_per_batch - tokens_in_batch
-                    first_part, remaining_part = split_sample_by_num_tokens(sample, tokens_available)
+                    first_part, remaining_part = _split_sample_by_num_tokens(sample, tokens_available)
                     yield [*samples, first_part]
                     samples = [remaining_part]
 
@@ -460,7 +460,7 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         self.dataset.set_epoch(epoch)
 
 
-def split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
+def _split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
     """Split a sample dictionary at a specified number of tokens.
 
     This function splits a sample into two parts: the first part contains exactly `num_tokens` tokens,
@@ -615,7 +615,7 @@ def _pt_pad_to_multiple_of(batch: dict[str, Any], pad_to_multiple_of: int, token
 
 # TODO(@jomitchell): Once this gets merged: https://github.com/NVIDIA/TransformerEngine/pull/2387
 # we can replace this with the one in TransformerEngine.
-def split_batch_by_cp_rank(
+def _split_batch_by_cp_rank(
     cu_seqlens_padded: torch.Tensor,
     input_ids_padded: torch.Tensor,
     labels_padded: torch.Tensor,
@@ -716,3 +716,80 @@ def split_batch_by_cp_rank(
         raise ValueError(f"Support not implemented yet for qvk_format: {qvk_format}!")
 
     return input_ids_padded, labels_padded
+
+
+class ContextParallelDataLoaderWrapper:
+    """A dataloader that is aware of context parallelism."""
+
+    def __init__(
+        self,
+        dataloader: torch.utils.data.DataLoader,
+        cp_group: torch.distributed.ProcessGroup,
+        cp_rank: int,
+    ):
+        """A dataloader wrapper that distributes the data across the context parallelism group.
+
+        This class will get the batch from the dataloader on CP rank 0, and then determine the shards for all the
+        different CP group members. Then it will scatter the shards to the different CP group members. The shards are
+        then returned to the caller for the current CP rank.
+
+        Args:
+            dataloader: The dataloader to use.
+            cp_group: The context parallel group.
+            cp_rank: The rank of the current context parallel process.
+        """
+        self.dataloader = dataloader
+        self.cp_rank = cp_rank
+        self.cp_group = cp_group
+        self.num_cp_ranks = cp_group.size()
+        self._iterator = None
+
+    def __iter__(self):
+        """Make the dataloader iterable."""
+        self._iterator = iter(self.dataloader)  # < --- collator output.
+        return self
+
+    def __next__(self):
+        """Get the batch from the dataloader for the current CP rank."""
+        batch = self._send_data_to_cp_ranks()
+        return batch
+
+    def _send_data_to_cp_ranks(self):
+        """Send data to all the CP ranks.
+
+        This function will get the batch from the dataloader on CP rank 0, and then determine
+        the shards for all the different CP group members.
+        combined_batch = [<cp_rank_0_shard>, <cp_rank_1_shard>, ..., <cp_rank_n_shard>]
+        Then it will scatter the shards to the different CP group members.
+        The shards are then combined into a single batch and returned to the caller
+        for the current CP rank.
+
+        Scalability:
+            Rank 0's work grows linearly with CP size, but the other ranks do not need to store all the shards so they do not
+            grow linearly with CP size.
+
+        Args:
+            None
+
+        Returns:
+            batch: The batch for the current CP rank.
+
+        """
+        if self.cp_rank == 0:
+            # Get data once, then make copies for each rank.
+            if self._iterator is None:
+                self._iterator = iter(self.dataloader)
+            combined_batch = next(self._iterator)
+
+        else:
+            combined_batch = None
+
+        scatter_object_output_list = [None]
+        # Note: This does not provide an async_op handle. Thus its blocking.
+        torch.distributed.scatter_object_list(
+            scatter_object_output_list=scatter_object_output_list,
+            scatter_object_input_list=combined_batch,
+            group=self.cp_group,
+            group_src=0,
+        )
+        return scatter_object_output_list[0]
