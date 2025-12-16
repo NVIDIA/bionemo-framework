@@ -23,7 +23,7 @@ from esm.collator import (
     DataCollatorWithFlattening,
     MLMDataCollatorWithFlattening,
     TokenPackingDataset,
-    split_sample_by_num_tokens,
+    _split_sample_by_num_tokens,
 )
 
 
@@ -494,10 +494,10 @@ def test_token_packing_dataset_last_sequence_less_than_max():
     assert sum(len(sample["input_ids"]) for sample in batches[0]) == 90
 
 
-def test_split_sample_by_num_tokens_basic():
-    """Test split_sample_by_num_tokens with basic input_ids."""
+def test__split_sample_by_num_tokens_basic():
+    """Test _split_sample_by_num_tokens with basic input_ids."""
     sample = {"input_ids": [0, 5, 6, 7, 8, 9, 2]}
-    first, remaining = split_sample_by_num_tokens(sample, 3)
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
 
     assert first["input_ids"] == [0, 5, 6]
     assert remaining["input_ids"] == [7, 8, 9, 2]
@@ -505,10 +505,10 @@ def test_split_sample_by_num_tokens_basic():
     assert len(remaining["input_ids"]) == 4
 
 
-def test_split_sample_by_num_tokens_with_labels():
-    """Test split_sample_by_num_tokens with input_ids and labels."""
+def test__split_sample_by_num_tokens_with_labels():
+    """Test _split_sample_by_num_tokens with input_ids and labels."""
     sample = {"input_ids": [0, 5, 6, 7, 8, 2], "labels": [0, 5, 6, 7, 8, 2]}
-    first, remaining = split_sample_by_num_tokens(sample, 3)
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
 
     assert first["input_ids"] == [0, 5, 6]
     assert first["labels"] == [0, 5, 6]
@@ -516,14 +516,14 @@ def test_split_sample_by_num_tokens_with_labels():
     assert remaining["labels"] == [7, 8, 2]
 
 
-def test_split_sample_by_num_tokens_with_attention_mask():
-    """Test split_sample_by_num_tokens with input_ids, attention_mask, and labels."""
+def test__split_sample_by_num_tokens_with_attention_mask():
+    """Test _split_sample_by_num_tokens with input_ids, attention_mask, and labels."""
     sample = {
         "input_ids": [0, 5, 6, 7, 8, 2],
         "attention_mask": [1, 1, 1, 1, 1, 1],
         "labels": [0, 5, 6, 7, 8, 2],
     }
-    first, remaining = split_sample_by_num_tokens(sample, 4)
+    first, remaining = _split_sample_by_num_tokens(sample, 4)
 
     assert first["input_ids"] == [0, 5, 6, 7]
     assert first["attention_mask"] == [1, 1, 1, 1]
@@ -533,14 +533,14 @@ def test_split_sample_by_num_tokens_with_attention_mask():
     assert remaining["labels"] == [8, 2]
 
 
-def test_split_sample_by_num_tokens_with_token_type_ids():
-    """Test split_sample_by_num_tokens with token_type_ids."""
+def test__split_sample_by_num_tokens_with_token_type_ids():
+    """Test _split_sample_by_num_tokens with token_type_ids."""
     sample = {
         "input_ids": [0, 5, 6, 7, 8, 2],
         "token_type_ids": [0, 0, 0, 1, 1, 1],
         "labels": [0, 5, 6, 7, 8, 2],
     }
-    first, remaining = split_sample_by_num_tokens(sample, 3)
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
 
     assert first["input_ids"] == [0, 5, 6]
     assert first["token_type_ids"] == [0, 0, 0]
@@ -550,14 +550,14 @@ def test_split_sample_by_num_tokens_with_token_type_ids():
     assert remaining["labels"] == [7, 8, 2]
 
 
-def test_split_sample_by_num_tokens_with_token_type():
-    """Test split_sample_by_num_tokens with token_type (alternative name)."""
+def test__split_sample_by_num_tokens_with_token_type():
+    """Test _split_sample_by_num_tokens with token_type (alternative name)."""
     sample = {
         "input_ids": [0, 5, 6, 7, 8, 2],
         "token_type": [0, 0, 0, 1, 1, 1],
         "labels": [0, 5, 6, 7, 8, 2],
     }
-    first, remaining = split_sample_by_num_tokens(sample, 3)
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
 
     assert first["input_ids"] == [0, 5, 6]
     assert first["token_type"] == [0, 0, 0]
@@ -567,14 +567,14 @@ def test_split_sample_by_num_tokens_with_token_type():
     assert remaining["labels"] == [7, 8, 2]
 
 
-def test_split_sample_by_num_tokens_with_tensors():
-    """Test split_sample_by_num_tokens with torch tensors."""
+def test__split_sample_by_num_tokens_with_tensors():
+    """Test _split_sample_by_num_tokens with torch tensors."""
     sample = {
         "input_ids": torch.tensor([0, 5, 6, 7, 8, 2]),
         "attention_mask": torch.tensor([1, 1, 1, 1, 1, 1]),
         "labels": torch.tensor([0, 5, 6, 7, 8, 2]),
     }
-    first, remaining = split_sample_by_num_tokens(sample, 3)
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
 
     assert torch.equal(first["input_ids"], torch.tensor([0, 5, 6]))
     assert torch.equal(first["attention_mask"], torch.tensor([1, 1, 1]))
@@ -584,14 +584,14 @@ def test_split_sample_by_num_tokens_with_tensors():
     assert torch.equal(remaining["labels"], torch.tensor([7, 8, 2]))
 
 
-def test_split_sample_by_num_tokens_with_metadata():
-    """Test split_sample_by_num_tokens preserves non-sequence fields."""
+def test__split_sample_by_num_tokens_with_metadata():
+    """Test _split_sample_by_num_tokens preserves non-sequence fields."""
     sample = {
         "input_ids": [0, 5, 6, 7, 8, 2],
         "labels": [0, 5, 6, 7, 8, 2],
         "metadata": {"id": 123, "source": "test"},
     }
-    first, remaining = split_sample_by_num_tokens(sample, 3)
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
 
     # Sequence fields should be split
     assert first["input_ids"] == [0, 5, 6]
@@ -602,23 +602,23 @@ def test_split_sample_by_num_tokens_with_metadata():
     assert remaining["metadata"] == {"id": 123, "source": "test"}
 
 
-def test_split_sample_by_num_tokens_errors():
-    """Test split_sample_by_num_tokens raises errors for invalid inputs."""
+def test__split_sample_by_num_tokens_errors():
+    """Test _split_sample_by_num_tokens raises errors for invalid inputs."""
     sample = {"input_ids": [0, 5, 6, 7, 2]}
 
     # num_tokens >= sample_length should raise ValueError
     with pytest.raises(ValueError, match="num_tokens.*must be less than sample length"):
-        split_sample_by_num_tokens(sample, 5)
+        _split_sample_by_num_tokens(sample, 5)
 
     with pytest.raises(ValueError, match="num_tokens.*must be less than sample length"):
-        split_sample_by_num_tokens(sample, 10)
+        _split_sample_by_num_tokens(sample, 10)
 
     # num_tokens <= 0 should raise ValueError
     with pytest.raises(ValueError, match="num_tokens.*must be positive"):
-        split_sample_by_num_tokens(sample, 0)
+        _split_sample_by_num_tokens(sample, 0)
 
     with pytest.raises(ValueError, match="num_tokens.*must be positive"):
-        split_sample_by_num_tokens(sample, -1)
+        _split_sample_by_num_tokens(sample, -1)
 
 
 def test_token_packing_dataset_with_split_samples():
