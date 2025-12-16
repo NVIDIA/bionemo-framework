@@ -26,7 +26,7 @@ from transformers.data.data_collator import DataCollatorForLanguageModeling
 from collator import (
     ContextParallelDataLoaderWrapper,
     DataCollatorForContextParallel,
-    MLMDataCollatorWithFlattening,
+    DataCollatorWithFlattening,
     TokenPackingDataset,
 )
 from distributed_config import DistributedConfig
@@ -207,11 +207,14 @@ def create_thd_dataloader(
         assert token_micro_batch_size >= max_seq_length, "token_micro_batch_size must be greater than max_seq_length."
 
     # For THD, we pad out to the maximum number of tokens per batch for consistent array shapes.
-    data_collator = MLMDataCollatorWithFlattening(
+    mlm_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm_probability=mlm_probability,
-        pad_to_multiple_of=token_micro_batch_size if pad_sequences_to_be_divisible_by is None else None,
         seed=seed,
+    )
+    data_collator = DataCollatorWithFlattening(
+        collator=mlm_collator,
+        pad_to_multiple_of=token_micro_batch_size if pad_sequences_to_be_divisible_by is None else None,
         pad_sequences_to_be_divisible_by=pad_sequences_to_be_divisible_by,
     )
 
@@ -295,16 +298,18 @@ def create_cp_dataloader(
         logger.info(f"Setting padding sequences to be divisible by {2 * cp_world_size} for context parallelism.")
         pad_sequences_to_be_divisible_by = 2 * cp_world_size
 
-    data_collator = MLMDataCollatorWithFlattening(
+    mlm_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm_probability=mlm_probability,
-        pad_to_multiple_of=token_micro_batch_size if pad_sequences_to_be_divisible_by is None else None,
         seed=seed,
+    )
+    flattening_collator = DataCollatorWithFlattening(
+        collator=mlm_collator,
+        pad_to_multiple_of=token_micro_batch_size if pad_sequences_to_be_divisible_by is None else None,
         pad_sequences_to_be_divisible_by=pad_sequences_to_be_divisible_by,
     )
-
     data_collator = DataCollatorForContextParallel(
-        collator=data_collator,
+        collator=flattening_collator,
         cp_world_size=cp_world_size,
     )
 
