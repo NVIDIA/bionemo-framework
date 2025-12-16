@@ -139,6 +139,9 @@ def test_fp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd, 
     if isinstance(fp8_recipe, recipe_module.NVFP4BlockScaling):
         atol = 0.2
         rtol = 0.05
+    elif isinstance(fp8_recipe, recipe_module.DelayedScaling):
+        atol = 0.1
+        rtol = 0.03
     else:
         atol = None
         rtol = None

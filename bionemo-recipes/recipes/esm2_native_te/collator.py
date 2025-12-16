@@ -335,8 +335,7 @@ class ContextParallelDataLoaderWrapper:
     def __init__(
         self,
         dataloader: torch.utils.data.DataLoader,
-        cp_group: torch.distributed.ProcessGroup,
-        cp_rank: int,
+        cp_mesh: torch.distributed.device_mesh.DeviceMesh,
     ):
         """A dataloader wrapper that distributes the data across the context parallelism group.
 
@@ -346,13 +345,13 @@ class ContextParallelDataLoaderWrapper:
 
         Args:
             dataloader: The dataloader to use.
-            cp_group: The context parallel group.
+            cp_mesh: The context parallel mesh.
             cp_rank: The rank of the current context parallel process.
         """
         self.dataloader = dataloader
-        self.cp_rank = cp_rank
-        self.cp_group = cp_group
-        self.num_cp_ranks = cp_group.size()
+        self.cp_rank = cp_mesh.get_local_rank()
+        self.cp_group = cp_mesh.get_group()
+        self.num_cp_ranks = cp_mesh.size()
         self._iterator = None
 
     def __iter__(self):
@@ -662,3 +661,12 @@ def _split_batch_by_cp_rank(
         raise ValueError(f"Support not implemented yet for qvk_format: {qvk_format}!")
 
     return input_ids_padded, labels_padded
+
+
+def _get_group_local_rank(group: torch.distributed.ProcessGroup | None = None) -> int:
+    """Rank of the current process within `group`."""
+    if group is None:
+        # default group; this is just the global rank
+        return torch.distributed.get_rank()
+    global_rank = torch.distributed.get_rank()
+    return torch.distributed.get_group_rank(group, global_rank)
