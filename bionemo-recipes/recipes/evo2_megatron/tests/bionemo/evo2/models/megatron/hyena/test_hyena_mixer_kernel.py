@@ -189,7 +189,9 @@ def mixer_kernel_hyena_only(test_config: HyenaTestConfig, hyena_config: HyenaCon
         yield mixer_kernel
 
 
-@pytest.mark.skipif(importlib.util.find_spec("subquadratic_ops") is None, reason="subquadratic_ops is not installed")
+@pytest.mark.skipif(
+    importlib.util.find_spec("subquadratic_ops_torch") is None, reason="subquadratic_ops_torch is not installed"
+)
 def test_implicit_filter(mixer_kernel_hyena_only: MixerModuleWrapper):
     """Test that the implicit filter is properly initialized with correct parameters and attributes."""
     # Check that the filter is the correct type
@@ -292,7 +294,9 @@ def test_implicit_filter(mixer_kernel_hyena_only: MixerModuleWrapper):
     torch.testing.assert_close(filter_p_grad, reference_p_grad, msg=f"p gradients do not match for L={L}")
 
 
-@pytest.mark.skipif(importlib.util.find_spec("subquadratic_ops") is None, reason="subquadratic_ops is not installed")
+@pytest.mark.skipif(
+    importlib.util.find_spec("subquadratic_ops_torch") is None, reason="subquadratic_ops_torch is not installed"
+)
 def test_subquadratic_ops_kernel(  # noqa: D103
     mixer: MixerModuleWrapper, mixer_kernel: MixerModuleWrapper, config_type, operator_type
 ):

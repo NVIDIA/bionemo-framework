@@ -528,6 +528,9 @@ class ImplicitModalFilter(nn.Module):
         if pg_collection is None:
             pg_collection = ProcessGroupCollection.use_mpu_process_groups()
         self.pg_collection = pg_collection
+        self.context_parallel_group = pg_collection.cp
+        self._cp_rank = self.context_parallel_group.rank() if self.context_parallel_group is not None else 0
+        self._cp_size = self.context_parallel_group.size() if self.context_parallel_group is not None else 1
 
         # Determine device safely
         if device is None:
@@ -588,8 +591,17 @@ class ImplicitModalFilter(nn.Module):
 
     def get_logp(self):
         """Compute the log poles for the implicit modal filter."""
-        logp = -torch.exp(self.p.to(torch.float32))
-        glogp = logp * torch.exp(self.gamma.to(torch.float32))
+        if self._cp_size > 1:
+            rank = self._cp_rank
+            local_size = self.d_model // self._cp_size
+            p = self.p[rank * local_size : (rank + 1) * local_size].to(torch.float32)
+            gamma = self.gamma[rank * local_size : (rank + 1) * local_size].to(torch.float32)
+        else:
+            p = self.p.to(torch.float32)
+            gamma = self.gamma.to(torch.float32)
+
+        logp = -torch.exp(p)
+        glogp = logp * torch.exp(gamma)
         return glogp
 
     def compute_filter(self, L, t):  # noqa: N803
@@ -608,11 +620,15 @@ class ImplicitModalFilter(nn.Module):
         # assert (
         #     self.R.dtype == torch.float32
         # ), f"R must be float32. At lower precision, indexes will be merged together. Current dtype: {self.R.dtype}"
-
-        logp = -torch.exp(self.p.to(torch.float32))
-        glogp = logp * torch.exp(self.gamma.to(torch.float32))
+        if self._cp_size > 1:
+            rank = self._cp_rank
+            local_size = self.d_model // self._cp_size
+            R = self.R[rank * local_size : (rank + 1) * local_size].to(torch.float32)  # noqa: N806
+        else:
+            R = self.R.to(torch.float32)  # noqa: N806
+        glogp = self.get_logp()
         h = torch.exp(glogp[..., None] * t)
-        h = torch.einsum("do,dot->dt", self.R.to(torch.float32), h)
+        h = torch.einsum("do,dot->dt", R, h)
         h = h[None]
 
         return h, None
@@ -620,7 +636,11 @@ class ImplicitModalFilter(nn.Module):
     def filter(self, L, *args, **kwargs):  # noqa: N803
         """Get t and the convolution filter for t and the requested sequence length."""
         if self.use_subquadratic_ops:
-            h = self.implicit_filter(self.get_logp(), self.R.to(torch.float32), L)
+            if self._cp_size > 1:
+                R = self.R[self._cp_rank * self.d_model : (self._cp_rank + 1) * self.d_model].to(torch.float32)  # noqa: N806
+            else:
+                R = self.R.to(torch.float32)  # noqa: N806
+            h = self.implicit_filter(self.get_logp(), R, L)
             h = h.unsqueeze(0)  # TODO: Remove this once we have a proper kernel implementation
         else:
             t = self.get_t(L)
