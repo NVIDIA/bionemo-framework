@@ -213,8 +213,9 @@ def create_thd_dataloader(
     # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
     dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
     train_dataloader = dataloader_class(
-        TokenPackingDataset(tokenized_dataset, max_tokens_per_batch=token_micro_batch_size),
-        batch_size=None,  # The TokenPackingDataset will handle the batching.
+        # TokenPackingDataset(tokenized_dataset, max_tokens_per_batch=token_micro_batch_size),
+        tokenized_dataset,
+        batch_size=micro_batch_size, # was None  # The TokenPackingDataset will handle the batching.
         collate_fn=data_collator,
         num_workers=num_workers,
         pin_memory=True if not use_stateful_dataloader else False,
