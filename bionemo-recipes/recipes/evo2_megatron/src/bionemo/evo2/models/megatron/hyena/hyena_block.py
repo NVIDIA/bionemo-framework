@@ -146,8 +146,6 @@ class HyenaStack(MegatronModule):
             )
         # Required for activation recomputation
         self.num_layers_per_pipeline_rank = len(self.layers)
-        if self.config.perform_initialization:
-            self.reset_parameters()
 
     def set_input_tensor(self, input_tensor: Tensor):
         """Set input tensor to be used instead of forward()'s input.
@@ -364,15 +362,6 @@ class HyenaStack(MegatronModule):
         if self.post_process and self.post_layer_norm:
             hidden_states = self.final_norm(hidden_states)
         return hidden_states
-
-    def reset_parameters(self):
-        """Reset the parameters of the HyenaStack."""
-        for layer in self.layers:
-            if hasattr(layer, "reset_parameters"):
-                layer.reset_parameters()
-        if self.post_process and self.post_layer_norm:
-            if hasattr(self.final_norm, "reset_parameters"):
-                self.final_norm.reset_parameters()
 
     def sharded_state_dict(
         self, prefix: str = "", sharded_offsets: tuple = (), metadata: dict | None = None

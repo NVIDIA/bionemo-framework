@@ -962,8 +962,6 @@ class ParallelHyenaOperator(nn.Module):
         with get_cuda_rng_tracker().fork(), torch.no_grad():
             bounds = math.sqrt(1 / self.kernel_size)
             torch.nn.init.uniform_(self.conv_bias, a=-bounds, b=bounds)
-        if hasattr(self.filter, "reset_parameters"):
-            self.filter.reset_parameters()
 
     def forward_long(self, *, x1, x2, v, h, bias, inference_context):
         """Forward pass long."""
@@ -1264,7 +1262,6 @@ class ParallelShortHyenaOperator(nn.Module):
             bounds = math.sqrt(1 / self.kernel_size)
             if self.use_conv_bias:
                 torch.nn.init.uniform_(self.conv_bias, a=-bounds, b=bounds)
-            self.short_conv.reset_parameters()
 
     def forward(self, x1, x2, v, inference_context=None, _hyena_use_cp=True):
         """Shape specification for inputs and outputs.

@@ -259,15 +259,6 @@ class HyenaMixer(MegatronModule):
             is_expert=False,
             tp_comm_buffer_name="fc2",
         )
-        if self.config.perform_initialization:
-            self.reset_parameters()
-
-    def reset_parameters(self):
-        """Reset the parameters of the HyenaMixer."""
-        self.dense_projection.reset_parameters()
-        self.hyena_proj_conv.reset_parameters()
-        self.mixer.reset_parameters()
-        self.dense.reset_parameters()
 
     def sharded_state_dict(self, prefix="", sharded_offsets=(), metadata=None):
         """Sharded state dictionary for the HyenaMixer."""

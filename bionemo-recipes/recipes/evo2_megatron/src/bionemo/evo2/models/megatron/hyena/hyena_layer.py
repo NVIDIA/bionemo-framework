@@ -101,23 +101,6 @@ class HyenaLayer(MegatronModule):
         for layer in [self.mlp, self.mlp_bda, self.hyena_bda]:
             if hasattr(layer, "set_layer_number"):
                 layer.set_layer_number(self.layer_number)
-        if self.config.perform_initialization:
-            self.reset_parameters()
-
-    def reset_parameters(self):
-        """Reset the parameters of the HyenaLayer."""
-        if hasattr(self.norm, "reset_parameters"):
-            self.norm.reset_parameters()
-        if hasattr(self.mixer, "reset_parameters"):
-            self.mixer.reset_parameters()
-        if hasattr(self.hyena_bda, "reset_parameters"):
-            self.hyena_bda.reset_parameters()
-        if hasattr(self.pre_mlp_layernorm, "reset_parameters"):
-            self.pre_mlp_layernorm.reset_parameters()
-        if hasattr(self.mlp, "reset_parameters"):
-            self.mlp.reset_parameters()
-        if hasattr(self.mlp_bda, "reset_parameters"):
-            self.mlp_bda.reset_parameters()
 
     @property
     def bias_dropout_add_exec_handler(self):
