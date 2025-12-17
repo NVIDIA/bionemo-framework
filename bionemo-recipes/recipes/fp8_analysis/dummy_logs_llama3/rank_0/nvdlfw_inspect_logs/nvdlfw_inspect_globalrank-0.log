@@ -1,0 +1,91 @@
+2026-01-15 23:04:22,669 - INFO - Default logging to file enabled at ./logs/fp8_stats_logs_ddp_llama3_dummy1/rank_0
+2026-01-15 23:04:22,682 - INFO - Reading config from ./fp8_stats.yaml.
+2026-01-15 23:04:22,682 - INFO - Loaded configs for ['example_fp8_tensor_stat_collection'].
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.embed_tokens
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1.self_attention
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1.self_attention.layernorm_qkv
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1.self_attention.core_attention
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1.self_attention.core_attention.flash_attention
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1.self_attention.core_attention.fused_attention
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1.self_attention.core_attention.unfused_attention
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1.self_attention.core_attention.unfused_attention.scale_mask_softmax
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1.self_attention.core_attention.unfused_attention.attention_dropout
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1.self_attention.proj
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.1.layernorm_mlp
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2.self_attention
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2.self_attention.layernorm_qkv
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2.self_attention.core_attention
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2.self_attention.core_attention.flash_attention
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2.self_attention.core_attention.fused_attention
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2.self_attention.core_attention.unfused_attention
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2.self_attention.core_attention.unfused_attention.scale_mask_softmax
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2.self_attention.core_attention.unfused_attention.attention_dropout
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2.self_attention.proj
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.layers.2.layernorm_mlp
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.norm
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.model.rotary_emb
+2026-01-15 23:04:22,799 - INFO - Assigned layer name: model.lm_head
+2026-01-15 23:04:26,239 - INFO - LAYER=model.model.layers.1.self_attention.layernorm_qkv: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:04:26,239 - INFO - LAYER=model.model.layers.1.self_attention.layernorm_qkv: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:26,239 - INFO - LAYER=model.model.layers.1.self_attention.layernorm_qkv: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:04:26,239 - INFO - LAYER=model.model.layers.1.self_attention.layernorm_qkv: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:26,239 - INFO - LAYER=model.model.layers.1.self_attention.layernorm_qkv: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:26,239 - INFO - LAYER=model.model.layers.1.self_attention.layernorm_qkv: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:26,406 - INFO - LAYER=model.model.layers.1.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: activation
+2026-01-15 23:04:26,407 - INFO - LAYER=model.model.layers.1.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: weight
+2026-01-15 23:04:31,866 - INFO - LAYER=model.model.layers.1.self_attention.proj: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:04:31,866 - INFO - LAYER=model.model.layers.1.self_attention.proj: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:31,866 - INFO - LAYER=model.model.layers.1.self_attention.proj: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:04:31,866 - INFO - LAYER=model.model.layers.1.self_attention.proj: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:31,866 - INFO - LAYER=model.model.layers.1.self_attention.proj: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:31,866 - INFO - LAYER=model.model.layers.1.self_attention.proj: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc1: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc1: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc1: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc1: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc1: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc1: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc2: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc2: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc2: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc2: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc2: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:31,961 - INFO - LAYER=model.model.layers.1.layernorm_mlp.fc2: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:32,237 - INFO - LAYER=model.model.layers.2.self_attention.layernorm_qkv: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:04:32,237 - INFO - LAYER=model.model.layers.2.self_attention.layernorm_qkv: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:32,238 - INFO - LAYER=model.model.layers.2.self_attention.layernorm_qkv: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:04:32,238 - INFO - LAYER=model.model.layers.2.self_attention.layernorm_qkv: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:32,238 - INFO - LAYER=model.model.layers.2.self_attention.layernorm_qkv: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:32,238 - INFO - LAYER=model.model.layers.2.self_attention.layernorm_qkv: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:32,239 - INFO - LAYER=model.model.layers.2.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: activation
+2026-01-15 23:04:32,241 - INFO - LAYER=model.model.layers.2.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: weight
+2026-01-15 23:04:32,245 - INFO - LAYER=model.model.layers.2.self_attention.proj: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:04:32,245 - INFO - LAYER=model.model.layers.2.self_attention.proj: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:32,245 - INFO - LAYER=model.model.layers.2.self_attention.proj: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:04:32,245 - INFO - LAYER=model.model.layers.2.self_attention.proj: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:32,245 - INFO - LAYER=model.model.layers.2.self_attention.proj: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:32,245 - INFO - LAYER=model.model.layers.2.self_attention.proj: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc1: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc1: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc1: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc1: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc1: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc1: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc2: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc2: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc2: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc2: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc2: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:04:32,246 - INFO - LAYER=model.model.layers.2.layernorm_mlp.fc2: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:04:32,637 - INFO - LAYER=model.lm_head: Tensor: activation, gemm fprop - High Precision
+2026-01-15 23:04:32,637 - INFO - LAYER=model.lm_head: Tensor: activation, gemm wgrad - High Precision
+2026-01-15 23:04:32,637 - INFO - LAYER=model.lm_head: Tensor: weight, gemm fprop - High Precision
+2026-01-15 23:04:32,637 - INFO - LAYER=model.lm_head: Tensor: weight, gemm dgrad - High Precision
+2026-01-15 23:04:32,637 - INFO - LAYER=model.lm_head: Tensor: gradient, gemm dgrad - High Precision
+2026-01-15 23:04:32,637 - INFO - LAYER=model.lm_head: Tensor: gradient, gemm wgrad - High Precision
+2026-01-15 23:04:33,054 - INFO - LAYER=model.model.layers.2.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: gradient
+2026-01-15 23:04:33,058 - INFO - LAYER=model.model.layers.1.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: gradient

@@ -18,7 +18,9 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
+import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig
 from torch.distributed.device_mesh import init_device_mesh
@@ -53,6 +55,25 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
+    # TE Debug feature logging
+    if args.fp8_stats_config.enabled and not args.fp8_config.enabled:
+        raise ValueError(
+            "fp8_stats_config.enabled is true but fp8_config.enabled is false, please set fp8_config.enabled to true in the config if you wish to collect FP8 stats"
+        )
+
+    if args.fp8_stats_config.enabled:
+        fp8_stats_file = args.fp8_stats_config.fp8_stats_file
+        fp8_log_dir = Path(args.fp8_stats_config.fp8_log_dir) / f"rank_{dist_config.rank}"
+        fp8_log_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Logging FP8 stats to {fp8_log_dir}")
+        te_features_dir = str(Path(transformer_engine.__file__).parent / "debug" / "features")
+        debug_api.initialize(
+            config_file=fp8_stats_file,
+            feature_dirs=[te_features_dir],
+            log_dir=fp8_log_dir,
+            default_logging_enabled=True,
+        )
+
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
     # and MFSDP.
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
@@ -83,6 +104,9 @@ def main(args: DictConfig) -> float | None:
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+
+    if args.fp8_stats_config.enabled:
+        debug_api.infer_and_assign_layer_names(model)
 
     model = model.to(device=device)
     model = torch.nn.parallel.DistributedDataParallel(
@@ -139,6 +163,8 @@ def main(args: DictConfig) -> float | None:
 
                 # Log microbatch step data for accumulation metrics
                 perf_logger.log_micro_step(batch=batch, outputs=outputs)
+            if args.fp8_stats_config.enabled:
+                debug_api.step()
 
             # Gradient accumulation - only step optimizer after accumulating gradients
             if micro_step % args.grad_acc_steps == 0:
@@ -189,6 +215,8 @@ def main(args: DictConfig) -> float | None:
 
     # Clean up distributed training
     perf_logger.finish()
+    if args.fp8_stats_config.enabled:
+        debug_api.end_debug()
     torch.distributed.destroy_process_group()
 
     return perf_logger.min_loss

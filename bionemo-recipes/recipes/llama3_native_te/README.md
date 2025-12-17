@@ -100,6 +100,27 @@ configuration parameters, including switching to `MXFP8BlockScaling`, can be set
 python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true
 ```
 
+#### FP8 Debugging
+
+We also provide a mechanism to receive tensor data related to FP8 layers during training which may include activations, weights and gradients.
+
+To enable this please select the following config options.
+
+```python
+python train_fsdp2.py \
+fp8_stats_config.enabled=True # whether to log stats or not
+fp8_stats_config.fp8_log_dir=./logs/fp8_stats_logs_dummy # where to store the logs
+fp8_stats_config.fp8_stats_file=./fp8_debugging_stats.yaml # specifies what stats you want to run. Currently this is saved in this yaml file.
+fp8_config.enabled=True # set this to use FP8 otherwise stats logging wont work
+```
+
+Note: This feature is available for the `train_ddp` and the `train_fsdp2` scripts. It is not yet available for `train_mfsdp`.
+
+The config file structure [fp8_debugging_stats.yaml](fp8_debugging_stats.yaml) is explained in the [NVIDIA Transformer Engine config file documentation](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/debug/2_config_file_structure.html) in more detail. Below we will cover some very basic elements of the file structure.
+
+This comes as a performance cost that is dependent on the `freq` parameter mentioned above. `freq=1` collects stats on every step which in our
+experiments caused a ~29% decrease in throughput (executed on a single RTX 5090). We recommend using `freq>=10` to reduce this performance hit.
+
 ### Sequence Packing (THD input format)
 
 Sequence packing is handled via a padding-free collator (in `collator.py`) that provides input arguments (e.g.

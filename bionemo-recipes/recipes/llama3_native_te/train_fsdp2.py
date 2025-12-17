@@ -19,7 +19,9 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
+import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
@@ -60,6 +62,26 @@ def main(args: DictConfig) -> float | None:
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
+
+    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    if args.fp8_stats_config.enabled and not args.fp8_config.enabled:
+        raise ValueError(
+            "fp8_stats_config.enabled is true but fp8_config.enabled is false, "
+            "please set fp8_config.enabled to true in the config if you wish to collect FP8 stats"
+        )
+
+    if args.fp8_stats_config.enabled:
+        fp8_stats_file = args.fp8_stats_config.fp8_stats_file
+        fp8_log_dir = Path(args.fp8_stats_config.fp8_log_dir) / f"rank_{dist_config.rank}"
+        fp8_log_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Logging FP8 stats to {fp8_log_dir}")
+        te_features_dir = str(Path(transformer_engine.__file__).parent / "debug" / "features")
+        debug_api.initialize(
+            config_file=fp8_stats_file,
+            feature_dirs=[te_features_dir],
+            log_dir=fp8_log_dir,
+            default_logging_enabled=True,
+        )
 
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
@@ -104,6 +126,10 @@ def main(args: DictConfig) -> float | None:
     elif args.use_meta_device and isinstance(model, LlamaForCausalLM):
         model.to_empty(device=device)
         model.apply(model._init_weights)
+
+    # Assign names to layers so debug API can identify them
+    if args.fp8_stats_config.enabled:
+        debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
@@ -173,6 +199,10 @@ def main(args: DictConfig) -> float | None:
                 # Step optimizer.
                 optimizer.step()
                 scheduler.step()
+
+                if args.fp8_stats_config.enabled:
+                    debug_api.step()
+
                 optimizer.zero_grad()
 
                 perf_logger.log_step(
@@ -218,6 +248,8 @@ def main(args: DictConfig) -> float | None:
 
     # Clean up distributed training
     perf_logger.finish()
+    if args.fp8_stats_config.enabled:
+        debug_api.end_debug()
     torch.distributed.destroy_process_group()
 
     return perf_logger.min_loss
