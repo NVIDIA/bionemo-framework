@@ -569,7 +569,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Dropout probability for the attention layers.",
     )  # DONE
     parser.add_argument(
-        "--use-subquadratic_ops",
+        "--use-subquadratic-ops",
         action="store_true",
         help="Use subquadratic_ops for improved performance.",
     )  # DONE

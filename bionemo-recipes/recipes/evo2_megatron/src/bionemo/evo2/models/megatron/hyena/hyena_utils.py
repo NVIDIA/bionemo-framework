@@ -1118,11 +1118,9 @@ class ParallelHyenaOperator(nn.Module):
             rank = cp_group.rank()
             local_size = self.num_groups // cp_size
 
-            if isinstance(self.filter, (ImplicitModalFilter)):
-                h = h[:, rank * local_size : (rank + 1) * local_size]
-            elif isinstance(self.filter, ExplicitSingleDecayFilter):
+            if isinstance(self.filter, ExplicitSingleDecayFilter):
                 h = h[rank * local_size : (rank + 1) * local_size]
-            else:
+            elif not isinstance(self.filter, (ImplicitModalFilter)):
                 raise ValueError(f"Kernels of type {self.filter.__class__} have not been verified with CP.")
 
             local_bias_size = self.width_per_tp_group // cp_size
