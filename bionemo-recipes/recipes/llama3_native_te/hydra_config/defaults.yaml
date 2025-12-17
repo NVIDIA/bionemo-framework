@@ -74,6 +74,7 @@ logger:
 
 profiler:
   enabled: false
+  gc_interval: 1_000 # Run garbage collection every 1000 steps
   schedule:
     wait: 10
     warmup: 10

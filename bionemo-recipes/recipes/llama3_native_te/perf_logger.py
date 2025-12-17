@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import logging
 import time
 from pathlib import Path
@@ -70,6 +71,11 @@ class PerfLogger:
         self.metrics.to(torch.device(f"cuda:{dist_config.local_rank}"))
         self.previous_step_time = time.perf_counter()
         self._profiler = None
+
+        # Manually control garbage collection for cleaner profiling.
+        self._gc_interval = args.profiler.gc_interval
+        gc.disable()
+        self._run_garbage_collection()
 
         if self._dist_config.is_main_process():
             # Log the entire args object to wandb for experiment tracking and reproducibility.
@@ -134,6 +140,9 @@ class PerfLogger:
             if self._dist_config.local_rank == 0:
                 logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
 
+        if (step + 1) % self._gc_interval == 0:
+            self._run_garbage_collection()
+
     def finish(self):
         """Finish the logger and close the progress bar."""
         if self._profiler is not None:
@@ -144,6 +153,11 @@ class PerfLogger:
 
         wandb.finish()
         self._progress_bar.close()
+
+    def _run_garbage_collection(self):
+        """Run garbage collection."""
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 def setup_profiler(args: DictConfig, wandb_run: wandb.Run):
