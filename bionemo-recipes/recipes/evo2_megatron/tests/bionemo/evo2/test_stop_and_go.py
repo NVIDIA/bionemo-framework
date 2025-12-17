@@ -14,208 +14,6 @@
 # limitations under the License.
 
 
-# from typing import Literal
-
-# # import lightning.pytorch as pl
-# import pytest
-# import torch
-
-# from bionemo.evo2.models.mamba import HybridMambaConfig8BEvo2Loss, MambaModel
-# from bionemo.testing import testing_callbacks
-# from bionemo.testing.harnesses import stop_and_go
-# from bionemo.testing.harnesses.mode import Mode
-# from megatron.core.distributed import DistributedDataParallelConfig
-# from megatron.core.optimizer import OptimizerConfig
-
-# from nemo import lightning as nl
-# from nemo.collections.llm import HyenaModel
-# from nemo.collections.llm.gpt.data import MockDataModule
-# from nemo.collections.llm.gpt.model.hyena import HyenaNVTestConfig
-# from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
-# from nemo.lightning.pytorch.optim import CosineAnnealingScheduler, MegatronOptimizerModule
-# from nemo.lightning.pytorch.strategies import MegatronStrategy
-# from typing_extensions import override
-
-
-# FIXME update these tests so they work with megatron bridge
-# class TestEvo2StopAndGo(stop_and_go.StopAndGoHarness):
-#     """Most of these parameters are copied from test_evo2.py which runs train.py."""
-
-#     num_steps: int = 3
-#     val_check_interval: int = 1
-#     limit_val_batches: int = 1
-#     lr: float = 3e-4
-#     wd: float = 0.01
-#     clip_grad: float = 1.0
-#     micro_batch_size: int = 1
-#     global_batch_size: int = 1
-#     num_layers: int = 4
-#     precision: Literal["16-mixed", "bf16-mixed", "32"] = "bf16-mixed"
-#     workers: int = 8
-#     seq_length: int = 8
-#     hybrid_override_pattern: str = "SDH*"
-#     use_megatron_comm_overlap_llama3_8k: bool = False
-#     hidden_dropout: float = 0.1
-#     attention_dropout: float = 0.1
-#     no_renormalize_loss: bool = False
-#     sequence_parallel: bool = False
-#     cross_entropy_loss_fusion: bool = False
-#     no_fp32_residual_connection: bool = False
-#     add_bias_output: bool = True
-
-#     @classmethod
-#     def setup_trainer(
-#         cls,
-#         mode: Mode,
-#     ) -> nl.Trainer:
-#         """Setup trainer by passing stop, resume, or continuous callbacks according to mode."""
-#         ddp = DistributedDataParallelConfig(
-#             check_for_nan_in_grad=True,
-#             overlap_grad_reduce=False,
-#             overlap_param_gather=False,
-#             grad_reduce_in_fp32=False,
-#             align_param_gather=False,
-#             average_in_collective=True,
-#         )
-#         strategy = MegatronStrategy(
-#             ddp=ddp,
-#             tensor_model_parallel_size=1,
-#             pipeline_model_parallel_size=1,
-#             context_parallel_size=1,
-#             sequence_parallel=cls.sequence_parallel,
-#             pipeline_dtype=torch.bfloat16,
-#             ckpt_async_save=False,
-#             ckpt_load_optimizer=True,
-#             ckpt_save_optimizer=True,
-#             save_ckpt_format="torch_dist",
-#             ckpt_load_strictness="log_all",
-#         )
-
-#         trainer = nl.Trainer(
-#             devices=1,
-#             max_steps=cls.num_steps,
-#             num_nodes=1,
-#             accelerator="gpu",
-#             strategy=strategy,
-#             limit_val_batches=cls.limit_val_batches,
-#             num_sanity_val_steps=0,
-#             val_check_interval=cls.val_check_interval,
-#             log_every_n_steps=cls.val_check_interval,
-#             enable_checkpointing=True,
-#             use_distributed_sampler=False,
-#             callbacks=list(cls.callbacks[mode].values()),
-#             plugins=nl.MegatronMixedPrecision(
-#                 precision=cls.precision, params_dtype=torch.bfloat16, grad_reduce_in_fp32=False, fp8_wgrad=False
-#             ),
-#         )
-#         return trainer
-
-#     @override
-#     @classmethod
-#     def setup_class(cls):
-#         super().setup_class()
-
-#         # setup data
-#         cls.tokenizer = get_nmt_tokenizer("byte-level")
-#         # run stop and go
-#         cls.run_stop_and_go()
-
-#     @classmethod
-#     def setup_model(cls, mode: Mode) -> tuple[pl.LightningModule, pl.LightningDataModule, nl.MegatronOptimizerModule]:
-#         # build data module
-#         data = MockDataModule(
-#             seq_length=cls.seq_length,
-#             micro_batch_size=cls.micro_batch_size,
-#             global_batch_size=cls.global_batch_size,
-#             num_workers=cls.workers,
-#             tokenizer=cls.tokenizer,
-#         )
-
-#         data.init_global_step = 0
-#         # config
-#         config = HyenaNVTestConfig(
-#             **{
-#                 "tp_comm_overlap": cls.use_megatron_comm_overlap_llama3_8k,
-#                 "seq_length": cls.seq_length,
-#                 "use_te": True,
-#                 "params_dtype": torch.bfloat16,
-#                 "bf16": True,
-#                 "recompute_granularity": None,
-#                 "recompute_method": None,
-#                 "recompute_num_layers": None,
-#                 "num_layers": cls.num_layers,
-#                 "hidden_size": 1920,
-#                 "hybrid_override_pattern": cls.hybrid_override_pattern,
-#                 "num_attention_heads": 15,
-#                 "num_query_groups": 15,
-#                 "ffn_hidden_size": 5120,
-#                 "hidden_dropout": cls.hidden_dropout,
-#                 "num_groups_hyena": 1920,
-#                 "num_groups_hyena_medium": 128,
-#                 "num_groups_hyena_short": 128,
-#                 "attention_dropout": cls.attention_dropout,
-#                 "to_upper": "weighted" if cls.no_renormalize_loss else "normalized_weighted",
-#                 "distribute_saved_activations": False if cls.sequence_parallel else True,
-#                 "cross_entropy_loss_fusion": cls.cross_entropy_loss_fusion,
-#                 "fp32_residual_connection": not cls.no_fp32_residual_connection,
-#                 "add_bias_output": cls.add_bias_output,
-#             }
-#         )
-
-#         optimizer_config = OptimizerConfig(
-#             optimizer="adam",
-#             lr=cls.lr,
-#             adam_beta1=0.9,
-#             adam_beta2=0.95,
-#             weight_decay=cls.wd,
-#             clip_grad=cls.clip_grad,
-#             params_dtype=torch.float32,
-#             use_distributed_optimizer=True,
-#             bf16=True,
-#         )
-#         # build optimizer
-#         optimizer = MegatronOptimizerModule(
-#             config=optimizer_config,
-#             lr_scheduler=CosineAnnealingScheduler(warmup_steps=1, max_steps=cls.num_steps, min_lr=3e-5),
-#             no_weight_decay_cond=config.hyena_no_weight_decay_cond_fn,
-#         )
-
-#         # # Build model
-#         module = HyenaModel(config, tokenizer=data.tokenizer)
-#         optimizer.connect(module)
-#         return module, data, optimizer
-
-#     @pytest.mark.parametrize(
-#         "callback_type",
-#         [
-#             testing_callbacks.LearningRateCallback,
-#             testing_callbacks.GlobalStepStateCallback,
-#             testing_callbacks.ConsumedSamplesCallback,
-#             testing_callbacks.OptimizerStateCallback,
-#             testing_callbacks.TrainInputCallback,
-#             testing_callbacks.TrainOutputCallback,
-#             testing_callbacks.TrainLossCallback,
-#             testing_callbacks.ValidInputCallback,
-#             testing_callbacks.ValidOutputCallback,
-#             testing_callbacks.ValidLossCallback,
-#         ],
-#     )
-#     def test_stop_and_go_consistency(self, callback_type):
-#         if callback_type in [
-#             testing_callbacks.ValidLossCallback,
-#             testing_callbacks.ValidOutputCallback,
-#             testing_callbacks.TrainInputCallback,
-#             testing_callbacks.TrainOutputCallback,
-#             testing_callbacks.TrainLossCallback,
-#             testing_callbacks.OptimizerStateCallback,
-#         ]:
-#             pytest.xfail(reason="Tensors not close")
-#         super().test_stop_and_go_consistency(callback_type)
-
-#     @pytest.mark.skip(reason="TODO: assert train_consumed_go > 0 fails.")
-#     def test_train_val_init_consumed_samples(self):
-#         pass
-
 import os
 import shlex
 import shutil
@@ -326,17 +124,9 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
     # 1. collect the last loss, as well as the average of the last step validation losses, as well as the last step
     # Note: EventAccumulator.Scalars returns a list of ScalarEvent(wall_time, step, value)
     lm_loss_events = event_acc.Scalars("lm loss")
-    val_loss_events = event_acc.Scalars("lm loss validation")
 
     assert len(lm_loss_events) > 0, "No 'lm loss' events found in run 1"
     last_lm_loss_step = lm_loss_events[-1].step
-    last_lm_loss_val = lm_loss_events[-1].value
-
-    print(f"Run 1: Last training step: {last_lm_loss_step}, Loss: {last_lm_loss_val}")
-
-    # Check if we have validation events (might depend on eval-interval)
-    if val_loss_events:
-        print(f"Run 1: Last validation loss: {val_loss_events[-1].value}")
 
     assert last_lm_loss_step == 5, f"Expected run 1 to end at step 5, but got {last_lm_loss_step}"
 
@@ -373,8 +163,6 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
     first_step_run2 = lm_loss_events_2[0].step
     last_step_run2 = lm_loss_events_2[-1].step
 
-    print(f"Run 2: First step: {first_step_run2}, Last step: {last_step_run2}")
-
     # Sanity checks:
     # 1. Resumption: Should start after step 5 (e.g., step 6)
     assert first_step_run2 > 5, f"Run 2 should resume after step 5, but started at {first_step_run2}"
@@ -385,7 +173,8 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
     # 3. Loss Continuity check (basic): The first loss of run 2 should be reasonably close to the last loss of run 1,
     #    or at least not exploding, though optimization steps might cause fluctuations.
     first_loss_run2 = lm_loss_events_2[0].value
-    print(f"Run 1 Last Loss: {last_lm_loss_val}, Run 2 First Loss: {first_loss_run2}")
-    assert abs(last_lm_loss_val - first_loss_run2) < 0.1, (
-        f"Run 2 first loss {first_loss_run2} is not close to run 1 last loss {last_lm_loss_val}"
+    last_loss_run1 = lm_loss_events[-1].value
+    print(f"Run 1 Last Loss: {last_loss_run1}, Run 2 First Loss: {first_loss_run2}")
+    assert last_loss_run1 - first_loss_run2 < 0.1, (
+        f"Run 2 first loss {first_loss_run2} is not better than run 1 last loss {last_loss_run1} by no worse than 0.1"
     )
