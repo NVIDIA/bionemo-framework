@@ -808,6 +808,8 @@ def train(args: argparse.Namespace) -> None:
     # Optimizer
     if args.wd is not None:
         cfg.optimizer.weight_decay = args.wd
+        cfg.scheduler.start_weight_decay = args.wd
+        cfg.scheduler.end_weight_decay = args.wd
     cfg.optimizer.adam_beta1 = args.adam_beta1
     cfg.optimizer.adam_beta2 = args.adam_beta2
     cfg.optimizer.adam_eps = args.adam_eps
