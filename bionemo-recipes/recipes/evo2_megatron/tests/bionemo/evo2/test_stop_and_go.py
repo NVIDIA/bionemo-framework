@@ -175,6 +175,6 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
     first_loss_run2 = lm_loss_events_2[0].value
     last_loss_run1 = lm_loss_events[-1].value
     print(f"Run 1 Last Loss: {last_loss_run1}, Run 2 First Loss: {first_loss_run2}")
-    assert last_loss_run1 - first_loss_run2 < 0.1, (
+    assert first_loss_run2 - last_loss_run1 < 0.1, (
         f"Run 2 first loss {first_loss_run2} is not better than run 1 last loss {last_loss_run1} by no worse than 0.1"
     )
