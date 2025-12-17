@@ -17,12 +17,18 @@ import logging
 
 import datasets
 import datasets.distributed
+import torch
 from torch.utils.data import DataLoader, DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
-from collator import DataCollatorWithFlattening, TokenPackingDataset
+from collator import (
+    ContextParallelDataLoaderWrapper,
+    DataCollatorForContextParallel,
+    DataCollatorWithFlattening,
+    TokenPackingDataset,
+)
 from distributed_config import DistributedConfig
 from genomic_dataset import GenomicDataCollator
 
@@ -220,6 +226,7 @@ def create_thd_dataloader(
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = True,
     split_samples_in_token_packing: bool = True,
+    pad_sequences_to_be_divisible_by: int | None = None,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
 
@@ -243,9 +250,11 @@ def create_thd_dataloader(
         mask_degenerate_bases: Whether to mask degenerate bases (genomic masking). Default: True.
         split_samples_in_token_packing: Whether to split samples to form batches with exactly token_micro_batch_size
             tokens. Default: True.
+        pad_sequences_to_be_divisible_by: If provided, sequences will be padded to be divisible by this value.
+            This is useful for context parallelism. Defaults to None.
 
     Returns:
-        A dataloader that can be used for training.
+        A tuple of (dataloader, dataset_or_sampler).
     """
     tokenized_dataset, tokenizer = create_tokenized_dataset(
         distributed_config=distributed_config,
@@ -267,11 +276,10 @@ def create_thd_dataloader(
         assert token_micro_batch_size >= max_seq_length, "token_micro_batch_size must be greater than max_seq_length."
 
     # Create base MLM collator and wrap with flattening collator
-    base_mlm_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm=False,  # Causal language modeling
+    data_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        pad_sequences_to_be_divisible_by=pad_sequences_to_be_divisible_by,
     )
-    data_collator = DataCollatorWithFlattening(collator=base_mlm_collator)
 
     if uppercase_labels or mask_degenerate_bases:
         # Wrap with genomic collator if masking options are enabled
@@ -301,3 +309,30 @@ def create_thd_dataloader(
     )
 
     return train_dataloader, tokenized_dataset
+
+
+def create_cp_dataloader(
+    *args,
+    cp_group: torch.distributed.ProcessGroup,
+    **kwargs,
+):
+    """Create a Context-parallel aware dataloader that automatically handles sharding between ranks.
+
+    Wraps the output of `create_thd_dataloader` to make it context parallel aware.
+
+    Args:
+        *args: Arguments to pass to `create_thd_dataloader`.
+        cp_group: The context parallel group.
+        **kwargs: Keyword arguments to pass to `create_thd_dataloader`.
+
+    Returns:
+        A tuple of (dataloader, dataset_or_sampler).
+    """
+    train_dataloader, tokenized_dataset = create_thd_dataloader(*args, **kwargs)
+
+    train_dataloader.collate_fn = DataCollatorForContextParallel(
+        collator=train_dataloader.collate_fn,
+        cp_world_size=cp_group.size(),
+    )
+
+    return ContextParallelDataLoaderWrapper(train_dataloader, cp_group), tokenized_dataset

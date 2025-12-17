@@ -146,6 +146,17 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
+    def set_context_parallel_group(
+        self,
+        cp_group: torch.distributed.ProcessGroup,
+        cp_global_ranks: list[int],
+        cp_stream: torch.cuda.Stream,
+        cp_comm_type: str = "p2p",
+    ) -> None:
+        """Set the context parallel group for the model."""
+        for layer in self.layers:
+            layer.set_context_parallel_group(cp_group, cp_global_ranks, cp_stream, cp_comm_type)
+
     def forward(
         self,
         input_ids: torch.Tensor | None = None,
