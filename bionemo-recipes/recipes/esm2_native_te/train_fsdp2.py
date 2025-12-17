@@ -36,6 +36,8 @@ from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
 
+import nvdlfw_inspect.api as debug_api
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -126,6 +128,15 @@ def main(args: DictConfig) -> float | None:
 
     perf_logger = PerfLogger(dist_config, args)
 
+    # TE Debug feature logging
+    debug_api.initialize(
+        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats.yaml",
+        feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
+        log_dir="./log",
+        default_logging_enabled=True
+    )
+
+
     # Training loop
     step = start_step
     while step < args.num_train_steps:
@@ -146,6 +157,9 @@ def main(args: DictConfig) -> float | None:
             # Step optimizer.
             optimizer.step()
             scheduler.step()
+
+            debug_api.step()
+            
             optimizer.zero_grad()
 
             perf_logger.log_step(
@@ -169,6 +183,7 @@ def main(args: DictConfig) -> float | None:
                     max_checkpoints=args.checkpoint.max_checkpoints,
                 )
 
+            
             step += 1
             if step >= args.num_train_steps:
                 break
