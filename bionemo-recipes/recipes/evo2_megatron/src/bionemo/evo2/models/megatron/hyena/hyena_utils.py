@@ -965,7 +965,7 @@ class ParallelHyenaOperator(nn.Module):
 
     def forward_long(self, *, x1, x2, v, h, bias, inference_context):
         """Forward pass long."""
-        import nemo.collections.llm.gpt.model.megatron.hyena.engine as engine
+        import bionemo.evo2.models.megatron.hyena.engine as engine
 
         def update_filter_state(filter_name, *, state):
             if not inference_context:
@@ -1020,7 +1020,7 @@ class ParallelHyenaOperator(nn.Module):
 
     def forward_medium(self, *, x1, x2, v, h, bias, inference_context):
         """Forward pass medium."""
-        import nemo.collections.llm.gpt.model.megatron.hyena.engine as engine
+        import bionemo.evo2.models.megatron.hyena.engine as engine
 
         def update_filter_state(filter_name, *, state):
             if not inference_context:
@@ -1631,7 +1631,7 @@ class ParallelCausalDepthwiseConv1dWithState(ParallelCausalDepthwiseConv1d):
 
         weight = weight.repeat_interleave(self.group_dim, dim=0)
 
-        import nemo.collections.llm.gpt.model.megatron.hyena.engine as engine
+        import bionemo.evo2.models.megatron.hyena.engine as engine
 
         def update_filter_state(filter_name, *, state):
             if not inference_context:

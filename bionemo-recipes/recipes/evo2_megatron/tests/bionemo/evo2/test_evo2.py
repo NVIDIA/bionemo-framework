@@ -18,18 +18,22 @@
 
 
 # FIXME bring back these tests, at least the batch_generate and forward pass correctness tests.
-# import inspect
-# import logging
-# import os
-# import time
-# from pathlib import Path
-# from typing import Any, Callable, Literal
+import gc
+import inspect
+import logging
+import os
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Literal, Set
 
-# import numpy as np
-# import pandas as pd
-# import pytest
-# import torch
-# from bionemo.core.data.load import load
+import megatron.core.num_microbatches_calculator
+import pandas as pd
+import pytest
+import torch
+from megatron.bridge.training.tokenizers.config import TokenizerConfig
+from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
+from megatron.core import dist_checkpointing, parallel_state
+from megatron.core.dist_checkpointing.mapping import ShardedTensor
 
 # # FIXME copy these out or make them not depend on NeMo
 # from bionemo.llm.utils.weight_utils import (
@@ -40,144 +44,324 @@
 # )
 # from bionemo.testing.megatron_parallel_state_utils import distributed_model_parallel_state
 # from bionemo.testing.torch import check_fp8_support
-# from megatron.core.inference.common_inference_params import CommonInferenceParams
-# from megatron.core.transformer.enums import AttnBackend
-# from megatron.core.transformer.module import Float16Module
+from megatron.core.tensor_parallel import random as tp_random
+from megatron.core.transformer.enums import AttnBackend
+from megatron.core.transformer.module import Float16Module
+from pytest import MonkeyPatch
+
+from bionemo.core.data.load import load
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
+from bionemo.evo2.models.evo2_provider import (
+    Hyena1bModelProvider,
+    Hyena7bARCLongContextModelProvider,
+    Hyena7bModelProvider,
+    HyenaInferenceContext,
+)
 
 
-# logger = logging.getLogger(__name__)
-# logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
 
 
-# def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: str | None = None) -> int:
-#     """Determine the memory requirement for a given checkpoint and test_name.
-
-#     The memory requirement recorded is not discriminated for flash_decode True or False.  The memory requirement
-#     recorded depend on checkpoint name only through model size.
-
-#     Args:
-#         ckpt_name: str
-#             the name of the checkpoint to test
-#         test_name: str | None
-#             the name of the test that is to be run.
-#     Returns:
-#         The input sequence length cap, for the model sin the checkpoint, given certain memory requirements.
-#         If the memory requirement is not met, the test is skipped.
-#     """
-
-#     # memory_needed_by_test: max reserved rounded up + 1, for stand-alone test
-#     memory_needed_df = pd.DataFrame(
-#         [
-#             {
-#                 "test_name": "test_forward",
-#                 "model_size": "1b",
-#                 "seq_len_cap": 6000,
-#                 "memory_needed_by_test": 18,
-#             },  # checked both variants in isolation
-#             {
-#                 "test_name": "test_forward",
-#                 "model_size": "7b",
-#                 "seq_len_cap": 4000,
-#                 "memory_needed_by_test": 33,
-#             },  # checked both variants in isolation
-#             {
-#                 "test_name": "test_forward_manual",
-#                 "model_size": "1b",
-#                 "seq_len_cap": 6000,
-#                 "memory_needed_by_test": 18,
-#             },  # checked both variants in isolation
-#             {
-#                 "test_name": "test_forward_manual",
-#                 "model_size": "7b",
-#                 "seq_len_cap": 4000,
-#                 "memory_needed_by_test": 21,
-#             },  # checked both variants in isolation
-#             {
-#                 "test_name": "test_batch_generate",
-#                 "model_size": "1b",
-#                 "seq_len_cap": -1,
-#                 "memory_needed_by_test": 16,
-#             },  # checked both variants in isolation
-#             {
-#                 "test_name": "test_batch_generate",
-#                 "model_size": "7b",
-#                 "seq_len_cap": -1,
-#                 "memory_needed_by_test": 43,
-#             },  # checked both variants in isolation
-#             {
-#                 "test_name": "test_batch_generate_coding_sequences",
-#                 "model_size": "1b",
-#                 "seq_len_cap": -1,
-#                 "memory_needed_by_test": 6,
-#             },  # checked both variants in isolation
-#             {
-#                 "test_name": "test_batch_generate_coding_sequences",
-#                 "model_size": "7b",
-#                 "seq_len_cap": -1,
-#                 "memory_needed_by_test": 21,
-#             },  # checked both variants in isolation
-#             {
-#                 "test_name": "test_generate_speed",
-#                 "model_size": "1b",
-#                 "seq_len_cap": -1,
-#                 "memory_needed_by_test": -1,
-#             },  # skipped for now until Anton's changes
-#             {
-#                 "test_name": "test_generate_speed",
-#                 "model_size": "7b",
-#                 "seq_len_cap": -1,
-#                 "memory_needed_by_test": -1,
-#             },  # skipped for now until Anton's changes
-#         ],
-#         columns=["test_name", "model_size", "seq_len_cap", "memory_needed_by_test"],
-#     )
-#     memory_needed_df_wi_index = memory_needed_df.set_index(["test_name", "model_size"])
-
-#     if "1b" in ckpt_name:
-#         model_size = "1b"
-#     elif "7b" in ckpt_name:
-#         model_size = "7b"
-#     else:
-#         raise ValueError(f"{ckpt_name=} is not supported for testing")
-
-#     seq_len_cap = memory_needed_df_wi_index.loc[(test_name, model_size), "seq_len_cap"]
-#     memory_needed_by_test = memory_needed_df_wi_index.loc[(test_name, model_size), "memory_needed_by_test"]
-
-#     # skip_condition_flash = flash_decode is None or flash_decode
-#     gb_available = torch.cuda.mem_get_info()[0] / 1024**3
-#     skip_condition = gb_available < memory_needed_by_test
-#     if skip_condition:
-#         pytest.skip(
-#             ", ".join(
-#                 [
-#                     f"Inference API requires at least {memory_needed_by_test}GB of available memory for {model_size} models",
-#                     f"{gb_available=}",
-#                 ]
-#             )
-#         )
-#     return seq_len_cap
+DEFAULT_MASTER_ADDR = "localhost"
+DEFAULT_MASTER_PORT = "29500"
+DEFAULT_NCCL_TIMEOUT = "30"  # in second
 
 
-# def load_weights_sharded_inplace_nemo2_to_mcore(
-#     model: MegatronModelType,
-#     distributed_checkpoint_dir: str | Path,
-#     skip_keys_with_these_prefixes: set[str],
-#     ckpt_format: Literal["zarr", "torch_dist"] = "torch_dist",
-# ):
-#     logger.info("Start setting up state dict")
-#     sharded_state_dict = {
-#         _munge_key_megatron_to_nemo2(k): _munge_sharded_tensor_key_megatron_to_nemo2(v)
-#         for k, v in model.sharded_state_dict().items()
-#         if not _key_in_filter(
-#             k, skip_keys_with_these_prefixes
-#         )  # and "_extra_state" not in k  # extra state is needed for fp8 sharded states
-#     }
-#     # Load the checkpoint with strict=false to allow for missing keys (backward compatibility)
-#     # Error: megatron.core.dist_checkpointing.core.CheckpointingException:
-#     # Object shard ... module.decoder.final_norm._extra_state/shard_0_1.pt not found
-#     MegatronCheckpointIO(save_ckpt_format=ckpt_format).load_checkpoint(
-#         distributed_checkpoint_dir, sharded_state_dict=sharded_state_dict, strict=False
-#     )
+def find_free_network_port(address: str = "localhost") -> int:
+    """Finds a free port on localhost.
+
+    It is useful in single-node training when we don't want to connect to a real master node but
+    have to set the `MASTER_PORT` environment variable.
+    """
+    import socket
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("", 0))
+    s.listen(1)
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def _reset_microbatch_calculator():
+    """Resets _GLOBAL_NUM_MICROBATCHES_CALCULATOR in megatron which is used in NeMo to initilised model parallel in
+    nemo.collections.nlp.modules.common.megatron.megatron_init.initialize_model_parallel_for_nemo
+    """  # noqa: D205, D415
+    megatron.core.num_microbatches_calculator._GLOBAL_NUM_MICROBATCHES_CALCULATOR = None
+
+
+def clean_up_distributed_and_parallel_states(verify_distributed_state=False):
+    """Clean up parallel states, torch.distributed and torch cuda cache."""
+    _reset_microbatch_calculator()
+    # Destroy Megatron distributed/parallel state environment.
+    parallel_state.destroy_model_parallel()
+    # Destroy the torch default / world process group.
+    if torch.distributed.is_initialized():
+        torch.distributed.destroy_process_group()
+    # Clear torch.compile/dynamo cache
+    try:
+        if hasattr(torch, "_dynamo"):
+            torch._dynamo.reset()
+        if hasattr(torch, "compiler"):
+            torch.compiler.reset()
+    except Exception as e:
+        print(f"Failed to reset torch compile: {e}")
+    # Free unused CPU memory.
+    gc.collect()
+    # Free reserved / cached GPU memory allocated by Torch / CUDA.
+    torch.cuda.empty_cache()
+    if verify_distributed_state:
+        # Utilize to debug OOM or orphaned processes in GPU.
+        allocated_vram = torch.cuda.memory_allocated() / 1024**3
+        reserved_vram = torch.cuda.memory_reserved() / 1024**3
+        print(
+            "\n--------------------------------\n"
+            f"Memory Profile for Device: {torch.cuda.current_device()}\n"
+            f"Allocated: {allocated_vram} GB\n"
+            f"Reserved: {reserved_vram} GB\n"
+            f"GPU Processes:\n{torch.cuda.list_gpu_processes()}\n"
+            "--------------------------------\n"
+        )
+
+
+@contextmanager
+def clean_parallel_state_context():
+    """Puts you into a clean parallel state, and again tears it down at the end."""
+    try:
+        clean_up_distributed_and_parallel_states()
+        yield
+    finally:
+        clean_up_distributed_and_parallel_states()
+
+
+@contextmanager
+def distributed_model_parallel_state(
+    seed: int = 42,
+    rank: int = 0,
+    world_size: int = 1,
+    backend: str = "nccl",
+    **initialize_model_parallel_kwargs,
+):
+    """Context manager for torch distributed and parallel state testing.
+
+    Args:
+        seed (int): random seed to be passed into tensor_parallel.random (https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/tensor_parallel/random.py). default to 42.
+        rank (int): global rank of the current cuda device. default to 0.
+        world_size (int): world size or number of devices. default to 1.
+        backend (str): backend to torch.distributed.init_process_group. default to 'nccl'.
+        **initialize_model_parallel_kwargs: kwargs to be passed into initialize_model_parallel (https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/parallel_state.py).
+    """
+    with MonkeyPatch.context() as context:
+        initial_states = None
+        try:
+            clean_up_distributed_and_parallel_states()
+
+            # distributed and parallel state set up
+            if not os.environ.get("MASTER_ADDR", None):
+                context.setenv("MASTER_ADDR", DEFAULT_MASTER_ADDR)
+            if not os.environ.get("MASTER_PORT", None):
+                free_network_port = find_free_network_port()
+                context.setenv(
+                    "MASTER_PORT", str(free_network_port) if free_network_port is not None else DEFAULT_MASTER_PORT
+                )
+            if not os.environ.get("NCCL_TIMEOUT", None):
+                context.setenv("NCCL_TIMEOUT", DEFAULT_NCCL_TIMEOUT)
+            context.setenv("RANK", str(rank))
+
+            torch.distributed.init_process_group(backend=backend, world_size=world_size)
+            parallel_state.initialize_model_parallel(**initialize_model_parallel_kwargs)
+
+            # tensor parallel random seed set up
+            # do not call torch.cuda.manual_seed after so!
+            if tp_random.get_cuda_rng_tracker().is_initialized():
+                initial_states = tp_random.get_cuda_rng_tracker().get_states()
+            if seed is not None:
+                tp_random.model_parallel_cuda_manual_seed(seed)
+
+            yield
+        finally:
+            # restore/unset tensor parallel random seed
+            if initial_states is not None:
+                tp_random.get_cuda_rng_tracker().set_states(initial_states)
+            else:
+                # Reset to the unset state
+                tp_random.get_cuda_rng_tracker().reset()
+
+            clean_up_distributed_and_parallel_states()
+
+
+def check_fp8_support(device_id: int = 0) -> tuple[bool, str, str]:
+    """Check if FP8 is supported on the current GPU.
+
+    FP8 requires compute capability 8.9+ (Ada Lovelace/Hopper architecture or newer).
+    """
+    if not torch.cuda.is_available():
+        return False, "0.0", "CUDA not available"
+    device_props = torch.cuda.get_device_properties(device_id)
+    compute_capability = f"{device_props.major}.{device_props.minor}"
+    device_name = device_props.name
+    # FP8 is supported on compute capability 8.9+ (Ada Lovelace/Hopper architecture)
+    is_supported = (device_props.major > 8) or (device_props.major == 8 and device_props.minor >= 9)
+    return is_supported, compute_capability, f"Device: {device_name}, Compute Capability: {compute_capability}"
+
+
+#############################################################################################
+# Core utility functions: Below are some utility functions that allow for loading a nemo2
+#  trained model back into a newly initialized megatron core model. The key insight is that
+#  the nemo2 lightning module owns a single `self.module = config.configure_model(...)`
+#  object. This `config.configure_module(...)` object is the megatron model that we want
+#  to load weights into. So we need to adjust the checkpoint keys since they will all
+#  have the extra `module.` prefix on them, while the megatron model we just initialized
+#  will not. These functions should make a wide variety of fine-tuning strategies doable.
+
+
+def _munge_key_megatron_to_nemo2(k: str) -> str:
+    return f"module.{k}"
+
+
+def _munge_sharded_tensor_key_megatron_to_nemo2(v: ShardedTensor) -> ShardedTensor:
+    # This works with PP=1, how do we handle PP>1?
+    key = v.key
+    v.key = _munge_key_megatron_to_nemo2(key)
+    return v
+
+
+def _key_in_filter(k: str, filter: Set[str]) -> bool:
+    for prefix in filter:
+        if k.startswith(prefix):
+            return True
+    return False
+
+
+def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: str | None = None) -> int:
+    """Determine the memory requirement for a given checkpoint and test_name.
+
+    The memory requirement recorded is not discriminated for flash_decode True or False.  The memory requirement
+    recorded depend on checkpoint name only through model size.
+
+    Args:
+        ckpt_name: str
+            the name of the checkpoint to test
+        test_name: str | None
+            the name of the test that is to be run.
+
+    Returns:
+        The input sequence length cap, for the model sin the checkpoint, given certain memory requirements.
+        If the memory requirement is not met, the test is skipped.
+    """
+    # memory_needed_by_test: max reserved rounded up + 1, for stand-alone test
+    memory_needed_df = pd.DataFrame(
+        [
+            {
+                "test_name": "test_forward",
+                "model_size": "1b",
+                "seq_len_cap": 6000,
+                "memory_needed_by_test": 18,
+            },  # checked both variants in isolation
+            {
+                "test_name": "test_forward",
+                "model_size": "7b",
+                "seq_len_cap": 4000,
+                "memory_needed_by_test": 33,
+            },  # checked both variants in isolation
+            {
+                "test_name": "test_forward_manual",
+                "model_size": "1b",
+                "seq_len_cap": 6000,
+                "memory_needed_by_test": 18,
+            },  # checked both variants in isolation
+            {
+                "test_name": "test_forward_manual",
+                "model_size": "7b",
+                "seq_len_cap": 4000,
+                "memory_needed_by_test": 21,
+            },  # checked both variants in isolation
+            {
+                "test_name": "test_batch_generate",
+                "model_size": "1b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": 16,
+            },  # checked both variants in isolation
+            {
+                "test_name": "test_batch_generate",
+                "model_size": "7b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": 43,
+            },  # checked both variants in isolation
+            {
+                "test_name": "test_batch_generate_coding_sequences",
+                "model_size": "1b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": 6,
+            },  # checked both variants in isolation
+            {
+                "test_name": "test_batch_generate_coding_sequences",
+                "model_size": "7b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": 21,
+            },  # checked both variants in isolation
+            {
+                "test_name": "test_generate_speed",
+                "model_size": "1b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": -1,
+            },  # skipped for now until Anton's changes
+            {
+                "test_name": "test_generate_speed",
+                "model_size": "7b",
+                "seq_len_cap": -1,
+                "memory_needed_by_test": -1,
+            },  # skipped for now until Anton's changes
+        ],
+        columns=["test_name", "model_size", "seq_len_cap", "memory_needed_by_test"],
+    )
+    memory_needed_df_wi_index = memory_needed_df.set_index(["test_name", "model_size"])
+
+    if "1b" in ckpt_name:
+        model_size = "1b"
+    elif "7b" in ckpt_name:
+        model_size = "7b"
+    else:
+        raise ValueError(f"{ckpt_name=} is not supported for testing")
+
+    seq_len_cap = memory_needed_df_wi_index.loc[(test_name, model_size), "seq_len_cap"]
+    memory_needed_by_test = memory_needed_df_wi_index.loc[(test_name, model_size), "memory_needed_by_test"]
+
+    # skip_condition_flash = flash_decode is None or flash_decode
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    skip_condition = gb_available < memory_needed_by_test
+    if skip_condition:
+        pytest.skip(
+            ", ".join(
+                [
+                    f"Inference API requires at least {memory_needed_by_test}GB of available memory for {model_size} models",
+                    f"{gb_available=}",
+                ]
+            )
+        )
+    return seq_len_cap
+
+
+def load_weights_sharded_inplace_nemo2_to_mcore(
+    model: Float16Module,
+    distributed_checkpoint_dir: str | Path,
+    skip_keys_with_these_prefixes: set[str],
+    ckpt_format: Literal["zarr", "torch_dist"] = "torch_dist",
+):
+    """Load the weights of a nemo2 checkpoint into a megatron core model in place. Deprecate once ckpt is converted."""
+    logger.info("Start setting up state dict")
+    sharded_state_dict = {
+        _munge_key_megatron_to_nemo2(k): _munge_sharded_tensor_key_megatron_to_nemo2(v)
+        for k, v in model.sharded_state_dict().items()
+        if not _key_in_filter(
+            k, skip_keys_with_these_prefixes
+        )  # and "_extra_state" not in k  # extra state is needed for fp8 sharded states
+    }
+    # Load the checkpoint with strict=false to allow for missing keys (backward compatibility)
+    # Error: megatron.core.dist_checkpointing.core.CheckpointingException:
+    # Object shard ... module.decoder.final_norm._extra_state/shard_0_1.pt not found
+    dist_checkpointing.load(sharded_state_dict, str(distributed_checkpoint_dir))
 
 
 # @pytest.mark.parametrize("seq_len", [8_192, 16_384])
@@ -348,13 +532,14 @@
 #         assert torch.mean(torch.abs(logit_similarity - torch.ones_like(logit_similarity))) < 9.9e-3
 
 
-# @pytest.fixture
-# def sequences():
-#     with (Path(__file__).parent / "data" / "prompts.csv").open(newline="") as f:
-#         from csv import DictReader
+@pytest.fixture
+def sequences():
+    """Fixture that returns a list of sequences from the prompts.csv file."""
+    with (Path(__file__).parent / "data" / "prompts.csv").open(newline="") as f:
+        from csv import DictReader
 
-#         reader = DictReader(f)
-#         return [row["Sequence"] for row in reader]
+        reader = DictReader(f)
+        return [row["Sequence"] for row in reader]
 
 
 # @pytest.fixture
@@ -439,190 +624,135 @@
 #     return get_model_and_tokenizer_raw(ckpt_name, seq_len_max=seq_len_max, **kwargs)
 
 
-# def calc_matchrate(*, tokenizer, in_seq, logits):
-#     softmax_logprobs = torch.log_softmax(logits, dim=-1)
-#     softmax_logprobs = softmax_logprobs[:, :-1]
-#     o = softmax_logprobs.argmax(dim=-1)[0]
-#     if hasattr(tokenizer, "tokenize"):
-#         i = torch.tensor(tokenizer.tokenize(in_seq[1:]), device=o.device)
-#     else:
-#         i = torch.tensor(tokenizer.text_to_ids(in_seq[1:]), device=o.device)
-#     return (i == o).sum().item() / (i.size()[0] - 1)
+def _calc_matchrate(*, tokenizer, in_seq, logits):
+    softmax_logprobs = torch.log_softmax(logits, dim=-1)
+    softmax_logprobs = softmax_logprobs[:, :-1]
+    o = softmax_logprobs.argmax(dim=-1)[0]
+    if hasattr(tokenizer, "tokenize"):
+        i = torch.tensor(tokenizer.tokenize(in_seq[1:]), device=o.device)
+    else:
+        i = torch.tensor(tokenizer.text_to_ids(in_seq[1:]), device=o.device)
+    return (i == o).sum().item() / (i.size()[0] - 1)
 
 
-# def check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
-#     logger.info(f"{ckpt_name} {matchrate = }")
-#     if "1b-" in ckpt_name:
-#         if assert_matchrate:
-#             assert matchrate > 0.70, (ckpt_name, matchrate)
-#         else:
-#             print(f"{ckpt_name} {matchrate = }")
-#     elif "7b-" in ckpt_name:
-#         if assert_matchrate:
-#             assert matchrate > 0.79, (ckpt_name, matchrate)
-#         else:
-#             print(f"{ckpt_name} {matchrate = }")
-#     else:
-#         raise NotImplementedError
+def _check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
+    logger.info(f"{ckpt_name} {matchrate = }")
+    if "1b-" in ckpt_name:
+        if assert_matchrate:
+            assert matchrate > 0.70, (ckpt_name, matchrate)
+        else:
+            print(f"{ckpt_name} {matchrate = }")
+    elif "7b-" in ckpt_name:
+        if assert_matchrate:
+            assert matchrate > 0.79, (ckpt_name, matchrate)
+        else:
+            print(f"{ckpt_name} {matchrate = }")
+    else:
+        raise NotImplementedError
 
 
-# @pytest.mark.parametrize(
-#     "ckpt_name,expected_matchpercents",
-#     [
-#         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30]),
-#         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30]),
-#         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57]),
-#         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57]),
-#     ],
-# )
-# def test_forward(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float]):
-#     assert len(sequences) > 0
-#     seq_len_cap = determine_memory_requirement_and_skip_if_not_met(
-#         ckpt_name, test_name=inspect.currentframe().f_code.co_name
-#     )
+@pytest.mark.parametrize(
+    "ckpt_name,expected_matchpercents,flash_decode",
+    [
+        # Try flash decode with one and not the other to verify that both paths work.
+        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
+        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
+        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
+        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
+    ],
+)
+def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
+    """Test the forward pass of the megatron model."""
+    assert len(sequences) > 0
+    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(
+        ckpt_name, test_name=inspect.currentframe().f_code.co_name
+    )
 
-#     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
-#     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
-#     if skip:
-#         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
-#         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
-#     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-#     inference_wrapped_model, mcore_tokenizer = get_model_and_tokenizer(
-#         ckpt_name, vortex_style_fp8=vortex_style_fp8, flash_decode=True, enable_flash_decode=True
-#     )
-#     matchrates = []
-#     for seq in sequences:
-#         partial_seq = seq[
-#             :seq_len_cap
-#         ]  # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
-#         with torch.no_grad():
-#             device = torch.cuda.current_device()
-#             tokens = torch.tensor([mcore_tokenizer.tokenize(partial_seq)], device=device)
-#             forward_args = {
-#                 "tokens": tokens,
-#                 "position_ids": None,
-#                 "attention_mask": None,
-#             }
+    is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
 
-#             inference_wrapped_model.prep_model_for_inference(prompts_tokens=None)
-#             # Ensure full-sequence logits are materialized for tests expecting [B, S, V]
-#             inference_wrapped_model.inference_context.materialize_only_last_token_logits = False
-#             logits = inference_wrapped_model.run_one_forward_step(forward_args)
-#             inference_wrapped_model.inference_context.reset()
-
-#             from megatron.core.inference.communication_utils import broadcast_from_last_pipeline_stage
-
-#             batch_size, context_length, vocab_size = 1, len(partial_seq), 512
-#             logits = broadcast_from_last_pipeline_stage(
-#                 [batch_size, context_length, vocab_size],
-#                 dtype=inference_wrapped_model.inference_wrapper_config.params_dtype,
-#                 tensor=logits,
-#             )
-
-#             matchrate = calc_matchrate(tokenizer=mcore_tokenizer, in_seq=partial_seq, logits=logits)
-#             matchrates.append(matchrate)
-#             check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate, assert_matchrate=False)
-#     assert len(matchrates) == len(expected_matchpercents)
-#     matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
-#     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-#     assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
-#         f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
-#     )
-
-
-# @pytest.mark.parametrize(
-#     "ckpt_name,expected_matchpercents,flash_decode",
-#     [
-#         # Try flash decode with one and not the other to verify that both paths work.
-#         ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
-#         ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
-#         ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
-#         ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
-#     ],
-# )
-# def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
-#     assert len(sequences) > 0
-#     seq_len_cap = determine_memory_requirement_and_skip_if_not_met(
-#         ckpt_name, test_name=inspect.currentframe().f_code.co_name
-#     )
-
-#     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
-#     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
-
-#     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
-#     if skip:
-#         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
-#         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
-#     with distributed_model_parallel_state(), torch.no_grad():
-#         tokenizer = get_nmt_tokenizer(
-#             "byte-level",
-#         )
-#         flash_decode_kwargs: dict[str, Any] = {"flash_decode": flash_decode}
-#         if flash_decode:
-#             flash_decode_kwargs["attention_backend"] = AttnBackend.flash
-#         if "1b-8k" in ckpt_name:
-#             model_config = llm.Hyena1bConfig(
-#                 use_te=True,
-#                 seq_length=8192,
-#                 vortex_style_fp8=vortex_style_fp8,
-#                 **flash_decode_kwargs,
-#             )
-#         elif "7b-8k" in ckpt_name:
-#             model_config = llm.Hyena7bConfig(
-#                 use_te=True,
-#                 seq_length=8192,
-#                 vortex_style_fp8=vortex_style_fp8,
-#                 **flash_decode_kwargs,
-#             )
-#         elif "7b-1m" in ckpt_name:
-#             model_config = llm.Hyena7bARCLongContextConfig(
-#                 use_te=True,
-#                 seq_length=8192,
-#                 vortex_style_fp8=vortex_style_fp8,
-#                 **flash_decode_kwargs,
-#             )
-#         else:
-#             raise NotImplementedError
-#         ckpt_weights: Path = load(ckpt_name) / "weights"
-#         raw_megatron_model = model_config.configure_model(tokenizer).eval().cuda()
-#         device = raw_megatron_model.parameters().__next__().device
-#         load_weights_sharded_inplace_nemo2_to_mcore(raw_megatron_model, ckpt_weights, {}, "torch_dist")
-#         model = Float16Module(model_config, raw_megatron_model)
-#         if flash_decode:
-#             inference_context = HyenaInferenceContext(max_batch_size=1, max_sequence_length=8192)
-#             # Ensure full-sequence logits are materialized for tests expecting [B, S, V]
-#             inference_context.materialize_only_last_token_logits = False
-#             forward_kwargs = {"runtime_gather_output": True, "inference_context": inference_context}
-#         else:
-#             forward_kwargs = {}
-#         matchrates = []
-#         for seq in sequences:
-#             # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
-#             partial_seq = seq[:seq_len_cap]
-#             with torch.no_grad():
-#                 device = torch.cuda.current_device()
-#                 # tokens = torch.tensor([tokenizer.tokenize(seq)], device=device)
-#                 input_ids = torch.tensor(tokenizer.text_to_ids(partial_seq)).int().unsqueeze(0).to(device)
-#                 attention_mask = None
-#                 # when labels is None, the model returns logits
-#                 logits = model(
-#                     input_ids=input_ids,
-#                     position_ids=None,
-#                     attention_mask=attention_mask,
-#                     labels=None,
-#                     **forward_kwargs,
-#                 )
-#                 if flash_decode:
-#                     forward_kwargs["inference_context"].reset()
-#                 matchrate = calc_matchrate(tokenizer=tokenizer, in_seq=partial_seq, logits=logits)
-#                 matchrates.append(matchrate)
-#                 check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate, assert_matchrate=False)
-#         assert len(matchrates) == len(expected_matchpercents)
-#         matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
-#         matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-#         assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
-#             f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
-#         )
+    vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
+    if skip:
+        # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
+        pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
+    with distributed_model_parallel_state(), torch.no_grad():
+        tokenizer = build_tokenizer(
+            TokenizerConfig(
+                tokenizer_type="HuggingFaceTokenizer",
+                hf_tokenizer_kwargs={"trust_remote_code": False},
+                tokenizer_model=DEFAULT_HF_TOKENIZER_MODEL_PATH,
+            )
+        )
+        flash_decode_kwargs: dict[str, Any] = {"flash_decode": flash_decode}
+        if flash_decode:
+            flash_decode_kwargs["attention_backend"] = AttnBackend.flash
+        if "1b-8k" in ckpt_name:
+            model_config = Hyena1bModelProvider(
+                use_te=True,
+                vocab_size=tokenizer.vocab_size,
+                seq_length=8192,
+                vortex_style_fp8=vortex_style_fp8,
+                **flash_decode_kwargs,
+            )
+        elif "7b-8k" in ckpt_name:
+            model_config = Hyena7bModelProvider(
+                use_te=True,
+                vocab_size=tokenizer.vocab_size,
+                seq_length=8192,
+                vortex_style_fp8=vortex_style_fp8,
+                **flash_decode_kwargs,
+            )
+        elif "7b-1m" in ckpt_name:
+            model_config = Hyena7bARCLongContextModelProvider(
+                use_te=True,
+                vocab_size=tokenizer.vocab_size,
+                seq_length=8192,
+                vortex_style_fp8=vortex_style_fp8,
+                **flash_decode_kwargs,
+            )
+        else:
+            raise NotImplementedError
+        ckpt_weights: Path = load(ckpt_name) / "weights"
+        model_config.finalize()  # important to call finalize before providing the model, this does post_init etc.
+        raw_megatron_model = model_config.provide(pre_process=True, post_process=True).eval().cuda()
+        device = raw_megatron_model.parameters().__next__().device
+        load_weights_sharded_inplace_nemo2_to_mcore(raw_megatron_model, ckpt_weights, set(), "torch_dist")
+        model = Float16Module(model_config, raw_megatron_model)
+        if flash_decode:
+            inference_context = HyenaInferenceContext(max_batch_size=1, max_sequence_length=8192)
+            # Ensure full-sequence logits are materialized for tests expecting [B, S, V]
+            inference_context.materialize_only_last_token_logits = False
+            forward_kwargs = {"runtime_gather_output": True, "inference_context": inference_context}
+        else:
+            forward_kwargs = {}
+        matchrates = []
+        for seq in sequences:
+            # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
+            partial_seq = seq[:seq_len_cap]
+            with torch.no_grad():
+                device = torch.cuda.current_device()
+                # tokens = torch.tensor([tokenizer.tokenize(seq)], device=device)
+                input_ids = torch.tensor(tokenizer.text_to_ids(partial_seq)).int().unsqueeze(0).to(device)
+                attention_mask = None
+                # when labels is None, the model returns logits
+                logits = model(
+                    input_ids=input_ids,
+                    position_ids=None,
+                    attention_mask=attention_mask,
+                    labels=None,
+                    **forward_kwargs,
+                )
+                if flash_decode:
+                    forward_kwargs["inference_context"].reset()
+                matchrate = _calc_matchrate(tokenizer=tokenizer, in_seq=partial_seq, logits=logits)
+                matchrates.append(matchrate)
+                _check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate, assert_matchrate=False)
+        assert len(matchrates) == len(expected_matchpercents)
+        matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
+        matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+        assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
+            f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
+        )
 
 
 # def mid_point_split(*, seq, num_tokens: int | None = None, fraction: float = 0.5):
