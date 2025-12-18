@@ -18,6 +18,7 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
@@ -35,8 +36,6 @@ from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
-
-import nvdlfw_inspect.api as debug_api
 
 
 logger = logging.getLogger(__name__)
@@ -86,11 +85,30 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
+    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    debug_api.initialize(
+        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats_block_scaling.yaml",
+        feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
+        log_dir="./log",
+        default_logging_enabled=True,
+    )
+    # Debug: Print module types to verify what we're working with
+    if dist_config.local_rank == 0:
+        logger.info("=== DEBUG: Module types in model ===")
+        for name, module in model.named_modules():
+            if 'layernorm_qkv' in name or 'proj' in name or 'self_attention' in name:
+                logger.info(f" -----> {name}: {type(module)} <----")
+        logger.info(f"=== DEBUG: FP8 config enabled={args.fp8_config.enabled}, recipe={args.fp8_config.fp8_recipe} ===")
+
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
+    
     for layer in transformer_stack:
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
+
+    # Assign names to layers so debug API can identify them - MUST be done BEFORE FSDP wrapping
+    debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
@@ -107,9 +125,9 @@ def main(args: DictConfig) -> float | None:
         else create_bshd_dataloader(dist_config, **args.dataset)
     )
 
-    if args.use_torch_compile:
-        # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
-        model = torch.compile(model)
+    # if args.use_torch_compile:
+    #     # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
+    #     model = torch.compile(model)
 
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
@@ -127,15 +145,6 @@ def main(args: DictConfig) -> float | None:
         epoch = 0
 
     perf_logger = PerfLogger(dist_config, args)
-
-    # TE Debug feature logging
-    debug_api.initialize(
-        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats.yaml",
-        feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
-        log_dir="./log",
-        default_logging_enabled=True
-    )
-
 
     # Training loop
     step = start_step
@@ -159,7 +168,7 @@ def main(args: DictConfig) -> float | None:
             scheduler.step()
 
             debug_api.step()
-            
+
             optimizer.zero_grad()
 
             perf_logger.log_step(
@@ -183,7 +192,6 @@ def main(args: DictConfig) -> float | None:
                     max_checkpoints=args.checkpoint.max_checkpoints,
                 )
 
-            
             step += 1
             if step >= args.num_train_steps:
                 break
