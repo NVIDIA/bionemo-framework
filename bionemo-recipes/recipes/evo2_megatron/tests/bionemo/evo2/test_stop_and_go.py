@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import copy
 import os
 import shlex
 import shutil
@@ -25,6 +25,10 @@ import torch
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
+
+
+# Do this at collection time before we run any tests.
+PRETEST_ENV = copy.deepcopy(os.environ)
 
 
 def find_free_network_port() -> int:
@@ -87,7 +91,7 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
 
     # Split the command and run it
     cmd_parts = shlex.split(cmd1)
-    env = dict(**os.environ)
+    env = copy.deepcopy(PRETEST_ENV)
     env["MASTER_PORT"] = str(find_free_network_port())
     env["NCCL_P2P_DISABLE"] = "1"
     result = subprocess.run(cmd_parts, check=False, capture_output=True, text=True, cwd=run_dir, env=env)
