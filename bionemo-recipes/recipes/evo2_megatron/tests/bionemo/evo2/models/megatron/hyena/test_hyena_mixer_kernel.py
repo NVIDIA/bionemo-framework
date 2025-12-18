@@ -33,6 +33,14 @@ from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
 from bionemo.evo2.models.megatron.hyena.hyena_utils import ImplicitModalFilter
 
 
+try:
+    import subquadratic_ops_torch  # noqa: F401
+
+    HAVE_SUBQUADRATIC_OPS = True
+except ImportError:
+    HAVE_SUBQUADRATIC_OPS = False
+
+
 @contextlib.contextmanager
 def init_distributed_parallel_state(
     world_size=1, rank=0, tensor_model_parallel_size=1, context_parallel_size=1, pipeline_model_parallel_size=1
@@ -191,7 +199,8 @@ def mixer_kernel_hyena_only(test_config: HyenaTestModelProvider, hyena_config: H
 
 
 @pytest.mark.skipif(
-    importlib.util.find_spec("subquadratic_ops_torch") is None, reason="subquadratic_ops_torch is not installed"
+    importlib.util.find_spec("subquadratic_ops_torch") is None or not HAVE_SUBQUADRATIC_OPS,
+    reason="subquadratic_ops_torch is not installed",
 )
 def test_implicit_filter(mixer_kernel_hyena_only: MixerModuleWrapper):
     """Test that the implicit filter is properly initialized with correct parameters and attributes."""
@@ -304,7 +313,8 @@ def test_implicit_filter(mixer_kernel_hyena_only: MixerModuleWrapper):
 
 
 @pytest.mark.skipif(
-    importlib.util.find_spec("subquadratic_ops_torch") is None, reason="subquadratic_ops_torch is not installed"
+    importlib.util.find_spec("subquadratic_ops_torch") is None or not HAVE_SUBQUADRATIC_OPS,
+    reason="subquadratic_ops_torch is not installed",
 )
 def test_subquadratic_ops_kernel(  # noqa: D103
     mixer: MixerModuleWrapper, mixer_kernel: MixerModuleWrapper, config_type, operator_type

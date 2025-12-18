@@ -37,6 +37,41 @@ from bionemo.evo2.models.megatron.hyena.hyena_utils import (
 )
 
 
+class MockProcessGroup:
+    """Mock process group for testing."""
+
+    @staticmethod
+    def rank():
+        """Return the rank of the process group."""
+        return 0
+
+    @staticmethod
+    def size():
+        """Return the size of the process group."""
+        return 1
+
+
+class MockProcessGroupCollection:
+    """Mock process group collection for testing."""
+
+    def __init__(self):
+        """Initialize the mock process group collection."""
+        self.tp = MockProcessGroup()
+        self.pp = MockProcessGroup()
+        self.cp = MockProcessGroup()
+        self.embd = MockProcessGroup()
+        self.dp = MockProcessGroup()
+        self.expt_dp = MockProcessGroup()
+        self.mp = MockProcessGroup()
+        self.dp_cp = MockProcessGroup()
+        self.intra_dp_cp = MockProcessGroup()
+        self.intra_expt_dp = MockProcessGroup()
+
+    def use_mpu_process_groups(self):
+        """Return the process group collection."""
+        return self
+
+
 class MockProjConv(torch.nn.Module):
     """Mock projection convolution module for testing.
 
@@ -90,7 +125,9 @@ def test_b2b_causal_conv1d_module_initialization(operator_type):  # noqa: D103
     proj_conv = MockProjConv(kernel_size=3)
     mixer = MockMixer(kernel_size=5)
 
-    b2b_module = B2BCausalConv1dModule(proj_conv, mixer, operator_type=operator_type)
+    b2b_module = B2BCausalConv1dModule(
+        proj_conv, mixer, operator_type=operator_type, pg_collection=MockProcessGroupCollection()
+    )
 
     assert b2b_module.operator_type == operator_type
     assert b2b_module._proj_conv_module == proj_conv
@@ -102,7 +139,11 @@ def test_b2b_causal_conv1d_module_weight_extraction(operator_type):  # noqa: D10
     proj_conv = MockProjConv(kernel_size=3)
     mixer = MockMixer(kernel_size=5)
     b2b_module = B2BCausalConv1dModule(
-        proj_conv, mixer, operator_type=operator_type, b2b_causal_conv1d=mock_b2b_causal_conv1d
+        proj_conv,
+        mixer,
+        operator_type=operator_type,
+        b2b_causal_conv1d=mock_b2b_causal_conv1d,
+        pg_collection=MockProcessGroupCollection(),
     )
     x = torch.randn(2, 96, 10)  # [B, D, L]
     result = b2b_module(x)
@@ -116,7 +157,11 @@ def test_b2b_causal_conv1d_module_bias_handling(use_conv_bias, operator_type):  
     proj_conv = MockProjConv(kernel_size=3)
     mixer = MockMixer(kernel_size=5, use_conv_bias=use_conv_bias)
     b2b_module = B2BCausalConv1dModule(
-        proj_conv, mixer, operator_type=operator_type, b2b_causal_conv1d=mock_b2b_causal_conv1d
+        proj_conv,
+        mixer,
+        operator_type=operator_type,
+        b2b_causal_conv1d=mock_b2b_causal_conv1d,
+        pg_collection=MockProcessGroupCollection(),
     )
     x = torch.randn(2, 96, 10)  # [B, D, L]
     result = b2b_module(x)
@@ -129,7 +174,9 @@ def test_b2b_causal_conv1d_module_invalid_operator():  # noqa: D103
     mixer = MockMixer(kernel_size=5)
 
     with pytest.raises(ValueError, match="Operator type invalid_type not supported"):
-        B2BCausalConv1dModule(proj_conv, mixer, operator_type="invalid_type")
+        B2BCausalConv1dModule(
+            proj_conv, mixer, operator_type="invalid_type", pg_collection=MockProcessGroupCollection()
+        )
 
 
 @pytest.mark.parametrize("batch_size", [1, 2, 4])
@@ -138,7 +185,11 @@ def test_b2b_causal_conv1d_module_different_shapes(batch_size, seq_len):  # noqa
     proj_conv = MockProjConv(kernel_size=3)
     mixer = MockMixer(kernel_size=5)
     b2b_module = B2BCausalConv1dModule(
-        proj_conv, mixer, operator_type="hyena_short_conv", b2b_causal_conv1d=mock_b2b_causal_conv1d
+        proj_conv,
+        mixer,
+        operator_type="hyena_short_conv",
+        b2b_causal_conv1d=mock_b2b_causal_conv1d,
+        pg_collection=MockProcessGroupCollection(),
     )
 
     # Test with different hidden dimensions
@@ -155,7 +206,11 @@ def test_b2b_causal_conv1d_module_different_kernel_sizes(kernel_size):  # noqa: 
     proj_conv = MockProjConv(kernel_size=kernel_size)
     mixer = MockMixer(kernel_size=kernel_size)
     b2b_module = B2BCausalConv1dModule(
-        proj_conv, mixer, operator_type="hyena_short_conv", b2b_causal_conv1d=mock_b2b_causal_conv1d
+        proj_conv,
+        mixer,
+        operator_type="hyena_short_conv",
+        b2b_causal_conv1d=mock_b2b_causal_conv1d,
+        pg_collection=MockProcessGroupCollection(),
     )
     x = torch.randn(2, 96, 32)
     result = b2b_module(x)
@@ -167,7 +222,11 @@ def test_b2b_causal_conv1d_module_invalid_input():  # noqa: D103
     proj_conv = MockProjConv(kernel_size=3)
     mixer = MockMixer(kernel_size=5)
     b2b_module = B2BCausalConv1dModule(
-        proj_conv, mixer, operator_type="hyena_short_conv", b2b_causal_conv1d=mock_b2b_causal_conv1d
+        proj_conv,
+        mixer,
+        operator_type="hyena_short_conv",
+        b2b_causal_conv1d=mock_b2b_causal_conv1d,
+        pg_collection=MockProcessGroupCollection(),
     )
 
     # Test with invalid input dimensions
@@ -179,7 +238,11 @@ def test_b2b_causal_conv1d_module_dtype_handling():  # noqa: D103
     proj_conv = MockProjConv(kernel_size=3)
     mixer = MockMixer(kernel_size=5)
     b2b_module = B2BCausalConv1dModule(
-        proj_conv, mixer, operator_type="hyena_short_conv", b2b_causal_conv1d=mock_b2b_causal_conv1d
+        proj_conv,
+        mixer,
+        operator_type="hyena_short_conv",
+        b2b_causal_conv1d=mock_b2b_causal_conv1d,
+        pg_collection=MockProcessGroupCollection(),
     )
 
     # Test with different dtypes
@@ -195,7 +258,11 @@ def test_b2b_causal_conv1d_module_device_handling():  # noqa: D103
     proj_conv = MockProjConv(kernel_size=3)
     mixer = MockMixer(kernel_size=5)
     b2b_module = B2BCausalConv1dModule(
-        proj_conv, mixer, operator_type="hyena_short_conv", b2b_causal_conv1d=mock_b2b_causal_conv1d
+        proj_conv,
+        mixer,
+        operator_type="hyena_short_conv",
+        b2b_causal_conv1d=mock_b2b_causal_conv1d,
+        pg_collection=MockProcessGroupCollection(),
     )
 
     # Test on CPU
@@ -216,7 +283,11 @@ def test_b2b_causal_conv1d_effective_padding_size():
     mixer = MockMixer(kernel_size=5)
 
     b2b_module = B2BCausalConv1dModule(
-        proj_conv, mixer, operator_type="hyena_short_conv", b2b_causal_conv1d=mock_b2b_causal_conv1d
+        proj_conv,
+        mixer,
+        operator_type="hyena_short_conv",
+        b2b_causal_conv1d=mock_b2b_causal_conv1d,
+        pg_collection=MockProcessGroupCollection(),
     )
     # Verify the effective padding size is correct
     expected_pad_size = (mixer.kernel_size - 1) + (proj_conv.kernel_size - 1)

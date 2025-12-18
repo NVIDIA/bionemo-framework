@@ -19,6 +19,7 @@
 
 from pathlib import Path
 
+import torch
 from megatron.bridge.training.tokenizers.config import TokenizerConfig
 from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
 
@@ -135,5 +136,14 @@ def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
     assert int(20 * 0.2) <= len(test_ds)
 
     # check that the dataset is correct
-    assert train_ds[0] is not None
-    assert False
+    batch = train_ds[0]
+    assert batch is not None
+    assert set(batch.keys()) == {"tokens", "labels", "loss_mask", "position_ids"}
+    assert batch["tokens"].shape == (8192,)
+    assert batch["labels"].shape == (8192,)
+    assert batch["loss_mask"].shape == (8192,)
+    assert batch["position_ids"].shape == (8192,)
+    assert batch["tokens"].dtype == torch.int64
+    assert batch["labels"].dtype == torch.int64
+    assert batch["loss_mask"].dtype == torch.float32
+    assert batch["position_ids"].dtype == torch.int64
