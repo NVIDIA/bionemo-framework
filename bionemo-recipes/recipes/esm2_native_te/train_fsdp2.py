@@ -52,9 +52,9 @@ def main(args: DictConfig) -> float | None:
     # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
     tb_writer = SummaryWriter('./tensorboard_dir/run1')
     debug_api.initialize(
-        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats_block_scaling.yaml",
+        config_file="fp8_stats_mxfp8.yaml",
         feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
-        log_dir="./log_fsdp2",
+        log_dir="./log_fsdp2_mxfp8",
         default_logging_enabled=True,
         tb_writer=tb_writer,
     )
