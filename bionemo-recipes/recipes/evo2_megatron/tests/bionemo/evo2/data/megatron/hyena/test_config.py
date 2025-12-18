@@ -36,6 +36,7 @@ from typing import Union
 
 import pytest
 import yaml
+
 from bionemo.evo2.data.megatron.hyena.config import (
     Evo2BlendedDatasetConfig,
     infer_global_batch_size,
@@ -45,8 +46,7 @@ from bionemo.evo2.data.megatron.hyena.config import (
 
 @contextmanager
 def change_dir(new_dir: Union[str, Path]):
-    """
-    Context manager for temporarily changing the working directory using os.
+    """Context manager for temporarily changing the working directory using os.
 
     Args:
         new_dir (Union[str, Path]): The directory to change to
@@ -71,6 +71,7 @@ def change_dir(new_dir: Union[str, Path]):
 
 @pytest.fixture
 def temp_dataset_config():
+    """Create a temporary dataset configuration for testing."""
     # Create a temporary directory for the dataset path
     temp_dir = tempfile.TemporaryDirectory()
     dataset_path = temp_dir.name
@@ -177,6 +178,7 @@ def test_path_resolution(tmp_dataset):
 
 
 def test_parse_dataset_config(temp_dataset_config):
+    """Test the parse_dataset_config function."""
     dataset_config_path, dataset_path = temp_dataset_config
 
     # Call the function to test
@@ -201,6 +203,7 @@ def test_parse_dataset_config(temp_dataset_config):
 
 
 def test_infer_global_batch_size_validation():
+    """Test the infer_global_batch_size function validation."""
     # Test non-integer inputs
     with pytest.raises(ValueError, match="All arguments must be of type int"):
         infer_global_batch_size(1.0, 1, 1, 1, 1, 1, 1)
@@ -229,6 +232,7 @@ def test_infer_global_batch_size_validation():
 
 
 def test_infer_global_batch_size_calculation():
+    """Test the infer_global_batch_size function."""
     # Test world_size divisibility error
     with pytest.raises(ValueError, match="world_size must be divisible by"):
         infer_global_batch_size(1, 1, 3, 1, 2, 1, 1)  # 3 devices not divisible by TP=2

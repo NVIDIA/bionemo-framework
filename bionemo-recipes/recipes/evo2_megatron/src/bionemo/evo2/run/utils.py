@@ -16,9 +16,10 @@
 
 from typing import Literal
 
+from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS
+
 from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS
-from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS
 
 
 def patch_eden_tokenizer(tokenizer):

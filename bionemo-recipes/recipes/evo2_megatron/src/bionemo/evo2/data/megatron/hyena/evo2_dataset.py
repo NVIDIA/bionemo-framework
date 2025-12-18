@@ -19,8 +19,9 @@
 from typing import ClassVar, Dict, Optional
 
 import torch
-from bionemo.evo2.models.megatron.hyena.hyena_utils import make_upper_case
 from megatron.core.datasets.gpt_dataset import GPTDataset
+
+from bionemo.evo2.models.megatron.hyena.hyena_utils import make_upper_case
 
 
 class Evo2Dataset(GPTDataset):
@@ -114,7 +115,7 @@ class Evo2Dataset(GPTDataset):
         return self._modify_gpt_batch(databatch)
 
     @staticmethod
-    def mask_phylogenetic_tags(  # noqa: C901
+    def mask_phylogenetic_tags(
         tokenized_sequence: torch.Tensor,
         terminal_tag_char: int,  # e.g. ASCII for '|'
         other_tag_chars: set[int],  # e.g. {95, 59, 32} for '_', ';', space
@@ -204,7 +205,7 @@ class Evo2Dataset(GPTDataset):
             return bool(torch.all(torch.isin(region, valid_dna_or_control_tensor)).cpu().item())
 
         # Process one EOD-free segment using the O1 logic.
-        def process_segment(seg_seq: torch.Tensor) -> torch.Tensor:  # noqa: C901
+        def process_segment(seg_seq: torch.Tensor) -> torch.Tensor:
             seg_len = seg_seq.size(0)
             seg_mask = torch.ones(seg_len, device=device, dtype=torch.int)
             # Identify positions of terminal tag (pipe)

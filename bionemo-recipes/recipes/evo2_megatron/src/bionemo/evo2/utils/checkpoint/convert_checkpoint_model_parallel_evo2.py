@@ -236,7 +236,7 @@ def check_params(
         logging.info("No missing or extra params detected!")
 
 
-def convert_model_weights(  # noqa: C901
+def convert_model_weights(
     input_data_shards: List[OrderedDict],
     output_data_shards: List[OrderedDict],
     model_parameter_names: List[str],
