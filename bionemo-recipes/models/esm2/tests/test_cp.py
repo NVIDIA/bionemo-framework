@@ -24,7 +24,7 @@ from torch.distributed.device_mesh import init_device_mesh
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
-from esm.collator import split_batch_by_cp_rank
+from esm.collator import _split_batch_by_cp_rank
 from esm.convert import convert_esm_hf_to_te
 from esm.modeling_esm_te import NVEsmForMaskedLM
 
@@ -124,7 +124,7 @@ def get_batch_for_cp_rank(batch, cp_rank, cp_world_size):
     Returns:
         A dictionary containing the shard of the batch.
     """
-    input_ids_sharded, labels_sharded = split_batch_by_cp_rank(
+    input_ids_sharded, labels_sharded = _split_batch_by_cp_rank(
         cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
         input_ids_padded=batch["input_ids"],
         labels_padded=batch["labels"],

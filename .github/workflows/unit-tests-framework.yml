@@ -230,6 +230,9 @@ jobs:
       credentials:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
+      env:
+        CI: true
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
     if: needs.build-bionemo-image.result == 'success'
     steps:
       - name: Checkout repository
