@@ -68,8 +68,9 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
         pytest.skip(f"World size {world_size} is greater than the number of GPUs {num_gpus}")
     run_dir = tmp_path / f"run_tp{tp_size}_pp{pp_size}_cp{cp_size}_dp{dp_size}_rank_check{dp_rank_check}"
     run_dir.mkdir(parents=True, exist_ok=True)
+    master_port = find_free_network_port()
     dp_rank_check_str = "--debug-ddp-parity-freq 5" if dp_rank_check else ""
-    cmd1 = f"""torchrun --nproc-per-node {world_size} --no-python \
+    cmd1 = f"""torchrun --nproc-per-node {world_size} --no-python --master_port {master_port} \
     train_evo2 \
         --hf-tokenizer-model-path {DEFAULT_HF_TOKENIZER_MODEL_PATH} \
         --model-size striped_hyena_1b_nv_parallel --num-layers 4 --hybrid-override-pattern SDH* \
@@ -92,7 +93,6 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
     # Split the command and run it
     cmd_parts = shlex.split(cmd1)
     env = copy.deepcopy(PRETEST_ENV)
-    env["MASTER_PORT"] = str(find_free_network_port())
     env["NCCL_P2P_DISABLE"] = "1"
     result = subprocess.run(cmd_parts, check=False, capture_output=True, text=True, cwd=run_dir, env=env)
 
@@ -146,7 +146,6 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
     cmd_parts_2 = shlex.split(cmd2)
 
     print("Starting Run 2 (resuming to step 10)...")
-    env["MASTER_PORT"] = str(find_free_network_port())
     result_2 = subprocess.run(cmd_parts_2, check=False, capture_output=True, text=True, cwd=run_dir, env=env)
 
     print(f"Run 2 Return code: {result_2.returncode}")
