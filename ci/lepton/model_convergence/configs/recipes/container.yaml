@@ -1,0 +1,182 @@
+############################################################
+# Template Type
+# Defines the template type for the job.
+# - convergence_tests: for convergence tests
+# - scdl_performance: for SCDL performance tests
+############################################################
+template_type: convergence_tests
+
+job_name: container_test
+
+############################################################
+# Container Runtime
+# Defines the base Docker image and registry auth needed
+############################################################
+container:
+  image: nvcr.io/nvidia/pytorch:25.11-py3
+  registry_auth: lepton-nvidia
+
+############################################################
+# Environment Variables
+# These keys must be present for the job to authenticate with
+# external services (W&B, Kratos, Lepton) and control runtime caching.
+# HF_HOME is optional but recommended to speed up Hugging Face model loading.
+############################################################
+environment_variables:
+  - name: WANDB_API_KEY
+    value_from: JWILBER_WANDB_API_KEY
+  - name: KRATOS_SSA_URL
+    value_from: KRATOS_SSA_URL
+  - name: KRATOS_SSA_CLIENT_ID
+    value_from: KRATOS_SSA_CLIENT_ID
+  - name: KRATOS_SSA_SECRET
+    value_from: KRATOS_SSA_SECRET.jwilber
+  - name: LEP_LOGIN_CREDENTIALS
+    value_from: LEP_LOGIN_CREDENTIALS
+  - name: HF_HOME
+    value: /data/esm2/cache
+  - name: HF_TOKEN
+    value_from: HUGGING_FACE_HUB_TOKEN.jwilber
+
+############################################################
+# Lepton Cluster Selection & Node Group
+# Select the GPU cluster where the job will run.
+# - h100: yo-bom-lepton-001
+# - h200: nv-int-multiteam-nebius-h200-01
+# - a100: az-sat-lepton-001
+############################################################
+node_group: yo-bom-lepton-001
+
+############################################################
+# Shared Mounts
+# Mount paths for accessing shared datasets, model checkpoints,
+# or intermediate artifacts. The NFS source should match the cluster.
+# - yo-bom-lepton-001 uses node-nfs:fs1
+# - nv-int-multiteam-nebius-h200-01 uses node-nfs:lepton-shared-fs
+############################################################
+mount_from: node-nfs:fs1
+
+mounts:
+  - path: /BioNeMo
+    mount_path: /data
+    from_: ${mount_from}
+
+############################################################
+# W&B Initialization
+# Configure how runs are logged to Weights & Biases.
+############################################################
+wandb_init_args:
+  group: "model_convergence__recipes"
+  mode: "online"
+
+############################################################
+# Git Checkout Options
+# Configure which version of the recipe to pull from GitHub.
+# - `branch`: defaults to main
+# - `commit_sha`: overrides branch if provided
+############################################################
+branch: jwilber/lepton-build-container
+commit_sha: ""
+
+############################################################
+# Checkout Script
+# Standardized script to clone the BioNeMo repository and install
+# dependencies before the training run starts. Child configs can
+# inherit and reuse this logic without modification.
+############################################################
+checkout_script: |
+  set -euo pipefail
+  
+  echo "========================================"
+  echo "DIAGNOSTIC: System Capabilities Check"
+  echo "========================================"
+  
+  echo -e "\n=== User Info ==="
+  whoami
+  id
+  groups
+  echo "HOME: $HOME"
+  echo "PWD: $PWD"
+  
+  echo -e "\n=== Sudo Access ==="
+  if sudo -n true 2>/dev/null; then
+    echo "✓ Sudo available WITHOUT password"
+    sudo -V | head -n 1
+  elif sudo -v 2>/dev/null; then
+    echo "⚠ Sudo available but requires password"
+  else
+    echo "✗ No sudo access"
+  fi
+  
+  echo -e "\n=== Docker Availability ==="
+  if which docker >/dev/null 2>&1; then
+    echo "✓ Docker binary found: $(which docker)"
+    docker --version || echo "✗ Docker version check failed"
+    if docker info >/dev/null 2>&1; then
+      echo "✓ Docker daemon accessible!"
+      docker info | grep -E "Server Version|Storage Driver|Runtimes"
+    else
+      echo "✗ Docker daemon not accessible (may need sudo or socket permissions)"
+    fi
+  else
+    echo "✗ Docker not installed"
+  fi
+  
+  echo -e "\n=== Docker Socket Check ==="
+  if [ -S /var/run/docker.sock ]; then
+    echo "✓ Docker socket exists: /var/run/docker.sock"
+    ls -la /var/run/docker.sock
+    if [ -r /var/run/docker.sock ] && [ -w /var/run/docker.sock ]; then
+      echo "✓ Socket is readable and writable"
+    else
+      echo "⚠ Socket exists but may not be accessible"
+    fi
+  else
+    echo "✗ Docker socket not found"
+  fi
+  
+  echo -e "\n=== GPU Access ==="
+  if which nvidia-smi >/dev/null 2>&1; then
+    echo "✓ nvidia-smi found"
+    nvidia-smi --query-gpu=name,driver_version --format=csv,noheader | head -n 1
+  else
+    echo "✗ nvidia-smi not found"
+  fi
+  
+  echo -e "\n=== Package Management ==="
+  if apt-get --version >/dev/null 2>&1; then
+    echo "✓ apt-get available"
+    if sudo -n apt-get update -y >/dev/null 2>&1; then
+      echo "✓ Can run apt-get with sudo"
+    else
+      echo "✗ Cannot run apt-get (no sudo or permission denied)"
+    fi
+  fi
+  
+  echo -e "\n=== Writable Locations ==="
+  for dir in /tmp $HOME /data; do
+    if [ -d "$dir" ] && [ -w "$dir" ]; then
+      echo "✓ $dir is writable"
+    else
+      echo "✗ $dir not writable or doesn't exist"
+    fi
+  done
+  
+  echo -e "\n=== Installed Tools ==="
+  for tool in git python3 pip curl wget; do
+    if which $tool >/dev/null 2>&1; then
+      echo "✓ $tool: $(which $tool)"
+    else
+      echo "✗ $tool: not found"
+    fi
+  done
+  
+  echo -e "\n========================================"
+  echo "DIAGNOSTIC COMPLETE"
+  echo "========================================"
+
+run_script: ""
+
+script: |
+  ${checkout_script}
+  ${run_script}
