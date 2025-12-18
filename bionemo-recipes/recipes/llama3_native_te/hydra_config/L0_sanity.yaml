@@ -23,6 +23,9 @@ num_train_steps: 250
 # We want this on in CI/CD to validate that the script runs successfully with torch.compile.
 use_torch_compile: true # Disable for faster startup during testing
 
+# We want this in CI/CD to validate that the script runs successfully with meta-device, even if convergence is affected.
+use_meta_device: true
+
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1 # Small batch size for limited GPU memory

@@ -154,9 +154,10 @@ def main(args: DictConfig) -> float | None:
                     scheduler=scheduler,
                     ckpt_path=ckpt_path,
                     step=step,
+                    epoch=epoch,
                     dist_config=dist_config,
                     dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                    epoch=epoch,
+                    max_checkpoints=args.checkpoint.max_checkpoints,
                 )
 
             step += 1

@@ -66,6 +66,8 @@ checkpoint:
   save_final_model: true
   resume_from_checkpoint: true
   save_every_n_steps: 50
+  max_checkpoints: 5 # Keep only the latest 5 checkpoints
+  async_save: true # Whether to save the checkpoint asynchronously, currently only supported with FSDP2.
 
 logger:
   frequency: 100

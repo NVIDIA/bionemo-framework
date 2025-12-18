@@ -190,7 +190,6 @@ pure_eval==0.2.3
 pyarrow==21.0.0
 pybind11-global==3.0.0
 pybind11==3.0.0
-pycocotools @ git+https://github.com/nvidia/cocoapi.git@08350a157b41f0755a536441b5abec89ab934c5b#subdirectory=PythonAPI
 pycparser==2.22
 pydantic_core==2.33.2
 pydantic==2.11.7

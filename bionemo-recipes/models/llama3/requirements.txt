@@ -1,3 +1,4 @@
+lm-eval  # For testing
 torch
 torchao!=0.14.0
 transformer_engine[pytorch]

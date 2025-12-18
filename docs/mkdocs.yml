@@ -46,9 +46,6 @@ extra_css:
   - assets/css/jupyter-themes.css
   - assets/css/chatbot.css
 
-extra_javascript:
-  - assets/javascript/chatbot.js
-
 plugins:
   - search
   - gen-files:

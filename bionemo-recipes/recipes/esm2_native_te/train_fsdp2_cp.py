@@ -207,6 +207,7 @@ def main(args: DictConfig) -> float | None:
                     epoch=epoch,
                     dist_config=dist_config,
                     dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                    max_checkpoints=args.checkpoint.max_checkpoints,
                 )
 
             step += 1

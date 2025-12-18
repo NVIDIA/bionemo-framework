@@ -296,58 +296,6 @@ class MLMDataCollatorWithFlattening:
         )
 
 
-class MLMDataCollatorWithFlatteningCPAware:
-    """A collator that is aware of context parallelism.
-
-    For the case of context parallelism, padded sequences will be returned from the wrapped collator, and then split into shards for each context parallelism rank.
-
-    The shards are then typically sent to the CPAwareDataloader which will scatter them to the appropriate GPUs.
-    """
-
-    def __init__(self, collator: MLMDataCollatorWithFlattening, cp_world_size: int):
-        """Initialize the MLMDataCollatorWithFlatteningCPAware.
-
-        Args:
-            collator: The collator to use for masking tokens.
-            cp_world_size: The size of the context parallelism group.
-        """
-        self.collator = collator
-        self.cp_world_size = cp_world_size
-
-    def __call__(self, features) -> list[dict[str, Any]]:
-        """Process batches of data and create shards for each context parallelism rank.
-
-        Args:
-            features: List of tokenized sequences, each containing 'input_ids' and optionally 'labels'.
-
-        Returns:
-            A list of dictionaries, each containing a shard of the batch for a given context parallelism rank.
-        """
-        batch = self.collator(features)
-
-        combined_batch = []
-        for cp_rank in range(self.cp_world_size):
-            input_ids_sharded, labels_sharded = split_batch_by_cp_rank(
-                cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
-                input_ids_padded=batch["input_ids"],
-                labels_padded=batch["labels"],
-                qvk_format="thd",
-                cp_rank=cp_rank,
-                cp_world_size=self.cp_world_size,
-            )
-            batch_shard = dict(batch)
-            batch_shard["input_ids"] = input_ids_sharded
-            batch_shard["labels"] = labels_sharded
-            # Now determine the max length of the sequence.
-            seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
-            batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)
-            batch_shard["max_length_k"] = batch_shard["max_length_q"]
-            batch_shard["pad_between_seqs"] = True
-            combined_batch.append(batch_shard)
-
-        return combined_batch
-
-
 @dataclass
 class DataCollatorWithFlattening(DefaultDataCollator):
     """Data collator for sequence packing with flash attentions cu_seqlens-style attention.
@@ -411,9 +359,14 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
     """Maximum number of tokens per batch."""
     drop_last: bool = True
     """Whether to drop the last batch if it's less than max_length."""
+    split_samples: bool = False
+    """Whether to split samples to ensure batches have exactly max_tokens_per_batch tokens."""
 
     def __iter__(self):
         """Yield batches of samples, each with a variable number of tokens up to the maximum length.
+
+        When split_samples=True, ensures each batch has exactly max_tokens_per_batch by splitting
+        the final sample if needed. The remaining tokens from the split sample start the next batch.
 
         Returns:
             A generator of batches of samples, each with a variable number of tokens up to the maximum length.
@@ -422,10 +375,28 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         current_length = 0
         for sample in iter(self.dataset):
             current_length += len(sample["input_ids"])
-            if current_length > self.max_tokens_per_batch:
-                yield samples
-                samples = [sample]
-                current_length = len(sample["input_ids"])
+            if current_length == self.max_tokens_per_batch:
+                yield [*samples, sample]
+                samples = []
+                current_length = 0
+
+            elif current_length > self.max_tokens_per_batch:
+                if not self.split_samples:
+                    # If we are not splitting samples, we can just yield the current batch (before this sample) and
+                    # start a new one.
+                    yield samples
+                    samples = [sample]
+
+                else:
+                    # Calculate how many tokens are already in the batch
+                    tokens_in_batch = current_length - len(sample["input_ids"])
+                    # Calculate how many tokens we can fit from this sample
+                    tokens_available = self.max_tokens_per_batch - tokens_in_batch
+                    first_part, remaining_part = _split_sample_by_num_tokens(sample, tokens_available)
+                    yield [*samples, first_part]
+                    samples = [remaining_part]
+
+                current_length = len(samples[0]["input_ids"])
             else:
                 samples.append(sample)
 
@@ -435,6 +406,205 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
     def set_epoch(self, epoch: int):
         """Set the epoch for the dataset."""
         self.dataset.set_epoch(epoch)
+
+
+class DataCollatorForContextParallel:
+    """A collator that is aware of context parallelism.
+
+    For the case of context parallelism, padded sequences will be returned from the wrapped collator, and then split
+    into shards for each context parallelism rank.
+
+    The shards are then typically sent to the ContextParallelDataLoaderWrapper which will scatter them to the
+    appropriate GPUs.
+    """
+
+    def __init__(self, collator: DefaultDataCollator, cp_world_size: int):
+        """Initialize the DataCollatorForContextParallel.
+
+        Args:
+            collator: The collator to use for masking tokens.
+            cp_world_size: The size of the context parallelism group.
+        """
+        self.collator = collator
+        self.cp_world_size = cp_world_size
+
+    def __call__(self, features) -> list[dict[str, Any]]:
+        """Process batches of data and create shards for each context parallelism rank.
+
+        Args:
+            features: List of tokenized sequences, each containing 'input_ids' and optionally 'labels'.
+
+        Returns:
+            A list of dictionaries, each containing a shard of the batch for a given context parallelism rank.
+        """
+        batch = self.collator(features)
+
+        combined_batch = []
+        for cp_rank in range(self.cp_world_size):
+            input_ids_sharded, labels_sharded = _split_batch_by_cp_rank(
+                cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
+                input_ids_padded=batch["input_ids"],
+                labels_padded=batch["labels"],
+                qvk_format="thd",
+                cp_rank=cp_rank,
+                cp_world_size=self.cp_world_size,
+            )
+            batch_shard = dict(batch)
+            batch_shard["input_ids"] = input_ids_sharded
+            batch_shard["labels"] = labels_sharded
+            # Now determine the max length of the sequence.
+            seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
+            batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)
+            batch_shard["max_length_k"] = batch_shard["max_length_q"]
+            batch_shard["pad_between_seqs"] = True
+            combined_batch.append(batch_shard)
+
+        return combined_batch
+
+
+class ContextParallelDataLoaderWrapper:
+    """A dataloader that is aware of context parallelism."""
+
+    def __init__(
+        self,
+        dataloader: torch.utils.data.DataLoader,
+        cp_group: torch.distributed.ProcessGroup,
+        cp_rank: int,
+    ):
+        """A dataloader wrapper that distributes the data across the context parallelism group.
+
+        This class will get the batch from the dataloader on CP rank 0, and then determine the shards for all the
+        different CP group members. Then it will scatter the shards to the different CP group members. The shards are
+        then returned to the caller for the current CP rank.
+
+        Args:
+            dataloader: The dataloader to use.
+            cp_group: The context parallel group.
+            cp_rank: The rank of the current context parallel process.
+        """
+        self.dataloader = dataloader
+        self.cp_rank = cp_rank
+        self.cp_group = cp_group
+        self.num_cp_ranks = cp_group.size()
+        self._iterator = None
+
+    def __iter__(self):
+        """Make the dataloader iterable."""
+        self._iterator = iter(self.dataloader)  # < --- collator output.
+        return self
+
+    def __next__(self):
+        """Get the batch from the dataloader for the current CP rank."""
+        batch = self._send_data_to_cp_ranks()
+        return batch
+
+    def _send_data_to_cp_ranks(self):
+        """Send data to all the CP ranks.
+
+        This function will get the batch from the dataloader on CP rank 0, and then determine
+        the shards for all the different CP group members.
+        combined_batch = [<cp_rank_0_shard>, <cp_rank_1_shard>, ..., <cp_rank_n_shard>]
+        Then it will scatter the shards to the different CP group members.
+        The shards are then combined into a single batch and returned to the caller
+        for the current CP rank.
+
+        Scalability:
+            Rank 0's work grows linearly with CP size, but the other ranks do not need to store all the shards so they do not
+            grow linearly with CP size.
+
+        Args:
+            None
+
+        Returns:
+            batch: The batch for the current CP rank.
+
+        """
+        if self.cp_rank == 0:
+            # Get data once, then make copies for each rank.
+            if self._iterator is None:
+                self._iterator = iter(self.dataloader)
+            combined_batch = next(self._iterator)
+
+        else:
+            combined_batch = None
+
+        scatter_object_output_list = [None]
+        # Note: This does not provide an async_op handle. Thus its blocking.
+        torch.distributed.scatter_object_list(
+            scatter_object_output_list=scatter_object_output_list,
+            scatter_object_input_list=combined_batch,
+            group=self.cp_group,
+            group_src=0,
+        )
+        return scatter_object_output_list[0]
+
+
+def _split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split a sample dictionary at a specified number of tokens.
+
+    This function splits a sample into two parts: the first part contains exactly `num_tokens` tokens,
+    and the second part contains the remaining tokens. All fields that are sequences (input_ids, attention_mask,
+    token_type_ids, labels, etc.) are split accordingly.
+
+    Args:
+        sample: Dictionary containing sample data with fields like input_ids, attention_mask, token_type_ids, labels, etc.
+        num_tokens: Number of tokens to include in the first part of the split.
+
+    Returns:
+        A tuple of two dictionaries: (first_part, remaining_part), where:
+        - first_part contains the first `num_tokens` tokens from each sequence field
+        - remaining_part contains the remaining tokens from each sequence field
+
+    Example:
+        >>> sample = {
+        ...     "input_ids": [0, 5, 6, 7, 8, 9, 2],
+        ...     "attention_mask": [1, 1, 1, 1, 1, 1, 1],
+        ...     "labels": [0, 5, 6, 7, 8, 9, 2]
+        ... }
+        >>> first, remaining = split_sample_by_num_tokens(sample, 3)
+        >>> first["input_ids"]  # [0, 5, 6]
+        >>> remaining["input_ids"]  # [7, 8, 9, 2]
+    """
+    sample_length = len(sample["input_ids"])
+    if num_tokens >= sample_length:
+        raise ValueError(
+            f"num_tokens ({num_tokens}) must be less than sample length ({sample_length}) to split the sample"
+        )
+    if num_tokens <= 0:
+        raise ValueError(f"num_tokens ({num_tokens}) must be positive")
+
+    first_part = {}
+    remaining_part = {}
+
+    # Fields that should be split by tokens (sequence fields)
+    sequence_fields = ["input_ids", "attention_mask", "token_type_ids", "token_type", "labels"]
+
+    for key, value in sample.items():
+        if key in sequence_fields:
+            # Handle both list and tensor inputs
+            if isinstance(value, torch.Tensor):
+                first_part[key] = value[:num_tokens].clone()
+                remaining_part[key] = value[num_tokens:].clone()
+            elif isinstance(value, list):
+                first_part[key] = value[:num_tokens]
+                remaining_part[key] = value[num_tokens:]
+            else:
+                # For other types, try to slice if possible
+                try:
+                    first_part[key] = value[:num_tokens]
+                    remaining_part[key] = value[num_tokens:]
+                except (TypeError, IndexError):
+                    # If slicing doesn't work, copy the value to both parts
+                    # This handles fields that shouldn't be split (like metadata)
+                    first_part[key] = value
+                    remaining_part[key] = value
+        else:
+            # For non-sequence fields, copy to both parts
+            # This handles metadata fields that shouldn't be split
+            first_part[key] = value
+            remaining_part[key] = value
+
+    return first_part, remaining_part
 
 
 def _pt_flatten_collate(features: list[dict[str, list[int]]], return_position_ids: bool = False):
@@ -524,7 +694,7 @@ def _pt_pad_to_multiple_of(batch: dict[str, Any], pad_to_multiple_of: int, token
 
 # TODO(@jomitchell): Once this gets merged: https://github.com/NVIDIA/TransformerEngine/pull/2387
 # we can replace this with the one in TransformerEngine.
-def split_batch_by_cp_rank(
+def _split_batch_by_cp_rank(
     cu_seqlens_padded: torch.Tensor,
     input_ids_padded: torch.Tensor,
     labels_padded: torch.Tensor,

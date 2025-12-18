@@ -414,12 +414,7 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
 
 
 def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, tmp_path):
-    """Test that batching combines multiple sequences correctly with exact batch counts.
-
-    Creates 5 short sequences (no windowing) with micro_batch_size=2.
-    Should produce exactly 3 batches with shapes: [2, 2, 1].
-    """
-    # Create 5 sequences that won't trigger windowing (all very short)
+    """Test that batching combines multiple sequences correctly with exact batch counts"""
     parquet_path = tmp_path / "five_sequences.parquet"
     sequences = ["A"] * 20
     table = pa.table({"text": sequences})
@@ -442,6 +437,7 @@ def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, t
         max_seq_length=15,
         stride=10,
         use_lazy_tokenization=False,  # Use eager to ensure predictable batching
+        split_samples_in_token_packing=False,
     )
 
     batches = list(dataloader)
@@ -449,6 +445,7 @@ def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, t
     assert len(batches) > 0
 
     for batch in batches:
+        # BOS, 'A', 'EOS' * 5
         torch.testing.assert_close(batch["input_ids"].squeeze(0), torch.tensor([[2, 65, 0] * 5]).flatten())
 
 
