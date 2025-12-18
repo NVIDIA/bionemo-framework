@@ -36,7 +36,7 @@ from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
-
+from torch.utils.tensorboard import SummaryWriter
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -50,11 +50,13 @@ def main(args: DictConfig) -> float | None:
         float: The loss value for the final batch.
     """
     # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    tb_writer = SummaryWriter('./tensorboard_dir/run1')
     debug_api.initialize(
         config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats_block_scaling.yaml",
         feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
-        log_dir="./log",
+        log_dir="./log_fsdp2",
         default_logging_enabled=True,
+        tb_writer=tb_writer,
     )
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
