@@ -16,8 +16,8 @@
 import logging
 from pathlib import Path
 
-import nvdlfw_inspect.api as debug_api
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig
@@ -46,7 +46,7 @@ def main(args: DictConfig) -> float | None:
     """
     # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
     debug_api.initialize(
-        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats_block_scaling_ddp.yaml",
+        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats_block_scaling.yaml",
         feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
         log_dir="./logddp",
         default_logging_enabled=True,
@@ -74,6 +74,7 @@ def main(args: DictConfig) -> float | None:
         config.attn_input_format = "thd"
 
     
+    
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
@@ -89,8 +90,6 @@ def main(args: DictConfig) -> float | None:
     except AttributeError:
         pass
 
-    
-
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
@@ -104,6 +103,7 @@ def main(args: DictConfig) -> float | None:
         output_device=dist_config.local_rank,
         device_mesh=device_mesh["ddp"],
     )
+    
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
     train_dataloader, dataset_or_sampler = (

@@ -49,6 +49,13 @@ def main(args: DictConfig) -> float | None:
     Returns:
         float: The loss value for the final batch.
     """
+    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    debug_api.initialize(
+        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats_block_scaling.yaml",
+        feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
+        log_dir="./log",
+        default_logging_enabled=True,
+    )
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
@@ -85,24 +92,20 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
-    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
-    debug_api.initialize(
-        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats_block_scaling.yaml",
-        feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
-        log_dir="./log",
-        default_logging_enabled=True,
-    )
+    
     # Debug: Print module types to verify what we're working with
     if dist_config.local_rank == 0:
         logger.info("=== DEBUG: Module types in model ===")
         for name, module in model.named_modules():
-            if 'layernorm_qkv' in name or 'proj' in name or 'self_attention' in name:
+            if "layernorm_qkv" in name or "proj" in name or "self_attention" in name:
                 logger.info(f" -----> {name}: {type(module)} <----")
-        logger.info(f"=== DEBUG: FP8 config enabled={args.fp8_config.enabled}, recipe={args.fp8_config.fp8_recipe} ===")
+        logger.info(
+            f"=== DEBUG: FP8 config enabled={args.fp8_config.enabled}, recipe={args.fp8_config.fp8_recipe} ==="
+        )
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
-    
+
     for layer in transformer_stack:
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
