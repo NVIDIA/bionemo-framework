@@ -65,11 +65,13 @@ except ImportError:
 
 try:
     from subquadratic_ops_torch.rearrange import rearrange as subquadratic_ops_rearrange
-except ImportError:
+except ImportError as e:
+    error = e
+    msg = f"Imporrt error with subquadratic_ops: {e}. subquadratic_ops_rearrange is not available."
 
     def subquadratic_ops_rearrange(*args, **kwargs):
         """Not imported: subquadratic_ops_rearrange. An error will be raised if this is called."""
-        raise ImportError("subquadratic_ops not installed. subquadratic_ops_rearrange is not available.")
+        raise ImportError(msg) from error
 
 
 def set_format_recipe():

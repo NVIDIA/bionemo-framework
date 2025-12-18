@@ -54,23 +54,28 @@ try:
     from subquadratic_ops_torch.causal_conv1d import causal_conv1d
     from subquadratic_ops_torch.fft_causal_conv1d import fft_causal_conv1d
     from subquadratic_ops_torch.implicit_filter import implicit_filter
-except ImportError:
+except ImportError as e:
+    msg_causal_conv1d = f"Problem importing subquadratic_ops: {e}. causal_conv1d is not available."
+    msg_b2b_causal_conv1d = f"Problem importing subquadratic_ops: {e}. b2b_causal_conv1d is not available."
+    msg_fft_causal_conv1d = f"Problem importing subquadratic_ops: {e}. fft_causal_conv1d is not available."
+    msg_implicit_filter = f"Problem importing subquadratic_ops: {e}. implicit_filter is not available."
+    error = e
 
     def causal_conv1d(*args, **kwargs):
         """Not imported: causal_conv1d. An error will be raised if this is called."""
-        raise ImportError("subquadratic_ops not installed. causal_conv1d is not available.")
+        raise ImportError(msg_causal_conv1d) from error
 
     def b2b_causal_conv1d(*args, **kwargs):
         """Not imported: b2b_causal_conv1d. An error will be raised if this is called."""
-        raise ImportError("subquadratic_ops not installed. b2b_causal_conv1d is not available.")
+        raise ImportError(msg_b2b_causal_conv1d) from error
 
     def fft_causal_conv1d(*args, **kwargs):
         """Not imported: fft_causal_conv1d. An error will be raised if this is called."""
-        raise ImportError("subquadratic_ops not installed. fft_causal_conv1d is not available.")
+        raise ImportError(msg_fft_causal_conv1d) from error
 
     def implicit_filter(*args, **kwargs):
         """Not imported: implicit_filter. An error will be raised if this is called."""
-        raise ImportError("subquadratic_ops not installed. implicit_filter is not available.")
+        raise ImportError(msg_implicit_filter) from error
 
 
 def _get_zigzag_indices(N, device=None):  # noqa: N803

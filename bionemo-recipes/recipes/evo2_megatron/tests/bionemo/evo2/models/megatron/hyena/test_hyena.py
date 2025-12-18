@@ -68,9 +68,6 @@ def test_weight_decay_conditions():
         patch("megatron.core.parallel_state.get_context_parallel_group", return_value=None),
         patch("megatron.core.parallel_state.get_tensor_model_parallel_world_size", return_value=1),
         patch("megatron.core.parallel_state.get_context_parallel_world_size", return_value=1),
-        patch("bionemo.evo2.models.megatron.hyena.hyena_mixer.get_tensor_model_parallel_world_size", return_value=1),
-        patch("bionemo.evo2.models.megatron.hyena.hyena_utils.get_tensor_model_parallel_world_size", return_value=1),
-        patch("bionemo.evo2.models.megatron.hyena.hyena_utils.get_tensor_model_parallel_rank", return_value=0),
         patch("torch.distributed.is_initialized", return_value=True),
         patch("torch.distributed.get_world_size", return_value=1),
         patch("torch.distributed.get_rank", return_value=0),
@@ -92,6 +89,7 @@ def test_weight_decay_conditions():
             init_method=torch.nn.init.normal_,
             embedding_init_method=torch.nn.init.normal_,
         )
+        config.finalize()
         assert config.init_method is not None
         model = config.provide(pre_process=True, post_process=True)
         param_groups = _get_param_groups(

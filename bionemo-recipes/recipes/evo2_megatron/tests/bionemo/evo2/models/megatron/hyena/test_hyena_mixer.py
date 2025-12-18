@@ -19,12 +19,13 @@ import os
 import pytest
 import torch
 import torch.distributed as dist
-from bionemo.evo2.models.hyena import HyenaNVTestConfig, HyenaTestConfig
+from megatron.core import parallel_state
+from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
+
+from bionemo.evo2.models.evo2_provider import HyenaNVTestModelProvider, HyenaTestModelProvider
 from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
 from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
-from megatron.core import parallel_state
-from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 
 
 # Add skip decorator for GPU tests
@@ -75,30 +76,32 @@ def init_distributed_parallel_state(
 
 @pytest.fixture(params=[pytest.param(torch.bfloat16, id="bf16"), pytest.param(torch.float32, id="fp32")])
 def dtype(request):
-    """Parametrized dtype fixture"""
+    """Parametrized dtype fixture."""
     return request.param
 
 
 @pytest.fixture(params=[pytest.param("standard", id="non_nv"), pytest.param("nv", id="nv")])
 def config_type(request):
-    """Parametrized config type fixture"""
+    """Parametrized config type fixture."""
     return request.param
 
 
 @pytest.fixture
-def test_config(dtype, config_type) -> HyenaTestConfig:
-    """Create a test config based on the parametrized dtype and config type"""
+def test_config(dtype, config_type) -> HyenaTestModelProvider:
+    """Create a test config based on the parametrized dtype and config type."""
     if config_type == "standard":
-        config = HyenaTestConfig()
+        config = HyenaTestModelProvider()
     else:  # nv
-        config = HyenaNVTestConfig()
+        config = HyenaNVTestModelProvider()
 
     config.params_dtype = dtype
+    config.finalize()
     return config
 
 
 @pytest.fixture
 def hyena_config() -> HyenaConfig:
+    """Create a HyenaConfig instance for testing."""
     config = HyenaConfig()
     config.num_groups_hyena = 4096
     config.num_groups_hyena_short = 256
@@ -108,12 +111,12 @@ def hyena_config() -> HyenaConfig:
 
 @pytest.fixture(params=[pytest.param("hyena_short_conv", id="short"), pytest.param("hyena_medium_conv", id="medium")])
 def operator_type(request):
-    """Parametrized operator type fixture"""
+    """Parametrized operator type fixture."""
     return request.param
 
 
 @pytest.fixture
-def hyena_mixer(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operator_type: str):
+def hyena_mixer(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str):
     """Create a HyenaMixer instance for testing."""
     with init_distributed_parallel_state(world_size=1):
         # Create submodules
@@ -133,7 +136,7 @@ def hyena_mixer(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operato
 
 @skip_if_no_gpu
 def test_mixer_initialization(
-    hyena_mixer: HyenaMixer, test_config: HyenaTestConfig, hyena_config: HyenaConfig, operator_type: str
+    hyena_mixer: HyenaMixer, test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str
 ):
     """Test proper initialization of HyenaMixer with different configurations."""
     with init_distributed_parallel_state(world_size=1):

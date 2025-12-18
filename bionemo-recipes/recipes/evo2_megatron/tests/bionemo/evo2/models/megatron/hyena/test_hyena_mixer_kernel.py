@@ -26,7 +26,7 @@ from einops import rearrange
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 
-from bionemo.evo2.models.hyena import HyenaNVTestConfig, HyenaTestConfig
+from bionemo.evo2.models.evo2_provider import HyenaNVTestModelProvider, HyenaTestModelProvider
 from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
 from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
@@ -88,14 +88,15 @@ def config_type(request):
 
 
 @pytest.fixture
-def test_config(dtype, config_type) -> HyenaTestConfig:
+def test_config(dtype, config_type) -> HyenaTestModelProvider:
     """Create a test config based on the parametrized dtype and config type."""
     if config_type == "standard":
-        config = HyenaTestConfig()
+        config = HyenaTestModelProvider()
     else:  # nv
-        config = HyenaNVTestConfig()
+        config = HyenaNVTestModelProvider()
 
     config.params_dtype = dtype
+    config.finalize()
     return config
 
 
@@ -157,7 +158,7 @@ class MixerModuleWrapper(torch.nn.Module):  # noqa: D101
 
 
 @pytest.fixture
-def mixer(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operator_type: str):
+def mixer(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str):
     """Create a HyenaMixer instance for testing with PyTorch implementation."""
     with init_distributed_parallel_state(world_size=1):
         # Create the mixer
@@ -168,7 +169,7 @@ def mixer(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operator_type
 
 
 @pytest.fixture
-def mixer_kernel(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operator_type: str):
+def mixer_kernel(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str):
     """Create a HyenaMixer instance for testing with CUDA kernel implementation."""
     with init_distributed_parallel_state(world_size=1):
         # Create the mixer
@@ -179,7 +180,7 @@ def mixer_kernel(test_config: HyenaTestConfig, hyena_config: HyenaConfig, operat
 
 
 @pytest.fixture
-def mixer_kernel_hyena_only(test_config: HyenaTestConfig, hyena_config: HyenaConfig):
+def mixer_kernel_hyena_only(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig):
     """Create a HyenaMixer instance for testing with CUDA kernel implementation - only for hyena operator."""
     with init_distributed_parallel_state(world_size=1):
         # Create the mixer
@@ -213,7 +214,15 @@ def test_implicit_filter(mixer_kernel_hyena_only: MixerModuleWrapper):
     )
 
     # create a reference filter with use_subquadratic_ops = False
+    pg_backup = filter_obj.pg_collection
+    cp_backup = filter_obj.context_parallel_group
+    filter_obj.pg_collection = None
+    filter_obj.context_parallel_group = None
     reference_filter = copy.deepcopy(filter_obj)
+    filter_obj.pg_collection = pg_backup  # bypass the pg_collection since it doesn't work with deepcopy
+    filter_obj.context_parallel_group = cp_backup
+    reference_filter.pg_collection = pg_backup
+    reference_filter.context_parallel_group = cp_backup
     reference_filter.use_subquadratic_ops = False
     reference_filter.implicit_filter = None
     reference_filter.t = None

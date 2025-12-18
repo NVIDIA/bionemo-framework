@@ -13,8 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Example Usage:
-torchrun --nproc_per_node=2 tests/collections/llm/gpt/model/test_hyena_mixer_cp.py --operator_type hyena_short_conv [--use_subquadratic_ops]
+"""Tests for CP implementation of the HyenaMixer.
+
+Example usage:
+    ```bash
+    torchrun --nproc_per_node=2 test_hyena_mixer_cp.py --operator_type hyena_short_conv [--use_subquadratic_ops]
+    ```
 """
 
 import argparse
@@ -27,10 +31,6 @@ from datetime import timedelta
 
 import torch
 import torch.distributed as dist
-from bionemo.evo2.models.hyena import HyenaTestConfig
-from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
-from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
-from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
 from einops import rearrange
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
@@ -39,13 +39,17 @@ from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 from torch.distributed.nn.functional import all_gather as functional_all_gather
 from torch.nn.parallel import DistributedDataParallel as DDP  # noqa: N817
 
+from bionemo.evo2.models.evo2_provider import HyenaTestModelProvider
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
+from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
+from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
+
 
 logging = logging.getLogger(__name__)
 
 
 def init_parallel_state(tensor_model_parallel_size=1, pipeline_model_parallel_size=1, context_parallel_size=1):
     """Initialize distributed training and megatron parallel state."""
-
     num_gpus = torch.cuda.device_count()
     required_world_size = tensor_model_parallel_size * pipeline_model_parallel_size * context_parallel_size
     assert num_gpus == required_world_size, (
@@ -171,7 +175,9 @@ def zigzag_gather_from_group_ranks(data, group, seq_dim=0):
 
 
 class MixerModuleWrapper(torch.nn.Module):
-    def __init__(self, seq_len, operator_type="hyena_short_conv", use_subquadratic_ops=False):
+    """Wrapper for the HyenaMixer."""
+
+    def __init__(self, seq_len, operator_type="hyena_short_conv", use_subquadratic_ops=False):  # noqa: D107
         super().__init__()
 
         self.use_subquadratic_ops = use_subquadratic_ops
@@ -182,7 +188,10 @@ class MixerModuleWrapper(torch.nn.Module):
 
         # Set the b2b parameter in the config
         hyena_config = HyenaConfig(num_groups_hyena=4096, num_groups_hyena_short=256, num_groups_hyena_medium=256)
-        hyena_test_config = HyenaTestConfig(params_dtype=torch.float32, use_subquadratic_ops=use_subquadratic_ops)
+        hyena_test_config = HyenaTestModelProvider(
+            params_dtype=torch.float32, use_subquadratic_ops=use_subquadratic_ops
+        )
+        hyena_test_config.finalize()
 
         logging.info("Creating HyenaMixer...")
         self.mixer = HyenaMixer(
@@ -195,6 +204,7 @@ class MixerModuleWrapper(torch.nn.Module):
         )
 
     def forward(self, x, _use_cp=True):
+        """Forward pass for the MixerModuleWrapper."""
         if self.use_subquadratic_ops and self.operator_type != "hyena":
             logging.info(f"Using subquadratic_ops: {self.use_subquadratic_ops}")
             z = self.mixer.b2b_kernel(x, _use_cp=_use_cp)
@@ -404,7 +414,7 @@ if __name__ == "__main__":
             for (n_without_cp, g_without_cp), (n_with_cp, g_with_cp) in zip(grads_without_cp, grads_with_cp):
                 try:
                     torch.testing.assert_close(g_without_cp, g_with_cp)
-                except AssertionError as e:
+                except AssertionError as e:  # noqa: PERF203
                     gradient_mismatch = True
                     logging.error(f"Gradient mismatch for {n_without_cp}: {e}")
 

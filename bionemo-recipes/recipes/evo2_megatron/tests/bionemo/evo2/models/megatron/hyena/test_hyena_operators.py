@@ -24,7 +24,10 @@ from typing import Generator
 import pytest
 import torch
 import torch.distributed as dist
-from bionemo.evo2.models.hyena import HyenaTestConfig
+from megatron.core import parallel_state
+from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
+
+from bionemo.evo2.models.evo2_provider import HyenaTestModelProvider
 from bionemo.evo2.models.megatron.hyena.engine import (
     adjust_filter_shape_for_broadcast,
     fftconv_func,
@@ -40,14 +43,11 @@ from bionemo.evo2.models.megatron.hyena.hyena_utils import (
     ParallelHyenaOperator,
     ParallelShortHyenaOperator,
 )
-from megatron.core import parallel_state
-from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 
 
 @contextmanager
 def simple_parallel_state():
-    """
-    Context manager to set up and tear down a simple model parallel state for testing.
+    """Context manager to set up and tear down a simple model parallel state for testing.
 
     This function initializes the distributed process group and model parallel state,
     sets up environment variables, and seeds the model parallel RNG. It ensures
@@ -88,33 +88,28 @@ def simple_parallel_state():
 
 @pytest.fixture
 def hyena_config() -> HyenaConfig:
-    """
-    Pytest fixture to provide a default HyenaConfig instance.
-    """
+    """Pytest fixture to provide a default HyenaConfig instance."""
     return HyenaConfig()
 
 
 @pytest.fixture
-def test_config() -> HyenaTestConfig:
-    """Create a test config based on the parametrized dtype and config type"""
-    config = HyenaTestConfig(num_layers=2, hidden_size=864, num_attention_heads=1)
+def test_config() -> HyenaTestModelProvider:
+    """Create a test config based on the parametrized dtype and config type."""
+    config = HyenaTestModelProvider(num_layers=2, hidden_size=864, num_attention_heads=1)
+    config.finalize()
     return config
 
 
 class TestParallelHyenaOperator:
-    """
-    Test suite for the ParallelHyenaOperator class.
-    """
+    """Test suite for the ParallelHyenaOperator class."""
 
     @pytest.fixture
     def operator(
         self,
-        test_config: HyenaTestConfig,
+        test_config: HyenaTestModelProvider,
         hyena_config: HyenaConfig,
     ) -> Generator[ParallelHyenaOperator, None, None]:
-        """
-        Pytest fixture to create a ParallelHyenaOperator instance within a simple parallel state.
-        """
+        """Pytest fixture to create a ParallelHyenaOperator instance within a simple parallel state."""
         with simple_parallel_state():
             yield ParallelHyenaOperator(
                 hidden_size=test_config.hidden_size,
@@ -127,9 +122,7 @@ class TestParallelHyenaOperator:
 
     @pytest.mark.run_only_on("GPU")
     def test_initialization(self, operator: ParallelHyenaOperator):
-        """
-        Test that the ParallelHyenaOperator is initialized with correct attributes and parameter count.
-        """
+        """Test that the ParallelHyenaOperator is initialized with correct attributes and parameter count."""
         assert operator.hidden_size == 864
         assert operator.operator_type == "hyena_medium_conv"
         assert isinstance(operator.conv_bias, torch.nn.Parameter)
@@ -137,10 +130,8 @@ class TestParallelHyenaOperator:
         assert num_weights == 111456
 
     @pytest.mark.run_only_on("GPU")
-    def test_gpu_forward(self, operator: ParallelHyenaOperator, test_config: HyenaTestConfig):
-        """
-        Test the forward pass of ParallelHyenaOperator on GPU.
-        """
+    def test_gpu_forward(self, operator: ParallelHyenaOperator, test_config: HyenaTestModelProvider):
+        """Test the forward pass of ParallelHyenaOperator on GPU."""
         device = torch.device("cuda")
         operator = operator.to(device)
         batch_size = 2
@@ -160,19 +151,15 @@ class TestParallelHyenaOperator:
 
 
 class TestParallelShortHyenaOperator:
-    """
-    Test suite for the ParallelShortHyenaOperator class.
-    """
+    """Test suite for the ParallelShortHyenaOperator class."""
 
     @pytest.fixture
     def operator(
         self,
-        test_config: HyenaTestConfig,
+        test_config: HyenaTestModelProvider,
         hyena_config: HyenaConfig,
     ) -> Generator[ParallelShortHyenaOperator, None, None]:
-        """
-        Pytest fixture to create a ParallelShortHyenaOperator instance within a simple parallel state.
-        """
+        """Pytest fixture to create a ParallelShortHyenaOperator instance within a simple parallel state."""
         with simple_parallel_state():
             yield ParallelShortHyenaOperator(
                 hidden_size=test_config.hidden_size,
@@ -187,9 +174,7 @@ class TestParallelShortHyenaOperator:
 
     @pytest.mark.run_only_on("GPU")
     def test_initialization(self, operator: ParallelShortHyenaOperator):
-        """
-        Test that the ParallelShortHyenaOperator is initialized with correct attributes and parameter count.
-        """
+        """Test that the ParallelShortHyenaOperator is initialized with correct attributes and parameter count."""
         assert operator.hidden_size == 864
         assert operator.pregate
         assert operator.postgate
@@ -197,10 +182,8 @@ class TestParallelShortHyenaOperator:
         assert num_weights == 6048
 
     @pytest.mark.run_only_on("GPU")
-    def test_gpu_forward(self, operator: ParallelShortHyenaOperator, test_config: HyenaTestConfig):
-        """
-        Test the forward pass of ParallelShortHyenaOperator on GPU.
-        """
+    def test_gpu_forward(self, operator: ParallelShortHyenaOperator, test_config: HyenaTestModelProvider):
+        """Test the forward pass of ParallelShortHyenaOperator on GPU."""
         device = torch.device("cuda")
         operator = operator.to(device)
         batch_size = 2
@@ -219,11 +202,10 @@ class TestParallelShortHyenaOperator:
         assert output.shape[2] == seq_len
 
     @pytest.mark.run_only_on("GPU")
-    def test_fast_causal_conv_short_conv_len_validation(self, test_config: HyenaTestConfig, hyena_config: HyenaConfig):
-        """
-        Test that ParallelShortHyenaOperator raises an assertion error when use_fast_causal_conv=True
-        and hyena_short_conv_len > 4, which is not supported.
-        """
+    def test_fast_causal_conv_short_conv_len_validation(
+        self, test_config: HyenaTestModelProvider, hyena_config: HyenaConfig
+    ):
+        """Test that ParallelShortHyenaOperator raises an assertion error when use_fast_causal_conv=True and hyena_short_conv_len > 4, which is not supported."""
         # Create a config with hyena_short_conv_len > 4
         hyena_config.hyena_short_conv_len = 5
 
@@ -245,19 +227,15 @@ class TestParallelShortHyenaOperator:
 
 
 class TestParallelShortHyenaOperatorWithConvBias:
-    """
-    Test suite for the ParallelShortHyenaOperator class with convolution bias enabled.
-    """
+    """Test suite for the ParallelShortHyenaOperator class with convolution bias enabled."""
 
     @pytest.fixture
     def operator(
         self,
-        test_config: HyenaTestConfig,
+        test_config: HyenaTestModelProvider,
         hyena_config: HyenaConfig,
     ) -> Generator[ParallelShortHyenaOperator, None, None]:
-        """
-        Pytest fixture to create a ParallelShortHyenaOperator instance with conv bias within a simple parallel state.
-        """
+        """Pytest fixture to create a ParallelShortHyenaOperator instance with conv bias within a simple parallel state."""
         with simple_parallel_state():
             yield ParallelShortHyenaOperator(
                 hidden_size=test_config.hidden_size,
@@ -272,9 +250,7 @@ class TestParallelShortHyenaOperatorWithConvBias:
 
     @pytest.mark.run_only_on("GPU")
     def test_initialization(self, operator: ParallelShortHyenaOperator):
-        """
-        Test that the ParallelShortHyenaOperator (with conv bias) is initialized with correct attributes and parameter count.
-        """
+        """Test that the ParallelShortHyenaOperator (with conv bias) is initialized with correct attributes and parameter count."""
         assert operator.hidden_size == 864
         assert operator.pregate
         assert operator.postgate
@@ -282,10 +258,8 @@ class TestParallelShortHyenaOperatorWithConvBias:
         assert num_weights == 6912
 
     @pytest.mark.run_only_on("GPU")
-    def test_gpu_forward(self, operator: ParallelShortHyenaOperator, test_config: HyenaTestConfig):
-        """
-        Test the forward pass of ParallelShortHyenaOperator (with conv bias) on GPU.
-        """
+    def test_gpu_forward(self, operator: ParallelShortHyenaOperator, test_config: HyenaTestModelProvider):
+        """Test the forward pass of ParallelShortHyenaOperator (with conv bias) on GPU."""
         device = torch.device("cuda")
         operator = operator.to(device)
         batch_size = 2
@@ -305,19 +279,15 @@ class TestParallelShortHyenaOperatorWithConvBias:
 
 
 class TestParallelCausalDepthwiseConv1d:
-    """
-    Test suite for the ParallelCausalDepthwiseConv1d class.
-    """
+    """Test suite for the ParallelCausalDepthwiseConv1d class."""
 
     @pytest.fixture
     def operator(
         self,
-        test_config: HyenaTestConfig,
+        test_config: HyenaTestModelProvider,
         hyena_config: HyenaConfig,
     ) -> Generator[ParallelCausalDepthwiseConv1d, None, None]:
-        """
-        Pytest fixture to create a ParallelCausalDepthwiseConv1d instance within a simple parallel state.
-        """
+        """Pytest fixture to create a ParallelCausalDepthwiseConv1d instance within a simple parallel state."""
         with simple_parallel_state():
             yield ParallelCausalDepthwiseConv1d(
                 d_model=test_config.hidden_size,
@@ -331,9 +301,7 @@ class TestParallelCausalDepthwiseConv1d:
 
     @pytest.mark.run_only_on("GPU")
     def test_initialization(self, operator: ParallelCausalDepthwiseConv1d):
-        """
-        Test that the ParallelCausalDepthwiseConv1d is initialized with correct attributes and parameter count.
-        """
+        """Test that the ParallelCausalDepthwiseConv1d is initialized with correct attributes and parameter count."""
         assert operator.d_model == 864
         assert operator.kernel_size == 3
         assert operator.use_conv_bias
@@ -341,10 +309,8 @@ class TestParallelCausalDepthwiseConv1d:
         assert num_weights == 2592
 
     @pytest.mark.run_only_on("GPU")
-    def test_gpu_forward(self, operator: ParallelCausalDepthwiseConv1d, test_config: HyenaTestConfig):
-        """
-        Test the forward pass of ParallelCausalDepthwiseConv1d on GPU.
-        """
+    def test_gpu_forward(self, operator: ParallelCausalDepthwiseConv1d, test_config: HyenaTestModelProvider):
+        """Test the forward pass of ParallelCausalDepthwiseConv1d on GPU."""
         device = torch.device("cuda")
         operator = operator.to(device)
         batch_size = 2
