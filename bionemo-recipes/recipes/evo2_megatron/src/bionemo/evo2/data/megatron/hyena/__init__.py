@@ -16,5 +16,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .config import parse_dataset_config
-from .evo2_dataset import Evo2Dataset
+"""Hyena model implementation for Evo2."""
