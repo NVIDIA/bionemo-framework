@@ -86,6 +86,16 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
+    # TE Debug feature logging
+    debug_api.initialize(
+        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats.yaml",
+        feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
+        log_dir="./log",
+        default_logging_enabled=True
+    )
+
+    debug_api.infer_and_assign_layer_names(model)
+
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
     for layer in transformer_stack:
@@ -128,13 +138,7 @@ def main(args: DictConfig) -> float | None:
 
     perf_logger = PerfLogger(dist_config, args)
 
-    # TE Debug feature logging
-    debug_api.initialize(
-        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats.yaml",
-        feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
-        log_dir="./log",
-        default_logging_enabled=True
-    )
+    
 
 
     # Training loop

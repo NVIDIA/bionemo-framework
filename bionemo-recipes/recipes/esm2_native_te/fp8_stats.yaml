@@ -1,25 +1,25 @@
 example_fp8_tensor_stat_collection:
     enabled: True
     layers:
-        layer_types: [layernorm_linear]
+        layer_types: [self_attention]
     transformer_engine:
         LogFp8TensorStats:
             enabled: True
             tensors_struct:
             - tensor: activation
-              stats: [fp8_block_scaling_underflows%]
+              stats: [mxfp8_underflows%]
               freq: 1
             - tensor: activation
-              stats: [fp8_block_scaling_overflows%]
+              stats: [mxfp8_overflows%]
               freq: 1
             - tensor: activation
-              stats: [fp8_block_scaling_scale_inv_min]
+              stats: [mxfp8_scale_inv_min]
               freq: 1
             - tensor: activation
-              stats: [fp8_block_scaling_scale_inv_max]
+              stats: [mxfp8_scale_inv_max]
               freq: 1
             - tensor: activation
-              stats: [fp8_block_scaling_mse]
+              stats: [mxfp8_mse]
               freq: 1
             - tensor: gradient
               stats: [underflows%]
