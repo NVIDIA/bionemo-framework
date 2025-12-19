@@ -126,6 +126,7 @@ def create_bshd_dataloader(
     text_column: str = "text",
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = True,
+    pad_to_multiple_of: int | None = None,
 ):
     """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
 
@@ -145,6 +146,8 @@ def create_bshd_dataloader(
         text_column: Name of the column containing genomic sequences (default: "text").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
         mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
+        pad_to_multiple_of: If set, pads sequences to ensure total tokens is divisible by this number.
+            Required for FP8 (should be 8). Default: None.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -175,6 +178,7 @@ def create_bshd_dataloader(
     base_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm=False,  # Causal language modeling
+        pad_to_multiple_of=pad_to_multiple_of,  # For FP8 compatibility (must be divisible by 8)
     )
 
     # Wrap with genomic collator if masking options are enabled
@@ -191,6 +195,9 @@ def create_bshd_dataloader(
         # Use base collator directly for backward compatibility
         data_collator = base_collator
         logger.info("Using standard DataCollatorForLanguageModeling")
+
+    if pad_to_multiple_of is not None:
+        logger.info(f"Padding to multiple of {pad_to_multiple_of} for FP8 compatibility")
 
     # TODO(BIONEMO-3246) - remove the pin_memory=False once StatefulDataLoader supports pin_memory again.
     dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
