@@ -78,6 +78,11 @@ def create_tokenized_dataset(
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
 
+    # Set pad_token if not present (required for BSHD format with padding)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        logger.info(f"Set tokenizer.pad_token to eos_token: {tokenizer.eos_token}")
+
     def tokenize_with_windowing(examples):
         """Tokenize nucleotide sequences with windowing (one-to-many mapping)."""
         # Tokenize with windowing using return_overflowing_tokens
