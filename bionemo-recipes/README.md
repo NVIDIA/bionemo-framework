@@ -1,15 +1,15 @@
 # BioNeMo Recipes
 
-BioNeMo Recipes provides an easy path for the biological foundation model training community to scale up transformer-based models efficiently. Rather than offering a batteries-included training framework, we provide **model checkpoints** with TransformerEngine (TE) layers and **training recipes** that demonstrate how to achieve maximum throughput with popular open-source frameworks and fully sharded data parallel (FSDP) scale-out.
+BioNeMo Recipes provides an easy path for the biological foundation model training community to scale up transformer-based models efficiently. Rather than offering a batteries-included training framework, BioNeMo Recipes provide **model checkpoints** with TransformerEngine (TE) layers and **training recipes** that demonstrate how to achieve maximum throughput with popular open-source frameworks and fully sharded data parallel (FSDP) scale-out.
 
 ## Overview
 
-The biological AI community is actively prototyping model architectures and needs tooling that prioritizes extensibility, interoperability, and ease-of-use alongside performance. BioNeMo Recipes addresses this by offering:
+The biological AI community actively prototypes model architectures and needs tooling that prioritizes extensibility, interoperability, and ease-of-use, alongside performance. BioNeMo Recipes addresses this by offering:
 
-- **Flexible scaling**: Scale from single-GPU prototyping to multi-node training without complex parallelism configurations
+- **Flexible scaling**: Scales from single-GPU prototyping to multi-node training without complex parallelism configurations
 - **Framework compatibility**: Works with popular frameworks like HuggingFace Accelerate, PyTorch Lightning, and vanilla PyTorch
 - **Performance optimization**: Leverages TransformerEngine and megatron-FSDP for state-of-the-art training efficiency
-- **Research-friendly**: Hackable, readable code that researchers can easily adapt for their experiments
+- **Research-friendly**: Contains hackable and readable code that researchers can easily adapt for their experiments
 
 ### Performance Benchmarks
 
@@ -20,7 +20,7 @@ The biological AI community is actively prototyping model architectures and need
 </p>
 
 ### Use Cases
-
+The use cases of BioNeMO Recipes include:
 - **Foundation Model Developers**: AI researchers and ML engineers developing novel biological foundation models who need to scale up prototypes efficiently
 - **Foundation Model Customizers**: Domain scientists looking to fine-tune existing models with proprietary data for drug discovery and biological research
 
@@ -46,9 +46,9 @@ Abbreviations:
 - BF16: [brain-float 16](https://en.wikipedia.org/wiki/Bfloat16_floating-point_format), a common 16 bit float format for deep learning.
 - FP8<sup>[1]</sup>: [8-bit floating point](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html), a compact format for weights allowing for faster training and inference.
 - MXFP8<sup>[2]</sup>: [Multi Scale 8-bit floating point](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html), as compact as FP8 but with better numerical precision.
-- NVFP4<sup>[2]</sup>: [NVIDIA 4-bit floating point](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html#Beyond-FP8---training-with-NVFP4), faster than FP8, retaining accuracy via multi-scale.
-- THD: **T**otal **H**eads **D**imension, also known as ["sequence packing"](https://docs.nvidia.com/nemo-framework/user-guide/24.07/nemotoolkit/features/optimizations/sequence_packing.html#sequence-packing-for-sft-peft). A way to construct a batch with sequences of different length so there are no pads, therefore no compute is wasted on computing attention for padding tokens. This is in contrast to **B**atch **S**equence **H**ead **D**imension (BSHD) format, which uses pads to create a rectangular batch.
-- CP: Context parallel, also known as sequence parallel. A way to distribute the memory required to process long sequences across multiple GPUs. For more information please see [context parallel](./recipes/context_parallel.md)
+- NVFP4<sup>[2]</sup>: [NVIDIA 4-bit floating point](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html#Beyond-FP8---training-with-NVFP4), faster than FP8, retaining accuracy using multi-scale.
+- THD: **T**otal **H**eads **D**imension, also known as ["sequence packing"](https://docs.nvidia.com/nemo-framework/user-guide/24.07/nemotoolkit/features/optimizations/sequence_packing.html#sequence-packing-for-sft-peft). A way to construct a batch with sequences of different lengths so there are no pads, which results in no compute wasted on computing attention for padding tokens. This is in contrast to **B**atch **S**equence **H**ead **D**imension (BSHD) format, which uses pads to create a rectangular batch.
+- CP: Context parallel, also known as sequence parallel. A way to distribute the memory required to process long sequences across multiple GPUs. For more information, refer to [context parallel](./recipes/context_parallel.md)
 
 \[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
 \[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
@@ -61,7 +61,7 @@ This repository contains two types of components:
 
 Huggingface-compatible `PreTrainedModel` classes that use TransformerEngine layers internally. These are designed to be:
 
-- **Distributed via Hugging Face Hub**: Pre-converted checkpoints available at [huggingface.co/nvidia](https://huggingface.co/nvidia)
+- **Distributed through Hugging Face Hub**: Pre-converted checkpoints available at [huggingface.co/nvidia](https://huggingface.co/nvidia)
 - **Drop-in replacements**: Compatible with `AutoModel.from_pretrained()` without additional dependencies
 - **Performance optimized**: Leverage TransformerEngine features like FP8 training and context parallelism
 
@@ -79,8 +79,10 @@ Self-contained training examples demonstrating best practices for scaling biolog
 Recipes are **not pip-installable packages** but serve as reference implementations that users can adapt for their own research.
 
 ## Quick Start
+This section describe how you can get started with BioNeMo Recipes.
 
-### Using Models
+### Load Models
+Run the following to load the BioNeMo model.
 
 ```python
 from transformers import AutoModel, AutoTokenizer
@@ -90,8 +92,8 @@ model = AutoModel.from_pretrained("nvidia/AMPLIFY_120M")
 tokenizer = AutoTokenizer.from_pretrained("nvidia/AMPLIFY_120M")
 ```
 
-### Running Recipes
-
+### Run Recipes
+Build and run recipes with the following.
 ```bash
 # Navigate to a recipe
 cd recipes/esm2_native_te_mfsdp
@@ -101,13 +103,9 @@ docker build -t esm2_recipe .
 docker run --rm -it --gpus all esm2_recipe python train.py
 ```
 
-______________________________________________________________________
+## Setting Up the Development Environment
 
-## Developer Guide
-
-### Setting Up Development Environment
-
-1. **Install pre-commit hooks:**
+1. Install pre-commit hooks:
 
    ```bash
    pre-commit install
@@ -128,9 +126,9 @@ ______________________________________________________________________
    docker run --rm -it --gpus all my_tag pytest -v .
    ```
 
-### Coding Guidelines
+## Coding Guidelines
 
-We prioritize **readability and simplicity** over comprehensive feature coverage:
+BioNeMo Recipes prioritize **readability and simplicity** over comprehensive feature coverage:
 
 - **KISS (Keep It Simple) over DRY (Don't Repeat Yourself)**: It's better to have clear, duplicated code than complex
   abstractions
@@ -139,7 +137,7 @@ We prioritize **readability and simplicity** over comprehensive feature coverage
 
 ### Testing Strategy
 
-We use a three-tier testing approach:
+BioNeMo Reciptes use a three-tier testing approach:
 
 #### L0 Tests (Pre-merge)
 
@@ -163,10 +161,11 @@ We use a three-tier testing approach:
 - **Scope**: Complete model convergence, cross-platform validation
 
 ### Adding New Components
+With BioNeMo Recipes, you can add new components including models and recipes.
 
 #### Adding a New Model
 
-Models should be pip-installable packages that can export checkpoints to Hugging Face. See the
+Models should be pip-installable packages that can export checkpoints to Hugging Face. Refer to the
 [models README](models/README.md) for detailed guidelines on:
 
 - Package structure and conventions
@@ -176,7 +175,7 @@ Models should be pip-installable packages that can export checkpoints to Hugging
 
 #### Adding a New Recipe
 
-Recipes should be self-contained Docker environments demonstrating specific training patterns. See
+Recipes should be self-contained Docker environments demonstrating specific training patterns. Refer to
 the [recipes README](recipes/README.md) for guidance on:
 
 - Directory structure and naming
@@ -207,14 +206,14 @@ We aim to provide the fastest available training implementations for biological 
 
 ## Contributing
 
-We welcome contributions that advance the state of biological foundation model training. Please ensure your contributions:
+We welcome contributions that advance the state of biological foundation model training. Ensure your contributions:
 
-1. Follow our coding guidelines emphasizing clarity
-2. Include appropriate tests (L0 minimum, L1/L2 as applicable)
-3. Provide clear documentation and examples
-4. Maintain compatibility with our supported frameworks
+- Follow our coding guidelines emphasizing clarity
+- Include appropriate tests (L0 minimum, L1/L2 as applicable)
+- Provide clear documentation and examples
+- Maintain compatibility with our supported frameworks
 
-For detailed contribution guidelines, see our individual component READMEs:
+For detailed contribution guidelines, refer to our individual component READMEs:
 
 - [Models Development Guide](models/README.md)
 - [Recipes Development Guide](recipes/README.md)

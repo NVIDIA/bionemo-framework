@@ -1,14 +1,14 @@
 # Models Directory
 
-This directory contains HuggingFace-compatible model implementations that use TransformerEngine layers internally. These models are designed to be distributed via the Hugging Face Hub and serve as drop-in replacements for standard transformer models with enhanced performance.
+This directory contains HuggingFace-compatible model implementations that use TransformerEngine layers internally. These models are designed to be distributed through the Hugging Face Hub and serve as drop-in replacements for standard transformer models with enhanced performance.
 
 ## Overview
 
 Models in this directory are **not intended to be pip-installed directly**. Instead, they serve as:
 
-1. **Reference implementations** of biological foundation models using TransformerEngine
-2. **Conversion utilities** for transforming existing model checkpoints to TE-compatible format
-3. **Export tools** for preparing model releases on the Hugging Face Hub
+- **Reference implementations** of biological foundation models using TransformerEngine
+- **Conversion utilities** for transforming existing model checkpoints to TE-compatible format
+- **Export tools** for preparing model releases on the Hugging Face Hub
 
 Users will typically interact with these models by loading pre-converted checkpoints directly from the Hugging Face Hub using standard transformers APIs.
 
@@ -33,7 +33,7 @@ To add a new model to this directory, you must provide:
 #### 3. Checkpoint Export Script
 
 - **`export.py`**: Script that packages all necessary files for Hugging Face Hub upload
-- **Complete asset bundling**: Must include all required files (see [Export Requirements](#export-requirements))
+- **Complete asset bundling**: Must include all required files, refer to [Export Requirements](#export-requirements)
 - **Automated process**: Should be runnable with minimal manual intervention
 
 #### 4. Open Source License

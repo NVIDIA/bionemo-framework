@@ -2,8 +2,7 @@
 
 This folder contains source code and tests for an ESM-2 model that inherits from the transformers `PreTrainedModel`
 class and uses TransformerEngine layers. Users don't need to install this package directly, but can load the
-model directly from HuggingFace Hub using the standard transformers API (see [Inference Examples](#inference-examples)
-below).
+model directly from HuggingFace Hub using the standard transformers API. For more information, refer to [Inference Examples](#inference-examples).
 
 ## Feature support
 
@@ -18,7 +17,7 @@ The ESM-2 implementation natively supports the following TransformerEngine-provi
 | **Import from HuggingFace checkpoints** | ✅ Supported                                                                     |
 | **Export to HuggingFace checkpoints**   | ✅ Supported                                                                     |
 
-See [BioNemo Recipes](../../recipes/README.md) for more details on how to use these features to accelerate model
+Refer to [BioNemo Recipes](../../recipes/README.md) for more details on how to use these features to accelerate model
 training and inference.
 
 ## Links to HF checkpoints
@@ -38,7 +37,7 @@ Pre-trained ESM-2 models converted from the original Facebook weights are availa
 ## Runtime Requirements
 
 We recommend using the latest [NVIDIA PyTorch container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch)
-for optimal performance and compatibility. See the provided Dockerfile for details.
+for optimal performance and compatibility. Refer to the provided Dockerfile for details.
 
 ## Inference Examples
 
@@ -101,7 +100,7 @@ hf_model = convert_esm_te_to_hf(te_model)
 hf_model.save_pretrained("/path/to/hf_checkpoint")
 ```
 
-Load and Test the Exported Model
+### Load and Test the Exported Model
 
 Load the exported model and perform validation:
 
@@ -114,8 +113,8 @@ tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
 
 ### Validating Converted Models
 
-See the commands in [Inference Examples](#inference-examples) above to load and test both the original and converted
-models to ensure loss and logit values are similar. See also the golden value tests in
+To validate the converted models, refer to the commands in [Inference Examples](#inference-examples) above to load and test both the original and converted
+models to ensure loss and logit values are similar. Additionally, refer to the golden value tests in
 [test_modeling_esm_te.py](tests/test_modeling_esm_te.py) and [test_convert.py](tests/test_convert.py).
 
 ## Developer Guide
@@ -153,7 +152,7 @@ Now deploy the converted checkpoints to the HuggingFace Hub by running the follo
 huggingface-cli upload nvidia/${MODEL_NAME} $PWD/checkpoint_export/${MODEL_NAME}
 ```
 
-Or, upload all models at once with:
+You can also upload all models at once with:
 
 ```bash
 cd checkpoint_export

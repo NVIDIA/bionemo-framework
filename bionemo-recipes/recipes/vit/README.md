@@ -38,7 +38,7 @@ To train a ViT using FSDP, execute the following command in your Docker containe
 torchrun --nproc-per-node ${NGPU} train.py --config-name vit_base_patch16_224 distributed.dp_shard=${NGPU} training.checkpoint.path=./ckpts/vit
 ```
 
-which will train on the [`AI-Lab-Makerere/ibean`](https://github.com/AI-Lab-Makerere/ibean/) (HuggingFace: [`AI-Lab-Makerere/beans`](https://huggingface.co/datasets/AI-Lab-Makerere/beans)) dataset and save auto-resumable [Torch DCP](https://docs.pytorch.org/docs/stable/distributed.checkpoint.html) checkpoints to the `training.checkpoint.path` directory.
+This will train on the [`AI-Lab-Makerere/ibean`](https://github.com/AI-Lab-Makerere/ibean/) (HuggingFace: [`AI-Lab-Makerere/beans`](https://huggingface.co/datasets/AI-Lab-Makerere/beans)) dataset and save auto-resumable [Torch DCP](https://docs.pytorch.org/docs/stable/distributed.checkpoint.html) checkpoints to the `training.checkpoint.path` directory.
 
 [`train.py`](train.py) is the transparent entrypoint to this script that explains how to modify your own training loop for `Megatron-FSDP` ([PyPI: `megatron-fsdp`](https://pypi.org/project/megatron-fsdp/) / [Source: Megatron-LM](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src)) to fully-shard your model across all devices.
 
@@ -88,7 +88,7 @@ def load_dcp_checkpoint(checkpoint_path, model=None, optimizer=None):
         optimizer.load_state_dict(state_dict["optimizer"])
 ```
 
-which can be loaded directly into the `MegatronFSDP` model:
+This can be loaded directly into the `MegatronFSDP` model:
 
 ```python
 # Create a MegatronFSDP model and optimizer.
