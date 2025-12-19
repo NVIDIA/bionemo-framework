@@ -206,12 +206,14 @@ class NVEsmEncoder(nn.Module):
                 "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k are not allowed when using BSHD inputs."
             )
 
+        
         # Ensure that rotary embeddings are computed with at a higher precision outside the torch autocast context.
         with torch.autocast(device_type="cuda", enabled=False):
             if self.config.position_embedding_type == "rotary":
                 if self.config.attn_input_format == "bshd":
                     te_rope_emb = self.rotary_embeddings(max_seq_len=hidden_states.shape[1])
                 elif self.config.attn_input_format == "thd":
+                    # This is correct.
                     te_rope_emb = self.rotary_embeddings(
                         max_seq_len=kwargs["cu_seq_lens_q_padded"][-1]
                         if "cu_seq_lens_q_padded" in kwargs
@@ -222,7 +224,7 @@ class NVEsmEncoder(nn.Module):
         for layer_module in self.layers:
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)
-
+            
             hidden_states = layer_module(
                 hidden_states,
                 attention_mask,
@@ -235,7 +237,6 @@ class NVEsmEncoder(nn.Module):
                 max_seqlen_kv=kwargs.get("max_length_k", None),
                 pad_between_seqs=kwargs.get("pad_between_seqs", None),
             )
-
         hidden_states = self.emb_layer_norm_after(hidden_states)
 
         if kwargs.get("output_hidden_states", False):
