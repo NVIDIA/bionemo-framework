@@ -141,6 +141,7 @@ By default, CI pipeline is enabled for all PRs and only unit tests are run. To s
 - Without this label, unit tests for bionemo2 in PR CI are run only on when the bionemo2 codebase has been modified
 - Use when introducing significant codebase changes for comprehensive testing
 - Disabled by default
+- Note: Multi-GPU tests always run separately in nightly builds and are not affected by this label
 
 #### **ciflow:all-recipes**
 

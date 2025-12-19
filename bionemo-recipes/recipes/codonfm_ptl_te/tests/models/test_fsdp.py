@@ -32,6 +32,7 @@ requires_multi_gpu = pytest.mark.skipif(
 )
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 def test_encodon_pl_fsdp_training_2gpus(tmp_path):
     """Test EncodonPL training with FSDP on 2 GPUs using SimpleCodonDataset.
@@ -103,6 +104,7 @@ def test_encodon_pl_fsdp_training_2gpus(tmp_path):
     assert result.returncode == 0, "Training should complete successfully"
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 def test_encodon_pl_fsdp_training_2gpus_no_te(tmp_path):
     """Test EncodonPL training with FSDP on 2 GPUs without transformer engine.
