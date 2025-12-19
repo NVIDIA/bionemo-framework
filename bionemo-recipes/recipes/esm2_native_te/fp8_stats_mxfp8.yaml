@@ -13,8 +13,6 @@ example_fp8_tensor_stat_collection:
             - tensor: gradient
               stats: [underflows%, scale_inv_min, scale_inv_max, mse]
               freq: 5
-              start_step: 0
-              end_step: 80
             - tensor: weight
               stats: [underflows%, scale_inv_min, scale_inv_max, mse]
               freq: 1
