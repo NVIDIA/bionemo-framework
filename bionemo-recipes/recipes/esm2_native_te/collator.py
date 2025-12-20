@@ -237,6 +237,9 @@ class MLMDataCollatorWithFlattening:
             batch["input_ids"], special_tokens_mask=special_tokens_mask
         )
 
+        if self.pad_to_multiple_of is not None and self.pad_sequences_to_be_divisible_by is not None:
+            raise ValueError("pad_to_multiple_of and pad_sequences_to_be_divisible_by cannot be used together")
+
         if self.pad_to_multiple_of is not None:
             batch = self._pad_batch_to_multiple_of(batch)
 
