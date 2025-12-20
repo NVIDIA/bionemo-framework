@@ -80,7 +80,7 @@ recipes/{recipe_name}/
 
 ## Implementation Requirements
 
-### 1. Self-Contained Docker Environment
+### Self-Contained Docker Environment
 
 Your `Dockerfile` should create a complete, reproducible training environment:
 
@@ -107,7 +107,7 @@ CMD ["/bin/bash"]
 - Include everything needed to run training without external dependencies
 - Optimize for Docker layer caching
 
-### 2. Readable Training Scripts
+### Readable Training Scripts
 
 Your `train.py` should be educational and self-explanatory:
 
@@ -166,7 +166,7 @@ if __name__ == "__main__":
 - **Error handling** for common failure modes
 - **Progress logging** so users understand training status
 
-### 3. Hydra Configuration Management
+### Hydra Configuration Management
 
 Use Hydra for clean, hierarchical configuration management:
 
@@ -252,7 +252,8 @@ model = MyModel(**config.model_kwargs)
 optimizer = AdamW(**config.optimizer_kwargs)
 ```
 
-### 4. Comprehensive Testing
+### Comprehensive Testing
+Ensure the following tests are done when implementing.
 
 #### L0 Tests - Fast CI/CD Validation
 
@@ -317,11 +318,11 @@ def test_accelerate_launch(accelerate_config, tmp_path):
 
 #### L1 Benchmark Tests
 
-L1 tests should be specified via a `L1_{model_name}_{test_type}.yaml` config file. These should be
-workflows that will be launched via a common SLURM or Lepton batch script, complete in under 4
+L1 tests should be specified using a `L1_{model_name}_{test_type}.yaml` config file. These should be
+workflows that will be launched using a common SLURM or Lepton batch script, complete in under 4
 hours, and have a clear set of performance metrics to validate.
 
-### 5. Cluster-Agnostic SLURM Script
+### Cluster-Agnostic SLURM Script
 
 Provide a reference SLURM script that works across different cluster configurations:
 
@@ -368,15 +369,15 @@ srun \
 
 Each recipe must include a detailed README.md covering:
 
-1. **What it demonstrates**: Clear statement of the training techniques shown
-2. **Hardware requirements**: Minimum and recommended GPU configurations
-3. **Performance expectations**: Benchmark results on reference hardware
-4. **Configuration options**: How to modify the recipe for different use cases
-5. **Troubleshooting**: Common issues and solutions
+- **What it demonstrates**: Clear statement of the training techniques shown
+- **Hardware requirements**: Minimum and recommended GPU configurations
+- **Performance expectations**: Benchmark results on reference hardware
+- **Configuration options**: How to modify the recipe for different use cases
+- **Troubleshooting**: Common issues and solutions
 
 ### Performance Benchmarking
 
-Document performance metrics for your recipe, e.g.
+Document performance metrics for your recipe, for example:
 
 ```markdown
 ## Performance Benchmarks
@@ -417,10 +418,10 @@ For reference implementations, examine existing recipes:
 
 ### What Makes a Great Recipe
 
-1. **Educational value**: Users learn something new about scaling biological models
-2. **Production relevance**: Techniques are applicable to real research workflows
-3. **Performance validation**: Benchmarked results demonstrate clear benefits
-4. **Adaptation friendly**: Users can easily modify for their specific needs
+- **Educational value**: Users learn something new about scaling biological models
+- **Production relevance**: Techniques are applicable to real research workflows
+- **Performance validation**: Benchmarked results demonstrate clear benefits
+- **Adaptation friendly**: Users can easily modify for their specific needs
 
 ### Common Pitfalls to Avoid
 

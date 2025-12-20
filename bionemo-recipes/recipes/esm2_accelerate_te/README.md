@@ -78,7 +78,7 @@ accelerate launch --config_file accelerate_config/fsdp2_te.yaml \
     train.py --config-name=L0_sanity
 ```
 
-See [`slurm.sh`](slurm.sh) for an example SLURM script.
+Refer to [`slurm.sh`](slurm.sh) for an example SLURM script.
 
 ### FP8 Training
 
@@ -165,7 +165,7 @@ output = model(**inputs)
 
 🚧 Under development
 
-## See Also
+## References
 
 - [ESM-2 Training with Native PyTorch](../esm2_native_te/README.md)
 - [Hugging Face Trainer Documentation](https://huggingface.co/docs/transformers/en/trainer)
@@ -173,7 +173,7 @@ output = model(**inputs)
 
 ## Developer Guide
 
-### Running tests
+### Run Tests
 
 To run tests locally, run `recipes_local_test.py` from the repository root with the recipe directory as an argument.
 
@@ -181,9 +181,9 @@ To run tests locally, run `recipes_local_test.py` from the repository root with 
 ./ci/scripts/recipes_local_test.py bionemo-recipes/recipes/esm2_accelerate_te/
 ```
 
-Tests should be kept relatively fast, using the smallest model and number of training steps required to validate the feature. Hardware requirements beyond those used in CI (e.g., a single L4) should be annotated with pytest.mark.requires, e.g. `requires_fp8` and `requires_multi_gpu`.
+Tests should be kept relatively fast, using the smallest model and number of training steps required to validate the feature. Hardware requirements beyond those used in CI, like a single L4, should be annotated with pytest.mark.requires, such as `requires_fp8` and `requires_multi_gpu`.
 
-### Development container
+### Development Container
 
 To use the provided devcontainer, use "Dev Containers: Reopen in Container" from the VSCode menu, and choose the "BioNeMo Recipes Dev Container" option. To run the tests inside the container, run `pytest -v .` in the recipe directory.
 
@@ -191,7 +191,7 @@ To use the provided devcontainer, use "Dev Containers: Reopen in Container" from
 
 [Hydra](https://hydra.cc/) is a powerful configuration management library for Python. This recipe uses Hydra to manage training configurations, allowing for easy modification of training hyper-parameters and model settings.
 
-Configuration parameters can be overridden from the command line, e.g.:
+Configuration parameters can be overridden from the command line, for example:
 
 ```bash
 accelerate launch train.py --config-name L0_sanity fp8_config.enabled=true trainer.learning_rate=2e-5

@@ -1,4 +1,4 @@
-> Disclaimer: This is an isolated model recipe based on PyTorch Lightning which requires its own dockerized environment -- in the local folder - to be run successfully.
+> Disclaimer: This is an isolated model recipe based on PyTorch Lightning, which requires its own dockerized environment -- in the local folder - to be run successfully.
 
 # Codon FM: Foundation Models for Codon Sequences
 
@@ -9,33 +9,9 @@ We release the entire codebase, pre-training/finetuning scripts, evaluation jupy
 ## Origin
 
 This recipe offers [NVIDIA Transformer Engine (TE)](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/index.html) accelerated code for training and inference in addition to the original PyTorch workflow. Hence, the folder structure and most of the code is copied from the original PyTorch based research repository
-https://github.com/NVIDIA-Digital-Bio/CodonFM based on the paper [https://research.nvidia.com/labs/dbr/assets/data/manuscripts/nv-codonfm-preprint.pdf](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/nv-codonfm-preprint.pdf). We also provide a checkpoint conversion script between PyTorch and TransformerEngine architecture.
+https://github.com/NVIDIA-Digital-Bio/CodonFM, based on the paper [https://research.nvidia.com/labs/dbr/assets/data/manuscripts/nv-codonfm-preprint.pdf](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/nv-codonfm-preprint.pdf). We also provide a checkpoint conversion script between PyTorch and TransformerEngine architecture.
 
-## Table of Contents
-
-- [Codon FM: Foundation Models for Codon Sequences](#codon-fm-foundation-models-for-codon-sequences)
-  - [Origin](#origin)
-  - [Table of Contents](#table-of-contents)
-  - [Pre-trained Models](#pre-trained-models)
-  - [Repository Structure](#repository-structure)
-  - [NVIDIA TransformerEngine Optimization Benchmarks](#nvidia-transformerengine-optimization-benchmarks)
-  - [Quickstart](#quickstart)
-    - [1. Clone the repository](#1-clone-the-repository)
-    - [2. Docker Setup](#2-docker-setup)
-      - [Evaluation Notebooks](#evaluation-notebooks)
-    - [Data Preparation](#data-preparation)
-      - [Pre-training Dataset](#pre-training-dataset)
-      - [Evaluation Datasets](#evaluation-datasets)
-    - [Running Training/Finetuning/Evaluation](#running-trainingfinetuningevaluation)
-      - [Pre-training](#pre-training)
-      - [Fine-tuning](#fine-tuning)
-      - [Evaluation](#evaluation)
-    - [Checkpoint conversion between PyTorch and TE](#checkpoint-conversion-between-pytorch-and-te)
-  - [Using Weights and Biases with CodonFM](#using-weights-and-biases-with-codonfm)
-  - [Experiment launch scripts](#experiment-launch-scripts)
-  - [License](#license)
-
-## Pre-trained Models
+## Pre-Trained Models
 
 The table below summarizes the set of open source pre-trained weights currently made available. All of the training scripts are contained in the directory `experiment_scripts/pretraining/encodon_filtered/`.
 
@@ -84,7 +60,10 @@ Several Encodon model versions are benchmarked: The first is the original [resea
 The SPDA and TransformerEngine implementations are available in this codebase:
 
 1. The default is the PyTorch native transformer based model with SDPA attention implementation.
-2. Transformer Engine (TE) acceleration which is enabled with `--use_transformer_engine` in `runner.py`. This can also be seen below in our sample commands. Moreover, if you would like to increase training performance please enable THD sequence packing, use `--attn_input_format=thd`, and `--collate_fn=thd`. For more information on sequence packing see here [link](https://huggingface.co/blog/sirluk/llm-sequence-packing). The custom TE-based model definition is located here `src/models/components/encodon_te_layer.py` and encapsulated within the `TETransformerLayer`. There are two "flavors" of TE Encodon models available: (1) "Exact", which is an exact reproduction of the original research code architecture, and a (2) "Non-Exact" variant, which uses a different implementation of a transformer that is native to the TE library (differing in LayerNorms), ang gives similar scientific accuracy but with a simpler and fewer lines-of-code implementation of the model. The default and recommended version is the "exact" version, which is the default and can be toggled using the environment variable `CODON_FM_TE_IMPL=exact`.
+2. Transformer Engine (TE) acceleration that is enabled with `--use_transformer_engine` in `runner.py`. This can also be seen below in our sample commands. Moreover, if you would like to increase training performance, enable THD sequence packing, use `--attn_input_format=thd` and `--collate_fn=thd`. For more information on sequence packing refer to this [link](https://huggingface.co/blog/sirluk/llm-sequence-packing). The custom TE-based model definition is located here `src/models/components/encodon_te_layer.py` and encapsulated within the `TETransformerLayer`. There are two "flavors" of TE Encodon models available:
+- **Exact**: An exact reproduction of the original research code architecture
+- **Non-Exact**: A variant that uses a different implementation of a transformer that is native to the TE library (differing in LayerNorms), and gives similar scientific accuracy but with a simpler and fewer lines-of-code implementation of the model. 
+The default and recommended version is the "exact" version, which is the default and can be toggled using the environment variable `CODON_FM_TE_IMPL=exact`.
 
 <details>
 <summary><b>Advanced: "Non-exact" TE Implementation (Optional)</b></summary>
@@ -99,7 +78,7 @@ The training step speedups for the 80M Encodon model when both Transformer Engin
 
 ![xf](assets/images/training_acceleration_plot.png)
 
-For inference we can also demonstrate acceleration when using each models TE counterpart. Thus, a 1.4X speedup in this chart shows how much faster the TE version of the model is over the original baseline PyTorch SDPA model.
+For inferencing, we can also demonstrate acceleration when using each models TE counterpart. Thus, a 1.4X speedup in this chart shows how much faster the TE version of the model is over the original baseline PyTorch SDPA model.
 ![i](assets/images/inference_plot.png)
 
 ## Quickstart
@@ -138,11 +117,11 @@ bash run_dev.sh --data-dir /path/to/your/data --checkpoints-dir /path/to/your/ch
 
 You will be dropped into a `bash` shell inside the container as a non-root user.
 
-You can also use VSCode `./.devcontainer`. Make sure to mount your data and checkpoints by editing `./devcontainer/devcontainer.json`.
+You can also use the VSCode `./.devcontainer`. Ensure you mount your data and checkpoints by editing `./devcontainer/devcontainer.json`.
 
 #### Evaluation Notebooks
 
-A series of notebooks are provided in the [notebooks](notebooks) directory show casing multiple use cases such as zero-shot variant prediction and finetuning on downstream tasks. See a brief overview below:
+A series of notebooks are provided in the [notebooks](notebooks) directory show casing multiple use cases such as zero-shot variant prediction and finetuning on downstream tasks. The following is a brief overview:
 
 | Notebook                                                                                                                       | Description                                                                                                                                                                                                                                                                                              |
 | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -159,7 +138,7 @@ A series of notebooks are provided in the [notebooks](notebooks) directory show 
 
 #### Pre-training Dataset
 
-In order to create the data required for pretraining, please follow the guidance outlined in [data_scripts/data_curation/README](./data_scripts/data_curation/README)
+In order to create the data required for pretraining, follow the guidance outlined in [data_scripts/data_curation/README](./data_scripts/data_curation/README).
 
 #### Evaluation Datasets
 
@@ -169,7 +148,7 @@ In order to create the data required for pretraining, please follow the guidance
   - Open and run the notebook `notebooks/4-EnCodon-Downstream-Task-riboNN.ipynb`. It will download/prepare the downstream dataset and guide you through finetuning on this downstream task.
 - Synonymous, DDD/ASD, and Cancer Hotspot variant datasets:
   - Follow `notebooks/00-Mutation-Datasets-Preprocessing.ipynb`. This notebook includes a cell that lists the required input files (with expected names/locations) and outlines how to process them into harmonized formats.
-  - After preprocessing, use the task-specific notebooks in `notebooks/` (e.g., `0-...CancerHotspot.ipynb` and `1-...DDD-ASD.ipynb`) which consume the harmonized outputs produced by the preprocessing notebook.
+  - After preprocessing, use the task-specific notebooks in `notebooks/` (fir example, `0-...CancerHotspot.ipynb` and `1-...DDD-ASD.ipynb`), which consume the harmonized outputs produced by the preprocessing notebook.
 
 ### Running Training/Finetuning/Evaluation
 
@@ -177,9 +156,11 @@ The main entry point is `src/runner.py` which supports three modes:
 
 #### Pre-training
 
-The explicit scripts used to train the released checkpoints are referenced in [Pre-trained Models](#pre-trained-models). Note: if `--use_transformer_engine` is added TransformerEngine will be used, otherwise it will default to PyTorchs Scaled Dot Product Attention (SDPA).
-
-Note. For some hardware devices, there may be issues with Transformer Engine's fused attention kernel and sequence packing (THD). To disable this kernel, please use `export NVTE_FUSED_ATTN=0`.
+The explicit scripts used to train the released checkpoints are referenced in [Pre-trained Models](#pre-trained-models).
+```{note} 
+- If `--use_transformer_engine` is added TransformerEngine will be used, otherwise it will default to PyTorchs Scaled Dot Product Attention (SDPA).
+- For some hardware devices, there may be issues with Transformer Engine's fused attention kernel and sequence packing (THD). To disable this kernel, use `export NVTE_FUSED_ATTN=0`.
+```
 
 ```bash
 python -m src.runner pretrain \
@@ -205,7 +186,7 @@ Optional path overrides:
   --pretrained_ckpt_path <path>
 ```
 
-For multi-node execution please consider using `torchrun`.
+For multi-node execution consider using `torchrun`.
 
 ```bash
 export NUM_GPUS=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader | wc -l)
@@ -239,9 +220,9 @@ torchrun \
 
 **Available `--dataset_name` options:**
 
-- `CodonMemmapDataset`: dataset to support memory-mapped pre-training dataset used for pre-training
-- `MutationDataset`: dataset for mutation prediction
-- `CodonBertDataset`: dataset to ingest codon sequences.
+- `CodonMemmapDataset`: Dataset to support memory-mapped pre-training dataset used for pre-training
+- `MutationDataset`: Dataset for mutation prediction
+- `CodonBertDataset`: Dataset to ingest codon sequences.
 
 #### Fine-tuning
 
@@ -249,7 +230,7 @@ The publicly available checkpoints can be finetuned using the finetuning options
 
 **Available finetuning options:**
 
-See example script at `experiment_scripts/pretraining/encodon_filtered/finetuning/`
+Refer to example script at `experiment_scripts/pretraining/encodon_filtered/finetuning/`.
 
 - `lora`: Fine-tunes low-rank adapters within a pretrained model added to each transformer layer to reduce training cost and memory usage.
 - `head_only_random`: Trains a randomly initialized output head while the remainder of the model is kept frozen.
@@ -278,7 +259,7 @@ The publicly available checkpoints can be used to launch scientific evaluation a
 
 **Available tasks**
 
-- `mutation_prediction`: Scores a specified mutation via ref-vs-alt codon log-likelihood ratio.
+- `mutation_prediction`: Scores a specified mutation with ref-vs-alt codon log-likelihood ratio.
 - `masked_language_modeling`: Predicts masked codon tokens from surrounding sequence context.
 - `fitness_prediction`: Estimates sequence fitness as the mean log-likelihood of the sequence as predicted by the model.
 - `embedding_prediction`: Extracts encoder CLS embeddings for each input.
@@ -300,20 +281,20 @@ python -m src.runner eval \
 
 ### Checkpoint conversion between PyTorch and TE
 
-[codonfm_ckpt_te_conversion.py](codonfm_ckpt_te_conversion.py) will convert PyTorch-native Encodon checkpoint TE and back, see [Pre-trained Models](#pre-trained-models).
+[codonfm_ckpt_te_conversion.py](codonfm_ckpt_te_conversion.py) will convert PyTorch-native Encodon checkpoint TE and back, refer to [Pre-trained Models](#pre-trained-models).
 
-## Using Weights and Biases with CodonFM
+## Using Weights and Biases With CodonFM
 
 CodonFM can log all training and validation metrics to [Weights & Biases (WandB)](https://wandb.ai/), which requires an account. To use alternative solutions other than WandB, you can change the logging destination in [encodon_pl.py::training_step](src/models/encodon_pl.py) and [encodon_te_pl.py::training_step](src/models/encodon_te_pl.py).
 
-To use WandB with CodonFM, set your Weights & Biases API key for logging inside the running container
+To use WandB with CodonFM, set your Weights & Biases API key for logging inside the running container.
 
 ```bash
 # WANDB key (optional; only needed if enabling --enable_wandb)
 export WANDB_API_KEY=your_wandb_api_key
 ```
 
-or add your login info to `~/.netrc`.
+Alternatively, add your login info to `~/.netrc`.
 
 When launching runs, enable WandB logging by passing `--enable_wandb` and providing `--project_name` and `--entity`. If these are omitted, WandB logging will be skipped.
 
@@ -326,4 +307,4 @@ Experiment launch scripts for reproducing pretraining and fine-tuning are under 
 
 ## License
 
-See [LICENSE](LICENSE)
+Refer to [LICENSE](LICENSE).

@@ -1,9 +1,8 @@
 # AMPLIFY Optimized with NVIDIA TransformerEngine
 
 This folder contains source code and tests for an AMPLIFY model that inherits from the transformers `PreTrainedModel`
-class and uses TransformerEngine layers. Users don't need to install this package directly, but can load the
-model directly from HuggingFace Hub using the standard transformers API (see [Inference Examples](#inference-examples)
-below).
+class and uses TransformerEngine layers. Users do not need to install this package directly, but can load the
+model directly from HuggingFace Hub using the standard transformers API. For more information, refer to [Inference Examples](#inference-examples).
 
 ## Feature support
 
@@ -18,7 +17,7 @@ The AMPLIFY implementation natively supports the following TransformerEngine-pro
 | **Import from HuggingFace checkpoints** | ✅ Supported               |
 | **Export to HuggingFace checkpoints**   | 🚧 Under development       |
 
-See [BioNeMo Recipes](../../recipes/README.md) for more details on how to use these features to accelerate model
+Refer to [BioNeMo Recipes](../../recipes/README.md) for more details on how to use these features to accelerate model
 training and inference.
 
 ## Links to HF checkpoints
@@ -34,7 +33,7 @@ Pre-trained AMPLIFY models are available on HuggingFace as part of the NVIDIA
 ## Runtime Requirements
 
 We recommend using the latest [NVIDIA PyTorch container](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch)
-for optimal performance and compatibility. See the provided Dockerfile for details.
+for optimal performance and compatibility. Refer to the provided Dockerfile for details.
 
 ## Inference Examples
 
@@ -61,7 +60,7 @@ output = model(**inputs)
 ## Recipe Links
 
 Training recipes are available in the `bionemo-recipes/recipes/` directory. AMPLIFY can be trained using the same
-recipes as ESM-2, simply by switching the model_tag to reference the AMPLIFY model, e.g. `nvidia/AMPLIFY_120M`, and
+recipes as ESM-2, simply by switching the model_tag to reference the AMPLIFY model, such as `nvidia/AMPLIFY_120M`, and
 changing the dataset as appropriate.
 
 - **[esm2_native_te](../../recipes/esm2_native_te/)** - Demonstrates training with a simple native PyTorch training
