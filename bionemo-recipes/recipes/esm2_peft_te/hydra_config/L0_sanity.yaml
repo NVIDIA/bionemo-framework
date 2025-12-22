@@ -14,6 +14,7 @@ use_torch_compile: true
 use_sequence_packing: false
 dataset:
   use_sanity_dataset: false
+  ss3_classification: true
   tokenizer_name: ${model_tag}
   micro_batch_size: 8
   num_workers: 1

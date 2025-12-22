@@ -47,6 +47,7 @@ def create_dataloader(
     max_seq_length: int = 1024,
     perform_validation: bool = False,
     validation_samples: int = 1024,
+    ss3_classification: bool = True,
     **kwargs,
 ) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader | None]:
     """Create a dataloader for the secondary structure dataset."""
@@ -63,7 +64,13 @@ def create_dataloader(
         val_dataset = train_dataset.take(validation_samples)
         train_dataset = train_dataset.skip(validation_samples)
 
-    ss_token_map = {"H": 0, "E": 1, "I": 2, "S": 3, "T": 4, "C": 5, "B": 6, "G": 7, "~": -100}
+    ss8_token_map = {"H": 0, "I": 1, "G": 2, "E": 3, "B": 4, "S": 5, "T": 6, "~": 7}  # '~' denotes coil / unstructured
+    ss3_token_map = {"H": 0, "I": 0, "G": 0, "E": 1, "B": 1, "S": 2, "T": 2, "~": 2}  # '~' denotes coil / unstructured
+
+    if ss3_classification:
+        ss_token_map = ss3_token_map
+    else:
+        ss_token_map = ss8_token_map
 
     tokenizer = AutoTokenizer.from_pretrained("example_8m_checkpoint")
     tokenize_args = {
@@ -161,7 +168,11 @@ def main(args: DictConfig) -> float:
 
     # For testing, we don't want to depend on loading pre-trained weights.
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
-    config.num_labels = 8
+    if args.dataset["ss3_classification"]:
+        config.num_labels = 3
+    else:
+        config.num_labels = 8
+
     model = AutoModelForTokenClassification.from_config(config, trust_remote_code=True)
     print("----- Model --------")
     print(model)
@@ -174,7 +185,7 @@ def main(args: DictConfig) -> float:
     peft_config = peft.LoraConfig(
         task_type=peft.TaskType.TOKEN_CLS,
         inference_mode=False,
-        r=16,
+        r=8,
         lora_alpha=16,
         target_modules=["layernorm_qkv"],  # TODO: figure out if this could work?
         # target_parameters=["layernorm_qkv.weight"],
@@ -189,7 +200,7 @@ def main(args: DictConfig) -> float:
     peft_model.print_trainable_parameters()
 
     # Create optimizer.
-    optimizer = torch.optim.AdamW(peft_model.parameters(), lr=1e-5, weight_decay=0.01)
+    optimizer = torch.optim.AdamW(peft_model.parameters(), **args.adamw_kwargs)
 
     perf_logger = PerfLogger(dist_config, args)
 
