@@ -15,6 +15,7 @@ cp_size: 1
 use_sequence_packing: false
 dataset:
   tokenizer_name: ${model_tag}
+  ss3_classification: true
   micro_batch_size: ???
   num_workers: 1
   max_seq_length: 1024
