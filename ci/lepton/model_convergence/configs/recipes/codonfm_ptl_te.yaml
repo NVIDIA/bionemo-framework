@@ -28,7 +28,7 @@ container:
 ############################################################
 # kratos info: where to log data
 ############################################################
-kratos_subject: "codonfm_test"
+kratos_subject: "convergence_tests_v0.0.3"
 
 ############################################################
 # recipe identifiers
