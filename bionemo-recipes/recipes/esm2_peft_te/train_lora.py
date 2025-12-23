@@ -36,6 +36,7 @@ from transformers import (
     AutoTokenizer,
     DataCollatorForTokenClassification,
 )
+from transformers.trainer_pt_utils import get_parameter_names
 
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
@@ -216,7 +217,29 @@ def main(args: DictConfig) -> float:
     peft_model.print_trainable_parameters()
 
     # Create optimizer.
-    optimizer = torch.optim.AdamW(peft_model.parameters(), **args.adamw_kwargs)
+    forbidden_name_patterns = [r"bias", r"layernorm", r"rmsnorm", r"(?:^|\.)norm(?:$|\.)", r"_norm(?:$|\.)"]
+    decay_parameters = get_parameter_names(peft_model, [torch.nn.LayerNorm], forbidden_name_patterns)
+    optimizer_grouped_parameters = [
+        {
+            "params": [p for n, p in peft_model.named_parameters() if (n in decay_parameters and p.requires_grad)],
+            "weight_decay": args.adamw_kwargs.weight_decay,
+        },
+        {
+            "params": [p for n, p in peft_model.named_parameters() if (n not in decay_parameters and p.requires_grad)],
+            "weight_decay": 0.0,
+        },
+    ]
+
+    w_parameters = [n for n, p in peft_model.named_parameters() if (n in decay_parameters and p.requires_grad)]
+    nw_parameters = [n for n, p in peft_model.named_parameters() if (n not in decay_parameters and p.requires_grad)]
+
+    print("----- Trainable Parameters with weight decay -----")
+    print(w_parameters)
+    print("----- Trainable Parameters without weight decay -----")
+    print(nw_parameters)
+    print("--------")
+
+    optimizer = torch.optim.AdamW(optimizer_grouped_parameters, **args.adamw_kwargs)
 
     perf_logger = PerfLogger(dist_config, args)
 
