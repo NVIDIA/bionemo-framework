@@ -214,7 +214,8 @@ def main(args: DictConfig) -> float | None:
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1
-        dataset_or_sampler.set_epoch(epoch)
+        if dataset_or_sampler is not None:  # The dataset only exists on rank 0
+            dataset_or_sampler.set_epoch(epoch)
 
     # Save final model to a .safetensors file.
     if args.checkpoint.save_final_model and ckpt_path:
