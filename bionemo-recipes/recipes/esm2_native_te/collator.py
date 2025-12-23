@@ -20,7 +20,7 @@ This should eventually get moved to a separate package, or possibly upstreamed i
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 import datasets
 import torch
@@ -334,7 +334,7 @@ class ContextParallelDataLoaderWrapper:
 
     def __init__(
         self,
-        dataloader: torch.utils.data.DataLoader,
+        dataloader: torch.utils.data.DataLoader | None,
         cp_mesh: torch.distributed.device_mesh.DeviceMesh,
     ):
         """A dataloader wrapper that distributes the data across the context parallelism group.
@@ -348,7 +348,13 @@ class ContextParallelDataLoaderWrapper:
             cp_mesh: The context parallel mesh.
             cp_rank: The rank of the current context parallel process.
         """
-        self.dataloader = dataloader
+        if cp_mesh.get_local_rank() == 0:
+            assert dataloader is not None, "dataloader must be provided on rank 0"
+            self.dataloader = dataloader
+
+        else:
+            assert dataloader is None, "Dataloader on non-rank 0 will not be used"
+
         self.cp_rank = cp_mesh.get_local_rank()
         self.cp_group = cp_mesh.get_group()
         self.num_cp_ranks = cp_mesh.size()
@@ -356,7 +362,8 @@ class ContextParallelDataLoaderWrapper:
 
     def __iter__(self):
         """Make the dataloader iterable."""
-        self._iterator = iter(self.dataloader)  # < --- collator output.
+        if self.cp_rank == 0:
+            self._iterator = iter(self.dataloader)  # < --- collator output.
         return self
 
     def __next__(self):
@@ -385,24 +392,9 @@ class ContextParallelDataLoaderWrapper:
             batch: The batch for the current CP rank.
 
         """
-        if self.cp_rank == 0:
-            # Get data once, then make copies for each rank.
-            if self._iterator is None:
-                self._iterator = iter(self.dataloader)
-            combined_batch = next(self._iterator)
+        combined_batch = next(self._iterator) if self.cp_rank == 0 else None
 
-        else:
-            combined_batch = None
-
-        scatter_object_output_list = [None]
-        # Note: This does not provide an async_op handle. Thus its blocking.
-        torch.distributed.scatter_object_list(
-            scatter_object_output_list=scatter_object_output_list,
-            scatter_object_input_list=combined_batch,
-            group=self.cp_group,
-            group_src=0,
-        )
-        return scatter_object_output_list[0]
+        return _scatter_batch_to_cp_ranks(combined_batch, self.cp_group)
 
 
 def _split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -670,3 +662,29 @@ def _get_group_local_rank(group: torch.distributed.ProcessGroup | None = None) -
         return torch.distributed.get_rank()
     global_rank = torch.distributed.get_rank()
     return torch.distributed.get_group_rank(group, global_rank)
+
+
+class BatchType(TypedDict):
+    """The fields in the batch dictionary for context parallel."""
+
+    input_ids: torch.Tensor
+    labels: torch.Tensor
+    cu_seq_lens_q: torch.Tensor
+    cu_seq_lens_k: torch.Tensor
+    cu_seq_lens_q_padded: torch.Tensor
+    cu_seq_lens_k_padded: torch.Tensor
+    max_length_q: int
+    max_length_k: int
+
+
+def _scatter_batch_to_cp_ranks(batch: BatchType, cp_group: torch.distributed.ProcessGroup | None = None) -> BatchType:
+    """Scatter a batch to all the CP ranks."""
+    scatter_object_output_list = [None]
+    # Note: This does not provide an async_op handle. Thus its blocking.
+    torch.distributed.scatter_object_list(
+        scatter_object_output_list=scatter_object_output_list,
+        scatter_object_input_list=batch,
+        group=cp_group,
+        group_src=0,
+    )
+    return scatter_object_output_list[0]

@@ -15,7 +15,6 @@
 
 import copy
 import unittest
-from itertools import pairwise
 from typing import Dict, Iterator, List
 from unittest import mock
 
@@ -229,57 +228,6 @@ class _DummyDeviceMesh:
         return self._size
 
 
-def _fake_get_batch(
-    cu_seqlens_padded,
-    input_ids_padded,
-    labels_padded,
-    cp_size,
-    qvk_format,
-    cp_rank,
-):
-    total_slices = 2 * cp_size
-    seq_tokens = input_ids_padded.view(-1)
-    seq_labels = labels_padded.view(-1)
-    shard_tokens: List[torch.Tensor] = []
-    shard_labels: List[torch.Tensor] = []
-
-    for start, end in pairwise(cu_seqlens_padded):
-        start_idx = int(start)
-        end_idx = int(end)
-        slice_size = (end_idx - start_idx) // total_slices
-
-        first_start = start_idx + (cp_rank * slice_size)
-        first_end = first_start + slice_size
-        second_start = start_idx + ((total_slices - cp_rank - 1) * slice_size)
-        second_end = second_start + slice_size
-
-        shard_tokens.append(torch.cat([seq_tokens[first_start:first_end], seq_tokens[second_start:second_end]]))
-        shard_labels.append(torch.cat([seq_labels[first_start:first_end], seq_labels[second_start:second_end]]))
-
-    return (
-        torch.cat(shard_tokens).unsqueeze(0),
-        torch.cat(shard_labels).unsqueeze(0),
-    )
-
-
-def _make_cp_shards(base_batch: Dict[str, torch.Tensor], cp_size: int):
-    combined_batch = []
-    for cp_rank in range(cp_size):
-        input_ids_sharded, labels_sharded = _fake_get_batch(
-            cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
-            input_ids_padded=base_batch["input_ids"],
-            labels_padded=base_batch["labels"],
-            cp_size=cp_size,
-            qvk_format="thd",
-            cp_rank=cp_rank,
-        )
-        batch_shard = dict(base_batch)
-        batch_shard["input_ids"] = input_ids_sharded
-        batch_shard["labels"] = labels_sharded
-        combined_batch.append(batch_shard)
-    return combined_batch
-
-
 def test_pad_thd_sequences_for_cp():
     pid = 1  # The pad token id.
     label_pad = -100  # The label pad id.
@@ -410,7 +358,7 @@ def test_dataloader_scatter_nopadding():
         cp_mesh_rank0 = _DummyDeviceMesh(size=cp_size, rank=0)
         cp_mesh_rank1 = _DummyDeviceMesh(size=cp_size, rank=1)
         loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_mesh_rank0)
-        loader_rank1 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_mesh_rank1)
+        loader_rank1 = ContextParallelDataLoaderWrapper(None, cp_mesh_rank1)
 
         scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
         current_rank = {"value": None}
@@ -499,7 +447,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
         cp_mesh_rank0 = _DummyDeviceMesh(size=cp_size, rank=0)
         cp_mesh_rank1 = _DummyDeviceMesh(size=cp_size, rank=1)
         loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_mesh_rank0)
-        loader_rank1 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_mesh_rank1)
+        loader_rank1 = ContextParallelDataLoaderWrapper(None, cp_mesh_rank1)
 
         scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
         current_rank = {"value": None}
