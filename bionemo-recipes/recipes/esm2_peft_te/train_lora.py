@@ -41,21 +41,25 @@ from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 
 
+# Print fully without truncation
+torch.set_printoptions(threshold=int(1e6))  # Set a very high threshold
+
+
 def create_dataloader(
     use_sanity_dataset: bool = False,
     micro_batch_size: int = 2,
     max_seq_length: int = 1024,
+    stride: int = 16,
     perform_validation: bool = False,
     validation_samples: int = 1024,
     ss3_classification: bool = True,
+    dataset_file_name: str = "peft_sanity_dataset.parquet",
     **kwargs,
 ) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader | None]:
     """Create a dataloader for the secondary structure dataset."""
     if use_sanity_dataset:
         # 5000 row sanity dataset.
-        train_dataset = load_dataset(
-            "parquet", data_files="peft_sanity_dataset.parquet", split="train", streaming=True
-        )
+        train_dataset = load_dataset("parquet", data_files=dataset_file_name, split="train", streaming=True)
     else:
         # Full-scale source dataset.
         train_dataset = load_dataset("lamm-mit/protein_secondary_structure_from_PDB", split="train", streaming=True)
@@ -76,7 +80,7 @@ def create_dataloader(
     tokenize_args = {
         "max_length": max_seq_length,
         "truncation": True,
-        "stride": 16,  # TODO: figure this out later
+        "stride": stride,
         "return_overflowing_tokens": True,
         "return_offsets_mapping": True,
     }
@@ -148,7 +152,19 @@ def compute_accuracy(preds, labels, ignore_index=-100) -> float:
     total = mask.sum()
     if total == 0:
         return 0.0
-    return correct.sum().item() / total.item()
+    acc = correct.sum().item() / total.item()
+
+    # print("-------")
+    # print(labels.shape)
+    # print("---------")
+    # print(preds_labels)
+    # print("----------")
+    # print(labels)
+    # print("---------")
+    # print(correct)
+    # print("----------")
+    # print(correct.sum())
+    return acc
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
@@ -210,6 +226,7 @@ def main(args: DictConfig) -> float:
         with tqdm(train_dataloader, desc="Training") as progress_bar:
             for batch in progress_bar:
                 batch = {k: v.to("cuda") for k, v in batch.items()}  # noqa PLW2901
+                # print(batch["input_ids"].shape)
                 output = peft_model(**batch)
                 loss = output.loss
                 loss.backward()
