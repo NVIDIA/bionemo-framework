@@ -43,7 +43,7 @@ class PerfLogger:
         min_loss: The minimum loss seen so far.
     """
 
-    def __init__(self, dist_config: DistributedConfig, args: DictConfig, pad_token_id: int | None = None):
+    def __init__(self, dist_config: DistributedConfig, args: DictConfig):
         """Initialize the logger."""
         self._dist_config = dist_config
         self._run_config = OmegaConf.to_container(args, resolve=True, throw_on_missing=True)
@@ -51,10 +51,6 @@ class PerfLogger:
         self.min_loss = float("inf")
 
         self.logging_frequency = args.logger.frequency
-        # Track whether to collect memory stats (disabled by default for max performance)
-
-        # Get padding token from config, default to 1 if not provided
-        self.pad_token_id = pad_token_id if pad_token_id is not None else 1
 
         metrics_dict = {
             "train/loss": torchmetrics.MeanMetric(),
@@ -98,8 +94,12 @@ class PerfLogger:
         """
         self.grad_acc_step_count += 1
         self.num_tokens += batch["input_ids"].numel()
-        # Use padding token to count unpadded tokens (same as ESM2)
-        self.num_unpadded_tokens += batch["input_ids"][batch["input_ids"] != self.pad_token_id].numel()
+        # Use attention_mask to count unpadded tokens (works for both BSHD and THD)
+        if "attention_mask" in batch:
+            self.num_unpadded_tokens += batch["attention_mask"].sum().item()
+        else:
+            # Fallback for pure sequence packing with no padding: all tokens are unpadded
+            self.num_unpadded_tokens += batch["input_ids"].numel()
         self.running_loss += outputs.loss.item()
 
     def log_step(

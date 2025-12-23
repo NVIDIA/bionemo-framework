@@ -62,6 +62,26 @@ def test_sanity_convergence_ddp_te(tmp_path, recipe_path):
     assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
 
 
+def test_sanity_convergence_ddp_te_grad_acc(tmp_path, recipe_path):
+    """Test DDP training with gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "grad_acc_steps=2",
+            ],
+        )
+
+    final_loss = main_ddp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+
+
 def test_sanity_convergence_ddp_hf(tmp_path, recipe_path):
     """Test that DDP training converges on mock genomic data.
 
@@ -89,6 +109,27 @@ def test_sanity_convergence_ddp_hf(tmp_path, recipe_path):
 
     # For genomic Causal LM, we expect convergence to < 2.0 on the small test dataset
     # The model should learn to predict simple patterns in the mock data
+    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+
+
+def test_sanity_convergence_ddp_hf_grad_acc(tmp_path, recipe_path):
+    """Test DDP training with HF model and gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "use_te=false",
+                "grad_acc_steps=2",
+            ],
+        )
+
+    final_loss = main_ddp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
     assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
 
 
@@ -146,6 +187,50 @@ def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path):
     assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
 
 
+def test_sanity_convergence_fsdp2_te_bshd_grad_acc(tmp_path, recipe_path):
+    """Test FSDP2 training with BSHD format and gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "config_kwargs.attn_input_format=bshd",
+                "grad_acc_steps=2",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+
+
+def test_sanity_convergence_fsdp2_te_thd_grad_acc(tmp_path, recipe_path):
+    """Test FSDP2 training with THD format and gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "use_sequence_packing=true",
+                "config_kwargs.attn_input_format=thd",
+                "dataset.max_seq_length=1024",
+                "grad_acc_steps=2",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+
+
 def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path):
     """Test that FSDP2 training converges on mock genomic data.
 
@@ -172,6 +257,27 @@ def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path):
     final_loss = main_fsdp2(sanity_config)
 
     # FSDP2 should achieve similar convergence to DDP
+    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+
+
+def test_sanity_convergence_fsdp2_hf_grad_acc(tmp_path, recipe_path):
+    """Test FSDP2 training with HF model and gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "use_te=false",
+                "grad_acc_steps=2",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
     assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
 
 

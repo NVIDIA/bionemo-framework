@@ -48,12 +48,6 @@ def main(args: DictConfig) -> float | None:
     Returns:
         float: The loss value for the final batch.
     """
-    # Validate arguments.
-    if not args.grad_acc_steps >= 1:
-        raise ValueError(
-            f"Gradient accumulation steps must be an integer greater than or equal to 1, but got: {args.grad_acc_steps}"
-        )
-
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
@@ -132,10 +126,7 @@ def main(args: DictConfig) -> float | None:
         start_step = 0
         epoch = 0
 
-    # Get padding token from config for logging
-    config_for_pad_token = config if hasattr(config, "pad_token_id") else None
-    pad_token_id = config_for_pad_token.pad_token_id if config_for_pad_token else 1
-    perf_logger = PerfLogger(dist_config, args, pad_token_id=pad_token_id)
+    perf_logger = PerfLogger(dist_config, args)
 
     gc.collect()
     torch.cuda.empty_cache()
