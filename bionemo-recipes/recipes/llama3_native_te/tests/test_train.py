@@ -270,6 +270,7 @@ def test_sanity_convergence_fsdp2_hf_grad_acc(tmp_path, recipe_path):
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "checkpoint.resume_from_checkpoint=false",
                 "use_te=false",
+                "use_torch_compile=false",  # Getting occasional errors with torch.compile
                 "grad_acc_steps=2",
             ],
         )
