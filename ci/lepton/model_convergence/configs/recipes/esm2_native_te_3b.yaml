@@ -61,9 +61,10 @@ model_tag: nvidia/esm2_t36_3B_UR50D
 num_train_steps: 20_000
 # dataset commands
 micro_batch_size: 16
-load_dataset_kwargs_path: nvidia/esm2_uniref_pretraining_data
+load_dataset_kwargs_path: parquet
 load_dataset_kwargs_streaming: true
 load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma: allowlist secret
+load_dataset_kwargs_data_dir: /data/esm2/cache/hub/datasets--nvidia--esm2_uniref_pretraining_data/snapshots/4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma: allowlist secret
 
 # lr commands
 num_warmup_steps: 2_000
@@ -110,6 +111,9 @@ products:
 # This gets called right after `checkout_script` in the base config.
 ############################################################
 run_script: |
+  echo "looking in data dir"
+  ls -la /data
+
   wget -O init.sh https://raw.githubusercontent.com/leptonai/scripts/main/lepton_env_to_pytorch.sh;
   chmod +x init.sh;
   source init.sh;
@@ -133,6 +137,7 @@ run_script: |
     dataset.load_dataset_kwargs.path=${load_dataset_kwargs_path} \
     dataset.load_dataset_kwargs.streaming=${load_dataset_kwargs_streaming} \
     +dataset.load_dataset_kwargs.revision=${load_dataset_kwargs_revision} \
+    +dataset.load_dataset_kwargs.data_dir=${load_dataset_kwargs_data_dir} \
     lr_scheduler_kwargs.num_warmup_steps=${num_warmup_steps} \
     checkpoint.ckpt_dir=${ckpt_dir} \
     checkpoint.save_final_model=${save_final_model} \

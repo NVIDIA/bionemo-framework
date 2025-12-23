@@ -13,6 +13,7 @@ device_type: gpu
 num_devices: 8
 gpu_type: h100-sxm
 resource_shape: "${device_type}.${num_devices}x${gpu_type}"
+log_to_kratos: False
 
 ############################################################
 # kratos info: where to log data
@@ -62,9 +63,11 @@ model_tag: nvidia/esm2_t48_15B_UR50D
 num_train_steps: 20_000
 # dataset commands
 micro_batch_size: 8
-load_dataset_kwargs_path: nvidia/esm2_uniref_pretraining_data
+load_dataset_kwargs_path: parquet
 load_dataset_kwargs_streaming: true
 load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma: allowlist secret
+load_dataset_kwargs_data_dir: /data/esm2/cache/hub/datasets--nvidia--esm2_uniref_pretraining_data/snapshots/4ac1d2973567e46b8ca95901f4b4793a21305995  # pragma: allowlist secret
+
 num_workers: 1
 
 # lr commands
@@ -129,6 +132,10 @@ products:
 # This gets called right after `checkout_script` in the base config.
 ############################################################
 run_script: |
+  echo "looking in data dir"
+  ls -la /data
+
+
   wget -O init.sh https://raw.githubusercontent.com/leptonai/scripts/main/lepton_env_to_pytorch.sh;
   chmod +x init.sh;
   source init.sh;
@@ -148,6 +155,10 @@ run_script: |
     wandb_init_args.name=${wandb_name} \
     num_train_steps=${num_train_steps} \
     dataset.micro_batch_size=${micro_batch_size} \
+    dataset.load_dataset_kwargs.path=${load_dataset_kwargs_path} \
+    dataset.load_dataset_kwargs.streaming=${load_dataset_kwargs_streaming} \
+    +dataset.load_dataset_kwargs.revision=${load_dataset_kwargs_revision} \
+    +dataset.load_dataset_kwargs.data_dir=${load_dataset_kwargs_data_dir} \
     use_sequence_packing=${thd_enabled} \
     dataset.num_workers=${num_workers} \
     lr_scheduler_kwargs.num_warmup_steps=${num_warmup_steps} \
