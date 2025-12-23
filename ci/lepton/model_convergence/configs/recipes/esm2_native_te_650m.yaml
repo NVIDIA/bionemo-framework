@@ -61,9 +61,11 @@ model_tag: nvidia/esm2_t36_650M_UR50D
 num_train_steps: 20_000
 # dataset commands
 micro_batch_size: 16
-load_dataset_kwargs_path: nvidia/esm2_uniref_pretraining_data
+load_dataset_kwargs_path: parquet
 load_dataset_kwargs_streaming: true
 load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma: allowlist secret
+load_dataset_kwargs_data_dir: /data/esm2/cache/hub/datasets--nvidia--esm2_uniref_pretraining_data/snapshots/4ac1d2973567e46b8ca95901f4b4793a21305995  # pragma: allowlist secret
+
 num_workers: 1
 
 # lr commands
@@ -130,6 +132,7 @@ run_script: |
     dataset.load_dataset_kwargs.path=${load_dataset_kwargs_path} \
     dataset.load_dataset_kwargs.streaming=${load_dataset_kwargs_streaming} \
     +dataset.load_dataset_kwargs.revision=${load_dataset_kwargs_revision} \
+    +dataset.load_dataset_kwargs.data_dir=${load_dataset_kwargs_data_dir} \
     dataset.num_workers=${num_workers} \
     lr_scheduler_kwargs.num_warmup_steps=${num_warmup_steps} \
     checkpoint.ckpt_dir=${ckpt_dir} \
