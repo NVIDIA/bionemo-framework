@@ -291,6 +291,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--grad-reduce-in-fp32", action="store_true", default=False, help="Gradient reduce in FP32."
     )  # DONE
+    parser.add_argument(
+        "--fsdp",
+        action="store_true",
+        default=False,
+        help="Enable FSDP training.",
+    )
     parser.add_argument("--use-megatron-comm-overlap-llama3-8k", action="store_true", default=False)  # DONE
     parser.add_argument(
         "--tp-comm-overlap-backend",
@@ -710,9 +716,9 @@ def train(args: argparse.Namespace) -> None:
         recipe_kwargs["stride"] = args.stride
         recipe_kwargs["window_min_length_threshold"] = args.window_min_length_threshold
         recipe_kwargs["rc_aug"] = args.rc_aug
-    elif args.dataset_config_path:
+    elif args.dataset_config:
         recipe_kwargs["dataset_dir"] = args.dataset_dir
-        recipe_kwargs["dataset_config_path"] = args.dataset_config_path
+        recipe_kwargs["dataset_config_path"] = args.dataset_config
 
     recipe_kwargs["pad_eod_loss_mask"] = args.eod_pad_in_loss_mask
 
@@ -747,7 +753,7 @@ def train(args: argparse.Namespace) -> None:
     cfg: ConfigContainer = pretrain_config(**recipe_kwargs)
 
     cfg.checkpoint.async_save = args.ckpt_async_save
-    cfg.checkpoint.ckpt_format = args.ckpt_format
+    cfg.checkpoint.ckpt_format = args.ckpt_format if not args.fsdp else "fsdp_dtensor"
     cfg.checkpoint.save_interval = args.eval_interval
     cfg.checkpoint.save_optim = True
     cfg.checkpoint.save_rng = True
@@ -828,6 +834,10 @@ def train(args: argparse.Namespace) -> None:
     cfg.ddp.overlap_grad_reduce = args.overlap_grad_reduce
     cfg.ddp.grad_reduce_in_fp32 = args.grad_reduce_in_fp32
     cfg.ddp.check_for_nan_in_grad = not args.no_check_for_nan_in_grad
+    if args.fsdp:
+        cfg.ddp.data_parallel_sharding_strategy = "optim_grads_params"
+        cfg.ddp.use_megatron_fsdp = True
+        cfg.checkpoint.ckpt_format = "fsdp_dtensor"
     if args.use_megatron_comm_overlap_llama3_8k:
         # Pick the floating point appropriate config.
         fp8 = "fp8" in args.mixed_precision_recipe
