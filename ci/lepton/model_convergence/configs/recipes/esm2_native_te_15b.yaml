@@ -13,7 +13,6 @@ device_type: gpu
 num_devices: 8
 gpu_type: h100-sxm
 resource_shape: "${device_type}.${num_devices}x${gpu_type}"
-log_to_kratos: False
 
 ############################################################
 # kratos info: where to log data
@@ -132,10 +131,6 @@ products:
 # This gets called right after `checkout_script` in the base config.
 ############################################################
 run_script: |
-  echo "looking in data dir"
-  ls -la /data
-
-
   wget -O init.sh https://raw.githubusercontent.com/leptonai/scripts/main/lepton_env_to_pytorch.sh;
   chmod +x init.sh;
   source init.sh;
