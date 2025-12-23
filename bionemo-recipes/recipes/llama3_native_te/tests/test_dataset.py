@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import subprocess
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -20,6 +23,12 @@ import torch
 
 from dataset import create_bshd_dataloader, create_thd_dataloader, create_tokenized_dataset
 from distributed_config import DistributedConfig
+
+
+requires_multi_gpu = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+    reason="Test requires at least 2 GPUs",
+)
 
 
 @pytest.fixture
@@ -653,3 +662,81 @@ def test_token_packing_dataloader(tokenizer_path):
 
     batches = list(dataloader)
     assert len(batches) > 1
+
+
+@requires_multi_gpu
+def test_cp_dataloader(recipe_path):
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(recipe_path)
+
+    cmd = [
+        "torchrun",
+        "--nproc_per_node=2",
+        "tests/test_dataset.py",
+    ]
+
+    result = subprocess.run(
+        cmd,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=240,
+        cwd=str(recipe_path),
+        env=env,
+    )
+    if result.returncode != 0:
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+        pytest.fail(f"Command failed with exit code {result.returncode}")
+
+
+if __name__ == "__main__":
+    from torch.distributed.device_mesh import init_device_mesh
+
+    from dataset import create_cp_dataloader
+
+    dist_config = DistributedConfig()
+    device = torch.device(f"cuda:{dist_config.local_rank}")
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    torch.cuda.set_device(dist_config.local_rank)
+    device_mesh = init_device_mesh("cuda", mesh_shape=(1, 2), mesh_dim_names=("dp", "cp"))
+
+    dataloader, _ = create_cp_dataloader(
+        distributed_config=dist_config,
+        cp_mesh=device_mesh["cp"],
+        tokenizer_name_or_path="tokenizers/nucleotide_fast_tokenizer",
+        micro_batch_size=1,
+        text_column="nt_sequence",
+        load_dataset_kwargs={
+            "path": "parquet",
+            "split": "train",
+            "data_files": "genomic_sequences_2mb.parquet",
+            "streaming": True,
+        },
+        num_workers=1,
+    )
+
+    batch = next(iter(dataloader))
+    # With CP size 2, each sequence is split into 2 * cp_world_size = 4 slices.
+    # Each rank gets 2 slices (beginning and end), so each rank gets approximately
+    # (8 * 1024) / 2 = 4096 tokens per rank
+    # Note: Sequences are padded to be divisible by pad_sequences_to_be_divisible_by
+    # (which defaults to cp_mesh.size() * 2 = 4 if not provided)
+    # The actual token count per rank can vary due to:
+    # 1. Sequence packing (variable-length sequences packed up to token_micro_batch_size)
+    # 2. Per-sequence padding to be divisible by pad_sequences_to_be_divisible_by
+    # 3. CP splitting logic that takes slices from beginning and end
+    expected_tokens_per_rank = (8 * 1024) // device_mesh["cp"].size()
+    actual_shape = batch["input_ids"].shape[1]
+    # Allow for variance due to sequence packing, padding, and CP splitting
+    # The actual shape should be close to expected_tokens_per_rank but can vary
+    # Allow up to 100 tokens of variance (both above and below) to account for
+    # sequence packing and padding effects
+    assert actual_shape >= expected_tokens_per_rank - 100, (
+        f"Expected at least {expected_tokens_per_rank - 100} tokens, got {actual_shape}"
+    )
+    assert actual_shape <= expected_tokens_per_rank + 100, (
+        f"Expected at most {expected_tokens_per_rank + 100} tokens, got {actual_shape}"
+    )
+    assert batch["labels"].shape[1] == actual_shape
