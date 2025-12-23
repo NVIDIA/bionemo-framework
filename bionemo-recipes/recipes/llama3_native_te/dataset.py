@@ -313,7 +313,7 @@ def create_thd_dataloader(
 
 def create_cp_dataloader(
     *args,
-    cp_group: torch.distributed.ProcessGroup,
+    cp_mesh: torch.distributed.device_mesh.DeviceMesh,
     **kwargs,
 ):
     """Create a Context-parallel aware dataloader that automatically handles sharding between ranks.
@@ -322,17 +322,27 @@ def create_cp_dataloader(
 
     Args:
         *args: Arguments to pass to `create_thd_dataloader`.
-        cp_group: The context parallel group.
+        cp_mesh: The context parallel mesh.
         **kwargs: Keyword arguments to pass to `create_thd_dataloader`.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
     """
-    train_dataloader, tokenized_dataset = create_thd_dataloader(*args, **kwargs)
+    # Ensure pad_sequences_to_be_divisible_by is passed to create_thd_dataloader
+    if kwargs.get("pad_sequences_to_be_divisible_by", None) is None:
+        logger.info("pad_sequences_to_be_divisible_by is not provided, using cp_mesh.size() * 2")
+        kwargs["pad_sequences_to_be_divisible_by"] = cp_mesh.size() * 2
 
-    train_dataloader.collate_fn = DataCollatorForContextParallel(
-        collator=train_dataloader.collate_fn,
-        cp_world_size=cp_group.size(),
-    )
+    if cp_mesh.get_local_rank() == 0:
+        train_dataloader, tokenized_dataset = create_thd_dataloader(*args, **kwargs)
 
-    return ContextParallelDataLoaderWrapper(train_dataloader, cp_group), tokenized_dataset
+        train_dataloader.collate_fn = DataCollatorForContextParallel(
+            collator=train_dataloader.collate_fn,
+            cp_world_size=cp_mesh.size(),
+        )
+
+    else:
+        train_dataloader = None
+        tokenized_dataset = None
+
+    return ContextParallelDataLoaderWrapper(train_dataloader, cp_mesh), tokenized_dataset
