@@ -135,11 +135,17 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                     num_gqa_groups=config.num_key_value_heads,
                     layer_number=layer_idx + 1,
                     params_dtype=config.dtype,
+                    device=torch.get_default_device(),
                 )
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = transformer_engine.pytorch.RMSNorm(config.hidden_size, eps=config.rms_norm_eps, dtype=config.dtype)
+        self.norm = transformer_engine.pytorch.RMSNorm(
+            config.hidden_size,
+            eps=config.rms_norm_eps,
+            dtype=config.dtype,
+            device=torch.get_default_device(),
+        )
 
         # We use TE's RotaryPositionEmbedding, but we ensure that we use the same inv_freq as the original
         # LlamaRotaryEmbedding.
@@ -287,6 +293,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             config.vocab_size,
             bias=False,
             params_dtype=config.dtype,
+            device=torch.get_default_device(),
         )
 
         # Initialize weights and apply final processing
