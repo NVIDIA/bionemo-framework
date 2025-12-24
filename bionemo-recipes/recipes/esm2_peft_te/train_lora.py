@@ -145,27 +145,13 @@ def create_dataloader(
     return train_dataloader, val_dataloader
 
 
-def compute_accuracy(preds, labels, ignore_index=-100) -> float:
+def compute_accuracy(preds, labels, ignore_index=-100) -> tuple[int, int]:
     """Calculate the accuracy."""
     preds_labels = torch.argmax(preds, dim=-1)
     mask = labels != ignore_index
     correct = (preds_labels == labels) & mask
-    total = mask.sum()
-    if total == 0:
-        return 0.0
-    acc = correct.sum().item() / total.item()
 
-    # print("-------")
-    # print(labels.shape)
-    # print("---------")
-    # print(preds_labels)
-    # print("----------")
-    # print(labels)
-    # print("---------")
-    # print(correct)
-    # print("----------")
-    # print(correct.sum())
-    return acc
+    return correct.sum().item(), mask.sum().item()
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
@@ -190,14 +176,16 @@ def main(args: DictConfig) -> float:
     else:
         config.num_labels = 8
 
-    model = AutoModelForTokenClassification.from_config(config, trust_remote_code=True)
+    if args.use_pretrained:
+        model = AutoModelForTokenClassification.from_pretrained(
+            args.model_tag, config=config, trust_remote_code=True, dtype="bfloat16"
+        )
+    else:
+        model = AutoModelForTokenClassification.from_config(config, trust_remote_code=True)
+
     print("----- Model --------")
     print(model)
     print("-------------------------")
-    # Alternatively, we'd want to load an actual pre-trained checkpoint.
-    # model = AutoModelForTokenClassification.from_pretrained(
-    #     "example_8m_checkpoint", num_labels=8, trust_remote_code=True, dtype="bfloat16"
-    # )
 
     peft_config = peft.LoraConfig(
         task_type=peft.TaskType.TOKEN_CLS,
@@ -211,6 +199,7 @@ def main(args: DictConfig) -> float:
 
     peft_model = peft.get_peft_model(model, peft_config)
     peft_model.to("cuda", dtype=torch.bfloat16)
+
     print("----- PEFT Model --------")
     print(peft_model)
     print("-------------------------")
@@ -270,8 +259,9 @@ def main(args: DictConfig) -> float:
                 if args.perform_validation and step % args.validation_interval == 0:
                     peft_model.eval()
                     val_loss_total = 0.0
-                    val_acc_total = 0.0
-                    val_steps = 1
+                    val_correct_total = 0
+                    val_tokens_total = 0
+                    val_steps = 0
                     with torch.no_grad():
                         for val_batch in val_dataloader:
                             val_batch = {k: v.to("cuda") for k, v in val_batch.items()}  # noqa PLW2901
@@ -283,13 +273,14 @@ def main(args: DictConfig) -> float:
                             # Accuracy
                             logits = val_output.logits
                             labels = val_batch["labels"]
-                            val_acc_total += compute_accuracy(logits, labels)
+                            correct, total = compute_accuracy(logits, labels)
+                            val_correct_total += correct
+                            val_tokens_total += total
 
                             val_steps += 1
 
                     avg_val_loss = val_loss_total / val_steps
-                    avg_val_acc = val_acc_total / val_steps
-
+                    avg_val_acc = val_correct_total / val_tokens_total if val_tokens_total > 0 else 0.0
                     print(f"\nStep: {step}: Validation Loss = {avg_val_loss:.4f}, Accuracy: {avg_val_acc:.4f}\n")
                     peft_model.train()
 

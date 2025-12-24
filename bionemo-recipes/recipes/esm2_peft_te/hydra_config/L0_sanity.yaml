@@ -4,6 +4,7 @@ defaults:
 
 # Training config
 model_tag: nvidia/esm2_t48_15B_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
+use_pretrained: true
 num_train_steps: 1000
 perform_validation: true
 validation_interval: 40
