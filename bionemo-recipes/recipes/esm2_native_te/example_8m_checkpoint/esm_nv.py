@@ -156,12 +156,16 @@ class NVEsmEncoder(nn.Module):
                     fuse_qkv_params=config.fuse_qkv_params,
                     params_dtype=config.dtype,
                     window_size=(-1, -1),
+                    device=str(torch.get_default_device()),
                 )
                 for i in range(config.num_hidden_layers)
             ]
         )
         self.emb_layer_norm_after = transformer_engine.pytorch.LayerNorm(
-            config.hidden_size, eps=config.layer_norm_eps, params_dtype=config.dtype
+            config.hidden_size,
+            eps=config.layer_norm_eps,
+            params_dtype=config.dtype,
+            device=str(torch.get_default_device()),
         )
         if config.position_embedding_type == "rotary":
             self.rotary_embeddings = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
@@ -516,6 +520,7 @@ class NVEsmLMHead(nn.Module):
             config.hidden_size,
             config.hidden_size,
             params_dtype=config.dtype,
+            device=str(torch.get_default_device()),
         )
 
         self.decoder = transformer_engine.pytorch.LayerNormLinear(
@@ -524,6 +529,7 @@ class NVEsmLMHead(nn.Module):
             bias=True,
             eps=config.layer_norm_eps,
             params_dtype=config.dtype,
+            device=str(torch.get_default_device()),
         )
 
     def forward(self, features, **kwargs):
@@ -553,7 +559,12 @@ class NVEsmEmbeddings(nn.Module):
         )
 
         self.layer_norm = (
-            transformer_engine.pytorch.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+            transformer_engine.pytorch.LayerNorm(
+                config.hidden_size,
+                eps=config.layer_norm_eps,
+                params_dtype=config.dtype,
+                device=str(torch.get_default_device()),
+            )
             if config.emb_layer_norm_before
             else None
         )
@@ -648,7 +659,10 @@ class NVEsmForTokenClassification(NVEsmPreTrainedModel):
         self.esm = NVEsmModel(config, add_pooling_layer=False)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = transformer_engine.pytorch.Linear(
-            config.hidden_size, config.num_labels, params_dtype=config.dtype
+            config.hidden_size,
+            config.num_labels,
+            params_dtype=config.dtype,
+            device=str(torch.get_default_device()),
         )
 
         self.init_weights()
