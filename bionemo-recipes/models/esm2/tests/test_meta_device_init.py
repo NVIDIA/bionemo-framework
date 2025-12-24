@@ -49,8 +49,16 @@ def test_meta_device_init():
     with torch.device("meta"):
         model_meta_init = NVEsmForMaskedLM(config)
 
+    # Assert parameters are actually on the meta device
+    for name, parameter in model_meta_init.named_parameters():
+        assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
+
     model_meta_init.to_empty(device="cuda")
     model_meta_init.apply(model_meta_init._init_weights)
+
+    # Assert parameters are actually on the cuda device after to_empty
+    for name, parameter in model_meta_init.named_parameters():
+        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
 
     set_seed(42)
     model_normal_init = NVEsmForMaskedLM(config)
@@ -126,8 +134,16 @@ if __name__ == "__main__":
         fully_shard(layer)
     fully_shard(model_meta_init)
 
+    # Assert parameters are actually on the meta device
+    for name, parameter in model_meta_init.named_parameters():
+        assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
+
     model_meta_init.to_empty(device="cuda")
     model_meta_init.apply(model_meta_init._init_weights)
+
+    # Assert parameters are actually on the cuda device after to_empty
+    for name, parameter in model_meta_init.named_parameters():
+        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
 
     set_seed(42)
     model_normal_init = NVEsmForMaskedLM(config)

@@ -2,7 +2,7 @@
 model_tag: ??? # E.g., nvidia/esm2_t6_8M_UR50D, facebook/esm2_t6_8M_UR50D, or a local path (e.g ./example_8m_checkpoint)
 num_train_steps: ???
 
-use_meta_device: false  # meta-device init is still not converging
+use_meta_device: true
 
 # Whether to wrap the model in torch.compile. Note, this is currently not supported with mfsdp (BIONEMO-2977).
 # We leave this off by default since we don't see much of a performance improvement with TE layers.
