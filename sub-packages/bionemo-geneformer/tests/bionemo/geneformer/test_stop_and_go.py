@@ -29,14 +29,14 @@ import pathlib
 from typing import Literal
 
 import lightning.pytorch as pl
+import pytest
 import torch
-from megatron.core.optimizer.optimizer_config import OptimizerConfig
+from megatron.core.optimizer import OptimizerConfig
 from nemo import lightning as nl
 from nemo.lightning.pytorch.optim.lr_scheduler import CosineAnnealingScheduler
 from nemo.lightning.pytorch.optim.megatron import MegatronOptimizerModule
 from typing_extensions import override
 
-from bionemo.core.data.load import load
 from bionemo.core.utils.dtypes import get_autocast_dtype
 from bionemo.geneformer.api import GeneformerConfig
 from bionemo.geneformer.data.singlecell.preprocess import GeneformerPreprocess
@@ -46,15 +46,9 @@ from bionemo.testing.harnesses import stop_and_go
 from bionemo.testing.harnesses.mode import Mode
 
 
-DATA_PATH: pathlib.Path = load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
-
-MODEL_PRECISION: Literal["bf16-mixed"] = "bf16-mixed"
-SEQ_LEN: int = 1024
-
-
-def geneformer_config():
+def geneformer_config(model_precision: str = "bf16-mixed", seq_len: int = 1024):
     """Setups the default geneformer config taken from pretrain.py. Update as needed."""
-    autocast_dtype = get_autocast_dtype(MODEL_PRECISION)
+    autocast_dtype = get_autocast_dtype(model_precision)
     return GeneformerConfig(
         num_layers=6,
         hidden_size=256,
@@ -63,13 +57,13 @@ def geneformer_config():
         # FIXME: for now the test doesn't work unless dropout is inactivated because the megatron rng state is not saved
         attention_dropout=0,
         hidden_dropout=0,
-        seq_length=SEQ_LEN,
+        seq_length=seq_len,
         fp16=autocast_dtype == torch.float16,
         bf16=autocast_dtype == torch.bfloat16,
     )
 
 
-def geneformer_datamodule(tokenizer, seq_length, median_dict, data_path=DATA_PATH):
+def geneformer_datamodule(tokenizer, seq_length, median_dict, data_path):
     from bionemo.geneformer.data.singlecell.datamodule import SingleCellDataModule
 
     num_dataset_workers = 0
@@ -96,16 +90,25 @@ class TestGeneformerStopAndGo(stop_and_go.StopAndGoHarness):
     val_check_interval: int = 4
     limit_val_batches: int = 2
     lr: float = 1e-4
-    precision: Literal["16-mixed", "bf16-mixed", "32"] = MODEL_PRECISION
+    precision: Literal["16-mixed", "bf16-mixed", "32"] = "bf16-mixed"
     output_tensor_atol: float = 3e-2
+    seq_len: int = 1024
+    data_path: pathlib.Path = None  # Will be set in setup_class
+    tokenizer = None
+    median_dict = None
 
     @override
     @classmethod
     def setup_class(cls):
         super().setup_class()
 
+    @classmethod
+    def setup_data(cls, data_path: pathlib.Path):
+        """Setup data for the test class - called from fixtures"""
+        cls.data_path = data_path
+
         # setup data
-        train_data_path = DATA_PATH / "train"
+        train_data_path = cls.data_path / "train"
         preprocessor = GeneformerPreprocess(
             download_directory=train_data_path,
             medians_file_path=train_data_path / "medians.json",
@@ -142,17 +145,65 @@ class TestGeneformerStopAndGo(stop_and_go.StopAndGoHarness):
                 constant_steps=math.ceil(cls.num_steps * 0.1),
             ),
         )
-        module = biobert_lightning_module(config=geneformer_config(), tokenizer=cls.tokenizer, optimizer=optim)
+        module = biobert_lightning_module(
+            config=geneformer_config(model_precision=cls.precision, seq_len=cls.seq_len),
+            tokenizer=cls.tokenizer,
+            optimizer=optim,
+        )
 
         data = geneformer_datamodule(
             tokenizer=cls.tokenizer,
-            seq_length=SEQ_LEN,
+            seq_length=cls.seq_len,
             median_dict=cls.median_dict,
+            data_path=cls.data_path,
         )
         return module, data, optim
 
-    def test_train_val_init_consumed_samples(self):
+    @pytest.mark.parametrize(
+        "callback_type",
+        [
+            testing_callbacks.LearningRateCallback,
+            testing_callbacks.GlobalStepStateCallback,
+            testing_callbacks.ConsumedSamplesCallback,
+            testing_callbacks.OptimizerStateCallback,
+            testing_callbacks.TrainInputCallback,
+            testing_callbacks.TrainOutputCallback,
+            testing_callbacks.TrainLossCallback,
+            testing_callbacks.ValidInputCallback,
+            testing_callbacks.ValidOutputCallback,
+            testing_callbacks.ValidLossCallback,
+        ],
+    )
+    def test_stop_and_go_consistency(self, callback_type, data_path):
+        """Tests the consistency of the callback data between the interrupted and continuous checks."""
+        # Setup data if not already done
+        if self.data_path is None or self.tokenizer is None:
+            self.setup_data(data_path)
+
+        interrupted_callback = stop_and_go.get_callback(self.callbacks, Mode.RESUME, callback_type)
+        continuous_callback = stop_and_go.get_callback(self.callbacks, Mode.CONTINUOUS, callback_type)
+        assert interrupted_callback.data, f"No data found for {callback_type}"
+
+        if callback_type in {testing_callbacks.TrainOutputCallback, testing_callbacks.ValidOutputCallback}:
+            atol, rtol = self.output_tensor_atol, self.output_tensor_rtol
+        else:
+            atol, rtol = 1e-4, 1e-4
+
+        from bionemo.testing.torch import recursive_assert_approx_equal
+
+        recursive_assert_approx_equal(
+            interrupted_callback.data,
+            continuous_callback.data,
+            atol=atol,
+            rtol=rtol,
+        )
+
+    def test_train_val_init_consumed_samples(self, data_path):
         """Tests the initial consumed samples in stop-and-go scenario."""
+        # Setup data if not already done
+        if self.data_path is None or self.tokenizer is None:
+            self.setup_data(data_path)
+
         train_consumed_stop, val_consumed_stop = stop_and_go.get_callback(
             self.callbacks, Mode.STOP, testing_callbacks.TrainValInitConsumedSamplesStopAndGoCallback
         ).data

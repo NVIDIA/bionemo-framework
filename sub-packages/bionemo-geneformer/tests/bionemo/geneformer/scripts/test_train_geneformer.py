@@ -23,20 +23,10 @@ import pytest
 from lightning.fabric.plugins.environments.lightning import find_free_network_port
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
-from bionemo.core.data.load import load
 from bionemo.geneformer.scripts.train_geneformer import get_parser, main
 from bionemo.llm.model.biobert.transformer_specs import BiobertSpecOption
 from bionemo.llm.utils.datamodule_utils import parse_kwargs_to_arglist
 from bionemo.testing import megatron_parallel_state_utils
-
-
-@pytest.fixture(scope="module")
-def data_path() -> Path:
-    """Gets the path to the directory with cellx small dataset in Single Cell Memmap format.
-    Returns:
-        A Path object that is the directory with the specified test data.
-    """
-    return load("single_cell/testdata-20241203") / "cellxgene_2023-12-15_small_processed_scdl"
 
 
 def test_bionemo2_rootdir(data_path):
@@ -114,6 +104,42 @@ def test_main_runs(tmpdir, create_checkpoint_callback: bool, data_path: Path):
         assert not checkpoint_dir.exists(), "Checkpoints directory should not exist when callback is disabled"
 
     # Check TensorBoard logs - they are saved directly in the run directory
+    # Verify TensorBoard event files exist
+    tb_event_files = list(run_dir.glob("events.out.tfevents.*"))
+    assert len(tb_event_files) > 0, "No TensorBoard event files found"
+
+    # Load and verify TensorBoard metrics
+    event_acc = EventAccumulator(str(run_dir))
+    event_acc.Reload()
+
+    scalar_tags = event_acc.Tags()["scalars"]
+
+    # Check for specific metrics that should be present
+    required_metrics = {
+        "lr": "Learning rate",
+        "TFLOPS_per_GPU": "TFLOPS per GPU",  # From FLOPsMeasurementCallback
+        "train_step_timing": "Training step timing",
+        "consumed_samples": "Consumed samples",
+        "epoch": "Epoch",
+        "step": "Step",
+    }
+
+    missing_metrics = []
+    for metric_key, metric_name in required_metrics.items():
+        if not any(metric_key in tag for tag in scalar_tags):
+            missing_metrics.append(f"{metric_name} ({metric_key})")
+
+    assert len(missing_metrics) == 0, (
+        f"Missing required metrics: {', '.join(missing_metrics)}. Available tags: {scalar_tags}"
+    )
+
+    # Verify that metrics have been logged for multiple steps
+    for tag in scalar_tags:
+        if "step" in tag or "epoch" in tag:
+            continue  # Skip step/epoch counters themselves
+        events = event_acc.Scalars(tag)
+        assert len(events) >= 2, f"Expected at least 2 logged values for {tag}, but found {len(events)}"
+
     # Verify TensorBoard event files exist
     tb_event_files = list(run_dir.glob("events.out.tfevents.*"))
     assert len(tb_event_files) > 0, "No TensorBoard event files found"
@@ -373,3 +399,61 @@ def test_limit_val_batches_is_int(required_args_reference, limit_val_batches):
     arglist = parse_kwargs_to_arglist(required_args_reference)
     parser = get_parser()
     parser.parse_args(arglist)
+
+
+@pytest.mark.slow
+def test_pretrain_cli_with_tensorboard(tmpdir, data_path):
+    """Test the CLI with TensorBoard logging enabled."""
+    result_dir = Path(tmpdir.mkdir("results"))
+    open_port = find_free_network_port()
+
+    cmd_str = f"""train_geneformer     \
+    --data-dir {data_path}     \
+    --result-dir {result_dir}     \
+    --experiment-name test_cli_tb_experiment     \
+    --num-gpus 1  \
+    --num-nodes 1 \
+    --val-check-interval 2 \
+    --num-dataset-workers 0 \
+    --num-steps 5 \
+    --seq-length 128 \
+    --limit-val-batches 2 \
+    --micro-batch-size 2 \
+    --accumulate-grad-batches 2 \
+    --num-layers 2 \
+    --num-attention-heads 2 \
+    --hidden-size 4 \
+    --ffn-hidden-size 8 \
+    --create-tensorboard-logger \
+    --create-tflops-callback \
+    --log-every-n-steps 1
+    """.strip()
+
+    env = dict(**os.environ)
+    env["MASTER_PORT"] = str(open_port)
+    cmd = shlex.split(cmd_str)
+    result = subprocess.run(
+        cmd,
+        cwd=tmpdir,
+        env=env,
+        capture_output=True,
+    )
+
+    # Check command executed successfully
+    assert result.returncode == 0, (
+        f"Pretrain script failed: {cmd_str}\nstdout: {result.stdout.decode()}\nstderr: {result.stderr.decode()}"
+    )
+
+    # Verify experiment directory exists
+    experiment_dir = result_dir / "test_cli_tb_experiment"
+    assert experiment_dir.exists(), "Could not find test experiment directory."
+
+    # Get the run directory
+    run_dirs = list(experiment_dir.iterdir())
+    assert len(run_dirs) == 1, f"Expected exactly one run directory, found {len(run_dirs)}"
+    run_dir = run_dirs[0]
+
+    # Verify TensorBoard logs were created - they are saved directly in the run directory
+    # Verify event files exist
+    tb_event_files = list(run_dir.glob("events.out.tfevents.*"))
+    assert len(tb_event_files) > 0, "No TensorBoard event files found"
