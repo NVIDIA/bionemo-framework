@@ -170,7 +170,7 @@ def get_parameter_names_with_lora(model):
     forbidden_name_patterns = [r"bias", r"layernorm", r"rmsnorm", r"(?:^|\.)norm(?:$|\.)", r"_norm(?:$|\.)"]
     decay_parameters = get_parameter_names(model, [torch.nn.LayerNorm], forbidden_name_patterns)
 
-    for name, param in model.named_parameters():
+    for name, _ in model.named_parameters():
         if "lora_" in name:
             decay_parameters.append(name)
 
@@ -259,6 +259,7 @@ def main(args: DictConfig) -> float:
     while step < args.num_train_steps:
         with tqdm(train_dataloader, desc="Training") as progress_bar:
             for batch in progress_bar:
+                perf_logger.log_train_start_time()
                 batch = {k: v.to("cuda") for k, v in batch.items()}  # noqa PLW2901
                 # print(batch["input_ids"].shape)
                 output = peft_model(**batch)
@@ -275,6 +276,7 @@ def main(args: DictConfig) -> float:
 
                 step += 1
 
+                perf_logger.log_train_end_time()
                 # Validation
                 avg_val_loss = None
                 avg_val_acc = None

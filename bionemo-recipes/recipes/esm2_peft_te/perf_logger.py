@@ -55,6 +55,8 @@ class PerfLogger:
             "train/loss": torchmetrics.MeanMetric(),
             "train/grad_norm": torchmetrics.MeanMetric(),
             "train/learning_rate": torchmetrics.MeanMetric(),
+            "train/num_tokens": torchmetrics.MeanMetric(),
+            "train/num_unpadded_tokens": torchmetrics.MeanMetric(),
             "train/step_time": torchmetrics.MeanMetric(),
             "train/tokens_per_second_per_gpu": torchmetrics.MeanMetric(),
             "train/unpadded_tokens_per_second_per_gpu": torchmetrics.MeanMetric(),
@@ -70,11 +72,23 @@ class PerfLogger:
         # We move metrics to a GPU device so we can use torch.distributed to aggregate them before logging.
         self.metrics.to(torch.device(f"cuda:{dist_config.local_rank}"))
         self.previous_step_time = time.perf_counter()
+        self.train_start_time = None
+        self.train_end_time = None
 
         if self._dist_config.is_main_process():
             # Log the entire args object to wandb for experiment tracking and reproducibility.
             wandb.init(**args.wandb_init_args, config=self._run_config)
             self._progress_bar = tqdm(total=args.num_train_steps, desc="Training")
+
+    def log_train_end_time(self):
+        """Log when the train loop for a batch ends."""
+        self.train_end_time = time.perf_counter()
+        return
+
+    def log_train_start_time(self):
+        """Log when the train loop for a batch starts."""
+        self.train_start_time = time.perf_counter()
+        return
 
     def log_step(
         self,
@@ -102,9 +116,11 @@ class PerfLogger:
         num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != 1].numel()
 
         self.min_loss = min(self.min_loss, outputs.loss.item())
-        step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
+        step_time = self.train_end_time - self.train_start_time
 
         self.metrics["train/loss"].update(outputs.loss)
+        self.metrics["train/num_tokens"].update(num_tokens)
+        self.metrics["train/num_unpadded_tokens"].update(num_unpadded_tokens)
         self.metrics["train/learning_rate"].update(lr)
         self.metrics["train/grad_norm"].update(grad_norm)
         self.metrics["train/step_time"].update(step_time)
