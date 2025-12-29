@@ -53,18 +53,23 @@ def create_dataloader(
     stride: int = 16,
     perform_validation: bool = False,
     validation_samples: int = 1024,
+    val_micro_batch_size: int = 64,
     ss3_classification: bool = True,
-    dataset_file_name: str = "peft_sanity_dataset.parquet",
     **kwargs,
 ) -> tuple[torch.utils.data.DataLoader, torch.utils.data.DataLoader | None]:
     """Create a dataloader for the secondary structure dataset."""
     if use_sanity_dataset:
         # 5000 row sanity dataset.
-        train_dataset = load_dataset("parquet", data_files=dataset_file_name, split="train", streaming=True)
+        train_dataset = load_dataset(
+            "parquet", data_files=kwargs["load_dataset_kwargs"]["data_files"], split="train", streaming=True
+        )
+        dataset_name = kwargs["load_dataset_kwargs"]["data_files"]
     else:
         # Full-scale source dataset.
         train_dataset = load_dataset("lamm-mit/protein_secondary_structure_from_PDB", split="train", streaming=True)
+        dataset_name = "lamm-mit/protein_secondary_structure_from_PDB"
 
+    print(f"Loading dataset '{dataset_name}'.")
     if perform_validation:
         val_dataset = train_dataset.take(validation_samples)
         train_dataset = train_dataset.skip(validation_samples)
@@ -137,7 +142,7 @@ def create_dataloader(
 
         collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding="max_length", max_length=1024)
         val_dataloader = torch.utils.data.DataLoader(
-            val_tokenized_dataset, batch_size=micro_batch_size, collate_fn=collator
+            val_tokenized_dataset, batch_size=val_micro_batch_size, collate_fn=collator
         )
     else:
         val_dataloader = None
@@ -152,6 +157,24 @@ def compute_accuracy(preds, labels, ignore_index=-100) -> tuple[int, int]:
     correct = (preds_labels == labels) & mask
 
     return correct.sum().item(), mask.sum().item()
+
+
+def get_parameter_names_with_lora(model):
+    """Get layers with non-zero weight decay.
+
+    This function reuses the Transformers' library function
+    to list all the layers that should have weight decay.
+    This list will miss LoRA layers that we
+    want to have non-zero weight decay so we add them.
+    """
+    forbidden_name_patterns = [r"bias", r"layernorm", r"rmsnorm", r"(?:^|\.)norm(?:$|\.)", r"_norm(?:$|\.)"]
+    decay_parameters = get_parameter_names(model, [torch.nn.LayerNorm], forbidden_name_patterns)
+
+    for name, param in model.named_parameters():
+        if "lora_" in name:
+            decay_parameters.append(name)
+
+    return decay_parameters
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
@@ -206,8 +229,7 @@ def main(args: DictConfig) -> float:
     peft_model.print_trainable_parameters()
 
     # Create optimizer.
-    forbidden_name_patterns = [r"bias", r"layernorm", r"rmsnorm", r"(?:^|\.)norm(?:$|\.)", r"_norm(?:$|\.)"]
-    decay_parameters = get_parameter_names(peft_model, [torch.nn.LayerNorm], forbidden_name_patterns)
+    decay_parameters = get_parameter_names_with_lora(peft_model)
     optimizer_grouped_parameters = [
         {
             "params": [p for n, p in peft_model.named_parameters() if (n in decay_parameters and p.requires_grad)],

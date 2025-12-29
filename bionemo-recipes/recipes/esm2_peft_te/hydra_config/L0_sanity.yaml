@@ -14,19 +14,20 @@ use_torch_compile: true
 
 use_sequence_packing: false
 dataset:
-  use_sanity_dataset: false
+  use_sanity_dataset: true
   ss3_classification: true
   tokenizer_name: ${model_tag}
   micro_batch_size: 8
+  val_micro_batch_size: 128
   num_workers: 8
   max_seq_length: 1024
   stride: 16
   use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
-  validation_samples: 16
+  validation_samples: 5098
   load_dataset_kwargs:
     path: "parquet"
     split: "train"
-    data_files: "train.parquet"
+    data_files: "dataset_25k.parquet"
 
 # WandB config
 wandb_init_args:
