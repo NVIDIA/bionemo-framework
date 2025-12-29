@@ -12,12 +12,13 @@ file. From this file, you may either submit it directly, or modify the various p
 example, Weights and biases, devices, precision, and dataset options are all extremely useful to modify. Then, you would
 submit this config for training.
 
-These two workflows are packaged as executables when esm2 or geneformer are installed with pip. These commands will appear as:
+!!! note "5D Parallel Training Moved to bionemo-recipes"
+The 5D parallel training implementations for ESM-2 and Geneformer have been moved to [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes). For training these models, please refer to the recipes in `bionemo-recipes/recipes/` (e.g., `esm2_native_te`, `geneformer_native_te_mfsdp_fp8`).
+
+The following workflows are packaged as executables when esm2 is installed with pip. These commands will appear as:
 
 ```bash
-bionemo-geneformer-recipe
 bionemo-esm2-recipe
-bionemo-geneformer-train
 bionemo-esm2-train
 ```
 
@@ -116,98 +117,10 @@ type, and then pass in the config type to the training recipe.
 
 ## Geneformer
 
-### Running
+!!! note "Geneformer Training Moved to bionemo-recipes"
+The 5D parallel training implementation for Geneformer has been moved to [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/recipes/geneformer_native_te_mfsdp_fp8). For training Geneformer models, please refer to the recipe in `bionemo-recipes/recipes/geneformer_native_te_mfsdp_fp8/`.
 
-Similar to ESM-2, you can download the dataset and checkpoint through our utility function.
-
-```bash
-TEST_DATA_DIR=$(download_bionemo_data single_cell/testdata-20241203 --source $MY_DATA_SOURCE); \
-GENEFORMER_10M_CKPT=$(download_bionemo_data geneformer/10M_240530:2.0 --source $MY_DATA_SOURCE); \
-train_geneformer     \
-    --data-dir ${TEST_DATA_DIR}/cellxgene_2023-12-15_small_processed_scdl    \
-    --result-dir ./results     \
-    --restore-from-checkpoint-path ${GENEFORMER_10M_CKPT} \
-    --experiment-name test_experiment     \
-    --num-gpus 1  \
-    --num-nodes 1 \
-    --val-check-interval 10 \
-    --num-dataset-workers 0 \
-    --num-steps 55 \
-    --seq-length 128 \
-    --limit-val-batches 2 \
-    --micro-batch-size 2
-```
-
-To fine-tune, you need to specify a different combination of model and loss. Pass the path to the outputted config file from the previous step as the `--restore-from-checkpoint-path`, and also change
-`--training-model-config-class` to the newly created model-config-class.
-
-While no CLI option currently exists to hot swap in different data modules and processing functions _now_, you could
-copy the `sub-projects/bionemo-geneformer/geneformer/scripts/train_geneformer.py` and modify the DataModule class that gets initialized.
-
-Simple fine-tuning example (**NOTE**: please change `--restore-from-checkpoint-path` to be the checkpoint directory path that was output last
-by the previous train run)
-
-```bash
-TEST_DATA_DIR=$(download_bionemo_data single_cell/testdata-20241203 --source $MY_DATA_SOURCE); \
-train_geneformer     \
-    --data-dir ${TEST_DATA_DIR}/cellxgene_2023-12-15_small_processed_scdl    \
-    --result-dir ./results     \
-    --experiment-name test_finettune_experiment     \
-    --num-gpus 1  \
-    --num-nodes 1 \
-    --val-check-interval 10 \
-    --num-dataset-workers 0 \
-    --num-steps 55 \
-    --seq-length 128 \
-    --limit-val-batches 2 \
-    --micro-batch-size 2 \
-    --training-model-config-class FineTuneSeqLenBioBertConfig \
-    --restore-from-checkpoint-path results/test_experiment/dev/checkpoints/test_experiment--val_loss=4.3506-epoch=1-last
-```
-
-### Running with Pydantic configs
-
-Alternatively, we provide a validated and serialized configuration file entrypoint for executing the same workflow. Recipes
-are available for 10m, and 106m geneformer models. Additionally we provide an example recipe of finetuning, where the objective
-is to 'regress' on token IDs rather than the traditional masked language model approach. In practice, you will likely
-need to implement your own DataModule, DataConfig, and Finetuning model. You can use the same overall approach, but with
-customizations for your task.
-
-```bash
-TEST_DATA_DIR=$(download_bionemo_data single_cell/testdata-20241203 --source $MY_DATA_SOURCE); \
-bionemo-geneformer-recipe \
-    --recipe 10m-pretrain \
-    --dest my_config.json \
-    --data-path ${TEST_DATA_DIR}/cellxgene_2023-12-15_small_processed_scdl \
-    --result-dir ./results
-```
-
-> ⚠️ **IMPORTANT:** Inspect and edit the contents of the outputted my_config.yaml as you see fit
-
-> NOTE: To pretrain from an existing checkpoint, simply pass in the path --initial-ckpt-path to the recipe command. This will populate the YAML with the correct field to ensure pretraining is initialized from an existing checkpoint.
-
-To submit a training job with the passed config, first update the yaml file with any additional execution parameters
-of your choosing: number of devices, workers, steps, etc. Second, invoke our training entrypoint. To do this, we need
-three things:
-
-- Configuration file, the YAML produced by the previous step
-- Model config type, in this case the pretraining config. This will validate the arguments in the config YAML against
-  those required for pretraining. Alternatively, things like fine-tuning with custom task heads may be specified here.
-  This allows for mixing/matching Data Modules with various tasks.
-- Data Config type, this specifies how to parse, validate, and prepare the DataModule. This may change depending on task,
-  for example, while fine-tuning you may want to use a custom Dataset/DataModule that includes PERTURB-seq. In this case,
-  the default pretraining DataConfig and DataModule will be insufficient. See ESM2 for additional example use cases.
-
-> ⚠️ **Warning:** This setup does NO configuration of Weights and Biases. Edit your config YAML and populate it with your WandB details.
-
-```bash
-bionemo-geneformer-train \
---data-config-cls bionemo.geneformer.run.config_models.GeneformerPretrainingDataConfig \
---model-config-cls bionemo.geneformer.run.config_models.ExposedGeneformerPretrainConfig \
---config my_config.yaml
-```
-
-> NOTE: both data-config-cls and model-config-cls have default values corresponding to GeneformerPretrainingDataConfig and ExposedGeneformerPretrainConfig
+Model checkpoints and benchmark information remain available in the [Geneformer model card](../models/geneformer.md).
 
 DataConfigCls and ModelConfigCls can also refer to locally defined types by the user. As long as python knows how to import
 the specified path, they may be configured. For example, you may have a custom Dataset/DataModule that you would like to
