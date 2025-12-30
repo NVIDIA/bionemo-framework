@@ -20,8 +20,9 @@ import transformer_engine
 from torch.distributed.checkpoint.state_dict import get_model_state_dict
 from transformer_engine.common import recipe as recipe_module
 from transformer_engine.pytorch import fp8
+from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import MLMDataCollatorWithFlattening
+from esm.collator import DataCollatorWithFlattening
 from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
 
@@ -87,11 +88,10 @@ def parametrize_recipes_with_support(recipes):
 
 @pytest.fixture
 def input_data_thd(tokenizer, tokenized_proteins):
-    data_collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15, seed=42)
+    data_collator = DataCollatorWithFlattening(
+        collator=mlm_collator,
         pad_to_multiple_of=32,  # MXFP8 requires the sequence length to be divisible by 32, regular FP8 requires 16.
-        seed=42,
     )
 
     return data_collator(tokenized_proteins)
@@ -139,6 +139,9 @@ def test_fp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd, 
     if isinstance(fp8_recipe, recipe_module.NVFP4BlockScaling):
         atol = 0.2
         rtol = 0.05
+    elif isinstance(fp8_recipe, recipe_module.DelayedScaling):
+        atol = 0.1
+        rtol = 0.03
     else:
         atol = None
         rtol = None

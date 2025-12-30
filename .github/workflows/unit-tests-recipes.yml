@@ -158,7 +158,9 @@ jobs:
       - name: Install dependencies
         working-directory: ${{ matrix.recipe.dir }}
         run: |
-          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+          if [ -f .ci_build.sh ]; then
+            bash .ci_build.sh
+          elif [ -f pyproject.toml ] || [ -f setup.py ]; then
             PIP_CONSTRAINT= pip install -e .
             echo "Installed ${{ matrix.recipe.dir }} as editable package"
           elif [ -f requirements.txt ]; then
@@ -171,7 +173,12 @@ jobs:
 
       - name: Run tests
         working-directory: ${{ matrix.recipe.dir }}
-        run: pytest -v .
+        run: |
+          if [ -f .ci_test_env.sh ]; then
+            source .ci_test_env.sh
+          fi
+          pytest -v .
+
 
   verify-recipe-tests:
     # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.

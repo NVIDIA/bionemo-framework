@@ -20,9 +20,9 @@ import datasets.distributed
 from torch.utils.data import DataLoader, DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
-from transformers.data.data_collator import DataCollatorForLanguageModeling, DataCollatorWithFlattening
+from transformers.data.data_collator import DataCollatorForLanguageModeling
 
-from collator import TokenPackingDataset
+from collator import DataCollatorWithFlattening, TokenPackingDataset
 from distributed_config import DistributedConfig
 from genomic_dataset import GenomicDataCollator
 
@@ -247,7 +247,7 @@ def create_thd_dataloader(
     Returns:
         A dataloader that can be used for training.
     """
-    tokenized_dataset, _ = create_tokenized_dataset(
+    tokenized_dataset, tokenizer = create_tokenized_dataset(
         distributed_config=distributed_config,
         tokenizer_name_or_path=tokenizer_name_or_path,
         load_dataset_kwargs=load_dataset_kwargs,
@@ -266,7 +266,12 @@ def create_thd_dataloader(
         assert micro_batch_size is None, "Only one of micro_batch_size or token_micro_batch_size can be provided."
         assert token_micro_batch_size >= max_seq_length, "token_micro_batch_size must be greater than max_seq_length."
 
-    data_collator = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
+    # Create base MLM collator and wrap with flattening collator
+    base_mlm_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,  # Causal language modeling
+    )
+    data_collator = DataCollatorWithFlattening(collator=base_mlm_collator)
 
     if uppercase_labels or mask_degenerate_bases:
         # Wrap with genomic collator if masking options are enabled

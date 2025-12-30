@@ -86,9 +86,6 @@ def main(args: DictConfig) -> float | None:
         f"Creating device mesh: world_size={dist_config.world_size}, dp_size={dp_size}, cp_size={args.cp_size}"
     )
 
-    cp_group = device_mesh["cp"].get_group()
-    cp_rank = device_mesh.get_local_rank("cp")
-
     # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
     fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
         fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
@@ -123,7 +120,9 @@ def main(args: DictConfig) -> float | None:
         if args.cp_size > 1:
             logger.debug(f"Rank {dist_config.rank}: Setting CP group for layer {layer}")
             layer.set_context_parallel_group(
-                cp_group, torch.distributed.get_process_group_ranks(cp_group), torch.cuda.Stream()
+                device_mesh["cp"].get_group(),
+                torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()),
+                torch.cuda.Stream(),
             )
     fully_shard(model, mesh=cp_dp_mesh)
 
@@ -140,9 +139,7 @@ def main(args: DictConfig) -> float | None:
 
     train_dataloader, dataset_or_sampler = create_cp_dataloader(
         dist_config,
-        cp_world_size=torch.distributed.get_world_size(group=cp_group),
-        cp_group=cp_group,
-        cp_rank=cp_rank,
+        cp_mesh=device_mesh["cp"],
         **args.dataset,
     )
 
