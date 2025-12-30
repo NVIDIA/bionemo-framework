@@ -38,9 +38,8 @@ from transformers.modeling_outputs import (
     MaskedLMOutput,
     TokenClassifierOutput,
 )
-from transformers.modeling_utils import PreTrainedModel
 from transformers.models.esm.configuration_esm import EsmConfig
-from transformers.models.esm.modeling_esm import EsmPooler
+from transformers.models.esm.modeling_esm import EsmPooler, EsmPreTrainedModel
 from transformers.utils import logging
 from transformers.utils.generic import TransformersKwargs
 
@@ -251,7 +250,7 @@ class NVEsmEncoder(nn.Module):
         )
 
 
-class NVEsmPreTrainedModel(PreTrainedModel):
+class NVEsmPreTrainedModel(EsmPreTrainedModel):
     """An abstract class to handle weights initialization and pretrained model loading."""
 
     config_class = NVEsmConfig
@@ -274,19 +273,13 @@ class NVEsmPreTrainedModel(PreTrainedModel):
         Args:
             module (nn.Module): The module to initialize the weights for.
         """
-        if isinstance(
-            module, (nn.Linear, transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)
-        ):
-            # Slightly different from the TF version which uses truncated_normal for initialization
-            # cf https://github.com/pytorch/pytorch/pull/5617
+        super()._init_weights(module)
+
+        if isinstance(module, (transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)):
             module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
             if module.bias is not None:
                 module.bias.data.zero_()
-        if isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-        if isinstance(module, (nn.LayerNorm, transformer_engine.pytorch.LayerNorm)):
+        if isinstance(module, transformer_engine.pytorch.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
         if isinstance(module, transformer_engine.pytorch.LayerNormLinear):
