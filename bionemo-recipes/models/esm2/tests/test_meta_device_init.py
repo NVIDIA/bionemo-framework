@@ -29,6 +29,7 @@ import subprocess
 
 import pytest
 import torch
+import transformer_engine.pytorch
 from torch.distributed.fsdp import fully_shard
 from torch.distributed.tensor import DTensor
 from transformers import AutoConfig, set_seed
@@ -68,18 +69,70 @@ def test_meta_device_init():
     state_dict_normal_init = model_normal_init.state_dict()
 
     for key in state_dict_meta_init.keys():
+        if key.endswith("_extra_state"):
+            continue
+
         meta_tensor = state_dict_meta_init[key]
         normal_tensor = state_dict_normal_init[key]
-        # Skip non-numeric tensors (e.g., Byte/uint8 tensors like _extra_state)
-        if meta_tensor.dtype not in (
-            torch.float16,
-            torch.float32,
-            torch.float64,
-            torch.bfloat16,
-            torch.complex64,
-            torch.complex128,
-        ):
+
+        torch.testing.assert_close(
+            normal_tensor.mean(),
+            meta_tensor.mean(),
+            atol=1e-3,
+            rtol=1e-4,
+            msg=lambda x: f"Mean mismatch for parameter {key}: {x}",
+        )
+        torch.testing.assert_close(
+            normal_tensor.std(),
+            meta_tensor.std(),
+            atol=1e-3,
+            rtol=1e-4,
+            msg=lambda x: f"Std mismatch for parameter {key}: {x}",
+        )
+
+
+def test_meta_device_init_with_fp8_params():
+    config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
+
+    set_seed(42)
+    with torch.device("meta"), transformer_engine.pytorch.fp8_model_init():
+        model_meta_init = NVEsmForMaskedLM(config)
+
+    # Assert parameters are actually on the meta device
+    for name, parameter in model_meta_init.named_parameters():
+        assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
+
+    model_meta_init.to_empty(device="cuda")
+    model_meta_init.apply(model_meta_init._init_weights)
+
+    assert isinstance(model_meta_init.lm_head.dense.weight, transformer_engine.pytorch.QuantizedTensor)
+
+    # Assert parameters are actually on the cuda device after to_empty
+    for name, parameter in model_meta_init.named_parameters():
+        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
+
+    set_seed(42)
+    with transformer_engine.pytorch.fp8_model_init():
+        model_normal_init = NVEsmForMaskedLM(config)
+
+    model_normal_init.to("cuda")
+
+    assert isinstance(model_normal_init.lm_head.dense.weight, transformer_engine.pytorch.QuantizedTensor)
+
+    state_dict_meta_init = model_meta_init.state_dict()
+    state_dict_normal_init = model_normal_init.state_dict()
+
+    for key in state_dict_meta_init.keys():
+        if key.endswith("_extra_state"):
             continue
+
+        meta_tensor = state_dict_meta_init[key]
+        normal_tensor = state_dict_normal_init[key]
+
+        assert type(normal_tensor) is type(meta_tensor), (
+            f"Type mismatch for parameter {key}: {type(normal_tensor)} != {type(meta_tensor)}"
+        )
+
         torch.testing.assert_close(
             normal_tensor.mean(),
             meta_tensor.mean(),
@@ -156,18 +209,11 @@ if __name__ == "__main__":
     state_dict_normal_init = model_normal_init.state_dict()
 
     for key in state_dict_meta_init.keys():
+        if key.endswith("_extra_state"):
+            continue
+
         meta_tensor = state_dict_meta_init[key]
         normal_tensor = state_dict_normal_init[key]
-        # Skip non-numeric tensors (e.g., Byte/uint8 tensors like _extra_state)
-        if meta_tensor.dtype not in (
-            torch.float16,
-            torch.float32,
-            torch.float64,
-            torch.bfloat16,
-            torch.complex64,
-            torch.complex128,
-        ):
-            continue
 
         torch.testing.assert_close(
             normal_tensor.mean(),

@@ -80,18 +80,11 @@ def test_meta_device_init():
     state_dict_normal_init = model_normal_init.state_dict()
 
     for key in state_dict_meta_init.keys():
+        if key.endswith("_extra_state"):
+            continue
+
         meta_tensor = state_dict_meta_init[key]
         normal_tensor = state_dict_normal_init[key]
-        # Skip non-numeric tensors (e.g., Byte/uint8 tensors like _extra_state)
-        if meta_tensor.dtype not in (
-            torch.float16,
-            torch.float32,
-            torch.float64,
-            torch.bfloat16,
-            torch.complex64,
-            torch.complex128,
-        ):
-            continue
         torch.testing.assert_close(
             normal_tensor.mean(),
             meta_tensor.mean(),
@@ -176,18 +169,11 @@ if __name__ == "__main__":
     state_dict_normal_init = model_normal_init.state_dict()
 
     for key in state_dict_meta_init.keys():
+        if key.endswith("_extra_state"):
+            continue
+
         meta_tensor = state_dict_meta_init[key]
         normal_tensor = state_dict_normal_init[key]
-        # Skip non-numeric tensors (e.g., Byte/uint8 tensors like _extra_state)
-        if meta_tensor.dtype not in (
-            torch.float16,
-            torch.float32,
-            torch.float64,
-            torch.bfloat16,
-            torch.complex64,
-            torch.complex128,
-        ):
-            continue
 
         torch.testing.assert_close(
             normal_tensor.mean(),
