@@ -156,21 +156,23 @@ def test_weight_initialization_matches_hf():
     state_dict_hf = model_te_converted.state_dict()
     state_dict_te = model_te.state_dict()
 
+    breakpoint()
+
     for name in state_dict_hf.keys():
         if name.endswith("_extra_state"):
             continue
 
         torch.testing.assert_close(
-            state_dict_hf[name].mean(),
             state_dict_te[name].mean(),
+            state_dict_hf[name].mean(),
             atol=1e-2,
             rtol=1e-4,
             msg=lambda x: f"Mean mismatch for parameter {name}: {x}",
         )
 
         torch.testing.assert_close(
-            state_dict_hf[name].std(),
             state_dict_te[name].std(),
+            state_dict_hf[name].std(),
             atol=1e-2,
             rtol=1e-4,
             msg=lambda x: f"Std mismatch for parameter {name}: {x}",

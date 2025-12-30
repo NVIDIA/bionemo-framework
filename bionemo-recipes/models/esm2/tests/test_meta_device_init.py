@@ -134,15 +134,15 @@ def test_meta_device_init_with_fp8_params():
         )
 
         torch.testing.assert_close(
-            normal_tensor.mean(),
             meta_tensor.mean(),
+            normal_tensor.mean(),
             atol=1e-3,
             rtol=1e-4,
             msg=lambda x: f"Mean mismatch for parameter {key}: {x}",
         )
         torch.testing.assert_close(
-            normal_tensor.std(),
             meta_tensor.std(),
+            normal_tensor.std(),
             atol=1e-3,
             rtol=1e-4,
             msg=lambda x: f"Std mismatch for parameter {key}: {x}",
