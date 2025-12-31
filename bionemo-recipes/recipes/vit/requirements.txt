@@ -2,7 +2,8 @@ torch
 torchvision
 transformer_engine
 # TOT megatron-mfsdp until NVIDIA/Megatron-LM#2575 is in a release.
-megatron-fsdp @ git+https://github.com/NVIDIA/Megatron-LM.git@main#subdirectory=megatron/core/distributed/fsdp/srchydra-core
+megatron-fsdp @ git+https://github.com/NVIDIA/Megatron-LM.git@main#subdirectory=megatron/core/distributed/fsdp/src
+hydra-core
 einops
 wandb
 tqdm
