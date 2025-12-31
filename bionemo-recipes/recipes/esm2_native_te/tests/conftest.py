@@ -63,7 +63,5 @@ def device_mesh():
     # At the end of all tests, destroy the process group and clear the device mesh resources.
     torch.distributed.destroy_process_group()
     _mesh_resources.mesh_stack.clear()
-    _mesh_resources.root_to_flatten_mapping.clear()
-    _mesh_resources.mesh_dim_group_options.clear()
     torch.cuda.empty_cache()
     torch.cuda.synchronize()
