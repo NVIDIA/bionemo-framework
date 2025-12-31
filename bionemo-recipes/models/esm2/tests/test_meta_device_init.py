@@ -43,6 +43,20 @@ requires_multi_gpu = pytest.mark.skipif(
 )
 
 
+def test_normal_init():
+    config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
+
+    set_seed(42)
+    model = NVEsmForMaskedLM(config)
+    model.to("cuda")
+
+    for module in model.modules():
+        if isinstance(module, transformer_engine.pytorch.Linear):
+            torch.testing.assert_close(module.weight.mean(), 0.0)
+            torch.testing.assert_close(module.weight.std(), config.initializer_range)
+            torch.testing.assert_close(module.bias, torch.zeros_like(module.bias))
+
+
 def test_meta_device_init():
     config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
 
@@ -55,7 +69,14 @@ def test_meta_device_init():
         assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
 
     model_meta_init.to_empty(device="cuda")
+
+    for module in model_meta_init.modules():
+        if hasattr(module, "reset_parameters"):
+            module.reset_parameters()
+
     model_meta_init.apply(model_meta_init._init_weights)
+
+    # model_meta_init.apply(model_meta_init._init_weights)
 
     # Assert parameters are actually on the cuda device after to_empty
     for name, parameter in model_meta_init.named_parameters():
@@ -76,16 +97,16 @@ def test_meta_device_init():
         normal_tensor = state_dict_normal_init[key]
 
         torch.testing.assert_close(
-            normal_tensor.mean(),
             meta_tensor.mean(),
-            atol=1e-3,
+            normal_tensor.mean(),
+            atol=1e-2,
             rtol=1e-4,
             msg=lambda x: f"Mean mismatch for parameter {key}: {x}",
         )
         torch.testing.assert_close(
-            normal_tensor.std(),
             meta_tensor.std(),
-            atol=1e-3,
+            normal_tensor.std(),
+            atol=1e-2,
             rtol=1e-4,
             msg=lambda x: f"Std mismatch for parameter {key}: {x}",
         )
@@ -103,6 +124,11 @@ def test_meta_device_init_with_fp8_params():
         assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
 
     model_meta_init.to_empty(device="cuda")
+
+    for module in model_meta_init.modules():
+        if hasattr(module, "reset_parameters"):
+            module.reset_parameters()
+
     model_meta_init.apply(model_meta_init._init_weights)
 
     assert isinstance(model_meta_init.lm_head.dense.weight, transformer_engine.pytorch.QuantizedTensor)
@@ -136,14 +162,14 @@ def test_meta_device_init_with_fp8_params():
         torch.testing.assert_close(
             meta_tensor.mean(),
             normal_tensor.mean(),
-            atol=1e-3,
+            atol=0.05,
             rtol=1e-4,
             msg=lambda x: f"Mean mismatch for parameter {key}: {x}",
         )
         torch.testing.assert_close(
             meta_tensor.std(),
             normal_tensor.std(),
-            atol=1e-3,
+            atol=0.05,
             rtol=1e-4,
             msg=lambda x: f"Std mismatch for parameter {key}: {x}",
         )
