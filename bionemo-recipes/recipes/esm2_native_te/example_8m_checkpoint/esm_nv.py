@@ -280,15 +280,15 @@ class NVEsmPreTrainedModel(EsmPreTrainedModel):
             module (nn.Module): The module to initialize the weights for.
         """
         super()._init_weights(module)
-        if isinstance(
-            module,
-            (
-                transformer_engine.pytorch.module.base.TransformerEngineBaseModule,
-                transformer_engine.pytorch.LayerNorm,
-                transformer_engine.pytorch.RMSNorm,
-            ),
-        ):
-            module.reset_parameters(defer_init=str(torch.get_default_device()) == "meta")
+        # if isinstance(
+        #     module,
+        #     (
+        #         transformer_engine.pytorch.module.base.TransformerEngineBaseModule,
+        #         transformer_engine.pytorch.LayerNorm,
+        #         transformer_engine.pytorch.RMSNorm,
+        #     ),
+        # ):
+        #     module.reset_parameters(defer_init=str(torch.get_default_device()) == "meta")
 
         if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
             # When we initialize the model with `to_empty`, the `inv_freq` attribute is not initialized, so we need to
