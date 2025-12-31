@@ -134,6 +134,10 @@ class NVEsmEncoder(nn.Module):
         """
         super().__init__()
         self.config = config
+
+        def _init_method(x):
+            torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
+
         self.layers = nn.ModuleList(
             [
                 transformer_engine.pytorch.TransformerLayer(
@@ -156,7 +160,8 @@ class NVEsmEncoder(nn.Module):
                     params_dtype=config.dtype,
                     window_size=(-1, -1),
                     device=str(torch.get_default_device()),
-                    zero_centered_gamma=True,
+                    init_method=_init_method,
+                    output_layer_init_method=_init_method,
                 )
                 for i in range(config.num_hidden_layers)
             ]
@@ -275,40 +280,22 @@ class NVEsmPreTrainedModel(EsmPreTrainedModel):
             module (nn.Module): The module to initialize the weights for.
         """
         super()._init_weights(module)
-        if isinstance(module, transformer_engine.pytorch.module.base.TransformerEngineBaseModule):
+        if isinstance(
+            module,
+            (
+                transformer_engine.pytorch.module.base.TransformerEngineBaseModule,
+                transformer_engine.pytorch.LayerNorm,
+                transformer_engine.pytorch.RMSNorm,
+            ),
+        ):
             module.reset_parameters(defer_init=str(torch.get_default_device()) == "meta")
 
-        # if isinstance(module, (transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)):
-        #     module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-        #     if module.bias is not None:
-        #         module.bias.data.zero_()
-        # if isinstance(module, transformer_engine.pytorch.LayerNorm):
-        #     module.bias.data.zero_()
-        #     module.weight.data.fill_(1.0)
-        # if isinstance(module, transformer_engine.pytorch.LayerNormLinear):
-        #     if module.layer_norm_bias is not None:
-        #         module.layer_norm_bias.data.zero_()
-        #     module.layer_norm_weight.data.fill_(1.0)
-        #     if module.layer_norm_bias is not None:
-        #         module.layer_norm_bias.data.zero_()
-        # if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
-        #     if module.layer_norm_bias is not None:
-        #         module.layer_norm_bias.data.zero_()
-        #     module.layer_norm_weight.data.fill_(1.0)
-        #     if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
-        #         module.fc1_weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-        #     if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
-        #         module.fc2_weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-        #     if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
-        #         module.fc1_bias.data.zero_()
-        #     if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
-        #         module.fc2_bias.data.zero_()
-        # if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
-        #     # When we initialize the model with `to_empty`, the `inv_freq` attribute is not initialized, so we need to
-        #     # re-initialize it here with the correct values.
-        #     module.inv_freq = RotaryPositionEmbedding(
-        #         self.config.hidden_size // self.config.num_attention_heads
-        #     ).inv_freq.to(module.inv_freq.device)
+        if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
+            # When we initialize the model with `to_empty`, the `inv_freq` attribute is not initialized, so we need to
+            # re-initialize it here with the correct values.
+            module.inv_freq = RotaryPositionEmbedding(
+                self.config.hidden_size // self.config.num_attention_heads
+            ).inv_freq.to(module.inv_freq.device)
 
     @classmethod
     def get_init_context(cls, is_quantized: bool, _is_ds_init_called: bool):
@@ -517,6 +504,7 @@ class NVEsmLMHead(nn.Module):
             config.hidden_size,
             params_dtype=config.dtype,
             device=str(torch.get_default_device()),
+            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
         )
 
         self.decoder = transformer_engine.pytorch.LayerNormLinear(
@@ -526,6 +514,7 @@ class NVEsmLMHead(nn.Module):
             eps=config.layer_norm_eps,
             params_dtype=config.dtype,
             device=str(torch.get_default_device()),
+            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
         )
 
     def forward(self, features, **kwargs):

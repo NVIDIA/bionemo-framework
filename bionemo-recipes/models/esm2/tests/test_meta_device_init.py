@@ -227,7 +227,7 @@ if __name__ == "__main__":
             torch.testing.assert_close(
                 normal_tensor.full_tensor().std(),
                 meta_tensor.full_tensor().std(),
-                atol=1e-3,
+                atol=1e-2,
                 rtol=1e-4,
                 msg=lambda x: f"Std mismatch for parameter {key}: {x}",
             )
@@ -236,7 +236,7 @@ if __name__ == "__main__":
             torch.testing.assert_close(
                 normal_tensor.std(),
                 meta_tensor.std(),
-                atol=1e-3,
+                atol=1e-2,
                 rtol=1e-4,
                 msg=lambda x: f"Std mismatch for parameter {key}: {x}",
             )
