@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM nvcr.io/nvidia/pytorch:25.11-py3
+FROM nvcr.io/nvidia/pytorch:25.12-py3
 
 # 1. Install uv (Method: COPY from official image is cleanest)
 #COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
