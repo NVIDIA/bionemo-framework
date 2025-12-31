@@ -19,7 +19,6 @@ import torch.distributed.checkpoint as dcp
 import transformer_engine
 from torch.distributed.checkpoint.state_dict import get_model_state_dict
 from transformer_engine.common import recipe as recipe_module
-from transformer_engine.pytorch import fp8
 from transformers import DataCollatorForLanguageModeling
 
 from esm.collator import DataCollatorWithFlattening
@@ -30,60 +29,6 @@ try:
     from transformer_engine.pytorch.tensor.quantized_tensor import QuantizedTensor
 except ImportError:  # TE nightly uses a new import path for QuantizedTensor
     from transformer_engine.pytorch.quantized_tensor import QuantizedTensor
-
-ALL_RECIPES = [
-    recipe_module.DelayedScaling(),
-    recipe_module.Float8CurrentScaling(),
-    recipe_module.Float8BlockScaling(),
-    recipe_module.MXFP8BlockScaling(),
-    # recipe_module.NVFP4BlockScaling(disable_rht=True, disable_stochastic_rounding=True),
-]
-
-
-def _check_recipe_support(recipe: recipe_module.Recipe):
-    """Check if a recipe is supported and return (supported, reason)."""
-    if isinstance(recipe, recipe_module.DelayedScaling):
-        recipe_supported, reason = fp8.check_fp8_support()
-    elif isinstance(recipe, recipe_module.Float8CurrentScaling):
-        recipe_supported, reason = fp8.check_fp8_support()
-    elif isinstance(recipe, recipe_module.Float8BlockScaling):
-        recipe_supported, reason = fp8.check_fp8_block_scaling_support()
-    elif isinstance(recipe, recipe_module.MXFP8BlockScaling):
-        recipe_supported, reason = fp8.check_mxfp8_support()
-    elif isinstance(recipe, recipe_module.NVFP4BlockScaling):
-        recipe_supported, reason = fp8.check_nvfp4_support()
-    else:
-        recipe_supported = False
-        reason = "Unsupported recipe"
-    return recipe_supported, reason
-
-
-def requires_recipe_support(recipe: recipe_module.Recipe):
-    """Decorator to skip tests that require recipe support."""
-
-    def requires_recipe_support_inner(func):
-        recipe_supported, reason = _check_recipe_support(recipe)
-        return pytest.mark.skipif(not recipe_supported, reason=reason)(func)
-
-    return requires_recipe_support_inner
-
-
-def parametrize_recipes_with_support(recipes):
-    """Generate pytest.param objects with skip marks for unsupported recipes."""
-    parametrized_recipes = []
-    for recipe in recipes:
-        recipe_supported, reason = _check_recipe_support(recipe)
-        parametrized_recipes.append(
-            pytest.param(
-                recipe,
-                id=recipe.__class__.__name__,
-                marks=pytest.mark.skipif(
-                    not recipe_supported,
-                    reason=reason,
-                ),
-            )
-        )
-    return parametrized_recipes
 
 
 @pytest.fixture
@@ -97,7 +42,6 @@ def input_data_thd(tokenizer, tokenized_proteins):
     return data_collator(tokenized_proteins)
 
 
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_forward_and_backward_pass(te_model_checkpoint, input_data, fp8_recipe):
     model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     model_te.to("cuda")
@@ -119,7 +63,6 @@ def test_fp8_forward_and_backward_pass(te_model_checkpoint, input_data, fp8_reci
     torch.testing.assert_close(outputs_fp8.loss, outputs.loss, atol=atol, rtol=rtol)
 
 
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd, fp8_recipe, monkeypatch):
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
@@ -149,7 +92,6 @@ def test_fp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd, 
     torch.testing.assert_close(outputs_fp8.loss, outputs.loss, atol=atol, rtol=rtol)
 
 
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_model_init_forward_and_backward(te_model_checkpoint, input_data, fp8_recipe):
     config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
@@ -167,7 +109,6 @@ def test_fp8_model_init_forward_and_backward(te_model_checkpoint, input_data, fp
 
 
 @pytest.mark.xfail(reason="BIONEMO-3055: fp8 model init and pretrained loading is not currently supported.")
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_model_init_from_pretrained(te_model_checkpoint, fp8_recipe):
     # TODO: this will be renamed to quantized_model_init in the future, fp8_model_init will be removed in 3.0
     with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
@@ -178,7 +119,6 @@ def test_fp8_model_init_from_pretrained(te_model_checkpoint, fp8_recipe):
 
 
 @pytest.mark.xfail(reason="BIONEMO-3055: fp8 model init and pretrained saving is not currently supported.")
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_model_init_save_pretrained(te_model_checkpoint, tmp_path, fp8_recipe):
     config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
@@ -192,7 +132,6 @@ def test_fp8_model_init_save_pretrained(te_model_checkpoint, tmp_path, fp8_recip
     NVEsmForMaskedLM.from_pretrained(tmp_path / "fp8_checkpoint", dtype=torch.bfloat16)
 
 
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_model_distributed_checkpointing_save_and_load(te_model_checkpoint, tmp_path, input_data, fp8_recipe):
     config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):

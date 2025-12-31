@@ -43,136 +43,121 @@ requires_multi_gpu = pytest.mark.skipif(
 )
 
 
-def test_normal_init():
+def verify_model_parameters_initialized_correctly(model: NVEsmForMaskedLM, atol=1e-3, rtol=1e-4):
+    config = model.config
+
+    for name, parameter in model.named_parameters():
+        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
+
+    for name, module in model.named_modules():
+
+        def msg(x):
+            return f"Mismatch in module {name}: {x}"
+
+        if isinstance(module, torch.nn.Embedding):
+            torch.testing.assert_close(module.weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
+            torch.testing.assert_close(
+                module.weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg
+            )
+
+        elif isinstance(module, transformer_engine.pytorch.Linear):
+            torch.testing.assert_close(module.weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
+            torch.testing.assert_close(
+                module.weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg
+            )
+            torch.testing.assert_close(module.bias, torch.zeros_like(module.bias), msg=msg)
+
+        elif isinstance(module, transformer_engine.pytorch.LayerNormLinear):
+            torch.testing.assert_close(module.weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
+            torch.testing.assert_close(
+                module.weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg
+            )
+            torch.testing.assert_close(module.bias, torch.zeros_like(module.bias), msg=msg)
+            torch.testing.assert_close(module.layer_norm_weight, torch.ones_like(module.layer_norm_weight), msg=msg)
+            torch.testing.assert_close(module.layer_norm_bias, torch.zeros_like(module.layer_norm_bias), msg=msg)
+
+        elif isinstance(module, transformer_engine.pytorch.LayerNormMLP):
+            torch.testing.assert_close(module.fc1_weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
+            torch.testing.assert_close(
+                module.fc1_weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg
+            )
+            torch.testing.assert_close(module.fc2_weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
+            torch.testing.assert_close(
+                module.fc2_weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg
+            )
+            torch.testing.assert_close(module.fc1_bias, torch.zeros_like(module.fc1_bias), msg=msg)
+            torch.testing.assert_close(module.fc2_bias, torch.zeros_like(module.fc2_bias), msg=msg)
+            torch.testing.assert_close(module.layer_norm_weight, torch.ones_like(module.layer_norm_weight), msg=msg)
+            torch.testing.assert_close(module.layer_norm_bias, torch.zeros_like(module.layer_norm_bias), msg=msg)
+
+        elif isinstance(module, torch.nn.LayerNorm):
+            torch.testing.assert_close(module.weight, torch.ones_like(module.weight), msg=msg)
+            torch.testing.assert_close(module.bias, torch.zeros_like(module.bias), msg=msg)
+
+        elif isinstance(module, transformer_engine.pytorch.attention.rope.RotaryPositionEmbedding):
+            dim = config.hidden_size // config.num_attention_heads
+            expected_inv_freq = 1.0 / (10_000.0 ** (torch.arange(0, dim, 2, dtype=torch.float32, device="cuda") / dim))
+            torch.testing.assert_close(module.inv_freq, expected_inv_freq, msg=msg)
+
+
+def test_cuda_init():
     config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
 
     set_seed(42)
     model = NVEsmForMaskedLM(config)
     model.to("cuda")
 
-    for module in model.modules():
-        if isinstance(module, transformer_engine.pytorch.Linear):
-            torch.testing.assert_close(module.weight.mean(), 0.0)
-            torch.testing.assert_close(module.weight.std(), config.initializer_range)
-            torch.testing.assert_close(module.bias, torch.zeros_like(module.bias))
+    verify_model_parameters_initialized_correctly(model)
 
 
-def test_meta_device_init():
+def test_meta_init():
     config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
 
     set_seed(42)
     with torch.device("meta"):
-        model_meta_init = NVEsmForMaskedLM(config)
+        model = NVEsmForMaskedLM(config)
 
     # Assert parameters are actually on the meta device
-    for name, parameter in model_meta_init.named_parameters():
+    for name, parameter in model.named_parameters():
         assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
 
-    model_meta_init.to_empty(device="cuda")
-
-    for module in model_meta_init.modules():
+    # Move the model to the cuda device and initialize the parameters
+    model.to_empty(device="cuda")
+    for module in model.modules():
         if hasattr(module, "reset_parameters"):
             module.reset_parameters()
+    model.apply(model._init_weights)
 
-    model_meta_init.apply(model_meta_init._init_weights)
-
-    # model_meta_init.apply(model_meta_init._init_weights)
-
-    # Assert parameters are actually on the cuda device after to_empty
-    for name, parameter in model_meta_init.named_parameters():
-        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
-
-    set_seed(42)
-    model_normal_init = NVEsmForMaskedLM(config)
-    model_normal_init.to("cuda")
-
-    state_dict_meta_init = model_meta_init.state_dict()
-    state_dict_normal_init = model_normal_init.state_dict()
-
-    for key in state_dict_meta_init.keys():
-        if key.endswith("_extra_state"):
-            continue
-
-        meta_tensor = state_dict_meta_init[key]
-        normal_tensor = state_dict_normal_init[key]
-
-        torch.testing.assert_close(
-            meta_tensor.mean(),
-            normal_tensor.mean(),
-            atol=1e-2,
-            rtol=1e-4,
-            msg=lambda x: f"Mean mismatch for parameter {key}: {x}",
-        )
-        torch.testing.assert_close(
-            meta_tensor.std(),
-            normal_tensor.std(),
-            atol=1e-2,
-            rtol=1e-4,
-            msg=lambda x: f"Std mismatch for parameter {key}: {x}",
-        )
+    verify_model_parameters_initialized_correctly(model)
 
 
-def test_meta_device_init_with_fp8_params():
+def test_cuda_fp8_init(fp8_recipe):
     config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
 
     set_seed(42)
-    with torch.device("meta"), transformer_engine.pytorch.fp8_model_init():
-        model_meta_init = NVEsmForMaskedLM(config)
+    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe):
+        model = NVEsmForMaskedLM(config)
 
-    # Assert parameters are actually on the meta device
-    for name, parameter in model_meta_init.named_parameters():
-        assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
+    model.to("cuda")
 
-    model_meta_init.to_empty(device="cuda")
+    verify_model_parameters_initialized_correctly(model, atol=1e-2)
 
-    for module in model_meta_init.modules():
-        if hasattr(module, "reset_parameters"):
-            module.reset_parameters()
 
-    model_meta_init.apply(model_meta_init._init_weights)
-
-    assert isinstance(model_meta_init.lm_head.dense.weight, transformer_engine.pytorch.QuantizedTensor)
-
-    # Assert parameters are actually on the cuda device after to_empty
-    for name, parameter in model_meta_init.named_parameters():
-        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
+def test_meta_fp8_init(fp8_recipe):
+    config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
 
     set_seed(42)
-    with transformer_engine.pytorch.fp8_model_init():
-        model_normal_init = NVEsmForMaskedLM(config)
+    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe), torch.device("meta"):
+        model = NVEsmForMaskedLM(config)
 
-    model_normal_init.to("cuda")
+    # Move the model to the cuda device and initialize the parameters
+    model.to_empty(device="cuda")
+    for module in model.modules():
+        if hasattr(module, "reset_parameters"):
+            module.reset_parameters()
+    model.apply(model._init_weights)
 
-    assert isinstance(model_normal_init.lm_head.dense.weight, transformer_engine.pytorch.QuantizedTensor)
-
-    state_dict_meta_init = model_meta_init.state_dict()
-    state_dict_normal_init = model_normal_init.state_dict()
-
-    for key in state_dict_meta_init.keys():
-        if key.endswith("_extra_state"):
-            continue
-
-        meta_tensor = state_dict_meta_init[key]
-        normal_tensor = state_dict_normal_init[key]
-
-        assert type(normal_tensor) is type(meta_tensor), (
-            f"Type mismatch for parameter {key}: {type(normal_tensor)} != {type(meta_tensor)}"
-        )
-
-        torch.testing.assert_close(
-            meta_tensor.mean(),
-            normal_tensor.mean(),
-            atol=0.05,
-            rtol=1e-4,
-            msg=lambda x: f"Mean mismatch for parameter {key}: {x}",
-        )
-        torch.testing.assert_close(
-            meta_tensor.std(),
-            normal_tensor.std(),
-            atol=0.05,
-            rtol=1e-4,
-            msg=lambda x: f"Std mismatch for parameter {key}: {x}",
-        )
+    verify_model_parameters_initialized_correctly(model)
 
 
 @pytest.mark.parametrize("num_gpus", [1, pytest.param(2, marks=requires_multi_gpu)])
