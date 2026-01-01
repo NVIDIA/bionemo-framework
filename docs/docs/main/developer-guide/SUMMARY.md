@@ -3,8 +3,6 @@
 - [bionemo-esm2](bionemo-esm2/bionemo-esm2-Overview.md)
 - [bionemo-evo2](bionemo-evo2/bionemo-evo2-Overview.md)
 - [bionemo-example-model](bionemo-example_model/bionemo-example_model-Overview.md)
-- [bionemo-fw](bionemo-fw/bionemo-fw-Overview.md)
-- [bionemo-geneformer](bionemo-geneformer/bionemo-geneformer-Overview.md)
 - [bionemo-llm](bionemo-llm/bionemo-llm-Overview.md)
 - [bionemo-moco](bionemo-moco/bionemo-moco-Overview.md)
 - [bionemo-noodles](bionemo-noodles/bionemo-noodles-Overview.md)

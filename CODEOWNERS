@@ -66,8 +66,6 @@ sub-packages/bionemo-llm @farhadrgh @dorotat-nv @jstjohn @pstjohn @skothenhill-n
 
 sub-packages/bionemo-example_model @jstjohn @skothenhill-nv
 
-sub-packages/bionemo-geneformer @jstjohn @skothenhill-nv
-
 sub-packages/bionemo-scdl @jstjohn @polinabinder1 @skothenhill-nv
 
 sub-packages/bionemo-noodles @skothenhill-nv @jstjohn @edawson @cspades

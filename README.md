@@ -85,7 +85,6 @@ A core use-case of the BioNeMo Framework is to help digital biology scientists a
 | `bionemo-core`          | Model Config/test data utils     | ✅ Active      | ✅          | N/A           | ✅  | ❌               | N/A | N/A              |
 | `bionemo-evo2`          | 5D parallel model                | ✅ Active      | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
 | `bionemo-example_model` | Example 5D parallel model        | 🔧 Maintenance | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
-| `bionemo-geneformer`    | 5D parallel model                | 🔧 Maintenance | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
 | `bionemo-llm`           | 5D parallel base model (BioBert) | ✅ Active      | ✅          | ❌            | ✅  | ✅               | ✅  | ✅               |
 | `bionemo-testing`       | Testing Utilities                | ✅ Active      | ✅          | N/A           | N/A | N/A              | N/A | N/A              |
 
