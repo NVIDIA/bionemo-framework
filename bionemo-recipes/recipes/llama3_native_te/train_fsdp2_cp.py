@@ -13,31 +13,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import gc
 import logging
+from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
 import torch
 import transformer_engine.pytorch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.fsdp import fully_shard
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
-from transformers import AutoConfig, AutoModelForMaskedLM
+from transformers.models.llama.configuration_llama import LlamaConfig
+from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
-from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
+from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
 from dataset import create_cp_dataloader
 from distributed_config import DistributedConfig
+from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
-from scheduler import get_linear_schedule_with_warmup
+from scheduler import get_cosine_annealing_schedule_with_warmup
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 
-@hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
+@hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
-    """Train ESM-2 with TE layers using DDP.
+    """Train Llama3 with TE layers using FSDP2.
 
     Returns:
         float: The loss value for the final batch.
@@ -46,113 +52,108 @@ def main(args: DictConfig) -> float | None:
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
     device = torch.device(f"cuda:{dist_config.local_rank}")
-    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
-    # Validate that world_size is divisible by cp_size
-    if dist_config.world_size % args.cp_size != 0:
-        raise ValueError(
-            f"world_size ({dist_config.world_size}) must be divisible by cp_size ({args.cp_size}). "
-            f"Set cp_size to a divisor of world_size."
-        )
-
-    # Calculate DDP size (number of data parallel replicas)
-    ddp_size = dist_config.world_size // args.cp_size
-
-    logger.info(
-        f"Creating device mesh: world_size={dist_config.world_size}, ddp_size={ddp_size}, cp_size={args.cp_size}"
-    )
-
-    # Create a device mesh for DDP and CP.
-    # The mesh is organized as [DDP_dimension, CP_dimension] where:
-    # - DDP dimension: number of data parallel replicas (world_size // cp_size)
-    # - CP dimension: context parallel size
-    # Total ranks = ddp_size * cp_size = world_size
+    # Create a device mesh for FSDP.
     device_mesh = init_device_mesh(
         "cuda",
-        mesh_shape=(ddp_size, args.cp_size),
-        mesh_dim_names=("ddp", "cp"),
+        mesh_shape=(dist_config.world_size // args.cp_size, args.cp_size),
+        mesh_dim_names=("dp", "cp"),
     )
+    logger.info(f"Created device mesh: {device_mesh}")
 
     # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
     fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
         fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
     )
 
-    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    # Note: token_dropout is set to False because it's not compatible with context parallelism.
-    config = AutoConfig.from_pretrained(
-        args.model_tag, trust_remote_code=True, token_dropout=False, dtype=torch.bfloat16
-    )
-    # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
-    if args.use_sequence_packing:
-        config.attn_input_format = "thd"
+    if args.use_te:
+        config_class = NVLlamaConfig
+        model_class = NVLlamaForCausalLM
+    else:
+        config_class = LlamaConfig
+        model_class = LlamaForCausalLM
+
+    # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
+    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
-    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
-        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    with (
+        torch.device("meta") if args.use_meta_device else nullcontext(),
+        transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs),
+    ):
+        model = model_class(config)
 
     logger.info("Initialized Model:\n%s", model)
 
-    # Create optimizer.
-    optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
-    scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+    # Create a flattened mesh for FSDP2 sharding. This will shard the model across both the DP and CP ranks.
+    cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp") if args.cp_size > 1 else device_mesh
 
-    model = model.to(device=device)
-    group_fsdp_cp = device_mesh[("ddp", "cp")]._flatten("dp_cp").get_group()
-    model = torch.nn.parallel.DistributedDataParallel(
-        model,
-        device_ids=[dist_config.local_rank],
-        output_device=dist_config.local_rank,
-        process_group=group_fsdp_cp,
-    )
+    # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
+    # Each decoder layer should be individually sharded before sharding the full model.
+    for layer in model.model.layers:
+        fully_shard(layer, mesh=cp_dp_mesh)
+    fully_shard(model, mesh=cp_dp_mesh)
 
+    # Attach the CP group to the model.
     if args.cp_size > 1:
-        for i, transformer_layer in enumerate(model.module.esm.encoder.layers):
-            logger.debug(f"Rank {dist_config.rank}: Setting CP group for layer {i}")
-            transformer_layer.set_context_parallel_group(
-                device_mesh["cp"].get_group(),
-                torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()),
-                torch.cuda.Stream(),
-            )
+        model.model.set_context_parallel_group(
+            device_mesh["cp"].get_group(),
+            torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()),
+            torch.cuda.Stream(),
+        )
 
-    # Context Parallelism requires THD Sequence Packing.
-    assert args.use_sequence_packing, "Context Parallelism requires THD Sequence Packing."
+    if args.use_meta_device:
+        model.to_empty(device=device)
+        model.apply(model._init_weights)
 
-    train_dataloader, dataset_or_sampler = create_cp_dataloader(
-        dist_config,
-        cp_mesh=device_mesh["cp"],
-        **args.dataset,
-    )
+    # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
+    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
         model = torch.compile(model)
 
+    train_dataloader, dataset_or_sampler = create_cp_dataloader(
+        dist_config,
+        **args.dataset,
+        cp_group=device_mesh["cp"].get_group(),
+    )
+
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
-    ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_ddp" if args.checkpoint.ckpt_dir else None
+    ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
-        model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_ddp(
+        logger.info(f"Attempting to load checkpoint from {ckpt_path}")
+        model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_fsdp2(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
             ckpt_path=ckpt_path,
             dist_config=dist_config,
             dataloader=train_dataloader,
+            process_group=device_mesh.get_group("dp"),
         )
+        logger.info(f"Checkpoint loaded, resuming from step {start_step}, epoch {epoch}")
     else:
+        logger.info("No checkpoint to load, starting from scratch")
         start_step = 0
         epoch = 0
 
     perf_logger = PerfLogger(dist_config, args)
 
+    gc.collect()
+    torch.cuda.empty_cache()
+
     # Training loop
+    logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
     while step < args.num_train_steps:
         for batch in train_dataloader:
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW2901
+            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
             # Forward pass with mixed precision.
             with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
@@ -179,7 +180,7 @@ def main(args: DictConfig) -> float | None:
             )
 
             if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
-                save_checkpoint_ddp(
+                save_checkpoint_fsdp2(
                     model=model,
                     optimizer=optimizer,
                     scheduler=scheduler,
@@ -188,7 +189,9 @@ def main(args: DictConfig) -> float | None:
                     epoch=epoch,
                     dist_config=dist_config,
                     dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                    process_group=device_mesh.get_group("dp"),
                     max_checkpoints=args.checkpoint.max_checkpoints,
+                    async_save=args.checkpoint.async_save,
                 )
 
             step += 1
@@ -197,12 +200,11 @@ def main(args: DictConfig) -> float | None:
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1
-        if dataset_or_sampler is not None:  # The dataset only exists on rank 0
-            dataset_or_sampler.set_epoch(epoch)
+        dataset_or_sampler.set_epoch(epoch)
 
     # Save final model to a .safetensors file.
     if args.checkpoint.save_final_model and ckpt_path:
-        save_final_model_ddp(
+        save_final_model_fsdp2(
             model=model,
             save_directory=ckpt_path / "final_model",
             dist_config=dist_config,
