@@ -1,4 +1,3 @@
-# coding=utf-8
 # noqa: license-check
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-Apache2
@@ -268,39 +267,14 @@ class NVEsmPreTrainedModel(EsmPreTrainedModel):
         "EsmEmbeddings",
     )
 
-    def _init_weights(self, module: nn.Module):
-        """Initialize model weights.
+    def init_from_meta_device(self):
+        """Handles moving the model from the meta device to the cuda device and initializing the weights."""
+        for module in self.modules():
+            if hasattr(module, "reset_parameters"):
+                module.reset_parameters()
 
-        This method ensures that models with randomly-initialized weights get the correct initial value distribution,
-        which can be critical for training stability. We also call this method directly when using meta-device init, as
-        the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
-        we need to extend it to handle TE-specific modules.
-
-        Args:
-            module (nn.Module): The module to initialize the weights for.
-        """
-        super()._init_weights(module)
-        # if isinstance(
-        #     module,
-        #     (
-        #         transformer_engine.pytorch.module.base.TransformerEngineBaseModule,
-        #         transformer_engine.pytorch.LayerNorm,
-        #         transformer_engine.pytorch.RMSNorm,
-        #     ),
-        # ):
-        #     module.reset_parameters(defer_init=str(torch.get_default_device()) == "meta")
-
-        if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
-            # When we initialize the model with `to_empty`, the `inv_freq` attribute is not initialized, so we need to
-            # re-initialize it here with the correct values.
-            module.inv_freq = RotaryPositionEmbedding(
-                self.config.hidden_size // self.config.num_attention_heads
-            ).inv_freq.to(module.inv_freq.device)
-
-    @classmethod
-    def get_init_context(cls, is_quantized: bool, _is_ds_init_called: bool):
-        """Override the default get_init_context method to allow for fp8 model initialization."""
-        return []
+        self.esm.embeddings.word_embeddings.to_empty(device="cuda")
+        self.esm.embeddings.apply(self._init_weights)
 
 
 class NVEsmModel(NVEsmPreTrainedModel):
