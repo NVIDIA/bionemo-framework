@@ -135,3 +135,45 @@ def test_padding_unpadding_operations():
     if te_embeddings.shape[0] > original_embeddings.shape[0]:
         padding_rows = te_embeddings[original_embeddings.shape[0] :]
         torch.testing.assert_close(padding_rows, torch.zeros_like(padding_rows), atol=1e-6, rtol=1e-6)
+
+
+def test_weight_initialization_matches_hf():
+    from transformers import AutoConfig, set_seed
+    from transformers.models.esm.modeling_esm import EsmForMaskedLM
+
+    from esm.convert import convert_esm_hf_to_te
+    from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
+
+    set_seed(42)
+
+    config_hf = AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D", vocab_size=64)
+    model_hf = EsmForMaskedLM(config_hf)
+    model_te_converted = convert_esm_hf_to_te(model_hf)
+
+    config = NVEsmConfig(**model_hf.config.to_dict())
+    model_te = NVEsmForMaskedLM(config)
+    model_te.to("cuda")
+    model_te_converted.to("cuda")
+
+    state_dict_hf = model_te_converted.state_dict()
+    state_dict_te = model_te.state_dict()
+
+    for name in state_dict_hf.keys():
+        if name.endswith("_extra_state"):
+            continue
+
+        torch.testing.assert_close(
+            state_dict_te[name].mean(),
+            state_dict_hf[name].mean(),
+            atol=1e-3,
+            rtol=1e-4,
+            msg=lambda x: f"Mean mismatch for parameter {name}: {x}",
+        )
+
+        torch.testing.assert_close(
+            state_dict_te[name].std(),
+            state_dict_hf[name].std(),
+            atol=1e-3,
+            rtol=1e-4,
+            msg=lambda x: f"Std mismatch for parameter {name}: {x}",
+        )

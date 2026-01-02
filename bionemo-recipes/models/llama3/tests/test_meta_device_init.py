@@ -61,8 +61,16 @@ def test_meta_device_init():
     with torch.device("meta"):
         model_meta_init = NVLlamaForCausalLM(config)
 
+    # Assert parameters are actually on the meta device
+    for name, parameter in model_meta_init.named_parameters():
+        assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
+
     model_meta_init.to_empty(device="cuda")
     model_meta_init.apply(model_meta_init._init_weights)
+
+    # Assert parameters are actually on the cuda device after to_empty
+    for name, parameter in model_meta_init.named_parameters():
+        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
 
     set_seed(42)
     model_normal_init = NVLlamaForCausalLM(config)
@@ -72,18 +80,11 @@ def test_meta_device_init():
     state_dict_normal_init = model_normal_init.state_dict()
 
     for key in state_dict_meta_init.keys():
+        if key.endswith("_extra_state"):
+            continue
+
         meta_tensor = state_dict_meta_init[key]
         normal_tensor = state_dict_normal_init[key]
-        # Skip non-numeric tensors (e.g., Byte/uint8 tensors like _extra_state)
-        if meta_tensor.dtype not in (
-            torch.float16,
-            torch.float32,
-            torch.float64,
-            torch.bfloat16,
-            torch.complex64,
-            torch.complex128,
-        ):
-            continue
         torch.testing.assert_close(
             normal_tensor.mean(),
             meta_tensor.mean(),
@@ -146,8 +147,16 @@ if __name__ == "__main__":
         fully_shard(layer)
     fully_shard(model_meta_init)
 
+    # Assert parameters are actually on the meta device
+    for name, parameter in model_meta_init.named_parameters():
+        assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
+
     model_meta_init.to_empty(device="cuda")
     model_meta_init.apply(model_meta_init._init_weights)
+
+    # Assert parameters are actually on the cuda device after to_empty
+    for name, parameter in model_meta_init.named_parameters():
+        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
 
     set_seed(42)
     model_normal_init = NVLlamaForCausalLM(config)
@@ -160,18 +169,11 @@ if __name__ == "__main__":
     state_dict_normal_init = model_normal_init.state_dict()
 
     for key in state_dict_meta_init.keys():
+        if key.endswith("_extra_state"):
+            continue
+
         meta_tensor = state_dict_meta_init[key]
         normal_tensor = state_dict_normal_init[key]
-        # Skip non-numeric tensors (e.g., Byte/uint8 tensors like _extra_state)
-        if meta_tensor.dtype not in (
-            torch.float16,
-            torch.float32,
-            torch.float64,
-            torch.bfloat16,
-            torch.complex64,
-            torch.complex128,
-        ):
-            continue
 
         torch.testing.assert_close(
             normal_tensor.mean(),
