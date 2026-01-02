@@ -158,7 +158,7 @@ class NVEsmEncoder(nn.Module):
                     fuse_qkv_params=config.fuse_qkv_params,
                     params_dtype=config.dtype,
                     window_size=(-1, -1),
-                    device=str(torch.get_default_device()),
+                    device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
                     init_method=_init_method,
                     output_layer_init_method=_init_method,
                 )
@@ -169,7 +169,7 @@ class NVEsmEncoder(nn.Module):
             config.hidden_size,
             eps=config.layer_norm_eps,
             params_dtype=config.dtype,
-            device=str(torch.get_default_device()),
+            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
         )
         if config.position_embedding_type == "rotary":
             self.rotary_embeddings = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
@@ -269,12 +269,20 @@ class NVEsmPreTrainedModel(EsmPreTrainedModel):
 
     def init_from_meta_device(self):
         """Handles moving the model from the meta device to the cuda device and initializing the weights."""
+        # For TE layers, calling `reset_parameters` is sufficient to move them to the cuda device and apply the weight
+        # initialization we passed them during module creation.
         for module in self.modules():
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
 
+        # The esm.embeddings layer is the only non-TE layer in this model we need to deal with. We use
+        # `model._init_weights` rather than `reset_parameters` to ensure we honor the original config standard
+        # deviation.
         self.esm.embeddings.word_embeddings.to_empty(device="cuda")
         self.esm.embeddings.apply(self._init_weights)
+
+        # Meta-device init seems to break weight tying, so we re-tie the weights here.
+        self.tie_weights()
 
 
 class NVEsmModel(NVEsmPreTrainedModel):
@@ -477,19 +485,20 @@ class NVEsmLMHead(nn.Module):
             config.hidden_size,
             config.hidden_size,
             params_dtype=config.dtype,
-            device=str(torch.get_default_device()),
+            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
             init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
         )
 
-        self.decoder = transformer_engine.pytorch.LayerNormLinear(
-            config.hidden_size,
-            config.padded_vocab_size if config.padded_vocab_size is not None else config.vocab_size,
-            bias=True,
-            eps=config.layer_norm_eps,
-            params_dtype=config.dtype,
-            device=str(torch.get_default_device()),
-            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
-        )
+        with transformer_engine.pytorch.fp8_model_init(enabled=False):
+            self.decoder = transformer_engine.pytorch.LayerNormLinear(
+                config.hidden_size,
+                config.padded_vocab_size if config.padded_vocab_size is not None else config.vocab_size,
+                bias=True,
+                eps=config.layer_norm_eps,
+                params_dtype=config.dtype,
+                device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+                init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
+            )
 
     def forward(self, features, **kwargs):
         """Forward pass of the NVEsmLMHead.
@@ -522,7 +531,7 @@ class NVEsmEmbeddings(nn.Module):
                 config.hidden_size,
                 eps=config.layer_norm_eps,
                 params_dtype=config.dtype,
-                device=str(torch.get_default_device()),
+                device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
             )
             if config.emb_layer_norm_before
             else None
@@ -621,7 +630,7 @@ class NVEsmForTokenClassification(NVEsmPreTrainedModel):
             config.hidden_size,
             config.num_labels,
             params_dtype=config.dtype,
-            device=str(torch.get_default_device()),
+            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
         )
 
         self.init_weights()
