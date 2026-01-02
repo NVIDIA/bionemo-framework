@@ -329,6 +329,8 @@ def create_bshd_packed_dataloader(
     use_lazy_tokenization: bool = True,
     text_column: str = "text",
     use_stateful_dataloader: bool = False,
+    uppercase_labels: bool = False,
+    mask_degenerate_bases: bool = True,
     pad_to_multiple_of: int | None = None,
 ):
     """Create a BSHD dataloader with full sequence packing.
@@ -358,6 +360,8 @@ def create_bshd_packed_dataloader(
         use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         text_column: Name of the column containing text sequences.
         use_stateful_dataloader: Whether to use StatefulDataLoader for checkpointing.
+        uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
+        mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: True.
         pad_to_multiple_of: If set, pads sequences to ensure total tokens is divisible by this number.
             Required for FP8 (should be 8). Default: None.
 
@@ -384,12 +388,27 @@ def create_bshd_packed_dataloader(
         drop_last=True,  # Drop last incomplete sample (no padding)
     )
 
-    # Standard collator - no special handling needed
-    data_collator = DataCollatorForLanguageModeling(
+    # Create base collator
+    base_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm=False,  # Causal language modeling
         pad_to_multiple_of=pad_to_multiple_of,  # For FP8 compatibility (must be divisible by 8)
     )
+
+    # Wrap with genomic collator if masking options are enabled
+    if uppercase_labels or mask_degenerate_bases:
+        data_collator = GenomicDataCollator(
+            base_collator=base_collator,
+            uppercase_labels=uppercase_labels,
+            mask_degenerate_bases=mask_degenerate_bases,
+        )
+        logger.info(
+            f"Using GenomicDataCollator (uppercase={uppercase_labels}, mask_degenerate={mask_degenerate_bases})"
+        )
+    else:
+        # Use base collator directly for backward compatibility
+        data_collator = base_collator
+        logger.info("Using standard DataCollatorForLanguageModeling")
 
     if pad_to_multiple_of is not None:
         logger.info(f"Padding to multiple of {pad_to_multiple_of} for FP8 compatibility")
