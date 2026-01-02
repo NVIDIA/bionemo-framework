@@ -165,6 +165,102 @@ def test_meta_fp8_init(fp8_recipe):
     verify_model_parameters_initialized_correctly(model, should_be_fp8=True)
 
 
+def _format_bytes(num: int, suffix: str = "B") -> str:
+    """Format bytes as a human-readable string (e.g. 1.2 MB)."""
+    for unit in ("", "K", "M", "G", "T", "P", "E", "Z"):
+        if abs(num) < 1024.0:
+            return f"{num:3.1f} {unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f} Y{suffix}"
+
+
+def test_fp8_model_init_uses_less_memory(te_model_checkpoint, fp8_recipe):
+    torch.cuda.empty_cache()
+
+    config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
+    torch.cuda.reset_peak_memory_stats()
+    memory_before = torch.cuda.memory_allocated()
+    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe), torch.device("cuda"):
+        model_fp8 = NVEsmForMaskedLM(config)
+    peak_memory_fp8 = torch.cuda.max_memory_allocated() - memory_before
+    del model_fp8
+    torch.cuda.empty_cache()
+
+    torch.cuda.reset_peak_memory_stats()
+    memory_before = torch.cuda.memory_allocated()
+    with transformer_engine.pytorch.fp8_model_init(enabled=False, recipe=fp8_recipe), torch.device("cuda"):
+        model_bf16 = NVEsmForMaskedLM(config)
+    peak_memory_bf16 = torch.cuda.max_memory_allocated() - memory_before
+    del model_bf16
+
+    assert peak_memory_fp8 < peak_memory_bf16, (
+        f"FP8 model init uses more memory than BF16 model init: {_format_bytes(peak_memory_fp8)} "
+        f"vs {_format_bytes(peak_memory_bf16)}"
+    )
+
+
+def test_te_layer_init_uses_less_memory(te_model_checkpoint, fp8_recipe):
+    # WTF?
+    torch.cuda.empty_cache()
+
+    torch.cuda.reset_peak_memory_stats()
+    memory_before = torch.cuda.memory_allocated()
+    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe), torch.device("cuda"):
+        layer = transformer_engine.pytorch.Linear(
+            4096,
+            4096,
+            params_dtype=torch.bfloat16,
+            device="cuda",
+        )
+    peak_memory_fp8 = torch.cuda.max_memory_allocated() - memory_before
+    del layer
+    torch.cuda.empty_cache()
+
+    torch.cuda.reset_peak_memory_stats()
+    memory_before = torch.cuda.memory_allocated()
+    with torch.device("cuda"):
+        layer = transformer_engine.pytorch.Linear(
+            4096,
+            4096,
+            params_dtype=torch.bfloat16,
+            device="cuda",
+        )
+    peak_memory_bf16 = torch.cuda.max_memory_allocated() - memory_before
+    del layer
+
+    assert peak_memory_fp8 < peak_memory_bf16, (
+        f"FP8 model init uses more memory than BF16 model init: {_format_bytes(peak_memory_fp8)} "
+        f"vs {_format_bytes(peak_memory_bf16)}"
+    )
+
+
+def test_fp8_model_init_uses_less_memory_meta_init(te_model_checkpoint, fp8_recipe):
+    torch.cuda.empty_cache()
+
+    config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
+    torch.cuda.reset_peak_memory_stats()
+    memory_before = torch.cuda.memory_allocated()
+    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe), torch.device("meta"):
+        model_fp8 = NVEsmForMaskedLM(config)
+    model_fp8.init_from_meta_device()
+    peak_memory_fp8 = torch.cuda.max_memory_allocated() - memory_before
+    del model_fp8
+    torch.cuda.empty_cache()
+
+    torch.cuda.reset_peak_memory_stats()
+    memory_before = torch.cuda.memory_allocated()
+    with transformer_engine.pytorch.fp8_model_init(enabled=False, recipe=fp8_recipe), torch.device("meta"):
+        model_bf16 = NVEsmForMaskedLM(config)
+    model_bf16.init_from_meta_device()
+    peak_memory_bf16 = torch.cuda.max_memory_allocated() - memory_before
+    del model_bf16
+
+    assert peak_memory_fp8 < peak_memory_bf16, (
+        f"FP8 model init uses more memory than BF16 model init: {_format_bytes(peak_memory_fp8)} "
+        f"vs {_format_bytes(peak_memory_bf16)}"
+    )
+
+
 # @pytest.mark.parametrize("num_gpus", [1, pytest.param(2, marks=requires_multi_gpu)])
 # def test_meta_device_init_after_fully_shard(num_gpus: int):
 #     cmd = [
