@@ -30,7 +30,7 @@ from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
-from dataset import create_bshd_dataloader, create_thd_dataloader
+from dataset import create_bshd_dataloader, create_bshd_packed_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
@@ -99,8 +99,14 @@ def main(args: DictConfig) -> float | None:
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     if args.use_sequence_packing:
-        train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
+        if args.config_kwargs.attn_input_format == "bshd":
+            # BSHD with full packing (cross-boundary attention, no cu_seqlens)
+            train_dataloader, dataset_or_sampler = create_bshd_packed_dataloader(dist_config, **args.dataset)
+        else:
+            # THD with packing (respects boundaries via cu_seqlens)
+            train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
     else:
+        # Standard BSHD with windowing (no packing)
         train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
 
     if args.use_torch_compile:

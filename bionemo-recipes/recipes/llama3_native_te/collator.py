@@ -275,6 +275,74 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         self.dataset.set_epoch(epoch)
 
 
+@dataclass
+class SequencePackingIterableDataset(torch.utils.data.IterableDataset):
+    """Dataset that packs sequences by concatenating across boundaries for BSHD format.
+
+    This dataset creates fixed-length samples by arbitrarily splitting across sequence boundaries.
+
+    Example:
+        Input sequences:  AAA, BBBBB, CCC, DDDDDDD
+        Output samples:   AAAB, BBBB, CCCD, DDDD, DD...
+
+    Unlike TokenPackingDataset (which yields variable-count lists for THD format with cu_seqlens),
+    this yields fixed-length samples for BSHD format with pure causal masking.
+
+    Args:
+        dataset: The input IterableDataset (can be windowed or not).
+        max_seq_length: Fixed length for each output sample.
+        pad_token_id: Token ID for padding (only used if drop_last=False).
+        drop_last: Whether to drop the last incomplete sample. Default: True.
+    """
+
+    dataset: datasets.IterableDataset
+    max_seq_length: int
+    pad_token_id: int
+    drop_last: bool = True
+
+    def __iter__(self):
+        """Yield fixed-length samples by streaming tokens across sequence boundaries."""
+        buffer_input_ids = []
+        buffer_labels = []
+        has_labels = None
+
+        for sample in iter(self.dataset):
+            # Determine if dataset has labels on first sample
+            if has_labels is None:
+                has_labels = "labels" in sample
+
+            # Add tokens to buffer
+            buffer_input_ids.extend(sample["input_ids"])
+            if has_labels:
+                buffer_labels.extend(sample.get("labels", sample["input_ids"]))
+
+            # Yield full chunks of max_seq_length
+            while len(buffer_input_ids) >= self.max_seq_length:
+                output = {"input_ids": buffer_input_ids[: self.max_seq_length]}
+                if has_labels:
+                    output["labels"] = buffer_labels[: self.max_seq_length]
+
+                yield output
+
+                # Keep remainder in buffer
+                buffer_input_ids = buffer_input_ids[self.max_seq_length :]
+                if has_labels:
+                    buffer_labels = buffer_labels[self.max_seq_length :]
+
+        # Handle remaining tokens (only if not dropping last)
+        if buffer_input_ids and not self.drop_last:
+            padding_length = self.max_seq_length - len(buffer_input_ids)
+            output = {"input_ids": buffer_input_ids + [self.pad_token_id] * padding_length}
+            if has_labels:
+                output["labels"] = buffer_labels + [-100] * padding_length
+            yield output
+
+    def set_epoch(self, epoch: int):
+        """Set the epoch for the underlying dataset."""
+        if hasattr(self.dataset, "set_epoch"):
+            self.dataset.set_epoch(epoch)
+
+
 class DataCollatorForContextParallel:
     """A collator that is aware of context parallelism.
 

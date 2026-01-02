@@ -1,0 +1,80 @@
+# Config to test BSHD packed format with Lingua 1B model
+# Compares against L2_lingua_1b.yaml which uses THD + sequence packing
+
+defaults:
+  - defaults
+  - _self_
+
+# Same model as lingua baseline
+config_name_or_path: ./model_configs/lingua-1B
+
+config_kwargs:
+  attn_input_format: bshd  # Key difference: BSHD instead of THD
+
+# Enable sequence packing (will use BSHD packed path)
+use_sequence_packing: true
+
+# Gradient accumulation
+grad_acc_steps: 4
+
+wandb:
+  name: fsdp2_bshd_bf16_2node_mb4_ga4
+  project: lingua_grad_acc_validation
+
+# Same training setup as lingua baseline
+num_train_steps: 60_000
+
+dataset:
+  tokenizer_name_or_path: meta-llama/Meta-Llama-3-8B
+  micro_batch_size: 1  # Using grad_acc_steps=4 for effective batch size of 4
+  num_workers: 8
+  max_seq_length: 4096
+  stride: 512
+  buffer_size: 50_000
+  use_lazy_tokenization: true
+  use_stateful_dataloader: false
+  mask_degenerate_bases: false
+  uppercase_labels: false
+  pad_to_multiple_of: 8  # Required for FP8 compatibility
+  load_dataset_kwargs:
+    path: "mlfoundations/dclm-baseline-1.0"
+    data_dir: "global-shard_01_of_10"
+    split: "train"
+    streaming: True
+
+# FP8 configuration
+fp8_config:
+  enabled: true
+  fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+  fp8_format: E4M3
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
+
+# Same optimizer settings as lingua baseline
+adamw_kwargs:
+  lr: .003
+  fused: true
+  betas: [0.9, 0.95]
+  eps: 0.00000001
+  weight_decay: 0.033
+
+lr_scheduler_kwargs:
+  num_warmup_steps: 5_000
+  num_decay_steps: 55_000
+  min_lr_ratio: 0.000001
+
+checkpoint:
+  ckpt_dir: null
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 10_000
+  async_save: true
+
+profiler:
+  enabled: false
+  schedule:
+    wait: 125
+    warmup: 125
+    active: 10
+    repeat: 1
