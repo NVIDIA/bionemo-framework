@@ -37,8 +37,8 @@ dataset:
   uppercase_labels: false
   pad_to_multiple_of: 8  # Required for FP8 compatibility
   load_dataset_kwargs:
-    path: "mlfoundations/dclm-baseline-1.0"
-    data_dir: "global-shard_01_of_10"
+    path: "mlfoundations/dclm-baseline-1.0-parquet"
+    data_dir: "filtered/OH_eli5_vs_rw_v2_bigram_200k_train/fasttext_openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train/processed_data/global-shard_01_of_10"
     split: "train"
     streaming: True
 
