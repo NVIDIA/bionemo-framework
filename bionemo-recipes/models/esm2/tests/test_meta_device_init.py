@@ -58,6 +58,10 @@ def verify_model_parameters_initialized_correctly(
                 module.weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg
             )
 
+        elif name == "lm_head.decoder":
+            # Make sure the lm_head decoder weights are still tied to the encoder weights
+            assert module.weight is model.esm.embeddings.word_embeddings.weight, "Decoder weight tying has been broken"
+
         elif isinstance(module, transformer_engine.pytorch.Linear):
             torch.testing.assert_close(module.weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
             torch.testing.assert_close(
