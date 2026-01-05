@@ -51,6 +51,7 @@ fp8_config:
   fp8_model_init_kwargs:
     enabled: false # If this is set to true, fp8_config.enabled must also be set to true.
 
+
 # Optimizer config
 adamw_kwargs:
   lr: 4e-4
@@ -75,3 +76,7 @@ checkpoint:
 
 logger:
   frequency: 100
+
+fp8_stats_config:
+  fp8_stats_file: null
+  fp8_log_dir: null

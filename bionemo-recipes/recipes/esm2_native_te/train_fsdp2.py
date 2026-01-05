@@ -51,10 +51,13 @@ def main(args: DictConfig) -> float | None:
     """
     # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
     tb_writer = SummaryWriter('./tensorboard_dir/run1')
+    fp8_stats_file = args.fp8_stats_config.fp8_stats_file if args.fp8_stats_config.fp8_stats_file else "fp8_stats_mxfp8.yaml"
+    fp8_log_dir = args.fp8_stats_config.fp8_log_dir if args.fp8_stats_config.fp8_log_dir else "./log_fsdp2_mxfp8"
+    # TODO: How do you manage them across ranks?
     debug_api.initialize(
-        config_file="fp8_stats_mxfp8.yaml",
+        config_file=fp8_stats_file,
         feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
-        log_dir="./log_fsdp2_mxfp8",
+        log_dir=fp8_log_dir,
         default_logging_enabled=True,
         tb_writer=tb_writer,
     )

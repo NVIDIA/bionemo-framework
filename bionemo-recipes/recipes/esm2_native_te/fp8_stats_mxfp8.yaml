@@ -9,10 +9,10 @@ example_fp8_tensor_stat_collection:
             tensors_struct:
             - tensor: activation
               stats: [underflows%, scale_inv_min, scale_inv_max, mse]
-              freq: 1
+              freq: 50
             - tensor: gradient
               stats: [underflows%, scale_inv_min, scale_inv_max, mse]
-              freq: 5
+              freq: 50
             - tensor: weight
               stats: [underflows%, scale_inv_min, scale_inv_max, mse]
-              freq: 1
+              freq: 50
