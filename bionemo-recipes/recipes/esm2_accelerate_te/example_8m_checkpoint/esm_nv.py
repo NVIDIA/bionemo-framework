@@ -631,6 +631,7 @@ class NVEsmForTokenClassification(NVEsmPreTrainedModel):
             config.num_labels,
             params_dtype=config.dtype,
             device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
         )
 
         self.init_weights()
