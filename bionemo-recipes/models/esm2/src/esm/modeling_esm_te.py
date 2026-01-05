@@ -267,7 +267,7 @@ class NVEsmPreTrainedModel(EsmPreTrainedModel):
         "EsmEmbeddings",
     )
 
-    def init_from_meta_device(self):
+    def init_empty_weights(self):
         """Handles moving the model from the meta device to the cuda device and initializing the weights."""
         # For TE layers, calling `reset_parameters` is sufficient to move them to the cuda device and apply the weight
         # initialization we passed them during module creation.

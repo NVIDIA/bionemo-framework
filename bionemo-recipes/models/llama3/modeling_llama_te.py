@@ -53,56 +53,39 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
     _no_split_modules = ("TransformerLayer",)
     _skip_keys_device_placement = ("past_key_values",)
 
+    def init_empty_weights(self):
+        """Handles moving the model from the meta device to the cuda device and initializing the weights."""
+        # For TE layers, calling `reset_parameters` is sufficient to move them to the cuda device and apply the weight
+        # initialization we passed them during module creation.
+        for module in self.modules():
+            if hasattr(module, "reset_parameters"):
+                module.reset_parameters()
+
+        # The esm.embeddings layer is the only non-TE layer in this model we need to deal with. We use
+        # `model._init_weights` rather than `reset_parameters` to ensure we honor the original config standard
+        # deviation.
+        self.model.embed_tokens.to_empty(device="cuda")
+        self.model.embed_tokens.apply(self._init_weights)
+
+        self.model.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=self.model.config).inv_freq.to("cuda")
+
+        # Meta-device init seems to break weight tying, so we re-tie the weights here.
+        self.tie_weights()
+
     def _init_weights(self, module):
         """Initialize module weights.
 
-        This method ensures that models with randomly-initialized weights get the correct initial value distribution,
-        which can be critical for training stability. We also call this method directly when using meta-device init, as
-        the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
-        we need to extend it to handle TE-specific modules.
-
-        Args:
-            module (nn.Module): The module to initialize the weights for.
+        We only use this method for standard pytorch modules, TE modules handle their own weight initialization through
+        `init_method` parameters and the `reset_parameters` method.
         """
+        if module.__module__.startswith("transformer_engine.pytorch"):
+            # Notably, we need to avoid calling this method for TE modules, since the default _init_weights will assume
+            # any class with `LayerNorm` in the name should have weights initialized to 1.0; breaking `LayerNormLinear`
+            # and `LayerNormMLP` modules that use `weight` for the linear layer and `layer_norm_weight` for the layer
+            # norm.
+            return
+
         super()._init_weights(module)
-
-        # Copied from transformers.modeling_utils.PreTrainedModel._init_weights
-        if hasattr(self.config, "initializer_range"):
-            std = self.config.initializer_range
-        else:
-            # 0.02 is the standard default value across the library
-            std = getattr(self.config.get_text_config(), "initializer_range", 0.02)
-
-        if isinstance(
-            module, (nn.Linear, transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)
-        ):
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        if isinstance(module, transformer_engine.pytorch.LayerNorm):
-            if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
-            if hasattr(module, "bias") and module.bias is not None:
-                module.bias.data.zero_()
-        if isinstance(module, transformer_engine.pytorch.RMSNorm):
-            if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
-        if isinstance(module, transformer_engine.pytorch.LayerNormLinear):
-            module.layer_norm_weight.data.fill_(1.0)
-            if module.layer_norm_bias is not None:
-                module.layer_norm_bias.data.zero_()
-        if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
-            module.layer_norm_weight.data.fill_(1.0)
-            if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
-                module.fc1_weight.data.normal_(mean=0.0, std=std)
-            if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
-                module.fc2_weight.data.normal_(mean=0.0, std=std)
-            if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
-                module.fc1_bias.data.zero_()
-            if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
-                module.fc2_bias.data.zero_()
-        if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
-            module.inv_freq = LlamaRotaryEmbedding(config=self.config).inv_freq.to(module.inv_freq.device)
 
 
 class NVLlamaModel(NVLlamaPreTrainedModel):
@@ -116,6 +99,10 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx, dtype=config.dtype)
+
+        def _init_method(x):
+            torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
+
         self.layers = nn.ModuleList(
             [
                 transformer_engine.pytorch.TransformerLayer(
@@ -135,7 +122,9 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                     num_gqa_groups=config.num_key_value_heads,
                     layer_number=layer_idx + 1,
                     params_dtype=config.dtype,
-                    device=str(torch.get_default_device()),
+                    device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+                    init_method=_init_method,
+                    output_layer_init_method=_init_method,
                 )
                 for layer_idx in range(config.num_hidden_layers)
             ]
@@ -144,7 +133,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             config.hidden_size,
             eps=config.rms_norm_eps,
             dtype=config.dtype,
-            device=str(torch.get_default_device()),
+            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
         )
 
         # We use TE's RotaryPositionEmbedding, but we ensure that we use the same inv_freq as the original
@@ -293,7 +282,8 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             config.vocab_size,
             bias=False,
             params_dtype=config.dtype,
-            device=str(torch.get_default_device()),
+            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
         )
 
         # Initialize weights and apply final processing

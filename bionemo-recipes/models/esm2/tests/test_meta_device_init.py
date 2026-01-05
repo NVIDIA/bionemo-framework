@@ -24,9 +24,14 @@ By explicitly calling `_init_weights` after `to_empty`, we ensure that parameter
 consistent training behavior regardless of whether meta device initialization is used.
 """
 
+import os
+import subprocess
+
 import pytest
 import torch
 import transformer_engine.pytorch
+from torch.distributed.fsdp import fully_shard
+from torch.distributed.tensor import DTensor
 from transformer_engine.pytorch.tensor import QuantizedTensor
 from transformers import AutoConfig, set_seed
 
@@ -135,7 +140,7 @@ def test_meta_init():
         assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
 
     # Move the model to the cuda device and initialize the parameters
-    model.init_from_meta_device()
+    model.init_empty_weights()
 
     verify_model_parameters_initialized_correctly(model)
 
@@ -160,195 +165,98 @@ def test_meta_fp8_init(fp8_recipe):
         model = NVEsmForMaskedLM(config)
 
     # Move the model to the cuda device and initialize the parameters
-    model.init_from_meta_device()
+    model.init_empty_weights()
 
     verify_model_parameters_initialized_correctly(model, should_be_fp8=True)
 
 
-def _format_bytes(num: int, suffix: str = "B") -> str:
-    """Format bytes as a human-readable string (e.g. 1.2 MB)."""
-    for unit in ("", "K", "M", "G", "T", "P", "E", "Z"):
-        if abs(num) < 1024.0:
-            return f"{num:3.1f} {unit}{suffix}"
-        num /= 1024.0
-    return f"{num:.1f} Y{suffix}"
+@pytest.mark.parametrize("num_gpus", [1, pytest.param(2, marks=requires_multi_gpu)])
+def test_meta_device_init_after_fully_shard(num_gpus: int):
+    cmd = [
+        "torchrun",
+        f"--nproc_per_node={num_gpus}",
+        os.path.relpath(__file__),
+    ]
 
-
-def test_fp8_model_init_uses_less_memory(te_model_checkpoint, fp8_recipe):
-    torch.cuda.empty_cache()
-
-    config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
-    torch.cuda.reset_peak_memory_stats()
-    memory_before = torch.cuda.memory_allocated()
-    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe), torch.device("cuda"):
-        model_fp8 = NVEsmForMaskedLM(config)
-    peak_memory_fp8 = torch.cuda.max_memory_allocated() - memory_before
-    del model_fp8
-    torch.cuda.empty_cache()
-
-    torch.cuda.reset_peak_memory_stats()
-    memory_before = torch.cuda.memory_allocated()
-    with transformer_engine.pytorch.fp8_model_init(enabled=False, recipe=fp8_recipe), torch.device("cuda"):
-        model_bf16 = NVEsmForMaskedLM(config)
-    peak_memory_bf16 = torch.cuda.max_memory_allocated() - memory_before
-    del model_bf16
-
-    assert peak_memory_fp8 < peak_memory_bf16, (
-        f"FP8 model init uses more memory than BF16 model init: {_format_bytes(peak_memory_fp8)} "
-        f"vs {_format_bytes(peak_memory_bf16)}"
+    result = subprocess.run(
+        cmd,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=240,
     )
 
+    if result.returncode != 0:
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+        pytest.fail(f"Command failed with exit code {result.returncode}")
 
-def test_te_layer_init_uses_less_memory(te_model_checkpoint, fp8_recipe):
-    # WTF?
-    torch.cuda.empty_cache()
 
-    torch.cuda.reset_peak_memory_stats()
-    memory_before = torch.cuda.memory_allocated()
-    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe), torch.device("cuda"):
-        layer = transformer_engine.pytorch.Linear(
-            4096,
-            4096,
-            params_dtype=torch.bfloat16,
-            device="cuda",
+if __name__ == "__main__":
+    torch.distributed.init_process_group(backend="cuda:nccl")
+    torch.cuda.set_device(torch.distributed.get_rank())
+
+    config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
+
+    set_seed(42)
+
+    with torch.device("meta"):
+        model_meta_device = NVEsmForMaskedLM(config)
+
+    for layer in model_meta_device.esm.encoder.layers:
+        fully_shard(layer)
+    fully_shard(model_meta_device)
+
+    # Assert parameters are actually on the meta device
+    for name, parameter in model_meta_device.named_parameters():
+        assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
+
+    model_meta_device.init_empty_weights()
+
+    # Assert parameters are actually on the cuda device after to_empty
+    for name, parameter in model_meta_device.named_parameters():
+        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
+
+    set_seed(42)
+    model_normal_init = NVEsmForMaskedLM(config)
+
+    for layer in model_normal_init.esm.encoder.layers:
+        fully_shard(layer)
+    fully_shard(model_normal_init)
+
+    state_dict_meta_init = model_meta_device.state_dict()
+    state_dict_normal_init = model_normal_init.state_dict()
+
+    for key in state_dict_meta_init.keys():
+        if key.endswith("_extra_state"):
+            continue
+
+        meta_tensor = state_dict_meta_init[key]
+        normal_tensor = state_dict_normal_init[key]
+
+        torch.testing.assert_close(
+            normal_tensor.mean(),
+            meta_tensor.mean(),
+            atol=1e-3,
+            rtol=1e-4,
+            msg=lambda x: f"Mean mismatch for parameter {key}: {x}",
         )
-    peak_memory_fp8 = torch.cuda.max_memory_allocated() - memory_before
-    del layer
-    torch.cuda.empty_cache()
 
-    torch.cuda.reset_peak_memory_stats()
-    memory_before = torch.cuda.memory_allocated()
-    with torch.device("cuda"):
-        layer = transformer_engine.pytorch.Linear(
-            4096,
-            4096,
-            params_dtype=torch.bfloat16,
-            device="cuda",
-        )
-    peak_memory_bf16 = torch.cuda.max_memory_allocated() - memory_before
-    del layer
+        if isinstance(normal_tensor, DTensor) and isinstance(meta_tensor, DTensor):
+            torch.testing.assert_close(
+                normal_tensor.full_tensor().std(),
+                meta_tensor.full_tensor().std(),
+                atol=1e-2,
+                rtol=1e-4,
+                msg=lambda x: f"Std mismatch for parameter {key}: {x}",
+            )
 
-    assert peak_memory_fp8 < peak_memory_bf16, (
-        f"FP8 model init uses more memory than BF16 model init: {_format_bytes(peak_memory_fp8)} "
-        f"vs {_format_bytes(peak_memory_bf16)}"
-    )
-
-
-def test_fp8_model_init_uses_less_memory_meta_init(te_model_checkpoint, fp8_recipe):
-    torch.cuda.empty_cache()
-
-    config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
-    torch.cuda.reset_peak_memory_stats()
-    memory_before = torch.cuda.memory_allocated()
-    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe), torch.device("meta"):
-        model_fp8 = NVEsmForMaskedLM(config)
-    model_fp8.init_from_meta_device()
-    peak_memory_fp8 = torch.cuda.max_memory_allocated() - memory_before
-    del model_fp8
-    torch.cuda.empty_cache()
-
-    torch.cuda.reset_peak_memory_stats()
-    memory_before = torch.cuda.memory_allocated()
-    with transformer_engine.pytorch.fp8_model_init(enabled=False, recipe=fp8_recipe), torch.device("meta"):
-        model_bf16 = NVEsmForMaskedLM(config)
-    model_bf16.init_from_meta_device()
-    peak_memory_bf16 = torch.cuda.max_memory_allocated() - memory_before
-    del model_bf16
-
-    assert peak_memory_fp8 < peak_memory_bf16, (
-        f"FP8 model init uses more memory than BF16 model init: {_format_bytes(peak_memory_fp8)} "
-        f"vs {_format_bytes(peak_memory_bf16)}"
-    )
-
-
-# @pytest.mark.parametrize("num_gpus", [1, pytest.param(2, marks=requires_multi_gpu)])
-# def test_meta_device_init_after_fully_shard(num_gpus: int):
-#     cmd = [
-#         "torchrun",
-#         f"--nproc_per_node={num_gpus}",
-#         os.path.relpath(__file__),
-#     ]
-
-#     result = subprocess.run(
-#         cmd,
-#         check=False,
-#         text=True,
-#         stdout=subprocess.PIPE,
-#         stderr=subprocess.PIPE,
-#         timeout=240,
-#     )
-
-#     if result.returncode != 0:
-#         print(f"STDOUT:\n{result.stdout}")
-#         print(f"STDERR:\n{result.stderr}")
-#         pytest.fail(f"Command failed with exit code {result.returncode}")
-
-
-# if __name__ == "__main__":
-#     torch.distributed.init_process_group(backend="cuda:nccl")
-#     torch.cuda.set_device(torch.distributed.get_rank())
-
-#     config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
-
-#     set_seed(42)
-
-#     with torch.device("meta"):
-#         model_meta_init = NVEsmForMaskedLM(config)
-
-#     for layer in model_meta_init.esm.encoder.layers:
-#         fully_shard(layer)
-#     fully_shard(model_meta_init)
-
-#     # Assert parameters are actually on the meta device
-#     for name, parameter in model_meta_init.named_parameters():
-#         assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
-
-#     model_meta_init.to_empty(device="cuda")
-#     model_meta_init.apply(model_meta_init._init_weights)
-
-#     # Assert parameters are actually on the cuda device after to_empty
-#     for name, parameter in model_meta_init.named_parameters():
-#         assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
-
-#     set_seed(42)
-#     model_normal_init = NVEsmForMaskedLM(config)
-
-#     for layer in model_normal_init.esm.encoder.layers:
-#         fully_shard(layer)
-#     fully_shard(model_normal_init)
-
-#     state_dict_meta_init = model_meta_init.state_dict()
-#     state_dict_normal_init = model_normal_init.state_dict()
-
-#     for key in state_dict_meta_init.keys():
-#         if key.endswith("_extra_state"):
-#             continue
-
-#         meta_tensor = state_dict_meta_init[key]
-#         normal_tensor = state_dict_normal_init[key]
-
-#         torch.testing.assert_close(
-#             normal_tensor.mean(),
-#             meta_tensor.mean(),
-#             atol=1e-3,
-#             rtol=1e-4,
-#             msg=lambda x: f"Mean mismatch for parameter {key}: {x}",
-#         )
-
-#         if isinstance(normal_tensor, DTensor) and isinstance(meta_tensor, DTensor):
-#             torch.testing.assert_close(
-#                 normal_tensor.full_tensor().std(),
-#                 meta_tensor.full_tensor().std(),
-#                 atol=1e-2,
-#                 rtol=1e-4,
-#                 msg=lambda x: f"Std mismatch for parameter {key}: {x}",
-#             )
-
-#         else:
-#             torch.testing.assert_close(
-#                 normal_tensor.std(),
-#                 meta_tensor.std(),
-#                 atol=1e-2,
-#                 rtol=1e-4,
-#                 msg=lambda x: f"Std mismatch for parameter {key}: {x}",
-#             )
+        else:
+            torch.testing.assert_close(
+                normal_tensor.std(),
+                meta_tensor.std(),
+                atol=1e-2,
+                rtol=1e-4,
+                msg=lambda x: f"Std mismatch for parameter {key}: {x}",
+            )

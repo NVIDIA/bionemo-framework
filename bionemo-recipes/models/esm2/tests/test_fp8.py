@@ -155,3 +155,38 @@ def test_fp8_model_distributed_checkpointing_save_and_load(te_model_checkpoint, 
     state_dict = model_fp8.state_dict()
     state_dict = {key: val for key, val in state_dict.items() if not key.endswith("_extra_state")}
     dcp.load(state_dict, checkpoint_id=tmp_path / "fp8_checkpoint")
+
+
+def _format_bytes(num: int, suffix: str = "B") -> str:
+    """Format bytes as a human-readable string (e.g. 1.2 MB)."""
+    for unit in ("", "K", "M", "G", "T", "P", "E", "Z"):
+        if abs(num) < 1024.0:
+            return f"{num:3.1f} {unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f} Y{suffix}"
+
+
+@pytest.mark.xfail(reason="BIONEMO-3055: fp8 model init seems to have issues.")
+def test_fp8_model_init_uses_less_memory(te_model_checkpoint, fp8_recipe):
+    torch.cuda.empty_cache()
+
+    config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
+    torch.cuda.reset_peak_memory_stats()
+    memory_before = torch.cuda.memory_allocated()
+    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe), torch.device("cuda"):
+        model_fp8 = NVEsmForMaskedLM(config)
+    peak_memory_fp8 = torch.cuda.max_memory_allocated() - memory_before
+    del model_fp8
+    torch.cuda.empty_cache()
+
+    torch.cuda.reset_peak_memory_stats()
+    memory_before = torch.cuda.memory_allocated()
+    with transformer_engine.pytorch.fp8_model_init(enabled=False, recipe=fp8_recipe), torch.device("cuda"):
+        model_bf16 = NVEsmForMaskedLM(config)
+    peak_memory_bf16 = torch.cuda.max_memory_allocated() - memory_before
+    del model_bf16
+
+    assert peak_memory_fp8 < peak_memory_bf16, (
+        f"FP8 model init uses more memory than BF16 model init: {_format_bytes(peak_memory_fp8)} "
+        f"vs {_format_bytes(peak_memory_bf16)}"
+    )

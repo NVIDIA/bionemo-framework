@@ -28,12 +28,17 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
 import pytest
 import torch
+import transformer_engine.pytorch
 from torch.distributed.fsdp import fully_shard
 from torch.distributed.tensor import DTensor
+from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
+from transformer_engine.pytorch.tensor import QuantizedTensor
 from transformers import set_seed
+from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 
 
 sys.path.append(str(Path(__file__).parent.parent))
@@ -46,7 +51,74 @@ requires_multi_gpu = pytest.mark.skipif(
 )
 
 
-def test_meta_device_init():
+def verify_model_parameters_initialized_correctly(
+    model: NVLlamaForCausalLM, atol=1e-3, rtol=1e-4, should_be_fp8: bool = False
+):
+    config = model.config
+
+    for name, parameter in model.named_parameters():
+        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
+
+    for name, module in model.named_modules():
+
+        def msg(x):
+            return f"Mismatch in module {name}: {x}"
+
+        if isinstance(module, torch.nn.Embedding):
+            torch.testing.assert_close(module.weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
+            torch.testing.assert_close(
+                module.weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg
+            )
+
+        elif isinstance(module, transformer_engine.pytorch.Linear):
+            weight = cast(torch.Tensor, module.weight)
+            torch.testing.assert_close(weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
+            torch.testing.assert_close(weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg)
+            if module.bias is not None:
+                bias = cast(torch.Tensor, module.bias)
+                torch.testing.assert_close(bias, torch.zeros_like(bias), msg=msg)
+            if should_be_fp8:
+                assert isinstance(module.weight, QuantizedTensor), f"Module {name} weight is not a QuantizedTensor"
+
+        elif isinstance(module, transformer_engine.pytorch.LayerNormLinear):
+            torch.testing.assert_close(module.weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
+            torch.testing.assert_close(
+                module.weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg
+            )
+            torch.testing.assert_close(module.bias, torch.zeros_like(module.bias), msg=msg)
+            torch.testing.assert_close(module.layer_norm_weight, torch.ones_like(module.layer_norm_weight), msg=msg)
+            if should_be_fp8:
+                assert isinstance(module.weight, QuantizedTensor), f"Module {name} weight is not a QuantizedTensor"
+
+        elif isinstance(module, transformer_engine.pytorch.LayerNormMLP):
+            torch.testing.assert_close(module.fc1_weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
+            torch.testing.assert_close(
+                module.fc1_weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg
+            )
+            torch.testing.assert_close(module.fc2_weight.mean().item(), 0.0, atol=atol, rtol=rtol, msg=msg)
+            torch.testing.assert_close(
+                module.fc2_weight.std().item(), config.initializer_range, atol=atol, rtol=rtol, msg=msg
+            )
+            torch.testing.assert_close(module.fc1_bias, torch.zeros_like(module.fc1_bias), msg=msg)
+            torch.testing.assert_close(module.fc2_bias, torch.zeros_like(module.fc2_bias), msg=msg)
+            torch.testing.assert_close(module.layer_norm_weight, torch.ones_like(module.layer_norm_weight), msg=msg)
+            if should_be_fp8:
+                assert isinstance(module.fc1_weight, QuantizedTensor), (
+                    f"Module {name} fc1_weight is not a QuantizedTensor"
+                )
+                assert isinstance(module.fc2_weight, QuantizedTensor), (
+                    f"Module {name} fc2_weight is not a QuantizedTensor"
+                )
+
+        elif isinstance(module, transformer_engine.pytorch.RMSNorm):
+            torch.testing.assert_close(module.weight, torch.ones_like(module.weight), msg=msg)
+
+        elif isinstance(module, RotaryPositionEmbedding):
+            expected_inv_freq = LlamaRotaryEmbedding(config=config).inv_freq.to(module.inv_freq.device)
+            torch.testing.assert_close(module.inv_freq, expected_inv_freq, msg=msg)
+
+
+def test_cuda_init():
     config = NVLlamaConfig(
         attn_input_format="bshd",
         num_hidden_layers=2,
@@ -57,52 +129,77 @@ def test_meta_device_init():
     )
 
     set_seed(42)
+    model = NVLlamaForCausalLM(config)
+    model.to("cuda")
 
-    with torch.device("meta"):
-        model_meta_init = NVLlamaForCausalLM(config)
+    verify_model_parameters_initialized_correctly(model)
 
-    # Assert parameters are actually on the meta device
-    for name, parameter in model_meta_init.named_parameters():
-        assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
 
-    model_meta_init.to_empty(device="cuda")
-    model_meta_init.apply(model_meta_init._init_weights)
-
-    # Assert parameters are actually on the cuda device after to_empty
-    for name, parameter in model_meta_init.named_parameters():
-        assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
+def test_meta_init():
+    config = NVLlamaConfig(
+        attn_input_format="bshd",
+        num_hidden_layers=2,
+        hidden_size=384,
+        intermediate_size=1536,
+        num_attention_heads=6,
+        num_key_value_heads=6,
+    )
 
     set_seed(42)
-    model_normal_init = NVLlamaForCausalLM(config)
-    model_normal_init.to("cuda")
+    with torch.device("meta"):
+        model = NVLlamaForCausalLM(config)
 
-    state_dict_meta_init = model_meta_init.state_dict()
-    state_dict_normal_init = model_normal_init.state_dict()
+    # Assert parameters are actually on the meta device
+    for name, parameter in model.named_parameters():
+        assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
 
-    for key in state_dict_meta_init.keys():
-        if key.endswith("_extra_state"):
-            continue
+    # Move the model to the cuda device and initialize the parameters
+    model.init_empty_weights()
 
-        meta_tensor = state_dict_meta_init[key]
-        normal_tensor = state_dict_normal_init[key]
-        torch.testing.assert_close(
-            normal_tensor.mean(),
-            meta_tensor.mean(),
-            atol=1e-3,
-            rtol=1e-4,
-            msg=lambda x: f"Mean mismatch for parameter {key}: {x}",
-        )
-        torch.testing.assert_close(
-            normal_tensor.std(),
-            meta_tensor.std(),
-            atol=1e-3,
-            rtol=1e-4,
-            msg=lambda x: f"Std mismatch for parameter {key}: {x}",
-        )
+    verify_model_parameters_initialized_correctly(model)
+
+
+def test_cuda_fp8_init(fp8_recipe):
+    config = NVLlamaConfig(
+        attn_input_format="bshd",
+        num_hidden_layers=2,
+        hidden_size=384,
+        intermediate_size=1536,
+        num_attention_heads=6,
+        num_key_value_heads=6,
+    )
+
+    set_seed(42)
+    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe):
+        model = NVLlamaForCausalLM(config)
+
+    model.to("cuda")
+
+    verify_model_parameters_initialized_correctly(model, atol=1e-2, should_be_fp8=True)
+
+
+def test_meta_fp8_init(fp8_recipe):
+    config = NVLlamaConfig(
+        attn_input_format="bshd",
+        num_hidden_layers=2,
+        hidden_size=384,
+        intermediate_size=1536,
+        num_attention_heads=6,
+        num_key_value_heads=6,
+    )
+
+    set_seed(42)
+    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe), torch.device("meta"):
+        model = NVLlamaForCausalLM(config)
+
+    # Move the model to the cuda device and initialize the parameters
+    model.init_empty_weights()
+
+    verify_model_parameters_initialized_correctly(model, should_be_fp8=True)
 
 
 @pytest.mark.parametrize("num_gpus", [1, pytest.param(2, marks=requires_multi_gpu)])
-def test_meta_device_init_after_fully_shard(num_gpus: int, recipe_path: Path):
+def test_meta_device_init_after_fully_shard(num_gpus: int):
     cmd = [
         "torchrun",
         f"--nproc_per_node={num_gpus}",
@@ -113,7 +210,6 @@ def test_meta_device_init_after_fully_shard(num_gpus: int, recipe_path: Path):
         cmd,
         check=False,
         text=True,
-        cwd=recipe_path,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=240,
@@ -143,6 +239,8 @@ if __name__ == "__main__":
     with torch.device("meta"):
         model_meta_init = NVLlamaForCausalLM(config)
 
+    # Note: NVLlamaForCausalLM structure is model.layers...
+    # In original test: for layer in model_meta_init.model.layers: fully_shard(layer)
     for layer in model_meta_init.model.layers:
         fully_shard(layer)
     fully_shard(model_meta_init)
@@ -151,10 +249,9 @@ if __name__ == "__main__":
     for name, parameter in model_meta_init.named_parameters():
         assert parameter.device == torch.device("meta"), f"Parameter {name} is not on the meta device"
 
-    model_meta_init.to_empty(device="cuda")
-    model_meta_init.apply(model_meta_init._init_weights)
+    model_meta_init.init_empty_weights()
 
-    # Assert parameters are actually on the cuda device after to_empty
+    # Assert parameters are actually on the cuda device after init_empty_weights
     for name, parameter in model_meta_init.named_parameters():
         assert str(parameter.device).startswith("cuda"), f"Parameter {name} is not on the cuda device"
 
