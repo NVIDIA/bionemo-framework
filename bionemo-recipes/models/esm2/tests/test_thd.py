@@ -20,8 +20,9 @@ import pytest
 import torch
 from transformer_engine.pytorch.attention.dot_product_attention import _attention_backends
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
+from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import MLMDataCollatorWithFlattening
+from esm.collator import DataCollatorWithFlattening
 from esm.modeling_esm_te import NVEsmConfig, NVEsmEmbeddings, NVEsmForMaskedLM
 
 
@@ -39,12 +40,14 @@ requires_datacenter_hardware = pytest.mark.skipif(
 
 @pytest.fixture
 def input_data_thd(tokenizer, tokenized_proteins):
-    data_collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        seed=42,
-        bshd_equivalent=True,
-        bshd_pad_to_multiple_of=32,
+    """The collator here needs to exactly match the one used in the `input_data` fixture for golden values to pass."""
+    data_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            mlm_probability=0.15,
+            pad_to_multiple_of=32,
+            seed=42,
+        )
     )
     return data_collator(tokenized_proteins)
 

@@ -67,7 +67,7 @@ def load_dcp_checkpoint(checkpoint_path, model=None, optimizer=None):
         state_dict["optimizer"] = optimizer.state_dict()
     torch.distributed.checkpoint.load(state_dict, checkpoint_id=checkpoint_path)
     if model is not None:
-        model.load_state_dict(state_dict["model"])
+        model.load_state_dict(state_dict["model"], strict=False)
     if optimizer is not None:
         optimizer.load_state_dict(state_dict["optimizer"])
 

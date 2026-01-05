@@ -33,7 +33,6 @@ from scheduler import get_linear_schedule_with_warmup
 
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
@@ -109,14 +108,14 @@ def main(args: DictConfig) -> float | None:
         output_device=dist_config.local_rank,
         process_group=group_fsdp_cp,
     )
-    cp_group = device_mesh["cp"].get_group()
-    cp_rank = device_mesh.get_local_rank("cp")
 
     if args.cp_size > 1:
         for i, transformer_layer in enumerate(model.module.esm.encoder.layers):
             logger.debug(f"Rank {dist_config.rank}: Setting CP group for layer {i}")
             transformer_layer.set_context_parallel_group(
-                cp_group, torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()), torch.cuda.Stream()
+                device_mesh["cp"].get_group(),
+                torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()),
+                torch.cuda.Stream(),
             )
 
     # Context Parallelism requires THD Sequence Packing.
@@ -124,9 +123,7 @@ def main(args: DictConfig) -> float | None:
 
     train_dataloader, dataset_or_sampler = create_cp_dataloader(
         dist_config,
-        cp_world_size=torch.distributed.get_world_size(group=cp_group),
-        cp_group=cp_group,
-        cp_rank=cp_rank,
+        cp_mesh=device_mesh["cp"],
         **args.dataset,
     )
 

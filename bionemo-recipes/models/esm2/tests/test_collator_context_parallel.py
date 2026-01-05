@@ -208,11 +208,24 @@ class _DummyLoader:
         return copy.deepcopy(self._batch)
 
 
-class _DummyCPGroup:
-    def __init__(self, size: int):
+class _DummyDeviceMesh:
+    """Dummy device mesh for testing ContextParallelDataLoaderWrapper."""
+
+    def __init__(self, size: int, rank: int = 0):
         self._size = size
+        self._rank = rank
+        self._group = mock.MagicMock()  # Mock process group
+
+    def get_local_rank(self) -> int:
+        """Return the local rank within this mesh."""
+        return self._rank
+
+    def get_group(self):
+        """Return the process group."""
+        return self._group
 
     def size(self) -> int:
+        """Return the size of the mesh."""
         return self._size
 
 
@@ -220,11 +233,10 @@ def _fake_get_batch(
     cu_seqlens_padded,
     input_ids_padded,
     labels_padded,
-    cp_group,
+    cp_size,
     qvk_format,
     cp_rank,
 ):
-    cp_size = cp_group.size()
     total_slices = 2 * cp_size
     seq_tokens = input_ids_padded.view(-1)
     seq_labels = labels_padded.view(-1)
@@ -250,14 +262,14 @@ def _fake_get_batch(
     )
 
 
-def _make_cp_shards(base_batch: Dict[str, torch.Tensor], cp_group: _DummyCPGroup):
+def _make_cp_shards(base_batch: Dict[str, torch.Tensor], cp_size: int):
     combined_batch = []
-    for cp_rank in range(cp_group.size()):
+    for cp_rank in range(cp_size):
         input_ids_sharded, labels_sharded = _fake_get_batch(
             cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
             input_ids_padded=base_batch["input_ids"],
             labels_padded=base_batch["labels"],
-            cp_group=cp_group,
+            cp_size=cp_size,
             qvk_format="thd",
             cp_rank=cp_rank,
         )
@@ -368,7 +380,7 @@ def test_dataloader_scatter_nopadding():
     CP0 | 1,2,7,8 | 9, 10, 15, 16 |
     CP1 | 3,4,5,6 | 11, 12, 13, 14|
     """
-    cp_group = _DummyCPGroup(size=2)
+    cp_size = 2
 
     def run_roundtrip(base_batch):
         combined_batch = [
@@ -381,7 +393,7 @@ def test_dataloader_scatter_nopadding():
                         labels_padded=base_batch["labels"],
                         qvk_format="thd",
                         cp_rank=cp_rank,
-                        cp_world_size=cp_group.size(),
+                        cp_world_size=cp_size,
                     )[0],
                     "labels": _split_batch_by_cp_rank(
                         cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
@@ -389,14 +401,16 @@ def test_dataloader_scatter_nopadding():
                         labels_padded=base_batch["labels"],
                         qvk_format="thd",
                         cp_rank=cp_rank,
-                        cp_world_size=cp_group.size(),
+                        cp_world_size=cp_size,
                     )[1],
                 },
             )
-            for cp_rank in range(cp_group.size())
+            for cp_rank in range(cp_size)
         ]
-        loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=0)
-        loader_rank1 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=1)
+        cp_mesh_rank0 = _DummyDeviceMesh(size=cp_size, rank=0)
+        cp_mesh_rank1 = _DummyDeviceMesh(size=cp_size, rank=1)
+        loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_mesh_rank0)
+        loader_rank1 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_mesh_rank1)
 
         scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
         current_rank = {"value": None}
@@ -455,7 +469,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
     CP0 | 1,<p>,5,<p> | 9, <p>, 13, <p>|
     CP1 | 2,3,6, <p>  | 10, 11, 14, 15 |
     """
-    cp_group = _DummyCPGroup(size=2)
+    cp_size = 2
 
     def run_roundtrip(base_batch):
         combined_batch = [
@@ -468,7 +482,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
                         labels_padded=base_batch["labels"],
                         qvk_format="thd",
                         cp_rank=cp_rank,
-                        cp_world_size=cp_group.size(),
+                        cp_world_size=cp_size,
                     )[0],
                     "labels": _split_batch_by_cp_rank(
                         cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
@@ -476,14 +490,16 @@ def test_dataloader_scatter_with_pad_between_seqs():
                         labels_padded=base_batch["labels"],
                         qvk_format="thd",
                         cp_rank=cp_rank,
-                        cp_world_size=cp_group.size(),
+                        cp_world_size=cp_size,
                     )[1],
                 },
             )
-            for cp_rank in range(cp_group.size())
+            for cp_rank in range(cp_size)
         ]
-        loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=0)
-        loader_rank1 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=1)
+        cp_mesh_rank0 = _DummyDeviceMesh(size=cp_size, rank=0)
+        cp_mesh_rank1 = _DummyDeviceMesh(size=cp_size, rank=1)
+        loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_mesh_rank0)
+        loader_rank1 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_mesh_rank1)
 
         scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
         current_rank = {"value": None}
