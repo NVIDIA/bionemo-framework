@@ -90,7 +90,12 @@ def main(args: DictConfig) -> float | None:
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
 
-    if args.use_meta_device:
+    # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
+    if args.use_meta_device and isinstance(model, NVLlamaForCausalLM):
+        # TE requires a special method to initialize the weights from the meta device.
+        model.init_empty_weights()
+
+    elif args.use_meta_device and isinstance(model, LlamaForCausalLM):
         model.to_empty(device=device)
         model.apply(model._init_weights)
 

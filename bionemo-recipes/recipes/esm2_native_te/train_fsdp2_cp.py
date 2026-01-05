@@ -130,9 +130,9 @@ def main(args: DictConfig) -> float | None:
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
+    # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     if args.use_meta_device:
-        model.to_empty(device=device)
-        model.apply(model._init_weights)
+        model.init_empty_weights()
 
     # Context Parallelism requires THD Sequence Packing.
     assert args.use_sequence_packing, "Context Parallelism requires THD Sequence Packing."
