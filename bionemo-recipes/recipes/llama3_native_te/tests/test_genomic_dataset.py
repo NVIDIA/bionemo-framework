@@ -15,8 +15,9 @@
 
 import pytest
 import torch
-from transformers.data.data_collator import DataCollatorForLanguageModeling, DataCollatorWithFlattening
+from transformers.data.data_collator import DataCollatorForLanguageModeling
 
+from collator import DataCollatorWithFlattening
 from genomic_dataset import GenomicDataCollator
 
 
@@ -74,7 +75,8 @@ def test_collator_uppercases(tokenizer):
 
 def test_collator_uppercases_sequence_packing(tokenizer):
     """Test that collator uppercases labels while keeping inputs mixed case."""
-    base = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
+    base_mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    base = DataCollatorWithFlattening(collator=base_mlm_collator)
     collator = GenomicDataCollator(
         base_collator=base,
         uppercase_labels=True,
@@ -94,7 +96,7 @@ def test_collator_uppercases_sequence_packing(tokenizer):
     # Our uppercase: [97, 67, 103, 116] → [65, 67, 71, 84]
     #                 a   C   g    t   →   A   C   G   T
     labels = batch["labels"]
-    expected_labels = torch.tensor([[-100, 67, 71, 84]])  # -100 for THD padding, 67, 71, 84 for uppercase
+    expected_labels = torch.tensor([[65, 67, 71, 84]])  # All uppercase: A, C, G, T
     assert torch.equal(labels, expected_labels), f"Expected {expected_labels}, got {labels}"
 
 

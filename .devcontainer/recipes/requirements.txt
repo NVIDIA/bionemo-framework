@@ -1,9 +1,11 @@
-accelerate @ git+https://github.com/huggingface/accelerate.git  # Until huggingface/accelerate#3852 is released.
+accelerate
 datasets
 deepspeed
 hydra-core
-megatron-fsdp
+# TOT megatron-mfsdp until NVIDIA/Megatron-LM#2575 is in a release.
+megatron-fsdp @ git+https://github.com/NVIDIA/Megatron-LM.git@main#subdirectory=megatron/core/distributed/fsdp/src
 peft
+pytest
 torch
 torchao!=0.14.0
 torchdata

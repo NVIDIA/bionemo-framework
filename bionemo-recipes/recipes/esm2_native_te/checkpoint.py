@@ -240,7 +240,7 @@ def load_checkpoint_mfsdp(
     }
     torch.distributed.checkpoint.load(state_dict=ckpt_state_dict, checkpoint_id=checkpoint_path)
 
-    model.load_state_dict(ckpt_state_dict["model"])
+    model.load_state_dict(ckpt_state_dict["model"], strict=False)
     optimizer.load_state_dict(ckpt_state_dict["optimizer"])
     scheduler.load_state_dict(ckpt_state_dict["scheduler"])
     dataloader = load_dataloader(dataloader, checkpoint_path, dist_config)

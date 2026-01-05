@@ -292,3 +292,6 @@ training configurations, allowing for easy modification of training hyper-parame
 
 Configuration parameters can be overridden from the command line. For example, 
 `python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true`.
+
+For verbose logging, use the hydra command line override `hydra.verbose=true`, see
+https://hydra.cc/docs/tutorials/basic/running_your_app/logging/ for more details.
