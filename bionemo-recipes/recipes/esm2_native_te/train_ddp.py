@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig
@@ -43,6 +44,13 @@ def main(args: DictConfig) -> float | None:
     Returns:
         float: The loss value for the final batch.
     """
+    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    debug_api.initialize(
+        config_file="/workspaces/bionemo-framework/bionemo-recipes/recipes/esm2_native_te/fp8_stats_block_scaling.yaml",
+        feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
+        log_dir="./logddp",
+        default_logging_enabled=True,
+    )
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
@@ -65,6 +73,8 @@ def main(args: DictConfig) -> float | None:
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
 
+    
+    
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
@@ -84,6 +94,8 @@ def main(args: DictConfig) -> float | None:
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
+    debug_api.infer_and_assign_layer_names(model)
+
     model = model.to(device=device)
     model = torch.nn.parallel.DistributedDataParallel(
         model,
@@ -91,6 +103,7 @@ def main(args: DictConfig) -> float | None:
         output_device=dist_config.local_rank,
         device_mesh=device_mesh["ddp"],
     )
+    
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
     train_dataloader, dataset_or_sampler = (
@@ -99,9 +112,9 @@ def main(args: DictConfig) -> float | None:
         else create_bshd_dataloader(dist_config, **args.dataset)
     )
 
-    if args.use_torch_compile:
-        # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
-        model = torch.compile(model)
+    # if args.use_torch_compile:
+    #     # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
+    #     model = torch.compile(model)
 
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_ddp" if args.checkpoint.ckpt_dir else None
@@ -134,6 +147,7 @@ def main(args: DictConfig) -> float | None:
             loss = outputs.loss
             loss.backward()
 
+            debug_api.step()
             # Compute and clip gradient norms.
             total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 

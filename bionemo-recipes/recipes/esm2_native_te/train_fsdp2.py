@@ -17,7 +17,9 @@ import logging
 from contextlib import nullcontext
 from pathlib import Path
 
+import os
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
@@ -35,7 +37,7 @@ from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
-
+from torch.utils.tensorboard import SummaryWriter
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -54,6 +56,23 @@ def main(args: DictConfig) -> float | None:
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
+
+    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    tb_writer = SummaryWriter('./tensorboard_dir/run1')
+    fp8_stats_file = args.fp8_stats_config.fp8_stats_file if args.fp8_stats_config.fp8_stats_file else "fp8_stats_mxfp8.yaml"
+    fp8_log_dir = args.fp8_stats_config.fp8_log_dir if args.fp8_stats_config.fp8_log_dir else "./log_fsdp2_mxfp8"
+    # Make a subdir for the current rank.
+    fp8_log_dir = os.path.join(fp8_log_dir, f"rank_{dist_config.local_rank}")
+    os.makedirs(fp8_log_dir, exist_ok=True)
+    logger.info(f"Logging FP8 stats to {fp8_log_dir}")
+    debug_api.initialize(
+        config_file=fp8_stats_file,
+        feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
+        log_dir=fp8_log_dir,
+        default_logging_enabled=True,
+        tb_writer=tb_writer,
+    )
+    
 
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh(
@@ -84,11 +103,26 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
+    
+    # Debug: Print module types to verify what we're working with
+    if dist_config.local_rank == 0:
+        logger.info("=== DEBUG: Module types in model ===")
+        for name, module in model.named_modules():
+            if "layernorm_qkv" in name or "proj" in name or "self_attention" in name:
+                logger.info(f" -----> {name}: {type(module)} <----")
+        logger.info(
+            f"=== DEBUG: FP8 config enabled={args.fp8_config.enabled}, recipe={args.fp8_config.fp8_recipe} ==="
+        )
+
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
+
     for layer in transformer_stack:
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
+
+    # Assign names to layers so debug API can identify them - MUST be done BEFORE FSDP wrapping
+    debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
@@ -105,9 +139,9 @@ def main(args: DictConfig) -> float | None:
         else create_bshd_dataloader(dist_config, **args.dataset)
     )
 
-    if args.use_torch_compile:
-        # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
-        model = torch.compile(model)
+    # if args.use_torch_compile:
+    #     # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
+    #     model = torch.compile(model)
 
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
@@ -146,6 +180,9 @@ def main(args: DictConfig) -> float | None:
             # Step optimizer.
             optimizer.step()
             scheduler.step()
+
+            debug_api.step()
+
             optimizer.zero_grad()
 
             perf_logger.log_step(

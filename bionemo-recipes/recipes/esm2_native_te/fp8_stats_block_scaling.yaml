@@ -1,0 +1,27 @@
+example_fp8_tensor_stat_collection:
+    enabled: True
+    layers:
+        # Match the actual linear layers within attention that support FP8 stats
+        layer_types: [layernorm_qkv, proj]
+    transformer_engine:
+        LogFp8TensorStats:
+            enabled: True
+            tensors_struct:
+            - tensor: activation
+              stats: [fp8_block_scaling_underflows%]
+              freq: 1
+            - tensor: activation
+              stats: [fp8_block_scaling_scale_inv_min, fp8_block_scaling_scale_inv_max]
+              freq: 1
+            - tensor: activation
+              stats: [scale_inv_max]
+              freq: 1
+            - tensor: activation
+              stats: [fp8_block_scaling_mse]
+              freq: 1
+            - tensor: gradient
+              stats: [fp8_block_scaling_underflows%]
+              freq: 5
+              start_step: 0
+              end_step: 80
+
