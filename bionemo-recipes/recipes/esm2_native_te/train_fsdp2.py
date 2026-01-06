@@ -17,6 +17,7 @@ import logging
 from contextlib import nullcontext
 from pathlib import Path
 
+import os
 import hydra
 import nvdlfw_inspect.api as debug_api
 import torch
@@ -49,11 +50,21 @@ def main(args: DictConfig) -> float | None:
     Returns:
         float: The loss value for the final batch.
     """
+    # Initialize the distributed configuration, including creating the distributed process group.
+    dist_config = DistributedConfig()
+    logger.info("Initializing distributed training: %s", dist_config)
+    device = torch.device(f"cuda:{dist_config.local_rank}")
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    torch.cuda.set_device(dist_config.local_rank)
+
     # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
     tb_writer = SummaryWriter('./tensorboard_dir/run1')
     fp8_stats_file = args.fp8_stats_config.fp8_stats_file if args.fp8_stats_config.fp8_stats_file else "fp8_stats_mxfp8.yaml"
     fp8_log_dir = args.fp8_stats_config.fp8_log_dir if args.fp8_stats_config.fp8_log_dir else "./log_fsdp2_mxfp8"
-    # TODO: How do you manage them across ranks?
+    # Make a subdir for the current rank.
+    fp8_log_dir = os.path.join(fp8_log_dir, f"rank_{dist_config.local_rank}")
+    os.makedirs(fp8_log_dir, exist_ok=True)
+    logger.info(f"Logging FP8 stats to {fp8_log_dir}")
     debug_api.initialize(
         config_file=fp8_stats_file,
         feature_dirs=["/usr/local/lib/python3.12/dist-packages/transformer_engine/debug/features/"],
@@ -61,12 +72,7 @@ def main(args: DictConfig) -> float | None:
         default_logging_enabled=True,
         tb_writer=tb_writer,
     )
-    # Initialize the distributed configuration, including creating the distributed process group.
-    dist_config = DistributedConfig()
-    logger.info("Initializing distributed training: %s", dist_config)
-    device = torch.device(f"cuda:{dist_config.local_rank}")
-    torch.distributed.init_process_group(backend="nccl", device_id=device)
-    torch.cuda.set_device(dist_config.local_rank)
+    
 
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh(
