@@ -29,7 +29,7 @@ config_kwargs:
 use_sequence_packing: true
 
 # Gradient accumulation
-grad_acc_steps: 4
+grad_acc_steps: 8  # Higher accumulation for memory constraints
 
 # Training setup (matching John's)
 num_train_steps: 182314
