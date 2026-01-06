@@ -90,13 +90,14 @@ def main(args: DictConfig) -> float | None:
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
 
+    # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
+    # Note, this should happen before we create the optimizer.
+    if args.use_meta_device:
+        model.init_empty_weights()
+
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
-
-    # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
-    if args.use_meta_device:
-        model.init_empty_weights()
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
     train_dataloader, dataset_or_sampler = (
