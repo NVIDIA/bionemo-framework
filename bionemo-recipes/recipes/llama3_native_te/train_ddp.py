@@ -135,8 +135,8 @@ def main(args: DictConfig) -> float | None:
             # Use no_sync to prevent gradient synchronization until the last microbatch
             with model.no_sync() if micro_step % args.grad_acc_steps != 0 else nullcontext():
                 # Forward pass with mixed precision.
-                with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
-                    outputs = model(**batch)
+                # Note: FP8 is selectively applied inside the model (first/last layers stay in bf16)
+                outputs = model(**batch, fp8_enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe)
 
                 # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
                 loss = outputs.loss / args.grad_acc_steps
