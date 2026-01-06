@@ -1,0 +1,14 @@
+# Config for 7B Llama3 on OpenGenome2 Metagenome (matching John's Eden run)
+# Packed BSHD format
+
+defaults:
+  - L2_og2_metagenome_7b
+  - _self_
+
+# Override to use packed BSHD instead of THD
+config_kwargs:
+  attn_input_format: bshd
+
+wandb:
+  name: og2_7b_bshd_6node_mbs2_ga4
+  project: llama3-metagenome-7b
