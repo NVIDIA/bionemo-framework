@@ -70,7 +70,9 @@ def main(args: DictConfig) -> float | None:
         model_class = LlamaForCausalLM
 
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
-    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
+    # Convert config_kwargs to regular dict to avoid JSON serialization issues with nested DictConfig
+    config_kwargs_dict = OmegaConf.to_container(args.config_kwargs, resolve=True)
+    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **config_kwargs_dict)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
