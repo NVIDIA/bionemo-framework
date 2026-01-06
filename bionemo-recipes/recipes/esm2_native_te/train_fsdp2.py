@@ -93,7 +93,12 @@ def main(args: DictConfig) -> float | None:
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     # Note, this should happen before we create the optimizer.
     if args.use_meta_device:
-        model.init_empty_weights()
+        if hasattr(model, "init_empty_weights"):
+            # TE layers require special handling to initialize the weights from the meta device.
+            model.init_empty_weights()
+        else:
+            model.to_empty(device=device)
+            model.apply(model._init_weights)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
