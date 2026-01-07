@@ -172,7 +172,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             past_key_values (tuple[tuple[torch.Tensor, ...], ...]): The past key values.
             inputs_embeds (torch.Tensor): The inputs embeds.
             use_cache (bool): Whether to use cache.
-            fp8_enabled (bool): Whether to enable FP8 for middle layers. First and last layers always use bf16.
+            fp8_enabled (bool): Whether to enable FP8. Last layer, final norm, and lm_head always use bf16.
             fp8_recipe: The FP8 recipe to use for quantization.
             **kwargs: Additional keyword arguments.
 
@@ -185,10 +185,9 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # Embedding layer - ALWAYS in bf16 for stability
+        # Embedding layer - uses FP8 if enabled
         if inputs_embeds is None:
-            with transformer_engine.pytorch.fp8_autocast(enabled=False):
-                inputs_embeds: torch.Tensor = self.embed_tokens(input_ids)
+            inputs_embeds: torch.Tensor = self.embed_tokens(input_ids)
 
         hidden_states = inputs_embeds
 
@@ -245,7 +244,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths)))
 
         # Process transformer layers with selective FP8
-        # Keep first and last layers in bf16, use FP8 for middle layers
+        # Keep only last layer in bf16, use FP8 for all other layers
         num_layers = self.config.num_hidden_layers
         for layer_idx in range(num_layers):
             decoder_layer = self.layers[layer_idx]
@@ -253,9 +252,9 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            # First layer (0) and last layer stay in bf16 for numerical stability
-            # Middle layers use FP8 for performance
-            use_fp8_for_layer = fp8_enabled and (layer_idx != 0) and (layer_idx != num_layers - 1)
+            # Last layer stays in bf16 for numerical stability
+            # All other layers (0 to num_layers-2) use FP8 for performance
+            use_fp8_for_layer = fp8_enabled and (layer_idx != num_layers - 1)
 
             with transformer_engine.pytorch.fp8_autocast(enabled=use_fp8_for_layer, fp8_recipe=fp8_recipe):
                 hidden_states = decoder_layer(
@@ -338,7 +337,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             cache_position (torch.Tensor): The cache position.
             logits_to_keep (int | torch.Tensor): Whether to keep only the last logits to reduce the memory footprint of
                 the model during generation.
-            fp8_enabled (bool): Whether to enable FP8 for middle layers. First and last layers always use bf16.
+            fp8_enabled (bool): Whether to enable FP8. Last transformer layer, final norm, and lm_head always use bf16.
             fp8_recipe: The FP8 recipe to use for quantization.
             **kwargs: Additional keyword arguments.
 
