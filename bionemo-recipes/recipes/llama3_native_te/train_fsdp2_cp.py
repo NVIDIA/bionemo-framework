@@ -111,8 +111,8 @@ def main(args: DictConfig) -> float | None:
 
     train_dataloader, dataset_or_sampler = create_cp_dataloader(
         dist_config,
+        cp_mesh=device_mesh["cp"],
         **args.dataset,
-        cp_group=device_mesh["cp"].get_group(),
     )
 
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
