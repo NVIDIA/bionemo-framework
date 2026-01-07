@@ -353,6 +353,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=false",  # Start fresh
                 "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
+                "checkpoint.async_save=false",
             ],
         )
 
@@ -399,6 +400,9 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
                 "checkpoint.save_every_n_steps=5",
                 "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
                 "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
+                # Sometimes the checkpoint hasn't finished saving by the time we resume training, so we disable async
+                # save for this test.
+                "checkpoint.async_save=false",
             ],
         )
 

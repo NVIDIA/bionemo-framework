@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
 import os
 import subprocess
 
@@ -20,6 +21,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import torch
+from hydra import compose, initialize_config_dir
 
 from dataset import create_bshd_dataloader, create_thd_dataloader, create_tokenized_dataset
 from distributed_config import DistributedConfig
@@ -82,7 +84,6 @@ def test_dataset_loads_and_tokenizes_sequence(tokenizer_path, tmp_path):
         max_seq_length=20,  # Large enough to fit the sequence
         stride=10,
         buffer_size=10_000,
-        use_lazy_tokenization=False,  # Eager to get predictable dataset
     )
 
     # Only 1 sequence → 1 window → dataset[0] is predictable regardless of shuffle
@@ -132,9 +133,8 @@ def test_dataloader_returns_expected_batch(tokenizer_path, tmp_path):
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=1,  # Just one sample per batch
         num_workers=0,
-        max_seq_length=10,  # Large enough for 5bp sequence
+        max_seq_length=7,  # Large enough for 5bp sequence
         stride=5,
-        use_lazy_tokenization=False,  # Eager for deterministic behavior
         uppercase_labels=False,  # Use standard collator for this test
         mask_degenerate_bases=False,  # Use standard collator for this test
     )
@@ -250,7 +250,6 @@ def test_windowing_in_dataset_creates_multiple_samples(tokenizer_path, tmp_path)
         max_seq_length=1000,
         stride=800,  # 800 token overlap, so 200 token step
         buffer_size=10_000,
-        use_lazy_tokenization=False,  # Use eager tokenization to expand windows
     )
 
     # Count samples
@@ -280,7 +279,6 @@ def test_lazy_tokenization_returns_batch(tokenizer_path, simple_parquet):
         num_workers=0,
         max_seq_length=500,
         stride=100,
-        use_lazy_tokenization=True,
     )
 
     # Get a batch
@@ -327,7 +325,6 @@ def test_multiple_sequences_batch_correctly(tokenizer_path, simple_parquet, stre
         max_seq_length=500,
         stride=100,
         buffer_size=10_000,  # Only used for streaming
-        use_lazy_tokenization=False,
     )
 
     # Get first batch
@@ -407,7 +404,6 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
         num_workers=0,
         max_seq_length=50,  # Large enough - no windowing
         stride=10,
-        use_lazy_tokenization=False,  # Use eager to ensure predictable batching
     )
 
     # Collect all batches
@@ -420,6 +416,37 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
     assert batches[0]["input_ids"].shape[0] == 2, "Batch 0 should have 2 sequences"
     assert batches[1]["input_ids"].shape[0] == 2, "Batch 1 should have 2 sequences"
     assert batches[2]["input_ids"].shape[0] == 1, "Batch 2 should have 1 sequence (remainder)"
+
+
+def test_non_streaming_dataset_produces_correct_batch_size(recipe_path):
+    """Test that batching combines multiple sequences correctly with exact batch counts.
+
+    Creates 5 short sequences (no windowing) with micro_batch_size=2.
+    Should produce exactly 3 batches with shapes: [2, 2, 1].
+    """
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                "dataset.load_dataset_kwargs.streaming=False",
+            ],
+        )
+
+    dataloader, sampler = create_bshd_dataloader(
+        distributed_config=distributed_config,
+        **sanity_config.dataset,
+    )
+
+    assert isinstance(sampler, torch.utils.data.distributed.DistributedSampler), (
+        "Sampler should be a DistributedSampler"
+    )
+
+    batches = list(itertools.islice(dataloader, 50))
+
+    for batch in batches:
+        assert batch["input_ids"].shape[0] == sanity_config.dataset.micro_batch_size
+        assert batch["input_ids"].shape[1] <= sanity_config.dataset.max_seq_length
 
 
 def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, tmp_path):
@@ -445,7 +472,6 @@ def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, t
         token_micro_batch_size=15,
         max_seq_length=15,
         stride=10,
-        use_lazy_tokenization=False,  # Use eager to ensure predictable batching
         split_samples_in_token_packing=False,
     )
 
@@ -504,7 +530,6 @@ def test_streaming_dataset_removes_columns_correctly(tokenizer_path, tmp_path):
         max_seq_length=100,
         stride=10,
         buffer_size=1000,
-        use_lazy_tokenization=False,
         text_column="text",  # Specify which column has sequences
     )
 
@@ -574,7 +599,6 @@ def test_streaming_dataset_handles_missing_record_column(tokenizer_path, tmp_pat
         max_seq_length=100,
         stride=10,
         buffer_size=1000,
-        use_lazy_tokenization=False,
         text_column="text",
     )
 
@@ -618,7 +642,6 @@ def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
         num_workers=0,
         max_seq_length=10,
         stride=5,
-        use_lazy_tokenization=False,
         mask_degenerate_bases=True,  # Enable degenerate masking
     )
 
@@ -705,13 +728,13 @@ if __name__ == "__main__":
     dataloader, _ = create_cp_dataloader(
         distributed_config=dist_config,
         cp_mesh=device_mesh["cp"],
-        tokenizer_name_or_path="tokenizers/nucleotide_fast_tokenizer",
+        tokenizer_name_or_path="nvidia/Llama-3.1-8B-Instruct-FP8",
         micro_batch_size=1,
-        text_column="nt_sequence",
+        text_column="text",
         load_dataset_kwargs={
             "path": "parquet",
             "split": "train",
-            "data_files": "genomic_sequences_2mb.parquet",
+            "data_files": "dlcm_sanity_dataset.parquet",
             "streaming": True,
         },
         num_workers=1,

@@ -29,7 +29,13 @@ from transformer_engine.common.recipe import Format
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
-from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
+from checkpoint import (
+    _ckpt_futures,
+    load_checkpoint_fsdp2,
+    save_checkpoint_fsdp2,
+    save_final_model_fsdp2,
+    should_save_checkpoint,
+)
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
@@ -205,6 +211,10 @@ def main(args: DictConfig) -> float | None:
             save_directory=ckpt_path / "final_model",
             dist_config=dist_config,
         )
+
+    # Make sure we don't have any outstanding checkpoint save futures.
+    if args.checkpoint.async_save and "fsdp2" in _ckpt_futures and _ckpt_futures["fsdp2"] is not None:
+        _ckpt_futures["fsdp2"].result()
 
     # Clean up distributed training
     perf_logger.finish()

@@ -43,7 +43,6 @@ def create_tokenized_dataset(
     max_seq_length: int = 8192,
     stride: int = 200,
     buffer_size: int = 5_000,
-    use_lazy_tokenization: bool = True,
     text_column: str = "text",
     tokenize_batch_size: int = 100,
 ):
@@ -56,7 +55,6 @@ def create_tokenized_dataset(
         max_seq_length: The maximum length of sequences (window size).
         stride: The stride for windowing (overlap = stride tokens).
         buffer_size: The buffer size for shuffle.
-        use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         text_column: Name of the column containing genomic sequences (default: "text").
         tokenize_batch_size: The batch size for tokenization.
 
@@ -97,16 +95,12 @@ def create_tokenized_dataset(
         )
         return result
 
-    if isinstance(dataset, datasets.Dataset) and use_lazy_tokenization:
-        # Using dataset.map on a non-streaming dataset will automatically perform and cache the transform
-        tokenized_dataset = dataset.with_transform(tokenize_with_windowing)
-    else:
-        tokenized_dataset = dataset.select_columns(text_column).map(
-            tokenize_with_windowing,
-            batched=True,
-            batch_size=tokenize_batch_size,
-            remove_columns=[text_column],
-        )
+    tokenized_dataset = dataset.select_columns(text_column).map(
+        tokenize_with_windowing,
+        batched=True,
+        batch_size=tokenize_batch_size,
+        remove_columns=[text_column],
+    )
 
     return tokenized_dataset, tokenizer
 
@@ -122,11 +116,10 @@ def create_bshd_dataloader(
     stride: int = 200,
     seed: int = 42,
     buffer_size: int = 500_000,
-    use_lazy_tokenization: bool = True,
     use_stateful_dataloader: bool = False,
     text_column: str = "text",
     uppercase_labels: bool = False,
-    mask_degenerate_bases: bool = True,
+    mask_degenerate_bases: bool = False,
 ):
     """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
 
@@ -141,7 +134,6 @@ def create_bshd_dataloader(
         stride: The stride for windowing (overlap = stride tokens).
         seed: The seed to use for the distributed sampler and data collator.
         buffer_size: The buffer size for shuffle.
-        use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         text_column: Name of the column containing genomic sequences (default: "text").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
@@ -157,7 +149,6 @@ def create_bshd_dataloader(
         max_seq_length=max_seq_length,
         stride=stride,
         buffer_size=buffer_size,
-        use_lazy_tokenization=use_lazy_tokenization,
         text_column=text_column,
         tokenize_batch_size=micro_batch_size * prefetch_factor,
     )
@@ -220,7 +211,6 @@ def create_thd_dataloader(
     max_seq_length: int = 8192,
     stride: int = 200,
     buffer_size: int = 500_000,
-    use_lazy_tokenization: bool = True,
     use_stateful_dataloader: bool = False,
     text_column: str = "text",
     uppercase_labels: bool = False,
@@ -243,7 +233,6 @@ def create_thd_dataloader(
         stride: The stride for windowing (overlap = stride tokens).
         seed: The seed to use for the distributed sampler and data collator.
         buffer_size: The buffer size for shuffle.
-        use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         text_column: Name of the column containing genomic sequences (default: "text").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
@@ -263,7 +252,6 @@ def create_thd_dataloader(
         max_seq_length=max_seq_length,
         stride=stride,
         buffer_size=buffer_size,
-        use_lazy_tokenization=use_lazy_tokenization,
         text_column=text_column,
     )
 
