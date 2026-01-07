@@ -488,6 +488,8 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
             **kwargs,
         )
         sequence_output = outputs[0]
+        # Do the FP8 autocast here.
+
         prediction_scores = self.lm_head(sequence_output)
 
         # Truncate logits back to original vocab_size if padding was used
@@ -540,9 +542,10 @@ class NVEsmLMHead(nn.Module):
             features (torch.Tensor): The features.
             **kwargs: Additional arguments.
         """
-        x = self.dense(features)
-        x = torch.nn.functional.gelu(x)
-        x = self.decoder(x)
+        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+            x = self.dense(features)
+            x = torch.nn.functional.gelu(x)
+            x = self.decoder(x)
         return x
 
 
