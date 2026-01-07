@@ -123,6 +123,7 @@ def main(args: DictConfig) -> float | None:
     micro_step = 0
     while step < args.num_train_steps:
         for batch in train_dataloader:
+            print(batch["input_ids"].shape)
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW2901
 
             micro_step += 1
