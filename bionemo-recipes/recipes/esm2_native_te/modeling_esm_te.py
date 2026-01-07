@@ -243,7 +243,8 @@ class NVEsmEncoder(nn.Module):
                     pad_between_seqs=kwargs.get("pad_between_seqs", None),
                 )
 
-        hidden_states = self.emb_layer_norm_after(hidden_states)
+        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+            hidden_states = self.emb_layer_norm_after(hidden_states)
 
         if kwargs.get("output_hidden_states", False):
             all_hidden_states = (*all_hidden_states, hidden_states)
