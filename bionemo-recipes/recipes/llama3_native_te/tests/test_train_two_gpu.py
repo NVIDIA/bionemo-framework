@@ -37,6 +37,15 @@ requires_multi_gpu = pytest.mark.skipif(
     reason="Test requires at least 2 GPUs",
 )
 
+# TODO(@jomitchell): Delete once https://nvbugspro.nvidia.com/bug/5458694 is fixed.
+requires_datacenter_hardware = pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or not any(
+        gpu_name in torch.cuda.get_device_name(0).upper() for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
+    ),
+    reason="Test requires datacenter hardware (H100, H200, B100, B200, B300)",
+)
+
 
 def run_train_cmd(cmd, recipe_path):
     """Run a training command and check for errors.
@@ -180,3 +189,21 @@ def test_multi_gpu_train_fsdp2_with_checkpointing(tmp_path, recipe_path):
     ckpt_dir = tmp_path / "train_fsdp2"
     assert ckpt_dir.exists(), f"Checkpoint directory not created: {ckpt_dir}"
     assert (ckpt_dir / "step_5").exists(), "Checkpoint at step 5 not found"
+
+
+@requires_multi_gpu
+@requires_datacenter_hardware
+def test_multi_gpu_train_te_fsdp2_cp(tmp_path, recipe_path):
+    run_train_cmd(
+        [
+            "torchrun",
+            "--nproc_per_node=2",
+            "--standalone",
+            "train_fsdp2_cp.py",
+            "--config-name",
+            "L0_sanity",
+            "num_train_steps=4",
+            "cp_size=2",
+        ],
+        recipe_path,
+    )
