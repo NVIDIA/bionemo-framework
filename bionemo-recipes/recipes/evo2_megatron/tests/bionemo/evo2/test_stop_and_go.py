@@ -31,6 +31,38 @@ from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
 PRETEST_ENV = copy.deepcopy(os.environ)
 
 
+def get_compute_capability() -> tuple[int, int]:
+    """Get the compute capability of the current device."""
+    if not torch.cuda.is_available():
+        return (0, 0)
+    # Returns a tuple, e.g., (9, 0) for H100
+    return torch.cuda.get_device_capability()
+
+
+# 1. FP8 Support Logic
+# Supported on Ada Lovelace (8.9) and Hopper (9.0+)
+def is_fp8_supported() -> bool:
+    """Check if FP8 is supported on the current device."""
+    cc = get_compute_capability()
+    return cc >= (8, 9)
+
+
+# 2. FP4 Support Logic
+# Native support requires Blackwell (10.0+)
+def is_fp4_supported() -> bool:
+    """Check if FP4 is supported on the current device."""
+    cc = get_compute_capability()
+    return (10, 0) <= cc < (12, 0)
+
+
+# 3. MXFP8 Support Logic
+# Native support requires Blackwell (10.0+)
+def is_mxfp8_supported() -> bool:
+    """Check if MXFP8 is supported on the current device."""
+    cc = get_compute_capability()
+    return (10, 0) <= cc < (12, 0)
+
+
 def find_free_network_port() -> int:
     """Finds a free port on localhost.
 
@@ -48,17 +80,31 @@ def find_free_network_port() -> int:
 
 
 @pytest.mark.parametrize(
-    "tp_size,cp_size,dp_size,dp_rank_check",
+    "tp_size,cp_size,dp_size,dp_rank_check,precision_recipe",
     [
-        (1, 1, 1, False),
-        (1, 1, 2, True),
-        (1, 1, 2, False),
-        (1, 2, 1, True),
-        (2, 1, 1, False),
+        (1, 1, 1, False, "bf16_mixed"),
+        (1, 1, 1, False, "bf16_with_fp8_current_scaling_mixed"),
+        (1, 1, 1, False, "bf16_with_fp8_delayed_scaling_mixed"),  # XFAIL
+        (1, 1, 1, False, "bf16_with_fp8_subchannel_scaling_mixed"),
+        (1, 1, 1, False, "nanov2_bf16_with_fp8_current_scaling_mixed"),
+        (1, 1, 1, False, "bf16_with_nvfp4_mixed"),  # XFAIL other than blackwell+
+        (1, 1, 1, False, "bf16_with_mxfp8_mixed"),  # XFAIL other than blackwell+
+        (1, 1, 2, True, "bf16_mixed"),
+        (1, 1, 2, False, "bf16_mixed"),
+        (1, 2, 1, True, "bf16_mixed"),
+        (2, 1, 1, False, "bf16_mixed"),
     ],
 )
 @pytest.mark.slow
-def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, dp_rank_check: bool, pp_size: int = 1):
+def test_stop_and_go(
+    tmp_path: Path,
+    tp_size: int,
+    cp_size: int,
+    dp_size: int,
+    dp_rank_check: bool,
+    precision_recipe: str,
+    pp_size: int = 1,
+):
     """Test stop and go functionality."""
     world_size = tp_size * pp_size * cp_size * dp_size
     mbs = 32
@@ -66,7 +112,15 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
     num_gpus = torch.cuda.device_count()
     if world_size > num_gpus:
         pytest.skip(f"World size {world_size} is greater than the number of GPUs {num_gpus}")
-    run_dir = tmp_path / f"run_tp{tp_size}_pp{pp_size}_cp{cp_size}_dp{dp_size}_rank_check{dp_rank_check}"
+    if "nvfp4" in precision_recipe and not is_fp4_supported():
+        pytest.skip("NVFP4 is not supported on this device")
+    if "mxfp8" in precision_recipe and not is_mxfp8_supported():
+        pytest.skip("MXFP8 is not supported on this device")
+    if "fp8" in precision_recipe and not is_fp8_supported():
+        pytest.skip("FP8 is not supported on this device")
+    if "bf16_with_fp8_delayed_scaling_mixed" == precision_recipe and is_fp8_supported():
+        pytest.mark.xfail(reason="FP8 delayed scaling is not currently working with Evo2, use another FP8 recipe.")
+    run_dir = tmp_path / f"run_tp{tp_size}_pp{pp_size}_cp{cp_size}_dp{dp_size}_rc{dp_rank_check}_pr{precision_recipe}"
     run_dir.mkdir(parents=True, exist_ok=True)
     master_port = find_free_network_port()
     dp_rank_check_str = "--debug-ddp-parity-freq 5" if dp_rank_check else ""
@@ -80,6 +134,9 @@ def test_stop_and_go(tmp_path: Path, tp_size: int, cp_size: int, dp_size: int, d
         --tensor-model-parallel {tp_size} \
         --pipeline-model-parallel {pp_size} \
         --context-parallel {cp_size} \
+        --mixed-precision-recipe {precision_recipe} \
+        --overlap-param-gather \
+        --overlap-grad-reduce \
         {dp_rank_check_str} \
         --use-precision-aware-optimizer --dataset-seed 33 \
         --seed 41 --spike-no-more-embedding-init \
