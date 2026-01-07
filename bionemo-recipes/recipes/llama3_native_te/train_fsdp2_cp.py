@@ -26,8 +26,6 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
-from transformers.models.llama.configuration_llama import LlamaConfig
-from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
 from dataset import create_cp_dataloader
@@ -68,15 +66,8 @@ def main(args: DictConfig) -> float | None:
         fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
     )
 
-    if args.use_te:
-        config_class = NVLlamaConfig
-        model_class = NVLlamaForCausalLM
-    else:
-        config_class = LlamaConfig
-        model_class = LlamaForCausalLM
-
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
-    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
+    config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
@@ -85,7 +76,7 @@ def main(args: DictConfig) -> float | None:
         torch.device("meta") if args.use_meta_device else nullcontext(),
         transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs),
     ):
-        model = model_class(config)
+        model = NVLlamaForCausalLM(config)
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -107,8 +98,8 @@ def main(args: DictConfig) -> float | None:
         )
 
     if args.use_meta_device:
-        model.to_empty(device=device)
-        model.apply(model._init_weights)
+        # TE layers require special handling to initialize the weights from the meta device.
+        model.init_empty_weights()
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
@@ -151,48 +142,56 @@ def main(args: DictConfig) -> float | None:
     # Training loop
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
+    micro_step = 0
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
+
+            micro_step += 1
 
             # Forward pass with mixed precision.
             with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
                 outputs = model(**batch)
 
-            # Backward pass.
-            loss = outputs.loss
+            # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
+            loss = outputs.loss / args.grad_acc_steps
             loss.backward()
 
-            # Compute and clip gradient norms.
-            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+            # Log microbatch step data for accumulation metrics
+            perf_logger.log_micro_step(batch=batch, outputs=outputs)
 
-            # Step optimizer.
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
+            # Gradient accumulation - only step optimizer after accumulating gradients
+            if micro_step % args.grad_acc_steps == 0:
+                micro_step = 0
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
+                # Compute and clip gradient norms.
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
-            if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
-                save_checkpoint_fsdp2(
-                    model=model,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    ckpt_path=ckpt_path,
+                # Step optimizer.
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+
+                perf_logger.log_step(
                     step=step,
-                    epoch=epoch,
-                    dist_config=dist_config,
-                    dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                    process_group=device_mesh.get_group("dp"),
-                    max_checkpoints=args.checkpoint.max_checkpoints,
-                    async_save=args.checkpoint.async_save,
+                    grad_norm=total_norm,
+                    lr=optimizer.param_groups[0]["lr"],
                 )
+
+                if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
+                    save_checkpoint_fsdp2(
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        ckpt_path=ckpt_path,
+                        step=step,
+                        epoch=epoch,
+                        dist_config=dist_config,
+                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                        process_group=device_mesh.get_group("dp"),
+                        max_checkpoints=args.checkpoint.max_checkpoints,
+                        async_save=args.checkpoint.async_save,
+                    )
 
             step += 1
             if step >= args.num_train_steps:
