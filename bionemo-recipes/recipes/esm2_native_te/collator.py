@@ -392,9 +392,19 @@ class ContextParallelDataLoaderWrapper:
             batch: The batch for the current CP rank.
 
         """
-        combined_batch = next(self._iterator) if self.cp_rank == 0 else None
+        try:
+            combined_batch = next(self._iterator) if self.cp_rank == 0 else None
+        except StopIteration as ex:
+            # If we encounter a StopIteration in the dataloader, we want to raise this error on all the CP ranks, so
+            # that the dataloader can be restarted.
+            combined_batch = [ex] * self.num_cp_ranks
 
-        return _scatter_batch_to_cp_ranks(combined_batch, self.cp_group)
+        batch_on_this_rank = _scatter_batch_to_cp_ranks(combined_batch, self.cp_group)
+
+        if isinstance(batch_on_this_rank, StopIteration):
+            raise batch_on_this_rank
+
+        return batch_on_this_rank
 
 
 def _split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -677,7 +687,9 @@ class BatchType(TypedDict):
     max_length_k: int
 
 
-def _scatter_batch_to_cp_ranks(batch: BatchType, cp_group: torch.distributed.ProcessGroup | None = None) -> BatchType:
+def _scatter_batch_to_cp_ranks(
+    batch: list[BatchType] | list[StopIteration], cp_group: torch.distributed.ProcessGroup | None = None
+) -> BatchType | StopIteration:
     """Scatter a batch to all the CP ranks."""
     scatter_object_output_list = [None]
     # Note: This does not provide an async_op handle. Thus its blocking.
