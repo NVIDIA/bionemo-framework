@@ -54,7 +54,7 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     with open(export_path / "config.json", "w") as f:
         json.dump(config, f, indent=2, sort_keys=True)
 
-    shutil.copy("modeling_llama_te.py", export_path / "llama3_nv.py")
+    shutil.copy("modeling_llama_te.py", export_path / "modeling_llama_te.py")
 
 
 if __name__ == "__main__":
