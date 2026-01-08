@@ -360,6 +360,12 @@ class ContextParallelDataLoaderWrapper:
         self.num_cp_ranks = cp_mesh.size()
         self._iterator = None
 
+        logger.debug(
+            "Created ContextParallelDataLoaderWrapper on global rank %s, cp rank %s",
+            torch.distributed.get_rank(),
+            self.cp_rank,
+        )
+
     def __iter__(self):
         """Make the dataloader iterable."""
         if self.cp_rank == 0:
