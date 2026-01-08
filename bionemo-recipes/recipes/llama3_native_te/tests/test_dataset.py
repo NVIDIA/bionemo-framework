@@ -692,7 +692,7 @@ def test_cp_dataloader(tokenizer_path):
     load_dataset_kwargs = {
         "path": "parquet",
         "split": "train",
-        "data_files": "test_genomic_sequences.parquet",
+        "data_files": "dlcm_sanity_dataset.parquet",
         "streaming": True,
     }
 
@@ -708,7 +708,7 @@ def test_cp_dataloader(tokenizer_path):
         cp_mesh=device_mesh["cp"],
         tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
-        text_column="sequence",
+        text_column="text",
         micro_batch_size=1,
         max_seq_length=1024,
     )
@@ -717,6 +717,7 @@ def test_cp_dataloader(tokenizer_path):
     assert len(batches) > 1
 
     for batch in batches:
+        breakpoint()
         assert set(batch.keys()) == {
             "max_length_q",
             "max_length_k",
