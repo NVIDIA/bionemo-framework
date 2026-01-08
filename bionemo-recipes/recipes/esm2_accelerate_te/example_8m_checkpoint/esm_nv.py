@@ -1,4 +1,3 @@
-# coding=utf-8
 # noqa: license-check
 # SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-Apache2
@@ -38,9 +37,8 @@ from transformers.modeling_outputs import (
     MaskedLMOutput,
     TokenClassifierOutput,
 )
-from transformers.modeling_utils import PreTrainedModel
 from transformers.models.esm.configuration_esm import EsmConfig
-from transformers.models.esm.modeling_esm import EsmPooler
+from transformers.models.esm.modeling_esm import EsmPooler, EsmPreTrainedModel
 from transformers.utils import logging
 from transformers.utils.generic import TransformersKwargs
 
@@ -135,6 +133,10 @@ class NVEsmEncoder(nn.Module):
         """
         super().__init__()
         self.config = config
+
+        def _init_method(x):
+            torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
+
         self.layers = nn.ModuleList(
             [
                 transformer_engine.pytorch.TransformerLayer(
@@ -156,12 +158,18 @@ class NVEsmEncoder(nn.Module):
                     fuse_qkv_params=config.fuse_qkv_params,
                     params_dtype=config.dtype,
                     window_size=(-1, -1),
+                    device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+                    init_method=_init_method,
+                    output_layer_init_method=_init_method,
                 )
                 for i in range(config.num_hidden_layers)
             ]
         )
         self.emb_layer_norm_after = transformer_engine.pytorch.LayerNorm(
-            config.hidden_size, eps=config.layer_norm_eps, params_dtype=config.dtype
+            config.hidden_size,
+            eps=config.layer_norm_eps,
+            params_dtype=config.dtype,
+            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
         )
         if config.position_embedding_type == "rotary":
             self.rotary_embeddings = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
@@ -247,7 +255,7 @@ class NVEsmEncoder(nn.Module):
         )
 
 
-class NVEsmPreTrainedModel(PreTrainedModel):
+class NVEsmPreTrainedModel(EsmPreTrainedModel):
     """An abstract class to handle weights initialization and pretrained model loading."""
 
     config_class = NVEsmConfig
@@ -259,61 +267,22 @@ class NVEsmPreTrainedModel(PreTrainedModel):
         "EsmEmbeddings",
     )
 
-    def _init_weights(self, module: nn.Module):
-        """Initialize model weights.
+    def init_empty_weights(self):
+        """Handles moving the model from the meta device to the cuda device and initializing the weights."""
+        # For TE layers, calling `reset_parameters` is sufficient to move them to the cuda device and apply the weight
+        # initialization we passed them during module creation.
+        for module in self.modules():
+            if hasattr(module, "reset_parameters"):
+                module.reset_parameters()
 
-        This method ensures that models with randomly-initialized weights get the correct initial value distribution,
-        which can be critical for training stability. We also call this method directly when using meta-device init, as
-        the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
-        we need to extend it to handle TE-specific modules.
+        # The esm.embeddings layer is the only non-TE layer in this model we need to deal with. We use
+        # `model._init_weights` rather than `reset_parameters` to ensure we honor the original config standard
+        # deviation.
+        self.esm.embeddings.word_embeddings.to_empty(device="cuda")
+        self.esm.embeddings.apply(self._init_weights)
 
-        Args:
-            module (nn.Module): The module to initialize the weights for.
-        """
-        if isinstance(
-            module, (nn.Linear, transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)
-        ):
-            # Slightly different from the TF version which uses truncated_normal for initialization
-            # cf https://github.com/pytorch/pytorch/pull/5617
-            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        if isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-        if isinstance(module, (nn.LayerNorm, transformer_engine.pytorch.LayerNorm)):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
-        if isinstance(module, transformer_engine.pytorch.LayerNormLinear):
-            if module.layer_norm_bias is not None:
-                module.layer_norm_bias.data.zero_()
-            module.layer_norm_weight.data.fill_(1.0)
-            if module.layer_norm_bias is not None:
-                module.layer_norm_bias.data.zero_()
-        if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
-            if module.layer_norm_bias is not None:
-                module.layer_norm_bias.data.zero_()
-            module.layer_norm_weight.data.fill_(1.0)
-            if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
-                module.fc1_weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-            if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
-                module.fc2_weight.data.normal_(mean=0.0, std=self.config.initializer_range)
-            if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
-                module.fc1_bias.data.zero_()
-            if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
-                module.fc2_bias.data.zero_()
-        if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
-            # When we initialize the model with `to_empty`, the `inv_freq` attribute is not initialized, so we need to
-            # re-initialize it here with the correct values.
-            module.inv_freq = RotaryPositionEmbedding(
-                self.config.hidden_size // self.config.num_attention_heads
-            ).inv_freq.to(module.inv_freq.device)
-
-    @classmethod
-    def get_init_context(cls, is_quantized: bool, _is_ds_init_called: bool):
-        """Override the default get_init_context method to allow for fp8 model initialization."""
-        return []
+        # Meta-device init seems to break weight tying, so we re-tie the weights here.
+        self.tie_weights()
 
 
 class NVEsmModel(NVEsmPreTrainedModel):
@@ -516,15 +485,20 @@ class NVEsmLMHead(nn.Module):
             config.hidden_size,
             config.hidden_size,
             params_dtype=config.dtype,
+            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
         )
 
-        self.decoder = transformer_engine.pytorch.LayerNormLinear(
-            config.hidden_size,
-            config.padded_vocab_size if config.padded_vocab_size is not None else config.vocab_size,
-            bias=True,
-            eps=config.layer_norm_eps,
-            params_dtype=config.dtype,
-        )
+        with transformer_engine.pytorch.fp8_model_init(enabled=False):
+            self.decoder = transformer_engine.pytorch.LayerNormLinear(
+                config.hidden_size,
+                config.padded_vocab_size if config.padded_vocab_size is not None else config.vocab_size,
+                bias=True,
+                eps=config.layer_norm_eps,
+                params_dtype=config.dtype,
+                device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+                init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
+            )
 
     def forward(self, features, **kwargs):
         """Forward pass of the NVEsmLMHead.
@@ -553,7 +527,12 @@ class NVEsmEmbeddings(nn.Module):
         )
 
         self.layer_norm = (
-            transformer_engine.pytorch.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+            transformer_engine.pytorch.LayerNorm(
+                config.hidden_size,
+                eps=config.layer_norm_eps,
+                params_dtype=config.dtype,
+                device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+            )
             if config.emb_layer_norm_before
             else None
         )
@@ -648,7 +627,11 @@ class NVEsmForTokenClassification(NVEsmPreTrainedModel):
         self.esm = NVEsmModel(config, add_pooling_layer=False)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = transformer_engine.pytorch.Linear(
-            config.hidden_size, config.num_labels, params_dtype=config.dtype
+            config.hidden_size,
+            config.num_labels,
+            params_dtype=config.dtype,
+            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
         )
 
         self.init_weights()
