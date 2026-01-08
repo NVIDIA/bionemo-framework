@@ -173,7 +173,7 @@ output = model(**inputs)
 
 ## Developer Guide
 
-### Run Tests
+### Running Tests
 
 To run tests locally, run `recipes_local_test.py` from the repository root with the recipe directory as an argument.
 

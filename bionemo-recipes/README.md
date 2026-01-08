@@ -20,7 +20,9 @@ The biological AI community actively prototypes model architectures and needs to
 </p>
 
 ### Use Cases
+
 The use cases of BioNeMO Recipes include:
+
 - **Foundation Model Developers**: AI researchers and ML engineers developing novel biological foundation models who need to scale up prototypes efficiently
 - **Foundation Model Customizers**: Domain scientists looking to fine-tune existing models with proprietary data for drug discovery and biological research
 
@@ -81,9 +83,11 @@ Self-contained training examples demonstrating best practices for scaling biolog
 Recipes are **not pip-installable packages** but serve as reference implementations that users can adapt for their own research.
 
 ## Quick Start
+
 This section describe how you can get started with BioNeMo Recipes.
 
-### Load Models
+### Loading Models
+
 Run the following to load the BioNeMo model.
 
 ```python
@@ -94,8 +98,10 @@ model = AutoModel.from_pretrained("nvidia/AMPLIFY_120M")
 tokenizer = AutoTokenizer.from_pretrained("nvidia/AMPLIFY_120M")
 ```
 
-### Run Recipes
+### Running Recipes
+
 Build and run recipes with the following.
+
 ```bash
 # Navigate to a recipe
 cd recipes/esm2_native_te_mfsdp
@@ -163,6 +169,7 @@ BioNeMo Reciptes use a three-tier testing approach:
 - **Scope**: Complete model convergence, cross-platform validation
 
 ### Adding New Components
+
 With BioNeMo Recipes, you can add new components including models and recipes.
 
 #### Adding a New Model

@@ -61,9 +61,10 @@ The SPDA and TransformerEngine implementations are available in this codebase:
 
 1. The default is the PyTorch native transformer based model with SDPA attention implementation.
 2. Transformer Engine (TE) acceleration that is enabled with `--use_transformer_engine` in `runner.py`. This can also be seen below in our sample commands. Moreover, if you would like to increase training performance, enable THD sequence packing, use `--attn_input_format=thd` and `--collate_fn=thd`. For more information on sequence packing refer to this [link](https://huggingface.co/blog/sirluk/llm-sequence-packing). The custom TE-based model definition is located here `src/models/components/encodon_te_layer.py` and encapsulated within the `TETransformerLayer`. There are two "flavors" of TE Encodon models available:
+
 - **Exact**: An exact reproduction of the original research code architecture
-- **Non-Exact**: A variant that uses a different implementation of a transformer that is native to the TE library (differing in LayerNorms), and gives similar scientific accuracy but with a simpler and fewer lines-of-code implementation of the model. 
-The default and recommended version is the "exact" version, which is the default and can be toggled using the environment variable `CODON_FM_TE_IMPL=exact`.
+- **Non-Exact**: A variant that uses a different implementation of a transformer that is native to the TE library (differing in LayerNorms), and gives similar scientific accuracy but with a simpler and fewer lines-of-code implementation of the model.
+  The default and recommended version is the "exact" version, which is the default and can be toggled using the environment variable `CODON_FM_TE_IMPL=exact`.
 
 <details>
 <summary><b>Advanced: "Non-exact" TE Implementation (Optional)</b></summary>
@@ -157,7 +158,8 @@ The main entry point is `src/runner.py` which supports three modes:
 #### Pre-training
 
 The explicit scripts used to train the released checkpoints are referenced in [Pre-trained Models](#pre-trained-models).
-```{note} 
+
+```{note}
 - If `--use_transformer_engine` is added TransformerEngine will be used, otherwise it will default to PyTorchs Scaled Dot Product Attention (SDPA).
 - For some hardware devices, there may be issues with Transformer Engine's fused attention kernel and sequence packing (THD). To disable this kernel, use `export NVTE_FUSED_ATTN=0`.
 ```

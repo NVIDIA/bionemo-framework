@@ -100,7 +100,7 @@ hf_model = convert_esm_te_to_hf(te_model)
 hf_model.save_pretrained("/path/to/hf_checkpoint")
 ```
 
-### Load and Test the Exported Model
+### Loading and Testing the Exported Model
 
 Load the exported model and perform validation:
 

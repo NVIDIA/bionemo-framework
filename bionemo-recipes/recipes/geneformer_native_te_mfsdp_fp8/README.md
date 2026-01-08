@@ -220,7 +220,7 @@ docker run -it --gpus all --network host --ipc=host \
 
 ### WandB
 
-We support full integration with weights and biases. To use this,  the environment variable:nter
+We support full integration with weights and biases. To use this, the environment variable:nter
 
 ```
 export WANDB_API_KEY=<yourapikey>

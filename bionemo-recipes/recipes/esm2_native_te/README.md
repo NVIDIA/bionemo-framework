@@ -267,7 +267,7 @@ output = model(**inputs)
 
 ## Developer Guide
 
-### Run Tests
+### Running Tests
 
 To run tests locally, run `recipes_local_test.py` from the repository root with the recipe directory as an argument.
 
@@ -290,7 +290,7 @@ directory.
 [Hydra](https://hydra.cc/) is a powerful configuration management library for Python. This recipe uses Hydra to manage
 training configurations, allowing for easy modification of training hyper-parameters and model settings.
 
-Configuration parameters can be overridden from the command line. For example, 
+Configuration parameters can be overridden from the command line. For example,
 `python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true`.
 
 For verbose logging, use the hydra command line override `hydra.verbose=true`, see
