@@ -507,9 +507,10 @@ class NVEsmLMHead(nn.Module):
             features (torch.Tensor): The features.
             **kwargs: Additional arguments.
         """
-        x = self.dense(features)
-        x = torch.nn.functional.gelu(x)
-        x = self.decoder(x)
+        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+            x = self.dense(features)
+            x = torch.nn.functional.gelu(x)
+            x = self.decoder(x)
         return x
 
 
