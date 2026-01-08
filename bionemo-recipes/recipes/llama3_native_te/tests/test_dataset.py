@@ -717,7 +717,6 @@ def test_cp_dataloader(tokenizer_path):
     assert len(batches) > 1
 
     for batch in batches:
-        breakpoint()
         assert set(batch.keys()) == {
             "max_length_q",
             "max_length_k",
@@ -802,11 +801,6 @@ if __name__ == "__main__":
     )
 
     batches = list(itertools.islice(dataloader, 10))
-
-    if torch.distributed.get_rank() == 0:
-        breakpoint()
-    else:
-        torch.distributed.barrier()
 
     # With CP size 2, each sequence is split into 2 * cp_world_size = 4 slices.
     # Each rank gets 2 slices (beginning and end), so each rank gets approximately
