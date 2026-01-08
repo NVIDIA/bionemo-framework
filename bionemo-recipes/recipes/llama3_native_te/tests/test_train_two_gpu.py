@@ -203,7 +203,7 @@ def test_multi_gpu_train_te_fsdp2_cp(tmp_path, recipe_path):
             "--config-name",
             "L0_sanity",
             "num_train_steps=4",
-            "cp_size=2",
+            "+cp_size=2",
         ],
         recipe_path,
     )

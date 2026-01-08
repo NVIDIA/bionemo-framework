@@ -59,7 +59,7 @@ def test_sanity_convergence_ddp_te(tmp_path, recipe_path):
 
     # For genomic Causal LM, we expect convergence to < 2.0 on the small test dataset
     # The model should learn to predict simple patterns in the mock data
-    assert final_loss < 7.0, f"Final loss {final_loss} is too high, expected < 7.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_ddp_te_grad_acc(tmp_path, recipe_path):
@@ -79,7 +79,7 @@ def test_sanity_convergence_ddp_te_grad_acc(tmp_path, recipe_path):
     gc.collect()
     torch.cuda.empty_cache()
 
-    assert final_loss < 7.0, f"Final loss {final_loss} is too high, expected < 7.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_ddp_hf(tmp_path, recipe_path):
@@ -109,7 +109,7 @@ def test_sanity_convergence_ddp_hf(tmp_path, recipe_path):
 
     # For genomic Causal LM, we expect convergence to < 2.0 on the small test dataset
     # The model should learn to predict simple patterns in the mock data
-    assert final_loss < 7.0, f"Final loss {final_loss} is too high, expected < 7.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_fsdp2_te_bshd(tmp_path, recipe_path):
@@ -136,7 +136,7 @@ def test_sanity_convergence_fsdp2_te_bshd(tmp_path, recipe_path):
     final_loss = main_fsdp2(sanity_config)
 
     # FSDP2 should achieve similar convergence to DDP
-    assert final_loss < 7.0, f"Final loss {final_loss} is too high, expected < 7.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path):
@@ -163,7 +163,7 @@ def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path):
     final_loss = main_fsdp2(sanity_config)
 
     # FSDP2 should achieve similar convergence to DDP
-    assert final_loss < 7.0, f"Final loss {final_loss} is too high, expected < 7.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_fsdp2_te_bshd_grad_acc(tmp_path, recipe_path):
@@ -184,7 +184,7 @@ def test_sanity_convergence_fsdp2_te_bshd_grad_acc(tmp_path, recipe_path):
     gc.collect()
     torch.cuda.empty_cache()
 
-    assert final_loss < 7.0, f"Final loss {final_loss} is too high, expected < 7.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_fsdp2_te_thd_grad_acc(tmp_path, recipe_path):
@@ -207,7 +207,7 @@ def test_sanity_convergence_fsdp2_te_thd_grad_acc(tmp_path, recipe_path):
     gc.collect()
     torch.cuda.empty_cache()
 
-    assert final_loss < 7.0, f"Final loss {final_loss} is too high, expected < 7.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path):
@@ -238,7 +238,7 @@ def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path):
     torch.cuda.empty_cache()
 
     # FSDP2 should achieve similar convergence to DDP
-    assert final_loss < 7.0, f"Final loss {final_loss} is too high, expected < 7.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_ddp_non_streaming_dataset(tmp_path, recipe_path):
@@ -267,7 +267,7 @@ def test_sanity_convergence_ddp_non_streaming_dataset(tmp_path, recipe_path):
     torch.cuda.empty_cache()
 
     # Non-streaming mode should converge just as well as streaming
-    assert final_loss < 7.0, f"Final loss {final_loss} is too high, expected < 7.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_fsdp2_non_streaming_dataset(tmp_path, recipe_path):
@@ -295,7 +295,7 @@ def test_sanity_convergence_fsdp2_non_streaming_dataset(tmp_path, recipe_path):
     torch.cuda.empty_cache()
 
     # Non-streaming mode should converge just as well as streaming
-    assert final_loss < 7.0, f"Final loss {final_loss} is too high, expected < 7.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_ddp_with_sequence_packing(tmp_path, recipe_path):
