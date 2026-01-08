@@ -2,7 +2,7 @@ example_fp8_tensor_stat_collection:
     enabled: True
     layers:
         # Match the actual linear layers within attention that support FP8 stats
-        layer_types: [layernorm_qkv, proj]
+        layer_types: [layernorm_qkv, proj, dense, decoder]
     transformer_engine:
         LogFp8TensorStats:
             enabled: True
