@@ -243,35 +243,25 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             )
             past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths)))
 
-        # Process transformer layers with selective FP8
-        # Keep only last layer in bf16, use FP8 for all other layers
-        num_layers = self.config.num_hidden_layers
-        for layer_idx in range(num_layers):
-            decoder_layer = self.layers[layer_idx]
-
+        # Process all transformer layers with FP8 if enabled (no special casing)
+        for decoder_layer in self.layers[:self.config.num_hidden_layers]:
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            # Last layer stays in bf16 for numerical stability
-            # All other layers (0 to num_layers-2) use FP8 for performance
-            use_fp8_for_layer = fp8_enabled and (layer_idx != num_layers - 1)
+            hidden_states = decoder_layer(
+                hidden_states,
+                attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
+                rotary_pos_emb=te_rope_emb,
+                self_attn_mask_type=self_attn_mask_type,
+                inference_params=past_key_values,
+                cu_seqlens_q=cu_seq_lens_q,
+                cu_seqlens_kv=cu_seq_lens_k,
+                max_seqlen_q=max_length_q,
+                max_seqlen_kv=max_length_k,
+            )
 
-            with transformer_engine.pytorch.fp8_autocast(enabled=use_fp8_for_layer, fp8_recipe=fp8_recipe):
-                hidden_states = decoder_layer(
-                    hidden_states,
-                    attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
-                    rotary_pos_emb=te_rope_emb,
-                    self_attn_mask_type=self_attn_mask_type,
-                    inference_params=past_key_values,
-                    cu_seqlens_q=cu_seq_lens_q,
-                    cu_seqlens_kv=cu_seq_lens_k,
-                    max_seqlen_q=max_length_q,
-                    max_seqlen_kv=max_length_k,
-                )
-
-        # Final norm - ALWAYS in bf16 for stability
-        with transformer_engine.pytorch.fp8_autocast(enabled=False):
-            hidden_states = self.norm(hidden_states)
+        # Final norm - use FP8 if enabled
+        hidden_states = self.norm(hidden_states)
 
         # add hidden states from the last decoder layer. Note that these will be in THD format; we could possibly pad
         # these with the same _pad_input call as below if we wanted them returned in BSHD format.
