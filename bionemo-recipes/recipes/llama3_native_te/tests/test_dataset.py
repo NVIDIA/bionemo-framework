@@ -795,7 +795,7 @@ if __name__ == "__main__":
             "path": "parquet",
             "split": "train",
             "data_files": args.dataset_path,
-            "streaming": False,
+            "streaming": True,
         },
         num_workers=1,
     )
