@@ -90,8 +90,8 @@ def main(args: DictConfig) -> float | None:
     fully_shard(model, mesh=cp_dp_mesh)
 
     # Attach the CP group to the model.
-    if args.cp_size > 1:
-        model.model.set_context_parallel_group(
+    for layer in model.model.layers:
+        layer.set_context_parallel_group(
             device_mesh["cp"].get_group(),
             torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()),
             torch.cuda.Stream(),

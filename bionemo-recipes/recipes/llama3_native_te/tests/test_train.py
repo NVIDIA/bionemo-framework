@@ -22,6 +22,17 @@ from hydra import compose, initialize_config_dir
 
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
+from train_fsdp2_cp import main as main_fsdp2_cp
+
+
+# TODO(@jomitchell): Delete once https://nvbugspro.nvidia.com/bug/5458694 is fixed.
+requires_datacenter_hardware = pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or not any(
+        gpu_name in torch.cuda.get_device_name(0).upper() for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
+    ),
+    reason="Test requires datacenter hardware (H100, H200, B100, B200, B300)",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -356,4 +367,29 @@ def test_sanity_fsdp2_with_sequence_packing(tmp_path, recipe_path):
     torch.cuda.empty_cache()
 
     # Just check that training runs without errors
+    assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
+
+
+@requires_datacenter_hardware
+def test_sanity_fsdp2_cp(tmp_path, recipe_path):
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "use_sequence_packing=true",
+                "dataset.max_seq_length=1024",
+                "config_kwargs.attn_input_format=thd",
+                "num_train_steps=10",  # Just verify it runs, don't test convergence
+                "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
+                "+cp_size=1",
+            ],
+        )
+
+    final_loss = main_fsdp2_cp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
     assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
