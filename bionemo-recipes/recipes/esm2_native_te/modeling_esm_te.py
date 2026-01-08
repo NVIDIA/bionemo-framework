@@ -224,10 +224,10 @@ class NVEsmEncoder(nn.Module):
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            if layer_module in {self.layers[0], self.layers[-1]}:
-                fp8_context = transformer_engine.pytorch.fp8_autocast(enabled=False)
-            else:
-                fp8_context = nullcontext()
+            # if layer_module in {self.layers[0], self.layers[-1]}:
+            #     fp8_context = transformer_engine.pytorch.fp8_autocast(enabled=False)
+            # else:
+            fp8_context = nullcontext()
 
             with fp8_context:
                 hidden_states = layer_module(
