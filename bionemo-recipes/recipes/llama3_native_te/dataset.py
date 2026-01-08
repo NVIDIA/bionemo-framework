@@ -214,7 +214,7 @@ def create_thd_dataloader(
     use_stateful_dataloader: bool = False,
     text_column: str = "text",
     uppercase_labels: bool = False,
-    mask_degenerate_bases: bool = True,
+    mask_degenerate_bases: bool = False,
     split_samples_in_token_packing: bool = True,
     pad_sequences_to_be_divisible_by: int | None = None,
 ):
@@ -236,7 +236,7 @@ def create_thd_dataloader(
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         text_column: Name of the column containing genomic sequences (default: "text").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
-        mask_degenerate_bases: Whether to mask degenerate bases (genomic masking). Default: True.
+        mask_degenerate_bases: Whether to mask degenerate bases (genomic masking). Default: False.
         split_samples_in_token_packing: Whether to split samples to form batches with exactly token_micro_batch_size
             tokens. Default: True.
         pad_sequences_to_be_divisible_by: If provided, sequences will be padded to be divisible by this value.
