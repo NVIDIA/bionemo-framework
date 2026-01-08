@@ -22,8 +22,9 @@ import pyarrow.parquet as pq
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
+from torch.distributed.device_mesh import init_device_mesh
 
-from dataset import create_bshd_dataloader, create_thd_dataloader, create_tokenized_dataset
+from dataset import create_bshd_dataloader, create_cp_dataloader, create_thd_dataloader, create_tokenized_dataset
 from distributed_config import DistributedConfig
 
 
@@ -687,8 +688,59 @@ def test_token_packing_dataloader(tokenizer_path):
     assert len(batches) > 1
 
 
+def test_cp_dataloader(tokenizer_path):
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "split": "train",
+        "data_files": "test_genomic_sequences.parquet",
+        "streaming": True,
+    }
+
+    dist_config = DistributedConfig()
+
+    device = torch.device(f"cuda:{dist_config.local_rank}")
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    torch.cuda.set_device(dist_config.local_rank)
+    device_mesh = init_device_mesh("cuda", mesh_shape=(1, 1), mesh_dim_names=("dp", "cp"))
+
+    dataloader, _ = create_cp_dataloader(
+        distributed_config=dist_config,
+        cp_mesh=device_mesh["cp"],
+        tokenizer_name_or_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        text_column="sequence",
+        micro_batch_size=1,
+        max_seq_length=1024,
+    )
+
+    batches = list(dataloader)
+    assert len(batches) > 1
+
+    for batch in batches:
+        assert set(batch.keys()) == {
+            "max_length_q",
+            "max_length_k",
+            "input_ids",
+            "cu_seq_lens_q",
+            "cu_seq_lens_k",
+            "attention_mask",
+            "labels",
+            "cu_seq_lens_q_padded",
+            "cu_seq_lens_k_padded",
+            "pad_between_seqs",
+        }
+
+    torch.distributed.destroy_process_group()
+
+
 @requires_multi_gpu
-def test_cp_dataloader(recipe_path):
+@pytest.mark.parametrize("dataset_path", ["dlcm_sanity_dataset.parquet", "test_genomic_sequences.parquet"])
+def test_cp_dataloader_multi_gpu(recipe_path, dataset_path):
+    """Tests that the CP dataloader works correctly with multiple GPUs.
+
+    The `test_genomic_sequences.parquet` dataset is too small to even fill a single batch with the default context
+    length of 8192 tokens, so this test ensures that the dataloader fails gracefully when it encounters a StopIteration.
+    """
     env = os.environ.copy()
     env["PYTHONPATH"] = str(recipe_path)
 
@@ -696,6 +748,8 @@ def test_cp_dataloader(recipe_path):
         "torchrun",
         "--nproc_per_node=2",
         "tests/test_dataset.py",
+        "--dataset_path",
+        dataset_path,
     ]
 
     result = subprocess.run(
@@ -715,6 +769,12 @@ def test_cp_dataloader(recipe_path):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset_path", type=str, default="dlcm_sanity_dataset.parquet")
+    args = parser.parse_args()
+
     from torch.distributed.device_mesh import init_device_mesh
 
     from dataset import create_cp_dataloader
@@ -730,17 +790,23 @@ if __name__ == "__main__":
         cp_mesh=device_mesh["cp"],
         tokenizer_name_or_path="nvidia/Llama-3.1-8B-Instruct-FP8",
         micro_batch_size=1,
-        text_column="text",
+        text_column="text" if args.dataset_path == "dlcm_sanity_dataset.parquet" else "sequence",
         load_dataset_kwargs={
             "path": "parquet",
             "split": "train",
-            "data_files": "dlcm_sanity_dataset.parquet",
-            "streaming": True,
+            "data_files": args.dataset_path,
+            "streaming": False,
         },
         num_workers=1,
     )
 
-    batch = next(iter(dataloader))
+    batches = list(itertools.islice(dataloader, 10))
+
+    if torch.distributed.get_rank() == 0:
+        breakpoint()
+    else:
+        torch.distributed.barrier()
+
     # With CP size 2, each sequence is split into 2 * cp_world_size = 4 slices.
     # Each rank gets 2 slices (beginning and end), so each rank gets approximately
     # (8 * 1024) / 2 = 4096 tokens per rank
@@ -751,15 +817,19 @@ if __name__ == "__main__":
     # 2. Per-sequence padding to be divisible by pad_sequences_to_be_divisible_by
     # 3. CP splitting logic that takes slices from beginning and end
     expected_tokens_per_rank = (8 * 1024) // device_mesh["cp"].size()
-    actual_shape = batch["input_ids"].shape[1]
-    # Allow for variance due to sequence packing, padding, and CP splitting
-    # The actual shape should be close to expected_tokens_per_rank but can vary
-    # Allow up to 100 tokens of variance (both above and below) to account for
-    # sequence packing and padding effects
-    assert actual_shape >= expected_tokens_per_rank - 100, (
-        f"Expected at least {expected_tokens_per_rank - 100} tokens, got {actual_shape}"
-    )
-    assert actual_shape <= expected_tokens_per_rank + 100, (
-        f"Expected at most {expected_tokens_per_rank + 100} tokens, got {actual_shape}"
-    )
-    assert batch["labels"].shape[1] == actual_shape
+
+    for batch in batches:
+        actual_shape = batch["input_ids"].shape[1]
+        # Allow for variance due to sequence packing, padding, and CP splitting
+        # The actual shape should be close to expected_tokens_per_rank but can vary
+        # Allow up to 100 tokens of variance (both above and below) to account for
+        # sequence packing and padding effects
+        assert actual_shape >= expected_tokens_per_rank - 100, (
+            f"Expected at least {expected_tokens_per_rank - 100} tokens, got {actual_shape}"
+        )
+        assert actual_shape <= expected_tokens_per_rank + 100, (
+            f"Expected at most {expected_tokens_per_rank + 100} tokens, got {actual_shape}"
+        )
+        assert batch["labels"].shape[1] == actual_shape
+
+    torch.distributed.destroy_process_group()
