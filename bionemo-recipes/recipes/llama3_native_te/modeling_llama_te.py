@@ -244,7 +244,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths)))
 
         # Process all transformer layers with FP8 if enabled (no special casing)
-        for decoder_layer in self.layers[:self.config.num_hidden_layers]:
+        for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
