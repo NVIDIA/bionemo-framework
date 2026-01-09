@@ -56,44 +56,6 @@ def test_sanity_convergence_mfsdp(tmp_path, recipe_path):
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
 
 
-def test_sanity_convergence_mfsdp_meta_device(tmp_path, recipe_path):
-    """Test that the main function can be invoked with the correct arguments."""
-
-    # Run the training script with Hydra configuration overrides
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(
-            config_name="L0_sanity",
-            overrides=[
-                f"+wandb_init_args.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
-                "use_meta_device=true",
-            ],
-        )
-
-    final_loss = main_mfsdp(sanity_config)
-    assert final_loss < 3.0, f"Final loss {final_loss} is too high"
-
-
-@pytest.mark.xfail(reason="Meta-device init seems to be having some issues with convergence (BIONEMO-2719)")
-def test_sanity_convergence_mfsdp_huggingface_model_meta_device(tmp_path, recipe_path):
-    """Test that the main function can be invoked with the correct arguments."""
-
-    # Run the training script with Hydra configuration overrides
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(
-            config_name="L0_sanity",
-            overrides=[
-                f"+wandb_init_args.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
-                "model_tag=facebook/esm2_t6_8M_UR50D",
-                "use_meta_device=true",
-            ],
-        )
-
-    final_loss = main_mfsdp(sanity_config)
-    assert final_loss < 3.0, f"Final loss {final_loss} is too high"
-
-
 def test_sanity_convergence_ddp(tmp_path, recipe_path):
     """Test that the main function can be invoked wrapping the model in DDP."""
 
@@ -383,17 +345,14 @@ def test_sanity_mfsdp_thd_fp8(tmp_path, monkeypatch, recipe_path):
     main_mfsdp(sanity_config)
 
 
-@pytest.mark.xfail(reason="Meta-device init seems to be having some issues with convergence (BIONEMO-2719)")
-def test_sanity_convergence_fsdp2_meta_device(tmp_path, recipe_path):
-    """Test that the main function can be invoked wrapping the model in FSDP2."""
-
-    # Run the training script with Hydra configuration overrides
+def test_sanity_convergence_fsdp2_no_meta_device(tmp_path, recipe_path):
+    """Meta-device init is now enabled by default, so we test that the script can be invoked without it."""
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
-                "use_meta_device=true",
+                "use_meta_device=false",
             ],
         )
 
@@ -448,27 +407,6 @@ def test_sanity_convergence_fsdp2_huggingface_model(tmp_path, recipe_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "model_tag=facebook/esm2_t6_8M_UR50D",
-                "checkpoint.resume_from_checkpoint=false",
-            ],
-        )
-
-    final_loss = main_fsdp2(sanity_config)
-    assert final_loss < 3.0, f"Final loss {final_loss} is too high"
-
-
-@pytest.mark.xfail(reason="Meta-device init seems to be having some issues with convergence (BIONEMO-2719)")
-def test_sanity_convergence_fsdp2_huggingface_model_meta_device(tmp_path, recipe_path):
-    """Test that the main function can be invoked wrapping the model in FSDP2 and using meta-device init."""
-
-    # Run the training script with Hydra configuration overrides
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(
-            config_name="L0_sanity",
-            overrides=[
-                f"+wandb_init_args.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
-                "model_tag=facebook/esm2_t6_8M_UR50D",
-                "use_meta_device=true",
                 "checkpoint.resume_from_checkpoint=false",
             ],
         )

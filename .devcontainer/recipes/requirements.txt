@@ -2,8 +2,10 @@ accelerate
 datasets
 deepspeed
 hydra-core
+lm-eval
 megatron-fsdp
 peft
+pytest
 torch
 torchao!=0.14.0
 torchdata
@@ -13,3 +15,4 @@ transformer_engine
 transformers
 typer
 wandb
+zstandard

@@ -1,4 +1,11 @@
-FROM nvcr.io/nvidia/pytorch:25.10-py3
+# Uncomment to use the latest TE from the NGC registry for debugging changes with latest TE.
+# FROM gitlab-master.nvidia.com/dl/transformerengine/transformerengine:main-pytorch-py3-base
+FROM nvcr.io/nvidia/pytorch:25.12-py3
+
+# FIXME: Fix for "No such file or directory: /workspace/TransformerEngine"
+#  Remove once bug has been addressed in the nvidia/pytorch container.
+RUN rm -f /usr/local/lib/python*/dist-packages/transformer_engine-*.dist-info/direct_url.json
+
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=/workspace/requirements.txt \
     PIP_CONSTRAINT= pip install -r /workspace/requirements.txt

@@ -62,7 +62,7 @@ class CodonMemmapDataset(torch.utils.data.Dataset):
     **IMPORTANT** this works because we aren't mutating the underlying data between these splits, and only the indices are modified.
     """
 
-    def __init__(  # noqa: C901, D107
+    def __init__(  # noqa: D107
         self,
         data_path: str,
         tokenizer: Callable,

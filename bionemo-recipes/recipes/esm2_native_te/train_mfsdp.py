@@ -153,7 +153,8 @@ def main(args: DictConfig) -> float | None:
             loss.backward()
 
             # Compute and clip gradient norms.
-            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+            # This is causing training to hang in 25.12 torch base image for multi-process mFSDP.
+            # total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
             # Step optimizer.
             optimizer.step()
@@ -164,7 +165,7 @@ def main(args: DictConfig) -> float | None:
                 step=step,
                 batch=batch,
                 outputs=outputs,
-                grad_norm=total_norm,
+                grad_norm=0.0,  # total_norm,
                 lr=optimizer.param_groups[0]["lr"],
             )
 
@@ -175,9 +176,10 @@ def main(args: DictConfig) -> float | None:
                     scheduler=scheduler,
                     ckpt_path=ckpt_path,
                     step=step,
+                    epoch=epoch,
                     dist_config=dist_config,
                     dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                    epoch=epoch,
+                    max_checkpoints=args.checkpoint.max_checkpoints,
                 )
 
             step += 1

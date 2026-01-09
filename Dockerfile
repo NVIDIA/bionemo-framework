@@ -228,15 +228,14 @@ uv pip install --no-build-isolation \
 -r /requirements-test.txt
 
 # Install back ngcsdk, as a WAR for the protobuf version conflict with nemo_toolkit.
-uv pip install ngcsdk==3.64.3  # Temporary fix for changed filename, see https://nvidia.slack.com/archives/C074Z808N05/p1746231345981209
+uv pip install ngcsdk==4.9.17  # latest version, 12/03/2025.
 # Install >=0.46.1 bitsandbytes specifically because it has CUDA>12.9 support.
 # TODO(trvachov) remove this once it stops conflicting with strange NeMo requirements.txt files
 uv pip uninstall bitsandbytes && uv pip install bitsandbytes==0.46.1
 
 # Addressing security scan issue - CVE vulnerability https://github.com/advisories/GHSA-g4r7-86gm-pgqc The package is a
-# dependency of lm_eval from NeMo requirements_eval.txt. We also remove zstandard, another dependency of lm_eval, which
-# seems to be causing issues with NGC downloads. See https://nvbugspro.nvidia.com/bug/5149698
-uv pip uninstall sqlitedict zstandard
+# dependency of lm_eval from NeMo requirements_eval.txt.
+uv pip uninstall sqlitedict
 
 rm -rf ./3rdparty
 rm -rf /tmp/*

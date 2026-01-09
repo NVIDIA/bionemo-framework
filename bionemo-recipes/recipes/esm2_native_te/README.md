@@ -17,7 +17,7 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 | Model                                     | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP8 with THD Input Format | MXFP8<sup>[2]</sup> | Context Parallelism |
 | ----------------------------------------- | ---- | ----------------- | ---------------- | ------------------------- | ------------------- | ------------------- |
-| [ESM-2](../../models/esm2/README.md)      | ✅   | ✅                | ✅               | ✅                        | ✅                  | 🚧                  |
+| [ESM-2](../../models/esm2/README.md)      | ✅   | ✅                | ✅               | ✅                        | ✅                  | ✅                  |
 | [AMPLIFY](../../models/amplify/README.md) | ✅   | ❌                | 🚧               | ❌                        | ❌                  | 🚧                  |
 
 ✅: Supported <br/>
@@ -27,11 +27,50 @@ bionemo-framework repository. You can download a zipped directory of this folder
 \[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
 \[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
 
+### Installing Dependencies
+
+The easiest way to get started with this recipe is to use the provided Dockerfile, which uses the latest NVIDIA PyTorch
+base image to provide optimized versions of PyTorch and TransformerEngine. To build the container, run:
+
+```bash
+docker build -t esm2_native_te .
+```
+
+To run the container, run:
+
+```bash
+docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bionemo esm2_native_te /bin/bash
+```
+
+Alternatively, the dependencies can be installed manually in an environment with CUDA support. See
+[Dockerfile.cuda](Dockerfile.cuda) for the process of installing dependencies in a fresh python environment (for e.g.,
+CUDA 13.0):
+
+```bash
+uv venv --python 3.12 --seed /workspace/.venv
+source /workspace/.venv/bin/activate
+uv pip install torch==2.9.0 --index-url https://download.pytorch.org/whl/cu130
+uv pip install wheel packaging psutil
+pip install --no-build-isolation "flash-attn>=2.1.1,<=2.8.1"
+pip install --no-build-isolation transformer-engine[pytorch]==2.9.0
+uv pip install -r /requirements.txt
+```
+
+To build and run the CUDA base container, run:
+
+```bash
+docker build -t esm2_native_te_cuda -f Dockerfile.cuda .
+docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bionemo esm2_native_te_cuda /bin/bash -c "pytest -v ."
+```
+
 ### Performance Benchmarks
 
 ![Performance Benchmarks](../../../docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg)
 
-Note: "compiled" refers to `torch.compile`. "fa2" is [FlashAttention2](https://github.com/Dao-AILab/flash-attention). Recently, we measured 2800 tokens/second/GPU training speed on H100 with HuggingFace Transformers's ESM-2 implementation of THD sequence packing, however we have not been able to make this configuration work on Blackwell and this work is still in progress.
+Note: "compiled" refers to `torch.compile`. "fa2" is [FlashAttention2](https://github.com/Dao-AILab/flash-attention).
+Recently, we measured 2800 tokens/second/GPU training speed on H100 with HuggingFace Transformers's ESM-2 implementation
+of THD sequence packing, however we have not been able to make this configuration work on Blackwell and this work is
+still in progress.
 
 ### Distributed Training
 
@@ -88,6 +127,27 @@ python train_fsdp2.py --config-name L0_sanity \
   use_sequence_packing=true
 ```
 
+### Context Parallelism
+
+We provide a training script [train_ddp_cp](./esm2_native_te/train_ddp_cp.py) and a sample config [L0_sanity_cp](./hydra_config/L0_sanity_cp.yaml) that uses context parallelism.
+
+In the config the argument `--cp_size` allows the user to set the size of the context parallel distributed group. When paired with Distributed Data Parallelism (DDP), the number of context parallel groups will be determined by `world_size//cp_size`.
+
+Thus, for example, if a user has 8 processes and sets `cp_size=2` they will have `2` CP groups and `4` DDP groups. During dataloading we make no assumptions about the data pipeline being deterministic or not. DDP groups will provide unique data while CP groups will contain replicates of that data.
+
+For example, let's say that we have 2 DDP groups and 2 CP groups. Each DDP group will have a unique dataloader DP0 for DDP group 0
+and DP1 for DDP group 1. CP works by running something called ring attention, which expects tokens to live on each device in a particular layout. For this CP implementation we use something called [Dual Chunk Swapping](https://github.com/NVIDIA/TransformerEngine/blob/1df4a69f761672f633d40ea3605327087d1ea737/transformer_engine/pytorch/attention/dot_product_attention/context_parallel.py#L3714-L3770). If DP0 outputs sequence `1 2 3 4 5 6 7 8` and DP1 outputs `9 10 11 12 13 14 15 16` then when we run through the `CPAwareDataloader` defined in [datasets](./dataset.py), the dataloader will create CP shards from that DP group as follows:
+
+```
+      |   DP0   |    DP1        |
+  CP0 | 1,2,7,8 | 9, 10, 15, 16 |
+  CP1 | 3,4,5,6 | 11, 12, 13, 14|
+```
+
+You may notice these shards and wonder why they are the way they are. We did. The reason is that CP groups are sharded using slices. The full input sequence (such as `1 2 3 4 5 6 7`) is sliced into `2 * cp_size` groups. Then CP0 takes the first and last slice, while CP1 takes the middle slices, of each sequence.
+
+In this example we only show one sequence but its important to note that slicing takes place on every sequence, so if a second sequence is also available, that will be sliced in the same manner. CP0 will take the first and last slice of every sequence, while CP1 will take the middle slices of each sequence.
+
 ### Comparing Against the HF Transformers Reference Implementation
 
 To launch training with the ESM-2 model as implemented in HF Transformers, pass a `facebook/esm2` checkpoint as the
@@ -95,6 +155,40 @@ model tag:
 
 ```bash
 python train_fsdp2.py --config-name L0_sanity model_tag=facebook/esm2_t6_8M_UR50D
+```
+
+## Downloading Pre-Training Data For Offline Training
+
+An example pre-training dataset for ESM-2 is available in the
+[`nvidia/esm2_uniref_pretraining_data`](https://huggingface.co/datasets/nvidia/esm2_uniref_pretraining_data) Hugging
+Face dataset. This dataset can be [streamed](https://huggingface.co/docs/datasets/en/stream) from the Hugging Face Hub via
+
+```python
+>>> from datasets import load_dataset
+>>> dataset = load_dataset('nvidia/esm2_uniref_pretraining_data', split='train', streaming=True)
+>>> print(next(iter(dataset)))
+{'sequence': 'MSPRRTGGARPPGPCTPCGPRPRCPSRRSAAARPAPSAAPARRARPGRRPGCRPGTDCPGTARRPGGGP...',
+ 'ur50_id': 'UniRef50_A0A081XN86',
+ 'ur90_id': 'UniRef90_UPI002FBE17D9'}
+```
+
+For large-scale training, the dataset should be downloaded locally via the [huggingface
+CLI](https://huggingface.co/docs/huggingface_hub/guides/download#download-from-the-cli), with appropriate values set for
+`HF_HOME` and `HF_TOKEN` environment variables. Use `uv tool install huggingface_hub` to install the CLI if not already
+installed.
+
+```bash
+export HF_TOKEN=<your_huggingface_token>
+hf download nvidia/esm2_uniref_pretraining_data --repo-type dataset --local-dir /path/to/download/directory
+# Test to ensure the dataset can be loaded correctly
+python -c "import datasets; datasets.load_dataset('/path/to/download/directory', split='train', streaming=True)"
+```
+
+Pass the downloaded dataset directory to the training script as the `dataset.path` configuration parameter.
+
+```bash
+HF_DATASETS_OFFLINE=1 python train_fsdp2.py --config-name L0_sanity \
+  dataset.load_dataset_kwargs.path=/path/to/download/directory
 ```
 
 ## Saving and Loading Checkpoints
@@ -198,3 +292,6 @@ training configurations, allowing for easy modification of training hyper-parame
 
 Configuration parameters can be overridden from the command line, e.g.
 `python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true`.
+
+For verbose logging, use the hydra command line override `hydra.verbose=true`, see
+https://hydra.cc/docs/tutorials/basic/running_your_app/logging/ for more details.

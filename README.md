@@ -60,12 +60,14 @@ A core use-case of the BioNeMo Framework is to help digital biology scientists a
 | Directory                                      | Description                                                                                                                   | Support Status | 5D Parallel | Megatron-FSDP | TE     | Sequence Packing | FP8    | Context Parallelism |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------- | ----------- | ------------- | ------ | ---------------- | ------ | ------------------- |
 | `models/`<br>`amplify`                         | TE accelerated protein BERT, pushed to HuggingFace                                                                            | ✅ Active      | ❌          | ✅            | ✅     | 🚧 WIP           | ✅     | 🚧 WIP              |
-| `models/`<br>`esm2`                            | TE accelerated protein BERT, pushed to HuggingFace                                                                            | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
+| `models/`<br>`esm2`                            | TE accelerated protein BERT, pushed to HuggingFace                                                                            | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | ✅                  |
+| `models/`<br>`llama3`                          | TE accelerated Llama 3                                                                                                        | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | 🚧 WIP | 🚧 WIP              |
 | `models/`<br>`geneformer`                      | TE accelerated single-cell BERT                                                                                               | 🚧 WIP         | ❌          | ✅            | 🚧 WIP | 🚧 WIP           | 🚧 WIP | 🚧 WIP              |
 | `recipes/`<br>`codonfm_ptl_te`                 | Recipe for [CodonFM](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/nv-codonfm-preprint.pdf)'s Encodon using TE | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | 🚧 WIP | 🚧 WIP              |
 | `recipes/`<br>`esm2_accelerate_te`             | Recipe for ESM2 TE + HF Accelerate                                                                                            | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ❌               | ✅     | 🚧 WIP              |
 | `recipes/`<br>`esm2_native_te`                 | Recipe for ESM2 TE + native PyTorch                                                                                           | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
 | `recipes/`<br>`geneformer_native_te_mfsdp_fp8` | Recipe for Geneformer HF model                                                                                                | 🚧 WIP         | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
+| `recipes/`<br>`llama3_native_te`               | Recipe for Llama 3 TE + native PyTorch                                                                                        | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | 🚧 WIP | 🚧 WIP              |
 | `recipes/`<br>`vit`                            | Recipe for Vision Transformer                                                                                                 | 🚧 WIP         | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
 
 </small>
@@ -78,17 +80,13 @@ A core use-case of the BioNeMo Framework is to help digital biology scientists a
 <summary><b>(Click to expand) <code>sub-packages</code> models support matrix</b></summary>
 <small>
 
-| Directory               | Description                         | Support        | 5D Parallel | Megatron-FSDP | TE  | Sequence Packing | FP8 | Context Parallel |
-| ----------------------- | ----------------------------------- | -------------- | ----------- | ------------- | --- | ---------------- | --- | ---------------- |
-| `bionemo-amplify`       | 5D parallel model                   | 🔧 Maintenance | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
-| `bionemo-core`          | Model Config/test data utils        | ✅ Active      | ✅          | N/A           | ✅  | ❌               | N/A | N/A              |
-| `bionemo-esm2`          | 5D parallel model                   | ✅ Active      | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
-| `bionemo-evo2`          | 5D parallel model                   | ✅ Active      | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
-| `bionemo-example_model` | Example 5D parallel model           | 🔧 Maintenance | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
-| `bionemo-fw`            | Meta package to pull other packages | ✅ Active      | ✅          | N/A           | N/A | ❌               | ✅  | N/A              |
-| `bionemo-geneformer`    | 5D parallel model                   | 🔧 Maintenance | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
-| `bionemo-llm`           | 5D parallel base model (BioBert)    | ✅ Active      | ✅          | ❌            | ✅  | ✅               | ✅  | ✅               |
-| `bionemo-testing`       | Testing Utilities                   | ✅ Active      | ✅          | N/A           | N/A | N/A              | N/A | N/A              |
+| Directory               | Description                      | Support        | 5D Parallel | Megatron-FSDP | TE  | Sequence Packing | FP8 | Context Parallel |
+| ----------------------- | -------------------------------- | -------------- | ----------- | ------------- | --- | ---------------- | --- | ---------------- |
+| `bionemo-core`          | Model Config/test data utils     | ✅ Active      | ✅          | N/A           | ✅  | ❌               | N/A | N/A              |
+| `bionemo-evo2`          | 5D parallel model                | ✅ Active      | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
+| `bionemo-example_model` | Example 5D parallel model        | 🔧 Maintenance | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
+| `bionemo-llm`           | 5D parallel base model (BioBert) | ✅ Active      | ✅          | ❌            | ✅  | ✅               | ✅  | ✅               |
+| `bionemo-testing`       | Testing Utilities                | ✅ Active      | ✅          | N/A           | N/A | N/A              | N/A | N/A              |
 
 </small>
 </details>

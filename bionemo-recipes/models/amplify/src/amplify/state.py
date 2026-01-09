@@ -158,7 +158,7 @@ def apply_transforms(
             _params[name] = nn.Parameter(target_param, requires_grad=param.requires_grad)
             target_state.pop(name)
         else:
-            print(f"Unexpected key: {name} not in checkpoint but in model.")
+            print(f"Unexpected key: {name} not in target model but is in source model.")
 
     for key, val in _params.items():
         _module, _key = target, key
@@ -190,7 +190,10 @@ def apply_transforms(
     keys = list(filter(lambda x: x is not None and not x.endswith("_extra_state"), target_state.keys()))
     keys = [key for key in keys if key not in state_dict_ignored_entries]
     if len(keys) != 0:
-        raise RuntimeError(f"Additional keys: {keys} in checkpoint but not in model.")
+        raise RuntimeError(f"Additional keys: {keys} in target model but not in source model.")
+
+    if hasattr(target, "tie_weights"):
+        target.tie_weights()
 
     meta_tensor_keys = []
     for name, param in target.named_parameters():
@@ -207,12 +210,12 @@ def apply_transforms(
         target.to(cast_dtype)
         logger.info(f"Casting model to {cast_dtype} complete.")
     else:
-        assert target_orig_dtypes == extract_dtypes(target.named_parameters()), (
-            f"dtype mismatch between source and target state dicts. "
-            f"Left side is { {k: v for k, v in target_orig_dtypes.items() if v != torch.bfloat16} }, "
-            f"Right side is "
-            f"{ {k: v for k, v in extract_dtypes(target.named_parameters()).items() if v != torch.bfloat16} }"
-        )
+        target_new_dtypes = extract_dtypes(target.named_parameters())
+        for key in target_orig_dtypes.keys():
+            if key in target_new_dtypes:  # For tied weights, these parameters may disappear.
+                assert target_orig_dtypes[key] == target_new_dtypes[key], (
+                    f"dtype mismatch for key {key}: {target_orig_dtypes[key]} vs {target_new_dtypes[key]}"
+                )
 
     return target
 

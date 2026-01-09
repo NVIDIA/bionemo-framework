@@ -11,8 +11,6 @@ end users.
 
 Each model is stored in its own `sub-packages`. Some examples of models include:
 
-- `sub-packages/bionemo-esm2`: ESM2 model
-- `sub-packages/bionemo-geneformer`: Geneformer
 - `sub-packages/bionemo-example_model`: A minimal example MNIST model that demonstrates how you can write a lightweight
   megatron model that doesn't actually support any megatron parallelism, but should run fine as long as you only use
   data parallelism to train.
@@ -87,13 +85,6 @@ $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_expe
 ├── requirements-cve.txt
 ├── requirements-dev.txt
 ├── requirements-test.txt
-├── scripts   # 🟢 Temporary scripts that demonstrate how to run some of these programs. These will be replaced.
-│   ├── artifact_paths.yaml
-│   ├── download_artifacts.py
-│   ├── gpt-pretrain.py
-│   ├── protein
-│   │   └── esm2
-│           └── esm2_dataset_perplexity.py
 # 🟢 All work goes into `sub-packages`
 #  Sub-packages represent individually installable subsets of the bionemo codebase. We recommend that you
 #  create new sub-packages to track your experiments and save any updated models or utilities that you need.
@@ -123,36 +114,6 @@ $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_expe
 │   │           └── pytorch
 │   │               └── utils
 │   │                   └── test_dtypes.py
-│   ├── bionemo-esm2  # 🟢 The ESM2 model sub-package. This stores models and dataloaders necessary for pretraining and some example fine-tuning.
-│   │   ├── LICENSE
-│   │   ├── README.md
-│   │   ├── _requirements-test.txt
-│   │   ├── _requirements.txt
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   ├── setup.py
-│   │   ├── src
-│   │   │   └── bionemo
-│   │   │       └── esm2
-│   │   │           ├── __init__.py
-│   │   │           ├── api.py
-│   │   │           └── model
-│   │   │               ├── __init__.py
-│   │   │               ├── attention.py
-│   │   │               ├── embedding.py
-│   │   │               ├── lr_scheduler.py
-│   │   │               └── model.py
-│   │   └── tests
-│   │       └── bionemo
-│   │           └── esm2
-│   │               ├── __init__.py
-│   │               ├── conftest.py
-│   │               └── model
-│   │                   ├── __init__.py
-│   │                   ├── test_attention.py
-│   │                   ├── test_embedding.py
-│   │                   ├── test_lr_scheduler.py
-│   │                   └── test_model.py
 │   ├── bionemo-example_model  # 🟢 a small example model that demonstrates how to write a megatron model from scratch and train on MNIST
 │   │   ├── LICENSE
 │   │   ├── README.md
@@ -169,50 +130,6 @@ $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_expe
 │   │       └── bionemo
 │   │           └── example_model
 │   │               └── test_lightning_basic.py
-│   ├── bionemo-fw  # 🟢 a meta-package that pulls together all other packages. A user can install this and get all of bionemo.
-│   │   ├── LICENSE
-│   │   ├── README.md
-│   │   ├── _requirements-test.txt
-│   │   ├── _requirements.txt
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   ├── setup.py
-│   │   ├── src
-│   │   │   └── bionemo
-│   │   │       └── fw
-│   │   │           └── __init__.py
-│   │   └── tests
-│   │       ├── __init__.py
-│   │       └── bionemo
-│   │           └── fw
-│   │               └── test_sub_package_imports.py
-│   ├── bionemo-geneformer  # 🟢 geneformer sub-module
-│   │   ├── LICENSE
-│   │   ├── README.md
-│   │   ├── _requirements-test.txt
-│   │   ├── _requirements.txt
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   ├── setup.py
-│   │   ├── src
-│   │   │   └── bionemo
-│   │   │       └── geneformer
-│   │   │           ├── __init__.py
-│   │   │           ├── api.py
-│   │   │           ├── model
-│   │   │           │   ├── __init__.py
-│   │   │           │   └── finetune_token_regressor.py
-│   │   │           └── tokenizer
-│   │   │               ├── __init__.py
-│   │   │               ├── gene_tokenizer.py
-│   │   │               └── label2id_tokenizer.py
-│   │   └── tests
-│   │       └── bionemo
-│   │           └── geneformer
-│   │               ├── __init__.py
-│   │               ├── test_model.py
-│   │               ├── test_stop_and_go.py
-│   │               └── test_transformer_specs.py
 │   ├── bionemo-llm  # 🟢 shared model code for LLM style models, eg BERT variants, transformer variants, etc.
 │   │   ├── LICENSE
 │   │   ├── README.md

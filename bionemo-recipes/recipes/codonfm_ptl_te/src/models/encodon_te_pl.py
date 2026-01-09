@@ -143,7 +143,7 @@ class EncodonTEPL(LightningModule):
 
         self.attn_input_format = attn_input_format
 
-    def configure_model(self, state_dict: Optional[Dict[str, Any]] = None) -> None:  # noqa: C901
+    def configure_model(self, state_dict: Optional[Dict[str, Any]] = None) -> None:
         """Configure the model, optionally loading a state dict.
 
         Args:

@@ -20,9 +20,11 @@ import pytest
 import torch
 from transformer_engine.pytorch.attention import InferenceParams
 from transformers import (
+    AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
     DataCollatorWithFlattening,
+    set_seed,
 )
 
 from convert import convert_llama_hf_to_te
@@ -45,9 +47,12 @@ def input_text():
     )
 
 
-def test_llama_model_forward_pass(input_text):
+@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
+def test_llama_model_forward_pass(input_text, attn_input_format):
     tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
-    config = NVLlamaConfig.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2)
+    config = NVLlamaConfig.from_pretrained(
+        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format=attn_input_format
+    )
     model = NVLlamaForCausalLM(config)
 
     inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="right")
@@ -59,6 +64,46 @@ def test_llama_model_forward_pass(input_text):
     assert outputs.logits is not None
     assert outputs.hidden_states is not None
     assert len(outputs.hidden_states) == config.num_hidden_layers + 1
+
+
+def test_llama_model_forward_pass_no_attention_mask():
+    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
+    config = NVLlamaConfig.from_pretrained(
+        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format="bshd"
+    )
+    model = NVLlamaForCausalLM(config)
+
+    input_text = ["Hello, world!"]
+    inputs = tokenizer(input_text, return_tensors="pt")
+    inputs = {k: v.to("cuda") for k, v in inputs.items() if k != "attention_mask"}
+    model.to("cuda")
+    with torch.no_grad():
+        outputs = model(**inputs, output_hidden_states=True)
+
+    assert outputs.logits is not None
+    assert outputs.hidden_states is not None
+    assert len(outputs.hidden_states) == config.num_hidden_layers + 1
+
+
+@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
+def test_llama_model_backward_pass(input_text, attn_input_format):
+    if attn_input_format == "thd" and torch.cuda.get_device_capability()[0] == 12:
+        pytest.xfail("BIONEMO-3294: CUDNN backward pass is not supported for THD inputs on SM120.")
+
+    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
+    config = NVLlamaConfig.from_pretrained(
+        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format=attn_input_format
+    )
+    model = NVLlamaForCausalLM(config)
+
+    inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="right")
+    inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    model.to("cuda")
+    outputs = model(**inputs, output_hidden_states=True)
+    outputs.logits.mean().backward()
+
+    for param in model.parameters():
+        assert param.grad is not None
 
 
 def test_llama_model_forward_pass_thd_inputs(input_text):
@@ -84,11 +129,15 @@ def test_llama_model_forward_pass_thd_inputs(input_text):
 
 
 @pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
-def test_llama_model_golden_values(input_text):
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
-    model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
+@pytest.mark.parametrize(
+    "upstream_model_name", ["meta-llama/Llama-3.2-1B-Instruct", "meta-llama/Llama-3.1-8B-Instruct"]
+)
+@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
+def test_llama_model_golden_values(input_text, upstream_model_name: str, attn_input_format: str):
+    tokenizer = AutoTokenizer.from_pretrained(upstream_model_name)
+    model_hf = AutoModelForCausalLM.from_pretrained(upstream_model_name, dtype=torch.bfloat16)
 
-    model_te = convert_llama_hf_to_te(model_hf)
+    model_te = convert_llama_hf_to_te(model_hf, attn_input_format=attn_input_format)
 
     tokenizer.pad_token = tokenizer.eos_token
     # TODO: figure out padding_side="left" with TE, make this several tests with different input types.
@@ -343,3 +392,68 @@ def test_te_llama_model_generate_with_cache_bshd_beam_search():
     generated_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
     assert "http://www.apache.org/licenses/LICENSE-2.0" in generated_text[0]
     assert "et dolore magna aliqua. Ut enim ad minim " in generated_text[1]
+
+
+@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
+def test_loss_with_random_weights_for_input_gene_sequence(recipe_path, attn_input_format: str):
+    set_seed(42)
+    tokenizer = AutoTokenizer.from_pretrained(recipe_path / "nucleotide_fast_tokenizer")
+    input_text = "GCACGGTCTGCACCACCGTCTGCCCGGTCAGCGGCGTTAACCCGCGCTATCCCGGTCCGAAACAGGCCGGGCCGGACGGCGAGCGCCTTCGTCTGAAGGA"
+
+    inputs = tokenizer(input_text, return_tensors="pt")
+    inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    labels = inputs["input_ids"].clone()
+
+    # This unsloth config is identical to the meta-llama/Llama-3.2-1B config, but is available in CI without having to
+    # sign the EULA. Since we don't need any weights here, we can just use this model tag instead.
+    config = AutoConfig.from_pretrained("unsloth/Llama-3.2-1B-Instruct")
+    model_hf = AutoModelForCausalLM.from_config(config)
+
+    model_hf.to("cuda")
+    with torch.no_grad():
+        outputs_hf = model_hf(**inputs, labels=labels, output_hidden_states=True)
+    loss_hf = outputs_hf.loss
+
+    del model_hf
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    config_te = NVLlamaConfig.from_pretrained("unsloth/Llama-3.2-1B-Instruct", attn_input_format=attn_input_format)
+    model_te = NVLlamaForCausalLM(config_te)
+
+    model_te.to("cuda")
+    with torch.no_grad():
+        outputs_te = model_te(**inputs, labels=labels, output_hidden_states=True)
+    loss_te = outputs_te.loss
+
+    torch.testing.assert_close(loss_te, loss_hf, atol=0.5, rtol=0.05)
+
+
+@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
+def test_loss_with_random_weights_similar_grad_norms(recipe_path, attn_input_format: str):
+    tokenizer = AutoTokenizer.from_pretrained(recipe_path / "nucleotide_fast_tokenizer")
+    input_text = "GCACGGTCTGCACCACCGTCTGCCCGGTCAGCGGCGTTAACCCGCGCTATCCCGGTCCGAAACAGGCCGGGCCGGACGGCGAGCGCCTTCGTCTGAAGGA"
+
+    inputs = tokenizer(input_text, return_tensors="pt")
+    inputs = {k: v.to("cuda") for k, v in inputs.items()}
+    labels = inputs["input_ids"].clone()
+
+    config = AutoConfig.from_pretrained("unsloth/Llama-3.2-1B-Instruct")
+    model_hf = AutoModelForCausalLM.from_config(config)
+    model_te = convert_llama_hf_to_te(model_hf, attn_input_format=attn_input_format)
+
+    model_hf.to("cuda")
+    model_hf.train()
+    outputs_hf = model_hf(**inputs, labels=labels, output_hidden_states=True)
+    loss_hf = outputs_hf.loss
+    loss_hf.backward()
+    grad_norm_hf = torch.nn.utils.clip_grad_norm_(model_hf.parameters(), max_norm=float("inf"))
+
+    model_te.to("cuda")
+    model_te.train()
+    outputs_te = model_te(**inputs, labels=labels, output_hidden_states=True)
+    loss_te = outputs_te.loss
+    loss_te.backward()
+    grad_norm_te = torch.nn.utils.clip_grad_norm_(model_te.parameters(), max_norm=float("inf"))
+
+    torch.testing.assert_close(grad_norm_te, grad_norm_hf)

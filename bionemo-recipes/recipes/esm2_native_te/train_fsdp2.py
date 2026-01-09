@@ -42,7 +42,7 @@ logger.setLevel(logging.INFO)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
-def main(args: DictConfig) -> float | None:  # noqa: C901
+def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using fsdp2.
 
     Returns:
@@ -90,15 +90,19 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
 
+    # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
+    # Note, this should happen before we create the optimizer.
+    if args.use_meta_device:
+        if hasattr(model, "init_empty_weights"):
+            # TE layers require special handling to initialize the weights from the meta device.
+            model.init_empty_weights()
+        else:
+            model.to_empty(device=device)
+            model.apply(model._init_weights)
+
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
-
-    if args.use_meta_device:
-        model.to_empty(device=device)
-        for module in model.modules():
-            if hasattr(module, "reset_parameters"):
-                module.reset_parameters()
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
     train_dataloader, dataset_or_sampler = (
@@ -168,6 +172,7 @@ def main(args: DictConfig) -> float | None:  # noqa: C901
                     epoch=epoch,
                     dist_config=dist_config,
                     dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                    max_checkpoints=args.checkpoint.max_checkpoints,
                 )
 
             step += 1

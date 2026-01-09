@@ -17,14 +17,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import torch
-from dataset import create_bshd_dataloader, create_tokenized_dataset
+
+from dataset import create_bshd_dataloader, create_thd_dataloader, create_tokenized_dataset
 from distributed_config import DistributedConfig
-
-
-@pytest.fixture
-def tokenizer_path(recipe_path):
-    """Get the path to the nucleotide tokenizer."""
-    return str(recipe_path / "example_checkpoint")
 
 
 @pytest.fixture
@@ -43,7 +38,7 @@ def simple_parquet(tmp_path):
 
     table = pa.table(
         {
-            "sequence": sequences,
+            "text": sequences,
         }
     )
 
@@ -60,7 +55,7 @@ def test_dataset_loads_and_tokenizes_sequence(tokenizer_path, tmp_path):
     # Create a Parquet file with a single T sequence of known length
     parquet_path = tmp_path / "genomic_sequences.parquet"
     sequence = "T" * 10  # Small, predictable sequence
-    table = pa.table({"sequence": [sequence]})
+    table = pa.table({"text": [sequence]})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -71,9 +66,9 @@ def test_dataset_loads_and_tokenizes_sequence(tokenizer_path, tmp_path):
         "split": "train",
     }
 
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=20,  # Large enough to fit the sequence
         stride=10,
@@ -111,7 +106,7 @@ def test_dataloader_returns_expected_batch(tokenizer_path, tmp_path):
     # Create minimal test parquet with exactly 1 sequence
     parquet_path = tmp_path / "single_sequence.parquet"
     sequence = "A" * 5  # 5 As
-    table = pa.table({"sequence": [sequence]})
+    table = pa.table({"text": [sequence]})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -124,13 +119,15 @@ def test_dataloader_returns_expected_batch(tokenizer_path, tmp_path):
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=1,  # Just one sample per batch
         num_workers=0,
         max_seq_length=10,  # Large enough for 5bp sequence
         stride=5,
         use_lazy_tokenization=False,  # Eager for deterministic behavior
+        uppercase_labels=False,  # Use standard collator for this test
+        mask_degenerate_bases=False,  # Use standard collator for this test
     )
 
     returned_batch = next(iter(dataloader))
@@ -176,12 +173,14 @@ def test_attention_mask_aligns_with_labels(tokenizer_path, simple_parquet):
     # Use a moderate window size to ensure we get padding in batches
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
         max_seq_length=500,
         stride=100,
+        uppercase_labels=False,  # Use standard collator for this test
+        mask_degenerate_bases=False,  # Use standard collator for this test
     )
 
     batch = next(iter(dataloader))
@@ -224,7 +223,7 @@ def test_windowing_in_dataset_creates_multiple_samples(tokenizer_path, tmp_path)
     # Create a 3kbp sequence
     parquet_path = tmp_path / "genomic_sequences.parquet"
     sequence = "A" * 3000
-    table = pa.table({"sequence": [sequence]})
+    table = pa.table({"text": [sequence]})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -235,9 +234,9 @@ def test_windowing_in_dataset_creates_multiple_samples(tokenizer_path, tmp_path)
         "split": "train",
     }
 
-    tokenized_dataset, tokenizer = create_tokenized_dataset(
+    tokenized_dataset, _ = create_tokenized_dataset(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=1000,
         stride=800,  # 800 token overlap, so 200 token step
@@ -266,7 +265,7 @@ def test_lazy_tokenization_returns_batch(tokenizer_path, simple_parquet):
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -312,7 +311,7 @@ def test_multiple_sequences_batch_correctly(tokenizer_path, simple_parquet, stre
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -380,7 +379,7 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
         "G" * 8,  # Seq 4
         "ATCG" * 3,  # Seq 5 (12bp)
     ]
-    table = pa.table({"sequence": sequences})
+    table = pa.table({"text": sequences})
     pq.write_table(table, parquet_path)
 
     distributed_config = DistributedConfig(rank=0, world_size=1)
@@ -393,7 +392,7 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
 
     dataloader, _ = create_bshd_dataloader(
         distributed_config=distributed_config,
-        tokenizer_path=tokenizer_path,
+        tokenizer_name_or_path=tokenizer_path,
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=2,
         num_workers=0,
@@ -412,3 +411,245 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
     assert batches[0]["input_ids"].shape[0] == 2, "Batch 0 should have 2 sequences"
     assert batches[1]["input_ids"].shape[0] == 2, "Batch 1 should have 2 sequences"
     assert batches[2]["input_ids"].shape[0] == 1, "Batch 2 should have 1 sequence (remainder)"
+
+
+def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, tmp_path):
+    """Test that batching combines multiple sequences correctly with exact batch counts"""
+    parquet_path = tmp_path / "five_sequences.parquet"
+    sequences = ["A"] * 20
+    table = pa.table({"text": sequences})
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+        "streaming": True,
+    }
+
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_name_or_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        token_micro_batch_size=15,
+        max_seq_length=15,
+        stride=10,
+        use_lazy_tokenization=False,  # Use eager to ensure predictable batching
+        split_samples_in_token_packing=False,
+    )
+
+    batches = list(dataloader)
+
+    assert len(batches) > 0
+
+    for batch in batches:
+        # BOS, 'A', 'EOS' * 5
+        torch.testing.assert_close(batch["input_ids"].squeeze(0), torch.tensor([[2, 65, 0] * 5]).flatten())
+
+
+def test_streaming_dataset_removes_columns_correctly(tokenizer_path, tmp_path):
+    """Test that streaming datasets properly remove input columns (text, record) during tokenization.
+
+    This is a regression test for the OpenGenome2-specific bug where dataset.column_names is None
+    for streaming datasets with inconsistent schemas across shards. This causes remove_columns to fail
+    and leaves raw text/record columns in the tokenized dataset.
+
+    OpenGenome2 has inconsistent schemas:
+    - Some shards: ["text", "record"]
+    - Some shards: ["text"] only
+    - Result: dataset.column_names = None (can't determine upfront)
+
+    Note: Regular datasets (like ESM2) don't have this issue because they have consistent schemas.
+
+    Reference: https://github.com/NVIDIA/bionemo-framework/commit/3c0aee6de065ef494389591ca9028e8301dc385a
+    """
+    # Create a Parquet file with both 'text' (sequence column) and 'record' (metadata)
+    parquet_path = tmp_path / "genomic_with_metadata.parquet"
+    sequences = ["ATCGATCG" * 10, "GCTAGCTA" * 10]
+    records = ["chr1:1000-1080", "chr2:2000-2080"]
+
+    table = pa.table(
+        {
+            "text": sequences,  # Using 'text' to match OpenGenome2 format
+            "record": records,  # Metadata column that should be removed
+        }
+    )
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    # Load as streaming dataset
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+        "streaming": True,  # This makes dataset.column_names = None
+    }
+
+    tokenized_dataset, _ = create_tokenized_dataset(
+        distributed_config=distributed_config,
+        tokenizer_name_or_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        max_seq_length=100,
+        stride=10,
+        buffer_size=1000,
+        use_lazy_tokenization=False,
+        text_column="text",  # Specify which column has sequences
+    )
+
+    # Get first sample from streaming dataset
+    sample = next(iter(tokenized_dataset))
+
+    # Verify that only tokenizer outputs remain (no raw text or record columns)
+    expected_keys = {"input_ids", "attention_mask", "token_type_ids", "overflow_to_sample_mapping"}
+    actual_keys = set(sample.keys())
+
+    assert actual_keys.issubset(expected_keys), (
+        f"Unexpected columns found in tokenized dataset. "
+        f"Expected only {expected_keys}, but got {actual_keys}. "
+        f"Columns 'text' and 'record' should have been removed."
+    )
+
+    # Specifically check that problematic columns are NOT present
+    assert "text" not in sample, "Column 'text' should have been removed during tokenization"
+    assert "record" not in sample, "Column 'record' should have been removed during tokenization"
+
+    # Verify tokenizer outputs are present and valid
+    assert "input_ids" in sample, "input_ids should be present"
+    assert isinstance(sample["input_ids"], list), "input_ids should be a list"
+    assert len(sample["input_ids"]) > 0, "input_ids should not be empty"
+
+
+def test_streaming_dataset_handles_missing_record_column(tokenizer_path, tmp_path):
+    """Test that remove_columns handles missing 'record' column gracefully (OpenGenome2 workaround).
+
+    OpenGenome2 has inconsistent schemas across shards:
+    - Some shards have 'record' column (metadata)
+    - Some shards don't have 'record' column
+
+    This test verifies that explicitly listing 'record' in columns_to_remove doesn't
+    cause errors when the column is absent. This is part of the OpenGenome2 workaround.
+
+    TODO: Remove this workaround once Arc Institute fixes OpenGenome2 schema consistency.
+
+    Reference: https://github.com/NVIDIA/bionemo-framework/commit/a41f306eda7605552ee736e3291c098f2623828a
+    """
+    # Create a Parquet file with ONLY 'text' column (no 'record')
+    parquet_path = tmp_path / "genomic_no_record.parquet"
+    sequences = ["ATCGATCG" * 10, "GCTAGCTA" * 10]
+
+    table = pa.table(
+        {
+            "text": sequences,  # Only text, no record column
+        }
+    )
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    # Load as streaming dataset
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+        "streaming": True,
+    }
+
+    # This should NOT raise an error even though 'record' is in columns_to_remove
+    tokenized_dataset, _ = create_tokenized_dataset(
+        distributed_config=distributed_config,
+        tokenizer_name_or_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        max_seq_length=100,
+        stride=10,
+        buffer_size=1000,
+        use_lazy_tokenization=False,
+        text_column="text",
+    )
+
+    # Get first sample - should work without errors
+    sample = next(iter(tokenized_dataset))
+
+    # Verify only tokenizer outputs are present
+    assert "text" not in sample, "Column 'text' should have been removed"
+    assert "record" not in sample, "Column 'record' was never present, so shouldn't be in output"
+    assert "input_ids" in sample, "input_ids should be present"
+
+
+def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
+    """Test that create_bshd_dataloader works with genomic masking enabled.
+
+    Integration test verifying:
+    - GenomicDataCollatorForCLM is used when masking flags are set
+    - Degenerate bases are masked in labels
+    - Batches are produced in correct BSHD format
+    """
+    # Create test data with degenerate bases
+    parquet_path = tmp_path / "genomic_with_degenerate.parquet"
+    sequences = ["ACGTN", "GGTAR"]  # Has degenerate N and R
+    table = pa.table({"text": sequences})
+    pq.write_table(table, parquet_path)
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "data_files": str(parquet_path),
+        "split": "train",
+    }
+
+    # Create dataloader with genomic masking enabled
+    dataloader, _ = create_bshd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_name_or_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        micro_batch_size=2,
+        num_workers=0,
+        max_seq_length=10,
+        stride=5,
+        use_lazy_tokenization=False,
+        mask_degenerate_bases=True,  # Enable degenerate masking
+    )
+
+    # Get a batch
+    batch = next(iter(dataloader))
+
+    # Verify BSHD format
+    assert batch["input_ids"].ndim == 2, "Should be BSHD format [B, S]"
+    assert batch["labels"].ndim == 2, "Labels should be BSHD format"
+
+    # Verify degenerate bases (N=78, R=82) are masked
+    labels = batch["labels"]
+    assert 78 not in labels, "Degenerate N (78) should be masked"
+    assert 82 not in labels, "Degenerate R (82) should be masked"
+
+    # Verify valid DNA tokens are present
+    valid_dna = [65, 67, 71, 84]  # A, C, G, T
+    assert any(tok in labels for tok in valid_dna), "Should have valid DNA tokens"
+
+
+def test_token_packing_dataloader(tokenizer_path):
+    """Test that the token packing dataloader works."""
+
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "split": "train",
+        "data_files": "test_genomic_sequences.parquet",
+        "streaming": True,
+    }
+
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+
+    dataloader, _ = create_thd_dataloader(
+        distributed_config=distributed_config,
+        tokenizer_name_or_path=tokenizer_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        text_column="sequence",
+        micro_batch_size=1,
+        max_seq_length=1024,
+    )
+
+    batches = list(dataloader)
+    assert len(batches) > 1

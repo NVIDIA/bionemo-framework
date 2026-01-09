@@ -10,11 +10,8 @@ exclude = [
 ]
 source_roots = [
     "sub-packages/bionemo-core/src",
-    "sub-packages/bionemo-esm2/src",
     "sub-packages/bionemo-evo2/src",
     "sub-packages/bionemo-example_model/src",
-    "sub-packages/bionemo-fw/src",
-    "sub-packages/bionemo-geneformer/src",
     "sub-packages/bionemo-llm/src",
     "sub-packages/bionemo-scdl/src",
     "sub-packages/bionemo-size-aware-batching/src",
@@ -25,13 +22,6 @@ source_roots = [
 [[modules]]
 path = "bionemo.core"
 depends_on = []
-
-[[modules]]
-path = "bionemo.esm2"
-depends_on = [
-    "bionemo.core",
-    "bionemo.llm",
-]
 
 [[modules]]
 path = "bionemo.evo2"
@@ -46,28 +36,6 @@ path = "bionemo.example_model"
 depends_on = [
     "bionemo.core",
     "bionemo.llm",
-]
-
-[[modules]]
-path = "bionemo.fw"
-depends_on = [
-    "bionemo.core",
-    "bionemo.esm2",
-    "bionemo.geneformer",
-    "bionemo.llm",
-    "bionemo.noodles",
-    "bionemo.noodles",
-    "bionemo.scdl",
-    "bionemo.size_aware_batching",
-    "bionemo.webdatamodule",
-]
-
-[[modules]]
-path = "bionemo.geneformer"
-depends_on = [
-    "bionemo.core",
-    "bionemo.llm",
-    "bionemo.scdl",
 ]
 
 [[modules]]

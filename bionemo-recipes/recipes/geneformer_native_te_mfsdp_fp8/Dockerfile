@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM nvcr.io/nvidia/pytorch:25.10-py3
+FROM nvcr.io/nvidia/pytorch:25.12-py3
 
 RUN apt-get update && apt-get install -y git
 

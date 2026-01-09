@@ -1,4 +1,4 @@
-site_name: BioNeMo Framework
+site_name: BioNeMo
 site_url: https://nvidia.github.io/bionemo-framework
 repo_url: https://github.com/NVIDIA/bionemo-framework
 repo_name: NVIDIA/bionemo-framework
@@ -45,9 +45,6 @@ extra_css:
   - assets/css/custom-material.css
   - assets/css/jupyter-themes.css
   - assets/css/chatbot.css
-
-extra_javascript:
-  - assets/javascript/chatbot.js
 
 plugins:
   - search

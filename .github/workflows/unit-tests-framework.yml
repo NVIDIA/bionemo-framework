@@ -82,6 +82,7 @@ jobs:
             !.gitignore
             !.devcontainer/**
             !ci/scripts/recipes_local_test.py
+            !ci/scripts/check_copied_files.py
             .github/workflows/unit-tests-framework.yml
 
       - name: Show output
@@ -216,6 +217,9 @@ jobs:
       credentials:
         username: ${{ vars.DOCKER_USERNAME }}
         password: ${{ secrets.DOCKER_PASSWORD }}
+      env:
+        CI: true
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
     if: needs.build-bionemo-image.result == 'success'
     steps:
       - name: Checkout repository

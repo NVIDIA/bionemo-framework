@@ -15,11 +15,8 @@ version = "2.0.0"
 dependencies = [
     # **ALL** bionemo sub-packages
     'bionemo-core',
-    'bionemo-esm2',
     'bionemo-evo2',
     'bionemo-example_model',
-    'bionemo-fw',
-    'bionemo-geneformer',
     'bionemo-llm',
     'bionemo-moco',
     'bionemo-scdl',
@@ -47,11 +44,7 @@ nemo_toolkit = { workspace = true }
 megatron-core = { workspace = true }
 # in sub-packages/
 bionemo-core = { workspace = true }
-bionemo-amplify = { workspace = true }
-bionemo-esm2 = { workspace = true }
 bionemo-example_model = { workspace = true }
-bionemo-fw = { workspace = true }
-bionemo-geneformer = { workspace = true }
 bionemo-llm = { workspace = true }
 bionemo-moco = { workspace = true }
 bionemo-noodles = { workspace = true }
@@ -132,11 +125,8 @@ executionEnvironments = [
         "./3rdparty/NeMo",
         # bionemo sub-packages
         './sub-packages/bionemo-core/src',
-        './sub-packages/bionemo-esm2/src',
         './sub-packages/bionemo-evo2/src',
         './sub-packages/bionemo-example_model/src',
-        './sub-packages/bionemo-fw/src',
-        './sub-packages/bionemo-geneformer/src',
         './sub-packages/bionemo-llm/src',
         './sub-packages/bionemo-moco/src',
         './sub-packages/bionemo-noodles/src',

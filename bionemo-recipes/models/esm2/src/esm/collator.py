@@ -24,130 +24,74 @@ from typing import Any
 
 import datasets
 import torch
-from transformers import DataCollatorForLanguageModeling, DefaultDataCollator, PreTrainedTokenizerBase
+from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
+from transformers import DataCollator, DataCollatorForLanguageModeling
 
 
 logger = logging.getLogger(__name__)
 
 
-class MLMDataCollatorWithFlattening:
-    """Data collator that combines MLM masking with sequence packing for Flash Attention.
+@dataclass
+class DataCollatorWithFlattening:
+    """Data collator that wraps a DataCollatorForLanguageModeling and flattens inputs for flash-attention.
 
-    This data collator enables efficient training on variable-length sequences by:
-    1. First flattening multiple sequences into a single packed tensor (no padding between sequences)
-    2. Then applying MLM masking to the flattened sequence
-    3. Providing Flash Attention metadata (cu_seq_lens) for sequence boundary awareness
-    4. Optionally padding the total sequence length to be divisible by a specified number
+    This collator enables efficient training on batches containing variable-length sequences, by first flattening
+    (packing) multiple input sequences into a single contiguous tensor without padding between sequences. Then, it
+    applies masked language modeling (MLM) masking using the provided DataCollatorForLanguageModeling instance.
 
-    The result is a THD-format batch optimized for Flash Attention with sequence packing,
-    eliminating the need for traditional attention masks while maintaining proper sequence
-    boundaries during attention computation.
+    The collator also generates metadata required for Flash Attention or context-parallel attention:
+      - `cu_seq_lens_q` and `cu_seq_lens_k` tensors, denoting cumulative sequence lengths so that sequence boundaries
+        within the packed tensor are known during attention computation.
 
-    **Padding to Multiple**: When `pad_to_multiple_of` is specified, the collator ensures
-    that the total number of tokens across all sequences is divisible by the given number.
-    This is accomplished by appending a mock sequence to the end of the packed batch with
-    padding tokens and corresponding labels set to -100. This feature is useful for
-    optimizing memory alignment and computational efficiency on specific hardware.
+    Optionally, the collator can:
+      - Pad the total number of tokens in the batch to be divisible by `pad_to_multiple_of` (by appending a mock
+        sequence).
+      - Pad each individual sequence to be divisible by `pad_sequences_to_be_divisible_by` if provided.
 
-    **Tensor Support**: Currently only supports PyTorch tensors (return_tensors="pt").
-    Other tensor formats are not implemented.
+    Only PyTorch tensors (`return_tensors="pt"`) are supported.
 
     Args:
-        tokenizer (PreTrainedTokenizerBase): The tokenizer to use for masking tokens.
-        mlm (bool): Whether to use masked language modeling. Defaults to True.
-        mlm_probability (float | None): Probability of masking tokens. Defaults to 0.15.
-        mask_replace_prob (float): Probability of replacing masked tokens with [MASK]. Defaults to 0.8.
-        random_replace_prob (float): Probability of replacing masked tokens with random tokens. Defaults to 0.1.
-        return_tensors (str): Format for returned tensors. Only "pt" (PyTorch) is supported. Defaults to "pt".
-        seed (int | None): Random seed for reproducible masking. Defaults to None.
-        pad_to_multiple_of (int | None): If set, pads the total sequence length to be divisible
-            by this number by adding a mock sequence at the end. Defaults to None.
+        collator (DataCollatorForLanguageModeling): The collator to use for MLM masking. This is a captive
+            collator and should be constructed externally and passed in.
+        return_position_ids (bool): Whether to return position ids (default False).
+        pad_to_multiple_of (int, optional): If set, pads the total sequence length to be divisible by this number.
+        pad_sequences_to_be_divisible_by (int, optional): If set, each individual sequence is padded to this value.
 
     Example:
-        >>> from transformers import AutoTokenizer
+        >>> from transformers import AutoTokenizer, DataCollatorForLanguageModeling
         >>> tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
-        >>>
-        >>> # Input: Variable-length protein sequences
-        >>> sequences = [
-        ...     {"input_ids": [0, 5, 6, 7, 2]},      # CLS + amino acids + EOS (5 tokens)
-        ...     {"input_ids": [0, 8, 9, 10, 11, 2]}, # CLS + amino acids + EOS (6 tokens)
-        ...     {"input_ids": [0, 12, 13, 2]},       # CLS + amino acids + EOS (4 tokens)
-        ... ]  # Total: 15 tokens
-        >>>
-        >>> # Create collator with padding to multiple of 8
-        >>> collator = MLMDataCollatorWithFlattening(
-        ...     tokenizer=tokenizer,
-        ...     mlm_probability=0.15,
-        ...     pad_to_multiple_of=8,  # Pad 15 -> 16 tokens
-        ...     seed=42
+        >>> mlm_collator = DataCollatorForLanguageModeling(tokenizer)
+        >>> flat_collator = DataCollatorWithFlattening(
+        ...     collator=mlm_collator,
+        ...     pad_to_multiple_of=8,
         ... )
         >>>
-        >>> # Process batch
-        >>> batch = collator(sequences)
-        >>>
-        >>> # Output: Flattened, masked, and padded sequences
+        >>> # Input: variable length protein sequences
+        >>> sequences = [
+        ...     {"input_ids": [0, 5, 6, 7, 2]},      # 5 tokens
+        ...     {"input_ids": [0, 8, 9, 10, 11, 2]}, # 6 tokens
+        ...     {"input_ids": [0, 12, 13, 2]},       # 4 tokens
+        ... ]  # Total: 15 tokens
+        >>> batch = flat_collator(sequences)
         >>> print(batch['input_ids'].shape)    # torch.Size([1, 16])
         >>> print(batch['labels'].shape)       # torch.Size([1, 16])
         >>> print(batch['cu_seq_lens_q'])      # tensor([0, 5, 11, 15, 16], dtype=torch.int32)
-        >>>                                    # Note: Extra entry for mock padding sequence
-        >>> # Ready for Flash Attention without traditional attention masks!
 
     Note:
-        The output is in THD (Total, Height, Depth) format with batch_size=1 and
-        sequence_length=total_tokens, optimized for Flash Attention's variable-length
-        sequence processing capabilities.
+        The output is a THD-format (Total, Height, Depth) batch, where all input sequences are packed without
+        inter-sequence padding. Sequence boundaries are preserved using `cu_seq_lens_q`/`cu_seq_lens_k`, enabling
+        Flash Attention or context-parallelism without traditional attention masks.
     """
 
-    def __init__(
-        self,
-        tokenizer: PreTrainedTokenizerBase,
-        mlm: bool = True,
-        mlm_probability: float | None = 0.15,
-        mask_replace_prob: float = 0.8,
-        random_replace_prob: float = 0.1,
-        return_tensors: str = "pt",
-        seed: int | None = None,
-        pad_to_multiple_of: int | None = None,
-        return_position_ids: bool = False,
-        bshd_equivalent: bool = False,
-        bshd_pad_to_multiple_of: int | None = None,
-    ):
-        """Initialize the MLMDataCollatorWithFlattening.
+    collator: DataCollatorForLanguageModeling
+    return_position_ids: bool = False
+    pad_to_multiple_of: int | None = None
+    pad_sequences_to_be_divisible_by: int | None = None
 
-        Args:
-            tokenizer (PreTrainedTokenizerBase): The tokenizer to use for masking tokens.
-            mlm (bool): Whether to use masked language modeling. Defaults to True.
-            mlm_probability (float | None): Probability of masking tokens. Defaults to 0.15.
-            mask_replace_prob (float): Probability of replacing masked tokens with [MASK]. Defaults to 0.8.
-            random_replace_prob (float): Probability of replacing masked tokens with random tokens. Defaults to 0.1.
-            return_tensors (str): Format for returned tensors. Only "pt" (PyTorch) is supported. Defaults to "pt".
-            seed (int | None): Random seed for reproducible masking. Defaults to None.
-            pad_to_multiple_of (int | None): If set, pads the total sequence length to be divisible
-                by this number by adding a mock sequence at the end. Defaults to None.
-            return_position_ids (bool): Whether to return position ids. Defaults to False.
-            bshd_equivalent (bool): Whether to return a batch exactly reproduces the random masking of the BSHD
-                collator, at the expense of additional computation time. Defaults to False.
-            bshd_pad_to_multiple_of (int | None): For the bshd_equivalent mode, mimics padding that would be done by the
-                BSHD collator. Defaults to None.
-        """
-        self.mlm_collator = DataCollatorForLanguageModeling(
-            tokenizer=tokenizer,
-            mlm=mlm,
-            mlm_probability=mlm_probability,
-            mask_replace_prob=mask_replace_prob,
-            random_replace_prob=random_replace_prob,
-            return_tensors=return_tensors,
-            seed=seed,
-            pad_to_multiple_of=bshd_pad_to_multiple_of,
-        )
-        self.return_tensors = return_tensors
-        self.pad_to_multiple_of = pad_to_multiple_of
-        self.return_position_ids = return_position_ids
-        self.bshd_equivalent = bshd_equivalent
-        self.bshd_pad_to_multiple_of = bshd_pad_to_multiple_of
-
-        if bshd_pad_to_multiple_of is not None and not bshd_equivalent:
-            raise ValueError("bshd_pad_to_multiple_of can only be used when bshd_equivalent is True")
+    def __post_init__(self):
+        """Ensure padding options are not used together."""
+        if self.pad_sequences_to_be_divisible_by is not None and self.pad_to_multiple_of is not None:
+            raise ValueError("pad_sequences_to_be_divisible_by and pad_to_multiple_of cannot be used together")
 
     def __call__(self, features, return_tensors=None):
         """Process a batch of variable-length sequences for Flash Attention with MLM.
@@ -208,34 +152,8 @@ class MLMDataCollatorWithFlattening:
             sequence processing capabilities. When pad_to_multiple_of is used, an additional
             mock sequence is appended to reach the desired total length.
         """
-        if self.bshd_equivalent:
-            return self.bshd_compatible_call(features, return_tensors=return_tensors)
-
-        if return_tensors is None:
-            return_tensors = self.return_tensors
-
-        if return_tensors != "pt":
-            raise NotImplementedError(f'return_tensors must be "pt", {return_tensors=} not implemented')
-
-        batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
-
-        special_tokens_mask = batch.pop("special_tokens_mask", None)
-        batch["input_ids"], batch["labels"] = self.mlm_collator.torch_mask_tokens(
-            batch["input_ids"], special_tokens_mask=special_tokens_mask
-        )
-
-        if self.pad_to_multiple_of is not None:
-            batch = self._pad_batch_to_multiple_of(batch)
-
-        return batch
-
-    def bshd_compatible_call(self, features, return_tensors=None):
-        """Mask tokens in a way that's identical to the BSHD collator.
-
-        This ensures the randomized masking outputs of the THD collator are identical to the BSHD collator.
-        """
         # Perform the masking with the BSHD collator.
-        bshd_batch = self.mlm_collator(features, return_tensors=return_tensors)
+        bshd_batch = self.collator(features)
 
         # Create the flattened batch to get the cu_seq_lens_q and cu_seq_lens_k values.
         packed_batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
@@ -251,15 +169,20 @@ class MLMDataCollatorWithFlattening:
         if self.pad_to_multiple_of is not None:
             packed_batch = self._pad_batch_to_multiple_of(packed_batch)
 
+        elif self.pad_sequences_to_be_divisible_by is not None:
+            packed_batch = self._pad_sequences_to_be_divisible_by(packed_batch)
+
         return packed_batch
 
     def _pad_batch_to_multiple_of(self, batch):
         """Add a mock sequence to make the total number of tokens divisible by pad_to_multiple_of."""
         # Ensure token_pad is an integer, defaulting to 1 if pad_token_id is None or invalid
-        pad_token_id = self.mlm_collator.tokenizer.pad_token_id
+        pad_token_id = self.collator.tokenizer.pad_token_id
         if not isinstance(pad_token_id, int):
             logger.warning(f"tokenizer.pad_token_id is not an integer, using 1 instead: {pad_token_id}")
             pad_token_id = 1
+
+        assert self.pad_to_multiple_of is not None, "pad_to_multiple_of must be set"
 
         return _pt_pad_to_multiple_of(
             batch,
@@ -268,57 +191,28 @@ class MLMDataCollatorWithFlattening:
             label_pad=-100,
         )
 
+    def _pad_sequences_to_be_divisible_by(self, batch):
+        """Pad individual sequences using cu_seq_lens_*_padded for context parallelism."""
+        pad_token_id = self.collator.tokenizer.pad_token_id
+        if not isinstance(pad_token_id, int):
+            logger.warning(f"tokenizer.pad_token_id is not an integer, using 1 instead: {pad_token_id}")
+            pad_token_id = 1
 
-@dataclass
-class DataCollatorWithFlattening(DefaultDataCollator):
-    """Data collator for sequence packing with flash attentions cu_seqlens-style attention.
+        assert self.pad_sequences_to_be_divisible_by is not None, "pad_sequences_to_be_divisible_by must be set"
 
-    Inspired by transformers.data.data_collator.DataCollatorWithFlattening, but skips adding a separator_id in the
-    output labels, since this overwrites the first token in MLM masking.
+        input_ids_padded, labels_padded, cu_seqlens_padded = pad_thd_sequences_for_cp(
+            batch["input_ids"],
+            batch["labels"],
+            batch["cu_seq_lens_q"],
+            self.pad_sequences_to_be_divisible_by,
+            padding_token_id=pad_token_id,
+            padding_label_id=-100,
+        )
 
-    Optionally returns position_ids, which are not needed for Flash Attention, but can be needed for context
-    parallelism.
-    """
-
-    pad_to_multiple_of: int | None = None
-    token_pad: int = 1
-    label_pad: int = -100
-    return_tensors: str = "pt"
-    return_position_ids: bool = False
-
-    def __call__(self, features: list[dict[str, list[int]]], return_tensors: str | None = None) -> dict[str, Any]:
-        """Collate a batch of variable-length sequences for Flash Attention with sequence packing.
-
-        Args:
-            features: List of tokenized sequences, each containing 'input_ids' and optionally 'labels'.
-            return_tensors: Currently only "pt" is supported.
-
-        Returns:
-            Dict[str, torch.Tensor]: Batch dictionary containing:
-                - input_ids (torch.Tensor): Flattened and MLM-masked token sequences.
-                  Shape: [1, total_tokens] where total_tokens = sum of all sequence lengths.
-                - labels (torch.Tensor): MLM labels with -100 for non-masked tokens and
-                  original token IDs for masked positions. Same shape as input_ids.
-                - cu_seq_lens_q (torch.IntTensor): Cumulative sequence lengths for queries.
-                  Shape: [num_sequences + 1]. Example: [0, 5, 11, 15].
-                - cu_seq_lens_k (torch.IntTensor): Cumulative sequence lengths for keys.
-                  Same as cu_seq_lens_q for self-attention.
-                - max_length_q (int): Maximum sequence length in the batch.
-                - max_length_k (int): Same as max_length_q for self-attention.
-                - attention_mask (torch.Tensor): Attention mask with 1s for non-padding tokens and 0s for padding tokens.
-        """
-        if not features:
-            raise ValueError("features must be a non-empty list")
-
-        if return_tensors is None:
-            return_tensors = self.return_tensors
-
-        if return_tensors != "pt":
-            raise NotImplementedError(f'return_tensors must be "pt", {return_tensors=} not implemented')
-
-        batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
-        if self.pad_to_multiple_of is not None:
-            batch = _pt_pad_to_multiple_of(batch, self.pad_to_multiple_of, self.token_pad, self.label_pad)
+        batch["input_ids"] = input_ids_padded.unsqueeze(0)
+        batch["labels"] = labels_padded.unsqueeze(0)
+        batch["cu_seq_lens_q_padded"] = cu_seqlens_padded.to(torch.int32)
+        batch["cu_seq_lens_k_padded"] = cu_seqlens_padded.to(torch.int32)
         return batch
 
 
@@ -332,9 +226,14 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
     """Maximum number of tokens per batch."""
     drop_last: bool = True
     """Whether to drop the last batch if it's less than max_length."""
+    split_samples: bool = False
+    """Whether to split samples to ensure batches have exactly max_tokens_per_batch tokens."""
 
     def __iter__(self):
         """Yield batches of samples, each with a variable number of tokens up to the maximum length.
+
+        When split_samples=True, ensures each batch has exactly max_tokens_per_batch by splitting
+        the final sample if needed. The remaining tokens from the split sample start the next batch.
 
         Returns:
             A generator of batches of samples, each with a variable number of tokens up to the maximum length.
@@ -343,10 +242,28 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         current_length = 0
         for sample in iter(self.dataset):
             current_length += len(sample["input_ids"])
-            if current_length > self.max_tokens_per_batch:
-                yield samples
-                samples = [sample]
-                current_length = len(sample["input_ids"])
+            if current_length == self.max_tokens_per_batch:
+                yield [*samples, sample]
+                samples = []
+                current_length = 0
+
+            elif current_length > self.max_tokens_per_batch:
+                if not self.split_samples:
+                    # If we are not splitting samples, we can just yield the current batch (before this sample) and
+                    # start a new one.
+                    yield samples
+                    samples = [sample]
+
+                else:
+                    # Calculate how many tokens are already in the batch
+                    tokens_in_batch = current_length - len(sample["input_ids"])
+                    # Calculate how many tokens we can fit from this sample
+                    tokens_available = self.max_tokens_per_batch - tokens_in_batch
+                    first_part, remaining_part = _split_sample_by_num_tokens(sample, tokens_available)
+                    yield [*samples, first_part]
+                    samples = [remaining_part]
+
+                current_length = len(samples[0]["input_ids"])
             else:
                 samples.append(sample)
 
@@ -356,6 +273,204 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
     def set_epoch(self, epoch: int):
         """Set the epoch for the dataset."""
         self.dataset.set_epoch(epoch)
+
+
+class DataCollatorForContextParallel:
+    """A collator that is aware of context parallelism.
+
+    For the case of context parallelism, padded sequences will be returned from the wrapped collator, and then split
+    into shards for each context parallelism rank.
+
+    The shards are then typically sent to the ContextParallelDataLoaderWrapper which will scatter them to the
+    appropriate GPUs.
+    """
+
+    def __init__(self, collator: DataCollator, cp_world_size: int):
+        """Initialize the DataCollatorForContextParallel.
+
+        Args:
+            collator: The collator to use for masking tokens.
+            cp_world_size: The size of the context parallelism group.
+        """
+        self.collator = collator
+        self.cp_world_size = cp_world_size
+
+    def __call__(self, features) -> list[dict[str, Any]]:
+        """Process batches of data and create shards for each context parallelism rank.
+
+        Args:
+            features: List of tokenized sequences, each containing 'input_ids' and optionally 'labels'.
+
+        Returns:
+            A list of dictionaries, each containing a shard of the batch for a given context parallelism rank.
+        """
+        batch = self.collator(features)
+
+        combined_batch = []
+        for cp_rank in range(self.cp_world_size):
+            input_ids_sharded, labels_sharded = _split_batch_by_cp_rank(
+                cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
+                input_ids_padded=batch["input_ids"],
+                labels_padded=batch["labels"],
+                qvk_format="thd",
+                cp_rank=cp_rank,
+                cp_world_size=self.cp_world_size,
+            )
+            batch_shard = dict(batch)
+            batch_shard["input_ids"] = input_ids_sharded
+            batch_shard["labels"] = labels_sharded
+            # Now determine the max length of the sequence.
+            seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
+            batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)
+            batch_shard["max_length_k"] = batch_shard["max_length_q"]
+            batch_shard["pad_between_seqs"] = True
+            combined_batch.append(batch_shard)
+
+        return combined_batch
+
+
+class ContextParallelDataLoaderWrapper:
+    """A dataloader that is aware of context parallelism."""
+
+    def __init__(
+        self,
+        dataloader: torch.utils.data.DataLoader,
+        cp_mesh: torch.distributed.device_mesh.DeviceMesh,
+    ):
+        """A dataloader wrapper that distributes the data across the context parallelism group.
+
+        This class will get the batch from the dataloader on CP rank 0, and then determine the shards for all the
+        different CP group members. Then it will scatter the shards to the different CP group members. The shards are
+        then returned to the caller for the current CP rank.
+
+        Args:
+            dataloader: The dataloader to use.
+            cp_mesh: The context parallel mesh.
+            cp_rank: The rank of the current context parallel process.
+        """
+        self.dataloader = dataloader
+        self.cp_rank = cp_mesh.get_local_rank()
+        self.cp_group = cp_mesh.get_group()
+        self.num_cp_ranks = cp_mesh.size()
+        self._iterator = None
+
+    def __iter__(self):
+        """Make the dataloader iterable."""
+        self._iterator = iter(self.dataloader)  # < --- collator output.
+        return self
+
+    def __next__(self):
+        """Get the batch from the dataloader for the current CP rank."""
+        batch = self._send_data_to_cp_ranks()
+        return batch
+
+    def _send_data_to_cp_ranks(self):
+        """Send data to all the CP ranks.
+
+        This function will get the batch from the dataloader on CP rank 0, and then determine
+        the shards for all the different CP group members.
+        combined_batch = [<cp_rank_0_shard>, <cp_rank_1_shard>, ..., <cp_rank_n_shard>]
+        Then it will scatter the shards to the different CP group members.
+        The shards are then combined into a single batch and returned to the caller
+        for the current CP rank.
+
+        Scalability:
+            Rank 0's work grows linearly with CP size, but the other ranks do not need to store all the shards so they do not
+            grow linearly with CP size.
+
+        Args:
+            None
+
+        Returns:
+            batch: The batch for the current CP rank.
+
+        """
+        if self.cp_rank == 0:
+            # Get data once, then make copies for each rank.
+            if self._iterator is None:
+                self._iterator = iter(self.dataloader)
+            combined_batch = next(self._iterator)
+
+        else:
+            combined_batch = None
+
+        scatter_object_output_list = [None]
+        # Note: This does not provide an async_op handle. Thus its blocking.
+        torch.distributed.scatter_object_list(
+            scatter_object_output_list=scatter_object_output_list,
+            scatter_object_input_list=combined_batch,
+            group=self.cp_group,
+            group_src=0,
+        )
+        return scatter_object_output_list[0]
+
+
+def _split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Split a sample dictionary at a specified number of tokens.
+
+    This function splits a sample into two parts: the first part contains exactly `num_tokens` tokens,
+    and the second part contains the remaining tokens. All fields that are sequences (input_ids, attention_mask,
+    token_type_ids, labels, etc.) are split accordingly.
+
+    Args:
+        sample: Dictionary containing sample data with fields like input_ids, attention_mask, token_type_ids, labels, etc.
+        num_tokens: Number of tokens to include in the first part of the split.
+
+    Returns:
+        A tuple of two dictionaries: (first_part, remaining_part), where:
+        - first_part contains the first `num_tokens` tokens from each sequence field
+        - remaining_part contains the remaining tokens from each sequence field
+
+    Example:
+        >>> sample = {
+        ...     "input_ids": [0, 5, 6, 7, 8, 9, 2],
+        ...     "attention_mask": [1, 1, 1, 1, 1, 1, 1],
+        ...     "labels": [0, 5, 6, 7, 8, 9, 2]
+        ... }
+        >>> first, remaining = split_sample_by_num_tokens(sample, 3)
+        >>> first["input_ids"]  # [0, 5, 6]
+        >>> remaining["input_ids"]  # [7, 8, 9, 2]
+    """
+    sample_length = len(sample["input_ids"])
+    if num_tokens >= sample_length:
+        raise ValueError(
+            f"num_tokens ({num_tokens}) must be less than sample length ({sample_length}) to split the sample"
+        )
+    if num_tokens <= 0:
+        raise ValueError(f"num_tokens ({num_tokens}) must be positive")
+
+    first_part = {}
+    remaining_part = {}
+
+    # Fields that should be split by tokens (sequence fields)
+    sequence_fields = ["input_ids", "attention_mask", "token_type_ids", "token_type", "labels"]
+
+    for key, value in sample.items():
+        if key in sequence_fields:
+            # Handle both list and tensor inputs
+            if isinstance(value, torch.Tensor):
+                first_part[key] = value[:num_tokens].clone()
+                remaining_part[key] = value[num_tokens:].clone()
+            elif isinstance(value, list):
+                first_part[key] = value[:num_tokens]
+                remaining_part[key] = value[num_tokens:]
+            else:
+                # For other types, try to slice if possible
+                try:
+                    first_part[key] = value[:num_tokens]
+                    remaining_part[key] = value[num_tokens:]
+                except (TypeError, IndexError):
+                    # If slicing doesn't work, copy the value to both parts
+                    # This handles fields that shouldn't be split (like metadata)
+                    first_part[key] = value
+                    remaining_part[key] = value
+        else:
+            # For non-sequence fields, copy to both parts
+            # This handles metadata fields that shouldn't be split
+            first_part[key] = value
+            remaining_part[key] = value
+
+    return first_part, remaining_part
 
 
 def _pt_flatten_collate(features: list[dict[str, list[int]]], return_position_ids: bool = False):
@@ -441,3 +556,117 @@ def _pt_pad_to_multiple_of(batch: dict[str, Any], pad_to_multiple_of: int, token
         )
 
     return batch
+
+
+# TODO(@jomitchell): Once this gets merged: https://github.com/NVIDIA/TransformerEngine/pull/2387
+# we can replace this with the one in TransformerEngine.
+def _split_batch_by_cp_rank(
+    cu_seqlens_padded: torch.Tensor,
+    input_ids_padded: torch.Tensor,
+    labels_padded: torch.Tensor,
+    cp_group: torch.distributed.ProcessGroup | None = None,
+    qvk_format: str = "thd",
+    cp_rank: int | None = None,
+    cp_world_size: int | None = None,
+):
+    """Slice batch input along sequence dimension into multiple chunks for THD format.
+
+    This function is inteded for use in self attention. It will not work for cross attention because
+    it does not handle the case where the sequence length of the query and key are different.
+    Which are parallelized across GPUs in a context parallel group.
+    This version works with variable-length sequences using cumulative sequence lengths.
+
+    Args:
+        cu_seqlens_padded: Cumulative sequence length.
+        input_ids_padded: Input IDs.
+        labels_padded: Labels.
+        cp_group: Context parallel group.
+        qvk_format: Format of the input data.
+        cp_world_size: The size of the context parallelism group. If provided, the function will use this value to determine the rank.
+        cp_rank: Optional manual CP rank index. When provided, the function shards tensors as if it
+            were executing on that rank without querying `torch.distributed.get_rank`.
+    """
+    if qvk_format not in ["thd", "bshd", "sbhd"]:
+        raise ValueError(f"Unsupported qvk_format: {qvk_format}!")
+    if qvk_format == "thd":
+        # Get context parallel size and rank
+        if cp_world_size > 1:
+            if cp_rank is None:
+                cp_rank = torch.distributed.get_rank(group=cp_group)
+            elif not (0 <= cp_rank < cp_world_size):
+                raise ValueError(f"cp_rank must be in [0, {cp_world_size}), but received {cp_rank}.")
+
+            # Calculate the chunk sizes for each sequence
+            total_slices_of_any_sequence = 2 * cp_world_size
+            slice_sizes = (cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]) // total_slices_of_any_sequence
+
+            # Process each tensor directly instead of using keys_to_change loop
+            def process_tensor(val):
+                if val is None:
+                    return val
+                # Determine which dimension is the sequence dimension
+                # Ensure cu_seqlens_padded[-1] is a Python int, not a 0-dim tensor
+                if isinstance(cu_seqlens_padded[-1], torch.Tensor):
+                    seq_len_val = cu_seqlens_padded[-1].item()
+                else:
+                    seq_len_val = cu_seqlens_padded[-1]
+
+                # Handle 1D tensors (like position_ids that don't have batch dimension)
+                if val.ndim == 1:
+                    if val.shape[0] == seq_len_val:
+                        current_seq_dim = 0
+                    else:
+                        raise ValueError(
+                            "1D tensor shape doesn't match expected sequence length. Make sure the"
+                            " inputs are in THD format and padded correctly."
+                        )
+                elif val.ndim >= 2:
+                    if val.shape[1] == seq_len_val:
+                        current_seq_dim = 1
+                    elif val.shape[0] == seq_len_val:
+                        current_seq_dim = 0
+                    else:
+                        raise ValueError("Make sure the inputs are in THD format and padded correctly.")
+                else:
+                    raise ValueError("Tensor must be at least 1D")
+
+                # On this particular rank, for each sequence, get two slices, one from the beginning
+                # and one from the end.
+                cp_rank_slices = []
+                for slice_size, seq_start in zip(slice_sizes, cu_seqlens_padded[:-1]):
+                    # 1st segment
+                    cp_rank_slices.append(
+                        torch.arange(
+                            seq_start + (cp_rank * slice_size),
+                            seq_start + ((cp_rank + 1) * slice_size),
+                            device=val.device,
+                        )
+                    )
+
+                    # 2nd segment
+                    cp_rank_slices.append(
+                        torch.arange(
+                            seq_start + ((total_slices_of_any_sequence - cp_rank - 1) * slice_size),
+                            seq_start + ((total_slices_of_any_sequence - cp_rank) * slice_size),
+                            device=val.device,
+                        )
+                    )
+
+                return val.index_select(current_seq_dim, torch.cat(cp_rank_slices))
+
+            # Process each tensor directly
+            input_ids_padded = process_tensor(input_ids_padded)
+            labels_padded = process_tensor(labels_padded)
+    else:
+        raise ValueError(f"Support not implemented yet for qvk_format: {qvk_format}!")
+
+    return input_ids_padded, labels_padded
+
+
+def _get_group_local_rank(group: torch.distributed.ProcessGroup | None = None) -> int:
+    """Rank of the current process within `group`."""
+    if group is None:
+        # default group; this is just the global rank
+        return torch.distributed.get_rank()
+    global_rank = torch.distributed.get_rank()
+    return torch.distributed.get_group_rank(group, global_rank)

@@ -15,15 +15,22 @@
 
 from unittest.mock import MagicMock
 
+import pytest
 import torch
 from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import DataCollatorWithFlattening, MLMDataCollatorWithFlattening, TokenPackingDataset
+from esm.collator import (
+    DataCollatorWithFlattening,
+    TokenPackingDataset,
+    _split_sample_by_num_tokens,
+)
 
 
-def test_data_collator_with_flattening_basic():
+def test_data_collator_with_flattening_basic(tokenizer):
     """Test DataCollatorWithFlattening with input_ids and attention_mask."""
-    collator = DataCollatorWithFlattening(return_position_ids=True)
+    # Use DataCollatorForLanguageModeling with mlm_probability=0.0 to disable masking
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.0)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, return_position_ids=True)
 
     # Create test sequences of different lengths
     features = [
@@ -64,19 +71,24 @@ def test_data_collator_with_flattening_basic():
     expected_input_ids = torch.tensor([[0, 5, 6, 7, 2, 0, 8, 9, 10, 11, 2, 0, 12, 13, 2]], dtype=torch.int64)
     torch.testing.assert_close(input_ids_tensor, expected_input_ids)
 
-    # Assert labels are not present when not provided in input
-    assert "labels" not in batch
+    # Assert labels are present (DataCollatorForLanguageModeling always creates them)
+    # With mlm_probability=0.0, all labels should be -100 (ignored)
+    assert "labels" in batch
+    assert (batch["labels"] == -100).all(), "With mlm_probability=0.0, all labels should be -100"
 
 
-def test_data_collator_with_flattening_with_labels():
+def test_data_collator_with_flattening_with_labels(tokenizer):
     """Test DataCollatorWithFlattening with input_ids, attention_mask, and labels."""
-    collator = DataCollatorWithFlattening()
+    # Use DataCollatorForLanguageModeling with mlm_probability=0.0 to disable masking
+    # Note: DataCollatorForLanguageModeling ignores input labels and creates its own
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.0)
+    collator = DataCollatorWithFlattening(collator=mlm_collator)
 
-    # Create test sequences with labels
+    # Create test sequences (labels will be created by DataCollatorForLanguageModeling)
     features = [
-        {"input_ids": [0, 5, 6, 7, 2], "labels": [0, 5, 6, 7, 2]},  # 5 tokens
-        {"input_ids": [0, 8, 9, 10, 11, 2], "labels": [0, 8, 9, 10, 11, 2]},  # 6 tokens
-        {"input_ids": [0, 12, 13, 2], "labels": [0, 12, 13, 2]},  # 4 tokens
+        {"input_ids": [0, 5, 6, 7, 2]},  # 5 tokens
+        {"input_ids": [0, 8, 9, 10, 11, 2]},  # 6 tokens
+        {"input_ids": [0, 12, 13, 2]},  # 4 tokens
     ]
 
     # Calculate expected total tokens
@@ -108,12 +120,12 @@ def test_data_collator_with_flattening_with_labels():
     assert batch["max_length_q"] == 6, f"Expected max_length_q=6, got {batch['max_length_q']}"
     assert batch["max_length_k"] == 6, f"Expected max_length_k=6, got {batch['max_length_k']}"
 
-    # Assert flattened input_ids and labels match concatenated original sequences
+    # Assert flattened input_ids match concatenated original sequences
     expected_input_ids = torch.tensor([[0, 5, 6, 7, 2, 0, 8, 9, 10, 11, 2, 0, 12, 13, 2]], dtype=torch.int64)
-    expected_labels = torch.tensor([[0, 5, 6, 7, 2, 0, 8, 9, 10, 11, 2, 0, 12, 13, 2]], dtype=torch.int64)
-
     torch.testing.assert_close(input_ids_tensor, expected_input_ids)
-    torch.testing.assert_close(labels_tensor, expected_labels)
+
+    # With mlm_probability=0.0, all labels should be -100 (ignored)
+    assert (labels_tensor == -100).all(), "With mlm_probability=0.0, all labels should be -100"
 
     # Assert that sequence boundaries are properly maintained
     # by checking that token positions match expected values
@@ -128,9 +140,11 @@ def test_data_collator_with_flattening_with_labels():
         start_idx = end_idx
 
 
-def test_data_collator_pads_to_multiple_of():
+def test_data_collator_pads_to_multiple_of(tokenizer):
     """Test DataCollatorWithFlattening with input_ids and attention_mask."""
-    collator = DataCollatorWithFlattening(pad_to_multiple_of=8, token_pad=1, label_pad=-100, return_position_ids=True)
+    # Use DataCollatorForLanguageModeling with mlm_probability=0.0 to disable masking
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.0)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, pad_to_multiple_of=8, return_position_ids=True)
 
     # Create test sequences with labels
     features = [
@@ -162,11 +176,8 @@ def test_data_collator_pads_to_multiple_of():
 
 def test_mlm_data_collator_with_flattening_basic(tokenizer):
     """Test MLMDataCollatorWithFlattening with basic input_ids and verify labels are created."""
-    collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        return_position_ids=True,
-    )
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, return_position_ids=True)
 
     # Create test sequences of different lengths
     features = [
@@ -226,11 +237,8 @@ def test_mlm_data_collator_with_flattening_basic(tokenizer):
 def test_mlm_data_collator_with_flattening_masking(tokenizer, test_proteins):
     """Test MLMDataCollatorWithFlattening with reproducible masking using a seed."""
     # Use a fixed seed for reproducibility
-    collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        seed=42,
-    )
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15, seed=42)
+    collator = DataCollatorWithFlattening(collator=mlm_collator)
 
     features = [tokenizer(protein) for protein in test_proteins]
 
@@ -287,11 +295,8 @@ def test_mlm_data_collator_with_flattening_pad_to_multiple_of(tokenizer, test_pr
     remainder = -total_tokens % 8
     assert remainder != 0, "Test assumes we need to pad to reach a multiple of 8"
 
-    collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        pad_to_multiple_of=8,
-    )
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, pad_to_multiple_of=8)
 
     features = [tokenizer(protein) for protein in test_proteins]
 
@@ -328,20 +333,21 @@ def test_mlm_data_collator_with_flattening_pad_to_multiple_of(tokenizer, test_pr
 
 def test_mlm_data_collator_with_flattening_bshd_equivalent(tokenizer, test_proteins):
     """Test MLMDataCollatorWithFlattening with bshd_equivalent=True."""
-    thd_collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        seed=42,
-        pad_to_multiple_of=16,
-        bshd_equivalent=True,
-        bshd_pad_to_multiple_of=256,
-    )
-
+    # Create separate collator instances with the same seed to ensure matching masking
+    # The BSHD collator pads to 256
     bshd_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm_probability=0.15,
         seed=42,
         pad_to_multiple_of=256,
+    )
+    thd_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            mlm_probability=0.15,
+            seed=42,
+            pad_to_multiple_of=256,
+        )
     )
 
     features = [tokenizer(protein) for protein in test_proteins]
@@ -365,6 +371,22 @@ def test_mlm_data_collator_with_flattening_bshd_equivalent(tokenizer, test_prote
             thd_batch["labels"][:, : packed_bshd_labels.shape[1]],
             packed_bshd_labels,
         )
+
+
+def test_mlm_data_collator_with_flattening_pad_sequences_to_be_divisible_by(tokenizer, test_proteins):
+    """Test MLMDataCollatorWithFlattening with pad_sequences_to_be_divisible_by."""
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, pad_sequences_to_be_divisible_by=16)
+    features = [tokenizer(protein) for protein in test_proteins]
+    batch = collator(features)
+    assert batch["input_ids"].numel() % 16 == 0, (
+        f"Expected {batch['input_ids'].numel()} tokens to be divisible by 16, got {batch['input_ids'].numel()}"
+    )
+    assert batch["input_ids"].shape == (1, batch["input_ids"].numel()), (
+        f"Expected shape (1, {batch['input_ids'].numel()}), got {batch['input_ids'].shape}"
+    )
+    assert (batch["input_ids"][:, -1] == tokenizer.pad_token_id).all()
+    assert (batch["labels"][:, -1] == -100).all()
 
 
 def test_token_packing_dataset():
@@ -467,3 +489,212 @@ def test_token_packing_dataset_last_sequence_less_than_max():
     assert len(batches) == 1
     assert len(batches[0]) == 3
     assert sum(len(sample["input_ids"]) for sample in batches[0]) == 90
+
+
+def test__split_sample_by_num_tokens_basic():
+    """Test _split_sample_by_num_tokens with basic input_ids."""
+    sample = {"input_ids": [0, 5, 6, 7, 8, 9, 2]}
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
+
+    assert first["input_ids"] == [0, 5, 6]
+    assert remaining["input_ids"] == [7, 8, 9, 2]
+    assert len(first["input_ids"]) == 3
+    assert len(remaining["input_ids"]) == 4
+
+
+def test__split_sample_by_num_tokens_with_labels():
+    """Test _split_sample_by_num_tokens with input_ids and labels."""
+    sample = {"input_ids": [0, 5, 6, 7, 8, 2], "labels": [0, 5, 6, 7, 8, 2]}
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
+
+    assert first["input_ids"] == [0, 5, 6]
+    assert first["labels"] == [0, 5, 6]
+    assert remaining["input_ids"] == [7, 8, 2]
+    assert remaining["labels"] == [7, 8, 2]
+
+
+def test__split_sample_by_num_tokens_with_attention_mask():
+    """Test _split_sample_by_num_tokens with input_ids, attention_mask, and labels."""
+    sample = {
+        "input_ids": [0, 5, 6, 7, 8, 2],
+        "attention_mask": [1, 1, 1, 1, 1, 1],
+        "labels": [0, 5, 6, 7, 8, 2],
+    }
+    first, remaining = _split_sample_by_num_tokens(sample, 4)
+
+    assert first["input_ids"] == [0, 5, 6, 7]
+    assert first["attention_mask"] == [1, 1, 1, 1]
+    assert first["labels"] == [0, 5, 6, 7]
+    assert remaining["input_ids"] == [8, 2]
+    assert remaining["attention_mask"] == [1, 1]
+    assert remaining["labels"] == [8, 2]
+
+
+def test__split_sample_by_num_tokens_with_token_type_ids():
+    """Test _split_sample_by_num_tokens with token_type_ids."""
+    sample = {
+        "input_ids": [0, 5, 6, 7, 8, 2],
+        "token_type_ids": [0, 0, 0, 1, 1, 1],
+        "labels": [0, 5, 6, 7, 8, 2],
+    }
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
+
+    assert first["input_ids"] == [0, 5, 6]
+    assert first["token_type_ids"] == [0, 0, 0]
+    assert first["labels"] == [0, 5, 6]
+    assert remaining["input_ids"] == [7, 8, 2]
+    assert remaining["token_type_ids"] == [1, 1, 1]
+    assert remaining["labels"] == [7, 8, 2]
+
+
+def test__split_sample_by_num_tokens_with_token_type():
+    """Test _split_sample_by_num_tokens with token_type (alternative name)."""
+    sample = {
+        "input_ids": [0, 5, 6, 7, 8, 2],
+        "token_type": [0, 0, 0, 1, 1, 1],
+        "labels": [0, 5, 6, 7, 8, 2],
+    }
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
+
+    assert first["input_ids"] == [0, 5, 6]
+    assert first["token_type"] == [0, 0, 0]
+    assert first["labels"] == [0, 5, 6]
+    assert remaining["input_ids"] == [7, 8, 2]
+    assert remaining["token_type"] == [1, 1, 1]
+    assert remaining["labels"] == [7, 8, 2]
+
+
+def test__split_sample_by_num_tokens_with_tensors():
+    """Test _split_sample_by_num_tokens with torch tensors."""
+    sample = {
+        "input_ids": torch.tensor([0, 5, 6, 7, 8, 2]),
+        "attention_mask": torch.tensor([1, 1, 1, 1, 1, 1]),
+        "labels": torch.tensor([0, 5, 6, 7, 8, 2]),
+    }
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
+
+    assert torch.equal(first["input_ids"], torch.tensor([0, 5, 6]))
+    assert torch.equal(first["attention_mask"], torch.tensor([1, 1, 1]))
+    assert torch.equal(first["labels"], torch.tensor([0, 5, 6]))
+    assert torch.equal(remaining["input_ids"], torch.tensor([7, 8, 2]))
+    assert torch.equal(remaining["attention_mask"], torch.tensor([1, 1, 1]))
+    assert torch.equal(remaining["labels"], torch.tensor([7, 8, 2]))
+
+
+def test__split_sample_by_num_tokens_with_metadata():
+    """Test _split_sample_by_num_tokens preserves non-sequence fields."""
+    sample = {
+        "input_ids": [0, 5, 6, 7, 8, 2],
+        "labels": [0, 5, 6, 7, 8, 2],
+        "metadata": {"id": 123, "source": "test"},
+    }
+    first, remaining = _split_sample_by_num_tokens(sample, 3)
+
+    # Sequence fields should be split
+    assert first["input_ids"] == [0, 5, 6]
+    assert remaining["input_ids"] == [7, 8, 2]
+
+    # Metadata should be copied to both parts
+    assert first["metadata"] == {"id": 123, "source": "test"}
+    assert remaining["metadata"] == {"id": 123, "source": "test"}
+
+
+def test__split_sample_by_num_tokens_errors():
+    """Test _split_sample_by_num_tokens raises errors for invalid inputs."""
+    sample = {"input_ids": [0, 5, 6, 7, 2]}
+
+    # num_tokens >= sample_length should raise ValueError
+    with pytest.raises(ValueError, match="num_tokens.*must be less than sample length"):
+        _split_sample_by_num_tokens(sample, 5)
+
+    with pytest.raises(ValueError, match="num_tokens.*must be less than sample length"):
+        _split_sample_by_num_tokens(sample, 10)
+
+    # num_tokens <= 0 should raise ValueError
+    with pytest.raises(ValueError, match="num_tokens.*must be positive"):
+        _split_sample_by_num_tokens(sample, 0)
+
+    with pytest.raises(ValueError, match="num_tokens.*must be positive"):
+        _split_sample_by_num_tokens(sample, -1)
+
+
+def test_token_packing_dataset_with_split_samples():
+    """Test TokenPackingDataset with split_samples=True ensures exact batch sizes."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": torch.arange(40)}  # 40 tokens
+            yield {"input_ids": torch.arange(50)}  # 50 tokens
+            yield {"input_ids": torch.arange(30)}  # 30 tokens
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=100, split_samples=True, drop_last=False)
+    batches = list(token_packing_dataset)
+
+    # First batch should have exactly 100 tokens (40 + 50 + 10 from the 30-token sample)
+    assert len(batches) >= 1
+    assert sum(len(sample["input_ids"]) for sample in batches[0]) == 100
+
+    # Second batch should start with the remaining 20 tokens from the split sample
+    if len(batches) > 1:
+        assert sum(len(sample["input_ids"]) for sample in batches[1]) == 20
+
+
+def test_token_packing_dataset_with_split_samples_exact_fit():
+    """Test TokenPackingDataset with split_samples=True when samples exactly fill batches."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": torch.arange(50)}  # 50 tokens
+            yield {"input_ids": torch.arange(50)}  # 50 tokens (total: 100, exactly max)
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=100, split_samples=True, drop_last=False)
+    batches = list(token_packing_dataset)
+
+    # Should have 1 batch with exactly 100 tokens
+    assert len(batches) == 1
+    assert sum(len(sample["input_ids"]) for sample in batches[0]) == 100
+
+
+def test_token_packing_dataset_with_split_samples_multiple_fields():
+    """Test TokenPackingDataset with split_samples=True handles multiple fields correctly."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {
+                "input_ids": torch.arange(40),
+                "attention_mask": torch.ones(40),
+                "labels": torch.arange(40),
+            }
+            yield {
+                "input_ids": torch.arange(50),
+                "attention_mask": torch.ones(50),
+                "labels": torch.arange(50),
+            }
+            yield {
+                "input_ids": torch.arange(30),
+                "attention_mask": torch.ones(30),
+                "labels": torch.arange(30),
+            }
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(dataset, max_tokens_per_batch=100, split_samples=True, drop_last=False)
+    batches = list(token_packing_dataset)
+
+    # First batch should have exactly 100 tokens
+    assert len(batches) >= 1
+    first_batch_total = sum(len(sample["input_ids"]) for sample in batches[0])
+    assert first_batch_total == 100
+
+    # Second batch should have exactly 20 tokens
+    second_batch_total = sum(len(sample["input_ids"]) for sample in batches[1])
+    assert second_batch_total == 20
+
+    # Verify all fields are present and consistent
+    for sample in batches[0]:
+        assert "input_ids" in sample
+        assert "attention_mask" in sample
+        assert "labels" in sample
+        assert len(sample["input_ids"]) == len(sample["attention_mask"])
+        assert len(sample["input_ids"]) == len(sample["labels"])
