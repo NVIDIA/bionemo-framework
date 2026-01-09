@@ -362,7 +362,7 @@ class ContextParallelDataLoaderWrapper:
 
         logger.debug(
             "Created ContextParallelDataLoaderWrapper on global rank %s, cp rank %s",
-            torch.distributed.get_rank(),
+            torch.distributed.get_rank() if torch.distributed.is_initialized() else "<not initialized>",
             self.cp_rank,
         )
 
