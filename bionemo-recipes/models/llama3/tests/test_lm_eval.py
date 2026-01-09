@@ -29,7 +29,10 @@ from modeling_llama_te import AUTO_MAP, NVLlamaConfig, NVLlamaForCausalLM
 def model_checkpoint(tmp_path: Path):
     tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
     config = NVLlamaConfig.from_pretrained(
-        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format="bshd"
+        "nvidia/Llama-3.1-8B-Instruct-FP8",
+        num_hidden_layers=2,
+        attn_input_format="bshd",
+        self_attn_mask_type="causal",
     )
     model = NVLlamaForCausalLM(config)
     model.save_pretrained(tmp_path / "checkpoint")
