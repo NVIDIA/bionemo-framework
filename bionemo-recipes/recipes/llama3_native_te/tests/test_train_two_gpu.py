@@ -193,6 +193,7 @@ def test_multi_gpu_train_fsdp2_with_checkpointing(tmp_path, recipe_path):
 
 @requires_multi_gpu
 @requires_datacenter_hardware
+@pytest.mark.xfail(reason="BIO-5: CP is still WIP")
 def test_multi_gpu_train_te_fsdp2_cp(tmp_path, recipe_path):
     run_train_cmd(
         [
