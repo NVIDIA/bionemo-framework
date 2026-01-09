@@ -26,5 +26,6 @@
     "editor.rulers": [
         120
     ],
+    "terminal.integrated.suggest.enabled": false,
     "autoDocstring.docstringFormat": "google-notypes"
 }
