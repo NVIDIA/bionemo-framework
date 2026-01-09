@@ -912,6 +912,7 @@ def train(args: argparse.Namespace) -> None:
     if args.finetune_ckpt_dir:
         cfg.checkpoint.finetune = True
         cfg.checkpoint.pretrained_checkpoint = args.finetune_ckpt_dir
+        cfg.checkpoint.dist_ckpt_strictness = "ignore_all"  # necessary unfortunately to avoid extra_state issues.
     if args.nvidia_fault_tolerance:
         cfg.ft = FaultToleranceConfig(
             enable_ft_package=True,
