@@ -35,7 +35,7 @@ from torch.distributed.tensor import DTensor
 from transformer_engine.pytorch.tensor import QuantizedTensor
 from transformers import AutoConfig, set_seed
 
-from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
+from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM, NVEsmForTokenClassification, NVEsmPreTrainedModel
 
 
 requires_multi_gpu = pytest.mark.skipif(
@@ -118,6 +118,15 @@ def verify_model_parameters_initialized_correctly(
             torch.testing.assert_close(module.inv_freq, expected_inv_freq, msg=msg)
 
 
+def verify_pretrained_model_sanity(model: NVEsmPreTrainedModel):
+    for name, p in model.named_parameters():
+        assert p.numel() > 0, f"{name} is empty"
+        assert torch.isfinite(p).all(), f"{name} has NaN/Inf"
+
+        max_abs = p.abs().max().item()
+        assert max_abs < 1e3, f"{name} extreme values: {max_abs}"
+
+
 def test_cuda_init():
     config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
 
@@ -168,6 +177,18 @@ def test_meta_fp8_init(fp8_recipe):
     model.init_empty_weights()
 
     verify_model_parameters_initialized_correctly(model, should_be_fp8=True)
+
+
+def test_model_for_token_classification_init():
+    config = NVEsmConfig(**AutoConfig.from_pretrained("nvidia/esm2_t6_8M_UR50D", trust_remote_code=True).to_dict())
+
+    set_seed(42)
+    model = NVEsmForTokenClassification.from_pretrained(
+        "nvidia/esm2_t6_8M_UR50D", config=config, dtype=torch.bfloat16, trust_remote_code=True
+    )
+    model.to("cuda")
+
+    verify_pretrained_model_sanity(model)
 
 
 @pytest.mark.parametrize("num_gpus", [1, pytest.param(2, marks=requires_multi_gpu)])
