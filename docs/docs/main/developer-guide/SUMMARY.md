@@ -1,6 +1,4 @@
-- [bionemo-amplify](bionemo-amplify/bionemo-amplify-Overview.md)
 - [bionemo-core](bionemo-core/bionemo-core-Overview.md)
-- [bionemo-esm2](bionemo-esm2/bionemo-esm2-Overview.md)
 - [bionemo-evo2](bionemo-evo2/bionemo-evo2-Overview.md)
 - [bionemo-example-model](bionemo-example_model/bionemo-example_model-Overview.md)
 - [bionemo-llm](bionemo-llm/bionemo-llm-Overview.md)
