@@ -738,6 +738,11 @@ def train(args: argparse.Namespace) -> None:
     # Note: weight decay is not in the recipe kwargs signature usually, we set it later.
     recipe_kwargs["precision_config"] = args.mixed_precision_recipe
 
+    if "mxfp8" in args.mixed_precision_recipe or "nvfp4" in args.mixed_precision_recipe:
+        # These are required for MXFP8 to work properly.
+        args.overlap_param_gather = True
+        args.overlap_grad_reduce = True
+
     # Directories
     if args.result_dir:
         recipe_kwargs["dir"] = args.result_dir
@@ -768,7 +773,8 @@ def train(args: argparse.Namespace) -> None:
     cfg.model.calculate_per_token_loss = not args.no_calculate_per_token_loss
     cfg.model.fp32_residual_connection = not args.no_fp32_residual_connection
     cfg.model.cross_entropy_loss_fusion = args.cross_entropy_loss_fusion
-
+    # cfg.model.cuda_graph_impl = "local" # or "transformer_engine"
+    # cfg.model.cuda_graph_scope = "full_iteration"
     if args.hidden_dropout is not None:
         cfg.model.hidden_dropout = args.hidden_dropout
     if args.attention_dropout is not None:

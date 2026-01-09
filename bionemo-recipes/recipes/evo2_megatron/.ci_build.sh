@@ -3,7 +3,7 @@
 # FIXME: Fix for "No such file or directory: /workspace/TransformerEngine"
 #  Remove once bug has been addressed in the nvidia/pytorch container.
 rm -f /usr/local/lib/python*/dist-packages/transformer_engine-*.dist-info/direct_url.json
-
+export UV_LOCK_TIMEOUT=900  # increase to 15 minutes (900 seconds), adjust as needed
 export UV_LINK_MODE=copy
 uv venv --system-site-packages
 
