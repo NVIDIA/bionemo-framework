@@ -671,15 +671,6 @@ def _split_batch_by_cp_rank(
     return input_ids_padded, labels_padded
 
 
-def _get_group_local_rank(group: torch.distributed.ProcessGroup | None = None) -> int:
-    """Rank of the current process within `group`."""
-    if group is None:
-        # default group; this is just the global rank
-        return torch.distributed.get_rank()
-    global_rank = torch.distributed.get_rank()
-    return torch.distributed.get_group_rank(group, global_rank)
-
-
 class BatchType(TypedDict):
     """The fields in the batch dictionary for context parallel."""
 
