@@ -156,7 +156,7 @@ notebook_shim==0.2.4
 notebook==7.4.5
 numpy==1.26.4
 nvidia-dali-cuda130==1.51.2
-nvidia-resiliency-ext==0.4.1+cuda13
+nvidia-resiliency-ext==0.4.1
 omegaconf==2.3.0
 opt_einsum==3.4.0
 optree==0.17.0
