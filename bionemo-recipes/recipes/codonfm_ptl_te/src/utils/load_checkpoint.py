@@ -36,7 +36,7 @@ def load_checkpoint(checkpoint_path: str, map_location: str = "cpu"):
             hparams = json.load(f)
         return {"state_dict": state_dict, "hyper_parameters": hparams}
     else:
-        return torch.load(checkpoint_path, map_location=map_location, weights_only=False)
+        return torch.load(checkpoint_path, map_location=map_location, weights_only=True)
 
 
 def download_checkpoint(repo_id: str, local_dir: str = None) -> str:  # noqa: RUF013
