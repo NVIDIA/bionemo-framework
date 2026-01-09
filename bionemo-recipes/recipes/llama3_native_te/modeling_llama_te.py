@@ -118,7 +118,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                     normalization="RMSNorm",
                     activation="swiglu",
                     attn_input_format=config.attn_input_format,
-                    self_attn_mask_type="causal",
+                    self_attn_mask_type="padding_causal",
                     num_gqa_groups=config.num_key_value_heads,
                     layer_number=layer_idx + 1,
                     params_dtype=config.dtype,
@@ -216,7 +216,12 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             cu_seq_lens_q = cu_seq_lens_k = None
             max_length_q = max_length_k = hidden_states.size(1)
 
-        te_rope_emb = self.rotary_emb(max_seq_len=self.config.max_position_embeddings)
+        # If we're using kv-caching, we can't trust the max_length_q value as the true max length for rotary
+        # embeddings, since this will be 1 in generation. Instead we can take the max sequence length from the past
+        # key values object.
+        te_rope_emb = self.rotary_emb(
+            max_seq_len=max_length_q if past_key_values is None else past_key_values.max_ctx_len
+        )
 
         if isinstance(past_key_values, InferenceParams):
             # In generation mode, we set the length to 1 for each batch index. Otherwise, we use the attention mask to
