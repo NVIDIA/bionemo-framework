@@ -164,15 +164,17 @@ def get_parameter_names_with_lora(model):
 
     This function reuses the Transformers' library function
     to list all the layers that should have weight decay.
-    This list will miss LoRA layers that we
-    want to have non-zero weight decay so we add them.
     """
-    forbidden_name_patterns = [r"bias", r"layernorm", r"rmsnorm", r"(?:^|\.)norm(?:$|\.)", r"_norm(?:$|\.)"]
-    decay_parameters = get_parameter_names(model, [torch.nn.LayerNorm], forbidden_name_patterns)
+    forbidden_name_patterns = [
+        r"bias",
+        r"layernorm",
+        r"rmsnorm",
+        r"(?:^|\.)norm(?:$|\.)",
+        r"_norm(?:$|\.)",
+        r"\.lora_[AB]\.",
+    ]
 
-    for name, _ in model.named_parameters():
-        if "lora_" in name:
-            decay_parameters.append(name)
+    decay_parameters = get_parameter_names(model, [torch.nn.LayerNorm], forbidden_name_patterns)
 
     return decay_parameters
 
