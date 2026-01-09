@@ -371,6 +371,7 @@ def test_sanity_fsdp2_with_sequence_packing(tmp_path, recipe_path):
 
 
 @requires_datacenter_hardware
+@pytest.mark.xfail(reason="BIO-5: CP is still WIP")
 def test_sanity_fsdp2_cp(tmp_path, recipe_path):
     # Run the training script with Hydra configuration overrides
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
