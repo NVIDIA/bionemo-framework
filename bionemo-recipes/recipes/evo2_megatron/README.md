@@ -62,6 +62,9 @@ want to use one of the FP8 sensitive checkpoints, like `evo2/40b-1m` then be sur
 option to the checkpoint conversion step below. Also note that although 8k versions of the 7b and 40b checkpoints exist,
 it is advisable to use the longer context versions since they were trained further and still run on shorter inputs.
 
+See `download_bionemo_data --list-resources` for other checkpoint options and a list of available
+downloadable resources.
+
 ```
 CKPT_NAME=evo2/1b-8k-bf16:1.0
 CKPT_OUT_DIR=evo2_1b_8k_bf16_mbridge
@@ -100,6 +103,11 @@ torchrun --nproc-per-node 2 --no-python \
   --result-dir tmpfp8-ft-example --no-renormalize-loss \
   --finetune-ckpt-dir $CKPT_OUT_DIR
 ```
+
+## Where do the custom command line programs come from?
+
+See `pyproject.toml` for where runnable programs like `train_evo2` and `evo2_convert_nemo2_to_mbridge` are implemented
+in code.
 
 ## Docker build
 

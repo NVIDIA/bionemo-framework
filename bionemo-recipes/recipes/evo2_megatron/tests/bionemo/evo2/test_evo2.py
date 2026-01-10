@@ -822,14 +822,8 @@ def test_forward_ckpt_conversion(
             model_config.flash_decode = flash_decode
             model_config.attention_backend = AttnBackend.flash
         tokenizer = _HuggingFaceTokenizer(mbridge_ckpt_path / "tokenizer")
-        # tokenizer = load_tokenizer(mbridge_ckpt_path)  # FIXME
-        #   (Pdb) cfg
-        # TokenizerConfig(vocab_size=None, vocab_file=None, merge_file=None, vocab_extra_ids=0,
-        #   tokenizer_type='HuggingFaceTokenizer',
-        #   tokenizer_model=PosixPath('.'),  <- fix this problem. When we save the tokenizer, we should somehow communicate the relative path to the saved tokenizer.
-        #   tiktoken_pattern=None, tiktoken_num_special_tokens=1000, tiktoken_special_tokens=None,
-        #   tokenizer_prompt_format=None, special_tokens=None, image_tag_type=None)
-        # tokenizer = AutoTokenizer.from_pretrained(mbridge_ckpt_path / "tokenizer")
+        # FIXME replace above with below once bug is fixed https://github.com/NVIDIA-NeMo/Megatron-Bridge/issues/1900
+        # tokenizer = load_tokenizer(mbridge_ckpt_path)
         model_config.finalize()  # important to call finalize before providing the model, this does post_init etc.
         raw_megatron_model = model_config.provide(pre_process=True, post_process=True).eval().cuda()
         device = raw_megatron_model.parameters().__next__().device
