@@ -4,7 +4,7 @@ config_name_or_path: ??? # E.g., meta-llama/Llama-3.2-1B or ./model_configs/meta
 config_kwargs: {}
 
 num_train_steps: ???
-grad_acc_steps: 1  # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
+grad_acc_steps: 1 # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
 
 use_meta_device: true
 
@@ -24,7 +24,6 @@ dataset:
   max_seq_length: 8192 # Window size for genomic sequences
   stride: 200 # Overlap for windowing
   buffer_size: 500_000 # Shuffle buffer size
-  use_lazy_tokenization: true
   use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
   load_dataset_kwargs:
     path: ???

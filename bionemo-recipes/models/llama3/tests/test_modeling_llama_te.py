@@ -69,7 +69,10 @@ def test_llama_model_forward_pass(input_text, attn_input_format):
 def test_llama_model_forward_pass_no_attention_mask():
     tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
     config = NVLlamaConfig.from_pretrained(
-        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format="bshd"
+        "nvidia/Llama-3.1-8B-Instruct-FP8",
+        num_hidden_layers=2,
+        attn_input_format="bshd",
+        self_attn_mask_type="causal",
     )
     model = NVLlamaForCausalLM(config)
 
@@ -269,7 +272,7 @@ def test_hf_llama_model_generate_bshd():
 def test_te_llama_model_generate_with_cache():
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
     model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
-    model_te = convert_llama_hf_to_te(model_hf)
+    model_te = convert_llama_hf_to_te(model_hf, self_attn_mask_type="padding_causal")
 
     prompt = """
    Licensed under the Apache License, Version 2.0 (the "License");
