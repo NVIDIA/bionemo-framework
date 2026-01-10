@@ -30,8 +30,12 @@ import megatron.core.num_microbatches_calculator
 import pandas as pd
 import pytest
 import torch
+from megatron.bridge.training.checkpointing import (
+    _load_model_weights_from_checkpoint,
+)
+from megatron.bridge.training.model_load_save import load_model_config
 from megatron.bridge.training.tokenizers.config import TokenizerConfig
-from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
+from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer, build_tokenizer
 from megatron.core import dist_checkpointing, parallel_state
 from megatron.core.dist_checkpointing.mapping import ShardedTensor
 
@@ -50,13 +54,14 @@ from megatron.core.transformer.module import Float16Module
 from pytest import MonkeyPatch
 
 from bionemo.core.data.load import load
-from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH, DEFAULT_HF_TOKENIZER_MODEL_PATH_512
 from bionemo.evo2.models.evo2_provider import (
     Hyena1bModelProvider,
     Hyena7bARCLongContextModelProvider,
     Hyena7bModelProvider,
     HyenaInferenceContext,
 )
+from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
 
 
 logger = logging.getLogger(__name__)
@@ -273,6 +278,18 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: 
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward_manual",
+                "model_size": "7b",
+                "seq_len_cap": 4000,
+                "memory_needed_by_test": 21,
+            },  # checked both variants in isolation
+            {
+                "test_name": "test_forward_ckpt_conversion",
+                "model_size": "1b",
+                "seq_len_cap": 6000,
+                "memory_needed_by_test": 18,
+            },  # checked both variants in isolation
+            {
+                "test_name": "test_forward_ckpt_conversion",
                 "model_size": "7b",
                 "seq_len_cap": 4000,
                 "memory_needed_by_test": 21,
@@ -731,6 +748,102 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
             partial_seq = seq[:seq_len_cap]
             with torch.no_grad():
                 device = torch.cuda.current_device()
+                # tokens = torch.tensor([tokenizer.tokenize(seq)], device=device)
+                input_ids = torch.tensor(tokenizer.text_to_ids(partial_seq)).int().unsqueeze(0).to(device)
+                attention_mask = None
+                # when labels is None, the model returns logits
+                logits = model(
+                    input_ids=input_ids,
+                    position_ids=None,
+                    attention_mask=attention_mask,
+                    labels=None,
+                    **forward_kwargs,
+                )
+                if flash_decode:
+                    forward_kwargs["inference_context"].reset()
+                matchrate = _calc_matchrate(tokenizer=tokenizer, in_seq=partial_seq, logits=logits)
+                matchrates.append(matchrate)
+                _check_matchrate(ckpt_name=ckpt_name, matchrate=matchrate, assert_matchrate=False)
+        assert len(matchrates) == len(expected_matchpercents)
+        matchperc_print = [f"{m * 100.0:.1f}%" for m in matchrates]
+        matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+        assert all(m * 100.0 >= 0.95 * ep for m, ep in zip(matchrates, expected_matchpercents)), (
+            f"Expected at least 95% of {matchperc_print_expected=}, got {matchperc_print=}"
+        )
+
+
+@pytest.mark.parametrize(
+    "ckpt_name,expected_matchpercents,flash_decode",
+    [
+        # Try flash decode with one and not the other to verify that both paths work.
+        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
+        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
+        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
+        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
+    ],
+)
+def test_forward_ckpt_conversion(
+    tmp_path: Path, sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool
+):
+    """Test the forward pass of the megatron model."""
+    assert len(sequences) > 0
+    seq_len_cap = determine_memory_requirement_and_skip_if_not_met(
+        ckpt_name, test_name=inspect.currentframe().f_code.co_name
+    )
+
+    is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
+
+    # vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
+    if skip:
+        # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
+        pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
+    with distributed_model_parallel_state(), torch.no_grad():
+        ckpt_path: Path = load(ckpt_name)
+
+        mbridge_ckpt_dir = run_nemo2_to_mbridge(
+            nemo2_ckpt_dir=ckpt_path,
+            tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+            mbridge_ckpt_dir=tmp_path / "mbridge_checkpoint",
+            model_size="1b" if "1b" in ckpt_name else "7b" if "7b-8k" in ckpt_name else "7b_arc_longcontext",
+            seq_length=1048576 if "1m" in ckpt_name else 8192,
+            mixed_precision_recipe="bf16_mixed" if not is_fp8_supported else "bf16_with_fp8_current_scaling_mixed",
+            # The checkpoints from the original evo2 training that are "fp8 sensitive" require vortex_style_fp8=True
+            #  to run correctly. If we set it in the config going into the conversion then at load time users will
+            #  get this setting without having to think about it.
+            vortex_style_fp8=is_fp8_supported and "evo2/1b-8k:" in ckpt_name,
+        )
+
+        mbridge_ckpt_path = mbridge_ckpt_dir / "iter_0000001"
+
+        model_config, mtron_args = load_model_config(mbridge_ckpt_path)
+        assert mtron_args is None, "mtron_args should be None since this is a Megatron Bridge checkpoint"
+        if flash_decode:
+            model_config.flash_decode = flash_decode
+            model_config.attention_backend = AttnBackend.flash
+        tokenizer = _HuggingFaceTokenizer(mbridge_ckpt_path / "tokenizer")
+        # FIXME replace above with below once bug is fixed https://github.com/NVIDIA-NeMo/Megatron-Bridge/issues/1900
+        # tokenizer = load_tokenizer(mbridge_ckpt_path)
+        model_config.finalize()  # important to call finalize before providing the model, this does post_init etc.
+        raw_megatron_model = model_config.provide(pre_process=True, post_process=True).eval().cuda()
+        device = raw_megatron_model.parameters().__next__().device
+        _load_model_weights_from_checkpoint(
+            checkpoint_path=mbridge_ckpt_path, model=[raw_megatron_model], dist_ckpt_strictness="ignore_all"
+        )
+        model = Float16Module(model_config, raw_megatron_model)
+
+        if flash_decode:
+            inference_context = HyenaInferenceContext(max_batch_size=1, max_sequence_length=8192)
+            # Ensure full-sequence logits are materialized for tests expecting [B, S, V]
+            inference_context.materialize_only_last_token_logits = False
+            forward_kwargs = {"runtime_gather_output": True, "inference_context": inference_context}
+        else:
+            forward_kwargs = {}
+        matchrates = []
+        for seq in sequences:
+            # TODO: artificial limit, megatron uses more memory. Vortex can process full sequences
+            partial_seq = seq[:seq_len_cap]
+            with torch.no_grad():
                 # tokens = torch.tensor([tokenizer.tokenize(seq)], device=device)
                 input_ids = torch.tensor(tokenizer.text_to_ids(partial_seq)).int().unsqueeze(0).to(device)
                 attention_mask = None

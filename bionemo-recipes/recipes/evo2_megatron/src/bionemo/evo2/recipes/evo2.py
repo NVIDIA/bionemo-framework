@@ -267,7 +267,6 @@ def _evo2_common(
         ),
         tokenizer=TokenizerConfig(
             tokenizer_type="HuggingFaceTokenizer",
-            hf_tokenizer_kwargs={"trust_remote_code": True},
             tokenizer_model=hf_tokenizer_model_or_path or "EleutherAI/gpt-neox-20b",
         ),
         checkpoint=CheckpointConfig(
