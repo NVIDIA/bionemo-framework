@@ -55,7 +55,8 @@ class PerfLogger:
             "train/loss": torchmetrics.MeanMetric(),
             "train/grad_norm": torchmetrics.MeanMetric(),
             "train/learning_rate": torchmetrics.MeanMetric(),
-            "train/num_tokens": torchmetrics.MeanMetric(),
+            "train/num_tokens_per_gpu": torchmetrics.MeanMetric(),
+            "train/total_num_tokens": torchmetrics.SumMetric(),
             "train/num_unpadded_tokens": torchmetrics.MeanMetric(),
             "train/step_time": torchmetrics.MeanMetric(),
             "train/tokens_per_second_per_gpu": torchmetrics.MeanMetric(),
@@ -119,7 +120,8 @@ class PerfLogger:
         step_time = self.train_end_time - self.train_start_time
 
         self.metrics["train/loss"].update(outputs.loss)
-        self.metrics["train/num_tokens"].update(num_tokens)
+        self.metrics["train/num_tokens_per_gpu"].update(num_tokens)
+        self.metrics["train/total_num_tokens"].update(num_tokens)
         self.metrics["train/num_unpadded_tokens"].update(num_unpadded_tokens)
         self.metrics["train/learning_rate"].update(lr)
         self.metrics["train/grad_norm"].update(grad_norm)

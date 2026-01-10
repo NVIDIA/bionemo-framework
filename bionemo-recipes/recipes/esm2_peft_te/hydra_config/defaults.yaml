@@ -29,6 +29,7 @@ dataset:
 # WandB config
 wandb_init_args:
   name: ???
+  project: null
 
 # mFSDP config
 fully_shard_kwargs:
