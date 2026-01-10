@@ -332,6 +332,9 @@ def save_checkpoint_fsdp2(
     if async_save and "fsdp2" in _ckpt_futures and _ckpt_futures["fsdp2"] is not None:
         _ckpt_futures["fsdp2"].result()
 
+    # Clear CUDA cache before checkpointing to free up GPU memory for staging tensors
+    torch.cuda.empty_cache()
+
     state_dict = {"app": AppState(model=model, optimizer=optimizer, scheduler=scheduler, step=step, epoch=epoch)}
     ckpt_save_func = dcp_async_save if async_save else dcp_save
     _ckpt_futures["fsdp2"] = ckpt_save_func(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
