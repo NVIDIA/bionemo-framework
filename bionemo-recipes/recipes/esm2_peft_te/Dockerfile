@@ -5,7 +5,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     PIP_CONSTRAINT= pip install -r /requirements.txt
 
 WORKDIR /workspace/bionemo
-COPY . .
+COPY build_context/ .
 
 RUN pushd peft && \
     pip install -e . && \

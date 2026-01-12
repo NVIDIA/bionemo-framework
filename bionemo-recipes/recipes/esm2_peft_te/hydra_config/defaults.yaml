@@ -4,23 +4,20 @@ num_train_steps: ???
 perform_validation: false
 validation_interval: 50
 
-use_meta_device: true
-
 # Whether to wrap the model in torch.compile. Note, this is currently not supported with mfsdp (BIONEMO-2977).
 # We leave this off by default since we don't see much of a performance improvement with TE layers.
 use_torch_compile: false
 
-cp_size: 1
-
-use_sequence_packing: false
 dataset:
   tokenizer_name: ${model_tag}
-  ss3_classification: true
   micro_batch_size: ???
+  val_micro_batch_size: 64
   num_workers: 1
   max_seq_length: 1024
-  mlm_probability: 0.15
-  use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
+  stride: 16
+  validation_samples: 16
+  seed: 42
+  ss3_classification: true
   load_dataset_kwargs:
     path: "nvidia/esm2_uniref_pretraining_data"
     split: "train"
@@ -30,30 +27,6 @@ dataset:
 wandb_init_args:
   name: ???
   project: null
-
-# mFSDP config
-fully_shard_kwargs:
-  zero_dp_strategy: "optim_grads_params"
-  calculate_per_token_loss: false
-  init_model_with_meta_device: ${use_meta_device}
-  check_for_nan_in_grad: true
-  grad_reduce_in_fp32: false
-  preserve_fp32_weights: true
-  overlap_grad_reduce: true
-  overlap_param_gather: true
-  sync_model_each_microbatch: true
-  average_in_collective: false
-
-# TransformerEngine FP8 config. See
-# https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html for more information on
-# supported formats.
-fp8_config:
-  enabled: false
-  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
-  fp8_format: "HYBRID"
-  fp8_recipe_kwargs: {}
-  fp8_model_init_kwargs:
-    enabled: false # If this is set to true, fp8_config.enabled must also be set to true.
 
 # Optimizer config
 adamw_kwargs:
@@ -77,3 +50,8 @@ checkpoint:
 
 logger:
   frequency: 100
+
+lora:
+  r: 8
+  alpha: 16
+  target_modules: ???

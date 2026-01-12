@@ -3,14 +3,13 @@ defaults:
   - _self_
 
 # Training config
-model_tag: ./example_8m_checkpoint # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
-use_pretrained: false
-num_train_steps: 250
+model_tag: nvidia/esm2_t48_15B_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
+use_pretrained: true
+num_train_steps: 10000
 
 perform_validation: true
-validation_interval: 50
+validation_interval: 500
 
-# We want this on in CI/CD to validate that the script runs successfully with torch.compile.
 use_torch_compile: true
 
 dataset:
@@ -20,22 +19,23 @@ dataset:
   num_workers: 1
   max_seq_length: 1024
   stride: 16
-  validation_samples: 16
+  validation_samples: 5098
   ss3_classification: true
   load_dataset_kwargs:
     path: "parquet"
     split: "train"
-    data_files: "peft_sanity_dataset.parquet"
+    data_files: "porter6_dataset_25k.parquet"
 
 # WandB config
 wandb_init_args:
-  name: "esm2_lora_example_8M_sanity"
-  project: "esm2_lora_sanity"
+  name: "esm2_t48_15B_UR50D_lora"
+  project: "esm2_lora"
   mode: "online"
 
 # Learning rate scheduler config
 lr_scheduler_kwargs:
   num_warmup_steps: 100
+  num_training_steps: 10_000
 
 checkpoint:
   ckpt_dir: null
