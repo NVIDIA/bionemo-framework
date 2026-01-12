@@ -148,9 +148,9 @@ Activation memory optimizations have enabled context parallelism to work better 
 implementation than the previous nemo2 implementation. This enables significantly faster step timing at long context
 as well as demonstrating up to 2M context length currently training on only 512 H100 GPUs for the 40b parameter model.
 
-|   Configuration   | TP  | CP  | Number of Nodes | Number of GPUs | Context Length | Global Batch Size | Seconds per Step |
-| :---------------: | :-: | :-: | :-------------: | :------------: | :------------: | :---------------: | :--------------: |
-|       NeMo2       | 64  |  2  |       32        |      256       |       1M       |         2         |        44        |
-|       NeMo2       |  8  | 16  |       32        |      256       |       1M       |         2         |       OOM        |
-| MBridge Optimized |  8  | 16  |       32        |      256       |       1M       |         2         |        30        |
-|  2M Stress Test   |  8  | 32  |       64        |      512       |       2M       |         2         |        48        |
+|   Configuration   |  Precision  | TP  | CP  | Number of Nodes | Number of GPUs | Context Length | Global Batch Size | Seconds per Step |
+| :---------------: | :---------: | :-: | :-: | :-------------: | :------------: | :------------: | :---------------: | :--------------: |
+|       NeMo2       | fp8-delayed | 64  |  2  |       32        |      256       |       1M       |         2         |        44        |
+|       NeMo2       | fp8-delayed |  8  | 16  |       32        |      256       |       1M       |         2         |       OOM        |
+| MBridge Optimized |    bf16     |  8  | 16  |       32        |      256       |       1M       |         2         |        30        |
+|  2M Stress Test   |    bf16     |  8  | 32  |       64        |      512       |       2M       |         2         |        48        |
