@@ -19,8 +19,13 @@ from unittest import mock
 
 import torch
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
+from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import ContextParallelDataLoaderWrapper, _split_batch_by_cp_rank
+from esm.collator import (
+    ContextParallelDataLoaderWrapper,
+    DataCollatorWithFlattening,
+    _split_batch_by_cp_rank,
+)
 
 
 def get_dummy_data_thd_with_padding_dp0(cp_size: int):
@@ -756,3 +761,129 @@ def test_split_batch_by_cp_rank_bshd_3d_tensor():
     torch.testing.assert_close(input_ids_cp1[:, 2:4, :], input_ids[:, 4:6, :])
     torch.testing.assert_close(labels_cp1[:, 0:2, :], labels[:, 2:4, :])
     torch.testing.assert_close(labels_cp1[:, 2:4, :], labels[:, 4:6, :])
+
+
+def test_bshd_and_thd_equivalence(tokenizer):
+    """Test that BSHD and THD formats produce equivalent CP shards for real protein sequences.
+
+    This test verifies that when we shard data for context parallelism using both BSHD and THD
+    formats, the actual protein tokens (excluding padding) end up on the same CP ranks.
+
+    For CP=2, each sequence is split into 4 chunks (2*cp_size). Each CP rank gets 2 chunks:
+    - CP rank 0 gets chunks [0, 3] (first and last)
+    - CP rank 1 gets chunks [1, 2] (middle)
+    """
+    cp_size = 2
+    divisibility_factor = 2 * cp_size  # = 4
+
+    # Use proteins with lengths that will result in clean padding
+    protein1 = "MKTAYIAKQRQISFVKSHFSRQLEERLGLL"  # 30 AA -> 32 tokens with special tokens
+    protein2 = "MSHHWGYGKHNGPEHWHKDFPIAKGERFLL"  # 30 AA -> 32 tokens with special tokens
+
+    tok1 = tokenizer(protein1, add_special_tokens=True)
+    tok2 = tokenizer(protein2, add_special_tokens=True)
+
+    # For BSHD format: pad each sequence to same length (multiple of divisibility_factor)
+    # We need the pad length to match what THD will use
+    assert len(tok1["input_ids"]) == len(tok2["input_ids"])
+    assert len(tok1["input_ids"]) % divisibility_factor == 0
+
+    # Create BSHD collator - no MLM masking to make comparison deterministic
+    data_collator_bshd_base = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,
+    )
+    batch_bshd = data_collator_bshd_base([tok1, tok2])
+
+    # Create THD collator with per-sequence padding for CP
+    data_collator_thd = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        pad_sequences_to_be_divisible_by=divisibility_factor,
+    )
+    batch_thd = data_collator_thd([tok1, tok2])
+
+    # Verify the unsharded batches have the expected structure
+    # BSHD: [batch_size, seq_len] with padding at the end of each sequence
+    assert batch_bshd["input_ids"].shape[0] == 2, "BSHD batch should have 2 sequences"
+    # THD: [1, total_tokens] with sequences concatenated
+    assert batch_thd["input_ids"].shape[0] == 1, "THD batch should have batch_size=1"
+
+    # Get sequence lengths for THD
+    cu_seqlens_padded = batch_thd["cu_seq_lens_q_padded"]
+    seq_lengths_thd = cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]
+
+    # Now split both formats by CP rank and verify equivalence
+    for cp_rank in range(cp_size):
+        # Split BSHD batch
+        bshd_input_ids, bshd_labels = _split_batch_by_cp_rank(
+            cu_seqlens_padded=None,
+            input_ids_padded=batch_bshd["input_ids"],
+            labels_padded=batch_bshd["labels"],
+            qvk_format="bshd",
+            cp_rank=cp_rank,
+            cp_world_size=cp_size,
+        )
+
+        # Split THD batch
+        thd_input_ids, thd_labels = _split_batch_by_cp_rank(
+            cu_seqlens_padded=batch_thd["cu_seq_lens_q_padded"],
+            input_ids_padded=batch_thd["input_ids"],
+            labels_padded=batch_thd["labels"],
+            qvk_format="thd",
+            cp_rank=cp_rank,
+            cp_world_size=cp_size,
+        )
+
+        # Extract per-sequence shards from THD format
+        # THD shards should match BSHD shards when extracted per-sequence
+        thd_seq1_shard_len = seq_lengths_thd[0].item() // (2 * cp_size) * 2
+        thd_seq2_shard_len = seq_lengths_thd[1].item() // (2 * cp_size) * 2
+
+        thd_seq1_shard = thd_input_ids[0, :thd_seq1_shard_len]
+        thd_seq2_shard = thd_input_ids[0, thd_seq1_shard_len : thd_seq1_shard_len + thd_seq2_shard_len]
+
+        # Compare BSHD sequence shards with THD sequence shards
+        bshd_seq1_shard = bshd_input_ids[0]
+        bshd_seq2_shard = bshd_input_ids[1]
+
+        # The tokens should match (accounting for any padding differences)
+        torch.testing.assert_close(
+            bshd_seq1_shard,
+            thd_seq1_shard,
+            msg=f"CP rank {cp_rank}: Sequence 1 shards don't match between BSHD and THD",
+        )
+        torch.testing.assert_close(
+            bshd_seq2_shard,
+            thd_seq2_shard,
+            msg=f"CP rank {cp_rank}: Sequence 2 shards don't match between BSHD and THD",
+        )
+
+    # Verify that all CP ranks together reconstruct the original sequences
+    all_bshd_shards_seq1 = []
+    all_bshd_shards_seq2 = []
+    for cp_rank in range(cp_size):
+        bshd_input_ids, _ = _split_batch_by_cp_rank(
+            cu_seqlens_padded=None,
+            input_ids_padded=batch_bshd["input_ids"],
+            labels_padded=batch_bshd["labels"],
+            qvk_format="bshd",
+            cp_rank=cp_rank,
+            cp_world_size=cp_size,
+        )
+        all_bshd_shards_seq1.append(bshd_input_ids[0])
+        all_bshd_shards_seq2.append(bshd_input_ids[1])
+
+    # Sort and verify all tokens are present
+    reconstructed_seq1 = torch.cat(all_bshd_shards_seq1)
+    reconstructed_seq2 = torch.cat(all_bshd_shards_seq2)
+
+    torch.testing.assert_close(
+        torch.sort(reconstructed_seq1)[0],
+        torch.sort(batch_bshd["input_ids"][0])[0],
+        msg="Reconstructed sequence 1 doesn't match original",
+    )
+    torch.testing.assert_close(
+        torch.sort(reconstructed_seq2)[0],
+        torch.sort(batch_bshd["input_ids"][1])[0],
+        msg="Reconstructed sequence 2 doesn't match original",
+    )

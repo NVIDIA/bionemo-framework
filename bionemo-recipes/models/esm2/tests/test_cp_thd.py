@@ -21,10 +21,9 @@ from pathlib import Path
 import pytest
 import torch
 from torch.distributed.device_mesh import init_device_mesh
-from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
-from transformers import AutoModelForMaskedLM, AutoTokenizer
+from transformers import AutoModelForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
 
-from esm.collator import _split_batch_by_cp_rank
+from esm.collator import DataCollatorWithFlattening, _split_batch_by_cp_rank
 from esm.convert import convert_esm_hf_to_te
 from esm.modeling_esm_te import NVEsmForMaskedLM
 
@@ -44,7 +43,7 @@ requires_datacenter_hardware = pytest.mark.skipif(
 )
 
 
-def get_dummy_data_thd_with_padding_dp0(cp_size: int = 2, tokenizer=None):
+def get_dummy_data_thd_with_padding_dp0(tokenizer):
     """
     Get dummy data for the THD format with padding for context parallelism.
     Args:
@@ -53,49 +52,24 @@ def get_dummy_data_thd_with_padding_dp0(cp_size: int = 2, tokenizer=None):
     Returns:
         A dictionary containing the padded input ids, labels, and cu seq lens.
     """
-    pid = 1  # The pad token id.
-    label_pad = -100  # The label pad id.
-
     # Two real protein sequences (30 amino acids each, will be 32 tokens with BOS/EOS)
-    protein1 = "MKTAYIAKQRQISFVKSHFSRQLEERLG"  # 29 AA -> ~31 tokens with special tokens
-    protein2 = "MSHHWGYGKHNGPEHWHKDFPIAKGERF"  # 29 AA -> ~31 tokens with special tokens
+    protein1 = "MKTAYIAKQRQISFVKSHFSRQLEERLGLL"  # 32 tokens with BOS/EOS
+    protein2 = "MSHHWGYGKHNGPEHWHKDFPIAKGERFLL"  # 32 tokens with BOS/EOS
 
-    tok1 = tokenizer(protein1, return_tensors="pt", add_special_tokens=True)
-    tok2 = tokenizer(protein2, return_tensors="pt", add_special_tokens=True)
+    tok1 = tokenizer(protein1, add_special_tokens=True)
+    tok2 = tokenizer(protein2, add_special_tokens=True)
 
-    # Concatenate the token IDs
-    input_ids = torch.cat([tok1["input_ids"].squeeze(), tok2["input_ids"].squeeze()])
-    # Use input_ids as labels (for simplicity in testing)
-    labels = input_ids.clone()
-
-    cu_seqlens_q = torch.tensor([0, tok1["input_ids"].shape[1], input_ids.shape[0]])
-
-    divisibility_factor = 2 * cp_size
-
-    input_ids_padded, labels_padded, cu_seqlens_q_padded = pad_thd_sequences_for_cp(
-        input_ids.unsqueeze(0),
-        labels.unsqueeze(0),
-        cu_seqlens_q,
-        divisibility_factor,
-        padding_token_id=pid,
-        padding_label_id=label_pad,
+    data_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            mlm_probability=0.0,
+            pad_to_multiple_of=32,
+            seed=42,
+        ),
+        pad_sequences_to_be_divisible_by=32,
     )
-
-    # Calculate max_length based on actual padded sequence lengths
-    seq_lengths = cu_seqlens_q_padded[1:] - cu_seqlens_q_padded[:-1]
-    max_seq_len = int(seq_lengths.max().item())
-
-    batch = {
-        "input_ids": input_ids_padded.unsqueeze(0).to(torch.int64),  # Add batch dim: [1, seq_len]
-        "labels": labels_padded.unsqueeze(0).to(torch.int64),  # [1, seq_len]
-        "cu_seq_lens_q_padded": cu_seqlens_q_padded.to(torch.int32),  # Keep 1D - int32
-        "cu_seq_lens_k_padded": cu_seqlens_q_padded.to(torch.int32),  # Keep 1D - int32
-        "cu_seq_lens_q": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
-        "cu_seq_lens_k": cu_seqlens_q.to(torch.int32),  # Keep 1D - int32
-        "max_length_q": max_seq_len,
-        "max_length_k": max_seq_len,
-        "pad_between_seqs": True,
-    }
+    batch = data_collator([tok1, tok2])
+    batch["labels"] = batch["input_ids"].clone()  # We just use the identity function for testing CP sanity.
     return batch
 
 
@@ -200,7 +174,7 @@ if __name__ == "__main__":
 
     # Create tokenizer for real protein sequences
     tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
-    input_data_thd_padded_dp0 = get_dummy_data_thd_with_padding_dp0(tokenizer=tokenizer)
+    input_data_thd_padded_dp0 = get_dummy_data_thd_with_padding_dp0(tokenizer)
 
     model = NVEsmForMaskedLM.from_pretrained(
         model_ckpt, attn_input_format="thd", token_dropout=False, dtype=torch.bfloat16

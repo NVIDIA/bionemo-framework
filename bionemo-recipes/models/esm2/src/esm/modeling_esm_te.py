@@ -188,31 +188,11 @@ class NVEsmEncoder(nn.Module):
             **kwargs: Additional arguments, see TransformersKwargs for more details.
         """
         all_hidden_states: tuple[torch.Tensor, ...] = ()
-        has_thd_input = [
-            x is not None
-            for x in [
-                kwargs.get("cu_seq_lens_q", None),
-                kwargs.get("cu_seq_lens_k", None),
-                kwargs.get("max_length_q", None),
-                kwargs.get("max_length_k", None),
-            ]
-        ]
 
-        if self.config.attn_input_format == "thd":
-            if not all(has_thd_input):
-                raise ValueError(
-                    "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k must be provided when using THD inputs."
-                )
-            assert hidden_states.dim() == 3 and hidden_states.size(0) == 1, (
-                "THD expects embeddings shaped [1, total_tokens, hidden_size]."
-            )
+        if self.config.attn_input_format == "thd" and hidden_states.dim() == 3 and hidden_states.size(0) == 1:
+            # For THD, the embedding output is a 3-dimensional tensor with shape [1, total_tokens, hidden_size], but TE
+            # expects a 2-dimensional tensor with shape [total_tokens, hidden_size].
             hidden_states = hidden_states.squeeze(0)
-            attention_mask = None
-
-        elif self.config.attn_input_format == "bshd" and any(has_thd_input):
-            raise ValueError(
-                "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k are not allowed when using BSHD inputs."
-            )
 
         # Ensure that rotary embeddings are computed with at a higher precision outside the torch autocast context.
         with torch.autocast(device_type="cuda", enabled=False):

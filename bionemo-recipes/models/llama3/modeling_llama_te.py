@@ -217,7 +217,9 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             )
             past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths)))
 
-        te_rope_emb = self.rotary_emb(max_seq_len=self.config.max_position_embeddings)
+        # Ensure that rotary embeddings are computed with at a higher precision
+        with torch.autocast(device_type="cuda", enabled=False):
+            te_rope_emb = self.rotary_emb(max_seq_len=self.config.max_position_embeddings)
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             if output_hidden_states:

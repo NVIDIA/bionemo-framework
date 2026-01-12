@@ -52,12 +52,13 @@ def get_dummy_data_bshd_with_padding_dp0(tokenizer):
 
     data_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
-        mlm_probability=0.25,
+        mlm_probability=0.0,
         pad_to_multiple_of=32,
         seed=42,
     )
 
     batch = data_collator([tok1, tok2])
+    batch["labels"] = batch["input_ids"].clone()  # We just use the identity function for testing CP sanity.
     del batch["attention_mask"]
     return batch
 
@@ -98,9 +99,6 @@ def get_batch_for_cp_rank(batch, cp_rank, cp_world_size):
     batch_shard = dict(batch)
     batch_shard["input_ids"] = input_ids_sharded
     batch_shard["labels"] = labels_sharded
-    # Remove max_length fields if they exist (not used in BSHD format)
-    batch_shard.pop("max_length_q", None)
-    batch_shard.pop("max_length_k", None)
     return batch_shard
 
 
@@ -270,6 +268,7 @@ if __name__ == "__main__":
     # Move batch to CUDA and ensure tensors are detached from any previous graphs
     batch = {k: v.detach().to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
     batch_cp = get_batch_for_cp_rank(batch, cp_rank=cp_rank, cp_world_size=cp_world_size)
+    batch_cp["max_length_q"] = batch_cp["max_length_k"] = 32
 
     torch.distributed.barrier(group=cp_group)
 
