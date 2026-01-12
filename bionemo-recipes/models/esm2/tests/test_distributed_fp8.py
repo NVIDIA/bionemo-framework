@@ -213,6 +213,9 @@ if __name__ == "__main__":
     key = filter(lambda x: x.endswith("encoder.emb_layer_norm_after._extra_state"), fp8_extra_states.keys())
     fp8_extra_states.pop(next(key))
 
+    # lm_head.dense and lm_head.decoder are BF16, not FP8, so exclude them from FP8 checks
+    fp8_extra_states = {key: val for key, val in fp8_extra_states.items() if "lm_head." not in key}
+
     # 2 ranks, test to ensure that both ranks have the same FP8 extra states
     if torch.distributed.get_world_size() == 2:
         outputs_list = [None] * torch.distributed.get_world_size() if torch.distributed.get_rank() == 0 else None
