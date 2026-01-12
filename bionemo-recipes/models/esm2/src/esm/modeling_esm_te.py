@@ -216,15 +216,7 @@ class NVEsmEncoder(nn.Module):
 
         # Ensure that rotary embeddings are computed with at a higher precision outside the torch autocast context.
         with torch.autocast(device_type="cuda", enabled=False):
-            if self.config.position_embedding_type == "rotary":
-                if self.config.attn_input_format == "bshd":
-                    te_rope_emb = self.rotary_embeddings(max_seq_len=hidden_states.shape[1])
-                elif self.config.attn_input_format == "thd":
-                    te_rope_emb = self.rotary_embeddings(
-                        max_seq_len=kwargs["cu_seq_lens_q_padded"][-1]
-                        if "cu_seq_lens_q_padded" in kwargs
-                        else kwargs["cu_seq_lens_q"][-1]
-                    )
+            te_rope_emb = self.rotary_embeddings(max_seq_len=self.config.max_position_embeddings)
             te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
 
         for layer_module in self.layers:

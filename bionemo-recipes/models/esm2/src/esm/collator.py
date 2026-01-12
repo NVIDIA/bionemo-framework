@@ -579,7 +579,7 @@ def _split_batch_by_cp_rank(
 ):
     """Slice batch input along sequence dimension into multiple chunks for THD or BSHD format.
 
-    This function is inteded for use in self attention. It will not work for cross attention because
+    This function is intended for use in self attention. It will not work for cross attention because
     it does not handle the case where the sequence length of the query and key are different.
     Which are parallelized across GPUs in a context parallel group.
     This version works with variable-length sequences using cumulative sequence lengths for THD format,
