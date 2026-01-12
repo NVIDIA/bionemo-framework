@@ -17,7 +17,6 @@ dependencies = [
     'bionemo-core',
     'bionemo-evo2',
     'bionemo-example_model',
-    'bionemo-geneformer',
     'bionemo-llm',
     'bionemo-moco',
     'bionemo-scdl',
@@ -46,7 +45,6 @@ megatron-core = { workspace = true }
 # in sub-packages/
 bionemo-core = { workspace = true }
 bionemo-example_model = { workspace = true }
-bionemo-geneformer = { workspace = true }
 bionemo-llm = { workspace = true }
 bionemo-moco = { workspace = true }
 bionemo-noodles = { workspace = true }
@@ -129,7 +127,6 @@ executionEnvironments = [
         './sub-packages/bionemo-core/src',
         './sub-packages/bionemo-evo2/src',
         './sub-packages/bionemo-example_model/src',
-        './sub-packages/bionemo-geneformer/src',
         './sub-packages/bionemo-llm/src',
         './sub-packages/bionemo-moco/src',
         './sub-packages/bionemo-noodles/src',

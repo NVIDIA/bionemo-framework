@@ -6,6 +6,9 @@ hide:
 !!! warning "Documentation revamp is in progress."
 These docs are currently being refactored as we consolidate 5D Parallelism Training code with [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes). The best source of documentation today is the module READMEs + your favorite genai assistant.
 
+!!! note "5D Parallel Models Moved to bionemo-recipes"
+The 5D parallel training implementations for ESM-2, Amplify, and Geneformer have been migrated to simplified TransformerEngine + FSDP implementations in [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes). For training these models, please refer to the recipes in `bionemo-recipes/recipes/` (e.g., `esm2_native_te`, `geneformer_native_te_mfsdp_fp8`). Model cards and checkpoint information remain available in these docs.
+
 <p>
   <strong>NVIDIA BioNeMo Framework</strong> is a collection of programming tools, libraries, and models for computational drug discovery.
   It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized models and tooling that are easily integrated into GPU-based computational resources for the fastest performance on the market.

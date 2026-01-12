@@ -284,6 +284,11 @@ class NVEsmPreTrainedModel(EsmPreTrainedModel):
         # Meta-device init seems to break weight tying, so we re-tie the weights here.
         self.tie_weights()
 
+    @classmethod
+    def get_init_context(cls, is_quantized: bool, _is_ds_init_called: bool):
+        """Override the default get_init_context method to allow for fp8 model initialization."""
+        return []
+
 
 class NVEsmModel(NVEsmPreTrainedModel):
     """The ESM Encoder-only protein language model.
@@ -507,9 +512,10 @@ class NVEsmLMHead(nn.Module):
             features (torch.Tensor): The features.
             **kwargs: Additional arguments.
         """
-        x = self.dense(features)
-        x = torch.nn.functional.gelu(x)
-        x = self.decoder(x)
+        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+            x = self.dense(features)
+            x = torch.nn.functional.gelu(x)
+            x = self.decoder(x)
         return x
 
 

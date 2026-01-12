@@ -11,7 +11,6 @@ end users.
 
 Each model is stored in its own `sub-packages`. Some examples of models include:
 
-- `sub-packages/bionemo-geneformer`: Geneformer
 - `sub-packages/bionemo-example_model`: A minimal example MNIST model that demonstrates how you can write a lightweight
   megatron model that doesn't actually support any megatron parallelism, but should run fine as long as you only use
   data parallelism to train.
@@ -131,33 +130,6 @@ $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_expe
 │   │       └── bionemo
 │   │           └── example_model
 │   │               └── test_lightning_basic.py
-│   ├── bionemo-geneformer  # 🟢 geneformer sub-module
-│   │   ├── LICENSE
-│   │   ├── README.md
-│   │   ├── _requirements-test.txt
-│   │   ├── _requirements.txt
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   ├── setup.py
-│   │   ├── src
-│   │   │   └── bionemo
-│   │   │       └── geneformer
-│   │   │           ├── __init__.py
-│   │   │           ├── api.py
-│   │   │           ├── model
-│   │   │           │   ├── __init__.py
-│   │   │           │   └── finetune_token_regressor.py
-│   │   │           └── tokenizer
-│   │   │               ├── __init__.py
-│   │   │               ├── gene_tokenizer.py
-│   │   │               └── label2id_tokenizer.py
-│   │   └── tests
-│   │       └── bionemo
-│   │           └── geneformer
-│   │               ├── __init__.py
-│   │               ├── test_model.py
-│   │               ├── test_stop_and_go.py
-│   │               └── test_transformer_specs.py
 │   ├── bionemo-llm  # 🟢 shared model code for LLM style models, eg BERT variants, transformer variants, etc.
 │   │   ├── LICENSE
 │   │   ├── README.md

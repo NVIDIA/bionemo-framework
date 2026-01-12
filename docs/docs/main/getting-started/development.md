@@ -14,8 +14,6 @@ we ensure that BioNeMo developers follow similar patterns to those we expect of 
 
 Each model is stored in its own subdirectory of `sub-packages`. Some examples of models include:
 
-- `bionemo-esm2`: The ESM-2 model
-- `bionemo-geneformer`: The Geneformer model
 - `bionemo-example_model`: A minimal example MNIST model that demonstrates how you can write a lightweight
   Megatron model that does not actually support any megatron parallelism, but should run fine as long as you only use
   data parallelism to train.
@@ -62,8 +60,10 @@ See also [Training Models](./training-models.md)
 The process for pretraining models from BioNeMo involves running scripts located in the `scripts` directory. Each script
 exposes a Command-Line Interface (CLI) that contains and documents the options available for that model.
 
-To pretrain a model, you need to run the corresponding script with the required parameters. For example, to pretrain the
-ESM-2 and Geneformer models, you would call `train_esm2` and `train_geneformer` executables, respectively.
+!!! note "5D Parallel Training Moved to bionemo-recipes"
+The 5D parallel training implementations for ESM-2 and Geneformer have been migrated to simplified TransformerEngine + FSDP implementations in [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes). For training these models, please refer to the recipes in `bionemo-recipes/recipes/`.
+
+To pretrain a model, you need to run the corresponding script with the required parameters. For example, to pretrain ESM-2 models using the 5D parallel implementation, refer to the `esm2_native_te` recipe in bionemo-recipes.
 
 The scripts provide various options that can be customized for pretraining, such as:
 
@@ -104,7 +104,7 @@ export DATA_SOURCE="ngc"
 MODEL_CKPT=$(download_bionemo_data <model_name>/<checkpoint_name>:<version> --source $DATA_SOURCE);
 ```
 
-Replace `<model_name>` with the desired model (for example, `esm2` or `geneformer`), `<version>` with the desired
+Replace `<model_name>` with the desired model (for example, `esm2`), `<version>` with the desired
 version, and `<checkpoint_name>` with the desired checkpoint name.
 
 Additionally, you can download available datasets from NGC using the following command, making similar substitutions as

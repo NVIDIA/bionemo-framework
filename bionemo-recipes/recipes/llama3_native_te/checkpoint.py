@@ -124,7 +124,7 @@ def load_checkpoint_ddp(
     checkpoint = torch.load(
         checkpoint_path / "checkpoint.pt",
         map_location=f"cuda:{dist_config.local_rank}",
-        weights_only=False,
+        weights_only=True,
     )
 
     model.load_state_dict(checkpoint["model"])
