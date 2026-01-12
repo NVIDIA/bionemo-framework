@@ -114,3 +114,43 @@ in code.
 ```
 docker build -t evo2_megatron_recipe-$(git rev-parse --short HEAD) .
 ```
+
+## Performance and accuracy comparisons
+
+NOTE: this section is largely a work in progress. This reflects the most updated information, but may not reflect the
+current state of the code base at any given time.
+
+### Training accuracy convergence
+
+We ran a 12 hour 48 H100 GPU training run to compare megatron bridge with nemo2. We found that FP8 current scaling
+converges by around the 5,000th step to the bf16 lines. And that bf16 is comparable with nemo2. Interestingly in nemo2
+bf16 and fp8 followed nearly identical trajectories for the first 5k steps as well. Note that in a typical training run
+we are performing over 100k steps, so different behavior in the first 5k steps is less worrisome if the endpoints are
+comparable.
+
+![Training Convergence Comparison](assets/mbridge_to_nemo_training_convergence_7ksteps.png)
+
+### Training performance comparisons
+
+FP8 current scaling which is supposed to have better convergence properties than delayed scaling, performs nearly as
+well as delayed scaling in mbridge. Even leaving multiple transformer layers in bf16 precision trains faster than fp8
+delayed scaling in nemo2.
+
+|                   Evo2 1B Run                    | Seconds per step (lower is better) | Tokens/sec/GPU | Global Batch Size | Number of GPUs | Vocab Size |
+| :----------------------------------------------: | :--------------------------------: | :------------: | :---------------: | :------------: | :--------: |
+|                   MBridge BF16                   |                6.10                |     26,859     |        960        |       48       |    256     |
+|              MBridge FP8 (delayed)               |                5.38                |     30,453     |        960        |       48       |    256     |
+|              MBridge FP8 (current)               |                5.44                |     28,755     |        960        |       48       |    512     |
+| MBridge FP8 (current first/last two layers bf16) |                5.47                |     28,598     |        960        |       48       |    512     |
+|               Nemo2 FP8 (delayed)                |                6.18                |     26,511     |        960        |       48       |    512     |
+
+Activation memory optimizations have enabled context parallelism to work better with evo2 style models in our mbridge
+implementation than the previous nemo2 implementation. This enables significantly faster step timing at long context
+as well as demonstrating up to 2M context length currently training on only 512 H100 GPUs for the 40b parameter model.
+
+|   Configuration   | TP  | CP  | Number of Nodes | Number of GPUs | Context Length | Global Batch Size | Seconds per Step |
+| :---------------: | :-: | :-: | :-------------: | :------------: | :------------: | :---------------: | :--------------: |
+|       NeMo2       | 64  |  2  |       32        |      256       |       1M       |         2         |        44        |
+|       NeMo2       |  8  | 16  |       32        |      256       |       1M       |         2         |       OOM        |
+| MBridge Optimized |  8  | 16  |       32        |      256       |       1M       |         2         |        30        |
+|  2M Stress Test   |  8  | 32  |       64        |      512       |       2M       |         2         |        48        |
