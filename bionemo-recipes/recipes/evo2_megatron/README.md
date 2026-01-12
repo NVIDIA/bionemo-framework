@@ -145,8 +145,12 @@ delayed scaling in nemo2.
 |               Nemo2 FP8 (delayed)                |                6.18                |     26,511     |        960        |       48       |    512     |
 
 Activation memory optimizations have enabled context parallelism to work better with evo2 style models in our mbridge
-implementation than the previous nemo2 implementation. This enables significantly faster step timing at long context
-as well as demonstrating up to 2M context length currently training on only 512 H100 GPUs for the 40b parameter model.
+implementation than the previous nemo2 implementation. Since TP requires more node to node communication, you generally
+want to limit TP to your fastest interconnects, which are typically configured in nodes of 8 GPUs. Evo2 would previously
+OOM with these more ideal configurations, requiring much larger than typical levels of TP to handle long context
+training. With our latest changes to the evo2 forward pass, we can now handle more typical TP vs CP configurations.
+This enables significantly faster step timing at long context, as well as demonstrating up to 2M context length. We
+have currently demonstrated small training runs at 2M context on only 512 H100 GPUs for the 40b parameter model.
 
 |   Configuration   |  Precision  | TP  | CP  | Number of Nodes | Number of GPUs | Context Length | Global Batch Size | Seconds per Step |
 | :---------------: | :---------: | :-: | :-: | :-------------: | :------------: | :------------: | :---------------: | :--------------: |
