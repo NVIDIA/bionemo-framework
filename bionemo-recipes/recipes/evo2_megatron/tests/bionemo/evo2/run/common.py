@@ -61,11 +61,14 @@ def small_training_finetune_cmd(
 
 
 def predict_cmd(ckpt_dir: str, output_dir: str, fasta_file_path: str, additional_args: str = ""):
-    """Command fro predict."""
+    """Command for predict.
+
+    Note: Model configuration is loaded from the checkpoint's run_config.yaml file.
+    The checkpoint must be in MBridge format.
+    """
     cmd = (
         f"predict_evo2 --fasta {fasta_file_path} --ckpt-dir {ckpt_dir} --output-dir {output_dir} "
-        "--model-size 1b_nv --num-layers 4 --hybrid-override-pattern SDH* --tensor-parallel-size 1 "
-        f"--pipeline-model-parallel-size 1 --context-parallel-size 1 {additional_args}"
+        f"--tensor-parallel-size 1 --pipeline-model-parallel-size 1 --context-parallel-size 1 {additional_args}"
     )
 
     return cmd
