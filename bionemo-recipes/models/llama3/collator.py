@@ -288,6 +288,7 @@ class DataCollatorForContextParallel:
 
     collator: DataCollator
     cp_world_size: int
+    tp_world_size: int | None = None
     qkv_format: str = "thd"
 
     def __call__(self, features) -> list[dict[str, Any]]:
@@ -329,6 +330,11 @@ class DataCollatorForContextParallel:
             batch_shard["max_length_k"] = batch_shard["max_length_q"] = max_length * round(max_length / 64)
             combined_batch.append(batch_shard)
 
+        if self.tp_world_size is not None:
+            # If we're using tensor parallelism, we need to replicate the batch for each TP rank. We do this by just
+            # repeating the batch in a single flattened output list.
+            combined_batch = [batch for batch in combined_batch for _ in range(self.tp_world_size)]
+
         return combined_batch
 
 
@@ -338,7 +344,7 @@ class ContextParallelDataLoaderWrapper:
     def __init__(
         self,
         dataloader: torch.utils.data.DataLoader | None,
-        cp_mesh: torch.distributed.device_mesh.DeviceMesh,
+        cp_tp_mesh: torch.distributed.device_mesh.DeviceMesh,
     ):
         """A dataloader wrapper that distributes the data across the context parallelism group.
 
@@ -346,21 +352,24 @@ class ContextParallelDataLoaderWrapper:
         different CP group members. Then it will scatter the shards to the different CP group members. The shards are
         then returned to the caller for the current CP rank.
 
+        If tensor parallelism is also being used, the data will be replicated across the TP dimension for each CP rank.
+        This should be provided using a flattened cp/tp mesh.
+
         Args:
             dataloader: The dataloader to use.
-            cp_mesh: The context parallel mesh.
-            cp_rank: The rank of the current context parallel process.
+            cp_tp_mesh: The context parallel mesh, or combined context parallel and tensor parallel mesh.
+
         """
-        if cp_mesh.get_local_rank() == 0:
+        if cp_tp_mesh.get_local_rank() == 0:
             assert dataloader is not None, "dataloader must be provided on rank 0"
             self.dataloader = dataloader
 
         else:
             assert dataloader is None, "Dataloader on non-rank 0 will not be used"
 
-        self.cp_rank = cp_mesh.get_local_rank()
-        self.cp_group = cp_mesh.get_group()
-        self.num_cp_ranks = cp_mesh.size()
+        self.cp_rank = cp_tp_mesh.get_local_rank()
+        self.cp_group = cp_tp_mesh.get_group()
+        self.num_cp_ranks = cp_tp_mesh.size()
         self._iterator = None
 
         logger.debug(
@@ -390,9 +399,13 @@ class ContextParallelDataLoaderWrapper:
         The shards are then combined into a single batch and returned to the caller
         for the current CP rank.
 
+        If tensor parallelism is also being used, the combined batch will look like:
+        combined_batch = [<cp_rank_0_shard>, <cp_rank_0_shard>, ..., <cp_rank_1_shard>, ...]
+        where each shard is replicated self.tp_world_size times.
+
         Scalability:
-            Rank 0's work grows linearly with CP size, but the other ranks do not need to store all the shards so they do not
-            grow linearly with CP size.
+            Rank 0's work grows linearly with CP size, but the other ranks do not need to store all the shards so they
+            do not grow linearly with CP size.
 
         Args:
             None
@@ -744,14 +757,14 @@ class BatchType(TypedDict):
 
 
 def _scatter_batch_to_cp_ranks(
-    batch: list[BatchType] | list[StopIteration], cp_group: torch.distributed.ProcessGroup | None = None
+    all_batches: list[BatchType] | list[StopIteration], cp_group: torch.distributed.ProcessGroup | None = None
 ) -> BatchType | StopIteration:
     """Scatter a batch to all the CP ranks."""
     scatter_object_output_list = [None]
     # Note: This does not provide an async_op handle. Thus its blocking.
     torch.distributed.scatter_object_list(
         scatter_object_output_list=scatter_object_output_list,
-        scatter_object_input_list=batch,
+        scatter_object_input_list=all_batches,
         group=cp_group,
         group_src=0,
     )
