@@ -159,8 +159,6 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         past_key_values: InferenceParams | None = None,
         inputs_embeds: torch.Tensor | None = None,
         use_cache: bool | None = None,
-        fp8_enabled: bool = True,
-        fp8_recipe=None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> BaseModelOutputWithPast:
         """Forward pass for the NVLlama model.
@@ -172,8 +170,6 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             past_key_values (tuple[tuple[torch.Tensor, ...], ...]): The past key values.
             inputs_embeds (torch.Tensor): The inputs embeds.
             use_cache (bool): Whether to use cache.
-            fp8_enabled (bool): Whether to enable FP8 for middle layers. First and last layers always use bf16.
-            fp8_recipe: The FP8 recipe to use for quantization.
             **kwargs: Additional keyword arguments.
 
         Returns:
@@ -185,10 +181,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
 
-        # Embedding layer - ALWAYS in bf16 for stability
         if inputs_embeds is None:
-            with transformer_engine.pytorch.fp8_autocast(enabled=False):
-                inputs_embeds: torch.Tensor = self.embed_tokens(input_ids)
+            inputs_embeds: torch.Tensor = self.embed_tokens(input_ids)
 
         hidden_states = inputs_embeds
 
@@ -244,35 +238,23 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             )
             past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths)))
 
-        # Process transformer layers with selective FP8
-        # Keep first and last layers in bf16, use FP8 for middle layers
-        num_layers = self.config.num_hidden_layers
-        for layer_idx in range(num_layers):
-            decoder_layer = self.layers[layer_idx]
-
+        for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            # First layer (0) and last layer stay in bf16 for numerical stability
-            # Middle layers use FP8 for performance
-            use_fp8_for_layer = fp8_enabled and (layer_idx != 0) and (layer_idx != num_layers - 1)
+            hidden_states = decoder_layer(
+                hidden_states,
+                attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
+                rotary_pos_emb=te_rope_emb,
+                self_attn_mask_type=self_attn_mask_type,
+                inference_params=past_key_values,
+                cu_seqlens_q=cu_seq_lens_q,
+                cu_seqlens_kv=cu_seq_lens_k,
+                max_seqlen_q=max_length_q,
+                max_seqlen_kv=max_length_k,
+            )
 
-            with transformer_engine.pytorch.fp8_autocast(enabled=use_fp8_for_layer, fp8_recipe=fp8_recipe):
-                hidden_states = decoder_layer(
-                    hidden_states,
-                    attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
-                    rotary_pos_emb=te_rope_emb,
-                    self_attn_mask_type=self_attn_mask_type,
-                    inference_params=past_key_values,
-                    cu_seqlens_q=cu_seq_lens_q,
-                    cu_seqlens_kv=cu_seq_lens_k,
-                    max_seqlen_q=max_length_q,
-                    max_seqlen_kv=max_length_k,
-                )
-
-        # Final norm - ALWAYS in bf16 for stability
-        with transformer_engine.pytorch.fp8_autocast(enabled=False):
-            hidden_states = self.norm(hidden_states)
+        hidden_states = self.norm(hidden_states)
 
         # add hidden states from the last decoder layer. Note that these will be in THD format; we could possibly pad
         # these with the same _pad_input call as below if we wanted them returned in BSHD format.
@@ -321,8 +303,6 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         use_cache: bool | None = None,
         cache_position: torch.Tensor | None = None,
         logits_to_keep: int | torch.Tensor = 0,
-        fp8_enabled: bool = True,
-        fp8_recipe=None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> CausalLMOutputWithPast:
         """Forward pass for the NVLlamaForCausalLM model.
@@ -338,8 +318,6 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             cache_position (torch.Tensor): The cache position.
             logits_to_keep (int | torch.Tensor): Whether to keep only the last logits to reduce the memory footprint of
                 the model during generation.
-            fp8_enabled (bool): Whether to enable FP8 for middle layers. First and last layers always use bf16.
-            fp8_recipe: The FP8 recipe to use for quantization.
             **kwargs: Additional keyword arguments.
 
         Returns:
@@ -353,8 +331,6 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             inputs_embeds=inputs_embeds,
             use_cache=use_cache,
             cache_position=cache_position,
-            fp8_enabled=fp8_enabled,
-            fp8_recipe=fp8_recipe,
             **kwargs,
         )
 
@@ -362,12 +338,10 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
 
-        # LM head - ALWAYS in bf16 for numerical stability
-        with transformer_engine.pytorch.fp8_autocast(enabled=False):
-            if hidden_states.ndim == 3:
-                logits = self.lm_head(hidden_states[:, slice_indices, :])
-            else:  # With THD inputs, batch and sequence dimensions are collapsed in the first dimension.
-                logits = self.lm_head(hidden_states[slice_indices, :])
+        if hidden_states.ndim == 3:
+            logits = self.lm_head(hidden_states[:, slice_indices, :])
+        else:  # With THD inputs, batch and sequence dimensions are collapsed in the first dimension.
+            logits = self.lm_head(hidden_states[slice_indices, :])
 
         loss = None
         if labels is not None:
