@@ -325,10 +325,11 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
 
-        if hidden_states.ndim == 3:
-            logits = self.lm_head(hidden_states[:, slice_indices, :])
-        else:  # With THD inputs, batch and sequence dimensions are collapsed in the first dimension.
-            logits = self.lm_head(hidden_states[slice_indices, :])
+        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+            if hidden_states.ndim == 3:
+                logits = self.lm_head(hidden_states[:, slice_indices, :])
+            else:  # With THD inputs, batch and sequence dimensions are collapsed in the first dimension.
+                logits = self.lm_head(hidden_states[slice_indices, :])
 
         loss = None
         if labels is not None:
