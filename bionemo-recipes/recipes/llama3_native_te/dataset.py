@@ -121,7 +121,7 @@ def create_bshd_dataloader(
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = False,
 ):
-    """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
+    """Create a BSHD dataloader for llama3 pre-training.
 
     Args:
         distributed_config: The distributed configuration.
@@ -135,7 +135,7 @@ def create_bshd_dataloader(
         seed: The seed to use for the distributed sampler and data collator.
         buffer_size: The buffer size for shuffle.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
-        text_column: Name of the column containing genomic sequences (default: "text").
+        text_column: Name of the column containing text sequences (default: "text").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
         mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
 
