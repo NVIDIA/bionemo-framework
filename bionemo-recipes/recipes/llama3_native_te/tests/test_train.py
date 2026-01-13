@@ -268,7 +268,6 @@ def test_sanity_convergence_ddp_non_streaming_dataset(tmp_path, recipe_path):
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "dataset.load_dataset_kwargs.streaming=False",
-                "use_torch_compile=false",
                 "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
             ],
         )
