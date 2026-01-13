@@ -44,19 +44,19 @@ logger.setLevel(logging.INFO)
 def get_parameter_groups_with_weight_decay(
     model: torch.nn.Module,
     weight_decay: float,
-    skip_embeddings: bool = True,
+    skip_embeddings: bool = False,
 ) -> list[dict]:
     """Create parameter groups with proper weight decay filtering.
 
     Follows Megatron convention:
     - Skip weight decay on bias terms
     - Skip weight decay on 1D parameters (LayerNorm/RMSNorm weights)
-    - Skip weight decay on embedding layers (when using spike-no-more init)
+    - Optionally skip weight decay on embedding layers
 
     Args:
         model: The model to get parameter groups from.
         weight_decay: The weight decay value for parameters that should have decay.
-        skip_embeddings: Whether to skip weight decay on embedding layers (recommended with spike-no-more).
+        skip_embeddings: Whether to skip weight decay on embedding layers. Default False to match John's setup.
 
     Returns:
         List of parameter group dicts for the optimizer.
@@ -152,14 +152,14 @@ def main(args: DictConfig) -> float | None:
                 logger.info(f"Init stats - {name}: mean={param.data.mean():.6f}, std={param.data.std():.6f}")
 
     # Create optimizer with proper weight decay filtering.
-    # Skip weight decay on bias, 1D params (LayerNorm), and embeddings (Megatron convention).
+    # Skip weight decay on bias and 1D params (LayerNorm) to match Megatron convention.
     # Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
     weight_decay = adamw_kwargs.pop("weight_decay", 0.1)
 
-    # Check if we should use spike-no-more style (skip WD on embeddings)
-    # Default to True since we're using embedding_init_std=1.0
-    skip_embedding_wd = getattr(args, "skip_embedding_weight_decay", True)
+    # Check if we should skip weight decay on embeddings
+    # Default to False to match John's Megatron setup (only skip bias and 1D params)
+    skip_embedding_wd = getattr(args, "skip_embedding_weight_decay", False)
 
     param_groups = get_parameter_groups_with_weight_decay(
         model=model,

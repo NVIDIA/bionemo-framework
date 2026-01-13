@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 from collections import OrderedDict
 from typing import Unpack
 
@@ -61,24 +62,52 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
         the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
         we need to extend it to handle TE-specific modules.
 
+        Initialization strategy (matching Megatron/John's setup):
+        - Embeddings: std=1.0 (Spike No More paper - prevents gradient vanishing)
+        - LM head: std = initializer_range / sqrt(2 * num_layers) (scaled output init)
+        - MLP fc2: std = initializer_range / sqrt(2 * num_layers) (scaled output init)
+        - Everything else: std = initializer_range (typically 0.02)
+
         Args:
             module (nn.Module): The module to initialize the weights for.
         """
         super()._init_weights(module)
 
-        # Copied from transformers.modeling_utils.PreTrainedModel._init_weights
+        # Get base std from config (typically 0.02)
         if hasattr(self.config, "initializer_range"):
             std = self.config.initializer_range
         else:
-            # 0.02 is the standard default value across the library
             std = getattr(self.config.get_text_config(), "initializer_range", 0.02)
 
+        # Compute scaled std for output layers: std / sqrt(2 * num_layers)
+        # This prevents gradient explosion in deep networks
+        num_layers = getattr(self.config, "num_hidden_layers", 32)
+        output_std = std / math.sqrt(2.0 * num_layers)
+
+        # Embedding init std (Spike No More paper uses 1.0)
+        embedding_std = getattr(self.config, "embedding_init_std", 1.0)
+
+        # Embeddings: use larger std (Spike No More)
+        if isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=embedding_std)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
+
+        # Linear layers: use scaled std for LM head, regular std otherwise
         if isinstance(
             module, (nn.Linear, transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)
         ):
-            module.weight.data.normal_(mean=0.0, std=std)
+            # Detect LM head by checking if output dim matches vocab_size
+            is_lm_head = (
+                hasattr(self.config, "vocab_size")
+                and hasattr(module, "weight")
+                and module.weight.shape[0] == self.config.vocab_size
+            )
+            init_std = output_std if is_lm_head else std
+            module.weight.data.normal_(mean=0.0, std=init_std)
             if module.bias is not None:
                 module.bias.data.zero_()
+
         if isinstance(module, transformer_engine.pytorch.LayerNorm):
             if hasattr(module, "weight") and module.weight is not None:
                 module.weight.data.fill_(1.0)
@@ -91,16 +120,20 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
             module.layer_norm_weight.data.fill_(1.0)
             if module.layer_norm_bias is not None:
                 module.layer_norm_bias.data.zero_()
+
+        # MLP: fc1 uses regular std, fc2 uses scaled std (output of MLP block)
         if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
             module.layer_norm_weight.data.fill_(1.0)
             if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
                 module.fc1_weight.data.normal_(mean=0.0, std=std)
             if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
-                module.fc2_weight.data.normal_(mean=0.0, std=std)
+                # fc2 is the output of MLP block - use scaled init
+                module.fc2_weight.data.normal_(mean=0.0, std=output_std)
             if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
                 module.fc1_bias.data.zero_()
             if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
                 module.fc2_bias.data.zero_()
+
         if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
             module.inv_freq = LlamaRotaryEmbedding(config=self.config).inv_freq.to(module.inv_freq.device)
 
