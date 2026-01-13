@@ -17,12 +17,15 @@ import copy
 from typing import Dict, Iterator, List
 from unittest import mock
 
+import pytest
 import torch
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 from transformers import DataCollatorForLanguageModeling
 
 from esm.collator import (
+    BatchType,
     ContextParallelDataLoaderWrapper,
+    DataCollatorForContextParallel,
     DataCollatorWithFlattening,
     _split_batch_by_cp_rank,
 )
@@ -887,3 +890,106 @@ def test_bshd_and_thd_equivalence(tokenizer):
         torch.sort(batch_bshd["input_ids"][1])[0],
         msg="Reconstructed sequence 2 doesn't match original",
     )
+
+
+@pytest.mark.parametrize("cp_world_size", [2, 4])
+def test_data_collator_for_context_parallel_returns_correct_list_size(tokenizer, cp_world_size):
+    """Test that DataCollatorForContextParallel returns a list of the correct size."""
+    divisibility_factor = 2 * cp_world_size
+
+    # Create the wrapped collator that produces padded THD batches
+    base_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15),
+        pad_sequences_to_be_divisible_by=divisibility_factor,
+    )
+
+    # Create the context parallel collator
+    cp_collator = DataCollatorForContextParallel(collator=base_collator, cp_world_size=cp_world_size)
+
+    # Create test sequences
+    features = [
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2]},  # 9 tokens
+    ]
+
+    # Call the collator
+    result = cp_collator(features)
+
+    # Assert that the result is a list of the correct size
+    assert isinstance(result, list), f"Expected list, got {type(result)}"
+    assert len(result) == cp_world_size, f"Expected list of size {cp_world_size}, got {len(result)}"
+
+
+def test_data_collator_for_context_parallel_thd(tokenizer):
+    """Test that each shard from DataCollatorForContextParallel has all required keys from BatchType."""
+
+    cp_world_size = 2
+    divisibility_factor = 2 * cp_world_size
+
+    # Create the wrapped collator that produces padded THD batches
+    base_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15),
+        pad_sequences_to_be_divisible_by=divisibility_factor,
+    )
+
+    # Create the context parallel collator
+    cp_collator = DataCollatorForContextParallel(collator=base_collator, cp_world_size=cp_world_size)
+
+    # Create test sequences
+    features = [
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2]},  # 9 tokens
+    ]
+
+    # Call the collator
+    result = cp_collator(features)
+
+    assert len(result) == cp_world_size, f"Expected list of size {cp_world_size}, got {len(result)}"
+
+    # Define the required keys from BatchType
+    required_keys = set(BatchType.__annotations__.keys())
+
+    # Assert each shard has all required keys
+    for cp_rank, shard in enumerate(result):
+        assert set(shard.keys()) == required_keys, (
+            f"CP rank {cp_rank}: difference: {set(shard.keys()) - required_keys}"
+        )
+
+
+def test_data_collator_for_context_parallel_bshd(tokenizer):
+    """Test that each shard from DataCollatorForContextParallel has all required keys from BatchType."""
+
+    cp_world_size = 2
+    divisibility_factor = 2 * cp_world_size
+
+    # Create the wrapped collator that produces padded THD batches
+    base_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        pad_to_multiple_of=divisibility_factor,
+    )
+
+    # Create the context parallel collator
+    cp_collator = DataCollatorForContextParallel(
+        collator=base_collator, cp_world_size=cp_world_size, qkv_format="bshd"
+    )
+
+    # Create test sequences
+    features = [
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2]},  # 9 tokens
+    ]
+
+    # Call the collator
+    result = cp_collator(features)
+
+    assert len(result) == cp_world_size, f"Expected list of size {cp_world_size}, got {len(result)}"
+
+    # Define the required keys from BatchType
+    required_keys = {"input_ids", "labels", "max_length_q", "max_length_k"}
+
+    # Assert each shard has all required keys
+    for cp_rank, shard in enumerate(result):
+        assert set(shard.keys()) == required_keys, (
+            f"CP rank {cp_rank}: expected keys {required_keys}, got {set(shard.keys())}"
+        )
