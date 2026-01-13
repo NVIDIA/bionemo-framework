@@ -142,7 +142,7 @@ def main(args: DictConfig) -> float | None:
     # Training loop
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
-    micro_step = 0
+    micro_step = 0  # Gradient accumulation step counter
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901

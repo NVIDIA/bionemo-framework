@@ -120,7 +120,7 @@ def main(args: DictConfig) -> float | None:
 
     # Training loop
     step = start_step
-    micro_step = 0
+    micro_step = 0  # Gradient accumulation step counter
     while step < args.num_train_steps:
         for batch in train_dataloader:
             print(batch["input_ids"].shape)
