@@ -15,17 +15,9 @@
 
 import os
 import subprocess
-import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-
-
-# Add parent directory to path for imports when running with torchrun
-sys.path.insert(0, str(Path(__file__).parent.parent.resolve()))
-sys.path.insert(0, str(Path(__file__).parent.resolve()))
-# Add llama3_native_te recipe to path for collator import
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "recipes" / "llama3_native_te"))
 
 import pytest
 import torch
@@ -148,7 +140,7 @@ class DistributedConfig:
 
 
 @skip_in_ci
-def test_context_parallel_equivalence_1process():
+def test_context_parallel_equivalence_1process(recipe_path: Path):
     """Test that context parallelism works with 1 process, verifying results match non-distributed run."""
     cmd = [
         "torchrun",
@@ -159,6 +151,7 @@ def test_context_parallel_equivalence_1process():
         cmd,
         check=False,
         text=True,
+        cwd=str(recipe_path),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=600,
@@ -171,7 +164,7 @@ def test_context_parallel_equivalence_1process():
 
 @skip_in_ci
 @requires_multi_gpu
-def test_context_parallel_equivalence_2process():
+def test_context_parallel_equivalence_2process(recipe_path: Path):
     """Test context parallel equivalence between 2 processes.
 
     In one instance, we run the model in non-distributed mode and in the other
@@ -189,6 +182,7 @@ def test_context_parallel_equivalence_2process():
         cmd,
         check=False,
         text=True,
+        cwd=str(recipe_path),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         timeout=600,
