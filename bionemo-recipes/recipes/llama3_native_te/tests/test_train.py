@@ -268,7 +268,6 @@ def test_sanity_convergence_ddp_non_streaming_dataset(tmp_path, recipe_path):
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "dataset.load_dataset_kwargs.streaming=False",
-                "use_torch_compile=false",
                 "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
             ],
         )
@@ -416,16 +415,12 @@ def test_sanity_fsdp2_cp(tmp_path, recipe_path):
     # Run the training script with Hydra configuration overrides
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
-            config_name="L0_sanity",
+            config_name="L0_sanity_cp",
             overrides=[
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
-                "use_sequence_packing=true",
-                "dataset.max_seq_length=1024",
-                "config_kwargs.attn_input_format=thd",
                 "num_train_steps=10",  # Just verify it runs, don't test convergence
                 "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
-                "+cp_size=1",
             ],
         )
 

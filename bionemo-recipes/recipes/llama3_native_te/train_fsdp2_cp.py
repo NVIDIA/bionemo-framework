@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-@hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
+@hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train Llama3 with TE layers using FSDP2.
 
