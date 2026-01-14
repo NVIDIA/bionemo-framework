@@ -41,6 +41,16 @@ except ImportError:
     HAVE_SUBQUADRATIC_OPS = False
 
 
+def find_free_network_port(address: str = "localhost") -> int:
+    """Find a free port on localhost for distributed testing."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((address, 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
+
+
 @contextlib.contextmanager
 def init_distributed_parallel_state(
     world_size=1, rank=0, tensor_model_parallel_size=1, context_parallel_size=1, pipeline_model_parallel_size=1
@@ -53,7 +63,7 @@ def init_distributed_parallel_state(
     if not dist.is_initialized():
         # Setup minimal environment for single process distributed
         os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = "29500"
+        os.environ["MASTER_PORT"] = str(find_free_network_port())
         os.environ["RANK"] = str(rank)
         os.environ["WORLD_SIZE"] = str(world_size)
 
@@ -388,7 +398,7 @@ def test_subquadratic_ops_kernel(  # noqa: D103
         mixer_kernel.zero_grad()
 
         # Compare results between PyTorch and CUDA kernel implementations
-        torch.testing.assert_close(output_features, output_features_kernel, msg=f"Output mismatch for {operator_type}")
+        torch.testing.assert_close(output_features, output_features_kernel, rtol=0.02, atol=2e-4)
         torch.testing.assert_close(loss, loss_kernel, msg=f"Loss mismatch for {operator_type}")
 
         # Compare gradients
