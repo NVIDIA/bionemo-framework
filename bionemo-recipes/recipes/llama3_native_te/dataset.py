@@ -27,6 +27,7 @@ from collator import (
     ContextParallelDataLoaderWrapper,
     DataCollatorForContextParallel,
     DataCollatorWithFlattening,
+    SequencePackingIterableDataset,
     TokenPackingDataset,
 )
 from distributed_config import DistributedConfig
@@ -120,6 +121,7 @@ def create_bshd_dataloader(
     text_column: str = "text",
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = False,
+    pad_to_multiple_of: int | None = None,
 ):
     """Create a BSHD dataloader for llama3 pre-training.
 
@@ -138,6 +140,7 @@ def create_bshd_dataloader(
         text_column: Name of the column containing text sequences (default: "text").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
         mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
+        pad_to_multiple_of: The number to pad sequences to be divisible by, required for FP8 training. Default: None.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -167,6 +170,7 @@ def create_bshd_dataloader(
     base_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm=False,  # Causal language modeling
+        pad_to_multiple_of=pad_to_multiple_of,
     )
 
     # Wrap with genomic collator if masking options are enabled
@@ -334,3 +338,123 @@ def create_cp_dataloader(
         tokenized_dataset = None
 
     return ContextParallelDataLoaderWrapper(train_dataloader, cp_mesh), tokenized_dataset
+
+
+def create_bshd_packed_dataloader(
+    distributed_config: DistributedConfig,
+    tokenizer_name_or_path: str,
+    load_dataset_kwargs: dict,
+    micro_batch_size: int,
+    max_seq_length: int = 8192,
+    stride: int = 200,
+    num_workers: int = 1,
+    prefetch_factor: int = 4,
+    seed: int = 42,
+    buffer_size: int = 500_000,
+    text_column: str = "text",
+    use_stateful_dataloader: bool = False,
+    uppercase_labels: bool = False,
+    mask_degenerate_bases: bool = False,
+    pad_to_multiple_of: int | None = None,
+):
+    """Create a BSHD dataloader with full sequence packing.
+
+    This creates fixed-length samples by concatenating sequences and arbitrarily splitting
+    across sequence boundaries. Unlike THD packing, this does not track sequence boundaries
+    with cu_seqlens, allowing attention to flow across packed sequences.
+
+    Key features:
+    - Uses windowing (via create_tokenized_dataset) to handle long sequences
+    - Packs windows into fixed-length chunks, crossing boundaries
+    - No cu_seqlens (no boundary tracking)
+    - No attention masks (pure causal masking)
+    - drop_last=True (no padding)
+
+    Args:
+        distributed_config: The distributed configuration.
+        tokenizer_name_or_path: Name or path to the tokenizer.
+        load_dataset_kwargs: Keyword arguments to pass to `load_dataset`.
+        micro_batch_size: The batch size per device.
+        max_seq_length: The fixed length for each sample.
+        stride: The stride for windowing (used by create_tokenized_dataset).
+        num_workers: The number of workers to use for the dataloader.
+        prefetch_factor: The prefetch factor to use for the dataloader.
+        seed: The seed for shuffling.
+        buffer_size: The buffer size for shuffle.
+        text_column: Name of the column containing text sequences.
+        use_stateful_dataloader: Whether to use StatefulDataLoader for checkpointing.
+        uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
+        mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
+        pad_to_multiple_of: If set, pads sequences to ensure total tokens is divisible by this number.
+            Required for FP8 (should be 16). Default: None.
+
+    Returns:
+        A tuple of (dataloader, dataset).
+    """
+    # Use existing tokenization with windowing
+    tokenized_dataset, tokenizer = create_tokenized_dataset(
+        distributed_config=distributed_config,
+        tokenizer_name_or_path=tokenizer_name_or_path,
+        load_dataset_kwargs=load_dataset_kwargs,
+        max_seq_length=max_seq_length,
+        stride=stride,
+        buffer_size=buffer_size,
+        text_column=text_column,
+    )
+
+    # Set pad_token if not present (required for BSHD format with padding)
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        logger.info(f"Set tokenizer.pad_token to eos_token: {tokenizer.eos_token}")
+
+    # Wrap with packing dataset - drop_last=True to avoid padding
+    packed_dataset = SequencePackingIterableDataset(
+        dataset=tokenized_dataset,
+        max_seq_length=max_seq_length,
+        pad_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id,
+        drop_last=True,  # Drop last incomplete sample (no padding)
+    )
+
+    # Create base collator
+    base_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,  # Causal language modeling
+        pad_to_multiple_of=pad_to_multiple_of,  # For FP8 compatibility (must be divisible by 16)
+    )
+
+    # Wrap with genomic collator if masking options are enabled
+    if uppercase_labels or mask_degenerate_bases:
+        data_collator = GenomicDataCollator(
+            base_collator=base_collator,
+            uppercase_labels=uppercase_labels,
+            mask_degenerate_bases=mask_degenerate_bases,
+        )
+        logger.info(
+            f"Using GenomicDataCollator (uppercase={uppercase_labels}, mask_degenerate={mask_degenerate_bases})"
+        )
+    else:
+        # Use base collator directly for backward compatibility
+        data_collator = base_collator
+        logger.info("Using standard DataCollatorForLanguageModeling")
+
+    if pad_to_multiple_of is not None:
+        logger.info(f"Padding to multiple of {pad_to_multiple_of} for FP8 compatibility")
+
+    # Create dataloader
+    dataloader_class = StatefulDataLoader if use_stateful_dataloader else DataLoader
+    train_dataloader = dataloader_class(
+        packed_dataset,
+        batch_size=micro_batch_size,
+        collate_fn=data_collator,
+        num_workers=num_workers,
+        pin_memory=True if not use_stateful_dataloader else False,
+        persistent_workers=num_workers > 0,
+        prefetch_factor=prefetch_factor if num_workers > 0 else None,
+    )
+
+    logger.info(
+        f"Created BSHD packed dataloader: max_seq_length={max_seq_length}, "
+        f"stride={stride}, micro_batch_size={micro_batch_size}, drop_last=True (no padding)"
+    )
+
+    return train_dataloader, packed_dataset
