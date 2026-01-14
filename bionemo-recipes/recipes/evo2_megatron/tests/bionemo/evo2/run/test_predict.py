@@ -22,6 +22,7 @@ import copy
 import glob
 import json
 import os
+import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -488,3 +489,239 @@ def test_predict_evo2_equivalent_with_log_probs(
 # def test_different_results_with_without_peft(tmp_path):
 #     """Test that predictions differ when using PEFT/LoRA adapters."""
 #     pass
+
+
+@pytest.mark.parametrize(
+    "embedding_layer,expected_num_layers",
+    [
+        pytest.param(-1, 25, id="embedding_layer=-1_expects_25_layers"),
+        pytest.param(-2, 24, id="embedding_layer=-2_expects_24_layers"),
+        pytest.param(0, 1, id="embedding_layer=0_expects_1_layer"),
+        pytest.param(5, 6, id="embedding_layer=5_expects_6_layers"),
+    ],
+)
+@pytest.mark.slow
+def test_predict_evo2_embedding_extraction(
+    tmp_path,
+    embedding_layer: int,
+    expected_num_layers: int,
+    mbridge_checkpoint_1b_8k_bf16_path: Path,
+    num_sequences: int = 3,
+    target_sequence_lengths: list[int] | None = None,
+):
+    """Test that embedding extraction produces outputs with expected shapes and keys.
+
+    This test verifies:
+    1. The model is initialized with the correct number of layers (logged and verified)
+    2. Output contains 'hidden_embeddings' key instead of 'token_logits'
+    3. Embeddings have expected shape [B, S, H] where H is hidden dimension
+    4. Other expected keys (pad_mask, seq_idx, tokens) are present
+
+    The 1b model has 25 layers, so:
+    - embedding_layer=-1 -> 25 layers (last layer)
+    - embedding_layer=-2 -> 24 layers (second-to-last)
+    - embedding_layer=0 -> 1 layer (first layer only)
+    - embedding_layer=5 -> 6 layers (layers 0-5)
+    """
+    original_num_layers = 25  # 1b model has 25 layers
+
+    if target_sequence_lengths is None:
+        target_sequence_lengths = [1024, 1024, 1024]
+
+    world_size = 1
+    if world_size > torch.cuda.device_count():
+        pytest.skip(f"World size {world_size} is greater than the number of GPUs {torch.cuda.device_count()}")
+
+    fasta_file_path = tmp_path / "test.fasta"
+    create_fasta_file(
+        fasta_file_path, num_sequences, sequence_lengths=target_sequence_lengths, repeating_dna_pattern=ALU_SEQUENCE
+    )
+
+    # Create a local copy of the environment
+    env = copy.deepcopy(PRETEST_ENV)
+    if is_a6000_gpu():
+        env["NCCL_P2P_DISABLE"] = "1"
+
+    output_dir = tmp_path / "test_output"
+    open_port = find_free_network_port()
+    command = (
+        f"torchrun --nproc_per_node {world_size} --nnodes 1 --master_port {open_port} "
+        f"-m bionemo.evo2.run.predict --fasta {fasta_file_path} --ckpt-dir {mbridge_checkpoint_1b_8k_bf16_path} "
+        f"--output-dir {output_dir} "
+        f"--micro-batch-size 2 --write-interval epoch "
+        f"--embedding-layer {embedding_layer}"
+    )
+
+    cmd_parts = shlex.split(command)
+    result = subprocess.run(
+        cmd_parts,
+        check=False,
+        cwd=tmp_path,
+        capture_output=True,
+        env=env,
+        text=True,
+    )
+
+    # For debugging purposes, print the output if the test fails
+    if result.returncode != 0:
+        print("STDOUT:\n" + result.stdout)
+        print("STDERR:\n" + result.stderr)
+
+    # Assert that the command completed successfully
+    assert result.returncode == 0, f"predict_evo2 command failed with code {result.returncode}"
+
+    # Combine stdout and stderr for log checking
+    combined_output = result.stdout + result.stderr
+
+    # Verify logging about model layers is present and extract the layer count
+    assert "Model initialized with" in combined_output, "Expected logging about model layer count"
+    assert "Embedding extraction" in combined_output, "Expected logging about embedding extraction mode"
+
+    # Parse and verify the actual number of layers from the log
+    # Look for pattern: "Model initialized with N layers"
+    layer_match = re.search(r"Model initialized with (\d+) layers", combined_output)
+    assert layer_match is not None, "Could not parse 'Model initialized with N layers' from output"
+    actual_num_layers = int(layer_match.group(1))
+    assert actual_num_layers == expected_num_layers, (
+        f"Expected model to have {expected_num_layers} layers for embedding_layer={embedding_layer}, "
+        f"but got {actual_num_layers} layers"
+    )
+
+    # Verify the embedding extraction log shows correct layer info
+    # Look for pattern: "using N of M layers"
+    extraction_match = re.search(r"using (\d+) of (\d+) layers", combined_output)
+    assert extraction_match is not None, "Could not parse 'using N of M layers' from output"
+    layers_used = int(extraction_match.group(1))
+    layers_original = int(extraction_match.group(2))
+    assert layers_used == expected_num_layers, (
+        f"Expected 'using {expected_num_layers}' layers, but log shows 'using {layers_used}'"
+    )
+    assert layers_original == original_num_layers, (
+        f"Expected original model to have {original_num_layers} layers, but log shows {layers_original}"
+    )
+
+    # Load predictions
+    pred_files = sorted(glob.glob(str(output_dir / "predictions__rank_*__dp_rank_*.pt")))
+    assert len(pred_files) == 1, f"Expected 1 prediction file, got {len(pred_files)}"
+
+    preds = torch.load(pred_files[0])
+    assert isinstance(preds, dict)
+
+    # Verify expected keys for embedding extraction
+    assert "hidden_embeddings" in preds, "Expected 'hidden_embeddings' key in embedding extraction mode"
+    assert "token_logits" not in preds, "Should not have 'token_logits' in embedding extraction mode"
+    assert "pad_mask" in preds, "Expected 'pad_mask' key"
+    assert "seq_idx" in preds, "Expected 'seq_idx' key"
+    assert "tokens" in preds, "Expected 'tokens' key"
+
+    # Verify shapes
+    hidden_embeddings = preds["hidden_embeddings"]
+    pad_mask = preds["pad_mask"]
+    tokens = preds["tokens"]
+
+    # hidden_embeddings should be [B, S, H] where H is hidden dimension (1920 for 1b model)
+    assert len(hidden_embeddings.shape) == 3, f"Expected 3D tensor, got shape {hidden_embeddings.shape}"
+    batch_size, seq_len, hidden_dim = hidden_embeddings.shape
+
+    assert batch_size == num_sequences, f"Expected batch size {num_sequences}, got {batch_size}"
+    # Sequence length should match padded length
+    max_seq_len = max(target_sequence_lengths)
+    assert seq_len == max_seq_len, f"Expected seq_len {max_seq_len}, got {seq_len}"
+    # Hidden dim should be 1920 for 1b model
+    assert hidden_dim == 1920, f"Expected hidden_dim 1920 for 1b model, got {hidden_dim}"
+
+    # Verify pad_mask and tokens have matching shapes
+    assert pad_mask.shape == (batch_size, seq_len), f"pad_mask shape mismatch: {pad_mask.shape}"
+    assert tokens.shape == (batch_size, seq_len), f"tokens shape mismatch: {tokens.shape}"
+
+    # Verify seq_idx has correct count
+    assert len(preds["seq_idx"]) == num_sequences, f"Expected {num_sequences} seq_idx entries"
+
+    # Check sequence index map exists
+    seq_idx_map_path = output_dir / "seq_idx_map.json"
+    assert seq_idx_map_path.exists(), f"seq_idx_map.json not found at {seq_idx_map_path}"
+
+    with open(seq_idx_map_path) as f:
+        seq_idx_map = json.load(f)
+    assert len(seq_idx_map) == num_sequences
+
+
+@pytest.mark.slow
+def test_predict_evo2_embedding_layer_validation(
+    tmp_path,
+    mbridge_checkpoint_1b_8k_bf16_path: Path,
+):
+    """Test that invalid embedding layer values are rejected with appropriate errors."""
+    fasta_file_path = tmp_path / "test.fasta"
+    create_fasta_file(fasta_file_path, 1, sequence_lengths=[512], repeating_dna_pattern=ALU_SEQUENCE)
+
+    env = copy.deepcopy(PRETEST_ENV)
+    if is_a6000_gpu():
+        env["NCCL_P2P_DISABLE"] = "1"
+
+    output_dir = tmp_path / "test_output"
+    open_port = find_free_network_port()
+
+    # Test with an invalid embedding layer (too large positive index)
+    # The 1b model has 28 layers, so layer 100 should be invalid
+    command = (
+        f"torchrun --nproc_per_node 1 --nnodes 1 --master_port {open_port} "
+        f"-m bionemo.evo2.run.predict --fasta {fasta_file_path} --ckpt-dir {mbridge_checkpoint_1b_8k_bf16_path} "
+        f"--output-dir {output_dir} --embedding-layer 100"
+    )
+
+    cmd_parts = shlex.split(command)
+    result = subprocess.run(
+        cmd_parts,
+        check=False,
+        cwd=tmp_path,
+        capture_output=True,
+        env=env,
+        text=True,
+    )
+
+    # Should fail with an error about invalid embedding layer
+    assert result.returncode != 0, "Expected command to fail with invalid embedding layer"
+    assert "Invalid embedding_layer" in result.stderr or "Invalid embedding_layer" in result.stdout, (
+        "Expected error message about invalid embedding layer"
+    )
+
+
+@pytest.mark.slow
+def test_predict_evo2_embedding_with_log_probs_rejected(
+    tmp_path,
+    mbridge_checkpoint_1b_8k_bf16_path: Path,
+):
+    """Test that using both --embedding-layer and --output-log-prob-seqs is rejected."""
+    fasta_file_path = tmp_path / "test.fasta"
+    create_fasta_file(fasta_file_path, 1, sequence_lengths=[512], repeating_dna_pattern=ALU_SEQUENCE)
+
+    env = copy.deepcopy(PRETEST_ENV)
+    if is_a6000_gpu():
+        env["NCCL_P2P_DISABLE"] = "1"
+
+    output_dir = tmp_path / "test_output"
+    open_port = find_free_network_port()
+
+    # Test combining embedding extraction with log prob output (should fail)
+    command = (
+        f"torchrun --nproc_per_node 1 --nnodes 1 --master_port {open_port} "
+        f"-m bionemo.evo2.run.predict --fasta {fasta_file_path} --ckpt-dir {mbridge_checkpoint_1b_8k_bf16_path} "
+        f"--output-dir {output_dir} --embedding-layer -1 --output-log-prob-seqs"
+    )
+
+    cmd_parts = shlex.split(command)
+    result = subprocess.run(
+        cmd_parts,
+        check=False,
+        cwd=tmp_path,
+        capture_output=True,
+        env=env,
+        text=True,
+    )
+
+    # Should fail with an error about incompatible options
+    assert result.returncode != 0, "Expected command to fail with incompatible options"
+    assert "Cannot use --output-log-prob-seqs with --embedding-layer" in result.stderr or (
+        "Cannot use --output-log-prob-seqs with --embedding-layer" in result.stdout
+    ), "Expected error message about incompatible options"

@@ -199,6 +199,9 @@ class HyenaStack(GraphableMegatronModule, MegatronModule):
                 hidden_size=self.transformer_config.hidden_size,
                 eps=self.transformer_config.layernorm_epsilon,
             )
+        else:
+            # Ensure final_norm is always defined to avoid AttributeError when post_process=False
+            self.final_norm = None
         # Required for activation recomputation
         self.num_layers_per_pipeline_rank = len(self.layers)
 

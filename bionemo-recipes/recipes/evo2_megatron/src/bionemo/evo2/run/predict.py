@@ -661,6 +661,15 @@ def parse_args() -> argparse.Namespace:
         help="ROPE sequence length interpolation factor",
     )
 
+    # Embedding extraction arguments
+    ap.add_argument(
+        "--embedding-layer",
+        type=int,
+        help="Extract embeddings from a specific transformer layer instead of logits. "
+        "Supports Python-style negative indexing (e.g., -1 for last layer, -2 for second-to-last). "
+        "For a 25-layer model, layer 24 and layer -1 both refer to the last layer.",
+    )
+
     # Tokenizer arguments
     ap.add_argument(
         "--eden-tokenizer",
@@ -763,6 +772,7 @@ def _predict_step(
     output_log_prob_seqs: bool = False,
     log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
     context_parallel_size: int = 1,
+    output_embeddings: bool = False,
 ) -> Optional[dict[str, Tensor]]:
     """Run a single prediction step and gather outputs across parallel ranks.
 
@@ -776,9 +786,12 @@ def _predict_step(
         output_log_prob_seqs: If True, return log probabilities instead of logits
         log_prob_collapse_option: How to aggregate log probs ('sum', 'mean', or 'per_token')
         context_parallel_size: CP size (for warning about per_token output)
+        output_embeddings: If True, return embeddings instead of logits (model must have
+            post_process=False)
 
     Returns:
         Dictionary containing predictions:
+        - If output_embeddings=True: hidden_embeddings, pad_mask, seq_idx, tokens
         - If output_log_prob_seqs=False: token_logits, pad_mask, seq_idx, tokens
         - If output_log_prob_seqs=True with sum/mean: log_probs_seqs, seq_idx
         - If output_log_prob_seqs=True with per_token: log_probs_seqs, seq_idx, loss_mask
@@ -794,17 +807,34 @@ def _predict_step(
         attention_mask=None,
     )
 
-    # Gather across tensor parallel ranks (vocabulary dimension)
-    forward_out_tp_gathered = _gather_along_last_dim(
-        output_tensor, group=parallel_state.get_tensor_model_parallel_group()
-    )
+    # Gather across tensor parallel ranks
+    # For logits (post_process=True): gather along vocabulary dimension (last dim is sharded)
+    # For embeddings (post_process=False): hidden states are not sharded across TP, skip gathering
+    if output_embeddings:
+        # Hidden states are not sharded across TP ranks, just use the output directly
+        forward_out_tp_gathered = output_tensor
+    else:
+        # Logits have the vocab dimension sharded across TP ranks
+        forward_out_tp_gathered = _gather_along_last_dim(
+            output_tensor, group=parallel_state.get_tensor_model_parallel_group()
+        )
 
     # Gather across context parallel ranks (sequence dimension)
     forward_out_gathered = _gather_along_cp_dim(forward_out_tp_gathered)
     loss_mask_gathered = _gather_along_cp_dim(batch["loss_mask"])
     tokens_gathered = _gather_along_cp_dim(batch["tokens"])
 
-    if output_log_prob_seqs:
+    if output_embeddings:
+        # When extracting embeddings, the model output is hidden states, not logits
+        # Model outputs [S, B, H] (sequence-first format), transpose to [B, S, H] for consistency
+        hidden_embeddings = forward_out_gathered.transpose(0, 1).contiguous()
+        return {
+            "hidden_embeddings": hidden_embeddings,
+            "pad_mask": loss_mask_gathered,
+            "seq_idx": batch["seq_idx"],
+            "tokens": tokens_gathered,
+        }
+    elif output_log_prob_seqs:
         return _compute_log_probs(
             logits=forward_out_gathered,
             tokens=tokens_gathered,
@@ -1014,6 +1044,8 @@ def predict(
     files_per_subdir: Optional[int] = None,
     output_log_prob_seqs: bool = False,
     log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
+    # Embedding extraction
+    embedding_layer: Optional[int] = None,
 ) -> None:
     """Run the complete Evo2 prediction workflow.
 
@@ -1041,6 +1073,9 @@ def predict(
         files_per_subdir: Group output files into subdirectories (batch mode only).
         output_log_prob_seqs: Output log probabilities instead of raw logits.
         log_prob_collapse_option: How to aggregate log probs: 'sum', 'mean', 'per_token'.
+        embedding_layer: Extract embeddings from a specific layer instead of logits.
+            Supports Python-style negative indexing (-1 for last layer, -2 for second-to-last).
+            For a 25-layer model, layer 24 and -1 both refer to the last layer.
 
     Raises:
         ValueError: If pipeline parallelism > 1 is requested.
@@ -1122,6 +1157,57 @@ def predict(
     model_provider.should_pad_vocab = True
 
     # -------------------------------------------------------------------------
+    # Step 3.5: Handle embedding layer extraction
+    # -------------------------------------------------------------------------
+    # Get the original number of layers from the checkpoint config
+    original_num_layers = model_provider.num_layers
+    output_embeddings = embedding_layer is not None
+
+    if output_embeddings:
+        # Validate and resolve the embedding layer index
+        # Support Python-style negative indexing
+        if embedding_layer < 0:
+            # Convert negative index to positive (e.g., -1 -> last layer)
+            target_num_layers = original_num_layers + embedding_layer + 1
+        else:
+            # Positive index: layer N means we need N+1 layers (0-indexed)
+            target_num_layers = embedding_layer + 1
+
+        if target_num_layers <= 0 or target_num_layers > original_num_layers:
+            raise ValueError(
+                f"Invalid embedding_layer={embedding_layer} for model with {original_num_layers} layers. "
+                f"Valid range: -{original_num_layers} to {original_num_layers - 1}."
+            )
+
+        # Set the model to use fewer layers and skip post-processing (output heads)
+        model_provider.num_layers = target_num_layers
+        model_provider.post_process = False
+
+        # Also truncate the hybrid_override_pattern if it exists, since it must match num_layers
+        if hasattr(model_provider, "hybrid_override_pattern") and model_provider.hybrid_override_pattern is not None:
+            original_pattern = model_provider.hybrid_override_pattern
+            if len(original_pattern) > target_num_layers:
+                model_provider.hybrid_override_pattern = original_pattern[:target_num_layers]
+                logger.info(
+                    f"Truncated hybrid_override_pattern from {len(original_pattern)} to {target_num_layers} chars"
+                )
+
+        # Disable remove_activation_post_first_layer if we only have 1 layer, since it requires at least 2 layers
+        if target_num_layers == 1 and hasattr(model_provider, "remove_activation_post_first_layer"):
+            if model_provider.remove_activation_post_first_layer:
+                model_provider.remove_activation_post_first_layer = False
+                logger.info("Disabled remove_activation_post_first_layer (requires at least 2 layers)")
+
+        logger.info(
+            f"Embedding extraction mode: extracting from layer {embedding_layer} "
+            f"(using {target_num_layers} of {original_num_layers} layers, post_process=False)"
+        )
+
+        # Cannot use log prob output with embedding mode
+        if output_log_prob_seqs:
+            raise ValueError("Cannot use --output-log-prob-seqs with --embedding-layer. Embeddings are not logits.")
+
+    # -------------------------------------------------------------------------
     # Step 4: Initialize distributed environment
     # -------------------------------------------------------------------------
     rng_config = instantiate(run_config.get("rng")) if run_config.get("rng") else RNGConfig(seed=1234)
@@ -1160,6 +1246,23 @@ def predict(
 
     for model_module in model:
         model_module.eval()
+
+    # Log model layer information
+    # Access the underlying model to get layer count
+    model_for_inspection = model[0]
+    if hasattr(model_for_inspection, "module"):
+        # Handle Float16Module wrapper
+        model_for_inspection = model_for_inspection.module
+    if hasattr(model_for_inspection, "decoder") and hasattr(model_for_inspection.decoder, "layers"):
+        actual_num_layers = len(model_for_inspection.decoder.layers)
+        logger.info(f"Model initialized with {actual_num_layers} layers")
+        if output_embeddings:
+            logger.info(
+                f"Embedding extraction: model has {actual_num_layers} layers "
+                f"(from original {original_num_layers} layers)"
+            )
+    else:
+        logger.warning("Could not determine number of layers from model structure")
 
     logger.info(f"Loading weights from: {resolved_ckpt_dir}")
     _load_model_weights_from_checkpoint(
@@ -1232,6 +1335,7 @@ def predict(
                 output_log_prob_seqs=output_log_prob_seqs,
                 log_prob_collapse_option=log_prob_collapse_option,
                 context_parallel_size=context_parallel_size,
+                output_embeddings=output_embeddings,
             )
 
             if result is not None:
@@ -1311,6 +1415,8 @@ def main() -> None:
         files_per_subdir=args.files_per_subdir,
         output_log_prob_seqs=args.output_log_prob_seqs,
         log_prob_collapse_option=args.log_prob_collapse_option,
+        # Embedding extraction
+        embedding_layer=args.embedding_layer,
     )
 
 
