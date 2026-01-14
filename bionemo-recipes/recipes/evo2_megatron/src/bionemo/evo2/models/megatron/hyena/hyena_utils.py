@@ -1005,9 +1005,11 @@ class ParallelHyenaOperator(nn.Module):
             )
             # y = rearrange(y, "b d l -> b l d")
         else:
-            x1 = rearrange(x1, "1 d l -> l d")
-            x2 = rearrange(x2, "1 d l -> l d")
-            v = rearrange(v, "1 d l -> l d")
+            # Decode path: handle arbitrary batch size
+            # Input shapes: [b, d, l] where l=1 during decode
+            x1 = rearrange(x1, "b d l -> (b l) d")
+            x2 = rearrange(x2, "b d l -> (b l) d")
+            v = rearrange(v, "b d l -> (b l) d")
             x1, x2 = x2, x1  # TODO: figure why it is swapped
             y, iir_state = engine.step_iir(
                 x2=x2,

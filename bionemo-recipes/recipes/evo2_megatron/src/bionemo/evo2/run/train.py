@@ -598,12 +598,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     #     default=True,
     #     help="Disable saving the last checkpoint.",
     # )  # TODO implement
-    parser.add_argument(
-        "--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False
-    )  # TODO implement
-    parser.add_argument(
-        "--lora-checkpoint-path", type=str, default=None, help="LoRA checkpoint path"
-    )  # TODO implement
+    # parser.add_argument(
+    #     "--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False
+    # )  # TODO implement
+    # parser.add_argument(
+    #     "--lora-checkpoint-path", type=str, default=None, help="LoRA checkpoint path"
+    # )  # TODO implement
     parser.add_argument(
         "--no-calculate-per-token-loss",
         action="store_true",

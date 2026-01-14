@@ -559,13 +559,17 @@ def sequences():
         return [row["Sequence"] for row in reader]
 
 
-# @pytest.fixture
-# def coding_sequences():
-#     with (Path(__file__).parent / "data" / "cds_prompts.csv").open(newline="") as f:
-#         from csv import DictReader
+@pytest.fixture
+def coding_sequences():
+    """Fixture that returns coding sequences from the cds_prompts.csv file."""
+    cds_file = Path(__file__).parent / "data" / "cds_prompts.csv"
+    if not cds_file.exists():
+        pytest.skip(f"CDS prompts file not found: {cds_file}")
+    with cds_file.open(newline="") as f:
+        from csv import DictReader
 
-#         reader = DictReader(f)
-#         return [row["Sequence"] for row in reader]
+        reader = DictReader(f)
+        return [row["Sequence"] for row in reader]
 
 
 # def get_trainer(pipeline_parallel=1):
@@ -868,26 +872,27 @@ def test_forward_ckpt_conversion(
         )
 
 
-# def mid_point_split(*, seq, num_tokens: int | None = None, fraction: float = 0.5):
-#     mid_point = int(fraction * len(seq))
-#     prompt = seq[:mid_point]
-#     if num_tokens is not None:
-#         target = seq[mid_point : mid_point + num_tokens]  # Only compare to the section of sequence directly
-#     else:
-#         target = seq[mid_point:]
-#     return prompt, target
+def mid_point_split(*, seq, num_tokens: int | None = None, fraction: float = 0.5):
+    """Split a sequence at a midpoint for prompt/target evaluation."""
+    mid_point = int(fraction * len(seq))
+    prompt = seq[:mid_point]
+    if num_tokens is not None:
+        target = seq[mid_point : mid_point + num_tokens]  # Only compare to the section of sequence directly
+    else:
+        target = seq[mid_point:]
+    return prompt, target
 
 
-# def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
-#     """Calculate sequence identity between two sequences through direct comparison."""
-#     if not seq1 or not seq2:
-#         return None
+def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
+    """Calculate sequence identity between two sequences through direct comparison."""
+    if not seq1 or not seq2:
+        return None
 
-#     # Direct comparison of sequences
-#     min_length = min(len(seq1), len(seq2))
-#     matches = sum(a == b for a, b in zip(seq1[:min_length], seq2[:min_length]))
+    # Direct comparison of sequences
+    min_length = min(len(seq1), len(seq2))
+    matches = sum(a == b for a, b in zip(seq1[:min_length], seq2[:min_length]))
 
-#     return (matches / min_length) * 100
+    return (matches / min_length) * 100
 
 
 # @pytest.mark.parametrize(
@@ -960,110 +965,137 @@ def test_forward_ckpt_conversion(
 #     )
 
 
-# @pytest.mark.parametrize(
-#     "ckpt_name,model_tokenizer_provider,expected_matchpercents",
-#     [
-#         ("evo2/1b-8k-bf16:1.0", get_model_and_tokenizer, [86.4, 78.8, 49.7]),
-#         ("evo2/1b-8k:1.0", get_model_and_tokenizer, [86.4, 78.8, 49.7]),
-#         ("evo2_mamba/7b-8k:0.1", get_model_and_tokenizer_ignore_vortex, [86.5, 88.4, 88.2]),
-#         ("evo2/7b-8k:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
-#         ("evo2/7b-1m:1.0", get_model_and_tokenizer, [88.8, 88.5, 82.2]),
-#     ],
-# )
-# def test_batch_generate_coding_sequences(
-#     coding_sequences: list[str],
-#     ckpt_name: str,
-#     model_tokenizer_provider: Callable,
-#     expected_matchpercents: list[float],
-# ):
-#     assert len(coding_sequences) > 0
-#     determine_memory_requirement_and_skip_if_not_met(ckpt_name, test_name=inspect.currentframe().f_code.co_name)
+@pytest.mark.parametrize(
+    "ckpt_name,expected_matchpercents,fp8",
+    [
+        ("evo2/1b-8k-bf16:1.0", [86.4, 78.8, 49.7], False),
+        ("evo2/1b-8k-bf16:1.0", [86.4, 78.8, 49.7], True),
+        ("evo2/1b-8k:1.0", [86.4, 78.8, 49.7], True),
+        ("evo2/7b-8k:1.0", [88.8, 88.5, 82.2], False),
+        ("evo2/7b-1m:1.0", [88.8, 88.5, 82.2], False),
+    ],
+)
+def test_batch_generate_coding_sequences(
+    coding_sequences: list[str],
+    tmp_path: Path,
+    ckpt_name: str,
+    expected_matchpercents: list[float],
+    fp8: bool,
+):
+    """Test generation on coding sequences using MCore inference infrastructure.
 
-#     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
-#     skip = "evo2/1b-8k:" in ckpt_name and not is_fp8_supported
-#     if skip:
-#         # This checkpoint is sensitive to FP8, so we skip it if it is not supported on the current device.
-#         pytest.skip(f"Skipping {ckpt_name} because it is not supported on {device_info} ({compute_capability})")
-#     if "evo2_mamba" in ckpt_name and os.environ.get("BIONEMO_DATA_SOURCE") != "pbss":
-#         # TODO: add evo2_mamba/7b-8k to NGC and remove this skip
-#         pytest.skip(f"Skipping {ckpt_name} because it is not on NGC yet. Run with `BIONEMO_DATA_SOURCE=pbss`.")
-#     # only use vortex_style_fp8 for non-bf16 checkpoints with fp8 support
-#     vortex_style_fp8 = is_fp8_supported and "bf16" not in ckpt_name
+    This test validates that the model can generate reasonable coding sequence
+    continuations, checking for proper stop codon placement and sequence identity.
+    """
+    from bionemo.evo2.run.infer import generate, setup_inference_engine
 
-#     match_percents: list[float] = []
-#     cds_lengths: list[int | None] = []
-#     original_cds_lengths: list[int] = [len(seq) for seq in coding_sequences]
-#     seq_prompts = [mid_point_split(seq=seq, num_tokens=None, fraction=0.3) for seq in coding_sequences]
-#     num_tokens = max(len(sq[1]) for sq in seq_prompts) + 15
+    assert len(coding_sequences) > 0
 
-#     inference_wrapped_model, mcore_tokenizer = model_tokenizer_provider(
-#         ckpt_name, vortex_style_fp8=vortex_style_fp8, enable_flash_decode=True, flash_decode=True
-#     )
+    # Check memory availability
+    try:
+        _ = determine_memory_requirement_and_skip_if_not_met(
+            ckpt_name, test_name="test_batch_generate_coding_sequences"
+        )
+    except KeyError:
+        gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+        if gb_available < 16:
+            pytest.skip(f"Insufficient GPU memory: {gb_available:.1f}GB available, need at least 16GB")
 
-#     _ = generate(
-#         model=inference_wrapped_model,
-#         max_batch_size=1,  # vortex only supports batch size 1
-#         tokenizer=mcore_tokenizer,
-#         prompts=["AAACCC"],
-#         random_seed=42,
-#         inference_params=CommonInferenceParams(
-#             temperature=1.0,
-#             top_k=1,
-#             top_p=0.0,
-#             return_log_probs=False,
-#             num_tokens_to_generate=1,
-#         ),
-#     )
-#     results = generate(
-#         model=inference_wrapped_model,
-#         max_batch_size=1,  # vortex only supports batch size 1
-#         tokenizer=mcore_tokenizer,
-#         prompts=[sq[0] for sq in seq_prompts],
-#         random_seed=42,
-#         inference_params=CommonInferenceParams(
-#             temperature=1.0,
-#             top_k=1,
-#             top_p=0.0,
-#             return_log_probs=False,
-#             num_tokens_to_generate=num_tokens,
-#         ),
-#     )
+    is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    if fp8 and not is_fp8_supported:
+        pytest.skip(f"Skipping {ckpt_name} - FP8 not supported on {device_info} ({compute_capability})")
 
-#     for i, (result, (prompt, target)) in enumerate(zip(results, seq_prompts)):
-#         gen_seq = result.generated_text
-#         logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {gen_seq=}")
-#         logging.info(f"{ckpt_name} {torch.distributed.get_rank()=} {target=}")
-#         full_seq = prompt + gen_seq
-#         stop_codons = {"TAA", "TAG", "TGA"}
-#         assert full_seq[:3] == "ATG"  # start codon
-#         cds_length = None
-#         for codon_start in range(0, len(full_seq), 3):
-#             codon = full_seq[codon_start : codon_start + 3]
-#             if codon in stop_codons:
-#                 cds_length = codon_start + 3
-#                 break
-#         match_percent = calculate_sequence_identity(target, gen_seq)
-#         logging.info(
-#             f"{ckpt_name} {torch.distributed.get_rank()=} {match_percent=} expected: {expected_matchpercents[i]}"
-#         )
-#         match_percents.append(match_percent)
-#         cds_lengths.append(cds_length)
-#         # 99% of the time, you have a stop codon within the first 96 codons if everything were random.
+    # Use bf16 checkpoint to avoid FP8 issues with single-token generation
+    if "bf16" not in ckpt_name and not fp8:
+        pytest.skip(f"Skipping {ckpt_name} - use bf16 checkpoint or enable FP8 for this test")
 
-#     assert len(match_percents) == len(expected_matchpercents)
-#     assert len(cds_lengths) == len(original_cds_lengths)
-#     matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
-#     matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
-#     # By chance you expect to have a stop codon within the first 96 codons if everything were random
-#     #  so verify that we are putting the first stop codon after this point, as well as it being at least 90% of the
-#     #  original sequence length.
-#     assert all(
-#         pcl is None or ((pcl - len(pmpt) > 96 * 3 or len(tgt) < 96 * 3) and pcl >= 0.9 * ocl)
-#         for pcl, ocl, (pmpt, tgt) in zip(cds_lengths, original_cds_lengths, seq_prompts)
-#     ), f"Expected at least 70% of {original_cds_lengths=}, got {cds_lengths=}"
-#     assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
-#         f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
-#     )
+    # Prepare prompts and targets
+    seq_prompts = [mid_point_split(seq=seq, num_tokens=None, fraction=0.3) for seq in coding_sequences]
+    num_tokens = max(len(sq[1]) for sq in seq_prompts) + 15
+    original_cds_lengths: list[int] = [len(seq) for seq in coding_sequences]
+
+    vortex_style_fp8 = ckpt_name == "evo2/1b-8k:1.0" and fp8
+    mixed_precision_recipe = "bf16_with_fp8_current_scaling_mixed" if fp8 and not vortex_style_fp8 else "bf16_mixed"
+
+    with distributed_model_parallel_state(), torch.no_grad():
+        # Convert checkpoint to MBridge format
+        nemo2_ckpt_path = load(ckpt_name)
+        mbridge_ckpt_dir = run_nemo2_to_mbridge(
+            nemo2_ckpt_dir=nemo2_ckpt_path,
+            tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+            mbridge_ckpt_dir=tmp_path / "mbridge_checkpoint",
+            model_size="1b" if "1b" in ckpt_name else "7b_arc_longcontext" if "7b-1m" in ckpt_name else "7b",
+            seq_length=8192,
+            mixed_precision_recipe=mixed_precision_recipe,
+            vortex_style_fp8=vortex_style_fp8,
+        )
+        mbridge_ckpt_path = mbridge_ckpt_dir / "iter_0000001"
+
+        # Extract prompts for generation
+        prompts = [split[0] for split in seq_prompts]
+
+        # Setup MCore inference engine with batch size matching number of prompts
+        batch_size = len(prompts)
+        components = setup_inference_engine(
+            ckpt_dir=mbridge_ckpt_path,
+            max_seq_length=8192,
+            max_batch_size=batch_size,
+            tensor_parallel_size=1,
+            random_seed=42,
+        )
+
+        # Generate all sequences - engine handles iteration internally
+        results = generate(
+            components,
+            prompts=prompts,
+            max_new_tokens=num_tokens,
+            temperature=1.0,
+            top_k=1,  # Greedy for determinism
+        )
+
+        # Process results
+        match_percents: list[float] = []
+        cds_lengths: list[int | None] = []
+        stop_codons = {"TAA", "TAG", "TGA"}
+
+        for i, (result, (prompt, target)) in enumerate(zip(results, seq_prompts)):
+            gen_seq = result.generated_text if result else ""
+            logger.info(f"{ckpt_name} {gen_seq=}")
+            logger.info(f"{ckpt_name} {target=}")
+
+            full_seq = prompt + gen_seq
+            assert full_seq[:3] == "ATG", f"Expected start codon ATG, got {full_seq[:3]}"
+
+            # Find first stop codon
+            cds_length = None
+            for codon_start in range(0, len(full_seq), 3):
+                codon = full_seq[codon_start : codon_start + 3]
+                if codon in stop_codons:
+                    cds_length = codon_start + 3
+                    break
+
+            match_percent = calculate_sequence_identity(target, gen_seq)
+            logger.info(f"{ckpt_name} {match_percent=} expected: {expected_matchpercents[i]}")
+            match_percents.append(match_percent)
+            cds_lengths.append(cds_length)
+
+        # Verify results
+        assert len(match_percents) == len(expected_matchpercents)
+        assert len(cds_lengths) == len(original_cds_lengths)
+        matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
+        matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+
+        # By chance you expect to have a stop codon within the first 96 codons if everything were random
+        # so verify that we are putting the first stop codon after this point, as well as it being at least 90% of the
+        # original sequence length.
+        assert all(
+            pcl is None or ((pcl - len(pmpt) > 96 * 3 or len(tgt) < 96 * 3) and pcl >= 0.9 * ocl)
+            for pcl, ocl, (pmpt, tgt) in zip(cds_lengths, original_cds_lengths, seq_prompts)
+        ), f"Expected at least 70% of {original_cds_lengths=}, got {cds_lengths=}"
+
+        assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+            f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+        )
 
 
 # @pytest.mark.skip(
@@ -1140,3 +1172,119 @@ def test_forward_ckpt_conversion(
 #     assert tokens_per_sec > expected_tokens_sec * 0.85, (
 #         f"Expected at least {expected_tokens_sec} tokens/sec, got {tokens_per_sec}"
 #     )
+
+
+# =============================================================================
+# MBridge-based generation tests using HyenaInferenceContext
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "ckpt_name,expected_matchpercents,fp8",
+    [
+        ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6], False),
+        ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6], True),
+        ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6], True),
+        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], True),
+        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
+    ],
+)
+def test_batch_generate_mbridge(
+    sequences: list[str],
+    tmp_path: Path,
+    ckpt_name: str,
+    expected_matchpercents: list[float],
+    fp8: bool,
+):
+    """Test autoregressive generation using MCore inference infrastructure.
+
+    This test validates that the model can generate reasonable continuations
+    of DNA sequences using the StaticInferenceEngine and TextGenerationController.
+
+    Note: Hyena/Evo2 SSM state caching currently only supports batch size 1,
+    so prompts are processed sequentially. The MCore inference engine handles
+    this internally through legacy mode.
+
+    Uses the same expected values as the original NeMo test_batch_generate.
+    """
+    from bionemo.evo2.run.infer import generate, setup_inference_engine
+
+    assert len(sequences) > 0
+
+    # Check memory availability (use test_batch_generate requirements as proxy)
+    try:
+        _ = determine_memory_requirement_and_skip_if_not_met(ckpt_name, test_name="test_batch_generate")
+    except KeyError:
+        # If no entry exists, check basic memory availability
+        gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+        if gb_available < 16:
+            pytest.skip(f"Insufficient GPU memory: {gb_available:.1f}GB available, need at least 16GB")
+
+    is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
+    if fp8 and not is_fp8_supported:
+        pytest.skip(f"Skipping {ckpt_name} - FP8 not supported on {device_info} ({compute_capability})")
+
+    # Use bf16 checkpoint to avoid FP8 issues with single-token generation
+    if "bf16" not in ckpt_name:
+        pytest.skip(f"Skipping {ckpt_name} - use bf16 checkpoint for generation tests")
+
+    num_tokens_to_generate = 500  # Match original test
+    vortex_style_fp8 = ckpt_name == "evo2/1b-8k:1.0" and fp8
+    mixed_precision_recipe = "bf16_with_fp8_current_scaling_mixed" if fp8 and not vortex_style_fp8 else "bf16_mixed"
+
+    with distributed_model_parallel_state(), torch.no_grad():
+        # Convert checkpoint to MBridge format
+        nemo2_ckpt_path = load(ckpt_name)
+        mbridge_ckpt_dir = run_nemo2_to_mbridge(
+            nemo2_ckpt_dir=nemo2_ckpt_path,
+            tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+            mbridge_ckpt_dir=tmp_path / "mbridge_checkpoint",
+            model_size="1b" if "1b" in ckpt_name else "7b_arc_longcontext" if "7b-1m" in ckpt_name else "7b",
+            seq_length=8192,
+            mixed_precision_recipe=mixed_precision_recipe,
+            vortex_style_fp8=vortex_style_fp8,
+        )
+        mbridge_ckpt_path = mbridge_ckpt_dir / "iter_0000001"
+
+        # Split all sequences at midpoint to get prompts and targets
+        seq_splits = [mid_point_split(seq=seq, num_tokens=num_tokens_to_generate, fraction=0.5) for seq in sequences]
+        prompts = [split[0] for split in seq_splits]
+        targets = [split[1] for split in seq_splits]
+
+        # Setup MCore inference engine
+        # Note: max_batch_size=1 due to Hyena SSM state constraints, but engine handles iteration
+        components = setup_inference_engine(
+            ckpt_dir=mbridge_ckpt_path,
+            max_seq_length=8192,
+            max_batch_size=len(prompts),
+            tensor_parallel_size=1,
+            random_seed=42,
+        )
+
+        # Generate all sequences - engine handles iteration internally with max_batch_size=1
+        results = generate(
+            components,
+            prompts=prompts,
+            max_new_tokens=num_tokens_to_generate,
+            temperature=1.0,
+            top_k=1,  # Greedy for determinism
+        )
+
+        # Calculate match percentages for each result
+        match_percents: list[float] = []
+        for i, (result, target) in enumerate(zip(results, targets)):
+            generated_text = result.generated_text if result else ""
+            match_percent = calculate_sequence_identity(target, generated_text)
+            if match_percent is not None:
+                match_percents.append(match_percent)
+                logger.info(
+                    f"{ckpt_name} seq[{i}] identity: {match_percent:.1f}% expected: {expected_matchpercents[i]:.1f}%"
+                )
+
+        # Use original assertion style - expect at least 90% of expected values
+        assert len(match_percents) == len(expected_matchpercents)
+        matchperc_print = [f"{mp:.1f}%" for mp in match_percents]
+        matchperc_print_expected = [f"{ep:.1f}%" for ep in expected_matchpercents]
+        assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+            f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+        )
