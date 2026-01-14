@@ -39,7 +39,16 @@ Usage (CLI):
         --output-dir /path/to/output --context-parallel-size 2
 
 Output Format:
-    - predictions_batch_XXXXXXXX_dp_rank_XX.pt: PyTorch tensors containing predictions
+    Batch mode (--write-interval batch):
+    - predictions__rank_{global_rank}__dp_rank_{dp_rank}__batch_{batch_idx}.pt
+    - With --files-per-subdir: subdir_{N}/predictions__rank_...
+    - Each file includes batch_idx tensor for reconstruction
+
+    Epoch mode (--write-interval epoch, default):
+    - predictions__rank_{global_rank}__dp_rank_{dp_rank}.pt
+    - All batches collated into single file
+
+    Both modes:
     - seq_idx_map.json: Mapping from sequence names to indices in predictions
 
 Key Functions:
@@ -879,38 +888,104 @@ def _compute_log_probs(
 # =============================================================================
 
 
-def _write_predictions(
+def _write_predictions_batch(
     predictions: dict[str, Tensor],
     output_dir: Path,
     batch_idx: int,
+    global_rank: int,
+    dp_rank: int,
     files_per_subdir: Optional[int] = None,
-    dp_rank: int = 0,
-) -> None:
-    """Write predictions to disk as a PyTorch file.
+    num_files_written: int = 0,
+    data_parallel_world_size: int = 1,
+) -> tuple[Path, int, int]:
+    """Write predictions to disk as a PyTorch file (batch mode).
 
-    File naming: predictions_batch_{batch_idx:08d}_dp_rank_{dp_rank:02d}.pt
+    File naming follows the original PredictionWriter convention:
+    predictions__rank_{global_rank}__dp_rank_{dp_rank}__batch_{batch_idx}.pt
+
+    Subdirectory structure (when files_per_subdir is set):
+    subdir_{num}/predictions__rank_...
+
+    The subdirectory numbering starts from 1 and increments when the number of files
+    written (across all DP ranks) reaches files_per_subdir.
 
     Args:
         predictions: Dictionary of prediction tensors to save
         output_dir: Base output directory
         batch_idx: Batch index for file naming
-        files_per_subdir: If set, organize files into subdirectories
+        global_rank: Global rank of this process
         dp_rank: Data parallel rank (included in filename for multi-GPU)
+        files_per_subdir: If set, organize files into subdirectories
+        num_files_written: Number of files already written in current subdir
+        data_parallel_world_size: Number of data parallel ranks
+
+    Returns:
+        Tuple of (output_path, updated_num_files_written, updated_num_subdirs)
     """
     if not predictions:
-        return
+        return output_dir, num_files_written, 0
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    # Track subdirectory state
+    current_output_dir = output_dir
+    num_subdirs_written = 0
+
     if files_per_subdir is not None:
-        subdir_idx = batch_idx // files_per_subdir
-        subdir = output_dir / f"subdir_{subdir_idx:05d}"
-        subdir.mkdir(parents=True, exist_ok=True)
-        output_path = subdir / f"predictions_batch_{batch_idx:08d}_dp_rank_{dp_rank:02d}.pt"
-    else:
-        output_path = output_dir / f"predictions_batch_{batch_idx:08d}_dp_rank_{dp_rank:02d}.pt"
+        # Calculate how many subdirs we've created based on total files written
+        # (counting all DP ranks)
+        effective_files = num_files_written * data_parallel_world_size
+        if effective_files >= files_per_subdir:
+            # Need a new subdirectory
+            num_subdirs_written = (num_files_written * data_parallel_world_size) // files_per_subdir + 1
+            current_output_dir = output_dir / f"subdir_{num_subdirs_written}"
+            current_output_dir.mkdir(parents=True, exist_ok=True)
+            num_files_written = 0
+
+    filename = f"predictions__rank_{global_rank}__dp_rank_{dp_rank}__batch_{batch_idx}.pt"
+    output_path = current_output_dir / filename
+
+    # Add batch_idx to predictions (matching original PredictionWriter behavior)
+    predictions["batch_idx"] = torch.tensor([batch_idx], dtype=torch.int64)
 
     torch.save(predictions, output_path)
+    logger.info(f"Inference predictions are stored in {output_path}\n{predictions.keys()}")
+
+    return output_path, num_files_written + 1, num_subdirs_written
+
+
+def _write_predictions_epoch(
+    predictions: dict[str, Tensor],
+    output_dir: Path,
+    global_rank: int,
+    dp_rank: int,
+) -> Path:
+    """Write predictions to disk as a PyTorch file (epoch mode).
+
+    File naming follows the original PredictionWriter convention:
+    predictions__rank_{global_rank}__dp_rank_{dp_rank}.pt
+
+    Args:
+        predictions: Dictionary of prediction tensors to save
+        output_dir: Base output directory
+        global_rank: Global rank of this process
+        dp_rank: Data parallel rank
+
+    Returns:
+        Path to the saved file
+    """
+    if not predictions:
+        return output_dir
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"predictions__rank_{global_rank}__dp_rank_{dp_rank}.pt"
+    output_path = output_dir / filename
+
+    torch.save(predictions, output_path)
+    logger.info(f"Inference predictions are stored in {output_path}\n{predictions.keys()}")
+
+    return output_path
 
 
 # =============================================================================
@@ -1132,6 +1207,10 @@ def predict(
     logger.info("Starting prediction loop...")
     predictions: list[dict[str, Tensor]] = []
 
+    # Get ranks for file naming (matching original PredictionWriter behavior)
+    global_rank = get_rank_safe()
+    num_files_written = 0
+
     with torch.no_grad():
         for batch_idx, batch_data in enumerate(dataloader):
             # Move to GPU
@@ -1163,12 +1242,15 @@ def predict(
 
             # Write at batch interval
             if write_interval == "batch" and output_dir is not None and predictions:
-                _write_predictions(
+                _, num_files_written, _ = _write_predictions_batch(
                     predictions=predictions[0],
                     output_dir=output_dir,
                     batch_idx=batch_idx,
-                    files_per_subdir=files_per_subdir,
+                    global_rank=global_rank,
                     dp_rank=data_parallel_rank,
+                    files_per_subdir=files_per_subdir,
+                    num_files_written=num_files_written,
+                    data_parallel_world_size=data_parallel_size,
                 )
                 predictions = []
 
@@ -1181,11 +1263,10 @@ def predict(
             batch_dim_key_defaults={},
             seq_dim_key_defaults={},
         )
-        _write_predictions(
+        _write_predictions_epoch(
             predictions=combined,
             output_dir=output_dir,
-            batch_idx=0,
-            files_per_subdir=None,
+            global_rank=global_rank,
             dp_rank=data_parallel_rank,
         )
 

@@ -198,11 +198,15 @@ def test_predict_evo2_runs(
 
     # Assert that the output directory was created and contains predictions
     # With DDP, each DP rank produces its own file with dp_rank in the filename
-    pred_files = sorted(glob.glob(str(output_dir / "predictions_batch_*_dp_rank_*.pt")))
+    # File naming convention:
+    #   Batch mode: predictions__rank_{global_rank}__dp_rank_{dp_rank}__batch_{batch_idx}.pt
+    #   Epoch mode: predictions__rank_{global_rank}__dp_rank_{dp_rank}.pt
     if wi == "batch":
+        pred_files = sorted(glob.glob(str(output_dir / "predictions__rank_*__dp_rank_*__batch_*.pt")))
         # With batch write interval, we expect multiple files (batches * dp_ranks)
         assert len(pred_files) >= ddp, f"Expected at least {ddp} prediction files, got {len(pred_files)}"
     else:
+        pred_files = sorted(glob.glob(str(output_dir / "predictions__rank_*__dp_rank_*.pt")))
         # With epoch write interval, we expect one file per DP rank
         assert len(pred_files) == ddp, f"Expected {ddp} prediction files (one per DP rank), got {len(pred_files)}"
 
@@ -315,8 +319,9 @@ def baseline_predictions_7b_1m_results(
     )
     assert result.returncode == 0, f"predict_evo2 command failed: {result.stderr}"
 
-    # Use the updated glob pattern that includes dp_rank
-    pred_files = glob.glob(str(output_dir / "predictions_batch_*_dp_rank_*.pt"))
+    # Use the updated glob pattern matching the new naming convention
+    # Epoch mode: predictions__rank_{global_rank}__dp_rank_{dp_rank}.pt
+    pred_files = glob.glob(str(output_dir / "predictions__rank_*__dp_rank_*.pt"))
     preds = [torch.load(pf) for pf in pred_files]
     preds = batch_collator(
         [p for p in preds if p is not None],
@@ -433,11 +438,15 @@ def test_predict_evo2_equivalent_with_log_probs(
 
     # Assert that the output directory was created
     # With DDP, each DP rank produces its own file with dp_rank in the filename
-    pred_files = sorted(glob.glob(str(output_dir / "predictions_batch_*_dp_rank_*.pt")))
+    # File naming convention:
+    #   Batch mode: predictions__rank_{global_rank}__dp_rank_{dp_rank}__batch_{batch_idx}.pt
+    #   Epoch mode: predictions__rank_{global_rank}__dp_rank_{dp_rank}.pt
     if wi == "batch":
+        pred_files = sorted(glob.glob(str(output_dir / "predictions__rank_*__dp_rank_*__batch_*.pt")))
         # With batch write interval, we expect multiple files (batches * dp_ranks)
         assert len(pred_files) >= ddp, f"Expected at least {ddp} prediction files, got {len(pred_files)}"
     else:
+        pred_files = sorted(glob.glob(str(output_dir / "predictions__rank_*__dp_rank_*.pt")))
         # With epoch write interval, we expect one file per DP rank
         assert len(pred_files) == ddp, f"Expected {ddp} prediction files (one per DP rank), got {len(pred_files)}"
 
