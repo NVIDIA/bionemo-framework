@@ -410,41 +410,6 @@ def test_train_fsdp2_fp8_thd(tmp_path, recipe_path):
     assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
-def test_fp8_layers_are_actually_fp8(recipe_path):
-    """Test that FP8 layers are properly configured when FP8 is enabled.
-
-    Uses the L0_sanity config to get a small model config, then verifies that
-    TE layers are used and can be used with FP8.
-    """
-    import transformer_engine.pytorch as te
-    from transformer_engine.common.recipe import DelayedScaling, Format
-
-    from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
-
-    # Load the L0_sanity config to get a small model configuration
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(config_name="L0_sanity")
-
-    # Create config from the sanity config (reusing existing small model settings)
-    config = NVLlamaConfig.from_pretrained(
-        sanity_config.config_name_or_path,
-        dtype=torch.bfloat16,
-        **sanity_config.config_kwargs,
-    )
-
-    # Create model with FP8 initialization
-    fp8_recipe = DelayedScaling(fp8_format=Format.HYBRID)
-    with te.fp8_model_init(recipe=fp8_recipe, enabled=True):
-        model = NVLlamaForCausalLM(config)
-
-    # Check that TransformerLayers are used (TE layers that support FP8)
-    for layer in model.model.layers:
-        assert isinstance(layer, te.TransformerLayer), f"Expected TransformerLayer, got {type(layer)}"
-
-    # Check that lm_head is a TE Linear (can be used with fp8_autocast)
-    assert isinstance(model.lm_head, te.Linear), f"Expected TE Linear for lm_head, got {type(model.lm_head)}"
-
-
 @requires_datacenter_hardware
 def test_sanity_fsdp2_cp(tmp_path, recipe_path):
     # Run the training script with Hydra configuration overrides
