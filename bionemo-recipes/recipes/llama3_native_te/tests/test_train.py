@@ -370,6 +370,79 @@ def test_sanity_fsdp2_with_sequence_packing(tmp_path, recipe_path):
     assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
 
 
+def test_train_fsdp2_fp8_bshd(tmp_path, recipe_path):
+    """Test that FSDP2 training works with FP8 enabled in BSHD mode."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "+dataset.pad_to_multiple_of=16",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_train_fsdp2_fp8_thd(tmp_path, recipe_path):
+    """Test that FSDP2 training works with FP8 enabled in THD mode."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "use_sequence_packing=true",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_fp8_layers_are_actually_fp8():
+    """Test that FP8 layers are properly configured when FP8 is enabled."""
+    import transformer_engine.pytorch as te
+    from transformer_engine.common.recipe import DelayedScaling, Format
+
+    from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
+
+    # Create a small model config
+    config = NVLlamaConfig(
+        hidden_size=256,
+        intermediate_size=512,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        vocab_size=1000,
+        max_position_embeddings=512,
+        attn_input_format="thd",
+    )
+    config.dtype = torch.bfloat16
+
+    # Create model with FP8 initialization
+    fp8_recipe = DelayedScaling(fp8_format=Format.HYBRID)
+    with te.fp8_model_init(recipe=fp8_recipe, enabled=True):
+        model = NVLlamaForCausalLM(config)
+
+    # Check that TransformerLayers have FP8-enabled linear layers
+    for layer in model.model.layers:
+        assert isinstance(layer, te.TransformerLayer), f"Expected TransformerLayer, got {type(layer)}"
+
+    # Check that lm_head is a TE Linear (can be used with fp8_autocast)
+    assert isinstance(model.lm_head, te.Linear), f"Expected TE Linear for lm_head, got {type(model.lm_head)}"
+
+
 @requires_datacenter_hardware
 def test_sanity_fsdp2_cp(tmp_path, recipe_path):
     # Run the training script with Hydra configuration overrides
