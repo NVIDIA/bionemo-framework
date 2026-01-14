@@ -400,6 +400,7 @@ def test_train_fsdp2_fp8_thd(tmp_path, recipe_path):
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "fp8_config.enabled=true",
                 "use_sequence_packing=true",
+                "config_kwargs.attn_input_format=thd",
             ],
         )
 
