@@ -8,6 +8,7 @@
 
 # directories created during these notebook runs.
 nemo2_evo2_1b_8k/
+evo2_1b_bf16_mbridge/
 preprocessed_data/
 pretraining_demo/
 brca1_fasta_files/
