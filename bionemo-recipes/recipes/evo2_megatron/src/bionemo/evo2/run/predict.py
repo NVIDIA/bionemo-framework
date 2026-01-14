@@ -685,6 +685,15 @@ def parse_args() -> argparse.Namespace:
     return ap.parse_args()
 
 
+def on_writing_rank() -> bool:
+    """Returns True if the current rank is one that should own writing predictions."""
+    return (
+        (parallel_state.is_pipeline_last_stage())
+        and (parallel_state.get_tensor_model_parallel_rank() == 0)
+        and (parallel_state.get_context_parallel_rank() == 0)
+    )
+
+
 # =============================================================================
 # Data Loading Utilities
 # =============================================================================
@@ -952,7 +961,7 @@ def _write_predictions_batch(
     Returns:
         Tuple of (output_path, updated_num_files_written, updated_num_subdirs)
     """
-    if not predictions:
+    if (not predictions) or (not on_writing_rank()):
         return output_dir, num_files_written, 0
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1004,7 +1013,7 @@ def _write_predictions_epoch(
     Returns:
         Path to the saved file
     """
-    if not predictions:
+    if (not predictions) or (not on_writing_rank()):
         return output_dir
 
     output_dir.mkdir(parents=True, exist_ok=True)

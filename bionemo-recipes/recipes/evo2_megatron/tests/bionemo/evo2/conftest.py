@@ -21,9 +21,6 @@ import pytest
 import torch
 
 
-# from bionemo.testing.torch import get_device_and_memory_allocated
-
-
 def get_device_and_memory_allocated() -> str:
     """Get the current device index, name, and memory usage."""
     current_device_index = torch.cuda.current_device()

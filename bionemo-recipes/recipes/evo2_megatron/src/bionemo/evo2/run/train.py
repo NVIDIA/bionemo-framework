@@ -236,6 +236,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     # )  # FIXME not supported in megatron
     # parser.add_argument("--wandb-offline", action="store_true", help="Use wandb in offline mode")  # TODO implement
     parser.add_argument("--sequence-parallel", action="store_true", help="Set to enable sequence parallelism.")  # DONE
+    parser.add_argument("--no-fp8-wgrad", action="store_true", help="Set to disable fp8 weight gradients.")
     parser.add_argument(
         "--mixed-precision-recipe",
         type=str,
@@ -764,6 +765,8 @@ def train(args: argparse.Namespace) -> None:
     cfg.checkpoint.use_persistent_ckpt_worker = True
     cfg.checkpoint.exit_on_missing_checkpoint = False
     cfg.checkpoint.dist_ckpt_strictness = "assume_ok_unexpected"
+
+    cfg.mixed_precision.fp8_wgrad = not args.no_fp8_wgrad
 
     # 3. Apply Manual Overrides (for settings not exposed in recipe kwargs)
     if args.no_renormalize_loss:
