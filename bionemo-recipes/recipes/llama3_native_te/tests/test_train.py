@@ -389,7 +389,6 @@ def test_train_fsdp2_fp8_bshd(tmp_path, recipe_path):
     assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
-@requires_datacenter_hardware
 def test_train_fsdp2_fp8_thd(tmp_path, recipe_path):
     """Test that FSDP2 training works with FP8 enabled."""
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
@@ -400,9 +399,6 @@ def test_train_fsdp2_fp8_thd(tmp_path, recipe_path):
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "fp8_config.enabled=true",
                 "use_sequence_packing=true",
-                "+dataset.pad_sequences_to_be_divisible_by=16",
-                "config_kwargs.attn_input_format=thd",
-                "num_train_steps=10",  # Just verify it runs, don't test convergence
             ],
         )
 
@@ -410,7 +406,7 @@ def test_train_fsdp2_fp8_thd(tmp_path, recipe_path):
     gc.collect()
     torch.cuda.empty_cache()
 
-    assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 @requires_datacenter_hardware
