@@ -400,6 +400,28 @@ def test_train_fsdp2_fp8_thd(tmp_path, recipe_path):
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "fp8_config.enabled=true",
                 "use_sequence_packing=true",
+                "+dataset.pad_sequences_to_be_divisible_by=16",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_train_fsdp2_fp8_first_last_bf16(tmp_path, recipe_path):
+    """Test that FSDP2 training works with FP8 and first/last layers in bf16."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "+dataset.pad_to_multiple_of=16",
+                "+config_kwargs.fp8_first_last_bf16=true",
             ],
         )
 
