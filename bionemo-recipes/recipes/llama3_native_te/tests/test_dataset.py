@@ -138,7 +138,6 @@ def test_dataloader_returns_expected_batch(tokenizer_path, tmp_path):
         stride=5,
         uppercase_labels=False,  # Use standard collator for this test
         mask_degenerate_bases=False,  # Use standard collator for this test
-        pad_to_multiple_of=7,
     )
 
     returned_batch = next(iter(dataloader))

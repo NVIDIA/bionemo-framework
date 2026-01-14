@@ -120,7 +120,7 @@ def create_bshd_dataloader(
     text_column: str = "text",
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = False,
-    pad_to_multiple_of: int = 16,
+    pad_to_multiple_of: int | None = None,
 ):
     """Create a BSHD dataloader for llama3 pre-training.
 
