@@ -394,11 +394,25 @@ def _distributed_training_cmd(
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize(
+    "tp_size",
+    [
+        pytest.param(1, id="tp_1_pretrain"),
+        pytest.param(
+            2,
+            id="tp_2_pretrain",
+            marks=pytest.mark.skipif(
+                torch.cuda.device_count() < 2, reason="TP=2 requires at least 2 GPUs for pretraining."
+            ),
+        ),
+    ],
+)
 def test_fine_tuning(
     tmp_path: Path,
-    tp_size: int = 1,
+    tp_size: int,
     cp_size: int = 1,
     dp_size: int = 1,
+    final_tp: int = 1,
     dp_rank_check: bool = True,
     precision_recipe: str = "bf16_mixed",
     pp_size: int = 1,
@@ -505,7 +519,13 @@ def test_fine_tuning(
         tmp_path / f"ft_run_tp{tp_size}_pp{pp_size}_cp{cp_size}_dp{dp_size}_rc{dp_rank_check}_pr{precision_recipe}"
     )
     ft_run_dir.mkdir(parents=True, exist_ok=True)
-    cmd2 = cmd1.rstrip().replace(f"--result-dir {run_dir}", f"--result-dir {ft_run_dir}")
+    ft_world_size = final_tp * pp_size * cp_size * dp_size
+    cmd2 = (
+        cmd1.rstrip()
+        .replace(f"--nproc-per-node {world_size}", f"--nproc-per-node {ft_world_size}")
+        .replace(f"--result-dir {run_dir}", f"--result-dir {ft_run_dir}")
+        .replace(f"--tensor-model-parallel {tp_size}", f"--tensor-model-parallel {final_tp}")
+    )
     cmd2 += f" --finetune-ckpt-dir {ckpt_dir} "
     cmd_parts_2 = shlex.split(cmd2)
 
@@ -599,7 +619,9 @@ def base_checkpoint(tmp_path_factory: pytest.TempPathFactory) -> Path:
             2,
             1,
             id="tensor_parallel",
-            marks=pytest.mark.skip(reason="Tensor parallel test needs to be debugged for mbridge Evo2."),
+            marks=pytest.mark.skip(
+                reason="Tensor parallel sharded optimizer checkpoint needs to be debugged for mbridge Evo2."
+            ),
         ),
         pytest.param(
             1,
@@ -607,7 +629,9 @@ def base_checkpoint(tmp_path_factory: pytest.TempPathFactory) -> Path:
             1,
             2,
             id="pipeline_parallel",
-            marks=pytest.mark.skip(reason="Tensor parallel test needs to be debugged for mbridge Evo2."),
+            marks=pytest.mark.skip(
+                reason="Pipeline parallel sharded optimizer checkpoint needs to be debugged for mbridge Evo2."
+            ),
         ),
     ],
 )

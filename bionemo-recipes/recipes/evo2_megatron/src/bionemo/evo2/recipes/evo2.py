@@ -29,7 +29,7 @@ from megatron.bridge.training.config import (
     TokenizerConfig,
     TrainingConfig,
 )
-from megatron.bridge.training.mixed_precision import MixedPrecisionConfig
+from megatron.bridge.training.mixed_precision import MixedPrecisionConfig, get_mixed_precision_config
 from typing_extensions import TypedDict, Unpack
 
 from bionemo.evo2.data.evo2_dataset_provider import Evo2DatasetProvider
@@ -166,6 +166,8 @@ def _evo2_common(
     checkpoint_dir = os.path.join(run_output_dir, "checkpoints")
     tensorboard_dir = os.path.join(run_output_dir, "tb_logs")
     wandb_save_dir = os.path.join(run_output_dir, "wandb")
+    if isinstance(precision_config, str):
+        precision_config = get_mixed_precision_config(precision_config)
     if mock:
         dataset_cfg_or_provider = MockEvo2DatasetProvider(
             random_seed=dataset_seed,
