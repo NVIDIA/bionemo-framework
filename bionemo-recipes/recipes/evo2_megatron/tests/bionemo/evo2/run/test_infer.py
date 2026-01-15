@@ -28,12 +28,21 @@ in test_evo2.py which has working test_forward_manual and test_forward_ckpt_conv
 
 import os
 import subprocess
-from pathlib import Path
 
 import pytest
 import torch
 
 from bionemo.evo2.models.evo2_provider import HyenaInferenceContext
+
+
+def find_free_network_port(address: str = "localhost") -> int:
+    """Find a free port on localhost for distributed testing."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((address, 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
 
 
 @pytest.fixture(scope="module")
@@ -101,16 +110,15 @@ def test_infer_runs(mbridge_checkpoint_path, tmp_path):
 
     env = os.environ.copy()
     env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = "29501"
+    env["MASTER_PORT"] = str(find_free_network_port())
 
     result = subprocess.run(
         cmd,
         check=False,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=300,  # 5 minutes
         env=env,
-        cwd=str(Path(__file__).parent.parent.parent.parent.parent),
     )
 
     assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
@@ -148,16 +156,15 @@ def test_infer_temperature(mbridge_checkpoint_path, tmp_path, temperature):
 
     env = os.environ.copy()
     env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = "29502"
+    env["MASTER_PORT"] = str(find_free_network_port())
 
     result = subprocess.run(
         cmd,
         check=False,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=300,  # 5 minutes
         env=env,
-        cwd=str(Path(__file__).parent.parent.parent.parent.parent),
     )
 
     assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
@@ -189,16 +196,15 @@ def test_infer_top_k(mbridge_checkpoint_path, tmp_path):
 
     env = os.environ.copy()
     env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = "29503"
+    env["MASTER_PORT"] = str(find_free_network_port())
 
     result = subprocess.run(
         cmd,
         check=False,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=300,  # 5 minutes
         env=env,
-        cwd=str(Path(__file__).parent.parent.parent.parent.parent),
     )
 
     assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
@@ -245,16 +251,15 @@ def test_infer_phylogenetic_prompt(mbridge_checkpoint_path, tmp_path):
 
     env = os.environ.copy()
     env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = "29504"
+    env["MASTER_PORT"] = str(find_free_network_port())
 
     result = subprocess.run(
         cmd,
         check=False,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=300,  # 5 minutes
         env=env,
-        cwd=str(Path(__file__).parent.parent.parent.parent.parent),
     )
 
     assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
