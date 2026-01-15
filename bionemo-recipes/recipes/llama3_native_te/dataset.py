@@ -137,7 +137,7 @@ def create_bshd_dataloader(
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
         mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
         pad_sequences_to_be_divisible_by: The number to pad sequences to be divisible by, required for FP8 training.
-            Default: 16.
+            Default: None.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).

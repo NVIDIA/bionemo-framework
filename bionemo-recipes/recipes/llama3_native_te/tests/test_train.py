@@ -378,7 +378,7 @@ def test_train_fsdp2_fp8_bshd(tmp_path, recipe_path):
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "fp8_config.enabled=true",
-                "+dataset.pad_to_multiple_of=16",
+                "+dataset.pad_sequences_to_be_divisible_by=16",
             ],
         )
 
