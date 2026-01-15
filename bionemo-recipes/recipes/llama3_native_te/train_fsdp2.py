@@ -149,7 +149,10 @@ def main(args: DictConfig) -> float | None:
     if dist_config.rank == 0:
         for name, param in model.named_parameters():
             if "embed" in name.lower() or "lm_head" in name.lower():
-                logger.info(f"Init stats - {name}: mean={param.data.mean():.6f}, std={param.data.std():.6f}")
+                # Convert DTensor to scalar for formatting
+                logger.info(
+                    f"Init stats - {name}: mean={param.data.mean().item():.6f}, std={param.data.std().item():.6f}"
+                )
 
     # Create optimizer with proper weight decay filtering.
     # Skip weight decay on bias and 1D params (LayerNorm) to match Megatron convention.
