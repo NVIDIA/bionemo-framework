@@ -62,19 +62,13 @@ DEFAULT_NCCL_TIMEOUT = "30"  # in second
 
 
 def find_free_network_port(address: str = "localhost") -> int:
-    """Finds a free port on localhost.
-
-    It is useful in single-node training when we don't want to connect to a real master node but
-    have to set the `MASTER_PORT` environment variable.
-    """
+    """Find a free port on localhost for distributed testing."""
     import socket
 
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("", 0))
-    s.listen(1)
-    port = s.getsockname()[1]
-    s.close()
-    return port
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind((address, 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
 
 
 def _reset_microbatch_calculator():
