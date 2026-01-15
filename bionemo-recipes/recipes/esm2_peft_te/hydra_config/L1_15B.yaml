@@ -5,10 +5,10 @@ defaults:
 # Training config
 model_tag: nvidia/esm2_t48_15B_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
 use_pretrained: true
-num_train_steps: 10000
+num_train_steps: 1000
 
 perform_validation: true
-validation_interval: 500
+validation_interval: 20
 
 use_torch_compile: true
 
@@ -34,8 +34,8 @@ wandb_init_args:
 
 # Learning rate scheduler config
 lr_scheduler_kwargs:
-  num_warmup_steps: 100
-  num_training_steps: 10_000
+  num_warmup_steps: 50
+  num_training_steps: 1_000
 
 checkpoint:
   ckpt_dir: null
