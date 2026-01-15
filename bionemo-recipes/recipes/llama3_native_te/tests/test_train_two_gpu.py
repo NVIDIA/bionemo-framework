@@ -192,8 +192,7 @@ def test_multi_gpu_train_fsdp2_with_checkpointing(tmp_path, recipe_path):
 
 
 @requires_multi_gpu
-@requires_datacenter_hardware
-def test_multi_gpu_train_te_fsdp2_cp(tmp_path, recipe_path):
+def test_multi_gpu_train_te_fsdp2_cp_bshd(tmp_path, recipe_path):
     run_train_cmd(
         [
             "torchrun",
@@ -206,6 +205,32 @@ def test_multi_gpu_train_te_fsdp2_cp(tmp_path, recipe_path):
             f"checkpoint.ckpt_dir={tmp_path}",
             "checkpoint.save_every_n_steps=5",
             "cp_size=2",
+            "use_sequence_packing=false",
+            "config_kwargs.attn_input_format=bshd",
+            "config_kwargs.self_attn_mask_type=causal",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
+@requires_datacenter_hardware
+def test_multi_gpu_train_te_fsdp2_cp_thd(tmp_path, recipe_path):
+    run_train_cmd(
+        [
+            "torchrun",
+            "--nproc_per_node=2",
+            "--standalone",
+            "train_fsdp2_cp.py",
+            "--config-name",
+            "L0_sanity_cp",
+            "num_train_steps=10",
+            f"checkpoint.ckpt_dir={tmp_path}",
+            "checkpoint.save_every_n_steps=5",
+            "cp_size=2",
+            "use_sequence_packing=true",
+            "config_kwargs.attn_input_format=thd",
+            "config_kwargs.self_attn_mask_type=padding_causal",
         ],
         recipe_path,
     )

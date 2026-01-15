@@ -558,7 +558,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2_with_context_parallelism(r
     2. Resume training with 2 processes from step 5, continue to step 15
     3. Verify checkpoints exist at steps 5 and 10 with dataloader files for both ranks
     """
-    temp_dir = str(tmp_path / "test_ckpt_fsdp2_2p")
+    temp_dir = str(tmp_path / "test_ckpt_fsdp2_cp_2p")
 
     # Set environment for subprocess
     env = os.environ.copy()
@@ -576,6 +576,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2_with_context_parallelism(r
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
         "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
+        "cp_size=2",
     ]
 
     result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
@@ -622,6 +623,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2_with_context_parallelism(r
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
         "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
+        "cp_size=2",
     ]
 
     result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)

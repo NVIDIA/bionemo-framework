@@ -415,6 +415,40 @@ class ContextParallelDataLoaderWrapper:
 
         return batch_on_this_rank
 
+    def state_dict(self):
+        """Get the state dict by delegating to the dataloader."""
+        if self.cp_rank != 0:
+            return {}
+        elif hasattr(self.dataloader, "state_dict"):
+            return {"dataloader": self.dataloader.state_dict()}
+        else:
+            logger.warning(
+                "Attempting to get the state dict of the dataloader, but the dataloader does not support state_dict, "
+                "returning empty dict"
+            )
+            return {"dataloader": {}}
+
+    def load_state_dict(self, state_dict):
+        """Load the state dict by delegating to the dataloader."""
+        if self.cp_rank != 0:
+            return
+        elif hasattr(self.dataloader, "load_state_dict"):
+            self.dataloader.load_state_dict(state_dict["dataloader"])
+        else:
+            logger.warning(
+                "Attempting to load the state dict of the dataloader, but the dataloader does not support "
+                "load_state_dict, returning without loading the state dict."
+            )
+            return
+
+    @property
+    def num_workers(self):
+        """Get the number of workers of the dataloader."""
+        if self.cp_rank != 0:
+            return 0
+        else:
+            return self.dataloader.num_workers
+
 
 def _split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
     """Split a sample dictionary at a specified number of tokens.
