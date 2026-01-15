@@ -747,7 +747,7 @@ def test_batch_generate_coding_sequences(
             if cds_length is None:
                 logger.warning(f"{ckpt_name} {gen_seq=} no stop codon found")
                 cds_length = len(full_seq)
-            match_percent = calculate_sequence_identity(target, gen_seq)
+            match_percent: float = calculate_sequence_identity(target, gen_seq) or 0.0
             logger.info(f"{ckpt_name} {match_percent=} expected: {expected_matchpercents[i]}")
             match_percents.append(match_percent)
             cds_lengths.append(cds_length)
@@ -820,10 +820,6 @@ def test_batch_generate_mbridge(
     is_fp8_supported, compute_capability, device_info = check_fp8_support(torch.cuda.current_device())
     if fp8 and not is_fp8_supported:
         pytest.skip(f"Skipping {ckpt_name} - FP8 not supported on {device_info} ({compute_capability})")
-
-    # Use bf16 checkpoint to avoid FP8 issues with single-token generation
-    if "bf16" not in ckpt_name:
-        pytest.skip(f"Skipping {ckpt_name} - use bf16 checkpoint for generation tests")
 
     num_tokens_to_generate = 500  # Match original test
     vortex_style_fp8 = ckpt_name == "evo2/1b-8k:1.0" and fp8
