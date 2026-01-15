@@ -38,6 +38,7 @@ from hydra import compose, initialize_config_dir
 
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
+from train_fsdp2_cp import main as main_fsdp2_cp
 
 
 os.environ["WANDB_DISABLED"] = "true"
@@ -543,6 +544,114 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
     )
 
 
+def test_checkpoint_save_and_load_single_process_fsdp2_with_context_parallelism(recipe_path, tmp_path):
+    """Test checkpoint save/resume functionality for FSDP2 with single process and context parallelism.
+
+    This test validates:
+    - FSDP2 creates distributed checkpoints (step_X directories by default)
+    - Each rank saves its shard (even with single process)
+    - Dataloader state is saved alongside model checkpoint
+    - Training can resume from latest checkpoint and continue
+    - Resume starts from correct step count
+
+    Process:
+    1. Train 10 steps (0-9), save checkpoint at step 5
+    2. Resume training from step 5, continue to step 15
+    3. Verify checkpoints exist at steps 5 and 10
+    """
+    temp_dir = str(tmp_path / "test_ckpt_fsdp2_cp")
+
+    # Phase 1: Train for 10 steps (using distributed checkpoint by default)
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        phase1_config = compose(
+            config_name="L0_sanity_cp",
+            overrides=[
+                f"checkpoint.ckpt_dir={temp_dir}",
+                f"+wandb.dir={tmp_path}",
+                "num_train_steps=10",
+                "checkpoint.save_every_n_steps=5",
+                "checkpoint.resume_from_checkpoint=false",  # Start fresh
+                "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
+                "checkpoint.async_save=false",
+            ],
+        )
+
+    main_fsdp2_cp(phase1_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # Checkpoints are saved in a subdirectory named after the script
+    ckpt_subdir = os.path.join(temp_dir, "train_fsdp2")
+    assert os.path.exists(ckpt_subdir), f"Checkpoint subdirectory {ckpt_subdir} not created"
+
+    # Verify checkpoint was created (FSDP2 creates directories by default)
+    checkpoint_dirs = [
+        d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+    ]
+    assert len(checkpoint_dirs) > 0, "No checkpoint directories created in phase 1"
+
+    # Check that checkpoint at step 5 exists
+    expected_checkpoint = "step_5"
+    assert expected_checkpoint in checkpoint_dirs, f"Expected {expected_checkpoint} not found"
+
+    # Check dataloader file exists in step_5 directory
+    step_5_dir = os.path.join(ckpt_subdir, "step_5")
+    assert os.path.isdir(step_5_dir), f"Step 5 directory not found: {step_5_dir}"
+    step_5_files = os.listdir(step_5_dir)
+
+    # With single process, we expect dataloader file for rank 0
+    dataloader_files_5 = [f for f in step_5_files if "dataloader" in f]
+    assert len(dataloader_files_5) >= 1, (
+        f"Expected at least 1 dataloader file, found {len(dataloader_files_5)}: {dataloader_files_5}"
+    )
+    assert any("rank_0" in f for f in dataloader_files_5), (
+        f"No dataloader file for rank 0 found in step_5. Files: {dataloader_files_5}"
+    )
+
+    # Phase 2: Resume training
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        phase2_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"checkpoint.ckpt_dir={temp_dir}",
+                f"+wandb.dir={tmp_path}",
+                "num_train_steps=15",
+                "checkpoint.save_every_n_steps=5",
+                "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+                "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
+                # Sometimes the checkpoint hasn't finished saving by the time we resume training, so we disable async
+                # save for this test.
+                "checkpoint.async_save=false",
+            ],
+        )
+
+    main_fsdp2_cp(phase2_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # Verify phase 2 completed and created additional checkpoints
+    final_checkpoint_dirs = [
+        d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+    ]
+    expected_checkpoints = ["step_5", "step_10"]
+    for expected in expected_checkpoints:
+        assert expected in final_checkpoint_dirs, f"Missing checkpoint: {expected}"
+
+    # Check dataloader file exists in step_10 directory
+    step_10_dir = os.path.join(ckpt_subdir, "step_10")
+    assert os.path.isdir(step_10_dir), f"Step 10 directory not found: {step_10_dir}"
+    step_10_files = os.listdir(step_10_dir)
+
+    # With single process, we expect dataloader file for rank 0
+    dataloader_files_10 = [f for f in step_10_files if "dataloader" in f]
+    assert len(dataloader_files_10) >= 1, (
+        f"Expected at least 1 dataloader file in step_10, found {len(dataloader_files_10)}: {dataloader_files_10}"
+    )
+    assert any("rank_0" in f for f in dataloader_files_10), (
+        f"No dataloader file for rank 0 found in step_10. Files: {dataloader_files_10}"
+    )
+
+
 @requires_multi_gpu
 def test_checkpoint_save_and_load_two_processes_fsdp2_with_context_parallelism(recipe_path, tmp_path):
     """Test checkpoint save/resume functionality for FSDP2 with two processes.
@@ -575,6 +684,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2_with_context_parallelism(r
         f"checkpoint.ckpt_dir={temp_dir}",
         "num_train_steps=10",
         "checkpoint.save_every_n_steps=5",
+        "checkpoint.async_save=false",
         "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
         "cp_size=2",
     ]
@@ -622,6 +732,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2_with_context_parallelism(r
         "num_train_steps=15",
         "checkpoint.save_every_n_steps=5",
         "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+        "checkpoint.async_save=false",
         "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
         "cp_size=2",
     ]

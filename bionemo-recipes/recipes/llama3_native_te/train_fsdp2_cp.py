@@ -142,7 +142,7 @@ def main(args: DictConfig) -> float | None:
             ckpt_path=ckpt_path,
             dist_config=dist_config,
             dataloader=train_dataloader,
-            process_group=device_mesh.get_group("dp"),
+            process_group=cp_dp_mesh.get_group(),
         )
         logger.info(f"Checkpoint loaded, resuming from step {start_step}, epoch {epoch}")
     else:
@@ -204,7 +204,7 @@ def main(args: DictConfig) -> float | None:
                         epoch=epoch,
                         dist_config=dist_config,
                         dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                        process_group=device_mesh.get_group("dp"),
+                        process_group=cp_dp_mesh.get_group(),
                         max_checkpoints=args.checkpoint.max_checkpoints,
                         async_save=args.checkpoint.async_save,
                     )
