@@ -140,21 +140,18 @@ def main(args: DictConfig) -> float:
 
             logits = output.logits
 
-            exit_code = 0
             # CRITICAL: Check for NaN/Inf BEFORE backward
             with torch.no_grad():
                 logit_max = logits.max().item()
                 logit_min = logits.min().item()
-                if abs(logit_max) > 100 or abs(logit_min) > 100:
-                    print(f"WARNING: Large logits detected! Max: {logit_max}, Min: {logit_min}")
-                    exit_code = 6
 
+            logger.info(f"[Step {step}]: logit max: {logit_max}. logit_min: {logit_min}")
             if torch.isnan(loss) or torch.isinf(loss):
-                print(f"[Step {step}] Invalid loss: {loss.item()}, skipping batch")
-                exit_code = 7
+                logger.info(
+                    f"[Step {step}] Invalid loss: {loss.item()}, logit max: {logit_max}. logit_min: {logit_min}"
+                )
+                exit(7)
 
-            if exit_code > 0:
-                exit(exit_code)
             # Compute and clip gradient norms.
             total_norm = torch.nn.utils.clip_grad_norm_(peft_model.parameters(), max_norm=1.0).item()
 
