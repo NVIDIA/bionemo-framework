@@ -319,8 +319,8 @@ def setup_inference_engine(
         tensor_model_parallel_size=tensor_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         context_parallel_size=context_parallel_size,
-        micro_batch_size=1,
-        global_batch_size=data_parallel_size,
+        micro_batch_size=max_batch_size,
+        global_batch_size=max_batch_size * data_parallel_size,
         rng_config=rng_config,
         dist_config=dist_config,
     )

@@ -625,7 +625,7 @@ def test_predict_evo2_embedding_layer_validation(
     open_port = find_free_network_port()
 
     # Test with an invalid embedding layer (too large positive index)
-    # The 1b model has 28 layers, so layer 100 should be invalid
+    # The 1b model has 25 layers, so layer 100 should be invalid
     command = (
         f"torchrun --nproc_per_node 1 --nnodes 1 --master_port {open_port} "
         f"-m bionemo.evo2.run.predict --fasta {fasta_file_path} --ckpt-dir {mbridge_checkpoint_1b_8k_bf16_path} "

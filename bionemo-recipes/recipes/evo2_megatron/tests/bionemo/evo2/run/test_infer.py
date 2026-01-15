@@ -162,6 +162,47 @@ def test_infer_temperature(mbridge_checkpoint_path, tmp_path, temperature):
     assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
 
+@pytest.mark.parametrize("temperature", [0.5, 1.0])
+def test_infer_max_batch_size(mbridge_checkpoint_path, tmp_path, temperature):
+    """Test that different temperatures produce output."""
+    output_file = tmp_path / f"output_temp_{temperature}.txt"
+    # Use a longer prompt for FP8 compatibility
+    prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
+
+    cmd = [
+        "torchrun",
+        "--nproc_per_node",
+        "1",
+        "-m",
+        "bionemo.evo2.run.infer",
+        "--ckpt-dir",
+        str(mbridge_checkpoint_path),
+        "--prompt",
+        prompt,
+        "--max-new-tokens",
+        "5",
+        "--temperature",
+        str(temperature),
+        "--output-file",
+        str(output_file),
+    ]
+
+    env = os.environ.copy()
+    env["MASTER_ADDR"] = "localhost"
+    env["MASTER_PORT"] = str(find_free_network_port())
+
+    result = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=300,  # 5 minutes
+        env=env,
+    )
+
+    assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+
+
 def test_infer_top_k(mbridge_checkpoint_path, tmp_path):
     """Test top-k sampling."""
     output_file = tmp_path / "output_topk.txt"

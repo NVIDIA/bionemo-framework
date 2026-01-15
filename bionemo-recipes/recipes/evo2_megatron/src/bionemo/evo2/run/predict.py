@@ -977,7 +977,7 @@ def _write_predictions_batch(
         effective_files = num_files_written * data_parallel_world_size
         if effective_files >= files_per_subdir:
             # Need a new subdirectory
-            num_subdirs_written = (num_files_written * data_parallel_world_size) // files_per_subdir + 1
+            num_subdirs_written = effective_files // files_per_subdir + 1
             current_output_dir = output_dir / f"subdir_{num_subdirs_written}"
             current_output_dir.mkdir(parents=True, exist_ok=True)
             num_files_written = 0
