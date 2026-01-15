@@ -22,6 +22,7 @@ dataset:
   stride: 200 # Overlap for windowing
   buffer_size: 500_000 # Shuffle buffer size
   use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
+  pad_sequences_to_be_divisible_by: null
   load_dataset_kwargs:
     path: ???
     split: "train"

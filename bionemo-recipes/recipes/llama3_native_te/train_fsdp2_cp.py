@@ -28,7 +28,8 @@ from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
 
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
-from dataset import create_cp_dataloader
+from collator import ContextParallelDataLoaderWrapper, DataCollatorForContextParallel
+from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
@@ -109,11 +110,26 @@ def main(args: DictConfig) -> float | None:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
         model = torch.compile(model)
 
-    train_dataloader, dataset_or_sampler = create_cp_dataloader(
-        dist_config,
-        cp_mesh=device_mesh["cp"],
-        **args.dataset,
-    )
+    # Create the context-aware dataloader. We only create the dataloader on rank 0 and wrap it in a
+    # ContextParallelDataLoaderWrapper that will shard and distribute the data across the context parallelism group.
+    args.dataset.setdefault("pad_sequences_to_be_divisible_by", device_mesh["cp"].size() * 2)
+    if device_mesh["cp"].get_local_rank() == 0:
+        if args.use_sequence_packing:
+            train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
+        else:
+            train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
+
+        train_dataloader.collate_fn = DataCollatorForContextParallel(
+            collator=train_dataloader.collate_fn,
+            cp_world_size=device_mesh["cp"].size(),
+            qkv_format=args.config_kwargs.attn_input_format,
+        )
+
+    else:
+        train_dataloader = None
+        dataset_or_sampler = None
+
+    train_dataloader = ContextParallelDataLoaderWrapper(train_dataloader, device_mesh["cp"])
 
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None

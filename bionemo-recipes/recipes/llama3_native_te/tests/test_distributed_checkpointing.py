@@ -543,6 +543,116 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
     )
 
 
+@requires_multi_gpu
+def test_checkpoint_save_and_load_two_processes_fsdp2_with_context_parallelism(recipe_path, tmp_path):
+    """Test checkpoint save/resume functionality for FSDP2 with two processes.
+
+    This test validates:
+    - Multi-process FSDP2 distributed checkpointing (each rank saves its shard)
+    - Dataloader state is saved for each rank alongside model checkpoint
+    - All ranks participate in saving and loading
+    - Training resumes correctly with proper process synchronization
+
+    Process:
+    1. Train 10 steps (0-9) across 2 processes with context parallelism, save checkpoint at step 5
+    2. Resume training with 2 processes from step 5, continue to step 15
+    3. Verify checkpoints exist at steps 5 and 10 with dataloader files for both ranks
+    """
+    temp_dir = str(tmp_path / "test_ckpt_fsdp2_2p")
+
+    # Set environment for subprocess
+    env = os.environ.copy()
+    env["WANDB_MODE"] = "disabled"
+
+    # Get the full path to train_fsdp2.py
+    train_script = recipe_path / "train_fsdp2_cp.py"
+
+    # Phase 1: Train for 10 steps with 2 processes
+    cmd_phase1 = [
+        "torchrun",
+        "--nproc_per_node=2",
+        str(train_script),
+        f"checkpoint.ckpt_dir={temp_dir}",
+        "num_train_steps=10",
+        "checkpoint.save_every_n_steps=5",
+        "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
+    ]
+
+    result1 = subprocess.run(cmd_phase1, check=False, capture_output=True, text=True, env=env)
+    assert result1.returncode == 0, f"Phase 1 failed: {result1.stderr}"
+
+    # Checkpoints are saved in a subdirectory named after the script
+    ckpt_subdir = os.path.join(temp_dir, "train_fsdp2")
+    assert os.path.exists(ckpt_subdir), f"Checkpoint subdirectory {ckpt_subdir} not created"
+
+    # Verify checkpoint was created (FSDP2 creates directories by default)
+    checkpoint_dirs = [
+        d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+    ]
+    assert len(checkpoint_dirs) > 0, "No checkpoint directories created in phase 1"
+
+    # Check that checkpoint at step 5 exists
+    expected_checkpoint = "step_5"
+    assert expected_checkpoint in checkpoint_dirs, f"Expected {expected_checkpoint} not found"
+
+    # Check dataloader files exist in step_5 directory for both ranks
+    step_5_dir = os.path.join(ckpt_subdir, "step_5")
+    assert os.path.isdir(step_5_dir), f"Step 5 directory not found: {step_5_dir}"
+    step_5_files = os.listdir(step_5_dir)
+
+    # With 2 processes, we expect dataloader files for rank 0 and rank 1
+    dataloader_files_5 = [f for f in step_5_files if "dataloader" in f]
+    assert len(dataloader_files_5) == 2, (
+        f"Expected 2 dataloader files (rank 0 and 1), found {len(dataloader_files_5)}: {dataloader_files_5}"
+    )
+    assert any("rank_0" in f for f in dataloader_files_5), (
+        f"No dataloader file for rank 0 found in step_5. Files: {dataloader_files_5}"
+    )
+    assert any("rank_1" in f for f in dataloader_files_5), (
+        f"No dataloader file for rank 1 found in step_5. Files: {dataloader_files_5}"
+    )
+
+    # Phase 2: Resume training with 2 processes
+    cmd_phase2 = [
+        "torchrun",
+        "--nproc_per_node=2",
+        str(train_script),
+        f"checkpoint.ckpt_dir={temp_dir}",
+        "num_train_steps=15",
+        "checkpoint.save_every_n_steps=5",
+        "checkpoint.resume_from_checkpoint=true",  # Resume from checkpoint
+        "dataset.use_stateful_dataloader=true",  # Enable for checkpoint testing
+    ]
+
+    result2 = subprocess.run(cmd_phase2, check=False, capture_output=True, text=True, env=env)
+    assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
+
+    # Verify phase 2 completed and created additional checkpoints
+    final_checkpoint_dirs = [
+        d for d in os.listdir(ckpt_subdir) if d.startswith("step_") and os.path.isdir(os.path.join(ckpt_subdir, d))
+    ]
+    expected_checkpoints = ["step_5", "step_10"]
+    for expected in expected_checkpoints:
+        assert expected in final_checkpoint_dirs, f"Missing checkpoint: {expected}"
+
+    # Check dataloader files exist in step_10 directory for both ranks
+    step_10_dir = os.path.join(ckpt_subdir, "step_10")
+    assert os.path.isdir(step_10_dir), f"Step 10 directory not found: {step_10_dir}"
+    step_10_files = os.listdir(step_10_dir)
+
+    # With 2 processes, we expect dataloader files for rank 0 and rank 1
+    dataloader_files_10 = [f for f in step_10_files if "dataloader" in f]
+    assert len(dataloader_files_10) == 2, (
+        f"Expected 2 dataloader files (rank 0 and 1) in step_10, found {len(dataloader_files_10)}: {dataloader_files_10}"
+    )
+    assert any("rank_0" in f for f in dataloader_files_10), (
+        f"No dataloader file for rank 0 found in step_10. Files: {dataloader_files_10}"
+    )
+    assert any("rank_1" in f for f in dataloader_files_10), (
+        f"No dataloader file for rank 1 found in step_10. Files: {dataloader_files_10}"
+    )
+
+
 def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
     """Test that learning rate scheduler resumes from correct state after checkpoint load.
 
