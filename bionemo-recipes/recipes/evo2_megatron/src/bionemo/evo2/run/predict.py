@@ -1147,20 +1147,10 @@ def predict(
     # Step 3: Load tokenizer
     # -------------------------------------------------------------------------
     tokenizer_dir = resolved_ckpt_dir / "tokenizer"
-    if "tokenizer" in run_config and run_config["tokenizer"] is not None:
-        tokenizer_config = instantiate(run_config["tokenizer"])
-        if tokenizer_dir.exists():
-            tokenizer = _HuggingFaceTokenizer(tokenizer_dir)
-            logger.info(f"Loaded tokenizer from checkpoint: {tokenizer_dir}")
-        else:
-            tokenizer = _HuggingFaceTokenizer(tokenizer_config.tokenizer_model)
-            logger.info(f"Loaded tokenizer from config: {tokenizer_config.tokenizer_model}")
-    elif tokenizer_dir.exists():
+    if tokenizer_dir.exists():
         tokenizer = _HuggingFaceTokenizer(tokenizer_dir)
-        logger.info(f"Loaded tokenizer from checkpoint: {tokenizer_dir}")
     else:
         tokenizer = _HuggingFaceTokenizer(DEFAULT_HF_TOKENIZER_MODEL_PATH)
-        logger.warning(f"Using default tokenizer: {DEFAULT_HF_TOKENIZER_MODEL_PATH}")
 
     model_provider.vocab_size = tokenizer.vocab_size
     model_provider.should_pad_vocab = True
