@@ -16,7 +16,12 @@
 
 # conftest.py
 import gc
+import os
+import random
+import signal
+import time
 
+import numpy as np
 import pytest
 import torch
 
@@ -60,13 +65,91 @@ def pytest_sessionfinish(session, exitstatus):
         )
 
 
+def _cleanup_child_processes():
+    """Kill any orphaned child processes that might be holding GPU memory.
+
+    This is particularly important for tests that spawn subprocesses via torchrun.
+    """
+    import subprocess
+
+    current_pid = os.getpid()
+    try:
+        # Find child processes
+        result = subprocess.run(
+            ["pgrep", "-P", str(current_pid)], check=False, capture_output=True, text=True, timeout=5
+        )
+        child_pids = result.stdout.strip().split("\n")
+        for pid_str in child_pids:
+            if pid_str:
+                try:
+                    pid = int(pid_str)
+                    os.kill(pid, signal.SIGTERM)
+                except (ValueError, ProcessLookupError, PermissionError):
+                    pass
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+
+def _thorough_gpu_cleanup():
+    """Perform thorough GPU memory cleanup."""
+    if not torch.cuda.is_available():
+        return
+
+    # Synchronize all CUDA streams to ensure all operations are complete
+    torch.cuda.synchronize()
+
+    # Clear all cached memory
+    torch.cuda.empty_cache()
+
+    # Reset peak memory stats
+    torch.cuda.reset_peak_memory_stats()
+
+    # Run garbage collection multiple times to ensure all objects are collected
+    for _ in range(3):
+        gc.collect()
+
+    # Another sync and cache clear after gc
+    torch.cuda.synchronize()
+    torch.cuda.empty_cache()
+
+    # Small sleep to allow GPU memory to be fully released
+    time.sleep(0.1)
+
+
+def _reset_random_seeds():
+    """Reset random seeds to ensure reproducibility across tests.
+
+    Some tests may modify global random state, which can affect subsequent tests
+    that depend on random splitting (like dataset preprocessing).
+    """
+    # Reset Python's random module
+    random.seed(None)
+
+    # Reset NumPy's random state (intentionally using legacy API to reset global state)
+    np.random.seed(None)  # noqa: NPY002
+
+    # Reset PyTorch's random state
+    torch.seed()
+    if torch.cuda.is_available():
+        torch.cuda.seed_all()
+
+
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
-    """Clean up GPU memory after each test."""
+    """Clean up GPU memory and reset state after each test."""
+    # Reset random seeds before the test to ensure reproducibility
+    _reset_random_seeds()
+
     yield
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-        gc.collect()
+
+    # After the test, perform thorough cleanup
+    _thorough_gpu_cleanup()
+
+    # Clean up any orphaned child processes (important for subprocess tests)
+    _cleanup_child_processes()
+
+    # Final garbage collection
+    gc.collect()
 
 
 def pytest_addoption(parser: pytest.Parser):

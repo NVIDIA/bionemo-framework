@@ -546,11 +546,17 @@ class TestFallbackFunctions:
 
     def test_einops_import_error(self):
         """Test that the einops import error is raised with the correct message."""
-        # Mock the import to fail
-        with patch.dict("sys.modules", {"einops": None}):
-            # Re-import the module to trigger the import error
-            with pytest.raises(ImportError, match="einops is required by the Hyena model but cannot be imported"):
-                import bionemo.evo2.models.megatron.hyena.hyena_utils
+        import bionemo.evo2.models.megatron.hyena.hyena_utils
 
-                # Force a reload of the module to trigger the import error
-                importlib.reload(bionemo.evo2.models.megatron.hyena.hyena_utils)
+        try:
+            # Mock the import to fail
+            with patch.dict("sys.modules", {"einops": None}):
+                # Re-import the module to trigger the import error
+                with pytest.raises(ImportError, match="einops is required by the Hyena model but cannot be imported"):
+                    # Force a reload of the module to trigger the import error
+                    importlib.reload(bionemo.evo2.models.megatron.hyena.hyena_utils)
+        finally:
+            # CRITICAL: Always restore the module to its proper state after the test.
+            # The reload above leaves the module in a corrupted state, which can cause
+            # subsequent tests to fail (especially test_infer.py tests).
+            importlib.reload(bionemo.evo2.models.megatron.hyena.hyena_utils)
