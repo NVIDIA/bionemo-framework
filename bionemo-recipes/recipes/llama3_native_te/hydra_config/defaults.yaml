@@ -1,7 +1,19 @@
 # Training config
 use_te: true # Whether to use TransformerEngine layers through NVLlamaForCausalLM (if false, use HF's LlamaForCausalLM)
 config_name_or_path: ??? # E.g., meta-llama/Llama-3.2-1B or ./model_configs/meta-llama/Llama-3.2-1B
+
+# Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
+# When enabled, embeddings are initialized with std=1.0 instead of 0.02.
+# This helps prevent loss spikes during training of large models.
+# Note: This automatically ensures embeddings are NOT tied with output weights.
+spike_no_more_embedding_init: false
+
+# Skip weight decay on embedding layers (useful with spike_no_more_embedding_init)
+# See https://arxiv.org/abs/2312.16903 - helps prevent embeddings from shrinking to zero
+skip_embedding_weight_decay: false
+
 config_kwargs: {}
+# When spike_no_more_embedding_init is true, embedding_init_std=1.0 is added to config_kwargs automatically
 
 num_train_steps: ???
 grad_acc_steps: 1  # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps

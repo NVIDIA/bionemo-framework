@@ -122,6 +122,14 @@ def main(args: DictConfig) -> float | None:
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
     # Convert config_kwargs to regular dict to avoid JSON serialization issues with nested DictConfig
     config_kwargs_dict = OmegaConf.to_container(args.config_kwargs, resolve=True)
+
+    # Handle Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
+    # When enabled, embeddings are initialized with std=1.0 instead of 0.02 to prevent loss spikes.
+    if getattr(args, "spike_no_more_embedding_init", False):
+        config_kwargs_dict["embedding_init_std"] = 1.0
+        config_kwargs_dict["tie_word_embeddings"] = False  # Must not share embeddings with output weights
+        logger.info("Spike-No-More enabled: embedding_init_std=1.0, tie_word_embeddings=False")
+
     config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **config_kwargs_dict)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
