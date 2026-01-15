@@ -82,7 +82,7 @@ def main(args: DictConfig) -> float | None:
     logger.info("Initialized Model:\n%s", model)
 
     # Create a flattened mesh for FSDP2 sharding. This will shard the model across both the DP and CP ranks.
-    cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp") if args.cp_size > 1 else device_mesh
+    cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
 
     # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
     # Each decoder layer should be individually sharded before sharding the full model.

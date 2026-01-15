@@ -611,7 +611,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2_with_context_parallelism(
     # Phase 2: Resume training
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         phase2_config = compose(
-            config_name="L0_sanity",
+            config_name="L0_sanity_cp",
             overrides=[
                 f"checkpoint.ckpt_dir={temp_dir}",
                 f"+wandb.dir={tmp_path}",
