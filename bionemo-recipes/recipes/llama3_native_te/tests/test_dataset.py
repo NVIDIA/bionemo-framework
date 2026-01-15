@@ -24,7 +24,8 @@ import torch
 from hydra import compose, initialize_config_dir
 from torch.distributed.device_mesh import init_device_mesh
 
-from dataset import create_bshd_dataloader, create_cp_dataloader, create_thd_dataloader, create_tokenized_dataset
+from collator import ContextParallelDataLoaderWrapper, DataCollatorForContextParallel
+from dataset import create_bshd_dataloader, create_thd_dataloader, create_tokenized_dataset
 from distributed_config import DistributedConfig
 
 
@@ -703,15 +704,28 @@ def test_cp_dataloader(tokenizer_path):
     torch.cuda.set_device(dist_config.local_rank)
     device_mesh = init_device_mesh("cuda", mesh_shape=(1, 1), mesh_dim_names=("dp", "cp"))
 
-    dataloader, _ = create_cp_dataloader(
-        distributed_config=dist_config,
-        cp_mesh=device_mesh["cp"],
-        tokenizer_name_or_path=tokenizer_path,
-        load_dataset_kwargs=load_dataset_kwargs,
-        text_column="text",
-        micro_batch_size=1,
-        max_seq_length=1024,
-    )
+    cp_mesh = device_mesh["cp"]
+
+    # Create the context-parallel dataloader directly following the pattern in train_fsdp2_cp.py
+    if cp_mesh.get_local_rank() == 0:
+        train_dataloader, _ = create_thd_dataloader(
+            distributed_config=dist_config,
+            tokenizer_name_or_path=tokenizer_path,
+            load_dataset_kwargs=load_dataset_kwargs,
+            text_column="text",
+            micro_batch_size=1,
+            max_seq_length=1024,
+            pad_sequences_to_be_divisible_by=cp_mesh.size() * 2,
+        )
+
+        train_dataloader.collate_fn = DataCollatorForContextParallel(
+            collator=train_dataloader.collate_fn,
+            cp_world_size=cp_mesh.size(),
+        )
+    else:
+        train_dataloader = None
+
+    dataloader = ContextParallelDataLoaderWrapper(train_dataloader, cp_mesh)
 
     batches = list(dataloader)
     assert len(batches) > 1
@@ -775,30 +789,39 @@ if __name__ == "__main__":
     parser.add_argument("--dataset_path", type=str, default="dlcm_sanity_dataset.parquet")
     args = parser.parse_args()
 
-    from torch.distributed.device_mesh import init_device_mesh
-
-    from dataset import create_cp_dataloader
-
     dist_config = DistributedConfig()
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
     device_mesh = init_device_mesh("cuda", mesh_shape=(1, 2), mesh_dim_names=("dp", "cp"))
 
-    dataloader, _ = create_cp_dataloader(
-        distributed_config=dist_config,
-        cp_mesh=device_mesh["cp"],
-        tokenizer_name_or_path="nvidia/Llama-3.1-8B-Instruct-FP8",
-        micro_batch_size=1,
-        text_column="text" if args.dataset_path == "dlcm_sanity_dataset.parquet" else "sequence",
-        load_dataset_kwargs={
-            "path": "parquet",
-            "split": "train",
-            "data_files": args.dataset_path,
-            "streaming": True,
-        },
-        num_workers=1,
-    )
+    cp_mesh = device_mesh["cp"]
+
+    # Create the context-parallel dataloader directly following the pattern in train_fsdp2_cp.py
+    if cp_mesh.get_local_rank() == 0:
+        train_dataloader, _ = create_thd_dataloader(
+            distributed_config=dist_config,
+            tokenizer_name_or_path="nvidia/Llama-3.1-8B-Instruct-FP8",
+            micro_batch_size=1,
+            text_column="text" if args.dataset_path == "dlcm_sanity_dataset.parquet" else "sequence",
+            load_dataset_kwargs={
+                "path": "parquet",
+                "split": "train",
+                "data_files": args.dataset_path,
+                "streaming": True,
+            },
+            num_workers=1,
+            pad_sequences_to_be_divisible_by=cp_mesh.size() * 2,
+        )
+
+        train_dataloader.collate_fn = DataCollatorForContextParallel(
+            collator=train_dataloader.collate_fn,
+            cp_world_size=cp_mesh.size(),
+        )
+    else:
+        train_dataloader = None
+
+    dataloader = ContextParallelDataLoaderWrapper(train_dataloader, cp_mesh)
 
     batches = list(itertools.islice(dataloader, 10))
 
