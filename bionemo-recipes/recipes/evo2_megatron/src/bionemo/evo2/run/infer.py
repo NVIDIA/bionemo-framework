@@ -282,10 +282,6 @@ def setup_inference_engine(
     # Enable flash decode for inference
     model_provider.flash_decode = True
 
-    # Disable vortex_style_fp8 for inference (single token dims don't meet FP8 requirements)
-    if hasattr(model_provider, "vortex_style_fp8"):
-        model_provider.vortex_style_fp8 = False
-
     # Use bf16_mixed for inference to avoid FP8 issues
     if mixed_precision_recipe is not None:
         mp_config = get_mixed_precision_config(mixed_precision_recipe)

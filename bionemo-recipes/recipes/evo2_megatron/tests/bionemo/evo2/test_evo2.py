@@ -639,18 +639,11 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents,fp8",
     [
-        pytest.param("evo2/1b-8k-bf16:1.0", [86.4, 78.8, 49.7], False),
-        pytest.param("evo2/1b-8k-bf16:1.0", [86.4, 78.8, 49.7], True),
-        pytest.param(
-            "evo2/1b-8k:1.0",
-            [86.4, 78.8, 49.7],
-            True,
-            marks=pytest.mark.skipif(
-                torch.cuda.get_device_capability() != (9, 0), reason="This checkpoint only works on Hopper GPUs."
-            ),
-        ),
-        pytest.param("evo2/7b-8k:1.0", [88.8, 88.5, 82.2], False),
-        pytest.param("evo2/7b-1m:1.0", [88.8, 88.5, 82.2], False),
+        pytest.param("evo2/1b-8k-bf16:1.0", [86.4, 78.8, 49.7], False, id="1b-bf16_bf16"),
+        pytest.param("evo2/1b-8k-bf16:1.0", [86.4, 78.8, 49.7], True, id="1b-bf16_fp8"),
+        pytest.param("evo2/1b-8k:1.0", [86.4, 78.8, 49.7], True, id="1b_fp8"),
+        pytest.param("evo2/7b-8k:1.0", [88.8, 88.5, 82.2], False, id="7b-8k_bf16"),
+        pytest.param("evo2/7b-1m:1.0", [88.8, 88.5, 82.2], False, id="7b-1m_bf16"),
     ],
 )
 def test_batch_generate_coding_sequences(

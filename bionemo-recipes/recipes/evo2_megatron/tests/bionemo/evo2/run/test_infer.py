@@ -46,11 +46,6 @@ def mbridge_checkpoint_path(tmp_path_factory):
     from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
     from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
 
-    # Check if we already have a cached checkpoint
-    cache_dir = Path(__file__).parent.parent.parent.parent.parent / "evo2_1b_8k_bf16_mbridge"
-    if cache_dir.exists() and (cache_dir / "run_config.yaml").exists():
-        return cache_dir
-
     # Otherwise create a new one using a NeMo2 checkpoint
     try:
         nemo2_ckpt_path = load("evo2/1b-8k-bf16:1.0")
