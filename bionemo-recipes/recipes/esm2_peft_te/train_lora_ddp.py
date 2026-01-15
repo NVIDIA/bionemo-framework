@@ -134,6 +134,23 @@ def main(args: DictConfig) -> float:
             perf_logger.log_train_start_time()
             batch = {k: v.to(device) for k, v in batch.items()}  # noqa PLW2901
             # print(batch["input_ids"].shape)
+            # Monitor largest weight BEFORE forward pass
+            max_weight = 0.0
+            max_weight_name = ""
+            for name, param in peft_model.named_parameters():
+                if param.requires_grad:
+                    param_max = param.abs().max().item()
+                    if param_max > max_weight:
+                        max_weight = param_max
+                        max_weight_name = name
+
+            print(f"[Step {step}] Max weight: {max_weight:.6f} in {max_weight_name}")
+
+            for name, param in peft_model.named_parameters():
+                if param.requires_grad and (torch.isnan(param).any() or torch.isinf(param).any()):
+                    print(f"[Step {step}] Corrupted weights in {name}, exiting")
+                    exit(8)
+
             output = peft_model(**batch)
             loss = output.loss
             loss.backward()
