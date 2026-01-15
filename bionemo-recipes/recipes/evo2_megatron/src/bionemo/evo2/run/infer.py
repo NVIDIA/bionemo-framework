@@ -81,7 +81,7 @@ from bionemo.evo2.run.predict import initialize_inference_distributed, resolve_c
 
 
 logger: logging.Logger = logging.getLogger(__name__)
-
+logger.setLevel(logging.INFO)
 
 # =============================================================================
 # Evo2 Model Inference Wrapper
@@ -551,8 +551,6 @@ def infer(
     Returns:
         The generated text string.
     """
-    logging.basicConfig(level=logging.INFO)
-
     random_seed = seed or 1234
 
     # Setup inference components

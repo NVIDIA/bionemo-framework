@@ -96,6 +96,7 @@ from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
 
 
 logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # Type alias for recursive batch structures (dicts, lists, tuples of Tensors)
 ReductionT = TypeVar("ReductionT", bound=Union[Tensor, dict, list, tuple])
@@ -1100,8 +1101,6 @@ def predict(
         ...     micro_batch_size=4,
         ... )
     """
-    logging.basicConfig(level=logging.INFO)
-
     if pipeline_model_parallel_size != 1:
         raise ValueError("Pipeline parallelism > 1 is not currently supported for prediction.")
 
