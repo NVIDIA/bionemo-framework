@@ -32,6 +32,8 @@ from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import hyena_stack_spe
 from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
 from bionemo.evo2.models.megatron.hyena.hyena_utils import ImplicitModalFilter
 
+from ....utils import find_free_network_port
+
 
 try:
     import subquadratic_ops_torch  # noqa: F401
@@ -39,16 +41,6 @@ try:
     HAVE_SUBQUADRATIC_OPS = True
 except ImportError:
     HAVE_SUBQUADRATIC_OPS = False
-
-
-def find_free_network_port(address: str = "localhost") -> int:
-    """Find a free port on localhost for distributed testing."""
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((address, 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
 
 
 @contextlib.contextmanager

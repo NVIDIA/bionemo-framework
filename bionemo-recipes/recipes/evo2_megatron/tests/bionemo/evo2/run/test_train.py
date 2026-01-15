@@ -34,17 +34,10 @@ from torch.distributed.checkpoint.state_dict_loader import load
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
 
+from ..utils import find_free_network_port, is_a6000_gpu, is_fp4_supported, is_fp8_supported, is_mxfp8_supported
+
 
 TensorLike = Union[torch.Tensor, Iterable[torch.Tensor]]
-
-
-def is_a6000_gpu() -> bool:
-    """Check if any of the visible GPUs is an A6000."""
-    for i in range(torch.cuda.device_count()):
-        device_name = torch.cuda.get_device_name(i)
-        if "A6000" in device_name:
-            return True
-    return False
 
 
 def _as_iter(x: TensorLike):
@@ -292,48 +285,6 @@ def assert_optimizer_states_match(checkpoint_dirs):
             print(f"Optimizer tensors mismatch for {base_dir} and {other_dir}:\n{msg}")
             assertions.append(AssertionError(msg))
     assert not assertions, f"AssertionErrors comparing {checkpoint_dirs}:\n{assertions}"
-
-
-def find_free_network_port(address: str = "localhost") -> int:
-    """Find a free port on localhost for distributed testing."""
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((address, 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
-
-
-def get_compute_capability() -> tuple[int, int]:
-    """Get the compute capability of the current device."""
-    if not torch.cuda.is_available():
-        return (0, 0)
-    # Returns a tuple, e.g., (9, 0) for H100
-    return torch.cuda.get_device_capability()
-
-
-# 1. FP8 Support Logic
-# Supported on Ada Lovelace (8.9) and Hopper (9.0+)
-def is_fp8_supported() -> bool:
-    """Check if FP8 is supported on the current device."""
-    cc = get_compute_capability()
-    return cc >= (8, 9)
-
-
-# 2. FP4 Support Logic
-# Native support requires Blackwell (10.0+)
-def is_fp4_supported() -> bool:
-    """Check if FP4 is supported on the current device."""
-    cc = get_compute_capability()
-    return (10, 0) <= cc < (12, 0)
-
-
-# 3. MXFP8 Support Logic
-# Native support requires Blackwell (10.0+)
-def is_mxfp8_supported() -> bool:
-    """Check if MXFP8 is supported on the current device."""
-    cc = get_compute_capability()
-    return (10, 0) <= cc < (12, 0)
 
 
 # Do this at collection time before we run any tests.

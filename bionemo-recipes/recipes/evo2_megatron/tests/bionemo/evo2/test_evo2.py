@@ -51,6 +51,8 @@ from bionemo.evo2.models.evo2_provider import (
 )
 from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
 
+from .utils import check_fp8_support, find_free_network_port
+
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
@@ -59,16 +61,6 @@ logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
 DEFAULT_MASTER_ADDR = "localhost"
 DEFAULT_MASTER_PORT = "29500"
 DEFAULT_NCCL_TIMEOUT = "30"  # in second
-
-
-def find_free_network_port(address: str = "localhost") -> int:
-    """Find a free port on localhost for distributed testing."""
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((address, 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
 
 
 def _reset_microbatch_calculator():
@@ -176,21 +168,6 @@ def distributed_model_parallel_state(
                 tp_random.get_cuda_rng_tracker().reset()
 
             clean_up_distributed_and_parallel_states()
-
-
-def check_fp8_support(device_id: int = 0) -> tuple[bool, str, str]:
-    """Check if FP8 is supported on the current GPU.
-
-    FP8 requires compute capability 8.9+ (Ada Lovelace/Hopper architecture or newer).
-    """
-    if not torch.cuda.is_available():
-        return False, "0.0", "CUDA not available"
-    device_props = torch.cuda.get_device_properties(device_id)
-    compute_capability = f"{device_props.major}.{device_props.minor}"
-    device_name = device_props.name
-    # FP8 is supported on compute capability 8.9+ (Ada Lovelace/Hopper architecture)
-    is_supported = (device_props.major > 8) or (device_props.major == 8 and device_props.minor >= 9)
-    return is_supported, compute_capability, f"Device: {device_name}, Compute Capability: {compute_capability}"
 
 
 #############################################################################################

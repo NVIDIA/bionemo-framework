@@ -33,43 +33,11 @@ import torch
 from bionemo.evo2.data.test_utils.create_fasta_file import ALU_SEQUENCE, create_fasta_file
 from bionemo.evo2.run.predict import batch_collator
 
+from ..utils import check_fp8_support, find_free_network_port, is_a6000_gpu
+
 
 # Do this at collection time before we run any tests.
 PRETEST_ENV = copy.deepcopy(os.environ)
-
-
-def find_free_network_port(address: str = "localhost") -> int:
-    """Find a free port on localhost for distributed testing."""
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((address, 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
-
-
-def is_a6000_gpu() -> bool:
-    """Check if any of the visible GPUs is an A6000."""
-    for i in range(torch.cuda.device_count()):
-        device_name = torch.cuda.get_device_name(i)
-        if "A6000" in device_name:
-            return True
-    return False
-
-
-def check_fp8_support(device_id: int = 0) -> tuple[bool, str, str]:
-    """Check if FP8 is supported on the current GPU.
-
-    FP8 requires compute capability 8.9+ (Ada Lovelace/Hopper architecture or newer).
-    """
-    if not torch.cuda.is_available():
-        return False, "0.0", "CUDA not available"
-    device_props = torch.cuda.get_device_properties(device_id)
-    compute_capability = f"{device_props.major}.{device_props.minor}"
-    device_name = device_props.name
-    # FP8 is supported on compute capability 8.9+ (Ada Lovelace/Hopper architecture)
-    is_supported = (device_props.major > 8) or (device_props.major == 8 and device_props.minor >= 9)
-    return is_supported, compute_capability, f"Device: {device_name}, Compute Capability: {compute_capability}"
 
 
 @pytest.fixture(scope="module")

@@ -34,15 +34,7 @@ import torch
 
 from bionemo.evo2.models.evo2_provider import HyenaInferenceContext
 
-
-def find_free_network_port(address: str = "localhost") -> int:
-    """Find a free port on localhost for distributed testing."""
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((address, 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
+from ..utils import find_free_network_port
 
 
 @pytest.fixture(scope="module")
