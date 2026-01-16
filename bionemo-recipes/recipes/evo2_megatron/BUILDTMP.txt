@@ -1,4 +1,0 @@
-docker build -t evo2_megatron_recipe-$(git rev-parse --short HEAD) .
-enroot import -o evo2_megatron_recipe-$(git rev-parse --short HEAD).sqsh dockerd://docker.io/library/evo2_megatron_recipe-$(git rev-parse --short HEAD)
-rsync -avzP evo2_megatron_recipe-$(git rev-parse --short HEAD).sqsh          login-eos01.eos.clusters.nvidia.com:/lustre/fsw/healthcareeng_bionemo/striped_hyena/projects/evo2-recipes-verification/enroot/
-rsync -avzP evo2_megatron_recipe-$(git rev-parse --short HEAD).sqsh          ipp1-1334:/home/scratch.jstjohn_other/enroot/
