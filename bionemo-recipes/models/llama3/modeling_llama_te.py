@@ -52,6 +52,7 @@ class NVLlamaConfig(LlamaConfig):
 
     attn_input_format: str = "thd"
     embedding_init_std: float | None = None  # None means use initializer_range
+    use_megatron_scaled_init: bool = False  # Use scaled init for proj/fc2 (std/sqrt(2*n))
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -70,13 +71,17 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
         the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
         we need to extend it to handle TE-specific modules.
 
-        Initialization strategy (matching Megatron exactly):
+        Initialization strategy:
         - Embeddings: config.embedding_init_std if set, else initializer_range (0.02)
           - For Spike-No-More: set embedding_init_std=1.0 in config
-        - Attention output projection (proj): scaled init = initializer_range / sqrt(2 * num_layers)
-        - MLP fc2 (output of MLP block): scaled init = initializer_range / sqrt(2 * num_layers)
-        - LM head: regular init = initializer_range (0.02) - NOT scaled!
-        - Everything else (QKV, fc1): regular init = initializer_range (0.02)
+        - QKV, fc1, LM head: regular init = initializer_range (0.02)
+        - Attention proj, MLP fc2: depends on config.use_megatron_scaled_init:
+          - If False (default): regular init = initializer_range (0.02)
+          - If True: scaled init = initializer_range / sqrt(2 * num_layers)
+
+        Note: Megatron uses scaled init for proj and fc2, but TE's fused TransformerLayer
+        was designed with uniform initialization. If you see loss increasing after initial
+        decrease, try setting use_megatron_scaled_init=False.
 
         Args:
             module (nn.Module): The module to initialize the weights for.
@@ -89,11 +94,13 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
         else:
             std = getattr(self.config.get_text_config(), "initializer_range", 0.02)
 
-        # Compute scaled std for residual output layers: std / sqrt(2 * num_layers)
-        # This is the GPT-2 / Megatron approach to prevent gradient explosion in deep networks
-        # Applied to: attention output projection (proj), MLP output (fc2)
-        num_layers = getattr(self.config, "num_hidden_layers", 32)
-        output_std = std / math.sqrt(2.0 * num_layers)
+        # Check if we should use Megatron's scaled init for residual output layers
+        use_scaled_init = getattr(self.config, "use_megatron_scaled_init", False)
+        if use_scaled_init:
+            num_layers = getattr(self.config, "num_hidden_layers", 32)
+            output_std = std / math.sqrt(2.0 * num_layers)
+        else:
+            output_std = std  # Use regular std for all layers (TE's default)
 
         # Embedding init std: default to regular std (0.02), use 1.0 only if explicitly set
         # For Spike-No-More paper approach, set config.embedding_init_std = 1.0
@@ -128,21 +135,19 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
             if module.layer_norm_bias is not None:
                 module.layer_norm_bias.data.zero_()
 
-        # MLP: fc1 uses regular std, fc2 uses scaled std (output of MLP block)
+        # MLP: fc1 uses regular std, fc2 uses output_std (scaled if use_megatron_scaled_init=True)
         if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
             module.layer_norm_weight.data.fill_(1.0)
             if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
                 module.fc1_weight.data.normal_(mean=0.0, std=std)
             if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
-                # fc2 is the output of MLP block - use scaled init (Megatron output_layer_init_method)
                 module.fc2_weight.data.normal_(mean=0.0, std=output_std)
             if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
                 module.fc1_bias.data.zero_()
             if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
                 module.fc2_bias.data.zero_()
 
-        # TE TransformerLayer: Initialize attention output projection with scaled init
-        # This matches Megatron's use of output_layer_init_method for linear_proj
+        # TE TransformerLayer: attention output projection uses output_std
         if isinstance(module, transformer_engine.pytorch.TransformerLayer):
             if hasattr(module, "self_attention") and hasattr(module.self_attention, "proj"):
                 proj = module.self_attention.proj

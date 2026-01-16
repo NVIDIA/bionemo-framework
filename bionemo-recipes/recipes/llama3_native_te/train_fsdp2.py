@@ -130,6 +130,12 @@ def main(args: DictConfig) -> float | None:
         config_kwargs_dict["tie_word_embeddings"] = False  # Must not share embeddings with output weights
         logger.info("Spike-No-More enabled: embedding_init_std=1.0, tie_word_embeddings=False")
 
+    # Handle Megatron-style scaled initialization for residual output layers
+    # When enabled, proj and fc2 use std/sqrt(2*num_layers) instead of std
+    if getattr(args, "use_megatron_scaled_init", False):
+        config_kwargs_dict["use_megatron_scaled_init"] = True
+        logger.info("Megatron scaled init enabled: proj/fc2 use std/sqrt(2*num_layers)")
+
     config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **config_kwargs_dict)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
@@ -160,22 +166,27 @@ def main(args: DictConfig) -> float | None:
     #         if "embed" in name.lower() or "lm_head" in name.lower():
     #             logger.info(f"Init stats - {name}")
 
-    # Create optimizer with proper weight decay filtering.
-    # Skip weight decay on bias and 1D params (LayerNorm) to match Megatron convention.
-    # Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
+    # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
-    weight_decay = adamw_kwargs.pop("weight_decay", 0.1)
 
-    # Check if we should skip weight decay on embeddings
-    # Default to False to match John's Megatron setup (only skip bias and 1D params)
-    skip_embedding_wd = getattr(args, "skip_embedding_weight_decay", False)
+    # Check if we should use weight decay grouping (skip decay on bias and 1D params)
+    use_wd_grouping = getattr(args, "use_weight_decay_grouping", True)
 
-    param_groups = get_parameter_groups_with_weight_decay(
-        model=model,
-        weight_decay=weight_decay,
-        skip_embeddings=skip_embedding_wd,
-    )
-    optimizer = AdamW(param_groups, **adamw_kwargs)  # type: ignore
+    if use_wd_grouping:
+        # Megatron-style: skip weight decay on bias and 1D params (LayerNorm)
+        weight_decay = adamw_kwargs.pop("weight_decay", 0.1)
+        skip_embedding_wd = getattr(args, "skip_embedding_weight_decay", False)
+        param_groups = get_parameter_groups_with_weight_decay(
+            model=model,
+            weight_decay=weight_decay,
+            skip_embeddings=skip_embedding_wd,
+        )
+        optimizer = AdamW(param_groups, **adamw_kwargs)  # type: ignore
+        logger.info(f"Weight decay grouping enabled: wd={weight_decay}, skip_embeddings={skip_embedding_wd}")
+    else:
+        # Original behavior: same weight decay for all params
+        optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
+        logger.info(f"Weight decay grouping disabled: wd={adamw_kwargs.get('weight_decay', 0.1)} for all params")
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     if args.use_sequence_packing:
