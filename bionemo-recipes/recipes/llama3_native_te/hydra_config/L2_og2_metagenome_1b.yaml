@@ -1,0 +1,99 @@
+# Config for 1B Llama3 on OpenGenome2 Metagenome
+# Designed to be comparable with Striped Hyena 1B for fair benchmarking
+# Architecture: hidden=2048, heads=16, ffn=5120, layers=24 (~1.1B params)
+
+defaults:
+  - defaults
+  - _self_
+
+# 1B model config (comparable to Striped Hyena 1B)
+# hidden_size: 2048 (matches Hyena 1B)
+# num_attention_heads: 16 (matches Hyena 1B)
+# intermediate_size: 5120 (matches Hyena 1B ffn_hidden_size)
+# num_hidden_layers: 24 (tuned to match ~1B params)
+config_name_or_path: ./model_configs/llama3-1b-hyena-comparable
+config_kwargs:
+  num_hidden_layers: 24
+  hidden_size: 2048
+  intermediate_size: 5120
+  num_attention_heads: 16
+  num_key_value_heads: 16  # Full MHA (not GQA) for simplicity
+  max_position_embeddings: 8192
+  rope_theta: 500000
+  initializer_range: 0.02
+  attn_input_format: thd
+
+# Spike-No-More embedding initialization (matching Hyena 1B setup)
+# The Hyena 1B uses embedding_init_method_std=1.0 and share_embeddings_and_output_weights=False
+spike_no_more_embedding_init: true
+
+# Skip weight decay on embeddings (matching Hyena's --no-weight-decay-embeddings)
+skip_embedding_weight_decay: true
+
+# Use Megatron-style scaled init for residual layers (proj, fc2)
+# std = 0.02 / sqrt(2 * 24 layers) ≈ 0.0029
+use_megatron_scaled_init: true
+
+# Keep weight decay grouping enabled (skip decay on bias/1D params)
+use_weight_decay_grouping: true
+
+# Sequence packing for THD
+use_sequence_packing: true
+
+# Gradient accumulation - with 1B model we can use larger micro-batch
+grad_acc_steps: 1
+
+# Training setup (matching Hyena 1B run parameters)
+num_train_steps: 72926
+
+wandb:
+  name: og2_1b_thd_6node_mbs20
+  project: llama3-metagenome-1b
+
+# Dataset config (OpenGenome2 Metagenome)
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 20  # Larger batch possible with 1B model (matching Hyena)
+  num_workers: 8  # Hyena used workers=8
+  max_seq_length: 8192
+  stride: 7992
+  buffer_size: 50_000
+  use_lazy_tokenization: true
+  use_stateful_dataloader: false
+  mask_degenerate_bases: true
+  uppercase_labels: false
+  load_dataset_kwargs:
+    path: "/data/opengenome2/json/pretraining_or_both_phases/metagenomes"
+    split: "train"
+    streaming: True
+
+# Optimizer (matching Hyena 1B settings)
+adamw_kwargs:
+  lr: 3e-05  # Same as Hyena
+  fused: true
+  betas: [0.9, 0.95]
+  eps: 1e-8
+  weight_decay: 0.01  # Hyena uses 0.01 (lower than 7B's 0.1)
+
+# Learning rate scheduler (matching Hyena 1B)
+lr_scheduler_kwargs:
+  num_warmup_steps: 1024  # Hyena uses 1024 warmup
+  num_decay_steps: 71902  # total_steps - warmup = 72926 - 1024
+  min_lr_ratio: 0.2  # min_lr / lr = 6e-06 / 3e-05 = 0.2
+
+# Checkpoint config
+checkpoint:
+  ckpt_dir: null
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 2_000
+  async_save: true
+
+# Validation (matching Hyena settings)
+# Note: These would need to be handled in the training script
+# limit_val_batches: 10
+# limit_test_batches: 2
+# val_check_interval: 300
+
+profiler:
+  enabled: false
