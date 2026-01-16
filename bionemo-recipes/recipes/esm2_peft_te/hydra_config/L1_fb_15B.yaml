@@ -1,0 +1,57 @@
+defaults:
+  - defaults
+  - _self_
+
+# Training config
+model_tag: facebook/esm2_t48_15B_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
+use_pretrained: true
+num_train_steps: 1000
+
+perform_validation: true
+validation_interval: 20
+
+use_torch_compile: true
+
+dataset:
+  # The NVIDIA tokenizer is identical to the facebook/esm* and supports generating multiple samples from sequences
+  # longer than 1024.
+  tokenizer_name: nvidia/esm2_t6_8M_UR50D
+  micro_batch_size: 8
+  val_micro_batch_size: 128
+  num_workers: 1
+  max_seq_length: 1024
+  stride: 16
+  validation_samples: 5098
+  ss3_classification: true
+  load_dataset_kwargs:
+    path: "parquet"
+    split: "train"
+    data_files: "porter6_dataset_25k.parquet"
+
+# WandB config
+wandb_init_args:
+  name: "esm2_t48_15B_UR50D_lora"
+  project: "esm2_lora"
+  mode: "online"
+
+# Learning rate scheduler config
+lr_scheduler_kwargs:
+  num_warmup_steps: 50
+  num_training_steps: 1_000
+
+checkpoint:
+  ckpt_dir: null
+  resume_from_checkpoint: true
+  save_every_n_steps: 50
+  save_final_model: false
+
+logger:
+  frequency: 1
+
+lora:
+  r: 8
+  alpha: 16
+  target_modules:
+  - "query"
+  - "key"
+  - "value"
