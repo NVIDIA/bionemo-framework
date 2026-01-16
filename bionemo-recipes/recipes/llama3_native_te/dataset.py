@@ -99,6 +99,11 @@ def create_tokenized_dataset(
         remove_columns=[text_column],
     )
 
+    # Even in THD mode, we use a base MLM collator that requires a padding token to be set.
+    if tokenizer.pad_token is None:
+        logger.warning(f"Tokenizer does not have a padding token. Setting it to the EOS token: {tokenizer.eos_token}")
+        tokenizer.pad_token = tokenizer.eos_token
+
     return tokenized_dataset, tokenizer
 
 
