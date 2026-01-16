@@ -41,40 +41,16 @@ PRETEST_ENV = copy.deepcopy(os.environ)
 
 
 @pytest.fixture(scope="module")
-def mbridge_checkpoint_1b_8k_bf16_path(tmp_path_factory) -> Path:
-    """Create or load a MBridge checkpoint for testing.
+def mbridge_checkpoint_1b_8k_bf16_path(mbridge_checkpoint_1b_8k_bf16) -> Path:
+    """Module-scoped alias for the session-scoped 1b-8k-bf16 checkpoint.
 
-    This fixture creates an MBridge checkpoint from a NeMo2 checkpoint if one doesn't exist,
-    or can be adapted to download/load an existing MBridge checkpoint.
+    The actual checkpoint conversion is done once per session in conftest.py via
+    the mbridge_checkpoint_1b_8k_bf16 fixture, and shared across all test files.
+
+    Returns:
+        Path to the MBridge checkpoint iteration directory (e.g., .../iter_0000001)
     """
-    from bionemo.core.data.load import load
-    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
-    from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
-
-    try:
-        nemo2_checkpoint_path = load("evo2/1b-8k-bf16:1.0")
-    except ValueError as e:
-        if e.args[0].endswith("does not have an NGC URL."):
-            pytest.skip(
-                "Please re-run test with `BIONEMO_DATA_SOURCE=pbss py.test ...`, "
-                "one or more files are missing from ngc."
-            )
-        else:
-            raise e
-
-    # Create a temporary directory for the MBridge checkpoint
-    tmp_dir = tmp_path_factory.mktemp("mbridge_ckpt")
-    mbridge_ckpt_dir = run_nemo2_to_mbridge(
-        nemo2_ckpt_dir=nemo2_checkpoint_path,
-        tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
-        mbridge_ckpt_dir=tmp_dir / "mbridge_checkpoint",
-        model_size="1b",
-        seq_length=8192,
-        mixed_precision_recipe="bf16_mixed",
-        vortex_style_fp8=False,
-    )
-    # Return the checkpoint iteration directory
-    return mbridge_ckpt_dir / "iter_0000001"
+    return mbridge_checkpoint_1b_8k_bf16
 
 
 @pytest.mark.parametrize(

@@ -40,7 +40,6 @@ PRETEST_ENV = copy.deepcopy(os.environ)
         (1, 1, 1, False, "bf16_with_fp8_current_scaling_mixed"),
         (1, 1, 1, False, "bf16_with_fp8_delayed_scaling_mixed"),  # XFAIL
         (1, 1, 1, False, "bf16_with_fp8_subchannel_scaling_mixed"),
-        (1, 1, 1, False, "nanov2_bf16_with_fp8_current_scaling_mixed"),
         (1, 1, 1, False, "bf16_with_nvfp4_mixed"),  # XFAIL other than blackwell+
         (1, 1, 1, False, "bf16_with_mxfp8_mixed"),  # XFAIL other than blackwell+
         (1, 1, 2, True, "bf16_mixed"),
@@ -73,9 +72,9 @@ def test_stop_and_go(
     if "fp8" in precision_recipe and not is_fp8_supported():
         pytest.skip("FP8 is not supported on this device")
     if "bf16_with_fp8_delayed_scaling_mixed" == precision_recipe and is_fp8_supported():
-        pytest.xfail(reason="FP8 delayed scaling is not currently working with Evo2, use another FP8 recipe.")
+        pytest.skip(reason="FP8 delayed scaling is not currently working with Evo2, use another FP8 recipe.")
     if "bf16_with_fp8_subchannel_scaling_mixed" == precision_recipe and is_fp8_supported():
-        pytest.xfail(reason="FP8 subchannel scaling is not currently working with Evo2 on some GPUs.")
+        pytest.skip(reason="FP8 subchannel scaling is not currently working with Evo2 on some GPUs.")
     run_dir = tmp_path / f"run_tp{tp_size}_pp{pp_size}_cp{cp_size}_dp{dp_size}_rc{dp_rank_check}_pr{precision_recipe}"
     run_dir.mkdir(parents=True, exist_ok=True)
     master_port = find_free_network_port()

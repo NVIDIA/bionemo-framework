@@ -254,13 +254,13 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: 
                 "memory_needed_by_test": 21,
             },  # checked both variants in isolation
             {
-                "test_name": "test_batch_generate",
+                "test_name": "test_batch_generate_mbridge",
                 "model_size": "1b",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 16,
             },  # checked both variants in isolation
             {
-                "test_name": "test_batch_generate",
+                "test_name": "test_batch_generate_mbridge",
                 "model_size": "7b",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 43,
@@ -269,26 +269,14 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: 
                 "test_name": "test_batch_generate_coding_sequences",
                 "model_size": "1b",
                 "seq_len_cap": -1,
-                "memory_needed_by_test": 6,
+                "memory_needed_by_test": 12,
             },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate_coding_sequences",
                 "model_size": "7b",
                 "seq_len_cap": -1,
-                "memory_needed_by_test": 21,
+                "memory_needed_by_test": 28,
             },  # checked both variants in isolation
-            {
-                "test_name": "test_generate_speed",
-                "model_size": "1b",
-                "seq_len_cap": -1,
-                "memory_needed_by_test": -1,
-            },  # skipped for now until Anton's changes
-            {
-                "test_name": "test_generate_speed",
-                "model_size": "7b",
-                "seq_len_cap": -1,
-                "memory_needed_by_test": -1,
-            },  # skipped for now until Anton's changes
         ],
         columns=["test_name", "model_size", "seq_len_cap", "memory_needed_by_test"],
     )

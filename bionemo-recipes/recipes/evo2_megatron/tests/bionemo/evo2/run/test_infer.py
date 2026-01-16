@@ -37,39 +37,7 @@ from bionemo.evo2.models.evo2_provider import HyenaInferenceContext
 from ..utils import find_free_network_port
 
 
-@pytest.fixture(scope="module")
-def mbridge_checkpoint_path(tmp_path_factory):
-    """Create or use an MBridge checkpoint for testing.
-
-    Uses the same checkpoint conversion as test_predict.py.
-    """
-    from bionemo.core.data.load import load
-    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
-    from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
-
-    # Otherwise create a new one using a NeMo2 checkpoint
-    try:
-        nemo2_ckpt_path = load("evo2/1b-8k-bf16:1.0")
-    except ValueError as e:
-        if e.args[0].endswith("does not have an NGC URL."):
-            pytest.skip(
-                "Please re-run test with `BIONEMO_DATA_SOURCE=pbss py.test ...`, "
-                "one or more files are missing from ngc."
-            )
-        else:
-            raise e
-
-    output_dir = tmp_path_factory.mktemp("mbridge_ckpt")
-    mbridge_ckpt_dir = run_nemo2_to_mbridge(
-        nemo2_ckpt_dir=nemo2_ckpt_path,
-        tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
-        mbridge_ckpt_dir=output_dir / "evo2_1b_mbridge",
-        model_size="1b",
-        seq_length=8192,
-        mixed_precision_recipe="bf16_mixed",
-        vortex_style_fp8=False,
-    )
-    return mbridge_ckpt_dir / "iter_0000001"
+# Note: mbridge_checkpoint_path fixture is provided by conftest.py at session scope
 
 
 def test_infer_runs(mbridge_checkpoint_path, tmp_path):
@@ -123,47 +91,6 @@ def test_infer_runs(mbridge_checkpoint_path, tmp_path):
 
 @pytest.mark.parametrize("temperature", [0.5, 1.0])
 def test_infer_temperature(mbridge_checkpoint_path, tmp_path, temperature):
-    """Test that different temperatures produce output."""
-    output_file = tmp_path / f"output_temp_{temperature}.txt"
-    # Use a longer prompt for FP8 compatibility
-    prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
-
-    cmd = [
-        "torchrun",
-        "--nproc_per_node",
-        "1",
-        "-m",
-        "bionemo.evo2.run.infer",
-        "--ckpt-dir",
-        str(mbridge_checkpoint_path),
-        "--prompt",
-        prompt,
-        "--max-new-tokens",
-        "5",
-        "--temperature",
-        str(temperature),
-        "--output-file",
-        str(output_file),
-    ]
-
-    env = os.environ.copy()
-    env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = str(find_free_network_port())
-
-    result = subprocess.run(
-        cmd,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=300,  # 5 minutes
-        env=env,
-    )
-
-    assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
-
-
-@pytest.mark.parametrize("temperature", [0.5, 1.0])
-def test_infer_max_batch_size(mbridge_checkpoint_path, tmp_path, temperature):
     """Test that different temperatures produce output."""
     output_file = tmp_path / f"output_temp_{temperature}.txt"
     # Use a longer prompt for FP8 compatibility
@@ -300,6 +227,156 @@ def test_infer_phylogenetic_prompt(mbridge_checkpoint_path, tmp_path):
 
     generated = output_file.read_text()
     assert len(generated) > 0, "Generated text is empty"
+
+
+# DNA prompts for reproducibility tests (from test_prompt.py)
+PROMPT_1 = "GAATAGGAACAGCTCCGGTCTACAGCTCCCAGCGTGAGCGACGCAGAAGACGGTGATTTCTGCATTTCCATCTGAGGTACCGGGTTCATCTCACTAGGGAGTGCCAGACAGTGGGCGCAGGCCAGTGTGTGTGCGCACCGTGCGCGAGCCGAAGCAGGG"
+PROMPT_2 = "GATCACAGGTCTATCACCCTATTAACCACTCACGGGAGCTCTCCATGCATTTGGTATTTTCGTCTGGGGGGTATGCACGCGATAGCATTGCGAGACGCTGGAGCCGGAGCACCCTATGTCGCAGTATCTGTCTTTGATTCCTGCCTCATCCTATTATTT"
+
+
+def run_infer_subprocess(
+    mbridge_checkpoint_path,
+    prompt: str,
+    output_file,
+    max_new_tokens: int = 10,
+    temperature: float = 1.0,
+    top_k: int = 1,
+    seed: int = 42,
+):
+    """Helper function to run inference as a subprocess.
+
+    Args:
+        mbridge_checkpoint_path: Path to the MBridge checkpoint
+        prompt: Input prompt for the model
+        output_file: Path to write output
+        max_new_tokens: Maximum number of tokens to generate
+        temperature: Sampling temperature
+        top_k: Top-k sampling parameter (1 for greedy)
+        seed: Random seed for reproducibility
+
+    Returns:
+        The generated text from the output file
+    """
+    cmd = [
+        "torchrun",
+        "--nproc_per_node",
+        "1",
+        "-m",
+        "bionemo.evo2.run.infer",
+        "--ckpt-dir",
+        str(mbridge_checkpoint_path),
+        "--prompt",
+        prompt,
+        "--max-new-tokens",
+        str(max_new_tokens),
+        "--output-file",
+        str(output_file),
+        "--temperature",
+        str(temperature),
+        "--top-k",
+        str(top_k),
+        "--seed",
+        str(seed),
+    ]
+
+    env = os.environ.copy()
+    env["MASTER_ADDR"] = "localhost"
+    env["MASTER_PORT"] = str(find_free_network_port())
+
+    result = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=300,  # 5 minutes
+        env=env,
+    )
+
+    assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    assert output_file.exists(), "Output file was not created"
+
+    return output_file.read_text()
+
+
+def test_identical_prompts_should_be_identical(mbridge_checkpoint_path, tmp_path):
+    """Test that identical prompts produce identical sequences.
+
+    With greedy decoding (top_k=1) and the same seed, identical prompts
+    should produce identical outputs.
+    """
+    output_file_1 = tmp_path / "output_prompt1_run1.txt"
+    output_file_2 = tmp_path / "output_prompt1_run2.txt"
+
+    # Run inference twice with the same prompt
+    generated_1 = run_infer_subprocess(
+        mbridge_checkpoint_path,
+        prompt=PROMPT_1,
+        output_file=output_file_1,
+        max_new_tokens=20,
+        temperature=1.0,
+        top_k=1,  # Greedy decoding for determinism
+        seed=42,
+    )
+
+    generated_2 = run_infer_subprocess(
+        mbridge_checkpoint_path,
+        prompt=PROMPT_1,
+        output_file=output_file_2,
+        max_new_tokens=20,
+        temperature=1.0,
+        top_k=1,  # Greedy decoding for determinism
+        seed=42,
+    )
+
+    assert len(generated_1) > 0, "First generation produced empty output"
+    assert len(generated_2) > 0, "Second generation produced empty output"
+    assert generated_1 == generated_2, (
+        f"Identical prompts with same seed and greedy decoding produced different outputs:\n"
+        f"Run 1: {generated_1}\n"
+        f"Run 2: {generated_2}"
+    )
+
+
+def test_different_prompts_produce_different_outputs(mbridge_checkpoint_path, tmp_path):
+    """Test that different prompts produce different sequences.
+
+    Different input prompts should produce different outputs, demonstrating
+    that the model is actually responding to the prompt content.
+    """
+    output_file_1 = tmp_path / "output_prompt1.txt"
+    output_file_2 = tmp_path / "output_prompt2.txt"
+
+    # Run inference with two different prompts
+    generated_1 = run_infer_subprocess(
+        mbridge_checkpoint_path,
+        prompt=PROMPT_1,
+        output_file=output_file_1,
+        max_new_tokens=20,
+        temperature=1.0,
+        top_k=1,  # Greedy decoding
+        seed=42,
+    )
+
+    generated_2 = run_infer_subprocess(
+        mbridge_checkpoint_path,
+        prompt=PROMPT_2,
+        output_file=output_file_2,
+        max_new_tokens=20,
+        temperature=1.0,
+        top_k=1,  # Greedy decoding
+        seed=42,
+    )
+
+    assert len(generated_1) > 0, "First generation produced empty output"
+    assert len(generated_2) > 0, "Second generation produced empty output"
+
+    # The outputs should be different since the prompts are different
+    # We check that the generated portions (after the prompt) are not identical
+    assert generated_1 != generated_2, (
+        f"Different prompts produced identical outputs:\n"
+        f"Prompt 1 output: {generated_1}\n"
+        f"Prompt 2 output: {generated_2}"
+    )
 
 
 class TestHyenaInferenceContext:
