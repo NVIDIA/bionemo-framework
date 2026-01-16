@@ -41,9 +41,18 @@ AUTO_MAP = {
 
 
 class NVLlamaConfig(LlamaConfig):
-    """NVLlama configuration."""
+    """NVLlama configuration.
+
+    Additional attributes:
+        attn_input_format: Input format for attention ("thd" or "bshd").
+        embedding_init_std: Standard deviation for embedding initialization.
+            If None, uses initializer_range (typically 0.02).
+            Set to 1.0 for Spike-No-More paper approach.
+    """
 
     attn_input_format: str = "thd"
+    embedding_init_std: float | None = None  # None means use initializer_range
+    use_megatron_scaled_init: bool = False  # Use scaled init for proj/fc2 (std/sqrt(2*n))
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -62,11 +71,17 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
         the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
         we need to extend it to handle TE-specific modules.
 
-        Initialization strategy (matching Megatron/John's setup):
-        - Embeddings: std=1.0 (Spike No More paper - prevents gradient vanishing)
-        - LM head: std = initializer_range / sqrt(2 * num_layers) (scaled output init)
-        - MLP fc2: std = initializer_range / sqrt(2 * num_layers) (scaled output init)
-        - Everything else: std = initializer_range (typically 0.02)
+        Initialization strategy:
+        - Embeddings: config.embedding_init_std if set, else initializer_range (0.02)
+          - For Spike-No-More: set embedding_init_std=1.0 in config
+        - QKV, fc1, LM head: regular init = initializer_range (0.02)
+        - Attention proj, MLP fc2: depends on config.use_megatron_scaled_init:
+          - If False (default): regular init = initializer_range (0.02)
+          - If True: scaled init = initializer_range / sqrt(2 * num_layers)
+
+        Note: Megatron uses scaled init for proj and fc2, but TE's fused TransformerLayer
+        was designed with uniform initialization. If you see loss increasing after initial
+        decrease, try setting use_megatron_scaled_init=False.
 
         Args:
             module (nn.Module): The module to initialize the weights for.
@@ -79,32 +94,31 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
         else:
             std = getattr(self.config.get_text_config(), "initializer_range", 0.02)
 
-        # Compute scaled std for output layers: std / sqrt(2 * num_layers)
-        # This prevents gradient explosion in deep networks
-        num_layers = getattr(self.config, "num_hidden_layers", 32)
-        output_std = std / math.sqrt(2.0 * num_layers)
+        # Check if we should use Megatron's scaled init for residual output layers
+        use_scaled_init = getattr(self.config, "use_megatron_scaled_init", False)
+        if use_scaled_init:
+            num_layers = getattr(self.config, "num_hidden_layers", 32)
+            output_std = std / math.sqrt(2.0 * num_layers)
+        else:
+            output_std = std  # Use regular std for all layers (TE's default)
 
-        # Embedding init std (Spike No More paper uses 1.0)
-        embedding_std = getattr(self.config, "embedding_init_std", 1.0)
+        # Embedding init std: default to regular std (0.02), use 1.0 only if explicitly set
+        # For Spike-No-More paper approach, set config.embedding_init_std = 1.0
+        embedding_init_std = getattr(self.config, "embedding_init_std", None)
+        embedding_std = embedding_init_std if embedding_init_std is not None else std
 
-        # Embeddings: use larger std (Spike No More)
+        # Embeddings
         if isinstance(module, nn.Embedding):
             module.weight.data.normal_(mean=0.0, std=embedding_std)
             if module.padding_idx is not None:
                 module.weight.data[module.padding_idx].zero_()
 
-        # Linear layers: use scaled std for LM head, regular std otherwise
+        # Regular Linear layers: LM head and other Linear use regular std (0.02)
+        # Note: In Megatron, LM head (output_layer) uses init_method, NOT output_layer_init_method
         if isinstance(
             module, (nn.Linear, transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)
         ):
-            # Detect LM head by checking if output dim matches vocab_size
-            is_lm_head = (
-                hasattr(self.config, "vocab_size")
-                and hasattr(module, "weight")
-                and module.weight.shape[0] == self.config.vocab_size
-            )
-            init_std = output_std if is_lm_head else std
-            module.weight.data.normal_(mean=0.0, std=init_std)
+            module.weight.data.normal_(mean=0.0, std=std)
             if module.bias is not None:
                 module.bias.data.zero_()
 
@@ -121,18 +135,26 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
             if module.layer_norm_bias is not None:
                 module.layer_norm_bias.data.zero_()
 
-        # MLP: fc1 uses regular std, fc2 uses scaled std (output of MLP block)
+        # MLP: fc1 uses regular std, fc2 uses output_std (scaled if use_megatron_scaled_init=True)
         if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
             module.layer_norm_weight.data.fill_(1.0)
             if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
                 module.fc1_weight.data.normal_(mean=0.0, std=std)
             if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
-                # fc2 is the output of MLP block - use scaled init
                 module.fc2_weight.data.normal_(mean=0.0, std=output_std)
             if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
                 module.fc1_bias.data.zero_()
             if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
                 module.fc2_bias.data.zero_()
+
+        # TE TransformerLayer: attention output projection uses output_std
+        if isinstance(module, transformer_engine.pytorch.TransformerLayer):
+            if hasattr(module, "self_attention") and hasattr(module.self_attention, "proj"):
+                proj = module.self_attention.proj
+                if hasattr(proj, "weight") and proj.weight is not None:
+                    proj.weight.data.normal_(mean=0.0, std=output_std)
+                if hasattr(proj, "bias") and proj.bias is not None:
+                    proj.bias.data.zero_()
 
         if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
             module.inv_freq = LlamaRotaryEmbedding(config=self.config).inv_freq.to(module.inv_freq.device)

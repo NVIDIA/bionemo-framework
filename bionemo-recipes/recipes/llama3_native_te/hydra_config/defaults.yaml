@@ -1,7 +1,32 @@
 # Training config
 use_te: true # Whether to use TransformerEngine layers through NVLlamaForCausalLM (if false, use HF's LlamaForCausalLM)
 config_name_or_path: ??? # E.g., meta-llama/Llama-3.2-1B or ./model_configs/meta-llama/Llama-3.2-1B
+
+# Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
+# When enabled, embeddings are initialized with std=1.0 instead of 0.02.
+# This helps prevent loss spikes during training of large models.
+# Note: This automatically ensures embeddings are NOT tied with output weights.
+spike_no_more_embedding_init: false
+
+# Skip weight decay on embedding layers (useful with spike_no_more_embedding_init)
+# See https://arxiv.org/abs/2312.16903 - helps prevent embeddings from shrinking to zero
+skip_embedding_weight_decay: false
+
+# Use Megatron-style scaled initialization for residual output layers (proj, fc2)
+# When true: proj and fc2 use std/sqrt(2*num_layers) (~0.0025 for 32 layers)
+# When false: all layers use regular std (0.02) - this is TE's default
+# Note: Megatron uses scaled init, but TE was designed with uniform init.
+# If you see loss increasing after initial decrease, try setting this to false.
+use_megatron_scaled_init: false
+
+# Use weight decay grouping (skip decay on bias and 1D LayerNorm params)
+# When true: bias and 1D params get weight_decay=0, 2D weights get weight_decay from config
+# When false: all params get the same weight_decay (original behavior)
+# Megatron uses grouping, but your baseline might not have used it.
+use_weight_decay_grouping: true
+
 config_kwargs: {}
+# When spike_no_more_embedding_init is true, embedding_init_std=1.0 is added to config_kwargs automatically
 
 num_train_steps: ???
 grad_acc_steps: 1  # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
