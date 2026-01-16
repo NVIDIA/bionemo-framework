@@ -86,7 +86,7 @@ def input_data(tokenizer, tokenized_proteins):
 
 @pytest.fixture
 def te_model_checkpoint(tmp_path):
-    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     model_te = convert_esm_hf_to_te(model_hf)
     model_te.save_pretrained(tmp_path / "te_model_checkpoint")
     return tmp_path / "te_model_checkpoint"

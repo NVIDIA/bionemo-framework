@@ -138,6 +138,7 @@ jobs:
       env:
         CI: true
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HF_HOME: /cache/huggingface
     strategy:
       matrix:
         recipe: ${{ fromJson(needs.changed-dirs.outputs.dirs) }}
@@ -154,6 +155,15 @@ jobs:
         with:
           sparse-checkout: "${{ matrix.recipe.dir }}"
           sparse-checkout-cone-mode: false
+
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: /cache/huggingface
+          key: ${{ runner.os }}-huggingface-${{ matrix.recipe.name }}
+          restore-keys: |
+            ${{ runner.os }}-huggingface-${{ matrix.recipe.name }}-
+            ${{ runner.os }}-huggingface-
 
       - name: Install dependencies
         working-directory: ${{ matrix.recipe.dir }}
@@ -178,7 +188,6 @@ jobs:
             source .ci_test_env.sh
           fi
           pytest -v .
-
 
   verify-recipe-tests:
     # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.

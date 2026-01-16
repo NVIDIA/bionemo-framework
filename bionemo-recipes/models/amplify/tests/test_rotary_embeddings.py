@@ -29,7 +29,7 @@ def test_apply_rotary_pos_emb():
     key = torch.randn([2, 72, 10, 64], dtype=torch.bfloat16, generator=rng).to("cuda")
 
     # AMPLIFY HF Rope
-    hf_config = AutoConfig.from_pretrained("chandar-lab/AMPLIFY_120M", trust_remote_code=True)
+    hf_config = AutoConfig.from_pretrained("chandar-lab/AMPLIFY_120M", trust_remote_code=True, revision="d918a9e8")
 
     freqs_cis = precompute_freqs_cis(hf_config.hidden_size // hf_config.num_attention_heads, 72).to("cuda")
     q_post, k_post = apply_rotary_emb(query, key, freqs_cis)

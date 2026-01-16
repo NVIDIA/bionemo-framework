@@ -56,7 +56,7 @@ class ForwardHook:
 
 @pytest.fixture
 def config():
-    config = AutoConfig.from_pretrained("chandar-lab/AMPLIFY_120M", trust_remote_code=True)
+    config = AutoConfig.from_pretrained("chandar-lab/AMPLIFY_120M", trust_remote_code=True, revision="d918a9e8")
     config.dtype = torch.bfloat16
     return config
 

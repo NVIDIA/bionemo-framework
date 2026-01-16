@@ -56,11 +56,11 @@ def export_hf_checkpoint(tag: str, export_path: Path):
         tag: The tag of the checkpoint to export.
         export_path: The parent path to export the checkpoint to.
     """
-    model_hf = AutoModel.from_pretrained(f"chandar-lab/{tag}", trust_remote_code=True)
+    model_hf = AutoModel.from_pretrained(f"chandar-lab/{tag}", trust_remote_code=True, revision="d918a9e8")
     model_te = convert_amplify_hf_to_te(model_hf)
     model_te.save_pretrained(export_path / tag)
 
-    tokenizer = AutoTokenizer.from_pretrained(f"chandar-lab/{tag}")
+    tokenizer = AutoTokenizer.from_pretrained(f"chandar-lab/{tag}", revision="d918a9e8")
     tokenizer.save_pretrained(export_path / tag)
 
     # Patch the config

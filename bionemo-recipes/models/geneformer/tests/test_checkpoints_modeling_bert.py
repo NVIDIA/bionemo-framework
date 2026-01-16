@@ -24,10 +24,10 @@ def load_geneformer_model(model_name):
     """Helper function to load the correct Geneformer model variant."""
     if model_name == "Geneformer-V2-316M":
         # Default model (no subfolder needed)
-        return AutoModelForMaskedLM.from_pretrained("ctheodoris/Geneformer")
+        return AutoModelForMaskedLM.from_pretrained("ctheodoris/Geneformer", revision="f45a6c7d")
     else:
         # Use subfolder for specific model variants
-        return AutoModelForMaskedLM.from_pretrained("ctheodoris/Geneformer", subfolder=model_name)
+        return AutoModelForMaskedLM.from_pretrained("ctheodoris/Geneformer", subfolder=model_name, revision="f45a6c7d")
 
 
 # Model variants with detailed information

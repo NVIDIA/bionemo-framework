@@ -49,9 +49,12 @@ def input_text():
 
 @pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
 def test_llama_model_forward_pass(input_text, attn_input_format):
-    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
+    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8", revision="42d9515")
     config = NVLlamaConfig.from_pretrained(
-        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format=attn_input_format
+        "nvidia/Llama-3.1-8B-Instruct-FP8",
+        num_hidden_layers=2,
+        attn_input_format=attn_input_format,
+        revision="42d9515",
     )
     model = NVLlamaForCausalLM(config)
 
@@ -67,12 +70,13 @@ def test_llama_model_forward_pass(input_text, attn_input_format):
 
 
 def test_llama_model_forward_pass_no_attention_mask():
-    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
+    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8", revision="42d9515")
     config = NVLlamaConfig.from_pretrained(
         "nvidia/Llama-3.1-8B-Instruct-FP8",
         num_hidden_layers=2,
         attn_input_format="bshd",
         self_attn_mask_type="causal",
+        revision="42d9515",
     )
     model = NVLlamaForCausalLM(config)
 
@@ -93,9 +97,12 @@ def test_llama_model_backward_pass(input_text, attn_input_format):
     if attn_input_format == "thd" and torch.cuda.get_device_capability()[0] == 12:
         pytest.xfail("BIONEMO-3294: CUDNN backward pass is not supported for THD inputs on SM120.")
 
-    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
+    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8", revision="42d9515")
     config = NVLlamaConfig.from_pretrained(
-        "nvidia/Llama-3.1-8B-Instruct-FP8", num_hidden_layers=2, attn_input_format=attn_input_format
+        "nvidia/Llama-3.1-8B-Instruct-FP8",
+        num_hidden_layers=2,
+        attn_input_format=attn_input_format,
+        revision="42d9515",
     )
     model = NVLlamaForCausalLM(config)
 
@@ -110,11 +117,12 @@ def test_llama_model_backward_pass(input_text, attn_input_format):
 
 
 def test_llama_model_forward_pass_thd_inputs(input_text):
-    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8")
+    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8", revision="42d9515")
     config = NVLlamaConfig.from_pretrained(
         "nvidia/Llama-3.1-8B-Instruct-FP8",
         attn_input_format="thd",
         num_hidden_layers=2,
+        revision="42d9515",
     )
     model = NVLlamaForCausalLM(config)
 

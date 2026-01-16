@@ -23,7 +23,7 @@ from transformers import AutoConfig, AutoModelForMaskedLM
 def test_esm_model_for_masked_lm(input_data):
     from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
-    config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
+    config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f").to_dict())
     model = NVEsmForMaskedLM(config)
     model.to("cuda")
     input_data = {k: v.to("cuda") for k, v in input_data.items()}
@@ -36,7 +36,7 @@ def test_esm_model_for_masked_lm(input_data):
 def test_esm_model_has_all_te_layers(input_data):
     from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
-    config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
+    config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f").to_dict())
     model = NVEsmForMaskedLM(config)
     for name, module in model.named_modules():
         assert not isinstance(module, nn.Linear), f"Vanilla linear layer found in {name}"
@@ -46,7 +46,7 @@ def test_esm_model_has_all_te_layers(input_data):
 def test_convert_state_dict(input_data):
     from esm.convert import _pack_qkv_bias, _pack_qkv_weight, _pad_bias, _pad_weights, convert_esm_hf_to_te, mapping
 
-    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     model_te = convert_esm_hf_to_te(model_hf)
     model_hf.to("cuda")
     model_te.to("cuda")
@@ -166,7 +166,7 @@ def test_golden_values(input_data):
     from esm.convert import convert_esm_hf_to_te
 
     model_hf = AutoModelForMaskedLM.from_pretrained(
-        "facebook/esm2_t6_8M_UR50D", attn_implementation="flash_attention_2"
+        "facebook/esm2_t6_8M_UR50D", attn_implementation="flash_attention_2", revision="c731040f"
     )
     model_te = convert_esm_hf_to_te(model_hf)
     model_te.to(torch.bfloat16)
@@ -195,7 +195,7 @@ def test_converted_model_roundtrip(tmp_path, input_data):
     from esm.convert import convert_esm_hf_to_te
     from esm.modeling_esm_te import NVEsmConfig, NVEsmEncoder, NVEsmForMaskedLM, NVEsmLMHead, NVEsmModel
 
-    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     model_te = convert_esm_hf_to_te(model_hf)
 
     model_te.save_pretrained(tmp_path / "esm2_t6_8M_UR50D_te")

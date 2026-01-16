@@ -152,7 +152,7 @@ if __name__ == "__main__":
     )
     device = f"cuda:{dist_config.local_rank}"
 
-    config = NVEsmConfig.from_pretrained("nvidia/esm2_t6_8M_UR50D", dtype=torch.bfloat16)
+    config = NVEsmConfig.from_pretrained("facebook/esm2_t6_8M_UR50D", dtype=torch.bfloat16, revision="c731040f")
     model = NVEsmForMaskedLM(config)
 
     if args.strategy is Strategy.FSDP2:
