@@ -26,6 +26,7 @@ The core forward pass (predict.py) and HyenaInferenceContext are tested
 in test_evo2.py which has working test_forward_manual and test_forward_ckpt_conversion.
 """
 
+import copy
 import os
 import subprocess
 
@@ -37,6 +38,9 @@ from bionemo.evo2.models.evo2_provider import HyenaInferenceContext
 from ..utils import find_free_network_port
 
 
+# Capture environment at import time (consistent with test_predict.py)
+PRETEST_ENV = copy.deepcopy(os.environ)
+
 # Note: mbridge_checkpoint_path fixture is provided by conftest.py at session scope
 
 
@@ -47,11 +51,16 @@ def test_infer_runs(mbridge_checkpoint_path, tmp_path):
     # Use a longer DNA prompt to meet FP8 dimension requirements (divisible by 8)
     # 64 characters should be safe
     prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
+    open_port = find_free_network_port()
 
     cmd = [
         "torchrun",
         "--nproc_per_node",
         "1",
+        "--nnodes",
+        "1",
+        "--master_port",
+        str(open_port),
         "-m",
         "bionemo.evo2.run.infer",
         "--ckpt-dir",
@@ -68,9 +77,7 @@ def test_infer_runs(mbridge_checkpoint_path, tmp_path):
         "1",  # Top-k=1 for greedy decoding
     ]
 
-    env = os.environ.copy()
-    env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = str(find_free_network_port())
+    env = copy.deepcopy(PRETEST_ENV)
 
     result = subprocess.run(
         cmd,
@@ -95,11 +102,16 @@ def test_infer_temperature(mbridge_checkpoint_path, tmp_path, temperature):
     output_file = tmp_path / f"output_temp_{temperature}.txt"
     # Use a longer prompt for FP8 compatibility
     prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
+    open_port = find_free_network_port()
 
     cmd = [
         "torchrun",
         "--nproc_per_node",
         "1",
+        "--nnodes",
+        "1",
+        "--master_port",
+        str(open_port),
         "-m",
         "bionemo.evo2.run.infer",
         "--ckpt-dir",
@@ -114,9 +126,7 @@ def test_infer_temperature(mbridge_checkpoint_path, tmp_path, temperature):
         str(output_file),
     ]
 
-    env = os.environ.copy()
-    env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = str(find_free_network_port())
+    env = copy.deepcopy(PRETEST_ENV)
 
     result = subprocess.run(
         cmd,
@@ -135,11 +145,16 @@ def test_infer_top_k(mbridge_checkpoint_path, tmp_path):
     output_file = tmp_path / "output_topk.txt"
     # Use a longer prompt for FP8 compatibility
     prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
+    open_port = find_free_network_port()
 
     cmd = [
         "torchrun",
         "--nproc_per_node",
         "1",
+        "--nnodes",
+        "1",
+        "--master_port",
+        str(open_port),
         "-m",
         "bionemo.evo2.run.infer",
         "--ckpt-dir",
@@ -154,9 +169,7 @@ def test_infer_top_k(mbridge_checkpoint_path, tmp_path):
         str(output_file),
     ]
 
-    env = os.environ.copy()
-    env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = str(find_free_network_port())
+    env = copy.deepcopy(PRETEST_ENV)
 
     result = subprocess.run(
         cmd,
@@ -188,11 +201,16 @@ def test_infer_phylogenetic_prompt(mbridge_checkpoint_path, tmp_path):
         "g__Escherichia;"
         "s__Escherichia|"
     )
+    open_port = find_free_network_port()
 
     cmd = [
         "torchrun",
         "--nproc_per_node",
         "1",
+        "--nnodes",
+        "1",
+        "--master_port",
+        str(open_port),
         "-m",
         "bionemo.evo2.run.infer",
         "--ckpt-dir",
@@ -209,9 +227,7 @@ def test_infer_phylogenetic_prompt(mbridge_checkpoint_path, tmp_path):
         str(output_file),
     ]
 
-    env = os.environ.copy()
-    env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = str(find_free_network_port())
+    env = copy.deepcopy(PRETEST_ENV)
 
     result = subprocess.run(
         cmd,
@@ -257,10 +273,16 @@ def run_infer_subprocess(
     Returns:
         The generated text from the output file
     """
+    open_port = find_free_network_port()
+
     cmd = [
         "torchrun",
         "--nproc_per_node",
         "1",
+        "--nnodes",
+        "1",
+        "--master_port",
+        str(open_port),
         "-m",
         "bionemo.evo2.run.infer",
         "--ckpt-dir",
@@ -279,9 +301,7 @@ def run_infer_subprocess(
         str(seed),
     ]
 
-    env = os.environ.copy()
-    env["MASTER_ADDR"] = "localhost"
-    env["MASTER_PORT"] = str(find_free_network_port())
+    env = copy.deepcopy(PRETEST_ENV)
 
     result = subprocess.run(
         cmd,
