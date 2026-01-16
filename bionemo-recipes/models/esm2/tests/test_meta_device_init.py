@@ -186,16 +186,12 @@ def test_meta_fp8_init(fp8_recipe):
     verify_model_parameters_initialized_correctly(model, should_be_fp8=True)
 
 
-def test_model_for_token_classification_init():
-    config = NVEsmConfig(
-        **AutoConfig.from_pretrained(
-            "facebook/esm2_t6_8M_UR50D", trust_remote_code=True, revision="c731040f"
-        ).to_dict()
-    )
+def test_model_for_token_classification_init(te_model_checkpoint):
+    config = NVEsmConfig.from_pretrained(te_model_checkpoint, trust_remote_code=True)
 
     set_seed(42)
     model = NVEsmForTokenClassification.from_pretrained(
-        "facebook/esm2_t6_8M_UR50D", config=config, dtype=torch.bfloat16, trust_remote_code=True, revision="c731040f"
+        te_model_checkpoint, config=config, dtype=torch.bfloat16, trust_remote_code=True
     )
     model.to("cuda")
 
@@ -229,7 +225,7 @@ if __name__ == "__main__":
     torch.distributed.init_process_group(backend="cuda:nccl")
     torch.cuda.set_device(torch.distributed.get_rank())
 
-    config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f").to_dict())
+    config = NVEsmConfig(**AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D").to_dict())
 
     set_seed(42)
 
