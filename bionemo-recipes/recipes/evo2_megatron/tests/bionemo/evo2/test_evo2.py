@@ -258,7 +258,7 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: 
                 "model_size": "1b",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 16,
-            },  # checked both variants in isolation
+            },  # checked both variants in isolation - needs ~21GB peak on L4
             {
                 "test_name": "test_batch_generate_mbridge",
                 "model_size": "7b",
@@ -671,7 +671,7 @@ def test_batch_generate_coding_sequences(
         prompts = [split[0] for split in seq_prompts]
 
         # Setup MCore inference engine with batch size matching number of prompts
-        batch_size = len(prompts)
+        batch_size = len(prompts) // 2
         components = setup_inference_engine(
             ckpt_dir=mbridge_ckpt_path,
             max_seq_length=8192,
@@ -775,7 +775,7 @@ def test_batch_generate_mbridge(
 
     # Check memory availability (use test_batch_generate requirements as proxy)
     try:
-        _ = determine_memory_requirement_and_skip_if_not_met(ckpt_name, test_name="test_batch_generate")
+        _ = determine_memory_requirement_and_skip_if_not_met(ckpt_name, test_name="test_batch_generate_mbridge")
     except KeyError:
         # If no entry exists, check basic memory availability
         gb_available = torch.cuda.mem_get_info()[0] / 1024**3
@@ -814,7 +814,7 @@ def test_batch_generate_mbridge(
         components = setup_inference_engine(
             ckpt_dir=mbridge_ckpt_path,
             max_seq_length=8192,
-            max_batch_size=len(prompts),
+            max_batch_size=1,  # 1 because this test takes more memory.
             tensor_parallel_size=1,
             random_seed=42,
         )
