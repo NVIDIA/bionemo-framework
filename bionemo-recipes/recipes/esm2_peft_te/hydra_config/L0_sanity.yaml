@@ -39,8 +39,6 @@ lr_scheduler_kwargs:
 
 checkpoint:
   ckpt_dir: null
-  resume_from_checkpoint: true
-  save_every_n_steps: 50
   save_final_model: false
 
 logger:

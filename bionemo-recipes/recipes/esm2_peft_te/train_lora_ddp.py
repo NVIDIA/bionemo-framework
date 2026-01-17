@@ -17,6 +17,7 @@
 """Demonstration of LoRA fine-tuning of ESM-2 with Transformer Engine and PEFT using DDP."""
 
 import logging
+from pathlib import Path
 
 import hydra
 import torch
@@ -28,6 +29,7 @@ from transformers import (
 )
 
 import peft
+from checkpoint import save_final_model_ddp
 from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
@@ -85,7 +87,7 @@ def main(args: DictConfig) -> float:
         inference_mode=False,
         r=args.lora.r,
         lora_alpha=args.lora.alpha,
-        target_modules=args.lora.target_modules,
+        target_modules=list(args.lora.target_modules),
         bias="none",
     )
 
@@ -228,7 +230,17 @@ def main(args: DictConfig) -> float:
         epoch += 1
         train_dataset_or_sampler.set_epoch(epoch)
 
+    ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_ddp" if args.checkpoint.ckpt_dir else None
+
+    if args.checkpoint.save_final_model and ckpt_path:
+        save_final_model_ddp(
+            model=peft_model,
+            save_directory=ckpt_path / "final_model",
+            dist_config=dist_config,
+        )
+
     perf_logger.finish()
+    torch.distributed.destroy_process_group()
 
     return perf_logger.min_loss
 
