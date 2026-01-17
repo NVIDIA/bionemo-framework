@@ -237,6 +237,7 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     # parser.add_argument("--wandb-offline", action="store_true", help="Use wandb in offline mode")  # TODO implement
     parser.add_argument("--sequence-parallel", action="store_true", help="Set to enable sequence parallelism.")  # DONE
     parser.add_argument("--no-fp8-wgrad", action="store_true", help="Set to disable fp8 weight gradients.")
+    parser.add_argument("--no-fp8-param-gather", action="store_true", help="Set to disable fp8 parameter gathering.")
     parser.add_argument(
         "--mixed-precision-recipe",
         type=str,
@@ -766,7 +767,14 @@ def train(args: argparse.Namespace) -> None:
     cfg.checkpoint.exit_on_missing_checkpoint = False
     cfg.checkpoint.dist_ckpt_strictness = "assume_ok_unexpected"
 
-    cfg.mixed_precision.fp8_wgrad = not args.no_fp8_wgrad
+    if args.no_fp8_wgrad:
+        # change if a change is requested to the mixed precision recipe
+        cfg.mixed_precision.fp8_wgrad = False
+    if args.grad_reduce_in_fp32:
+        cfg.mixed_precision.grad_reduce_in_fp32 = True
+        cfg.ddp.grad_reduce_in_fp32 = True
+    if args.no_fp8_param_gather:
+        cfg.mixed_precision.fp8_param_gather = False
 
     # 3. Apply Manual Overrides (for settings not exposed in recipe kwargs)
     if args.no_renormalize_loss:
@@ -835,7 +843,6 @@ def train(args: argparse.Namespace) -> None:
     cfg.ddp.align_param_gather = args.align_param_gather
     cfg.ddp.overlap_param_gather = args.overlap_param_gather
     cfg.ddp.overlap_grad_reduce = args.overlap_grad_reduce
-    cfg.ddp.grad_reduce_in_fp32 = args.grad_reduce_in_fp32
     cfg.ddp.check_for_nan_in_grad = not args.no_check_for_nan_in_grad
     if args.use_megatron_comm_overlap_llama3_8k:
         # Pick the floating point appropriate config.

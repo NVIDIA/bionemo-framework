@@ -601,6 +601,8 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
     return (matches / min_length) * 100
 
 
+@pytest.mark.timeout(900)
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents,fp8",
     [
@@ -741,6 +743,8 @@ def test_batch_generate_coding_sequences(
 # =============================================================================
 
 
+@pytest.mark.timeout(900)
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents,fp8",
     [

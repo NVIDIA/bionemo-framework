@@ -320,6 +320,7 @@ def _distributed_training_cmd(
     tp: int,
     cp: int,
     pp: int,
+    finetune_ckpt_dir: Path,
     additional_args: str = "",
 ) -> str:
     micro_batch_size = 1 if dp == 2 else 2
@@ -327,8 +328,9 @@ def _distributed_training_cmd(
         f"torchrun --nproc-per-node {num_devices} --no-python train_evo2 "
         f"--mock-data --result-dir {path} "
         f"--hf-tokenizer-model-path {DEFAULT_HF_TOKENIZER_MODEL_PATH} "
-        "--model-size striped_hyena_1b_nv_parallel --num-layers 4 --hybrid-override-pattern SDH* "
+        "--model-size 7b_arc_longcontext --num-layers 4 --hybrid-override-pattern SDH* "
         "--no-activation-checkpointing --optim-full-reshardable "
+        f"--finetune-ckpt-dir {finetune_ckpt_dir} "
         f"--max-steps {max_steps} --eval-interval {val_check} --eval-iters 1 "
         f"--seq-length 64 --hidden-dropout 0.0 --attention-dropout 0.0 "
         f"--micro-batch-size {micro_batch_size} --global-batch-size 2 "
@@ -338,6 +340,7 @@ def _distributed_training_cmd(
     )
 
 
+@pytest.mark.timeout(300)
 @pytest.mark.slow
 @pytest.mark.parametrize(
     "tp_size",
@@ -527,7 +530,45 @@ def test_fine_tuning(
 
 
 @pytest.fixture(scope="session")
-def base_checkpoint(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def mbridge_checkpoint_7b_1m(tmp_path_factory) -> Path:
+    """Session-scoped MBridge checkpoint for the 1b-8k-bf16 model.
+
+    This fixture converts the NeMo2 checkpoint to MBridge format once per test session,
+    allowing it to be shared across multiple test files (test_infer.py, test_predict.py, etc.).
+
+    Returns:
+        Path to the MBridge checkpoint iteration directory (e.g., .../iter_0000001)
+    """
+    from bionemo.core.data.load import load
+    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
+    from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
+
+    try:
+        nemo2_ckpt_path = load("evo2/7b-1m:1.0")
+    except ValueError as e:
+        if e.args[0].endswith("does not have an NGC URL."):
+            pytest.skip(
+                "Please re-run test with `BIONEMO_DATA_SOURCE=pbss py.test ...`, "
+                "one or more files are missing from ngc."
+            )
+        else:
+            raise e
+
+    output_dir = tmp_path_factory.mktemp("mbridge_checkpoint_7b_1m_session")
+    mbridge_ckpt_dir = run_nemo2_to_mbridge(
+        nemo2_ckpt_dir=nemo2_ckpt_path,
+        tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+        mbridge_ckpt_dir=output_dir / "evo2_7b_1m_mbridge",
+        model_size="7b_arc_longcontext",
+        seq_length=1_048_576,
+        mixed_precision_recipe="bf16_mixed",
+        vortex_style_fp8=False,
+    )
+    return mbridge_ckpt_dir / "iter_0000001"
+
+
+@pytest.fixture(scope="session")
+def base_checkpoint(tmp_path_factory: pytest.TempPathFactory, mbridge_checkpoint_7b_1m: Path) -> Path:
     """Create a base checkpoint by training one step with no parallelism."""
     if torch.cuda.device_count() < 1:
         pytest.skip("Test requires at least 1 GPU")
@@ -545,6 +586,7 @@ def base_checkpoint(tmp_path_factory: pytest.TempPathFactory) -> Path:
         tp=1,
         cp=1,
         pp=1,
+        finetune_ckpt_dir=mbridge_checkpoint_7b_1m,
     )
     _run_train_command(cmd, base_path)
 
@@ -558,32 +600,16 @@ def base_checkpoint(tmp_path_factory: pytest.TempPathFactory) -> Path:
     [
         pytest.param(2, 1, 1, 1, id="data_parallel"),
         pytest.param(1, 2, 1, 1, id="context_parallel"),
-        pytest.param(
-            1,
-            1,
-            2,
-            1,
-            id="tensor_parallel",
-            marks=pytest.mark.skip(
-                reason="Tensor parallel sharded optimizer checkpoint needs to be debugged for mbridge Evo2."
-            ),
-        ),
-        pytest.param(
-            1,
-            1,
-            1,
-            2,
-            id="pipeline_parallel",
-            marks=pytest.mark.skip(
-                reason="Pipeline parallel sharded optimizer checkpoint needs to be debugged for mbridge Evo2."
-            ),
-        ),
+        pytest.param(1, 1, 2, 1, id="tensor_parallel", marks=pytest.mark.skip(reason="FIXME debug TP=2.")),
+        pytest.param(1, 1, 1, 2, id="pipeline_parallel", marks=pytest.mark.skip(reason="FIXME debug PP=2.")),
     ],
 )
 @pytest.mark.timeout(900)
 @pytest.mark.slow
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="Test requires at least 2 GPUs")
-def test_distributed_training_gradient_equivalence(tmp_path: Path, base_checkpoint: Path, dp, cp, tp, pp):
+def test_distributed_training_gradient_equivalence(
+    tmp_path: Path, base_checkpoint: Path, mbridge_checkpoint_7b_1m: Path, dp, cp, tp, pp
+):
     """Test that optimizer states match across different distributed training strategies."""
     num_steps = 1
     num_devices = dp * cp * tp * pp
@@ -602,6 +628,8 @@ def test_distributed_training_gradient_equivalence(tmp_path: Path, base_checkpoi
         tp=tp,
         cp=cp,
         pp=pp,
+        finetune_ckpt_dir=mbridge_checkpoint_7b_1m,  # must use the same checkpoint since PP/TP will have different RNG
+        additional_args=" --sequence-parallel " if tp > 1 else "",
     )
     _run_train_command(cmd, parallel_path)
 
