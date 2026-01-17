@@ -382,10 +382,28 @@ def _check_matchrate(*, ckpt_name, matchrate, assert_matchrate=True):
     "ckpt_name,expected_matchpercents,flash_decode",
     [
         # Try flash decode with one and not the other to verify that both paths work.
-        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
-        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
-        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
-        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
+        pytest.param("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True, id="1b-8k-bf16"),
+        pytest.param(
+            "evo2/1b-8k:1.0",
+            [96.27, 67.93, 77.50, 80.30],
+            False,
+            id="1b-8k",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
+        pytest.param(
+            "evo2/7b-8k:1.0",
+            [97.60, 89.63, 80.03, 84.57],
+            False,
+            id="7b-8k",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
+        pytest.param(
+            "evo2/7b-1m:1.0",
+            [97.60, 89.63, 80.03, 84.57],
+            False,
+            id="7b-1m",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
     ],
 )
 def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchpercents: list[float], flash_decode: bool):
@@ -486,10 +504,28 @@ def test_forward_manual(sequences: list[str], ckpt_name: str, expected_matchperc
     "ckpt_name,expected_matchpercents,flash_decode",
     [
         # Try flash decode with one and not the other to verify that both paths work.
-        ("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True),
-        ("evo2/1b-8k:1.0", [96.27, 67.93, 77.50, 80.30], False),
-        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], False),
-        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
+        pytest.param("evo2/1b-8k-bf16:1.0", [96.27, 67.93, 77.50, 80.30], True, id="1b-8k-bf16"),
+        pytest.param(
+            "evo2/1b-8k:1.0",
+            [96.27, 67.93, 77.50, 80.30],
+            False,
+            id="1b-8k",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
+        pytest.param(
+            "evo2/7b-8k:1.0",
+            [97.60, 89.63, 80.03, 84.57],
+            False,
+            id="7b-8k",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
+        pytest.param(
+            "evo2/7b-1m:1.0",
+            [97.60, 89.63, 80.03, 84.57],
+            False,
+            id="7b-1m",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
     ],
 )
 def test_forward_ckpt_conversion(
@@ -608,9 +644,27 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
     [
         pytest.param("evo2/1b-8k-bf16:1.0", [86.4, 78.8, 49.7], False, id="1b-bf16_bf16"),
         pytest.param("evo2/1b-8k-bf16:1.0", [86.4, 78.8, 49.7], True, id="1b-bf16_fp8"),
-        pytest.param("evo2/1b-8k:1.0", [86.4, 78.8, 49.7], True, id="1b_fp8"),
-        pytest.param("evo2/7b-8k:1.0", [88.8, 88.5, 82.2], False, id="7b-8k_bf16"),
-        pytest.param("evo2/7b-1m:1.0", [88.8, 88.5, 82.2], False, id="7b-1m_bf16"),
+        pytest.param(
+            "evo2/1b-8k:1.0",
+            [86.4, 78.8, 49.7],
+            True,
+            id="1b_fp8",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
+        pytest.param(
+            "evo2/7b-8k:1.0",
+            [88.8, 88.5, 82.2],
+            False,
+            id="7b-8k_bf16",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
+        pytest.param(
+            "evo2/7b-1m:1.0",
+            [88.8, 88.5, 82.2],
+            False,
+            id="7b-1m_bf16",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
     ],
 )
 def test_batch_generate_coding_sequences(
@@ -748,11 +802,29 @@ def test_batch_generate_coding_sequences(
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents,fp8",
     [
-        ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6], False),
-        ("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6], True),
-        ("evo2/1b-8k:1.0", [96.8, 29.7, 76.6, 71.6], True),
-        ("evo2/7b-8k:1.0", [97.60, 89.63, 80.03, 84.57], True),
-        ("evo2/7b-1m:1.0", [97.60, 89.63, 80.03, 84.57], False),
+        pytest.param("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6], False, id="1b-bf16_bf16"),
+        pytest.param("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6], True, id="1b-bf16_fp8"),
+        pytest.param(
+            "evo2/1b-8k:1.0",
+            [96.8, 29.7, 76.6, 71.6],
+            True,
+            id="1b_fp8",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
+        pytest.param(
+            "evo2/7b-8k:1.0",
+            [97.60, 89.63, 80.03, 84.57],
+            True,
+            id="7b-8k_fp8",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
+        pytest.param(
+            "evo2/7b-1m:1.0",
+            [97.60, 89.63, 80.03, 84.57],
+            False,
+            id="7b-1m_bf16",
+            marks=pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space"),
+        ),
     ],
 )
 def test_batch_generate_mbridge(

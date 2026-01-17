@@ -649,7 +649,16 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Enable NVIDIA fault tolerance. This only works on internal NVIDIA clusters.",
     )  # DONE
-    parser.add_argument(
+
+    # Optimizer format
+    optimizer_fmt_group = parser.add_mutually_exclusive_group(required=False)
+    optimizer_fmt_group.add_argument(
+        "--optim-fmt-pre-mcore-014",
+        action="store_true",
+        default=False,
+        help="Use the pre-Megatron-Core-v0.14 optimizer format.",
+    )
+    optimizer_fmt_group.add_argument(
         "--optim-full-reshardable",
         action="store_true",
         default=False,
@@ -835,7 +844,10 @@ def train(args: argparse.Namespace) -> None:
     cfg.optimizer.log_num_zeros_in_grad = args.log_num_zeros_in_grad
     cfg.optimizer.clip_grad = args.clip_grad
     # Optimizer checkpointing resharding
-    cfg.checkpoint.dist_ckpt_optim_fully_reshardable = args.optim_full_reshardable
+    if args.optim_fmt_pre_mcore_014:
+        cfg.checkpoint.dist_ckpt_save_pre_mcore_014 = True
+    elif args.optim_full_reshardable:
+        cfg.checkpoint.dist_ckpt_optim_fully_reshardable = True
 
     cfg.dataset.num_workers = args.workers
 

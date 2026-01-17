@@ -1303,6 +1303,8 @@ class ParallelShortHyenaOperator(nn.Module):
                 "conv_bias": 0,
             },  # parameters sharded across TP
             sharded_offsets=sharded_offsets,
+            tp_group=self.pg_collection.tp,
+            dp_cp_group=self.pg_collection.dp_cp,
         )
         # Submodules
         for name, module in self.named_children():
