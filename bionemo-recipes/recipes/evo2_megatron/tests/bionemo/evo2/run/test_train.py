@@ -612,7 +612,7 @@ def base_checkpoint(tmp_path_factory: pytest.TempPathFactory, mbridge_checkpoint
 @pytest.mark.timeout(900)
 @pytest.mark.slow
 @pytest.mark.skipif(torch.cuda.device_count() < 2, reason="Test requires at least 2 GPUs")
-@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI due to disk space limitations")
+@pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI due to disk space limitations")
 def test_distributed_training_gradient_equivalence(
     tmp_path: Path, base_checkpoint: Path, mbridge_checkpoint_7b_1m: Path, dp, cp, tp, pp
 ):

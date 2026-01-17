@@ -299,7 +299,7 @@ def baseline_predictions_7b_1m_results(
     ],
 )
 @pytest.mark.slow
-@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip 7b-1m checkpoint tests in CI due to disk space")
+@pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip 7b-1m checkpoint tests in CI due to disk space")
 def test_predict_evo2_equivalent_with_log_probs(
     tmp_path,
     ddp: int,
