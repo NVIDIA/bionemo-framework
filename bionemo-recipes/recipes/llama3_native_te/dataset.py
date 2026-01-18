@@ -232,6 +232,7 @@ def create_thd_dataloader(
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = True,
     split_samples_in_token_packing: bool = True,
+    shift_labels_for_causal_lm: bool = False,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
 
@@ -255,6 +256,9 @@ def create_thd_dataloader(
         mask_degenerate_bases: Whether to mask degenerate bases (genomic masking). Default: True.
         split_samples_in_token_packing: Whether to split samples to form batches with exactly token_micro_batch_size
             tokens. Default: True.
+        shift_labels_for_causal_lm: Whether to pre-shift labels for causal LM to avoid cross-boundary predictions.
+            When True (Megatron-style): labels are shifted so last token of each sequence predicts -100.
+            When False (HuggingFace-style): global shift is applied in ForCausalLMLoss. Default: True.
 
     Returns:
         A dataloader that can be used for training.
@@ -283,7 +287,14 @@ def create_thd_dataloader(
         tokenizer=tokenizer,
         mlm=False,  # Causal language modeling
     )
-    data_collator = DataCollatorWithFlattening(collator=base_mlm_collator)
+    data_collator = DataCollatorWithFlattening(
+        collator=base_mlm_collator,
+        shift_labels_for_causal_lm=shift_labels_for_causal_lm,
+    )
+    if shift_labels_for_causal_lm:
+        logger.info("Using Megatron-style pre-shifted labels (shift_labels_for_causal_lm=True)")
+    else:
+        logger.info("Using HuggingFace-style labels - ForCausalLMLoss will apply global shift")
 
     if uppercase_labels or mask_degenerate_bases:
         # Wrap with genomic collator if masking options are enabled

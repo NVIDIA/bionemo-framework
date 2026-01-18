@@ -51,6 +51,12 @@ dataset:
   buffer_size: 500_000 # Shuffle buffer size
   use_lazy_tokenization: true
   use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
+  # Pre-shift labels for causal LM to avoid cross-boundary predictions in packed sequences.
+  # When True (Megatron-style): labels are shifted so the last token of each sequence predicts -100
+  # instead of the next sequence's first token. This is critical for correct loss calculation
+  # with sequence packing (THD format).
+  # Set to False to use original HuggingFace behavior (global shift applied in ForCausalLMLoss).
+  shift_labels_for_causal_lm: true
   load_dataset_kwargs:
     path: ???
     split: "train"
@@ -81,8 +87,10 @@ adamw_kwargs:
   weight_decay: 0.1
 
 # Learning rate scheduler config
+# Supports Megatron-style cosine annealing with warmup + constant (plateau) + decay
 lr_scheduler_kwargs:
   num_warmup_steps: 2_000
+  num_constant_steps: 0  # Plateau at max_lr after warmup (set to 1024 to match Megatron runs)
   num_decay_steps: 498_000
   min_lr_ratio: 0.000001
 
