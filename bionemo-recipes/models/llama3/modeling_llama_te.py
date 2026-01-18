@@ -400,6 +400,9 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
 
         loss = None
         if labels is not None:
+            # If shift_labels is provided in kwargs, pass it through to ForCausalLMLoss.
+            # This is used when labels are pre-shifted in the collator (Megatron-style)
+            # to avoid the global shift that would bleed across sequence boundaries in packed sequences.
             loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
 
         return CausalLMOutputWithPast(

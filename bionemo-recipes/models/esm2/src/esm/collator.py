@@ -87,6 +87,7 @@ class DataCollatorWithFlattening:
     return_position_ids: bool = False
     pad_to_multiple_of: int | None = None
     pad_sequences_to_be_divisible_by: int | None = None
+    shift_labels_for_causal_lm: bool = False
 
     def __post_init__(self):
         """Ensure padding options are not used together."""
@@ -156,15 +157,26 @@ class DataCollatorWithFlattening:
         bshd_batch = self.collator(features)
 
         # Create the flattened batch to get the cu_seq_lens_q and cu_seq_lens_k values.
-        packed_batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
+        # When shift_labels_for_causal_lm=True, labels are pre-shifted so that:
+        #   - labels[i] = input_ids[i+1] (next token prediction)
+        #   - labels at end of each sequence = -100 (don't predict across boundaries)
+        # This is critical because ForCausalLMLoss applies a global shift that would otherwise
+        # bleed across sequence boundaries in packed sequences.
+        packed_batch = _pt_flatten_collate(
+            features, return_position_ids=self.return_position_ids, shift_labels=self.shift_labels_for_causal_lm
+        )
 
-        # Get the masked input_ids and labels from the BSHD batch.
+        # Get the masked input_ids from the BSHD batch.
         masked_input_ids = bshd_batch["input_ids"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
-        masked_labels = bshd_batch["labels"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
 
-        # Update the packed batch with the masked input_ids and labels.
+        # Update the packed batch with the masked input_ids.
         packed_batch["input_ids"] = masked_input_ids
-        packed_batch["labels"] = masked_labels
+
+        # For labels: if we pre-shifted, use the shifted labels from packed_batch.
+        # Otherwise, use the labels from bshd_batch (legacy behavior).
+        if not self.shift_labels_for_causal_lm:
+            masked_labels = bshd_batch["labels"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
+            packed_batch["labels"] = masked_labels
 
         if self.pad_to_multiple_of is not None:
             packed_batch = self._pad_batch_to_multiple_of(packed_batch)
@@ -541,7 +553,23 @@ def _split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tupl
     return first_part, remaining_part
 
 
-def _pt_flatten_collate(features: list[dict[str, list[int]]], return_position_ids: bool = False):
+def _pt_flatten_collate(
+    features: list[dict[str, list[int]]], return_position_ids: bool = False, shift_labels: bool = False
+):
+    """Flatten features into a packed THD batch.
+
+    Args:
+        features: List of feature dictionaries with input_ids and optionally labels.
+        return_position_ids: Whether to return position ids.
+        shift_labels: If True, shift labels for causal LM (Megatron-style): each position predicts
+            the next token, and the last token of each sequence has label=-100 to avoid predicting
+            across sequence boundaries. This is critical for proper loss calculation with packed
+            sequences when using ForCausalLMLoss which would otherwise apply a global shift that
+            bleeds across sequence boundaries.
+
+    Returns:
+        Dictionary with flattened batch.
+    """
     is_labels_provided = "labels" in features[0]
     sample_lengths = [len(sample["input_ids"]) for sample in features]
 
@@ -551,9 +579,21 @@ def _pt_flatten_collate(features: list[dict[str, list[int]]], return_position_id
         [[token for sample in features for token in sample["input_ids"]]], dtype=torch.int64
     )
     if is_labels_provided:
-        batch["labels"] = torch.tensor(
-            [[label for sample in features for label in sample["labels"]]], dtype=torch.int64
-        )
+        if shift_labels:
+            # Megatron-style: shift labels so position i predicts token i+1.
+            # Last token of each sequence gets label=-100 to avoid cross-boundary prediction.
+            shifted_labels = []
+            for sample in features:
+                sample_labels = sample["labels"]
+                # Shift: labels[i] = input_ids[i+1], last position = -100
+                shifted = [*list(sample_labels[1:]), -100]
+                shifted_labels.extend(shifted)
+            batch["labels"] = torch.tensor([shifted_labels], dtype=torch.int64)
+            batch["shift_labels"] = batch["labels"]  # Mark that labels are already shifted
+        else:
+            batch["labels"] = torch.tensor(
+                [[label for sample in features for label in sample["labels"]]], dtype=torch.int64
+            )
     cu_seq_lens = torch.zeros(len(features) + 1, dtype=torch.int32)
     cu_seq_lens[1:] = torch.cumsum(torch.tensor(sample_lengths), dim=0, dtype=torch.int32)
     batch["cu_seq_lens_q"] = batch["cu_seq_lens_k"] = cu_seq_lens
