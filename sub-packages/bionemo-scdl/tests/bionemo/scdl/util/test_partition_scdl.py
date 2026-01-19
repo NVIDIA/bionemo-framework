@@ -20,7 +20,7 @@ import pytest
 
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 from bionemo.scdl.schema.header import SCDLHeader
-from bionemo.scdl.scripts.partition_scdl import partition_scdl
+from bionemo.scdl.util.partition_scdl import partition_scdl
 from bionemo.scdl.util.scdl_constants import Backend, FileNames
 
 
