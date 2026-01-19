@@ -67,8 +67,8 @@ def get_cosine_annealing_schedule_with_warmup(
         decay_end = num_warmup_steps + num_constant_steps + num_decay_steps
         if current_step <= decay_end:
             # Cosine annealing phase: decay from max_lr to min_lr
-            num_steps_ = current_step - constant_end
-            decay_ratio = float(num_steps_) / float(max(1, num_decay_steps))
+            num_steps_in_decay = current_step - constant_end
+            decay_ratio = float(num_steps_in_decay) / float(max(1, num_decay_steps))
             delta_lr = max_lr - min_lr
             coeff = 0.5 * (math.cos(math.pi * decay_ratio) + 1.0)
             # Calculate the actual LR, then convert to multiplier
