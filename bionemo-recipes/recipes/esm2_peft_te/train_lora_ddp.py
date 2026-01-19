@@ -34,7 +34,14 @@ from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
-from utils import compute_accuracy, get_parameter_names_with_lora
+from utils import (
+    SS3_ID2LABEL,
+    SS3_LABEL2ID,
+    SS8_ID2LABEL,
+    SS8_LABEL2ID,
+    compute_accuracy,
+    get_parameter_names_with_lora,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -71,9 +78,11 @@ def main(args: DictConfig) -> float:
     # For testing, we don't want to depend on loading pre-trained weights.
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     if args.dataset["ss3_classification"]:
-        config.num_labels = 3
+        config.id2label = SS3_ID2LABEL
+        config.label2id = SS3_LABEL2ID
     else:
-        config.num_labels = 8
+        config.id2label = SS8_ID2LABEL
+        config.label2id = SS8_LABEL2ID
 
     if args.use_pretrained:
         model = AutoModelForTokenClassification.from_pretrained(

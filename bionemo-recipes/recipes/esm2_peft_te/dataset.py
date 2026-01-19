@@ -23,6 +23,7 @@ from transformers import (
 )
 
 from distributed_config import DistributedConfig
+from utils import SS3_LABEL2ID, SS8_LABEL2ID
 
 
 def create_dataloader(
@@ -65,13 +66,10 @@ def create_dataloader(
             world_size=distributed_config.world_size,
         )
 
-    ss8_token_map = {"H": 0, "I": 1, "G": 2, "E": 3, "B": 4, "S": 5, "T": 6, "~": 7}  # '~' denotes coil / unstructured
-    ss3_token_map = {"H": 0, "I": 0, "G": 0, "E": 1, "B": 1, "S": 2, "T": 2, "~": 2}  # '~' denotes coil / unstructured
-
     if ss3_classification:
-        ss_token_map = ss3_token_map
+        ss_token_map = SS3_LABEL2ID
     else:
-        ss_token_map = ss8_token_map
+        ss_token_map = SS8_LABEL2ID
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
     tokenize_args = {

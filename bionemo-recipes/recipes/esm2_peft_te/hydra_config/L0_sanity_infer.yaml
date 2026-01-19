@@ -1,0 +1,10 @@
+defaults:
+- defaults_infer
+- _self_
+
+
+model_tag: "nvidia/esm2_t6_8M_UR50D"
+base_model_config_dir: "checkpoints/nvidia_esm2_t6_8M_UR50D/train_ddp/final_model" # pragma: allowlist secret
+
+
+output_file: output.txt

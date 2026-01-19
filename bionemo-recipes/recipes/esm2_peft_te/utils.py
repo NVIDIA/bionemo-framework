@@ -44,3 +44,34 @@ def get_parameter_names_with_lora(model):
     decay_parameters = get_parameter_names(model, [torch.nn.LayerNorm], forbidden_name_patterns)
 
     return decay_parameters
+
+
+SS3_ID2LABEL = {0: "H", 1: "E", 2: "C"}
+
+SS3_LABEL2ID = {
+    "H": 0,
+    "I": 0,
+    "G": 0,
+    "E": 1,
+    "B": 1,
+    "S": 2,
+    "T": 2,
+    "~": 2,
+    "C": 2,
+    "L": 2,
+}  # '~' denotes coil / unstructured
+
+SS8_ID2LABEL = {0: "H", 1: "I", 2: "G", 3: "E", 4: "B", 5: "S", 6: "T", 7: "C"}
+
+SS8_LABEL2ID = {
+    "H": 0,
+    "I": 1,
+    "G": 2,
+    "E": 3,
+    "B": 4,
+    "S": 5,
+    "T": 6,
+    "~": 7,
+    "C": 7,
+    "L": 7,
+}  # '~' denotes coil / unstructured
