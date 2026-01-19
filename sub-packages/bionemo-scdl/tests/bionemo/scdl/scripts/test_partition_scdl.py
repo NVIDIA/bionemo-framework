@@ -15,8 +15,6 @@
 
 """Tests for the SCDL partition script."""
 
-import os
-
 import numpy as np
 import pytest
 
@@ -26,28 +24,15 @@ from bionemo.scdl.scripts.partition_scdl import partition_scdl
 from bionemo.scdl.util.scdl_constants import Backend, FileNames
 
 
-def _load_chunk_memmap(chunk_dir, fname, dtype):
-    """Load a raw binary memmap file from a chunk directory."""
-    path = chunk_dir / fname
-    itemsize = np.dtype(dtype).itemsize
-    num_elements = os.path.getsize(path) // itemsize
-    return np.memmap(path, dtype=dtype, mode="r", shape=(num_elements,))
-
-
 @pytest.fixture
 def partitioned_scdl(tmp_path, make_h5ad_with_raw):
-    """Create an SCDL dataset and partition it into chunks.
-
-    Uses a fixed CHUNK_SIZE for clarity between tests and metadata calculation.
-    """
+    """Create an SCDL dataset and partition it into chunks."""
     CHUNK_SIZE = 50
     h5ad_path = make_h5ad_with_raw(tmp_path)
     scdl_path = tmp_path / "scdl"
     original = SingleCellMemMapDataset(scdl_path, h5ad_path=h5ad_path)
-
     chunked_path = tmp_path / "chunked"
     header = partition_scdl(scdl_path, chunked_path, chunk_size=CHUNK_SIZE)
-
     return original, header, chunked_path, CHUNK_SIZE
 
 
@@ -63,25 +48,22 @@ def test_header_has_chunked_info(partitioned_scdl):
     assert header.chunked_info is not None
     assert header.chunked_info.total_rows == len(original)
     assert header.chunked_info.chunk_size == CHUNK_SIZE
-    expected_chunks = (len(original) + (CHUNK_SIZE - 1)) // CHUNK_SIZE
-    assert header.chunked_info.num_chunks == expected_chunks
+    assert header.chunked_info.num_chunks == (len(original) + CHUNK_SIZE - 1) // CHUNK_SIZE
 
 
 def test_partition_row_data_correctness(partitioned_scdl):
     """Partitioned chunk's row data matches original for all rows."""
     original, header, chunked_path, _ = partitioned_scdl
     chunked_info = header.chunked_info
-
-    # Get dtypes from header arrays (keys are enum names like "ROWPTR", not values like "row_ptr.npy")
     dtype_map = {arr.name: arr.dtype.numpy_dtype_string for arr in header.arrays}
 
     for global_idx in range(chunked_info.total_rows):
         chunk_id, local_idx = chunked_info.get_chunk_for_row(global_idx)
         chunk_dir = chunked_path / f"chunk_{chunk_id:05d}"
 
-        rowptr = _load_chunk_memmap(chunk_dir, FileNames.ROWPTR.value, dtype_map["ROWPTR"])
-        data = _load_chunk_memmap(chunk_dir, FileNames.DATA.value, dtype_map["DATA"])
-        colptr = _load_chunk_memmap(chunk_dir, FileNames.COLPTR.value, dtype_map["COLPTR"])
+        rowptr = np.memmap(chunk_dir / FileNames.ROWPTR.value, dtype=dtype_map["ROWPTR"], mode="r")
+        data = np.memmap(chunk_dir / FileNames.DATA.value, dtype=dtype_map["DATA"], mode="r")
+        colptr = np.memmap(chunk_dir / FileNames.COLPTR.value, dtype=dtype_map["COLPTR"], mode="r")
 
         (orig_vals, orig_cols), _, _ = original.get_row(global_idx)
         chunk_vals = data[rowptr[local_idx] : rowptr[local_idx + 1]]
@@ -94,10 +76,7 @@ def test_partition_row_data_correctness(partitioned_scdl):
 def test_header_save_load_roundtrip(partitioned_scdl):
     """Header with ChunkedInfo saves and loads correctly from disk."""
     _, header, chunked_path, _ = partitioned_scdl
-
-    # Load the header from the saved file
-    header_path = chunked_path / FileNames.HEADER.value
-    loaded = SCDLHeader.load(str(header_path))
+    loaded = SCDLHeader.load(str(chunked_path / FileNames.HEADER.value))
 
     assert loaded.backend == header.backend
     assert loaded.chunked_info is not None
