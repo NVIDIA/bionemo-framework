@@ -710,9 +710,9 @@ def train(args: argparse.Namespace) -> None:
         recipe_kwargs["stride"] = args.stride
         recipe_kwargs["window_min_length_threshold"] = args.window_min_length_threshold
         recipe_kwargs["rc_aug"] = args.rc_aug
-    elif args.dataset_config_path:
+    elif args.dataset_config:
         recipe_kwargs["dataset_dir"] = args.dataset_dir
-        recipe_kwargs["dataset_config_path"] = args.dataset_config_path
+        recipe_kwargs["dataset_config_path"] = args.dataset_config
 
     recipe_kwargs["pad_eod_loss_mask"] = args.eod_pad_in_loss_mask
 
@@ -918,6 +918,7 @@ def train(args: argparse.Namespace) -> None:
     if args.finetune_ckpt_dir:
         cfg.checkpoint.finetune = True
         cfg.checkpoint.pretrained_checkpoint = args.finetune_ckpt_dir
+        cfg.checkpoint.dist_ckpt_strictness = "ignore_all"  # necessary unfortunately to avoid extra_state issues.
     if args.nvidia_fault_tolerance:
         cfg.ft = FaultToleranceConfig(
             enable_ft_package=True,

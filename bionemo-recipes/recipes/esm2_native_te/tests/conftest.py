@@ -34,6 +34,17 @@ def recipe_path() -> Path:
     return Path(__file__).parent.parent
 
 
+def pytest_collection_modifyitems(items):
+    """Run FP8 stats logging tests first to avoid late debug initialization."""
+    stats_test_names = {
+        "test_sanity_ddp_fp8_stats_logging",
+        "test_sanity_fsdp2_fp8_stats_logging",
+    }
+    stats_tests = [item for item in items if item.name in stats_test_names]
+    other_tests = [item for item in items if item.name not in stats_test_names]
+    items[:] = stats_tests + other_tests
+
+
 @pytest.fixture(scope="session", autouse=True)
 def device_mesh():
     """Create a re-usable device mesh for testing.

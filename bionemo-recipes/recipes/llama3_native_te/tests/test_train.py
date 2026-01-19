@@ -19,6 +19,7 @@ import random
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
+from transformer_engine.pytorch.fp8 import check_fp8_support
 
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
@@ -32,6 +33,12 @@ requires_datacenter_hardware = pytest.mark.skipif(
         gpu_name in torch.cuda.get_device_name(0).upper() for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
     ),
     reason="Test requires datacenter hardware (H100, H200, B100, B200, B300)",
+)
+
+_fp8_support_result = check_fp8_support() if torch.cuda.is_available() else (False, "CUDA not available")
+requires_fp8 = pytest.mark.skipif(
+    not torch.cuda.is_available() or not _fp8_support_result[0],
+    reason=f"Test requires FP8 support: {_fp8_support_result[1]}",
 )
 
 
@@ -268,7 +275,6 @@ def test_sanity_convergence_ddp_non_streaming_dataset(tmp_path, recipe_path):
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "dataset.load_dataset_kwargs.streaming=False",
-                "use_torch_compile=false",
                 "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
             ],
         )
@@ -370,21 +376,58 @@ def test_sanity_fsdp2_with_sequence_packing(tmp_path, recipe_path):
     assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
 
 
-@requires_datacenter_hardware
-def test_sanity_fsdp2_cp(tmp_path, recipe_path):
-    # Run the training script with Hydra configuration overrides
+def test_train_fsdp2_fp8_bshd(tmp_path, recipe_path):
+    """Test that FSDP2 training works with FP8 enabled."""
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
             overrides=[
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "+dataset.pad_to_multiple_of=16",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_train_fsdp2_fp8_thd(tmp_path, recipe_path):
+    """Test that FSDP2 training works with FP8 enabled."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
                 "use_sequence_packing=true",
-                "dataset.max_seq_length=1024",
                 "config_kwargs.attn_input_format=thd",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+@requires_datacenter_hardware
+def test_sanity_fsdp2_cp(tmp_path, recipe_path):
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity_cp",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
                 "num_train_steps=10",  # Just verify it runs, don't test convergence
                 "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
-                "+cp_size=1",
             ],
         )
 
@@ -393,3 +436,69 @@ def test_sanity_fsdp2_cp(tmp_path, recipe_path):
     torch.cuda.empty_cache()
 
     assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
+
+
+@requires_fp8
+def test_sanity_ddp_fp8_stats_logging(tmp_path, recipe_path):
+    """Test that FP8 stats logging creates the expected log files."""
+    fp8_log_dir = tmp_path / "fp8_stats_logs"
+
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "fp8_stats_config.enabled=true",
+                f"fp8_stats_config.fp8_log_dir={fp8_log_dir}",
+                "num_train_steps=4",
+            ],
+        )
+
+    main_ddp(sanity_config)
+
+    # Verify the log directory structure was created
+    assert fp8_log_dir.exists(), "FP8 log directory was not created"
+    assert (fp8_log_dir / "rank_0").exists(), "rank_0 directory was not created"
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs").exists(), "nvdlfw_inspect_logs directory was not created"
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs").exists(), (
+        "nvdlfw_inspect_statistics_logs directory was not created"
+    )
+
+    # Verify the log files exist
+    metadata_log = fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs" / "nvdlfw_inspect_globalrank-0.log"
+    stats_log = fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs" / "nvdlfw_inspect_globalrank-0.log"
+
+    assert metadata_log.exists(), "Metadata log file was not created"
+    assert stats_log.exists(), "Statistics log file was not created"
+
+    # Verify files are non-empty
+    assert metadata_log.stat().st_size > 0, "Metadata log file is empty"
+    assert stats_log.stat().st_size > 0, "Statistics log file is empty"
+
+
+@requires_fp8
+def test_sanity_fsdp2_fp8_stats_logging(tmp_path, recipe_path):
+    """Test that FP8 stats logging works with FSDP2."""
+    fp8_log_dir = tmp_path / "fp8_stats_logs"
+
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "fp8_stats_config.enabled=true",
+                f"fp8_stats_config.fp8_log_dir={fp8_log_dir}",
+                "num_train_steps=4",
+            ],
+        )
+
+    main_fsdp2(sanity_config)
+
+    # Verify log structure (same assertions as above)
+    assert fp8_log_dir.exists()
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs" / "nvdlfw_inspect_globalrank-0.log").exists()
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs" / "nvdlfw_inspect_globalrank-0.log").exists()

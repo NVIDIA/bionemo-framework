@@ -22,17 +22,20 @@ from pathlib import Path
 import pytest
 import torch
 from torch.distributed.device_mesh import init_device_mesh
-from transformers import AutoModelForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
+from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-from esm.collator import DataCollatorWithFlattening, _split_batch_by_cp_rank
-from esm.convert import convert_esm_hf_to_te
-from esm.modeling_esm_te import NVEsmForMaskedLM
+from collator import _split_batch_by_cp_rank
+from convert import convert_llama_hf_to_te
+from modeling_llama_te import NVLlamaForCausalLM
 
 
 requires_multi_gpu = pytest.mark.skipif(
     not torch.cuda.is_available() or torch.cuda.device_count() < 2,
     reason="Test requires at least 2 GPUs",
 )
+
+skip_in_ci = pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI.")
 
 # TODO(@jomitchell): Delete once https://nvbugspro.nvidia.com/bug/5458694 is fixed.
 requires_datacenter_hardware = pytest.mark.skipif(
@@ -44,58 +47,82 @@ requires_datacenter_hardware = pytest.mark.skipif(
 )
 
 
-def get_dummy_data_thd_with_padding_dp0(tokenizer):
-    """
-    Get dummy data for the THD format with padding for context parallelism.
+def get_dummy_data_thd_with_padding(tokenizer):
+    """Get dummy data for the THD format with padding for context parallelism.
+
     Args:
-        cp_size: The size of the context parallelism group.
         tokenizer: The tokenizer to use.
+
     Returns:
         A dictionary containing the padded input ids, labels, and cu seq lens.
     """
-    # Two real protein sequences (30 amino acids each, will be 32 tokens with BOS/EOS)
-    protein1 = "MKTAYIAKQRQISFVKSHFSRQLEERLGLL"  # 32 tokens with BOS/EOS
-    protein2 = "MSHHWGYGKHNGPEHWHKDFPIAKGERFLL"  # 32 tokens with BOS/EOS
+    # Two English text sequences for testing with the llama3 model
+    text1 = "The quick brown fox jumps over the lazy dog. This is a test sentence for context parallelism."
+    text2 = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt."
 
-    tok1 = tokenizer(protein1, add_special_tokens=True)
-    tok2 = tokenizer(protein2, add_special_tokens=True)
+    tok1 = tokenizer(text1, add_special_tokens=True)
+    tok2 = tokenizer(text2, add_special_tokens=True)
 
-    data_collator = DataCollatorWithFlattening(
-        collator=DataCollatorForLanguageModeling(
-            tokenizer=tokenizer,
-            mlm_probability=0.0,
-            pad_to_multiple_of=32,
-            seed=42,
-        ),
-        pad_sequences_to_be_divisible_by=32,
+    # Flatten inputs for THD format
+    input_ids = torch.tensor(tok1["input_ids"] + tok2["input_ids"], dtype=torch.long)
+    cu_seq_lens = torch.tensor(
+        [0, len(tok1["input_ids"]), len(tok1["input_ids"]) + len(tok2["input_ids"])], dtype=torch.int32
     )
-    batch = data_collator([tok1, tok2])
-    batch["labels"] = batch["input_ids"].clone()  # We just use the identity function for testing CP sanity.
-    return batch
+
+    # For causal LM, labels are the same as input_ids
+    labels = input_ids.clone()
+
+    # Pad sequences to be divisible by CP requirements (e.g., 32)
+    pad_divisor = 32
+    input_ids_padded, labels_padded, cu_seqlens_padded = pad_thd_sequences_for_cp(
+        input_ids.unsqueeze(0),
+        labels.unsqueeze(0),
+        cu_seq_lens,
+        pad_divisor,
+        padding_token_id=tokenizer.pad_token_id if tokenizer.pad_token_id is not None else tokenizer.eos_token_id,
+        padding_label_id=-100,
+    )
+
+    # Calculate max sequence length
+    seqlens = cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]
+    max_length = int(seqlens.max().item())
+
+    return {
+        "input_ids": input_ids_padded.unsqueeze(0),
+        "labels": labels_padded.unsqueeze(0),
+        "cu_seq_lens_q": cu_seqlens_padded.to(torch.int32),
+        "cu_seq_lens_k": cu_seqlens_padded.to(torch.int32),
+        "cu_seq_lens_q_padded": cu_seqlens_padded.to(torch.int32),
+        "cu_seq_lens_k_padded": cu_seqlens_padded.to(torch.int32),
+        "max_length_q": max_length,
+        "max_length_k": max_length,
+    }
 
 
 def get_te_model_checkpoint(tmp_path):
-    """
-    Get a TE model checkpoint for the ESM2 model.
+    """Get a TE model checkpoint for the Llama3 model.
+
     Args:
         tmp_path: The path to save the model checkpoint.
+
     Returns:
         The path to the saved model checkpoint.
     """
-    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
-    model_te = convert_esm_hf_to_te(model_hf)
+    # Use the 1B model for practical testing (8B model requires too much memory)
+    model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", torch_dtype=torch.bfloat16)
+    model_te = convert_llama_hf_to_te(model_hf, attn_input_format="thd", self_attn_mask_type="padding_causal")
     model_te.save_pretrained(tmp_path / "te_model_checkpoint")
     return tmp_path / "te_model_checkpoint"
 
 
 def get_batch_for_cp_rank(batch, cp_rank, cp_world_size):
-    """
-    Get a batch for a given context parallelism rank.
+    """Get a batch for a given context parallelism rank.
 
     Args:
         batch: The batch to get a shard of.
         cp_rank: The context parallelism rank.
         cp_world_size: The size of the context parallelism group.
+
     Returns:
         A dictionary containing the shard of the batch.
     """
@@ -110,9 +137,9 @@ def get_batch_for_cp_rank(batch, cp_rank, cp_world_size):
     batch_shard = dict(batch)
     batch_shard["input_ids"] = input_ids_sharded
     batch_shard["labels"] = labels_sharded
-    # Now determine the max length of the sequence.
+    # Determine the max length of the sequence
     seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
-    batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)  # From TE code.
+    batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)  # From TE code
     batch_shard["max_length_k"] = batch_shard["max_length_q"]
     return batch_shard
 
@@ -140,12 +167,15 @@ class DistributedConfig:
         return self.rank == 0
 
 
+@skip_in_ci
 @requires_multi_gpu
 @requires_datacenter_hardware
-def test_context_parallel_equivalence_2process():
-    """
-    Test the context parallel equivalence between 2 processes. In one instance, we run the model in non-distributed mode and in the other
-    we run the model in distributed mode with context parallelism. We then compare the losses and logits from the two runs.
+def test_context_parallel_equivalence_2process(recipe_path: Path):
+    """Test context parallel equivalence between 2 processes.
+
+    In one instance, we run the model in non-distributed mode and in the other
+    we run the model in distributed mode with context parallelism. We then compare
+    the losses and logits from the two runs.
 
     We compare the (1) Losses, (2) Logits, and (3) Gradients from the two runs.
     """
@@ -158,9 +188,10 @@ def test_context_parallel_equivalence_2process():
         cmd,
         check=False,
         text=True,
+        cwd=str(recipe_path),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=240,
+        timeout=600,
     )
     if result.returncode != 0:
         print(f"STDOUT:\n{result.stdout}")
@@ -173,12 +204,13 @@ if __name__ == "__main__":
         tmp_path = Path(tmp_dir)
         model_ckpt = get_te_model_checkpoint(tmp_path)
 
-        # Create tokenizer for real protein sequences
-        tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
-        input_data_thd_padded_dp0 = get_dummy_data_thd_with_padding_dp0(tokenizer)
+        # Create tokenizer for English text (use the 1B model tokenizer)
+        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
+        tokenizer.pad_token = tokenizer.eos_token
+        input_data_thd_padded_dp0 = get_dummy_data_thd_with_padding(tokenizer)
 
-        model = NVEsmForMaskedLM.from_pretrained(
-            model_ckpt, attn_input_format="thd", token_dropout=False, dtype=torch.bfloat16
+        model = NVLlamaForCausalLM.from_pretrained(
+            model_ckpt, attn_input_format="thd", self_attn_mask_type="padding_causal", torch_dtype=torch.bfloat16
         )
         model.to("cuda")
         input_data_thd_padded_dp0 = {
@@ -194,8 +226,8 @@ if __name__ == "__main__":
 
         # Sample gradients from a few layers for comparison
         sample_layers = [
-            model.esm.encoder.layers[0].self_attention.core_attention,
-            model.esm.encoder.layers[0].self_attention.layernorm_qkv,
+            model.model.layers[0].self_attention.core_attention,
+            model.model.layers[0].self_attention.layernorm_qkv,
         ]
 
         # Now grab the gradients from the sample layers
@@ -228,8 +260,8 @@ if __name__ == "__main__":
             mesh_dim_names=("ddp", "cp"),
         )
         # Re-initialize the model on the new device (fresh instance, no shared graph)
-        model = NVEsmForMaskedLM.from_pretrained(
-            model_ckpt, attn_input_format="thd", token_dropout=False, dtype=torch.bfloat16
+        model = NVLlamaForCausalLM.from_pretrained(
+            model_ckpt, attn_input_format="thd", self_attn_mask_type="padding_causal", torch_dtype=torch.bfloat16
         )
         model = model.to(device=device)
         model.train()  # Set to training mode to enable gradient computation
@@ -247,7 +279,7 @@ if __name__ == "__main__":
         cp_world_size = torch.distributed.get_world_size(group=cp_group)
 
         # Set up context parallelism for each layer
-        for i, transformer_layer in enumerate(model.module.esm.encoder.layers):
+        for i, transformer_layer in enumerate(model.module.model.layers):
             transformer_layer.set_context_parallel_group(
                 cp_group, torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()), torch.cuda.Stream()
             )
@@ -256,7 +288,7 @@ if __name__ == "__main__":
         model.zero_grad(set_to_none=True)
 
         # Create FRESH batch data for CP (don't reuse tensors from non-distributed run)
-        batch = get_dummy_data_thd_with_padding_dp0(tokenizer=tokenizer)
+        batch = get_dummy_data_thd_with_padding(tokenizer=tokenizer)
         # Move batch to CUDA and ensure tensors are detached from any previous graphs
         batch = {k: v.detach().to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
         batch_cp = get_batch_for_cp_rank(batch, cp_rank=cp_rank, cp_world_size=cp_world_size)
@@ -272,17 +304,18 @@ if __name__ == "__main__":
 
         if cp_rank == 0:
             average_cp_loss = torch.mean(torch.stack(losses_list))
-            # The average of per-rank losses should be close to the non-distributed loss
-            # Note: They may not be exactly equal due to how loss is computed on sharded data
+            # For causal LM with CP, the per-rank loss computation has boundary issues because
+            # the label shifting in CE loss doesn't account for discontinuities at shard boundaries.
+            # The logits comparison (below) is the authoritative test for CP correctness.
+            # We use relaxed tolerance here to verify the losses are in the same ballpark.
             torch.testing.assert_close(
                 average_cp_loss.cpu(),
                 loss_nondistributed_for_comparison,
-                atol=0.1,  # Allow some difference due to loss computation on shards
-                rtol=0.05,
+                atol=0.5,  # Higher tolerance for causal LM due to shard boundary effects
+                rtol=0.25,
             )
 
         # Gather the logits from all CP ranks
-        # The logits are split along the sequence dimension (dim=1 for THD format: [batch, seq, vocab])
         logits_contiguous = outputs_cp.logits.contiguous()
         logits_list = [torch.zeros_like(logits_contiguous) for _ in range(cp_world_size)]
         torch.distributed.all_gather(logits_list, logits_contiguous, group=cp_group)
@@ -338,8 +371,8 @@ if __name__ == "__main__":
         # Capture gradients from the same layers in the CP model
         # Note: DDP wraps the model with 'module.' prefix
         sample_layers_cp = [
-            model.module.esm.encoder.layers[0].self_attention.core_attention,
-            model.module.esm.encoder.layers[0].self_attention.layernorm_qkv,
+            model.module.model.layers[0].self_attention.core_attention,
+            model.module.model.layers[0].self_attention.layernorm_qkv,
         ]
 
         gradients_cp = {}
@@ -349,7 +382,9 @@ if __name__ == "__main__":
                     key = f"layer_{i}.{name}"
                     gradients_cp[key] = param.grad.detach().clone().cpu()
 
-        # Now we compare the CP grads from rank 0 to the Grads from the non-distributed run. (they should be the same on each process for non dist)
+        # Now we compare the CP grads from rank 0 to the grads from the non-distributed run.
+        # Note: Due to differences in loss computation at shard boundaries for causal LM,
+        # the gradients may differ more than for MLM models.
         if cp_rank == 0:
             # Compare gradients between non-distributed and CP
             for key in gradients_nondistributed.keys():

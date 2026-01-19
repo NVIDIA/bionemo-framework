@@ -120,6 +120,7 @@ def create_bshd_dataloader(
     text_column: str = "text",
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = False,
+    pad_to_multiple_of: int | None = None,
 ):
     """Create a BSHD dataloader for llama3 pre-training.
 
@@ -138,6 +139,7 @@ def create_bshd_dataloader(
         text_column: Name of the column containing text sequences (default: "text").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
         mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
+        pad_to_multiple_of: The number to pad sequences to be divisible by, required for FP8 training. Default: 16.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -167,6 +169,7 @@ def create_bshd_dataloader(
     base_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm=False,  # Causal language modeling
+        pad_to_multiple_of=pad_to_multiple_of,
     )
 
     # Wrap with genomic collator if masking options are enabled

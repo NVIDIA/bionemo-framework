@@ -275,6 +275,7 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         self.dataset.set_epoch(epoch)
 
 
+@dataclass
 class DataCollatorForContextParallel:
     """A collator that is aware of context parallelism.
 
@@ -285,15 +286,9 @@ class DataCollatorForContextParallel:
     appropriate GPUs.
     """
 
-    def __init__(self, collator: DataCollator, cp_world_size: int):
-        """Initialize the DataCollatorForContextParallel.
-
-        Args:
-            collator: The collator to use for masking tokens.
-            cp_world_size: The size of the context parallelism group.
-        """
-        self.collator = collator
-        self.cp_world_size = cp_world_size
+    collator: DataCollator
+    cp_world_size: int
+    qkv_format: str = "thd"
 
     def __call__(self, features) -> list[dict[str, Any]]:
         """Process batches of data and create shards for each context parallelism rank.
@@ -309,10 +304,10 @@ class DataCollatorForContextParallel:
         combined_batch = []
         for cp_rank in range(self.cp_world_size):
             input_ids_sharded, labels_sharded = _split_batch_by_cp_rank(
-                cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
+                cu_seqlens_padded=batch.get("cu_seq_lens_q_padded", None),  # This will be None for BSHD format.
                 input_ids_padded=batch["input_ids"],
                 labels_padded=batch["labels"],
-                qvk_format="thd",
+                qvk_format=self.qkv_format,
                 cp_rank=cp_rank,
                 cp_world_size=self.cp_world_size,
             )
@@ -320,10 +315,18 @@ class DataCollatorForContextParallel:
             batch_shard["input_ids"] = input_ids_sharded
             batch_shard["labels"] = labels_sharded
             # Now determine the max length of the sequence.
-            seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
-            batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)
-            batch_shard["max_length_k"] = batch_shard["max_length_q"]
-            batch_shard["pad_between_seqs"] = True
+            if self.qkv_format == "thd":
+                seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
+                max_length = seqlens_q.max().item()
+                batch_shard["pad_between_seqs"] = True
+            elif self.qkv_format == "bshd":
+                max_length = batch["input_ids"].shape[1]
+                # For BSHD context parallelism, we can't handle padding, so we remove the attention mask.
+                del batch_shard["attention_mask"]
+            else:
+                raise ValueError(f"Unsupported qvk_format: {self.qkv_format}!")
+
+            batch_shard["max_length_k"] = batch_shard["max_length_q"] = max_length * round(max_length / 64)
             combined_batch.append(batch_shard)
 
         return combined_batch
@@ -727,7 +730,7 @@ def _split_batch_by_cp_rank(
 
 
 class BatchType(TypedDict):
-    """The fields in the batch dictionary for context parallel."""
+    """The fields in the batch dictionary fo THD context parallel."""
 
     input_ids: torch.Tensor
     labels: torch.Tensor
@@ -737,6 +740,7 @@ class BatchType(TypedDict):
     cu_seq_lens_k_padded: torch.Tensor
     max_length_q: int
     max_length_k: int
+    pad_between_seqs: bool
 
 
 def _scatter_batch_to_cp_ranks(
