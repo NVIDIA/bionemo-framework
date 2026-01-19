@@ -37,6 +37,7 @@ class RemoteChunkLoader:
         remote_path: Remote path (s3://bucket/path, gs://bucket/path, etc.)
         cache_dir: Local directory for caching chunks. If None, uses temp directory.
         max_cached_chunks: Maximum number of chunks to keep in cache.
+        storage_options: Optional dict of options passed to fsspec (e.g., endpoint_url for S3).
     """
 
     def __init__(
@@ -44,6 +45,7 @@ class RemoteChunkLoader:
         remote_path: str,
         cache_dir: Optional[Path] = None,
         max_cached_chunks: int = 2,
+        storage_options: Optional[dict] = None,
     ):
         """Initialize the remote chunk loader."""
         self.remote_path = remote_path.rstrip("/")
@@ -51,9 +53,9 @@ class RemoteChunkLoader:
         self.max_cached_chunks = max_cached_chunks
         self._cache: OrderedDict[int, Path] = OrderedDict()
 
-        # Initialize filesystem
+        # Initialize filesystem with optional storage options
         protocol = remote_path.split("://")[0] if "://" in remote_path else "file"
-        self._fs = fsspec.filesystem(protocol)
+        self._fs = fsspec.filesystem(protocol, **(storage_options or {}))
 
         # Ensure cache directory exists
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -96,6 +98,18 @@ class RemoteChunkLoader:
 
         return local_chunk
 
+    def _remote_exists(self, remote_path: str) -> bool:
+        """Check if a remote path exists (uses ls instead of exists for compatibility)."""
+        try:
+            # Use ls instead of exists() because some S3-compatible storage
+            # doesn't support HeadObject which exists() relies on
+            parent = "/".join(remote_path.rsplit("/", 1)[:-1])
+            name = remote_path.rsplit("/", 1)[-1]
+            files = self._fs.ls(parent, detail=False)
+            return any(f.endswith(name) for f in files)
+        except Exception:
+            return False
+
     def get_metadata(self) -> Path:
         """Download and return path to metadata files (header, features, etc.)."""
         metadata_dir = self.cache_dir / "_metadata"
@@ -104,16 +118,16 @@ class RemoteChunkLoader:
 
         metadata_dir.mkdir(parents=True, exist_ok=True)
 
-        # Download header and feature indices
-        for name in ["header.json", "version.json", "metadata.json"]:
+        # Download header and feature indices (header.sch is the SCDL header format)
+        for name in ["header.sch", "version.json", "metadata.json"]:
             remote_file = f"{self.remote_path}/{name}"
-            if self._fs.exists(remote_file):
+            if self._remote_exists(remote_file):
                 self._fs.get(remote_file, str(metadata_dir / name))
 
         # Download feature directories
         for name in ["var_features", "obs_features"]:
             remote_dir = f"{self.remote_path}/{name}"
-            if self._fs.exists(remote_dir):
+            if self._remote_exists(remote_dir):
                 local_dir = metadata_dir / name
                 self._fs.get(remote_dir, str(local_dir), recursive=True)
 

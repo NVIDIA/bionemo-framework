@@ -31,6 +31,7 @@ import torch
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import ObservedFeatureIndex, VariableFeatureIndex
+from bionemo.scdl.io.remote_chunk_loader import RemoteChunkLoader
 from bionemo.scdl.schema.header import ArrayDType, ArrayInfo, Backend, FeatureIndexInfo, SCDLHeader
 from bionemo.scdl.schema.version import CurrentSCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
@@ -266,15 +267,37 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         return self._version
 
     @classmethod
-    def from_remote(cls, remote_path: str, cache_dir: Optional[str] = None, max_cached_chunks: int = 2):
-        """Load a chunked dataset from remote storage (S3, GCS, HTTP)."""
-        from bionemo.scdl.io.remote_chunk_loader import RemoteChunkLoader
+    def from_remote(
+        cls,
+        remote_path: str,
+        cache_dir: Optional[str] = None,
+        max_cached_chunks: int = 2,
+        storage_options: Optional[Dict] = None,
+    ):
+        """Load a chunked dataset from remote storage (S3, GCS, HTTP).
 
-        loader = RemoteChunkLoader(remote_path, Path(cache_dir) if cache_dir else None, max_cached_chunks)
+        Args:
+            remote_path: Remote path (s3://bucket/path, gs://bucket/path, etc.)
+            cache_dir: Local directory for caching chunks. If None, uses temp directory.
+            max_cached_chunks: Maximum number of chunks to keep in cache.
+            storage_options: Options passed to fsspec (e.g., {"endpoint_url": "https://..."} for S3).
+        """
+        loader = RemoteChunkLoader(
+            remote_path, Path(cache_dir) if cache_dir else None, max_cached_chunks, storage_options
+        )
         metadata_path = loader.get_metadata()
         ds = cls.__new__(cls)
+        # Initialize essential attributes that __init__ would set
+        ds._version = importlib.metadata.version("bionemo.scdl")
         ds._chunk_loader = loader
         ds.data_path = remote_path
+        ds.header = None
+        ds.mode = Mode.READ_APPEND
+        ds._is_chunked = False
+        ds._chunks = []
+        ds.dtypes = {}
+        ds._var_feature_index = None
+        ds._obs_feature_index = None
         ds.load(str(metadata_path))
         return ds
 
@@ -708,8 +731,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         if self.header is not None and hasattr(self.header, "arrays"):
             # Map from FileNames.value to dtype string
             for array_info in self.header.arrays:
-                if FileNames[array_info.name].value not in self.dtypes:
-                    raise ValueError(f"Array name {FileNames[array_info.name].value} not found in dtypes")
                 self.dtypes[FileNames[array_info.name].value] = array_info.dtype.numpy_dtype_string
 
         # Load metadata if exists
@@ -744,7 +765,15 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 self._load_neighbor_memmaps()
 
     def _load_chunk_memmaps(self) -> None:
-        """Preload all chunk memmaps (lazy - just file handles, no RAM)."""
+        """Preload all chunk memmaps (lazy - just file handles, no RAM).
+
+        For local datasets, loads from data_path directly.
+        For remote datasets, this is skipped - chunks are loaded on demand.
+        """
+        # For remote datasets, don't preload - chunks are fetched on demand via get_row()
+        if self._chunk_loader is not None:
+            return
+        # Local: preload all chunk paths
         for chunk_id in range(self.header.chunked_info.num_chunks):
             chunk_path = Path(self.data_path) / f"chunk_{chunk_id:05d}"
             self._chunks.append(self._load_chunk_from_path(chunk_path))
