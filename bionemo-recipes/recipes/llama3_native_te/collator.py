@@ -156,6 +156,20 @@ class DataCollatorWithFlattening:
         # Perform the masking with the BSHD collator.
         bshd_batch = self.collator(features)
 
+        # For causal LM with shift_labels, we need to ensure features have labels before flattening.
+        # The raw features typically only have input_ids; labels are created by the BSHD collator.
+        # For causal LM: labels = input_ids (the model predicts the next token).
+        if self.shift_labels_for_causal_lm:
+            features_with_labels = []
+            for sample in features:
+                sample_copy = dict(sample)
+                if "labels" not in sample_copy:
+                    # For causal LM, labels = input_ids (before shifting)
+                    sample_copy["labels"] = sample_copy["input_ids"]
+                features_with_labels.append(sample_copy)
+        else:
+            features_with_labels = features
+
         # Create the flattened batch to get the cu_seq_lens_q and cu_seq_lens_k values.
         # When shift_labels_for_causal_lm=True, labels are pre-shifted so that:
         #   - labels[i] = input_ids[i+1] (next token prediction)
@@ -163,7 +177,9 @@ class DataCollatorWithFlattening:
         # This is critical because ForCausalLMLoss applies a global shift that would otherwise
         # bleed across sequence boundaries in packed sequences.
         packed_batch = _pt_flatten_collate(
-            features, return_position_ids=self.return_position_ids, shift_labels=self.shift_labels_for_causal_lm
+            features_with_labels,
+            return_position_ids=self.return_position_ids,
+            shift_labels=self.shift_labels_for_causal_lm,
         )
 
         # Get the masked input_ids from the BSHD batch.

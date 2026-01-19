@@ -1,5 +1,13 @@
 # Config for 7B Llama3 on OpenGenome2 Metagenome (matching John's Eden run)
 # THD format with sequence packing
+#
+# John's Megatron run args:
+#   --spike-no-more-embedding-init (embedding std=1.0, not tied)
+#   --attention-dropout 0 --hidden-dropout 0
+#   --wd 0.1 with weight decay skipping on bias/1D params
+#   --lr 3e-05 --min-lr 6e-07 --warmup-steps 2500
+#   --fp8 --no-fp32-residual-connection
+#   --no-calculate-per-token-loss
 
 defaults:
   - defaults
@@ -24,6 +32,23 @@ config_kwargs:
     low_freq_factor: 1
     high_freq_factor: 4
     original_max_position_embeddings: 8192
+
+# ============ CRITICAL FLAGS TO MATCH JOHN'S RUN ============
+# Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
+# Embeddings initialized with std=1.0 instead of 0.02
+spike_no_more_embedding_init: true
+
+# Skip weight decay on embeddings (matching John's Megatron behavior)
+skip_embedding_weight_decay: true
+
+# Use Megatron-style weight decay grouping (skip decay on bias/1D params)
+# This follows the rule: if len(param.shape) == 1 or name.endswith('.bias'), skip decay
+use_weight_decay_grouping: true
+
+# NO Megatron-style scaled init for proj/fc2 - TE uses uniform 0.02
+# John's run uses SNI=False (spike-no-more is for embeddings, not proj layers)
+use_megatron_scaled_init: false
+# ============================================================
 
 # Sequence packing for THD
 use_sequence_packing: true
@@ -63,10 +88,13 @@ adamw_kwargs:
   eps: 1e-8
   weight_decay: 0.1  # Match John's --wd
 
-# Learning rate scheduler (matching John's)
+# Learning rate scheduler (matching John's Megatron run)
+# John's args: --lr 3e-05 --min-lr 6e-07 --warmup-steps 2500
+# Note: Megatron may use constant_steps for a plateau phase after warmup
 lr_scheduler_kwargs:
   num_warmup_steps: 2500  # Match John's --warmup-steps
-  num_decay_steps: 179814  # total_steps - warmup = 182314 - 2500
+  num_constant_steps: 0  # Set to 1024 if John's run has a plateau phase
+  num_decay_steps: 179814  # total_steps - warmup - constant = 182314 - 2500 - 0
   min_lr_ratio: 0.00002  # min_lr / lr = 6e-07 / 3e-05
 
 # Checkpoint config
