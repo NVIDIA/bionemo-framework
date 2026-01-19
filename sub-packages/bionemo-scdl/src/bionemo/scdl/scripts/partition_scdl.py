@@ -31,55 +31,18 @@ Usage:
 """
 
 import argparse
-import json
 import logging
 import shutil
-from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
 
 from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
-from bionemo.scdl.util.scdl_constants import FileNames
+from bionemo.scdl.schema.header import ChunkedInfo, SCDLHeader
+from bionemo.scdl.util.scdl_constants import Backend, FileNames
 
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ChunkedSCDLMetadata:
-    """ChunkedSCDLMetadata describing the chunked dataset structure.
-
-    With uniform chunk sizes, finding a chunk is O(1):
-        chunk_id = global_idx // chunk_size
-        local_idx = global_idx % chunk_size
-    """
-
-    version: str
-    total_rows: int
-    chunk_size: int
-    num_chunks: int
-    dtypes: dict  # Maps array name to dtype string (e.g., {"data": "float32", "rowptr": "uint64"})
-
-    def save(self, path: Path) -> None:
-        """Save manifest to JSON file."""
-        with open(path, "w") as f:
-            json.dump(asdict(self), f, indent=2)
-
-    @classmethod
-    def load(cls, path: Path) -> "ChunkedSCDLMetadata":
-        """Load manifest from JSON file."""
-        with open(path) as f:
-            data = json.load(f)
-        return cls(**data)
-
-    def get_chunk_for_row(self, global_idx: int) -> tuple[int, int]:
-        """Return (chunk_id, local_idx) for a global row index."""
-        if global_idx < 0 or global_idx >= self.total_rows:
-            raise IndexError(f"Row index {global_idx} out of range [0, {self.total_rows})")
-        chunk_id = global_idx // self.chunk_size
-        local_idx = global_idx % self.chunk_size
-        return chunk_id, local_idx
 
 
 def partition_scdl(
@@ -88,7 +51,7 @@ def partition_scdl(
     chunk_size: int = 100_000,
     buffer_elements: int = 10 * 1024 * 1024,  # ~10M elements per buffer
     delete_original: bool = False,
-) -> ChunkedSCDLMetadata:
+) -> SCDLHeader:
     """Partition an SCDL dataset into chunks.
 
     Uses streaming binary I/O to handle large files (5TB+) efficiently without
@@ -102,7 +65,7 @@ def partition_scdl(
         delete_original: If True, delete the original dataset after successful partitioning.
 
     Returns:
-        ChunkedSCDLMetadata describing the chunked dataset.
+        SCDLHeader with Backend.CHUNKED_MEMMAP_V0 and ChunkedInfo.
 
     Raises:
         FileNotFoundError: If input_path doesn't exist or is missing required files.
@@ -127,23 +90,14 @@ def partition_scdl(
 
     # Load the source SCDL dataset (uses memmaps, doesn't load data into RAM)
     source_ds = SingleCellMemMapDataset(str(input_path))
-
-    # Extract dtypes from loaded dataset
-    dtypes = {
-        "data": source_ds.dtypes[FileNames.DATA.value],
-        "rowptr": source_ds.dtypes[FileNames.ROWPTR.value],
-        "colptr": source_ds.dtypes[FileNames.COLPTR.value],
-    }
-
-    # Get dimensions from the loaded dataset
     total_rows = len(source_ds)
-    rowptr = source_ds.row_index  # Already loaded as memmap
+    rowptr = source_ds.row_index
+    num_chunks = (total_rows + chunk_size - 1) // chunk_size
 
-    num_chunks = (total_rows + chunk_size - 1) // chunk_size  # Ceiling division
-
-    rowptr_dtype = np.dtype(dtypes["rowptr"])
-    data_dtype = np.dtype(dtypes["data"])
-    colptr_dtype = np.dtype(dtypes["colptr"])
+    # Get dtypes from source
+    rowptr_dtype = np.dtype(source_ds.dtypes[FileNames.ROWPTR.value])
+    data_dtype = np.dtype(source_ds.dtypes[FileNames.DATA.value])
+    colptr_dtype = np.dtype(source_ds.dtypes[FileNames.COLPTR.value])
 
     # Create chunks using streaming binary I/O
     for chunk_id in range(num_chunks):
@@ -188,24 +142,20 @@ def partition_scdl(
     # Copy feature indices
     _copy_global_features(input_path, output_path)
 
-    # Copy other metadata files if they exist
-    for fname in [FileNames.VERSION.value, FileNames.HEADER.value, FileNames.METADATA.value]:
+    # Copy metadata files
+    for fname in [FileNames.VERSION.value, FileNames.METADATA.value]:
         src = input_path / fname
         if src.exists():
             shutil.copy(src, output_path / fname)
 
-    # Create and save metadata
-    metadata = ChunkedSCDLMetadata(
-        version="1.0",
-        total_rows=total_rows,
-        chunk_size=chunk_size,
-        num_chunks=num_chunks,
-        dtypes=dtypes,
-    )
-    metadata.save(output_path / "metadata.json")
+    # Copy original header and add chunked info
+    header = source_ds.header if source_ds.header else SCDLHeader()
+    header.backend = Backend.CHUNKED_MEMMAP_V0
+    header.chunked_info = ChunkedInfo(chunk_size=chunk_size, num_chunks=num_chunks, total_rows=total_rows)
+    header.save(str(output_path / FileNames.HEADER.value))
 
     logger.info(f"Created {num_chunks} chunks from {total_rows} rows")
-    logger.info(f"ChunkedSCDLMetadata saved to: {output_path / 'metadata.json'}")
+    logger.info(f"SCDLHeader saved to: {output_path / FileNames.HEADER.value}")
 
     # Delete original dataset if requested
     if delete_original:
@@ -214,7 +164,7 @@ def partition_scdl(
         shutil.rmtree(input_path)
         logger.info(f"Deleted original dataset: {input_path}")
 
-    return metadata
+    return header
 
 
 def _stream_copy_slice(
