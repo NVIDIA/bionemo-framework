@@ -16,15 +16,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import gc
 import inspect
 import logging
 import os
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Literal, Set
 
-import megatron.core.num_microbatches_calculator
 import pandas as pd
 import pytest
 import torch
@@ -34,12 +31,10 @@ from megatron.bridge.training.checkpointing import (
 from megatron.bridge.training.model_load_save import load_model_config
 from megatron.bridge.training.tokenizers.config import TokenizerConfig
 from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer, build_tokenizer
-from megatron.core import dist_checkpointing, parallel_state
+from megatron.core import dist_checkpointing
 from megatron.core.dist_checkpointing.mapping import ShardedTensor
-from megatron.core.tensor_parallel import random as tp_random
 from megatron.core.transformer.enums import AttnBackend
 from megatron.core.transformer.module import Float16Module
-from pytest import MonkeyPatch
 
 from bionemo.core.data.load import load
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH, DEFAULT_HF_TOKENIZER_MODEL_PATH_512
@@ -51,123 +46,11 @@ from bionemo.evo2.models.evo2_provider import (
 )
 from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
 
-from .utils import check_fp8_support, find_free_network_port
+from .utils import check_fp8_support, distributed_model_parallel_state
 
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Capture all levels in the logger itself
-
-
-DEFAULT_MASTER_ADDR = "localhost"
-DEFAULT_MASTER_PORT = "29500"
-DEFAULT_NCCL_TIMEOUT = "30"  # in second
-
-
-def _reset_microbatch_calculator():
-    """Resets _GLOBAL_NUM_MICROBATCHES_CALCULATOR in megatron which is used in NeMo to initilised model parallel in
-    nemo.collections.nlp.modules.common.megatron.megatron_init.initialize_model_parallel_for_nemo
-    """  # noqa: D205, D415
-    megatron.core.num_microbatches_calculator._GLOBAL_NUM_MICROBATCHES_CALCULATOR = None
-
-
-def clean_up_distributed_and_parallel_states(verify_distributed_state=False):
-    """Clean up parallel states, torch.distributed and torch cuda cache."""
-    _reset_microbatch_calculator()
-    # Destroy Megatron distributed/parallel state environment.
-    parallel_state.destroy_model_parallel()
-    # Destroy the torch default / world process group.
-    if torch.distributed.is_initialized():
-        torch.distributed.destroy_process_group()
-    # Clear torch.compile/dynamo cache
-    try:
-        if hasattr(torch, "_dynamo"):
-            torch._dynamo.reset()
-        if hasattr(torch, "compiler"):
-            torch.compiler.reset()
-    except Exception as e:
-        print(f"Failed to reset torch compile: {e}")
-    # Free unused CPU memory.
-    gc.collect()
-    # Free reserved / cached GPU memory allocated by Torch / CUDA.
-    torch.cuda.empty_cache()
-    if verify_distributed_state:
-        # Utilize to debug OOM or orphaned processes in GPU.
-        allocated_vram = torch.cuda.memory_allocated() / 1024**3
-        reserved_vram = torch.cuda.memory_reserved() / 1024**3
-        print(
-            "\n--------------------------------\n"
-            f"Memory Profile for Device: {torch.cuda.current_device()}\n"
-            f"Allocated: {allocated_vram} GB\n"
-            f"Reserved: {reserved_vram} GB\n"
-            f"GPU Processes:\n{torch.cuda.list_gpu_processes()}\n"
-            "--------------------------------\n"
-        )
-
-
-@contextmanager
-def clean_parallel_state_context():
-    """Puts you into a clean parallel state, and again tears it down at the end."""
-    try:
-        clean_up_distributed_and_parallel_states()
-        yield
-    finally:
-        clean_up_distributed_and_parallel_states()
-
-
-@contextmanager
-def distributed_model_parallel_state(
-    seed: int = 42,
-    rank: int = 0,
-    world_size: int = 1,
-    backend: str = "nccl",
-    **initialize_model_parallel_kwargs,
-):
-    """Context manager for torch distributed and parallel state testing.
-
-    Args:
-        seed (int): random seed to be passed into tensor_parallel.random (https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/tensor_parallel/random.py). default to 42.
-        rank (int): global rank of the current cuda device. default to 0.
-        world_size (int): world size or number of devices. default to 1.
-        backend (str): backend to torch.distributed.init_process_group. default to 'nccl'.
-        **initialize_model_parallel_kwargs: kwargs to be passed into initialize_model_parallel (https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/parallel_state.py).
-    """
-    with MonkeyPatch.context() as context:
-        initial_states = None
-        try:
-            clean_up_distributed_and_parallel_states()
-
-            # distributed and parallel state set up
-            if not os.environ.get("MASTER_ADDR", None):
-                context.setenv("MASTER_ADDR", DEFAULT_MASTER_ADDR)
-            if not os.environ.get("MASTER_PORT", None):
-                free_network_port = find_free_network_port()
-                context.setenv(
-                    "MASTER_PORT", str(free_network_port) if free_network_port is not None else DEFAULT_MASTER_PORT
-                )
-            if not os.environ.get("NCCL_TIMEOUT", None):
-                context.setenv("NCCL_TIMEOUT", DEFAULT_NCCL_TIMEOUT)
-            context.setenv("RANK", str(rank))
-
-            torch.distributed.init_process_group(backend=backend, world_size=world_size)
-            parallel_state.initialize_model_parallel(**initialize_model_parallel_kwargs)
-
-            # tensor parallel random seed set up
-            # do not call torch.cuda.manual_seed after so!
-            if tp_random.get_cuda_rng_tracker().is_initialized():
-                initial_states = tp_random.get_cuda_rng_tracker().get_states()
-            if seed is not None:
-                tp_random.model_parallel_cuda_manual_seed(seed)
-
-            yield
-        finally:
-            # restore/unset tensor parallel random seed
-            if initial_states is not None:
-                tp_random.get_cuda_rng_tracker().set_states(initial_states)
-            else:
-                # Reset to the unset state
-                tp_random.get_cuda_rng_tracker().reset()
-
-            clean_up_distributed_and_parallel_states()
 
 
 #############################################################################################

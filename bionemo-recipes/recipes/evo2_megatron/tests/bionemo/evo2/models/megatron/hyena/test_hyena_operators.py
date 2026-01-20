@@ -16,16 +16,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
-from contextlib import contextmanager
-from datetime import timedelta
 from typing import Generator
 
 import pytest
 import torch
-import torch.distributed as dist
-from megatron.core import parallel_state
-from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 
 from bionemo.evo2.models.evo2_provider import HyenaTestModelProvider
 from bionemo.evo2.models.megatron.hyena.engine import (
@@ -44,58 +38,7 @@ from bionemo.evo2.models.megatron.hyena.hyena_utils import (
     ParallelShortHyenaOperator,
 )
 
-from ....utils import find_free_network_port
-
-
-# Default NCCL timeout for tests - use a moderate timeout that's long enough for CI
-# but short enough to fail reasonably fast instead of hanging for 30 minutes.
-# Can be overridden via environment variable for debugging.
-DEFAULT_NCCL_TIMEOUT_SECONDS = int(os.environ.get("NCCL_INIT_TIMEOUT", "180"))
-
-
-@contextmanager
-def simple_parallel_state():
-    """Context manager to set up and tear down a simple model parallel state for testing.
-
-    This function initializes the distributed process group and model parallel state,
-    sets up environment variables, and seeds the model parallel RNG. It ensures
-    proper cleanup after use.
-
-    Uses a short timeout (default 60s) to fail fast in CI instead of hanging for 30 minutes.
-    The timeout can be configured via the NCCL_INIT_TIMEOUT environment variable.
-    """
-    try:
-        # Clean up any existing state
-        parallel_state.destroy_model_parallel()
-        if dist.is_initialized():
-            dist.destroy_process_group()
-
-        # Use dynamic port to avoid conflicts with other tests
-        os.environ.setdefault("MASTER_ADDR", "localhost")
-        os.environ.setdefault("MASTER_PORT", str(find_free_network_port()))
-        os.environ.setdefault("RANK", "0")
-        os.environ.setdefault("WORLD_SIZE", "1")
-
-        # Initialize process group with short timeout to fail fast in CI
-        if not dist.is_initialized():
-            timeout_timedelta = timedelta(seconds=DEFAULT_NCCL_TIMEOUT_SECONDS)
-            if torch.cuda.is_available():
-                dist.init_process_group(backend="nccl", timeout=timeout_timedelta)
-            else:
-                dist.init_process_group(backend="gloo", timeout=timeout_timedelta)
-
-        # Initialize parallel state
-        parallel_state.initialize_model_parallel()
-
-        # Initialize the model parallel RNG
-        model_parallel_cuda_manual_seed(42)
-
-        yield
-
-    finally:
-        parallel_state.destroy_model_parallel()
-        if dist.is_initialized():
-            dist.destroy_process_group()
+from ....utils import distributed_model_parallel_state
 
 
 @pytest.fixture
@@ -122,7 +65,7 @@ class TestParallelHyenaOperator:
         hyena_config: HyenaConfig,
     ) -> Generator[ParallelHyenaOperator, None, None]:
         """Pytest fixture to create a ParallelHyenaOperator instance within a simple parallel state."""
-        with simple_parallel_state():
+        with distributed_model_parallel_state():
             yield ParallelHyenaOperator(
                 hidden_size=test_config.hidden_size,
                 transformer_config=test_config,
@@ -172,7 +115,7 @@ class TestParallelShortHyenaOperator:
         hyena_config: HyenaConfig,
     ) -> Generator[ParallelShortHyenaOperator, None, None]:
         """Pytest fixture to create a ParallelShortHyenaOperator instance within a simple parallel state."""
-        with simple_parallel_state():
+        with distributed_model_parallel_state():
             yield ParallelShortHyenaOperator(
                 hidden_size=test_config.hidden_size,
                 transformer_config=test_config,
@@ -224,7 +167,7 @@ class TestParallelShortHyenaOperator:
         # Ensure transformer_config.use_subquadratic_ops is False
         test_config.use_subquadratic_ops = False
 
-        with simple_parallel_state():
+        with distributed_model_parallel_state():
             with pytest.raises(AssertionError, match="fast_conv_mixer requires hyena_short_conv_len <= 4"):
                 ParallelShortHyenaOperator(
                     hidden_size=test_config.hidden_size,
@@ -248,7 +191,7 @@ class TestParallelShortHyenaOperatorWithConvBias:
         hyena_config: HyenaConfig,
     ) -> Generator[ParallelShortHyenaOperator, None, None]:
         """Pytest fixture to create a ParallelShortHyenaOperator instance with conv bias within a simple parallel state."""
-        with simple_parallel_state():
+        with distributed_model_parallel_state():
             yield ParallelShortHyenaOperator(
                 hidden_size=test_config.hidden_size,
                 transformer_config=test_config,
@@ -300,7 +243,7 @@ class TestParallelCausalDepthwiseConv1d:
         hyena_config: HyenaConfig,
     ) -> Generator[ParallelCausalDepthwiseConv1d, None, None]:
         """Pytest fixture to create a ParallelCausalDepthwiseConv1d instance within a simple parallel state."""
-        with simple_parallel_state():
+        with distributed_model_parallel_state():
             yield ParallelCausalDepthwiseConv1d(
                 d_model=test_config.hidden_size,
                 transformer_config=test_config,
