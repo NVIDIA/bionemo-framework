@@ -66,8 +66,10 @@ def init_parallel_state(tensor_model_parallel_size=1, pipeline_model_parallel_si
     # Set device
     torch.cuda.set_device(local_rank)
 
-    # Set up timeout
-    timeout_seconds = int(os.getenv("TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC", "1800"))
+    # Set up timeout - use moderate default (180s) that's long enough for CI but short enough
+    # to fail reasonably fast instead of hanging for 30 minutes.
+    # Can be overridden via NCCL_INIT_TIMEOUT or TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC environment variable
+    timeout_seconds = int(os.getenv("NCCL_INIT_TIMEOUT", os.getenv("TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC", "180")))
     timeout_timedelta = timedelta(seconds=timeout_seconds)
 
     # Initialize process group if not already initialized

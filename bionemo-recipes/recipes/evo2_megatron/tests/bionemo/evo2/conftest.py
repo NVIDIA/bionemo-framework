@@ -70,7 +70,15 @@ def _cleanup_child_processes():
     """Kill any orphaned child processes that might be holding GPU memory.
 
     This is particularly important for tests that spawn subprocesses via torchrun.
+
+    Note: Skips cleanup when distributed is initialized, as killing processes
+    could interfere with NCCL's internal state and cause hangs.
     """
+    # Don't kill child processes if distributed is active - NCCL might have
+    # internal processes that should not be killed
+    if torch.distributed.is_initialized():
+        return
+
     import subprocess
 
     current_pid = os.getpid()
@@ -92,8 +100,22 @@ def _cleanup_child_processes():
 
 
 def _thorough_gpu_cleanup():
-    """Perform thorough GPU memory cleanup."""
+    """Perform thorough GPU memory cleanup.
+
+    Note: This is intentionally gentle when torch.distributed is initialized,
+    as aggressive cleanup can interfere with NCCL state and cause hangs in
+    subsequent tests that reinitialize distributed.
+    """
     if not torch.cuda.is_available():
+        return
+
+    # If distributed is still initialized, skip aggressive cleanup to avoid
+    # interfering with NCCL's internal state. The test fixture should handle
+    # distributed cleanup before this runs, but if it hasn't, we don't want
+    # to cause issues.
+    if torch.distributed.is_initialized():
+        # Just do minimal cleanup - gc only
+        gc.collect()
         return
 
     # Synchronize all CUDA streams to ensure all operations are complete
@@ -122,6 +144,9 @@ def _reset_random_seeds():
 
     Some tests may modify global random state, which can affect subsequent tests
     that depend on random splitting (like dataset preprocessing).
+
+    Note: Skips CUDA seed reset when distributed is initialized, as this can
+    interfere with Megatron's tensor parallel RNG tracker.
     """
     # Reset Python's random module
     random.seed(None)
@@ -131,7 +156,10 @@ def _reset_random_seeds():
 
     # Reset PyTorch's random state
     torch.seed()
-    if torch.cuda.is_available():
+
+    # Only reset CUDA seeds if distributed is not initialized, as the distributed
+    # tests manage their own RNG state via model_parallel_cuda_manual_seed
+    if torch.cuda.is_available() and not torch.distributed.is_initialized():
         torch.cuda.seed_all()
 
 

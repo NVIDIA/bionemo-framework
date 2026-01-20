@@ -44,6 +44,14 @@ from bionemo.evo2.models.megatron.hyena.hyena_utils import (
     ParallelShortHyenaOperator,
 )
 
+from ....utils import find_free_network_port
+
+
+# Default NCCL timeout for tests - use a moderate timeout that's long enough for CI
+# but short enough to fail reasonably fast instead of hanging for 30 minutes.
+# Can be overridden via environment variable for debugging.
+DEFAULT_NCCL_TIMEOUT_SECONDS = int(os.environ.get("NCCL_INIT_TIMEOUT", "180"))
+
 
 @contextmanager
 def simple_parallel_state():
@@ -52,6 +60,9 @@ def simple_parallel_state():
     This function initializes the distributed process group and model parallel state,
     sets up environment variables, and seeds the model parallel RNG. It ensures
     proper cleanup after use.
+
+    Uses a short timeout (default 60s) to fail fast in CI instead of hanging for 30 minutes.
+    The timeout can be configured via the NCCL_INIT_TIMEOUT environment variable.
     """
     try:
         # Clean up any existing state
@@ -59,14 +70,15 @@ def simple_parallel_state():
         if dist.is_initialized():
             dist.destroy_process_group()
 
+        # Use dynamic port to avoid conflicts with other tests
         os.environ.setdefault("MASTER_ADDR", "localhost")
-        os.environ.setdefault("MASTER_PORT", "12355")
+        os.environ.setdefault("MASTER_PORT", str(find_free_network_port()))
         os.environ.setdefault("RANK", "0")
         os.environ.setdefault("WORLD_SIZE", "1")
 
-        # Initialize process group
+        # Initialize process group with short timeout to fail fast in CI
         if not dist.is_initialized():
-            timeout_timedelta = timedelta(seconds=1800)
+            timeout_timedelta = timedelta(seconds=DEFAULT_NCCL_TIMEOUT_SECONDS)
             if torch.cuda.is_available():
                 dist.init_process_group(backend="nccl", timeout=timeout_timedelta)
             else:

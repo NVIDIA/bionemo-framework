@@ -27,6 +27,8 @@ from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
 from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
 
+from ....utils import find_free_network_port
+
 
 # Add skip decorator for GPU tests
 skip_if_no_gpu = pytest.mark.skipif(not torch.cuda.is_available(), reason="Test requires GPU")
@@ -39,12 +41,14 @@ def init_distributed_parallel_state(
     """Initialize a distributed environment for testing.
 
     Creates a real distributed environment with specified parameters.
+    Uses dynamic port allocation to avoid conflicts with other tests.
     """
     # Initialize distributed with a single process
     if not dist.is_initialized():
         # Setup minimal environment for single process distributed
+        # Use dynamic port to avoid conflicts with other tests
         os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = "29500"
+        os.environ["MASTER_PORT"] = str(find_free_network_port())
         os.environ["RANK"] = str(rank)
         os.environ["WORLD_SIZE"] = str(world_size)
 
