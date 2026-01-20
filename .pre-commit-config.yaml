@@ -39,6 +39,7 @@ repos:
         - mdformat-gfm
         - mdformat-black
         - mdformat-frontmatter
+        - black==25.12.0
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:
