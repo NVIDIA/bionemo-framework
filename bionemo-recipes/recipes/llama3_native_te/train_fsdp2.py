@@ -98,31 +98,55 @@ def clip_grad_norm_fsdp2(
     if len(parameters) == 0:
         return torch.tensor(0.0)
 
-    device = parameters[0].grad.device
-    dtype = parameters[0].grad.dtype
+    # Get device from the first gradient's underlying local tensor
+    # For DTensors, we need to handle them specially
+    first_grad = parameters[0].grad
+    if hasattr(first_grad, "_local_tensor"):
+        # DTensor - get the local tensor's device
+        device = first_grad._local_tensor.device
+        dtype = first_grad._local_tensor.dtype
+    else:
+        device = first_grad.device
+        dtype = first_grad.dtype
 
     if norm_type == float("inf"):
         # For inf norm, need to find max across all ranks
-        local_max = max(p.grad.abs().max() for p in parameters)
+        local_max = 0.0
+        for p in parameters:
+            grad = p.grad
+            if hasattr(grad, "_local_tensor"):
+                grad = grad._local_tensor
+            local_max = max(local_max, grad.abs().max().item())
         total_norm = torch.tensor(local_max, device=device, dtype=dtype)
         torch.distributed.all_reduce(total_norm, op=torch.distributed.ReduceOp.MAX, group=process_group)
     else:
-        # Compute sum of squared norms locally
-        local_norm_sq = sum(p.grad.norm(norm_type).pow(norm_type) for p in parameters)
-        # Convert to tensor for all-reduce
-        local_norm_sq = torch.tensor(local_norm_sq, device=device, dtype=dtype)
-        # All-reduce to get global sum of squared norms
-        torch.distributed.all_reduce(local_norm_sq, op=torch.distributed.ReduceOp.SUM, group=process_group)
-        # Compute final norm
-        total_norm = local_norm_sq.pow(1.0 / norm_type)
+        # Compute sum of squared norms locally using the underlying local tensors
+        local_norm_sq = 0.0
+        for p in parameters:
+            grad = p.grad
+            # For DTensors, access the local tensor shard directly
+            if hasattr(grad, "_local_tensor"):
+                grad = grad._local_tensor
+            local_norm_sq += grad.norm(norm_type).pow(norm_type).item()
 
-    # Clip gradients
+        # Create a regular tensor for all-reduce (not a DTensor)
+        local_norm_sq_tensor = torch.tensor(local_norm_sq, device=device, dtype=dtype)
+        # All-reduce to get global sum of squared norms
+        torch.distributed.all_reduce(local_norm_sq_tensor, op=torch.distributed.ReduceOp.SUM, group=process_group)
+        # Compute final norm
+        total_norm = local_norm_sq_tensor.pow(1.0 / norm_type)
+
+    # Clip gradients - need to handle DTensors specially
     clip_coef = max_norm / (total_norm + 1e-6)
-    # Only clip if norm exceeds max_norm
-    clip_coef_clamped = torch.clamp(clip_coef, max=1.0)
+    clip_coef_clamped = torch.clamp(clip_coef, max=1.0).item()
 
     for p in parameters:
-        p.grad.detach().mul_(clip_coef_clamped)
+        grad = p.grad
+        if hasattr(grad, "_local_tensor"):
+            # DTensor - modify the underlying local tensor
+            grad._local_tensor.mul_(clip_coef_clamped)
+        else:
+            grad.detach().mul_(clip_coef_clamped)
 
     return total_norm
 
