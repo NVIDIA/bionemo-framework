@@ -35,20 +35,6 @@ config_kwargs: {}
 num_train_steps: ???
 grad_acc_steps: 1  # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
 
-# Use distributed gradient clipping for FSDP2 (all-reduce squared norms before clipping)
-# When true: Computes global gradient norm across all FSDP2 shards via all-reduce
-# When false: Uses standard torch.nn.utils.clip_grad_norm_ (simpler, works for most cases)
-# Note: The difference in logged grad norm doesn't significantly affect training with Adam.
-use_distributed_grad_clip: false
-
-# Loss scaling factor to match Megatron gradient magnitudes.
-# FSDP2 averages gradients across ALL ranks, while Megatron with TP only averages across DP ranks.
-# This causes FSDP gradients to be smaller by a factor of (world_size / dp_size).
-# Example: 48 GPUs with TP=4 → FSDP averages across 48, Megatron DP averages across 12 → 4x diff
-# Combined with grad_acc differences, you may need loss_scale of 4-16 to match gradient norms.
-# Use this to tune gradient magnitudes to match a reference run.
-loss_scale: 1.0
-
 use_meta_device: true
 
 # Whether to wrap the model in torch.compile. Note, this is currently not supported with mfsdp (BIONEMO-2977).
@@ -123,7 +109,7 @@ checkpoint:
   async_save: true # Whether to save the checkpoint asynchronously, currently only supported with FSDP2.
 
 logger:
-  frequency: 100
+  frequency: 1  # Log every step for debugging (set higher for long runs)
 
 profiler:
   enabled: false

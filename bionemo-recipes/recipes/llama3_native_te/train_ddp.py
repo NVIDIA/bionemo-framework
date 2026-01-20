@@ -14,10 +14,12 @@
 # limitations under the License.
 
 import logging
+import random
 from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import numpy as np
 import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
@@ -39,6 +41,71 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def set_seed(seed: int, rank: int = 0) -> None:
+    """Set random seeds for reproducibility.
+
+    Sets seeds for Python random, NumPy, and PyTorch (CPU and CUDA).
+    For distributed training, each rank gets a unique seed based on the base seed + rank.
+
+    Args:
+        seed: Base random seed.
+        rank: Distributed rank (added to seed for per-rank uniqueness).
+    """
+    effective_seed = seed + rank
+    random.seed(effective_seed)
+    np.random.seed(effective_seed)  # noqa: NPY002
+    torch.manual_seed(effective_seed)
+    torch.cuda.manual_seed(effective_seed)
+    torch.cuda.manual_seed_all(effective_seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    logger.info(f"Set seed to {effective_seed} (base={seed}, rank={rank})")
+
+
+def get_parameter_groups_with_weight_decay(
+    model: torch.nn.Module,
+    weight_decay: float,
+    skip_embeddings: bool = False,
+) -> list[dict]:
+    """Create parameter groups with proper weight decay filtering.
+
+    Follows Megatron convention:
+    - Skip weight decay on bias terms
+    - Skip weight decay on 1D parameters (LayerNorm/RMSNorm weights)
+    - Optionally skip weight decay on embedding layers
+
+    Args:
+        model: The model to get parameter groups from.
+        weight_decay: The weight decay value for parameters that should have decay.
+        skip_embeddings: Whether to skip weight decay on embedding layers.
+
+    Returns:
+        List of parameter group dicts for the optimizer.
+    """
+    decay_params = []
+    no_decay_params = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+
+        should_skip_decay = name.endswith(".bias") or param.dim() == 1 or (skip_embeddings and "embed" in name.lower())
+
+        if should_skip_decay:
+            no_decay_params.append(param)
+        else:
+            decay_params.append(param)
+
+    logger.info(
+        f"Weight decay groups: {len(decay_params)} params with decay, {len(no_decay_params)} params without decay"
+    )
+
+    return [
+        {"params": decay_params, "weight_decay": weight_decay},
+        {"params": no_decay_params, "weight_decay": 0.0},
+    ]
+
+
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train Llama3 with TE layers using DDP for genomic sequences.
@@ -52,6 +119,10 @@ def main(args: DictConfig) -> float | None:
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
+
+    # Set random seeds for reproducibility
+    seed = getattr(args, "seed", 42)
+    set_seed(seed, dist_config.rank)
 
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
     # and MFSDP.
@@ -72,6 +143,18 @@ def main(args: DictConfig) -> float | None:
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
     # Convert config_kwargs to regular dict to avoid JSON serialization issues with nested DictConfig
     config_kwargs_dict = OmegaConf.to_container(args.config_kwargs, resolve=True)
+
+    # Handle Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
+    if getattr(args, "spike_no_more_embedding_init", False):
+        config_kwargs_dict["embedding_init_std"] = 1.0
+        config_kwargs_dict["tie_word_embeddings"] = False
+        logger.info("Spike-No-More enabled: embedding_init_std=1.0, tie_word_embeddings=False")
+
+    # Handle Megatron-style scaled initialization for residual output layers
+    if getattr(args, "use_megatron_scaled_init", False):
+        config_kwargs_dict["use_scaled_init"] = True
+        logger.info("Megatron scaled init enabled for proj/fc2 layers")
+
     config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **config_kwargs_dict)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
@@ -82,8 +165,15 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
-    # Create optimizer.
-    optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
+    # Create optimizer with optional weight decay grouping
+    adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
+    if getattr(args, "use_weight_decay_grouping", False):
+        weight_decay = adamw_kwargs.pop("weight_decay", 0.1)
+        skip_embeddings = getattr(args, "skip_embedding_weight_decay", False)
+        param_groups = get_parameter_groups_with_weight_decay(model, weight_decay, skip_embeddings)
+        optimizer = AdamW(param_groups, **adamw_kwargs)
+    else:
+        optimizer = AdamW(model.parameters(), **adamw_kwargs)
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     model = model.to(device=device)
@@ -141,9 +231,7 @@ def main(args: DictConfig) -> float | None:
                 outputs = model(**batch, fp8_enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe)
 
                 # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
-                # Use loss_scale to adjust gradient magnitudes (useful for matching Megatron runs)
-                loss_scale = getattr(args, "loss_scale", 1.0)
-                loss = outputs.loss * loss_scale / args.grad_acc_steps
+                loss = outputs.loss / args.grad_acc_steps
                 loss.backward()
 
                 # Log microbatch step data for accumulation metrics

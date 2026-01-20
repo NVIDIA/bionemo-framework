@@ -44,10 +44,6 @@ use_sequence_packing: true
 # Gradient accumulation: GBS=384 = 48 GPUs × MBS=4 × grad_acc=2
 grad_acc_steps: 2
 
-# Loss scaling - disabled since it doesn't significantly affect Adam optimizer
-# (Adam normalizes by second moment, so gradient scale has minimal impact on updates)
-loss_scale: 1.0
-
 # Training setup (matching Hyena 1B run parameters)
 num_train_steps: 72926
 

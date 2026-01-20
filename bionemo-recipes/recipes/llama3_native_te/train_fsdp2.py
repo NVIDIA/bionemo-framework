@@ -66,91 +66,6 @@ def set_seed(seed: int, rank: int = 0) -> None:
     logger.info(f"Set seed to {effective_seed} (base={seed}, rank={rank})")
 
 
-def clip_grad_norm_fsdp2(
-    parameters,
-    max_norm: float,
-    norm_type: float = 2.0,
-    process_group=None,
-) -> torch.Tensor:
-    """Clip gradient norm for FSDP2 models with proper global norm computation.
-
-    Unlike torch.nn.utils.clip_grad_norm_, this function properly computes the
-    global gradient norm across all FSDP2 shards by performing an all-reduce
-    of the squared local norms before computing the total norm.
-
-    This is critical for FSDP2 because gradients are sharded as DTensors across
-    ranks. Using the standard clip_grad_norm_ would only compute the local shard
-    norm, leading to incorrect clipping behavior.
-
-    Args:
-        parameters: Iterable of parameters to clip gradients for.
-        max_norm: Maximum norm value for clipping.
-        norm_type: Type of norm to use (default: 2.0 for L2 norm).
-        process_group: The process group for all-reduce. If None, uses default group.
-
-    Returns:
-        The total (global) gradient norm before clipping.
-    """
-    if isinstance(parameters, torch.Tensor):
-        parameters = [parameters]
-    parameters = [p for p in parameters if p.grad is not None]
-
-    if len(parameters) == 0:
-        return torch.tensor(0.0)
-
-    # Get device from the first gradient's underlying local tensor
-    # For DTensors, we need to handle them specially
-    first_grad = parameters[0].grad
-    if hasattr(first_grad, "_local_tensor"):
-        # DTensor - get the local tensor's device
-        device = first_grad._local_tensor.device
-        dtype = first_grad._local_tensor.dtype
-    else:
-        device = first_grad.device
-        dtype = first_grad.dtype
-
-    if norm_type == float("inf"):
-        # For inf norm, need to find max across all ranks
-        local_max = 0.0
-        for p in parameters:
-            grad = p.grad
-            if hasattr(grad, "_local_tensor"):
-                grad = grad._local_tensor
-            local_max = max(local_max, grad.abs().max().item())
-        total_norm = torch.tensor(local_max, device=device, dtype=dtype)
-        torch.distributed.all_reduce(total_norm, op=torch.distributed.ReduceOp.MAX, group=process_group)
-    else:
-        # Compute sum of squared norms locally using the underlying local tensors
-        local_norm_sq = 0.0
-        for p in parameters:
-            grad = p.grad
-            # For DTensors, access the local tensor shard directly
-            if hasattr(grad, "_local_tensor"):
-                grad = grad._local_tensor
-            local_norm_sq += grad.norm(norm_type).pow(norm_type).item()
-
-        # Create a regular tensor for all-reduce (not a DTensor)
-        local_norm_sq_tensor = torch.tensor(local_norm_sq, device=device, dtype=dtype)
-        # All-reduce to get global sum of squared norms
-        torch.distributed.all_reduce(local_norm_sq_tensor, op=torch.distributed.ReduceOp.SUM, group=process_group)
-        # Compute final norm
-        total_norm = local_norm_sq_tensor.pow(1.0 / norm_type)
-
-    # Clip gradients - need to handle DTensors specially
-    clip_coef = max_norm / (total_norm + 1e-6)
-    clip_coef_clamped = torch.clamp(clip_coef, max=1.0).item()
-
-    for p in parameters:
-        grad = p.grad
-        if hasattr(grad, "_local_tensor"):
-            # DTensor - modify the underlying local tensor
-            grad._local_tensor.mul_(clip_coef_clamped)
-        else:
-            grad.detach().mul_(clip_coef_clamped)
-
-    return total_norm
-
-
 def get_parameter_groups_with_weight_decay(
     model: torch.nn.Module,
     weight_decay: float,
@@ -216,7 +131,7 @@ def main(args: DictConfig) -> float | None:
 
     # Set random seeds for reproducibility (matching John's --seed 42)
     seed = getattr(args, "seed", 42)  # Default to 42 if not specified
-    set_seed(seed, dist_config.global_rank)
+    set_seed(seed, dist_config.rank)
 
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
@@ -357,11 +272,7 @@ def main(args: DictConfig) -> float | None:
             outputs = model(**batch, fp8_enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
-            # Note: FSDP2 averages gradients across ALL ranks, while Megatron with TP only
-            # averages across DP ranks. This can cause gradient magnitude differences.
-            # Use loss_scale to compensate (e.g., set to 4-16 to match Megatron gradient norms).
-            loss_scale = getattr(args, "loss_scale", 1.0)
-            loss = outputs.loss * loss_scale / args.grad_acc_steps
+            loss = outputs.loss / args.grad_acc_steps
             loss.backward()
 
             # Log microbatch step data for accumulation metrics
@@ -371,19 +282,8 @@ def main(args: DictConfig) -> float | None:
             if micro_step % args.grad_acc_steps == 0:
                 micro_step = 0
 
-                # Compute and clip gradient norms.
-                if args.get("use_distributed_grad_clip", False):
-                    # FSDP2-aware global norm: all-reduces squared norms across shards before clipping.
-                    # This matches Megatron's global gradient norm computation.
-                    total_norm = clip_grad_norm_fsdp2(
-                        model.parameters(),
-                        max_norm=1.0,
-                        norm_type=2.0,
-                        process_group=device_mesh.get_group("dp"),
-                    ).item()
-                else:
-                    # Standard PyTorch clip (may only compute local shard norm for FSDP2)
-                    total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+                # Compute and clip gradient norms
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
                 # Step optimizer.
                 optimizer.step()

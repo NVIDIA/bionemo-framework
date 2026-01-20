@@ -56,10 +56,6 @@ use_sequence_packing: true
 # Gradient accumulation
 grad_acc_steps: 8  # Higher accumulation for memory constraints
 
-# Loss scaling - disabled since it doesn't significantly affect Adam optimizer
-# (Adam normalizes by second moment, so gradient scale has minimal impact on updates)
-loss_scale: 1.0
-
 # Training setup (matching John's)
 num_train_steps: 182314
 

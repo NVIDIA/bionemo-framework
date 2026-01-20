@@ -136,7 +136,7 @@ class PerfLogger:
         if self._profiler is not None:
             self._profiler.step()
 
-        if step % self.logging_frequency == 0 and step > 0:
+        if step % self.logging_frequency == 0:
             memory_allocated = torch.cuda.memory_allocated() / (1024**3)
             self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)
             self.metrics["train/gpu_memory_allocated_mean_gb"].update(memory_allocated)
