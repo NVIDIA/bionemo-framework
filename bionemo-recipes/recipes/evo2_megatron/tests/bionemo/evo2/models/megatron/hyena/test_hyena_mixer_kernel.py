@@ -121,32 +121,9 @@ class MixerModuleWrapper(torch.nn.Module):  # noqa: D101
 
 
 @pytest.fixture
-def mixer(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str):
-    """Create a HyenaMixer instance for testing with PyTorch implementation."""
-    with distributed_model_parallel_state():
-        # Create the mixer
-        mixer = MixerModuleWrapper(
-            hyena_config, test_config, seq_len=512, use_subquadratic_ops=False, operator_type=operator_type
-        )
-        yield mixer
-
-
-@pytest.fixture
-def mixer_kernel(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str):
-    """Create a HyenaMixer instance for testing with CUDA kernel implementation."""
-    with distributed_model_parallel_state():
-        # Create the mixer
-        mixer_kernel = MixerModuleWrapper(
-            hyena_config, test_config, seq_len=512, use_subquadratic_ops=True, operator_type=operator_type
-        )
-        yield mixer_kernel
-
-
-@pytest.fixture
 def mixer_kernel_hyena_only(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig):
     """Create a HyenaMixer instance for testing with CUDA kernel implementation - only for hyena operator."""
     with distributed_model_parallel_state():
-        # Create the mixer
         mixer_kernel = MixerModuleWrapper(
             hyena_config, test_config, seq_len=512, use_subquadratic_ops=True, operator_type="hyena"
         )
@@ -272,26 +249,29 @@ def test_implicit_filter(mixer_kernel_hyena_only: MixerModuleWrapper):
     reason="subquadratic_ops_torch is not installed",
 )
 def test_subquadratic_ops_kernel(  # noqa: D103
-    mixer: MixerModuleWrapper, mixer_kernel: MixerModuleWrapper, config_type, operator_type
+    test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, config_type, operator_type
 ):
     # Skip bf16 with short convolution due to numerical instability
-    if mixer.mixer.transformer_config.params_dtype == torch.bfloat16 and operator_type == "hyena_short_conv":
+    if test_config.params_dtype == torch.bfloat16 and operator_type == "hyena_short_conv":
         pytest.skip("bf16 with short convolution is skipped due to numerical instability")
 
-    # Copy filter parameters to ensure identical initialization
-    if operator_type == "hyena":
-        mixer.mixer.mixer.filter.gamma.data.copy_(mixer_kernel.mixer.mixer.filter.gamma.data)  # type: ignore
-        mixer.mixer.mixer.filter.R.data.copy_(mixer_kernel.mixer.mixer.filter.R.data)  # type: ignore
-        mixer.mixer.mixer.filter.p.data.copy_(mixer_kernel.mixer.mixer.filter.p.data)  # type: ignore
-    elif operator_type == "hyena_medium_conv":
-        mixer.mixer.mixer.filter.h.data.copy_(mixer_kernel.mixer.mixer.filter.h.data)  # type: ignore
-
-    # Compare parameters to ensure identical initialization
-    for (name1, param1), (name2, param2) in zip(mixer.named_parameters(), mixer_kernel.named_parameters()):
-        assert name1 == name2, f"Parameter name mismatch {name1} != {name2}"
-        assert torch.equal(param1, param2), f"Parameter mismatch for {name1}"
-
     with distributed_model_parallel_state():
+        # Create both models inside the same distributed context
+        mixer = MixerModuleWrapper(
+            hyena_config, test_config, seq_len=512, use_subquadratic_ops=False, operator_type=operator_type
+        )
+        mixer_kernel = MixerModuleWrapper(
+            hyena_config, test_config, seq_len=512, use_subquadratic_ops=True, operator_type=operator_type
+        )
+
+        # Copy all parameters from mixer_kernel to mixer to ensure identical initialization
+        mixer.load_state_dict(mixer_kernel.state_dict())
+
+        # Verify parameters are now identical
+        for (name1, param1), (name2, param2) in zip(mixer.named_parameters(), mixer_kernel.named_parameters()):
+            assert name1 == name2, f"Parameter name mismatch {name1} != {name2}"
+            assert torch.equal(param1, param2), f"Parameter mismatch for {name1}"
+
         batch_size = 2
         seq_len = 512
         input_features = torch.rand(
