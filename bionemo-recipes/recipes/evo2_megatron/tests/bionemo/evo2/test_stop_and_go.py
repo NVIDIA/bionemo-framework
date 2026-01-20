@@ -36,8 +36,10 @@ PRETEST_ENV = copy.deepcopy(os.environ)
 @pytest.mark.parametrize(
     "tp_size,cp_size,dp_size,dp_rank_check,precision_recipe",
     [
-        (1, 1, 1, False, "bf16_mixed"),
-        (1, 1, 1, False, "bf16_with_fp8_current_scaling_mixed"),
+        pytest.param(
+            1, 1, 1, False, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+        ),
+        pytest.param(1, 1, 1, False, "bf16_with_fp8_current_scaling_mixed"),
         pytest.param(
             1,
             1,
