@@ -56,6 +56,11 @@ use_sequence_packing: true
 # Gradient accumulation
 grad_acc_steps: 8  # Higher accumulation for memory constraints
 
+# Loss scaling to match Megatron gradient magnitudes
+# Your gradient norm: 0.034, John's: 0.544 → ~16x difference
+# Try loss_scale = 16 to match (FSDP/DP difference ~4x + grad_acc diff ~2x + other factors)
+loss_scale: 16.0
+
 # Training setup (matching John's)
 num_train_steps: 182314
 

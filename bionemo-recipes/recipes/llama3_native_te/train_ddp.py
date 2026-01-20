@@ -20,7 +20,7 @@ from pathlib import Path
 import hydra
 import torch
 import transformer_engine.pytorch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
@@ -141,7 +141,9 @@ def main(args: DictConfig) -> float | None:
                 outputs = model(**batch, fp8_enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe)
 
                 # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
-                loss = outputs.loss / args.grad_acc_steps
+                # Use loss_scale to adjust gradient magnitudes (useful for matching Megatron runs)
+                loss_scale = getattr(args, "loss_scale", 1.0)
+                loss = outputs.loss * loss_scale / args.grad_acc_steps
                 loss.backward()
 
                 # Log microbatch step data for accumulation metrics
