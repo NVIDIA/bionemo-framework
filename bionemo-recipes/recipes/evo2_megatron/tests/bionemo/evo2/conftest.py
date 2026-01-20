@@ -26,6 +26,8 @@ import numpy as np
 import pytest
 import torch
 
+from .utils import clean_up_distributed_and_parallel_states
+
 
 def get_device_and_memory_allocated() -> str:
     """Get the current device index, name, and memory usage."""
@@ -165,13 +167,24 @@ def _reset_random_seeds():
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
-    """Clean up GPU memory and reset state after each test."""
+    """Clean up GPU memory and reset state after each test.
+
+    This fixture provides a safety net for tests that may not properly clean up
+    their distributed/parallel state. It uses the shared cleanup function from
+    utils.py as the canonical cleanup, then performs additional GPU memory cleanup.
+    """
     # Reset random seeds before the test to ensure reproducibility
     _reset_random_seeds()
 
     yield
 
-    # After the test, perform thorough cleanup
+    # First, ensure any lingering distributed/parallel state is cleaned up.
+    # This is a safety net - tests using distributed_model_parallel_state should
+    # already have cleaned up, but this catches any that didn't.
+    # This function is safe to call even if distributed is not initialized.
+    clean_up_distributed_and_parallel_states()
+
+    # After distributed cleanup, perform thorough GPU memory cleanup
     _thorough_gpu_cleanup()
 
     # Clean up any orphaned child processes (important for subprocess tests)
