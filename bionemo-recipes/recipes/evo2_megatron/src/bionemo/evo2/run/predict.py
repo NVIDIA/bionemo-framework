@@ -630,6 +630,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Use vortex-style FP8 (applies FP8 only to projection layers)",
     )
+    ap.add_argument(
+        "--use-subquadratic-ops",
+        action="store_true",
+        help="Use subquadratic_ops for improved performance. Note, due to increased compilation time this is only "
+        "recommended for predicting on a larger number of input sequences.",
+    )
 
     # Batch/sequence arguments
     ap.add_argument("--micro-batch-size", type=int, default=1, help="Batch size per forward pass")
@@ -1045,6 +1051,7 @@ def predict(
     no_sequence_parallel: bool = False,
     # Precision settings
     mixed_precision_recipe: Optional[str] = None,
+    use_subquadratic_ops: bool = False,
     # Batch/sequence settings
     micro_batch_size: int = 1,
     min_length: Optional[int] = None,
@@ -1076,6 +1083,7 @@ def predict(
         context_parallel_size: Context parallelism degree (splits sequence across GPUs).
         no_sequence_parallel: Disable sequence parallelism when using TP > 1.
         mixed_precision_recipe: Override mixed precision recipe (default: use checkpoint).
+        use_subquadratic_ops: Use subquadratic_ops for improved performance.
         micro_batch_size: Batch size per forward pass.
         min_length: Minimum sequence length (pad shorter sequences to this).
         prepend_bos: Prepend BOS token to sequences.
@@ -1124,6 +1132,10 @@ def predict(
     model_provider.pipeline_model_parallel_size = pipeline_model_parallel_size
     model_provider.context_parallel_size = context_parallel_size
     model_provider.sequence_parallel = tensor_parallel_size > 1 and not no_sequence_parallel
+
+    # Configure subquadratic ops for improved performance
+    if use_subquadratic_ops:
+        model_provider.use_subquadratic_ops = True
 
     # Configure mixed precision
     if mixed_precision_recipe is not None:
@@ -1404,6 +1416,7 @@ def main() -> None:
         no_sequence_parallel=args.no_sequence_parallel,
         # Precision settings
         mixed_precision_recipe=args.mixed_precision_recipe,
+        use_subquadratic_ops=args.use_subquadratic_ops,
         # Batch/sequence settings
         micro_batch_size=args.micro_batch_size,
         min_length=args.min_length,
