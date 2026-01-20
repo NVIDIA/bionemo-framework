@@ -31,6 +31,14 @@ config_kwargs: {}
 num_train_steps: ???
 grad_acc_steps: 1  # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
 
+# Loss scaling factor to match Megatron gradient magnitudes.
+# FSDP2 averages gradients across ALL ranks, while Megatron with TP only averages across DP ranks.
+# This causes FSDP gradients to be smaller by a factor of (world_size / dp_size).
+# Example: 48 GPUs with TP=4 → FSDP averages across 48, Megatron DP averages across 12 → 4x diff
+# Combined with grad_acc differences, you may need loss_scale of 4-16 to match gradient norms.
+# Use this to tune gradient magnitudes to match a reference run.
+loss_scale: 1.0
+
 use_meta_device: true
 
 # Whether to wrap the model in torch.compile. Note, this is currently not supported with mfsdp (BIONEMO-2977).
@@ -53,10 +61,11 @@ dataset:
   use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
   # Pre-shift labels for causal LM to avoid cross-boundary predictions in packed sequences.
   # When True (Megatron-style): labels are shifted so the last token of each sequence predicts -100
-  # instead of the next sequence's first token. This is critical for correct loss calculation
-  # with sequence packing (THD format).
-  # Set to False to use original HuggingFace behavior (global shift applied in ForCausalLMLoss).
-  shift_labels_for_causal_lm: true
+  # instead of the next sequence's first token.
+  # When False (default): use original HuggingFace behavior (global shift in ForCausalLMLoss).
+  # Note: This only matters for heavily packed sequences. With mbs=1-2 and long sequences,
+  # the difference is negligible (<0.01% of tokens affected).
+  shift_labels_for_causal_lm: false
   load_dataset_kwargs:
     path: ???
     split: "train"

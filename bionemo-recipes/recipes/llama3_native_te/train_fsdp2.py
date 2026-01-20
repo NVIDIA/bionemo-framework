@@ -243,7 +243,11 @@ def main(args: DictConfig) -> float | None:
             outputs = model(**batch, fp8_enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
-            loss = outputs.loss / args.grad_acc_steps
+            # Note: FSDP2 averages gradients across ALL ranks, while Megatron with TP only
+            # averages across DP ranks. This can cause gradient magnitude differences.
+            # Use loss_scale to compensate (e.g., set to 4-16 to match Megatron gradient norms).
+            loss_scale = getattr(args, "loss_scale", 1.0)
+            loss = outputs.loss * loss_scale / args.grad_acc_steps
             loss.backward()
 
             # Log microbatch step data for accumulation metrics
