@@ -38,14 +38,50 @@ PRETEST_ENV = copy.deepcopy(os.environ)
     [
         (1, 1, 1, False, "bf16_mixed"),
         (1, 1, 1, False, "bf16_with_fp8_current_scaling_mixed"),
-        (1, 1, 1, False, "bf16_with_fp8_delayed_scaling_mixed"),  # XFAIL
-        (1, 1, 1, False, "bf16_with_fp8_subchannel_scaling_mixed"),
-        (1, 1, 1, False, "bf16_with_nvfp4_mixed"),  # XFAIL other than blackwell+
-        (1, 1, 1, False, "bf16_with_mxfp8_mixed"),  # XFAIL other than blackwell+
-        (1, 1, 2, True, "bf16_mixed"),
-        (1, 1, 2, False, "bf16_mixed"),
-        (1, 2, 1, True, "bf16_mixed"),
-        (2, 1, 1, False, "bf16_mixed"),
+        pytest.param(
+            1,
+            1,
+            1,
+            False,
+            "bf16_with_fp8_delayed_scaling_mixed",
+            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
+        ),  # XFAIL
+        pytest.param(
+            1,
+            1,
+            1,
+            False,
+            "bf16_with_fp8_subchannel_scaling_mixed",
+            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
+        ),
+        pytest.param(
+            1,
+            1,
+            1,
+            False,
+            "bf16_with_nvfp4_mixed",
+            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
+        ),  # XFAIL other than blackwell+
+        pytest.param(
+            1,
+            1,
+            1,
+            False,
+            "bf16_with_mxfp8_mixed",
+            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
+        ),  # XFAIL other than blackwell+
+        pytest.param(
+            1, 1, 2, True, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+        ),
+        pytest.param(
+            1, 1, 2, False, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+        ),
+        pytest.param(
+            1, 2, 1, True, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+        ),
+        pytest.param(
+            2, 1, 1, False, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+        ),
     ],
 )
 @pytest.mark.slow

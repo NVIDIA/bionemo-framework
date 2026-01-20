@@ -16,17 +16,10 @@
 
 # conftest.py
 import gc
-import os
-import random
-import signal
-import time
 from pathlib import Path
 
-import numpy as np
 import pytest
 import torch
-
-from .utils import clean_up_distributed_and_parallel_states
 
 
 def get_device_and_memory_allocated() -> str:
@@ -68,130 +61,13 @@ def pytest_sessionfinish(session, exitstatus):
         )
 
 
-def _cleanup_child_processes():
-    """Kill any orphaned child processes that might be holding GPU memory.
-
-    This is particularly important for tests that spawn subprocesses via torchrun.
-
-    Note: Skips cleanup when distributed is initialized, as killing processes
-    could interfere with NCCL's internal state and cause hangs.
-    """
-    # Don't kill child processes if distributed is active - NCCL might have
-    # internal processes that should not be killed
-    if torch.distributed.is_initialized():
-        return
-
-    import subprocess
-
-    current_pid = os.getpid()
-    try:
-        # Find child processes
-        result = subprocess.run(
-            ["pgrep", "-P", str(current_pid)], check=False, capture_output=True, text=True, timeout=5
-        )
-        child_pids = result.stdout.strip().split("\n")
-        for pid_str in child_pids:
-            if pid_str:
-                try:
-                    pid = int(pid_str)
-                    os.kill(pid, signal.SIGTERM)
-                except (ValueError, ProcessLookupError, PermissionError):
-                    pass
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
-
-
-def _thorough_gpu_cleanup():
-    """Perform thorough GPU memory cleanup.
-
-    Note: This is intentionally gentle when torch.distributed is initialized,
-    as aggressive cleanup can interfere with NCCL state and cause hangs in
-    subsequent tests that reinitialize distributed.
-    """
-    if not torch.cuda.is_available():
-        return
-
-    # If distributed is still initialized, skip aggressive cleanup to avoid
-    # interfering with NCCL's internal state. The test fixture should handle
-    # distributed cleanup before this runs, but if it hasn't, we don't want
-    # to cause issues.
-    if torch.distributed.is_initialized():
-        # Just do minimal cleanup - gc only
-        gc.collect()
-        return
-
-    # Synchronize all CUDA streams to ensure all operations are complete
-    torch.cuda.synchronize()
-
-    # Clear all cached memory
-    torch.cuda.empty_cache()
-
-    # Reset peak memory stats
-    torch.cuda.reset_peak_memory_stats()
-
-    # Run garbage collection multiple times to ensure all objects are collected
-    for _ in range(3):
-        gc.collect()
-
-    # Another sync and cache clear after gc
-    torch.cuda.synchronize()
-    torch.cuda.empty_cache()
-
-    # Small sleep to allow GPU memory to be fully released
-    time.sleep(0.1)
-
-
-def _reset_random_seeds():
-    """Reset random seeds to ensure reproducibility across tests.
-
-    Some tests may modify global random state, which can affect subsequent tests
-    that depend on random splitting (like dataset preprocessing).
-
-    Note: Skips CUDA seed reset when distributed is initialized, as this can
-    interfere with Megatron's tensor parallel RNG tracker.
-    """
-    # Reset Python's random module
-    random.seed(None)
-
-    # Reset NumPy's random state (intentionally using legacy API to reset global state)
-    np.random.seed(None)  # noqa: NPY002
-
-    # Reset PyTorch's random state
-    torch.seed()
-
-    # Only reset CUDA seeds if distributed is not initialized, as the distributed
-    # tests manage their own RNG state via model_parallel_cuda_manual_seed
-    if torch.cuda.is_available() and not torch.distributed.is_initialized():
-        torch.cuda.seed_all()
-
-
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
-    """Clean up GPU memory and reset state after each test.
-
-    This fixture provides a safety net for tests that may not properly clean up
-    their distributed/parallel state. It uses the shared cleanup function from
-    utils.py as the canonical cleanup, then performs additional GPU memory cleanup.
-    """
-    # Reset random seeds before the test to ensure reproducibility
-    _reset_random_seeds()
-
+    """Clean up GPU memory and reset state after each test."""
     yield
-
-    # First, ensure any lingering distributed/parallel state is cleaned up.
-    # This is a safety net - tests using distributed_model_parallel_state should
-    # already have cleaned up, but this catches any that didn't.
-    # This function is safe to call even if distributed is not initialized.
-    clean_up_distributed_and_parallel_states()
-
-    # After distributed cleanup, perform thorough GPU memory cleanup
-    _thorough_gpu_cleanup()
-
-    # Clean up any orphaned child processes (important for subprocess tests)
-    _cleanup_child_processes()
-
-    # Final garbage collection
-    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        gc.collect()
 
 
 def pytest_addoption(parser: pytest.Parser):

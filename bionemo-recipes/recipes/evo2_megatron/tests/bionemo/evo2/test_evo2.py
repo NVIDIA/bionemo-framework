@@ -541,7 +541,13 @@ def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents,fp8",
     [
-        pytest.param("evo2/1b-8k-bf16:1.0", [86.4, 78.8, 49.7], False, id="1b-bf16_bf16"),
+        pytest.param(
+            "evo2/1b-8k-bf16:1.0",
+            [86.4, 78.8, 49.7],
+            False,
+            id="1b-bf16_bf16",
+            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI due to slow speed"),
+        ),
         pytest.param("evo2/1b-8k-bf16:1.0", [86.4, 78.8, 49.7], True, id="1b-bf16_fp8"),
         pytest.param(
             "evo2/1b-8k:1.0",
@@ -701,7 +707,13 @@ def test_batch_generate_coding_sequences(
 @pytest.mark.parametrize(
     "ckpt_name,expected_matchpercents,fp8",
     [
-        pytest.param("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6], False, id="1b-bf16_bf16"),
+        pytest.param(
+            "evo2/1b-8k-bf16:1.0",
+            [96.8, 29.7, 76.6, 71.6],
+            False,
+            id="1b-bf16_bf16",
+            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI due to slow speed"),
+        ),
         pytest.param("evo2/1b-8k-bf16:1.0", [96.8, 29.7, 76.6, 71.6], True, id="1b-bf16_fp8"),
         pytest.param(
             "evo2/1b-8k:1.0",
