@@ -44,6 +44,13 @@ use_sequence_packing: true
 # Gradient accumulation: GBS=384 = 48 GPUs × MBS=4 × grad_acc=2
 grad_acc_steps: 2
 
+# Loss scaling to match Megatron gradient magnitudes
+# Formula: loss_scale ≈ (your_grad_acc / megatron_grad_acc) × (your_world_size / megatron_world_size)
+# For 80 GPUs, mbs=2, grad_acc=6 vs John's 48 GPUs, mbs=20, grad_acc=1:
+#   loss_scale = (6/1) × (80/48) = 6 × 1.67 ≈ 10
+# Measured from gradient norms: 0.26066 / 0.0246 ≈ 10.6
+loss_scale: 10.0
+
 # Training setup (matching Hyena 1B run parameters)
 num_train_steps: 72926
 
