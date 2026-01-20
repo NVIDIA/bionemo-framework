@@ -25,7 +25,7 @@ dependencies = [
     "megatron-core",
     "nvidia-resiliency-ext",
     "emerging_optimizers",
-    "subquadratic-ops-torch-cu12",
+    "subquadratic-ops-torch-cu13",
     # External
     "polars", # needed by sharded_eden_dataset_provider
 ]
