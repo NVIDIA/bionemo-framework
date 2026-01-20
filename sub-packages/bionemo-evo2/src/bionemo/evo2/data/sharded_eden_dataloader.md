@@ -126,15 +126,12 @@ def create_sample_database(sample_id, sequences, output_dir):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
+    create_table_cmd = """CREATE TABLE sequences (
+        contig_id TEXT PRIMARY KEY,
+        nt_sequence TEXT NOT NULL
+    )"""
     # Create table
-    cursor.execute(
-        """
-        CREATE TABLE sequences (
-            contig_id TEXT PRIMARY KEY,
-            nt_sequence TEXT NOT NULL
-        )
-    """
-    )
+    cursor.execute(create_table_cmd)
 
     # Insert sequences for this sample
     for seq_id, sequence in sequences:
