@@ -13,11 +13,69 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from pathlib import Path
+
 import hydra
+import torch
 from omegaconf import DictConfig
 from transformers import AutoConfig, AutoModelForTokenClassification, AutoTokenizer
 
 from peft import PeftModel
+from utils import format_output_rows, load_input, write_output
+
+
+def _batched_inference(
+    model,
+    tokenizer,
+    records,
+    batch_size: int,
+    max_seq_length: int,
+    stride: int,
+    infer_overflowing_aas: bool,
+    device: str = "cuda",
+) -> tuple[list[str], list[int]]:
+    id2label = model.config.id2label
+
+    predictions = []
+    sequences_to_sample_mapping = []
+
+    for i in range(0, len(records), batch_size):
+        batch = records[i : i + batch_size]
+        sequences = [r["sequence"] for r in batch]
+
+        inputs = tokenizer(
+            sequences,
+            max_length=max_seq_length,
+            truncation=True,
+            stride=stride,
+            return_overflowing_tokens=infer_overflowing_aas,
+            return_tensors="pt",
+            padding=True,
+        )
+
+        overflow_map = inputs.pop("overflow_to_sample_mapping")
+        num_samples = len(inputs["input_ids"])
+
+        # inner batching over tokenizer outputs
+        for j in range(0, num_samples, batch_size):
+            sub_inputs = {k: v[j : j + batch_size].to(device) for k, v in inputs.items()}
+
+            with torch.no_grad():
+                outputs = model(**sub_inputs)
+
+            preds = outputs.logits.argmax(dim=-1)
+
+            for k, (pred, input_ids) in enumerate(zip(preds, sub_inputs["input_ids"])):
+                length = (input_ids != tokenizer.pad_token_id).sum().item()
+                labels = "".join(id2label[i.item()] for i in pred[:length])
+
+                predictions.append(labels)
+
+                # map back to original record index
+                original_idx = i + overflow_map[j + k].item()
+                sequences_to_sample_mapping.append(original_idx)
+
+    return predictions, sequences_to_sample_mapping
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity_infer", version_base="1.2")
@@ -45,21 +103,28 @@ def main(args: DictConfig):
 
     # Load PEFT adapters on top
     peft_model = PeftModel.from_pretrained(base_model, args.peft_model_config_dir)
+    peft_model = peft_model.to("cuda").eval()
 
     tokenizer = AutoTokenizer.from_pretrained("nvidia/esm2_t48_15B_UR50D")
 
-    peft_model = peft_model.to("cuda")
-    peft_model.eval()
-    inputs = tokenizer("QQLFSYAILGFALSEAMGLFCLMVAFLILFA", return_tensors="pt")
+    records = load_input(Path(args.input_file))
 
-    outputs = peft_model(input_ids=inputs["input_ids"].to("cuda"))
+    predictions, sequences_to_sample_mapping = _batched_inference(
+        peft_model,
+        tokenizer,
+        records,
+        **args.inference,
+    )
 
-    preds = outputs.logits.argmax(dim=-1)
+    if args.output_file:
+        write_output(records, predictions, sequences_to_sample_mapping, Path(args.output_file))
 
-    id2label = peft_model.config.id2label
-    labels = ["".join(id2label[i.item()] for i in seq) for seq in preds]
+    header, rows = format_output_rows(records, predictions, sequences_to_sample_mapping)
 
-    print(labels)
+    print("---------------")
+    print("\t".join(header))
+    for row in rows:
+        print("\t".join(row))
 
 
 if __name__ == "__main__":
