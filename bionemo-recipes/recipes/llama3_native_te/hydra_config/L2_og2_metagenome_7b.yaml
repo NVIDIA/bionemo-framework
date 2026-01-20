@@ -56,10 +56,9 @@ use_sequence_packing: true
 # Gradient accumulation
 grad_acc_steps: 8  # Higher accumulation for memory constraints
 
-# Loss scaling to match Megatron gradient magnitudes
-# Your gradient norm: 0.034, John's: 0.544 → ~16x difference
-# Try loss_scale = 16 to match (FSDP/DP difference ~4x + grad_acc diff ~2x + other factors)
-loss_scale: 16.0
+# Loss scaling - disabled since it doesn't significantly affect Adam optimizer
+# (Adam normalizes by second moment, so gradient scale has minimal impact on updates)
+loss_scale: 1.0
 
 # Training setup (matching John's)
 num_train_steps: 182314
@@ -100,7 +99,7 @@ lr_scheduler_kwargs:
   num_warmup_steps: 2500  # Match John's --warmup-steps
   num_constant_steps: 0  # Set to 1024 if John's run has a plateau phase
   num_decay_steps: 179814  # total_steps - warmup - constant = 182314 - 2500 - 0
-  min_lr_ratio: 0.00002  # min_lr / lr = 6e-07 / 3e-05
+  min_lr_ratio: 0.02  # min_lr / lr = 6e-07 / 3e-05 = 0.02
 
 # Checkpoint config
 checkpoint:

@@ -2,6 +2,10 @@
 use_te: true # Whether to use TransformerEngine layers through NVLlamaForCausalLM (if false, use HF's LlamaForCausalLM)
 config_name_or_path: ??? # E.g., meta-llama/Llama-3.2-1B or ./model_configs/meta-llama/Llama-3.2-1B
 
+# Random seed for reproducibility (John uses 42)
+# Each rank gets seed + rank for per-rank uniqueness
+seed: 42
+
 # Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
 # When enabled, embeddings are initialized with std=1.0 instead of 0.02.
 # This helps prevent loss spikes during training of large models.
@@ -32,10 +36,10 @@ num_train_steps: ???
 grad_acc_steps: 1  # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
 
 # Use distributed gradient clipping for FSDP2 (all-reduce squared norms before clipping)
-# When true: Computes true global gradient norm across all FSDP2 shards via all-reduce
-# When false: Uses standard torch.nn.utils.clip_grad_norm_ (local shard only - may be incorrect for FSDP2)
-# Set to true to match Megatron's global gradient norm computation.
-use_distributed_grad_clip: true
+# When true: Computes global gradient norm across all FSDP2 shards via all-reduce
+# When false: Uses standard torch.nn.utils.clip_grad_norm_ (simpler, works for most cases)
+# Note: The difference in logged grad norm doesn't significantly affect training with Adam.
+use_distributed_grad_clip: false
 
 # Loss scaling factor to match Megatron gradient magnitudes.
 # FSDP2 averages gradients across ALL ranks, while Megatron with TP only averages across DP ranks.
@@ -107,7 +111,7 @@ lr_scheduler_kwargs:
   num_warmup_steps: 2_000
   num_constant_steps: 0  # Plateau at max_lr after warmup (set to 1024 to match Megatron runs)
   num_decay_steps: 498_000
-  min_lr_ratio: 0.000001
+  min_lr_ratio: 0.01  # min_lr = max_lr * min_lr_ratio (e.g., 0.02 for min_lr=6e-7 with lr=3e-5)
 
 # Checkpoint config
 checkpoint:

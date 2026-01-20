@@ -15,10 +15,12 @@
 
 import gc
 import logging
+import random
 from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import numpy as np
 import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
@@ -39,6 +41,29 @@ from scheduler import get_cosine_annealing_schedule_with_warmup
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+def set_seed(seed: int, rank: int = 0) -> None:
+    """Set random seeds for reproducibility.
+
+    Sets seeds for Python random, NumPy, and PyTorch (CPU and CUDA).
+    For distributed training, each rank gets a unique seed based on the base seed + rank.
+
+    Args:
+        seed: Base random seed.
+        rank: Distributed rank (added to seed for per-rank uniqueness).
+    """
+    effective_seed = seed + rank
+    random.seed(effective_seed)
+    # Set numpy legacy RNG - needed for compatibility with HuggingFace datasets and other libs
+    np.random.seed(effective_seed)  # noqa: NPY002
+    torch.manual_seed(effective_seed)
+    torch.cuda.manual_seed(effective_seed)
+    torch.cuda.manual_seed_all(effective_seed)
+    # For full reproducibility (may impact performance)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    logger.info(f"Set seed to {effective_seed} (base={seed}, rank={rank})")
 
 
 def clip_grad_norm_fsdp2(
@@ -164,6 +189,10 @@ def main(args: DictConfig) -> float | None:
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
+
+    # Set random seeds for reproducibility (matching John's --seed 42)
+    seed = getattr(args, "seed", 42)  # Default to 42 if not specified
+    set_seed(seed, dist_config.global_rank)
 
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
@@ -319,7 +348,7 @@ def main(args: DictConfig) -> float | None:
                 micro_step = 0
 
                 # Compute and clip gradient norms.
-                if args.get("use_distributed_grad_clip", True):
+                if args.get("use_distributed_grad_clip", False):
                     # FSDP2-aware global norm: all-reduces squared norms across shards before clipping.
                     # This matches Megatron's global gradient norm computation.
                     total_norm = clip_grad_norm_fsdp2(
