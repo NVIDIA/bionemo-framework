@@ -41,6 +41,67 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def clip_grad_norm_fsdp2(
+    parameters,
+    max_norm: float,
+    norm_type: float = 2.0,
+    process_group=None,
+) -> torch.Tensor:
+    """Clip gradient norm for FSDP2 models with proper global norm computation.
+
+    Unlike torch.nn.utils.clip_grad_norm_, this function properly computes the
+    global gradient norm across all FSDP2 shards by performing an all-reduce
+    of the squared local norms before computing the total norm.
+
+    This is critical for FSDP2 because gradients are sharded as DTensors across
+    ranks. Using the standard clip_grad_norm_ would only compute the local shard
+    norm, leading to incorrect clipping behavior.
+
+    Args:
+        parameters: Iterable of parameters to clip gradients for.
+        max_norm: Maximum norm value for clipping.
+        norm_type: Type of norm to use (default: 2.0 for L2 norm).
+        process_group: The process group for all-reduce. If None, uses default group.
+
+    Returns:
+        The total (global) gradient norm before clipping.
+    """
+    if isinstance(parameters, torch.Tensor):
+        parameters = [parameters]
+    parameters = [p for p in parameters if p.grad is not None]
+
+    if len(parameters) == 0:
+        return torch.tensor(0.0)
+
+    device = parameters[0].grad.device
+    dtype = parameters[0].grad.dtype
+
+    if norm_type == float("inf"):
+        # For inf norm, need to find max across all ranks
+        local_max = max(p.grad.abs().max() for p in parameters)
+        total_norm = torch.tensor(local_max, device=device, dtype=dtype)
+        torch.distributed.all_reduce(total_norm, op=torch.distributed.ReduceOp.MAX, group=process_group)
+    else:
+        # Compute sum of squared norms locally
+        local_norm_sq = sum(p.grad.norm(norm_type).pow(norm_type) for p in parameters)
+        # Convert to tensor for all-reduce
+        local_norm_sq = torch.tensor(local_norm_sq, device=device, dtype=dtype)
+        # All-reduce to get global sum of squared norms
+        torch.distributed.all_reduce(local_norm_sq, op=torch.distributed.ReduceOp.SUM, group=process_group)
+        # Compute final norm
+        total_norm = local_norm_sq.pow(1.0 / norm_type)
+
+    # Clip gradients
+    clip_coef = max_norm / (total_norm + 1e-6)
+    # Only clip if norm exceeds max_norm
+    clip_coef_clamped = torch.clamp(clip_coef, max=1.0)
+
+    for p in parameters:
+        p.grad.detach().mul_(clip_coef_clamped)
+
+    return total_norm
+
+
 def get_parameter_groups_with_weight_decay(
     model: torch.nn.Module,
     weight_decay: float,
@@ -258,7 +319,18 @@ def main(args: DictConfig) -> float | None:
                 micro_step = 0
 
                 # Compute and clip gradient norms.
-                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+                if args.get("use_distributed_grad_clip", True):
+                    # FSDP2-aware global norm: all-reduces squared norms across shards before clipping.
+                    # This matches Megatron's global gradient norm computation.
+                    total_norm = clip_grad_norm_fsdp2(
+                        model.parameters(),
+                        max_norm=1.0,
+                        norm_type=2.0,
+                        process_group=device_mesh.get_group("dp"),
+                    ).item()
+                else:
+                    # Standard PyTorch clip (may only compute local shard norm for FSDP2)
+                    total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
                 # Step optimizer.
                 optimizer.step()

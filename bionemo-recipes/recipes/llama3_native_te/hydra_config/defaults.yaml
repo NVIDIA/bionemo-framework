@@ -31,6 +31,12 @@ config_kwargs: {}
 num_train_steps: ???
 grad_acc_steps: 1  # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
 
+# Use distributed gradient clipping for FSDP2 (all-reduce squared norms before clipping)
+# When true: Computes true global gradient norm across all FSDP2 shards via all-reduce
+# When false: Uses standard torch.nn.utils.clip_grad_norm_ (local shard only - may be incorrect for FSDP2)
+# Set to true to match Megatron's global gradient norm computation.
+use_distributed_grad_clip: true
+
 # Loss scaling factor to match Megatron gradient magnitudes.
 # FSDP2 averages gradients across ALL ranks, while Megatron with TP only averages across DP ranks.
 # This causes FSDP gradients to be smaller by a factor of (world_size / dp_size).
