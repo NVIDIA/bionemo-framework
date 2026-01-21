@@ -14,6 +14,7 @@ defaults:
 # num_hidden_layers: 24 (tuned to match ~1B params)
 config_name_or_path: ./model_configs/llama3-1b-hyena-comparable
 config_kwargs:
+  vocab_size: 256  # CRITICAL: Must match nucleotide tokenizer vocab size!
   num_hidden_layers: 24
   hidden_size: 2048
   intermediate_size: 5120
