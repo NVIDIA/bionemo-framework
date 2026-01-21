@@ -534,7 +534,7 @@ def test_fine_tuning(
 
 @pytest.fixture(scope="module")
 def mbridge_checkpoint_7b_1m(tmp_path_factory) -> Path:
-    """Session-scoped MBridge checkpoint for the 1b-8k-bf16 model.
+    """Module-scoped MBridge checkpoint for the 1b-8k-bf16 model.
 
     This fixture converts the NeMo2 checkpoint to MBridge format and exists for the duration of tests in this file.
 
