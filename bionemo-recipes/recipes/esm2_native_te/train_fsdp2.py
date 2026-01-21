@@ -35,6 +35,7 @@ from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
+from fp8_debugging import initialize_fp8_debugging
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
 
@@ -58,23 +59,8 @@ def main(args: DictConfig) -> float | None:
     torch.cuda.set_device(dist_config.local_rank)
 
     # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
-    if args.fp8_stats_config.enabled and not args.fp8_config.enabled:
-        raise ValueError(
-            "fp8_stats_config.enabled is true but fp8_config.enabled is false, please set fp8_config.enabled to true in the config if you wish to collect FP8 stats"
-        )
-
     if args.fp8_stats_config.enabled:
-        fp8_stats_file = args.fp8_stats_config.fp8_stats_file
-        fp8_log_dir = Path(args.fp8_stats_config.fp8_log_dir) / f"rank_{dist_config.rank}"
-        fp8_log_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Logging FP8 stats to {fp8_log_dir}")
-        te_features_dir = str(Path(transformer_engine.__file__).parent / "debug" / "features")
-        debug_api.initialize(
-            config_file=fp8_stats_file,
-            feature_dirs=[te_features_dir],
-            log_dir=fp8_log_dir,
-            default_logging_enabled=True,
-        )
+        initialize_fp8_debugging(dist_config, **args.fp8_stats_config, fp8_enabled=args.fp8_config.enabled)
 
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh(
@@ -178,10 +164,6 @@ def main(args: DictConfig) -> float | None:
             # Step optimizer.
             optimizer.step()
             scheduler.step()
-
-            if args.fp8_stats_config.enabled:
-                debug_api.step()
-
             optimizer.zero_grad()
 
             perf_logger.log_step(
