@@ -95,8 +95,8 @@ bionemo-core = { git = "https://github.com/NVIDIA/bionemo-framework.git", branch
 nvidia-resiliency-ext = { git = "https://github.com/NVIDIA/nvidia-resiliency-ext.git", rev = "54f85fe422d296cf04ea524130014bd3a2c3add1" }  # pragma: allowlist secret
 
 # Megatron Bundle. This points to a version that still supports the deprecated no_weight_decay_cond field until the API for an alternative has been finalized.
-megatron-bridge = { git = "https://github.com/NVIDIA-NeMo/Megatron-Bridge.git", rev = "18ef1b61309dd45bc0535fb7c60064b9d8829a35" }  # pragma: allowlist secret
-megatron-core = { git = "https://github.com/NVIDIA-NeMo/Megatron-Bridge.git", rev = "18ef1b61309dd45bc0535fb7c60064b9d8829a35", subdirectory = "3rdparty/Megatron-LM" }  # pragma: allowlist secret
+megatron-bridge = { git = "https://github.com/NVIDIA-NeMo/Megatron-Bridge.git", rev = "c415f4616340a0431c0eae776d0482ab5cc3770e" }  # pragma: allowlist secret
+megatron-core = { git = "https://github.com/NVIDIA-NeMo/Megatron-Bridge.git", rev = "c415f4616340a0431c0eae776d0482ab5cc3770e", subdirectory = "3rdparty/Megatron-LM" }  # pragma: allowlist secret
 
 [tool.uv.extra-build-dependencies]
 warp-lang = ["wheel_stub"]

@@ -532,12 +532,11 @@ def test_fine_tuning(
     )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def mbridge_checkpoint_7b_1m(tmp_path_factory) -> Path:
     """Session-scoped MBridge checkpoint for the 1b-8k-bf16 model.
 
-    This fixture converts the NeMo2 checkpoint to MBridge format once per test session,
-    allowing it to be shared across multiple test files (test_infer.py, test_predict.py, etc.).
+    This fixture converts the NeMo2 checkpoint to MBridge format and exists for the duration of tests in this file.
 
     Returns:
         Path to the MBridge checkpoint iteration directory (e.g., .../iter_0000001)
@@ -557,7 +556,7 @@ def mbridge_checkpoint_7b_1m(tmp_path_factory) -> Path:
         else:
             raise e
 
-    output_dir = tmp_path_factory.mktemp("mbridge_checkpoint_7b_1m_session")
+    output_dir = tmp_path_factory.mktemp("mbridge_checkpoint_7b_1m_module")
     mbridge_ckpt_dir = run_nemo2_to_mbridge(
         nemo2_ckpt_dir=nemo2_ckpt_path,
         tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
@@ -572,13 +571,13 @@ def mbridge_checkpoint_7b_1m(tmp_path_factory) -> Path:
     return mbridge_ckpt_dir
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def base_checkpoint(tmp_path_factory: pytest.TempPathFactory, mbridge_checkpoint_7b_1m: Path) -> Path:
     """Create a base checkpoint by training one step with no parallelism."""
     if torch.cuda.device_count() < 1:
         pytest.skip("Test requires at least 1 GPU")
     num_steps = 1
-    tmp_path = tmp_path_factory.mktemp("base_checkpoint_session")
+    tmp_path = tmp_path_factory.mktemp("base_checkpoint_module")
     base_path = tmp_path / "base_training"
     base_path.mkdir(parents=True, exist_ok=True)
 
