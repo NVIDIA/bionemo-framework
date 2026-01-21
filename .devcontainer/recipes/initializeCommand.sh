@@ -7,9 +7,10 @@ mkdir -p ~/.cache/pre-commit-devcontainer
 mkdir -p ~/.gnupg
 mkdir -p ~/.config
 mkdir -p ~/.cursor
+mkdir -p ~/.claude
 [ ! -f ~/.netrc ] && touch ~/.netrc
 
-# Create the ~/.bash_history_devcontainer file if it doesn't exist
 [ ! -f ~/.bash_history_devcontainer ] && touch ~/.bash_history_devcontainer
+[ ! -f ~/.claude.json ] && touch ~/.claude.json
 
 exit 0
