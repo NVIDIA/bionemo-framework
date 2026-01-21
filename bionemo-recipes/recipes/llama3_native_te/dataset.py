@@ -127,6 +127,7 @@ def create_bshd_dataloader(
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = True,
     pad_to_multiple_of: int | None = None,
+    shift_labels_for_causal_lm: bool = False,  # Ignored for BSHD - only used in THD packing
 ):
     """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
 
@@ -148,10 +149,12 @@ def create_bshd_dataloader(
         mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
         pad_to_multiple_of: If set, pads sequences to ensure total tokens is divisible by this number.
             Required for FP8 (should be 8). Default: None.
+        shift_labels_for_causal_lm: Ignored for BSHD dataloader (only used in THD packing).
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
     """
+    del shift_labels_for_causal_lm  # Unused in BSHD dataloader
     tokenized_dataset, tokenizer = create_tokenized_dataset(
         distributed_config=distributed_config,
         tokenizer_name_or_path=tokenizer_name_or_path,
@@ -343,6 +346,7 @@ def create_bshd_packed_dataloader(
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = True,
     pad_to_multiple_of: int | None = None,
+    shift_labels_for_causal_lm: bool = False,  # Ignored for BSHD packed - only used in THD packing
 ):
     """Create a BSHD dataloader with full sequence packing.
 
@@ -375,10 +379,12 @@ def create_bshd_packed_dataloader(
         mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: True.
         pad_to_multiple_of: If set, pads sequences to ensure total tokens is divisible by this number.
             Required for FP8 (should be 8). Default: None.
+        shift_labels_for_causal_lm: Ignored for BSHD packed dataloader (only used in THD packing).
 
     Returns:
         A tuple of (dataloader, dataset).
     """
+    del shift_labels_for_causal_lm  # Unused in BSHD packed dataloader
     # Use existing tokenization with windowing
     tokenized_dataset, tokenizer = create_tokenized_dataset(
         distributed_config=distributed_config,
