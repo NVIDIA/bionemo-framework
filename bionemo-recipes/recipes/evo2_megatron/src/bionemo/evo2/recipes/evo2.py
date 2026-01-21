@@ -244,7 +244,7 @@ def _evo2_common(
         ),
         optimizer=opt_config,
         optimizer_config_override_provider=HyenaOptimizerConfigOverrideProvider(
-            no_weight_decay_embeddings=True,
+            no_weight_decay_embeddings=no_weight_decay_embeddings,
         ),
         scheduler=scheduler,
         ddp=DistributedDataParallelConfig(
