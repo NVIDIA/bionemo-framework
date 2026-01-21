@@ -143,3 +143,6 @@ class PerfLogger:
 
         wandb.finish()
         self._progress_bar.close()
+
+        if self.fp8_stats_enabled:
+            debug_api.end_debug()

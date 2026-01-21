@@ -205,8 +205,6 @@ def main(args: DictConfig) -> float | None:
 
     # Clean up distributed training
     perf_logger.finish()
-    if args.fp8_stats_config.enabled:
-        debug_api.end_debug()
     torch.distributed.destroy_process_group()
 
     return perf_logger.min_loss

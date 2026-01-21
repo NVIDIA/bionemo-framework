@@ -177,6 +177,9 @@ class PerfLogger:
         wandb.finish()
         self._progress_bar.close()
 
+        if self.fp8_stats_enabled:
+            debug_api.end_debug()
+
 
 def setup_profiler(args: DictConfig, wandb_run: wandb.Run):
     """Setup a basic torch profiler for the experiment.
