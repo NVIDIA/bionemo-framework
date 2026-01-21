@@ -176,6 +176,11 @@ def main(args: DictConfig) -> float | None:
     ):
         model = model_class(config)
 
+    # Enable gradient checkpointing if requested (trades compute for memory)
+    if getattr(args, "use_gradient_checkpointing", False):
+        model.gradient_checkpointing_enable()
+        logger.info("Gradient checkpointing enabled")
+
     logger.info("Initialized Model:\n%s", model)
 
     # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.

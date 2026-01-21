@@ -163,6 +163,11 @@ def main(args: DictConfig) -> float | None:
     with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
         model = model_class(config)
 
+    # Enable gradient checkpointing if requested (trades compute for memory)
+    if getattr(args, "use_gradient_checkpointing", False):
+        model.gradient_checkpointing_enable()
+        logger.info("Gradient checkpointing enabled")
+
     logger.info("Initialized Model:\n%s", model)
 
     # Create optimizer with optional weight decay grouping
