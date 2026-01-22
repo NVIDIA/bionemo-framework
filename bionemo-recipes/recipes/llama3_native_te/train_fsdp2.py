@@ -100,6 +100,14 @@ def main(args: DictConfig) -> float | None:
 
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
     config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
+    if args.use_te and isinstance(config, NVLlamaConfig):
+        config.use_moe = args.use_moe
+        config.moe_num_experts = args.moe_num_experts
+        config.moe_top_k = args.moe_top_k
+        config.moe_capacity_factor = args.moe_capacity_factor
+        config.moe_min_capacity = args.moe_min_capacity
+        config.moe_drop_tokens = args.moe_drop_tokens
+        config.moe_aux_loss_coef = args.moe_aux_loss_coef
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
