@@ -20,19 +20,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
-from megatron.bridge.training.utils.weight_decay_utils import get_no_weight_decay_cond
+from megatron.bridge.training.config import OptimizerConfig, OptimizerConfigOverrideProviderContext, SchedulerConfig
 from megatron.core.optimizer import _get_param_groups
 
-from bionemo.evo2.models.evo2_provider import HyenaNVTestModelProvider
-from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
-
-
-def test_no_weight_decay_cond_fn():
-    """Verify that the get_no_weight_decay_cond function returns our lambda properly."""
-    assert (
-        get_no_weight_decay_cond(hyena_no_weight_decay_cond, default_skip_embedding_weight_decay=False)
-        is hyena_no_weight_decay_cond
-    )
+from bionemo.evo2.models.evo2_provider import HyenaNVTestModelProvider, HyenaOptimizerConfigOverrideProvider
 
 
 class _FakePGCollection:
@@ -92,27 +83,35 @@ def test_weight_decay_conditions():
         config.finalize()
         assert config.init_method is not None
         model = config.provide(pre_process=True, post_process=True)
+        optimizer_config_override_provider = HyenaOptimizerConfigOverrideProvider(
+            no_weight_decay_embeddings=False,
+        )
+        optimizer_config = OptimizerConfig(
+            optimizer="adam",
+            lr=1.0,
+            weight_decay=1.0,
+        )
+        scheduler_config = SchedulerConfig(
+            lr_decay_style="linear",
+            lr_decay_iters=1000,
+            lr_decay_samples=1000000,
+        )
+        hyena_config_overrides = optimizer_config_override_provider.build_config_overrides(
+            context=OptimizerConfigOverrideProviderContext(
+                model=model,
+                optimizer_config=optimizer_config,
+                scheduler_config=scheduler_config,
+            )
+        )
         param_groups = _get_param_groups(
             model_chunks=[model],
-            no_weight_decay_cond=None,
-            scale_lr_cond=None,
-            lr_mult=1.0,
-            lr=1.0,
-            min_lr=0.0,
-            decoupled_lr=None,
-            decoupled_min_lr=None,
-            default_skip_embedding_weight_decay=False,
+            config=optimizer_config,
+            config_overrides=None,  # default config overrides
         )
         param_groups2 = _get_param_groups(
             model_chunks=[model],
-            no_weight_decay_cond=hyena_no_weight_decay_cond,
-            scale_lr_cond=None,
-            lr_mult=1.0,
-            lr=1.0,
-            min_lr=0.0,
-            decoupled_lr=None,
-            decoupled_min_lr=None,
-            default_skip_embedding_weight_decay=False,
+            config=optimizer_config,
+            config_overrides=hyena_config_overrides,
         )
         assert len(param_groups2) == len(param_groups)
         assert len(param_groups2) == 2
