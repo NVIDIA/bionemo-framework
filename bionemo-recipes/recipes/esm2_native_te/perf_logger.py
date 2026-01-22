@@ -96,7 +96,7 @@ class PerfLogger:
             # 1 is the padding token for ESM-2.
             num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != 1].numel()
 
-            self.min_loss = min(self.min_loss, outputs.loss)
+            self.min_loss = torch.minimum(self.min_loss, outputs.loss)
             step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
 
             self.metrics["train/loss"].update(outputs.loss)

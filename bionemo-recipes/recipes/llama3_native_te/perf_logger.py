@@ -48,7 +48,7 @@ class PerfLogger:
         self._dist_config = dist_config
         self._run_config = OmegaConf.to_container(args, resolve=True, throw_on_missing=True)
 
-        self.min_loss = float("inf")
+        self.min_loss = torch.tensor(float("inf"), device=torch.device(f"cuda:{dist_config.local_rank}"))
 
         self.logging_frequency = args.logger.frequency
 
@@ -126,7 +126,7 @@ class PerfLogger:
             )
 
             avg_loss = self.running_loss / self.grad_acc_step_count
-            self.min_loss = min(self.min_loss, avg_loss)
+            self.min_loss = torch.minimum(self.min_loss, avg_loss)
             step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
 
             self.metrics["train/loss"].update(avg_loss)
@@ -161,8 +161,10 @@ class PerfLogger:
 
             # Reset gradient accumulation tracking for next step
             self.num_tokens = 0
-            self.num_unpadded_tokens = 0
-            self.running_loss = 0.0
+            self.num_unpadded_tokens = torch.tensor(
+                0, dtype=torch.int64, device=torch.device(f"cuda:{self._dist_config.local_rank}")
+            )
+            self.running_loss = torch.tensor(0.0, device=torch.device(f"cuda:{self._dist_config.local_rank}"))
             self.grad_acc_step_count = 0
 
     def finish(self):
