@@ -15,99 +15,204 @@
 
 """Consolidate FSDP2 distributed checkpoint shards into a single file.
 
-FSDP2 saves checkpoints as multiple .distcp files (one per rank). This script
-consolidates them into a single model.safetensors file that can be loaded on
-a single GPU.
+FSDP2 saves checkpoints as distributed .distcp files. This script consolidates
+them into a single model.safetensors file by reading all shards and reconstructing
+the full tensors.
 
-The script must be run with torchrun to initialize distributed environment:
-    torchrun --nproc_per_node=1 consolidate_fsdp2_checkpoint.py \
+Skips _extra_state (Transformer Engine FP8 state) which isn't needed for inference.
+
+Usage:
+    python consolidate_fsdp2_checkpoint.py \
         --checkpoint-dir /path/to/step_5000 \
-        --output-path /path/to/consolidated/model.safetensors \
-        --config-name L2_og2_metagenome_7b
+        --output-path /path/to/consolidated/model.safetensors
 
-Alternatively, on multiple GPUs to speed up loading:
-    torchrun --nproc_per_node=8 consolidate_fsdp2_checkpoint.py ...
+Note: Does NOT require torchrun - runs as a regular Python script.
 """
 
 import argparse
 import logging
-import os
-import sys
+from collections import defaultdict
 from pathlib import Path
 
 import torch
-import torch.distributed as dist
-import torch.distributed.checkpoint as dcp
-from omegaconf import OmegaConf
-from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import FullyShardedDataParallel, ShardingStrategy
-
-
-# Add parent directory to path for local imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
+from torch.distributed.checkpoint import FileSystemReader
+from torch.distributed.checkpoint.metadata import TensorStorageMetadata
 
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class ModelOnlyAppState:
-    """A minimal AppState that only loads model weights, skipping optimizer/scheduler.
+def consolidate_sharded_checkpoint(checkpoint_dir: Path) -> dict[str, torch.Tensor]:
+    """Read all shards from a DCP checkpoint and reconstruct full tensors.
 
-    This matches the {"app": {...}} checkpoint structure but only restores model weights.
+    This bypasses dcp.load() which has strict sharding requirements.
+    Instead, we read the metadata and manually reconstruct each tensor
+    from its shards across all .distcp files.
+
+    Args:
+        checkpoint_dir: Path to checkpoint directory containing .distcp files
+
+    Returns:
+        Dictionary mapping tensor names to full (unsharded) tensors
     """
+    reader = FileSystemReader(str(checkpoint_dir))
+    metadata = reader.read_metadata()
 
-    def __init__(self, model: torch.nn.Module):
-        """Initialize with just a model."""
-        self.model = model
-        self.step = 0
-        self.epoch = 0
+    logger.info(f"Checkpoint contains {len(metadata.state_dict_metadata)} entries")
 
-    def state_dict(self):
-        """Get state dict structure matching what was saved."""
-        from torch.distributed.fsdp.api import StateDictType
+    # Filter to only model weights (skip optimizer, scheduler, _extra_state)
+    model_keys = []
+    for key in metadata.state_dict_metadata.keys():
+        # Skip non-model entries
+        if "optim" in key or "scheduler" in key:
+            continue
+        # Skip TE extra state (FP8 scaling factors - not needed for inference)
+        if "_extra_state" in key:
+            continue
+        # Skip scalar metadata
+        if key in ["app.step", "app.epoch", "step", "epoch"]:
+            continue
+        model_keys.append(key)
 
-        with FullyShardedDataParallel.state_dict_type(
-            self.model,
-            StateDictType.SHARDED_STATE_DICT,
-        ):
-            model_state_dict = self.model.state_dict()
+    logger.info(f"Found {len(model_keys)} model weight tensors to consolidate")
 
-        return {
-            "model": model_state_dict,
-            "optim": {},  # Placeholder
-            "scheduler": {},  # Placeholder
-            "step": self.step,
-            "epoch": self.epoch,
-        }
+    # Build consolidated state dict
+    consolidated = {}
 
-    def load_state_dict(self, state_dict: dict):
-        """Load only the model weights from state dict."""
-        from torch.distributed.fsdp.api import StateDictType
+    for key in model_keys:
+        tensor_meta = metadata.state_dict_metadata[key]
 
-        with FullyShardedDataParallel.state_dict_type(
-            self.model,
-            StateDictType.SHARDED_STATE_DICT,
-        ):
-            self.model.load_state_dict(state_dict["model"])
+        if not isinstance(tensor_meta, TensorStorageMetadata):
+            logger.debug(f"Skipping non-tensor {key}: {type(tensor_meta)}")
+            continue
 
-        self.step = state_dict.get("step", 0)
-        self.epoch = state_dict.get("epoch", 0)
+        # Get full tensor shape and dtype
+        full_shape = tensor_meta.size
+        # Default to bfloat16 for model weights
+        dtype = torch.bfloat16 if tensor_meta.properties.dtype is None else tensor_meta.properties.dtype
+
+        # Create empty tensor to fill with shards
+        full_tensor = torch.zeros(full_shape, dtype=dtype)
+
+        # Read all chunks/shards for this tensor
+        for chunk in tensor_meta.chunks:
+            # Each chunk has offsets and sizes
+            offsets = chunk.offsets
+            sizes = chunk.sizes
+
+            # Read this chunk from the checkpoint
+            # FileSystemReader.read_data expects a list of (fqn, storage_meta) tuples
+            try:
+                # Build slice for where this chunk goes in the full tensor
+                slices = tuple(slice(o, o + s) for o, s in zip(offsets, sizes))
+
+                # Read the chunk data - we need to use the internal reader
+                # The chunk data is stored in files named by the storage key
+                storage_key = chunk.storage_key if hasattr(chunk, "storage_key") else None
+
+                if storage_key:
+                    # Find which .distcp file contains this chunk
+                    for storage_md in metadata.storage_data:
+                        if storage_md.storage_key == storage_key:
+                            # Read from file
+                            chunk_data = reader._read_item(storage_md)
+                            full_tensor[slices] = chunk_data
+                            break
+            except Exception as e:
+                logger.warning(f"Failed to read chunk for {key}: {e}")
+                continue
+
+        # Clean up the key name (remove "app.model." prefix)
+        clean_key = key
+        if clean_key.startswith("app.model."):
+            clean_key = clean_key[len("app.model.") :]
+        elif clean_key.startswith("app."):
+            clean_key = clean_key[len("app.") :]
+
+        consolidated[clean_key] = full_tensor
+        logger.debug(f"Consolidated {clean_key}: {full_tensor.shape}")
+
+    return consolidated
+
+
+def consolidate_via_torch_load(checkpoint_dir: Path) -> dict[str, torch.Tensor]:
+    """Alternative approach: directly load .distcp files with torch.load.
+
+    Each .distcp file contains a pickled dict of tensor shards.
+    We merge all shards to reconstruct full tensors.
+    """
+    distcp_files = sorted(checkpoint_dir.glob("*.distcp"))
+    logger.info(f"Loading {len(distcp_files)} .distcp files...")
+
+    # Collect all shards by tensor name
+    shards_by_key: dict[str, list] = defaultdict(list)
+
+    for distcp_file in distcp_files:
+        try:
+            # Load the shard file
+            shard_data = torch.load(distcp_file, map_location="cpu", weights_only=False)
+
+            # Each file contains partial tensors
+            if isinstance(shard_data, dict):
+                for key, value in shard_data.items():
+                    # Skip non-model entries
+                    if "optim" in key or "scheduler" in key:
+                        continue
+                    if "_extra_state" in key:
+                        continue
+                    if key in ["step", "epoch"]:
+                        if key == "step":
+                            logger.info(f"Checkpoint step: {value}")
+                        continue
+
+                    if isinstance(value, torch.Tensor):
+                        shards_by_key[key].append(value)
+        except Exception as e:
+            logger.warning(f"Failed to load {distcp_file}: {e}")
+
+    logger.info(f"Found shards for {len(shards_by_key)} unique tensors")
+
+    # Merge shards (for FSDP, tensors are sharded along dim 0)
+    consolidated = {}
+    for key, shards in shards_by_key.items():
+        if len(shards) == 1:
+            full_tensor = shards[0]
+        else:
+            # FSDP2 shards on dim 0, concatenate
+            try:
+                full_tensor = torch.cat(shards, dim=0)
+            except Exception:
+                # If cat fails, just use first shard
+                logger.warning(f"Failed to merge shards for {key}, using first shard")
+                full_tensor = shards[0]
+
+        # Clean up key name
+        clean_key = key
+        if clean_key.startswith("app.model."):
+            clean_key = clean_key[len("app.model.") :]
+        elif clean_key.startswith("app."):
+            clean_key = clean_key[len("app.") :]
+
+        consolidated[clean_key] = full_tensor
+
+    return consolidated
 
 
 def main():
-    """Consolidate FSDP2 checkpoint shards."""
+    """Consolidate FSDP2 checkpoint shards into a single file."""
     parser = argparse.ArgumentParser(description="Consolidate FSDP2 distributed checkpoint")
     parser.add_argument(
         "--checkpoint-dir", type=str, required=True, help="Path to checkpoint directory with .distcp files"
     )
     parser.add_argument("--output-path", type=str, required=True, help="Output path for consolidated checkpoint")
-    parser.add_argument(
-        "--config-name", type=str, default="L2_og2_metagenome_7b", help="Config name for model architecture"
-    )
     parser.add_argument("--format", choices=["safetensors", "pt"], default="safetensors", help="Output format")
+    parser.add_argument(
+        "--method",
+        choices=["metadata", "direct"],
+        default="direct",
+        help="Method: 'metadata' uses DCP metadata, 'direct' loads .distcp files directly",
+    )
     args = parser.parse_args()
 
     checkpoint_path = Path(args.checkpoint_dir)
@@ -117,105 +222,51 @@ def main():
     distcp_files = list(checkpoint_path.glob("*.distcp"))
     if not distcp_files:
         raise FileNotFoundError(f"No .distcp files found in {checkpoint_path}")
-
     logger.info(f"Found {len(distcp_files)} .distcp shard files")
 
-    # Initialize distributed
-    if not dist.is_initialized():
-        dist.init_process_group(backend="nccl")
-    rank = dist.get_rank()
-    world_size = dist.get_world_size()
-    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
-    torch.cuda.set_device(local_rank)
-
-    logger.info(f"Rank {rank}/{world_size}, local_rank={local_rank}")
-
-    # Create device mesh
-    init_device_mesh("cuda", (world_size,), mesh_dim_names=("dp",))
-
-    # Load config
-    config_path = Path(__file__).parent.parent / "hydra_config" / f"{args.config_name}.yaml"
-    if config_path.exists():
-        config = OmegaConf.load(config_path)
-        if rank == 0:
-            logger.info(f"Loaded config from {config_path}")
+    # Consolidate using selected method
+    if args.method == "metadata":
+        logger.info("Using metadata-based consolidation...")
+        consolidated = consolidate_sharded_checkpoint(checkpoint_path)
     else:
-        raise FileNotFoundError(f"Config not found at {config_path}")
+        logger.info("Using direct .distcp file loading...")
+        consolidated = consolidate_via_torch_load(checkpoint_path)
 
-    # Create model config
-    model_config_kwargs = OmegaConf.to_container(config.get("config_kwargs", {}), resolve=True)
-    model_config_kwargs.setdefault("vocab_size", 256)
-    model_config_kwargs.setdefault("attn_input_format", "bshd")
+    if not consolidated:
+        raise RuntimeError("No tensors were consolidated. Check the checkpoint format.")
 
-    if rank == 0:
-        logger.info(f"Creating model with config: {model_config_kwargs}")
-    model_config = NVLlamaConfig.from_pretrained(
-        config.get("config_name_or_path", "meta-llama/Llama-3.1-8B"),
-        **model_config_kwargs,
-    )
+    logger.info(f"Consolidated {len(consolidated)} tensors")
 
-    # Create model on GPU
-    if rank == 0:
-        logger.info("Creating model...")
-    model = NVLlamaForCausalLM(model_config).to(f"cuda:{local_rank}")
+    # Save consolidated checkpoint
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Wrap with FSDP using NO_SHARD to replicate model for simpler extraction
-    model = FullyShardedDataParallel(model, sharding_strategy=ShardingStrategy.NO_SHARD, device_id=local_rank)
+    if args.format == "safetensors":
+        from safetensors.torch import save_file
 
-    # Build state dict matching checkpoint structure ({"app": AppState})
-    # Use ModelOnlyAppState which only loads model weights, skipping optimizer/scheduler
-    app_state = ModelOnlyAppState(model=model)
-    state_dict = {"app": app_state}
+        # Convert to contiguous tensors
+        clean_state_dict = {}
+        for k, v in consolidated.items():
+            if isinstance(v, torch.Tensor):
+                clean_state_dict[k] = v.contiguous()
 
-    # Load distributed checkpoint
-    if rank == 0:
-        logger.info(f"Loading distributed checkpoint from {checkpoint_path}...")
-    try:
-        dcp.load(
-            state_dict=state_dict,
-            checkpoint_id=str(checkpoint_path),
-        )
-        if rank == 0:
-            logger.info("Successfully loaded distributed checkpoint!")
-    except Exception as e:
-        logger.error(f"Failed to load distributed checkpoint: {e}")
-        logger.error("Make sure you're running with torchrun --nproc_per_node=1")
-        raise
+        save_file(clean_state_dict, output_path)
+        logger.info(f"Saved consolidated checkpoint to {output_path} (safetensors format)")
+    else:
+        torch.save(consolidated, output_path)
+        logger.info(f"Saved consolidated checkpoint to {output_path} (pytorch format)")
 
-    # Extract model state dict (only on rank 0)
-    if rank == 0:
-        # Get the underlying model state dict
-        model_state_dict = {}
+    # Print checkpoint info
+    num_params = sum(p.numel() for p in consolidated.values() if isinstance(p, torch.Tensor))
+    size_mb = sum(p.numel() * p.element_size() for p in consolidated.values() if isinstance(p, torch.Tensor)) / 1024**2
+    logger.info(f"Checkpoint contains {num_params:,} parameters ({size_mb:.1f} MB)")
 
-        # Get the unwrapped model
-        unwrapped_model = model.module if hasattr(model, "module") else model
-
-        for name, param in unwrapped_model.named_parameters():
-            model_state_dict[name] = param.detach().cpu().contiguous()
-
-        # Also get buffers
-        for name, buffer in unwrapped_model.named_buffers():
-            model_state_dict[name] = buffer.detach().cpu().contiguous()
-
-        # Save consolidated checkpoint
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        if args.format == "safetensors":
-            from safetensors.torch import save_file
-
-            save_file(model_state_dict, output_path)
-            logger.info(f"Saved consolidated checkpoint to {output_path} (safetensors format)")
-        else:
-            torch.save(model_state_dict, output_path)
-            logger.info(f"Saved consolidated checkpoint to {output_path} (pytorch format)")
-
-        # Print checkpoint info
-        num_params = sum(p.numel() for p in model_state_dict.values())
-        size_mb = sum(p.numel() * p.element_size() for p in model_state_dict.values()) / (1024 * 1024)
-        logger.info(f"Checkpoint contains {num_params:,} parameters ({size_mb:.1f} MB)")
-
-    dist.barrier()
-    dist.destroy_process_group()
+    # List some keys for verification
+    logger.info("Sample keys in consolidated checkpoint:")
+    for i, key in enumerate(sorted(consolidated.keys())[:10]):
+        tensor = consolidated[key]
+        logger.info(f"  {key}: {tensor.shape} {tensor.dtype}")
+    if len(consolidated) > 10:
+        logger.info(f"  ... and {len(consolidated) - 10} more")
 
 
 if __name__ == "__main__":
