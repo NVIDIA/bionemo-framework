@@ -43,27 +43,27 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def set_seed(seed: int, rank: int = 0) -> None:
+def set_seed(seed: int) -> None:
     """Set random seeds for reproducibility.
 
-    Sets seeds for Python random, NumPy, and PyTorch (CPU and CUDA).
-    For distributed training, each rank gets a unique seed based on the base seed + rank.
+    For FSDP2/DTensor, ALL ranks must use the SAME seed to ensure weights
+    are initialized identically before sharding.
+
+    Note: Data parallelism is handled by dataset sharding (each rank gets
+    different data via dataset.shard()), not by different random seeds.
 
     Args:
-        seed: Base random seed.
-        rank: Distributed rank (added to seed for per-rank uniqueness).
+        seed: Random seed (same on all ranks).
     """
-    effective_seed = seed + rank
-    random.seed(effective_seed)
-    # Set numpy legacy RNG - needed for compatibility with HuggingFace datasets and other libs
-    np.random.seed(effective_seed)  # noqa: NPY002
-    torch.manual_seed(effective_seed)
-    torch.cuda.manual_seed(effective_seed)
-    torch.cuda.manual_seed_all(effective_seed)
+    random.seed(seed)
+    np.random.seed(seed)  # noqa: NPY002
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
     # For full reproducibility (may impact performance)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    logger.info(f"Set seed to {effective_seed} (base={seed}, rank={rank})")
+    logger.info(f"Set seed to {seed} (same on all ranks for FSDP2)")
 
 
 def _to_local_tensor(tensor: torch.Tensor) -> torch.Tensor:
@@ -274,9 +274,11 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
-    # Set random seeds for reproducibility (matching John's --seed 42)
+    # Set random seeds (same seed on ALL ranks for FSDP2/DTensor)
+    # This is CRITICAL - all ranks must have identical weights before sharding
+    # Data parallelism is handled by dataset sharding, not by different seeds
     seed = getattr(args, "seed", 42)  # Default to 42 if not specified
-    set_seed(seed, dist_config.rank)
+    set_seed(seed)
 
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
