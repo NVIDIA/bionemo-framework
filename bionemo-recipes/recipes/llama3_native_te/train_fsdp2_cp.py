@@ -112,7 +112,9 @@ def main(args: DictConfig) -> float | None:
 
     # Create the context-aware dataloader. We only create the dataloader on rank 0 and wrap it in a
     # ContextParallelDataLoaderWrapper that will shard and distribute the data across the context parallelism group.
-    args.dataset.setdefault("pad_sequences_to_be_divisible_by", device_mesh["cp"].size() * 2)
+    if args.dataset.get("pad_sequences_to_be_divisible_by", None) is None:
+        logger.info("pad_sequences_to_be_divisible_by is not provided, using cp_mesh.size() * 2")
+        OmegaConf.update(args, "dataset.pad_sequences_to_be_divisible_by", device_mesh["cp"].size() * 2)
     if device_mesh["cp"].get_local_rank() == 0:
         if args.use_sequence_packing:
             train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
@@ -182,11 +184,18 @@ def main(args: DictConfig) -> float | None:
 
                 # Compute and clip gradient norms.
                 total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                if isinstance(total_norm, torch.distributed.tensor.DTensor):
+                    total_norm = total_norm.to_local()
 
                 # Step optimizer.
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
+
+                if step == 22:
+                    if torch.distributed.get_rank() == 0:
+                        breakpoint()
+                    torch.distributed.barrier()
 
                 perf_logger.log_step(
                     step=step,
