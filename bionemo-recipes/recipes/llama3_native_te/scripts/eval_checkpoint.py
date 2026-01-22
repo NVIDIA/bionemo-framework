@@ -121,8 +121,11 @@ def create_eval_dataloader(
     tokenized_ds.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
 
     # Create collator with genomic masking
+    from transformers import DataCollatorForLanguageModeling
+
+    base_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
     collator = GenomicDataCollator(
-        tokenizer=tokenizer,
+        base_collator=base_collator,
         mask_degenerate_bases=True,
         uppercase_labels=False,
     )
