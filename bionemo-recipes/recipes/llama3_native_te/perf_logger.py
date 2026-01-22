@@ -81,8 +81,10 @@ class PerfLogger:
 
         # Gradient accumulation tracking
         self.num_tokens = 0
-        self.num_unpadded_tokens = 0
-        self.running_loss = 0.0
+        self.num_unpadded_tokens = torch.tensor(
+            0, dtype=torch.int64, device=torch.device(f"cuda:{dist_config.local_rank}")
+        )
+        self.running_loss = torch.tensor(0.0, device=torch.device(f"cuda:{dist_config.local_rank}"))
         self.grad_acc_step_count = 0
 
     def log_micro_step(self, batch: dict[str, torch.Tensor], outputs: CausalLMOutputWithPast):
@@ -92,20 +94,21 @@ class PerfLogger:
             batch: The batch of data for the micro step.
             outputs: The outputs of the micro step.
         """
-        self.grad_acc_step_count += 1
-        self.num_tokens += batch["input_ids"].numel()
-        # Use attention_mask to count unpadded tokens (works for both BSHD and THD)
-        if "attention_mask" in batch:
-            self.num_unpadded_tokens += batch["attention_mask"].sum().item()
-        else:
-            # Fallback for pure sequence packing with no padding: all tokens are unpadded
-            self.num_unpadded_tokens += batch["input_ids"].numel()
-        self.running_loss += outputs.loss.item()
+        with torch.no_grad():
+            self.grad_acc_step_count += 1
+            self.num_tokens += batch["input_ids"].numel()
+            # Use attention_mask to count unpadded tokens (works for both BSHD and THD)
+            if "attention_mask" in batch:
+                self.num_unpadded_tokens += batch["attention_mask"].sum()
+            else:
+                # Fallback for pure sequence packing with no padding: all tokens are unpadded
+                self.num_unpadded_tokens += batch["input_ids"].numel()
+            self.running_loss += outputs.loss
 
     def log_step(
         self,
         step: int,
-        grad_norm: float,
+        grad_norm: torch.Tensor,
         lr: float,
     ):
         """Log a step to the logger and wandb.
@@ -116,48 +119,51 @@ class PerfLogger:
             lr: The learning rate of the step.
         """
         # Use accumulated metrics from gradient accumulation
-        assert self.grad_acc_step_count > 0, (
-            f"Gradient accumulation steps ({self.grad_acc_step_count}) must be greater than 0, "
-            f"and can be incremented by log_micro_step()."
-        )
+        with torch.no_grad():
+            assert self.grad_acc_step_count > 0, (
+                f"Gradient accumulation steps ({self.grad_acc_step_count}) must be greater than 0, "
+                f"and can be incremented by log_micro_step()."
+            )
 
-        avg_loss = self.running_loss / self.grad_acc_step_count
-        self.min_loss = min(self.min_loss, avg_loss)
-        step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
+            avg_loss = self.running_loss / self.grad_acc_step_count
+            self.min_loss = min(self.min_loss, avg_loss)
+            step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
 
-        self.metrics["train/loss"].update(avg_loss)
-        self.metrics["train/learning_rate"].update(lr)
-        self.metrics["train/grad_norm"].update(grad_norm)
-        self.metrics["train/step_time"].update(step_time)
-        self.metrics["train/tokens_per_second_per_gpu"].update(self.num_tokens / step_time)
-        self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(self.num_unpadded_tokens / step_time)
-        self.metrics["train/total_unpadded_tokens_per_batch"].update(self.num_unpadded_tokens / self.logging_frequency)
+            self.metrics["train/loss"].update(avg_loss)
+            self.metrics["train/learning_rate"].update(lr)
+            self.metrics["train/grad_norm"].update(grad_norm)
+            self.metrics["train/step_time"].update(step_time)
+            self.metrics["train/tokens_per_second_per_gpu"].update(self.num_tokens / step_time)
+            self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(self.num_unpadded_tokens / step_time)
+            self.metrics["train/total_unpadded_tokens_per_batch"].update(
+                self.num_unpadded_tokens / self.logging_frequency
+            )
 
-        if self._profiler is not None:
-            self._profiler.step()
+            if self._profiler is not None:
+                self._profiler.step()
 
-        if step % self.logging_frequency == 0 and step > 0:
-            memory_allocated = torch.cuda.memory_allocated() / (1024**3)
-            self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)
-            self.metrics["train/gpu_memory_allocated_mean_gb"].update(memory_allocated)
+            if step % self.logging_frequency == 0 and step > 0:
+                memory_allocated = torch.cuda.memory_allocated() / (1024**3)
+                self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)
+                self.metrics["train/gpu_memory_allocated_mean_gb"].update(memory_allocated)
 
-            metrics = self.metrics.compute()
-            self.metrics.reset()
-            metrics["train/global_step"] = torch.tensor(step, dtype=torch.int64)
+                metrics = self.metrics.compute()
+                self.metrics.reset()
+                metrics["train/global_step"] = torch.tensor(step, dtype=torch.int64)
 
-            if self._dist_config.is_main_process():
-                wandb.log(metrics, step=step)
-                self._progress_bar.update(self.logging_frequency)
-                self._progress_bar.set_postfix({"loss": avg_loss})
+                if self._dist_config.is_main_process():
+                    wandb.log(metrics, step=step)
+                    self._progress_bar.update(self.logging_frequency)
+                    self._progress_bar.set_postfix({"loss": avg_loss.item()})
 
-            if self._dist_config.local_rank == 0:
-                logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
+                if self._dist_config.local_rank == 0:
+                    logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
 
-        # Reset gradient accumulation tracking for next step
-        self.num_tokens = 0
-        self.num_unpadded_tokens = 0
-        self.running_loss = 0.0
-        self.grad_acc_step_count = 0
+            # Reset gradient accumulation tracking for next step
+            self.num_tokens = 0
+            self.num_unpadded_tokens = 0
+            self.running_loss = 0.0
+            self.grad_acc_step_count = 0
 
     def finish(self):
         """Finish the logger and close the progress bar."""
