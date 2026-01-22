@@ -219,12 +219,15 @@ def compute_megatron_loss(
         Tuple of (loss_sum, num_valid_tokens).
     """
     if is_thd:
-        # THD format: logits [total_tokens, vocab], labels [total_tokens]
-        # Labels are already aligned, no shift needed for THD with pre-shifted labels
-        flat_logits = logits
-        flat_labels = labels
+        # THD format: logits are [total_tokens, vocab]
+        # Labels are [batch, seq] - need to shift and flatten
+        # The model handles THD internally, but labels are still batch format
+        shift_labels = labels[..., 1:].contiguous()
+        flat_logits = logits[: shift_labels.numel(), :]  # Match token count after shift
+        flat_labels = shift_labels.view(-1)
     else:
-        # BSHD format: need to shift for causal LM
+        # BSHD format: logits are [batch, seq, vocab]
+        # Need to shift for causal LM (predict next token)
         shift_logits = logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
         flat_logits = shift_logits.view(-1, logits.size(-1))
