@@ -175,6 +175,10 @@ def log_init_stats(model: torch.nn.Module, dist_config: "DistributedConfig") -> 
         # For FSDP2, convert DTensor to local tensor to avoid unsupported ops
         data = _to_local_tensor(param.data).float()
 
+        # Skip empty tensors (e.g., _extra_state from Transformer Engine)
+        if data.numel() == 0:
+            continue
+
         # Compute stats manually to avoid DTensor op issues
         mean_val = data.mean().item()
         var_val = torch.mean(torch.pow(data - mean_val, 2)).item()
