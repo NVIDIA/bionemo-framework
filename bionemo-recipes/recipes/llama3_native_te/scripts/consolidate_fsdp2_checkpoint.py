@@ -44,7 +44,7 @@ from torch.distributed.fsdp import fully_shard
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from modeling_llama_te import NVLlamaConfig, NVLlamaModel
+from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 
 
 logging.basicConfig(level=logging.INFO)
@@ -148,7 +148,7 @@ def main():
     # Create model on meta device first to save memory
     logger.info("Creating model on meta device...")
     with torch.device("meta"):
-        model = NVLlamaModel(llama_config)
+        model = NVLlamaForCausalLM(llama_config)
 
     # Move to real device with empty tensors
     model.to_empty(device=device)
