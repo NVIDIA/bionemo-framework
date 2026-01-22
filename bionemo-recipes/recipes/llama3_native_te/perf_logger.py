@@ -63,6 +63,16 @@ class PerfLogger:
             "train/gpu_memory_allocated_max_gb": torchmetrics.MaxMetric(),
             "train/gpu_memory_allocated_mean_gb": torchmetrics.MeanMetric(),
         }
+        if args.use_moe:
+            metrics_dict.update(
+                {
+                    "train/moe_aux_loss": torchmetrics.MeanMetric(),
+                    "train/moe_load_entropy": torchmetrics.MeanMetric(),
+                    "train/moe_load_max": torchmetrics.MeanMetric(),
+                    "train/moe_dropped_tokens": torchmetrics.MeanMetric(),
+                    "train/moe_capacity": torchmetrics.MeanMetric(),
+                }
+            )
 
         self.metrics = torchmetrics.MetricCollection(metrics_dict)
         # We move metrics to a GPU device so we can use torch.distributed to aggregate them before logging.
@@ -84,6 +94,11 @@ class PerfLogger:
         self.num_unpadded_tokens = 0
         self.running_loss = 0.0
         self.grad_acc_step_count = 0
+        self.running_moe_aux_loss = 0.0
+        self.running_moe_load_entropy = 0.0
+        self.running_moe_load_max = 0.0
+        self.running_moe_dropped_tokens = 0.0
+        self.running_moe_capacity = 0.0
 
     def log_micro_step(self, batch: dict[str, torch.Tensor], outputs: CausalLMOutputWithPast):
         """Store data on micro step for gradient accumulation metrics.
@@ -101,6 +116,12 @@ class PerfLogger:
             # Fallback for pure sequence packing with no padding: all tokens are unpadded
             self.num_unpadded_tokens += batch["input_ids"].numel()
         self.running_loss += outputs.loss.item()
+        if hasattr(outputs, "moe_aux_loss") and outputs.moe_aux_loss is not None:
+            self.running_moe_aux_loss += outputs.moe_aux_loss.item()
+            self.running_moe_load_entropy += outputs.moe_load_entropy.item()
+            self.running_moe_load_max += outputs.moe_load_max.item()
+            self.running_moe_dropped_tokens += outputs.moe_dropped_tokens.item()
+            self.running_moe_capacity += outputs.moe_capacity.item()
 
     def log_step(
         self,
@@ -132,6 +153,14 @@ class PerfLogger:
         self.metrics["train/tokens_per_second_per_gpu"].update(self.num_tokens / step_time)
         self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(self.num_unpadded_tokens / step_time)
         self.metrics["train/total_unpadded_tokens_per_batch"].update(self.num_unpadded_tokens / self.logging_frequency)
+        if "train/moe_aux_loss" in self.metrics:
+            self.metrics["train/moe_aux_loss"].update(self.running_moe_aux_loss / self.grad_acc_step_count)
+            self.metrics["train/moe_load_entropy"].update(self.running_moe_load_entropy / self.grad_acc_step_count)
+            self.metrics["train/moe_load_max"].update(self.running_moe_load_max / self.grad_acc_step_count)
+            self.metrics["train/moe_dropped_tokens"].update(
+                self.running_moe_dropped_tokens / self.grad_acc_step_count
+            )
+            self.metrics["train/moe_capacity"].update(self.running_moe_capacity / self.grad_acc_step_count)
 
         if self._profiler is not None:
             self._profiler.step()
@@ -158,6 +187,11 @@ class PerfLogger:
         self.num_unpadded_tokens = 0
         self.running_loss = 0.0
         self.grad_acc_step_count = 0
+        self.running_moe_aux_loss = 0.0
+        self.running_moe_load_entropy = 0.0
+        self.running_moe_load_max = 0.0
+        self.running_moe_dropped_tokens = 0.0
+        self.running_moe_capacity = 0.0
 
     def finish(self):
         """Finish the logger and close the progress bar."""

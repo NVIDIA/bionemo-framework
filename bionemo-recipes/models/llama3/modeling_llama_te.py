@@ -184,7 +184,7 @@ class NVLlamaMoEFeedForward(nn.Module):
             selected[expert_positions[top_positions]] = True
         return selected
 
-    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
         original_shape = hidden_states.shape
         if hidden_states.dim() == 3:
             hidden_states = hidden_states.view(-1, hidden_states.size(-1))
@@ -207,6 +207,9 @@ class NVLlamaMoEFeedForward(nn.Module):
         aux_loss = self.num_experts * torch.sum(importance * load) / (
             hidden_states.size(0) * self.top_k
         )
+        load_fraction = load / (hidden_states.size(0) * self.top_k)
+        load_entropy = -torch.sum(load_fraction * torch.log(load_fraction + 1e-9))
+        load_max = load_fraction.max()
 
         token_ids = torch.arange(hidden_states.size(0), device=hidden_states.device)
         flat_token_idx = token_ids[:, None].expand(-1, self.top_k).reshape(-1)
@@ -215,6 +218,7 @@ class NVLlamaMoEFeedForward(nn.Module):
 
         capacity = self._compute_capacity(hidden_states.size(0))
         selected_mask = self._select_expert_tokens(flat_expert_idx, flat_probs, capacity)
+        dropped_tokens = flat_expert_idx.numel() - selected_mask.sum()
 
         selected_token_idx = flat_token_idx[selected_mask]
         selected_expert_idx = flat_expert_idx[selected_mask]
@@ -224,7 +228,13 @@ class NVLlamaMoEFeedForward(nn.Module):
             output = hidden_states.new_zeros((hidden_states.size(0), self.hidden_size))
             if len(original_shape) == 3:
                 output = output.view(original_shape)
-            return output, aux_loss
+            stats = {
+                "load_entropy": load_entropy,
+                "load_max": load_max,
+                "dropped_tokens": dropped_tokens.to(hidden_states.dtype),
+                "capacity": torch.tensor(capacity, device=hidden_states.device, dtype=hidden_states.dtype),
+            }
+            return output, aux_loss, stats
 
         sort_order = torch.argsort(selected_expert_idx, stable=True)
         selected_token_idx = selected_token_idx[sort_order]
@@ -243,7 +253,13 @@ class NVLlamaMoEFeedForward(nn.Module):
 
         if len(original_shape) == 3:
             output = output.view(original_shape)
-        return output, aux_loss
+        stats = {
+            "load_entropy": load_entropy,
+            "load_max": load_max,
+            "dropped_tokens": dropped_tokens.to(hidden_states.dtype),
+            "capacity": torch.tensor(capacity, device=hidden_states.device, dtype=hidden_states.dtype),
+        }
+        return output, aux_loss, stats
 
 
 class NVLlamaMoETransformerLayer(nn.Module):
@@ -282,6 +298,10 @@ class NVLlamaMoETransformerLayer(nn.Module):
         )
         self.mlp = NVLlamaMoEFeedForward(config)
         self.last_moe_aux_loss: torch.Tensor | None = None
+        self.last_moe_load_entropy: torch.Tensor | None = None
+        self.last_moe_load_max: torch.Tensor | None = None
+        self.last_moe_dropped_tokens: torch.Tensor | None = None
+        self.last_moe_capacity: torch.Tensor | None = None
 
     def forward(
         self,
@@ -317,8 +337,12 @@ class NVLlamaMoETransformerLayer(nn.Module):
 
         residual = hidden_states
         hidden_states = self.mlp_norm(hidden_states)
-        mlp_out, aux_loss = self.mlp(hidden_states)
+        mlp_out, aux_loss, stats = self.mlp(hidden_states)
         self.last_moe_aux_loss = aux_loss
+        self.last_moe_load_entropy = stats["load_entropy"]
+        self.last_moe_load_max = stats["load_max"]
+        self.last_moe_dropped_tokens = stats["dropped_tokens"]
+        self.last_moe_capacity = stats["capacity"]
         hidden_states = residual + mlp_out
         return hidden_states
 
@@ -413,6 +437,11 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         all_hidden_states = []
         output_hidden_states = kwargs.get("output_hidden_states", False)
         moe_aux_loss: torch.Tensor | None = None
+        moe_load_entropy: torch.Tensor | None = None
+        moe_load_max: torch.Tensor | None = None
+        moe_dropped_tokens: torch.Tensor | None = None
+        moe_capacity: torch.Tensor | None = None
+        moe_layers = 0
 
         if (input_ids is None) ^ (inputs_embeds is not None):
             raise ValueError("You must specify exactly one of input_ids or inputs_embeds")
@@ -485,6 +514,27 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                         if moe_aux_loss is None
                         else moe_aux_loss + decoder_layer.last_moe_aux_loss
                     )
+                    moe_load_entropy = (
+                        decoder_layer.last_moe_load_entropy
+                        if moe_load_entropy is None
+                        else moe_load_entropy + decoder_layer.last_moe_load_entropy
+                    )
+                    moe_load_max = (
+                        decoder_layer.last_moe_load_max
+                        if moe_load_max is None
+                        else moe_load_max + decoder_layer.last_moe_load_max
+                    )
+                    moe_dropped_tokens = (
+                        decoder_layer.last_moe_dropped_tokens
+                        if moe_dropped_tokens is None
+                        else moe_dropped_tokens + decoder_layer.last_moe_dropped_tokens
+                    )
+                    moe_capacity = (
+                        decoder_layer.last_moe_capacity
+                        if moe_capacity is None
+                        else moe_capacity + decoder_layer.last_moe_capacity
+                    )
+                    moe_layers += 1
 
         hidden_states = self.norm(hidden_states)
 
@@ -502,8 +552,12 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             past_key_values=past_key_values,
             hidden_states=all_hidden_states if output_hidden_states else None,
         )
-        if moe_aux_loss is not None:
-            outputs.moe_aux_loss = moe_aux_loss
+        if moe_aux_loss is not None and moe_layers > 0:
+            outputs.moe_aux_loss = moe_aux_loss / moe_layers
+            outputs.moe_load_entropy = moe_load_entropy / moe_layers
+            outputs.moe_load_max = moe_load_max / moe_layers
+            outputs.moe_dropped_tokens = moe_dropped_tokens / moe_layers
+            outputs.moe_capacity = moe_capacity / moe_layers
         return outputs
 
 
@@ -597,6 +651,10 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         )
         if hasattr(outputs, "moe_aux_loss"):
             lm_outputs.moe_aux_loss = outputs.moe_aux_loss
+            lm_outputs.moe_load_entropy = outputs.moe_load_entropy
+            lm_outputs.moe_load_max = outputs.moe_load_max
+            lm_outputs.moe_dropped_tokens = outputs.moe_dropped_tokens
+            lm_outputs.moe_capacity = outputs.moe_capacity
         return lm_outputs
 
 
