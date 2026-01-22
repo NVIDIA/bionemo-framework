@@ -22,6 +22,7 @@ import torchmetrics
 import wandb
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
+from torch.distributed.tensor import DTensor
 from torch.profiler import profile, schedule, tensorboard_trace_handler
 from tqdm import tqdm
 from transformers.modeling_outputs import CausalLMOutputWithPast
@@ -108,7 +109,7 @@ class PerfLogger:
     def log_step(
         self,
         step: int,
-        grad_norm: torch.Tensor,
+        grad_norm: torch.Tensor | DTensor,
         lr: float,
     ):
         """Log a step to the logger and wandb.
@@ -124,6 +125,9 @@ class PerfLogger:
                 f"Gradient accumulation steps ({self.grad_acc_step_count}) must be greater than 0, "
                 f"and can be incremented by log_micro_step()."
             )
+
+            if isinstance(grad_norm, DTensor):
+                grad_norm = grad_norm.to_local()
 
             avg_loss = self.running_loss / self.grad_acc_step_count
             self.min_loss = torch.minimum(self.min_loss, avg_loss)
