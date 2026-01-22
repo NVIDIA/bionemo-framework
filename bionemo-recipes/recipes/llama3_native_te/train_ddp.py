@@ -117,7 +117,7 @@ def main(args: DictConfig) -> float | None:
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
     device = torch.device(f"cuda:{dist_config.local_rank}")
-    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
     # Set random seeds for reproducibility
