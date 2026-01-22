@@ -89,6 +89,9 @@ def compute_tev(model: torch.nn.Module) -> tuple[float, float]:
     This metric is useful for monitoring embedding stability during training,
     especially when using Spike-No-More initialization (std=1.0).
 
+    For FSDP2/DTensor, this gathers the FULL embedding across all ranks to compute
+    accurate global TEV (matching Megatron's TEV calculation).
+
     Args:
         model: The model containing embeddings.
 
@@ -99,11 +102,19 @@ def compute_tev(model: torch.nn.Module) -> tuple[float, float]:
     embed = None
     for name, param in model.named_parameters():
         if "embed_tokens" in name and "weight" in name:
-            # For FSDP2, we need to convert DTensor to local tensor
             try:
-                embed = _to_local_tensor(param.data).float()
+                # For FSDP2/DTensor, use full_tensor() to gather the complete embedding
+                # This matches Megatron's TEV which is computed on the full embedding
+                if hasattr(param.data, "full_tensor"):
+                    embed = param.data.full_tensor().float()
+                else:
+                    embed = param.data.float()
             except Exception:
-                pass
+                # Fallback to local tensor if full_tensor fails
+                try:
+                    embed = _to_local_tensor(param.data).float()
+                except Exception:
+                    pass
             break
 
     if embed is None or embed.numel() == 0:
@@ -570,7 +581,7 @@ def main(args: DictConfig) -> float | None:
                 val_dataset_kwargs["stride"] = val_config.stride
 
             # Use same data format as training (THD vs BSHD) for consistent loss computation
-            if args.dataset.use_sequence_packing:
+            if args.use_sequence_packing:
                 if getattr(args.config_kwargs, "attn_input_format", "thd") == "bshd":
                     # BSHD with full packing (cross-boundary attention, no cu_seqlens)
                     val_dataloader, _ = create_bshd_packed_dataloader(dist_config, **val_dataset_kwargs)
@@ -655,9 +666,11 @@ def main(args: DictConfig) -> float | None:
                 scheduler.step()
                 optimizer.zero_grad()
 
-                # Compute TEV if logging is enabled
+                # Compute TEV if logging is enabled (every 100 steps to reduce overhead)
+                # full_tensor() does an all-gather, so we don't want to do it every step
                 tev_mean, tev_sd = (0.0, 0.0)
-                if log_tev:
+                tev_log_interval = getattr(args, "tev_log_interval", 100)
+                if log_tev and (step % tev_log_interval == 0 or step == 1):
                     tev_mean, tev_sd = compute_tev(model)
 
                 # Log step with optional Megatron-style loss

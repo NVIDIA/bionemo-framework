@@ -43,6 +43,10 @@ use_megatron_loss_reduction: false
 # Useful for monitoring Spike-No-More initialization and embedding stability.
 log_tev: true
 
+# How often to log TEV (in steps). TEV uses full_tensor() which does an all-gather,
+# so logging every step is expensive. Default 2000 = log every 2000 steps.
+tev_log_interval: 2000
+
 # Log initialization statistics after model init (useful for debugging init differences)
 # Logs mean/std of key layers (embed_tokens, lm_head, proj, fc2) at step 0
 log_init_stats: true
