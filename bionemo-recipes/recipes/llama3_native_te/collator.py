@@ -326,7 +326,7 @@ class DataCollatorForContextParallel:
             else:
                 raise ValueError(f"Unsupported qvk_format: {self.qkv_format}!")
 
-            batch_shard["max_length_k"] = batch_shard["max_length_q"] = max_length * round(max_length / 64)
+            batch_shard["max_length_k"] = batch_shard["max_length_q"] = ((max_length + 63) // 64) * 64
             combined_batch.append(batch_shard)
 
         return combined_batch
