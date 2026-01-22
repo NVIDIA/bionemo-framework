@@ -139,8 +139,24 @@ def log_init_stats(model: torch.nn.Module, dist_config: "DistributedConfig") -> 
     stats = {}
 
     for name, param in model.named_parameters():
-        # Only log key layers
-        if not any(key in name.lower() for key in ["embed_tokens", "lm_head", ".proj.", ".fc2."]):
+        # Only log key layers:
+        # - embed_tokens: token embeddings (spike-no-more uses std=1.0)
+        # - lm_head: output projection
+        # - o_proj/proj: attention output projection
+        # - down_proj/fc2: MLP output projection
+        # - q_proj/k_proj/v_proj: QKV projections (for completeness)
+        keys_to_log = [
+            "embed_tokens",
+            "lm_head",
+            "o_proj",
+            ".proj.",
+            "down_proj",
+            ".fc2.",
+            "q_proj",
+            "k_proj",
+            "v_proj",
+        ]
+        if not any(key in name.lower() for key in keys_to_log):
             continue
 
         # For FSDP2, convert DTensor to local tensor to avoid unsupported ops
