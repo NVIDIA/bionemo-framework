@@ -908,8 +908,8 @@ def test_data_collator_for_context_parallel_returns_correct_list_size(tokenizer,
 
     # Create test sequences
     features = [
-        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
-        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2]},  # 9 tokens
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2], "attention_mask": [1, 1, 1, 1, 1, 1, 1, 1]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2], "attention_mask": [1, 1, 1, 1, 1, 1, 1, 1, 1]},  # 9 tokens
     ]
 
     # Call the collator
