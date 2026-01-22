@@ -139,22 +139,35 @@ def log_init_stats(model: torch.nn.Module, dist_config: "DistributedConfig") -> 
     stats = {}
 
     for name, param in model.named_parameters():
-        # Only log key layers:
+        # Log all key layers for debugging initialization:
         # - embed_tokens: token embeddings (spike-no-more uses std=1.0)
         # - lm_head: output projection
         # - o_proj/proj: attention output projection
         # - down_proj/fc2: MLP output projection
-        # - q_proj/k_proj/v_proj: QKV projections (for completeness)
+        # - q_proj/k_proj/v_proj: QKV projections
+        # - gate_proj/up_proj/fc1: MLP input projections
+        # - layernorm/rmsnorm/norm: normalization layers (should be ~1.0 for weights)
         keys_to_log = [
             "embed_tokens",
             "lm_head",
+            # Attention
             "o_proj",
             ".proj.",
-            "down_proj",
-            ".fc2.",
             "q_proj",
             "k_proj",
             "v_proj",
+            # MLP
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+            ".fc1.",
+            ".fc2.",
+            # Normalization (RMSNorm in Llama)
+            "layernorm",
+            "rmsnorm",
+            "input_layernorm",
+            "post_attention_layernorm",
+            "norm",
         ]
         if not any(key in name.lower() for key in keys_to_log):
             continue
