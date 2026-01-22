@@ -612,9 +612,13 @@ def main(args: DictConfig) -> float | None:
     step = start_step
     micro_step = 0
 
-    # Accumulators for Megatron-style loss (across gradient accumulation steps)
+    # Accumulators for loss (across gradient accumulation steps)
+    # We track sum and count to enable proper all-reduce across ranks (like Megatron)
     accumulated_loss_sum = 0.0
     accumulated_tokens = 0
+    # For HF-style loss, we also track sum/count to enable all-reduce
+    accumulated_hf_loss_sum = 0.0
+    accumulated_hf_batch_count = 0
 
     while step < args.num_train_steps:
         for batch in train_dataloader:
@@ -653,6 +657,10 @@ def main(args: DictConfig) -> float | None:
                 loss = outputs.loss / args.grad_acc_steps
                 loss.backward()
 
+                # Track loss sum and count for all-reduce (to match Megatron's global averaging)
+                accumulated_hf_loss_sum += outputs.loss.item()
+                accumulated_hf_batch_count += 1
+
                 # Log microbatch step data for accumulation metrics
                 perf_logger.log_micro_step(batch=batch, outputs=outputs)
 
@@ -676,15 +684,36 @@ def main(args: DictConfig) -> float | None:
                     tev_mean, tev_sd = compute_tev(model)
 
                 # Log step with optional Megatron-style loss
+                # Compute reduced_train_loss: globally aggregated across all DP ranks
+                # This matches John's Megatron logging where loss is all-reduced before logging
+                #
+                # The math:
+                #   Each rank has: accumulated_loss_sum (sum of CE losses across grad_acc_steps microbatches)
+                #                  accumulated_tokens (count of valid tokens across those microbatches)
+                #   Global loss = sum(all ranks' loss_sum) / sum(all ranks' tokens)
+                #   This is the TRUE per-token loss across the entire global batch
+
+                reduced_loss = None  # Will be set if we compute it
+
                 if use_megatron_loss:
-                    # Compute final per-token loss for logging
-                    megatron_loss = accumulated_loss_sum / max(accumulated_tokens, 1)
+                    # Compute local (per-rank) megatron_loss for backward compatibility
+                    local_megatron_loss = accumulated_loss_sum / max(accumulated_tokens, 1)
+
+                    # Compute reduced_train_loss (all-reduced across DP ranks)
+                    # This is always computed when use_megatron_loss=True, as it's cheap
+                    loss_tensor = torch.tensor([accumulated_loss_sum, float(accumulated_tokens)], device=device)
+                    torch.distributed.all_reduce(loss_tensor)
+                    global_loss_sum = loss_tensor[0].item()
+                    global_tokens = int(loss_tensor[1].item())
+                    reduced_loss = global_loss_sum / max(global_tokens, 1)
+
                     perf_logger.log_step(
                         step=step,
                         grad_norm=total_norm,
                         lr=optimizer.param_groups[0]["lr"],
-                        megatron_loss=megatron_loss,
-                        total_tokens=accumulated_tokens,
+                        megatron_loss=local_megatron_loss,  # Per-rank loss
+                        total_tokens=accumulated_tokens,  # Per-rank tokens
+                        reduced_train_loss=reduced_loss,  # Global loss (matches John's)
                         tev_mean=tev_mean,
                         tev_sd=tev_sd,
                     )
@@ -692,13 +721,29 @@ def main(args: DictConfig) -> float | None:
                     accumulated_loss_sum = 0.0
                     accumulated_tokens = 0
                 else:
+                    # HuggingFace-style loss
+                    # Compute reduced_train_loss by all-reducing the HF loss sums
+                    # HF loss is already mean-reduced per batch, so we average across ranks
+                    loss_tensor = torch.tensor(
+                        [accumulated_hf_loss_sum, float(accumulated_hf_batch_count)], device=device
+                    )
+                    torch.distributed.all_reduce(loss_tensor)
+                    global_loss_sum = loss_tensor[0].item()
+                    global_batch_count = int(loss_tensor[1].item())
+                    reduced_loss = global_loss_sum / max(global_batch_count, 1)
+
                     perf_logger.log_step(
                         step=step,
                         grad_norm=total_norm,
                         lr=optimizer.param_groups[0]["lr"],
+                        reduced_train_loss=reduced_loss,  # Global loss
                         tev_mean=tev_mean,
                         tev_sd=tev_sd,
                     )
+
+                    # Reset HF accumulators
+                    accumulated_hf_loss_sum = 0.0
+                    accumulated_hf_batch_count = 0
 
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                     save_checkpoint_fsdp2(

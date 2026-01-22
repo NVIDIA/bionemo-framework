@@ -13,16 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# 7B Llama3 on OpenGenome2 Metagenome WITH VALIDATION AND REDUCED_TRAIN_LOSS LOGGING
-# Extends L2_og2_metagenome_7b with:
+# 1B Llama3 on OpenGenome2 Metagenome WITH VALIDATION AND REDUCED_TRAIN_LOSS LOGGING
+# Extends L2_og2_metagenome_1b with:
 #   - Periodic validation to track val/loss curve
 #   - Globally all-reduced train/reduced_train_loss (matches John's Megatron logging)
 #
 # Usage:
-#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name L2_og2_metagenome_7b_val ...
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name L2_og2_metagenome_1b_val ...
 
 defaults:
-  - L2_og2_metagenome_7b
+  - L2_og2_metagenome_1b
   - _self_
 
 # Use Megatron-style loss reduction for consistent comparison with John's runs
@@ -41,5 +41,5 @@ validation:
   stride: null
 
 wandb:
-  name: og2_7b_thd_6node_mbs2_ga4_val
-  project: llama3-metagenome-7b
+  name: og2_1b_spike_wd_6node_gbs384_val
+  project: llama3-metagenome-1b

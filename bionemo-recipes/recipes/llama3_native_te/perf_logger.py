@@ -75,6 +75,9 @@ class PerfLogger:
         metrics_dict["train/megatron_loss"] = torchmetrics.MeanMetric()
         metrics_dict["train/total_valid_tokens"] = torchmetrics.SumMetric()
 
+        # Reduced train loss - globally aggregated across all DP ranks (matches John's reduced_train_loss)
+        metrics_dict["train/reduced_train_loss"] = torchmetrics.MeanMetric()
+
         self.metrics = torchmetrics.MetricCollection(metrics_dict)
         # We move metrics to a GPU device so we can use torch.distributed to aggregate them before logging.
         self.metrics.to(torch.device(f"cuda:{dist_config.local_rank}"))
@@ -137,6 +140,7 @@ class PerfLogger:
         lr: float,
         megatron_loss: float | None = None,
         total_tokens: int | None = None,
+        reduced_train_loss: float | None = None,
         tev_mean: float = 0.0,
         tev_sd: float = 0.0,
     ):
@@ -146,8 +150,9 @@ class PerfLogger:
             step: The step number.
             grad_norm: The gradient norm of the step.
             lr: The learning rate of the step.
-            megatron_loss: Optional Megatron-style per-token loss (sum/total_tokens).
+            megatron_loss: Optional Megatron-style per-token loss (sum/total_tokens) for this rank.
             total_tokens: Optional total valid tokens across gradient accumulation steps.
+            reduced_train_loss: Optional globally all-reduced loss across all DP ranks (like Megatron).
             tev_mean: Token Embedding Variance mean (0 if TEV logging disabled).
             tev_sd: Token Embedding Variance standard deviation (0 if TEV logging disabled).
         """
@@ -174,6 +179,10 @@ class PerfLogger:
             self.metrics["train/megatron_loss"].update(megatron_loss)
         if total_tokens is not None:
             self.metrics["train/total_valid_tokens"].update(total_tokens)
+
+        # Log globally reduced train loss (matches John's reduced_train_loss)
+        if reduced_train_loss is not None:
+            self.metrics["train/reduced_train_loss"].update(reduced_train_loss)
 
         # Log TEV metrics if enabled
         if self._log_tev and (tev_mean > 0 or tev_sd > 0):
