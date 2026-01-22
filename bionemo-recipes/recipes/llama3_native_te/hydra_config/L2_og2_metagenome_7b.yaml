@@ -49,6 +49,17 @@ use_weight_decay_grouping: true
 # NO Megatron-style scaled init for proj/fc2 - TE uses uniform 0.02
 # John's run uses SNI=False (spike-no-more is for embeddings, not proj layers)
 use_megatron_scaled_init: false
+
+# Use Megatron-style per-token loss reduction (matches John's --no-calculate-per-token-loss)
+# When true: loss = sum(per_token_losses) / total_valid_tokens across all microbatches
+# This can reduce loss by 0.03-0.07 compared to HuggingFace-style mean reduction
+use_megatron_loss_reduction: true
+
+# Log Token Embedding Variance (TEV) to wandb (matches John's tev_mean/tev_sd metrics)
+log_tev: true
+
+# Log initialization statistics at step 0 (useful for debugging init differences)
+log_init_stats: true
 # ============================================================
 
 # Sequence packing for THD

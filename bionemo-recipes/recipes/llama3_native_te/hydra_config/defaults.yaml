@@ -29,6 +29,24 @@ use_megatron_scaled_init: false
 # Megatron uses grouping, but your baseline might not have used it.
 use_weight_decay_grouping: true
 
+# ============ LOSS CALCULATION ============
+# Use Megatron-style per-token loss reduction (matches --no-calculate-per-token-loss behavior)
+# When true: loss = sum(per_token_losses) / total_valid_tokens across all microbatches
+# When false: use HuggingFace-style reduction='mean' (default PyTorch CrossEntropyLoss)
+# This affects how losses are averaged with gradient accumulation and can cause 0.03-0.07 loss difference.
+# Set to true to match John's Megatron runs more closely.
+use_megatron_loss_reduction: false
+
+# ============ LOGGING ============
+# Log Token Embedding Variance (TEV) statistics to wandb
+# TEV tracks how embedding variance changes during training (matches John's tev_mean/tev_sd metrics)
+# Useful for monitoring Spike-No-More initialization and embedding stability.
+log_tev: true
+
+# Log initialization statistics after model init (useful for debugging init differences)
+# Logs mean/std of key layers (embed_tokens, lm_head, proj, fc2) at step 0
+log_init_stats: true
+
 config_kwargs: {}
 # When spike_no_more_embedding_init is true, embedding_init_std=1.0 is added to config_kwargs automatically
 

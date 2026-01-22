@@ -38,15 +38,17 @@ class PerfLogger:
     Args:
         dist_config: The distributed configuration.
         args: The arguments.
+        log_tev: Whether to log Token Embedding Variance (TEV) statistics.
 
     Attributes:
         min_loss: The minimum loss seen so far.
     """
 
-    def __init__(self, dist_config: DistributedConfig, args: DictConfig):
+    def __init__(self, dist_config: DistributedConfig, args: DictConfig, log_tev: bool = False):
         """Initialize the logger."""
         self._dist_config = dist_config
         self._run_config = OmegaConf.to_container(args, resolve=True, throw_on_missing=True)
+        self._log_tev = log_tev
 
         self.min_loss = float("inf")
 
@@ -63,6 +65,15 @@ class PerfLogger:
             "train/gpu_memory_allocated_max_gb": torchmetrics.MaxMetric(),
             "train/gpu_memory_allocated_mean_gb": torchmetrics.MeanMetric(),
         }
+
+        # Add TEV metrics if enabled (matches John's tev_mean/tev_sd logging)
+        if log_tev:
+            metrics_dict["train/tev_mean"] = torchmetrics.MeanMetric()
+            metrics_dict["train/tev_sd"] = torchmetrics.MeanMetric()
+
+        # Add Megatron-style loss metrics
+        metrics_dict["train/megatron_loss"] = torchmetrics.MeanMetric()
+        metrics_dict["train/total_valid_tokens"] = torchmetrics.SumMetric()
 
         self.metrics = torchmetrics.MetricCollection(metrics_dict)
         # We move metrics to a GPU device so we can use torch.distributed to aggregate them before logging.
@@ -85,12 +96,24 @@ class PerfLogger:
         self.running_loss = 0.0
         self.grad_acc_step_count = 0
 
-    def log_micro_step(self, batch: dict[str, torch.Tensor], outputs: CausalLMOutputWithPast):
+        # Megatron-style loss accumulation
+        self.running_loss_sum = 0.0
+        self.running_valid_tokens = 0
+
+    def log_micro_step(
+        self,
+        batch: dict[str, torch.Tensor],
+        outputs: CausalLMOutputWithPast,
+        loss_sum: float | None = None,
+        num_tokens: int | None = None,
+    ):
         """Store data on micro step for gradient accumulation metrics.
 
         Args:
             batch: The batch of data for the micro step.
             outputs: The outputs of the micro step.
+            loss_sum: Optional sum of per-token losses (for Megatron-style loss).
+            num_tokens: Optional count of valid tokens (for Megatron-style loss).
         """
         self.grad_acc_step_count += 1
         self.num_tokens += batch["input_ids"].numel()
@@ -102,11 +125,20 @@ class PerfLogger:
             self.num_unpadded_tokens += batch["input_ids"].numel()
         self.running_loss += outputs.loss.item()
 
+        # Accumulate Megatron-style loss if provided
+        if loss_sum is not None and num_tokens is not None:
+            self.running_loss_sum += loss_sum
+            self.running_valid_tokens += num_tokens
+
     def log_step(
         self,
         step: int,
         grad_norm: float,
         lr: float,
+        megatron_loss: float | None = None,
+        total_tokens: int | None = None,
+        tev_mean: float = 0.0,
+        tev_sd: float = 0.0,
     ):
         """Log a step to the logger and wandb.
 
@@ -114,6 +146,10 @@ class PerfLogger:
             step: The step number.
             grad_norm: The gradient norm of the step.
             lr: The learning rate of the step.
+            megatron_loss: Optional Megatron-style per-token loss (sum/total_tokens).
+            total_tokens: Optional total valid tokens across gradient accumulation steps.
+            tev_mean: Token Embedding Variance mean (0 if TEV logging disabled).
+            tev_sd: Token Embedding Variance standard deviation (0 if TEV logging disabled).
         """
         # Use accumulated metrics from gradient accumulation
         assert self.grad_acc_step_count > 0, (
@@ -133,6 +169,17 @@ class PerfLogger:
         self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(self.num_unpadded_tokens / step_time)
         self.metrics["train/total_unpadded_tokens_per_batch"].update(self.num_unpadded_tokens / self.logging_frequency)
 
+        # Log Megatron-style loss if provided
+        if megatron_loss is not None:
+            self.metrics["train/megatron_loss"].update(megatron_loss)
+        if total_tokens is not None:
+            self.metrics["train/total_valid_tokens"].update(total_tokens)
+
+        # Log TEV metrics if enabled
+        if self._log_tev and (tev_mean > 0 or tev_sd > 0):
+            self.metrics["train/tev_mean"].update(tev_mean)
+            self.metrics["train/tev_sd"].update(tev_sd)
+
         if self._profiler is not None:
             self._profiler.step()
 
@@ -148,16 +195,28 @@ class PerfLogger:
             if self._dist_config.is_main_process():
                 wandb.log(metrics, step=step)
                 self._progress_bar.update(self.logging_frequency)
-                self._progress_bar.set_postfix({"loss": avg_loss})
+                # Show megatron_loss if available, otherwise show HF loss
+                display_loss = megatron_loss if megatron_loss is not None else avg_loss
+                self._progress_bar.set_postfix({"loss": display_loss})
 
             if self._dist_config.local_rank == 0:
-                logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
+                # Filter out zero metrics for cleaner logging
+                log_items = []
+                for k, v in metrics.items():
+                    name = k.split("/")[1]
+                    # Skip metrics that are zero (not logged this step)
+                    val = v.item() if isinstance(v, torch.Tensor) else v
+                    if val != 0 or name in ["loss", "megatron_loss", "grad_norm", "learning_rate"]:
+                        log_items.append(f"{name}: {val:.3g}")
+                logger.info(", ".join(log_items))
 
         # Reset gradient accumulation tracking for next step
         self.num_tokens = 0
         self.num_unpadded_tokens = 0
         self.running_loss = 0.0
         self.grad_acc_step_count = 0
+        self.running_loss_sum = 0.0
+        self.running_valid_tokens = 0
 
     def finish(self):
         """Finish the logger and close the progress bar."""

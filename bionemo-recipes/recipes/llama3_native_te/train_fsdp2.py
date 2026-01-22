@@ -66,6 +66,125 @@ def set_seed(seed: int, rank: int = 0) -> None:
     logger.info(f"Set seed to {effective_seed} (base={seed}, rank={rank})")
 
 
+@torch.no_grad()
+def compute_tev(model: torch.nn.Module) -> tuple[float, float]:
+    """Compute Token Embedding Variance (TEV) statistics.
+
+    TEV measures the variance of embedding vectors across the vocabulary dimension.
+    This metric is useful for monitoring embedding stability during training,
+    especially when using Spike-No-More initialization (std=1.0).
+
+    Args:
+        model: The model containing embeddings.
+
+    Returns:
+        Tuple of (tev_mean, tev_sd) - mean and standard deviation of per-dimension variances.
+    """
+    # Find embedding parameter
+    embed = None
+    for name, param in model.named_parameters():
+        if "embed_tokens" in name and "weight" in name:
+            # For FSDP2, we need to access the local shard
+            embed = param.data
+            break
+
+    if embed is None:
+        return 0.0, 0.0
+
+    # Calculate token embedding variance (TEV)
+    # TEV = sqrt(mean((embed - mean(embed, dim=0))^2, dim=0))
+    # This gives the std dev of each embedding dimension across all tokens
+    tev = torch.sqrt(torch.mean(torch.pow(embed - embed.mean(dim=0), 2), dim=0))
+
+    tev_mean = torch.mean(tev).item()
+    tev_sd = torch.std(tev).item()
+
+    return tev_mean, tev_sd
+
+
+@torch.no_grad()
+def log_init_stats(model: torch.nn.Module, dist_config: "DistributedConfig") -> dict[str, dict[str, float]]:
+    """Log initialization statistics for key model layers.
+
+    Logs mean/std of weights for embeddings, lm_head, and sample projection layers.
+    Useful for debugging initialization differences between frameworks.
+
+    Args:
+        model: The initialized model.
+        dist_config: Distributed config for rank checking.
+
+    Returns:
+        Dictionary mapping layer names to their init statistics.
+    """
+    stats = {}
+
+    for name, param in model.named_parameters():
+        # Only log key layers
+        if not any(key in name.lower() for key in ["embed_tokens", "lm_head", ".proj.", ".fc2."]):
+            continue
+
+        # For FSDP2, we work with local shards
+        data = param.data.float()
+        layer_stats = {
+            "mean": data.mean().item(),
+            "std": data.std().item(),
+            "min": data.min().item(),
+            "max": data.max().item(),
+        }
+        stats[name] = layer_stats
+
+        if dist_config.rank == 0:
+            logger.info(
+                f"Init stats - {name}: mean={layer_stats['mean']:.4f}, "
+                f"std={layer_stats['std']:.4f}, range=[{layer_stats['min']:.4f}, {layer_stats['max']:.4f}]"
+            )
+
+    return stats
+
+
+def compute_megatron_loss(
+    logits: torch.Tensor,
+    labels: torch.Tensor,
+    is_thd: bool = False,
+) -> tuple[torch.Tensor, int]:
+    """Compute loss using Megatron-style per-token reduction.
+
+    This matches the loss calculation in Megatron with --no-calculate-per-token-loss:
+    1. Compute sum of per-token cross-entropy losses
+    2. Return the sum and the count of valid tokens
+
+    The caller is responsible for dividing by total tokens across all microbatches.
+
+    Args:
+        logits: Model logits, shape [batch, seq, vocab] or [total_tokens, vocab] for THD.
+        labels: Target labels, shape [batch, seq] or [total_tokens] for THD.
+        is_thd: Whether the input is in THD format (packed sequences).
+
+    Returns:
+        Tuple of (loss_sum, num_valid_tokens).
+    """
+    if is_thd:
+        # THD format: logits [total_tokens, vocab], labels [total_tokens]
+        # Labels are already aligned, no shift needed for THD with pre-shifted labels
+        flat_logits = logits
+        flat_labels = labels
+    else:
+        # BSHD format: need to shift for causal LM
+        shift_logits = logits[..., :-1, :].contiguous()
+        shift_labels = labels[..., 1:].contiguous()
+        flat_logits = shift_logits.view(-1, logits.size(-1))
+        flat_labels = shift_labels.view(-1)
+
+    # Count valid tokens (not -100)
+    valid_mask = flat_labels != -100
+    num_valid_tokens = valid_mask.sum().item()
+
+    # Compute sum of losses (not mean!)
+    loss_sum = torch.nn.functional.cross_entropy(flat_logits, flat_labels, ignore_index=-100, reduction="sum")
+
+    return loss_sum, num_valid_tokens
+
+
 def get_parameter_groups_with_weight_decay(
     model: torch.nn.Module,
     weight_decay: float,
@@ -193,12 +312,13 @@ def main(args: DictConfig) -> float | None:
         model.to_empty(device=device)
         model.apply(model._init_weights)
 
-    # Log initialization stats (for debugging, matching Megatron's TEV tracking)
-    # Disabled: DTensor operations don't work well with FSDP2 sharding
-    # if dist_config.rank == 0:
-    #     for name, param in model.named_parameters():
-    #         if "embed" in name.lower() or "lm_head" in name.lower():
-    #             logger.info(f"Init stats - {name}")
+    # Log initialization statistics if enabled (matches John's debugging approach)
+    if getattr(args, "log_init_stats", False):
+        log_init_stats(model, dist_config)
+        # Also compute initial TEV
+        tev_mean, tev_sd = compute_tev(model)
+        if dist_config.rank == 0:
+            logger.info(f"Initial TEV: mean={tev_mean:.4f}, sd={tev_sd:.4f}")
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
@@ -257,7 +377,17 @@ def main(args: DictConfig) -> float | None:
         start_step = 0
         epoch = 0
 
-    perf_logger = PerfLogger(dist_config, args)
+    # Check if we should use Megatron-style per-token loss reduction
+    use_megatron_loss = getattr(args, "use_megatron_loss_reduction", False)
+    log_tev = getattr(args, "log_tev", False)
+    is_thd = getattr(args.config_kwargs, "attn_input_format", "bshd") == "thd"
+
+    if use_megatron_loss:
+        logger.info("Using Megatron-style per-token loss reduction (sum/total_tokens)")
+    else:
+        logger.info("Using HuggingFace-style loss reduction (mean)")
+
+    perf_logger = PerfLogger(dist_config, args, log_tev=log_tev)
 
     gc.collect()
     torch.cuda.empty_cache()
@@ -266,6 +396,11 @@ def main(args: DictConfig) -> float | None:
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
     micro_step = 0
+
+    # Accumulators for Megatron-style loss (across gradient accumulation steps)
+    accumulated_loss_sum = 0.0
+    accumulated_tokens = 0
+
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
@@ -276,12 +411,35 @@ def main(args: DictConfig) -> float | None:
             # Note: FP8 is selectively applied inside the model (first/last layers stay in bf16)
             outputs = model(**batch, fp8_enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe)
 
-            # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
-            loss = outputs.loss / args.grad_acc_steps
-            loss.backward()
+            if use_megatron_loss:
+                # Megatron-style: compute sum of losses and accumulate tokens
+                loss_sum, num_tokens = compute_megatron_loss(
+                    logits=outputs.logits,
+                    labels=batch["labels"],
+                    is_thd=is_thd,
+                )
+                accumulated_loss_sum += loss_sum.item()
+                accumulated_tokens += num_tokens
 
-            # Log microbatch step data for accumulation metrics
-            perf_logger.log_micro_step(batch=batch, outputs=outputs)
+                # Scale loss for backward pass (will divide by total tokens at the end)
+                # For now, just use sum/tokens for this microbatch, scaled by grad_acc_steps
+                loss = loss_sum / max(num_tokens, 1) / args.grad_acc_steps
+                loss.backward()
+
+                # Log microbatch with Megatron-style metrics
+                perf_logger.log_micro_step(
+                    batch=batch,
+                    outputs=outputs,
+                    loss_sum=loss_sum.item(),
+                    num_tokens=num_tokens,
+                )
+            else:
+                # HuggingFace-style: use the mean loss directly
+                loss = outputs.loss / args.grad_acc_steps
+                loss.backward()
+
+                # Log microbatch step data for accumulation metrics
+                perf_logger.log_micro_step(batch=batch, outputs=outputs)
 
             # Gradient accumulation - only step optimizer after accumulating gradients
             if micro_step % args.grad_acc_steps == 0:
@@ -295,11 +453,35 @@ def main(args: DictConfig) -> float | None:
                 scheduler.step()
                 optimizer.zero_grad()
 
-                perf_logger.log_step(
-                    step=step,
-                    grad_norm=total_norm,
-                    lr=optimizer.param_groups[0]["lr"],
-                )
+                # Compute TEV if logging is enabled
+                tev_mean, tev_sd = (0.0, 0.0)
+                if log_tev:
+                    tev_mean, tev_sd = compute_tev(model)
+
+                # Log step with optional Megatron-style loss
+                if use_megatron_loss:
+                    # Compute final per-token loss for logging
+                    megatron_loss = accumulated_loss_sum / max(accumulated_tokens, 1)
+                    perf_logger.log_step(
+                        step=step,
+                        grad_norm=total_norm,
+                        lr=optimizer.param_groups[0]["lr"],
+                        megatron_loss=megatron_loss,
+                        total_tokens=accumulated_tokens,
+                        tev_mean=tev_mean,
+                        tev_sd=tev_sd,
+                    )
+                    # Reset accumulators
+                    accumulated_loss_sum = 0.0
+                    accumulated_tokens = 0
+                else:
+                    perf_logger.log_step(
+                        step=step,
+                        grad_norm=total_norm,
+                        lr=optimizer.param_groups[0]["lr"],
+                        tev_mean=tev_mean,
+                        tev_sd=tev_sd,
+                    )
 
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                     save_checkpoint_fsdp2(
