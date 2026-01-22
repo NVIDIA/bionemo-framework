@@ -100,23 +100,30 @@ def compute_tev(model: torch.nn.Module) -> tuple[float, float]:
     for name, param in model.named_parameters():
         if "embed_tokens" in name and "weight" in name:
             # For FSDP2, we need to convert DTensor to local tensor
-            embed = _to_local_tensor(param.data).float()
+            try:
+                embed = _to_local_tensor(param.data).float()
+            except Exception:
+                pass
             break
 
-    if embed is None:
+    if embed is None or embed.numel() == 0:
         return 0.0, 0.0
 
-    # Calculate token embedding variance (TEV)
-    # TEV = sqrt(mean((embed - mean(embed, dim=0))^2, dim=0))
-    # This gives the std dev of each embedding dimension across all tokens
-    tev = torch.sqrt(torch.mean(torch.pow(embed - embed.mean(dim=0), 2), dim=0))
+    try:
+        # Calculate token embedding variance (TEV)
+        # TEV = sqrt(mean((embed - mean(embed, dim=0))^2, dim=0))
+        # This gives the std dev of each embedding dimension across all tokens
+        tev = torch.sqrt(torch.mean(torch.pow(embed - embed.mean(dim=0), 2), dim=0))
 
-    tev_mean = torch.mean(tev).item()
-    # Compute std manually to avoid potential DTensor issues
-    tev_var = torch.mean(torch.pow(tev - tev_mean, 2))
-    tev_sd = torch.sqrt(tev_var).item()
+        tev_mean = torch.mean(tev).item()
+        # Compute std manually to avoid potential DTensor issues
+        tev_var = torch.mean(torch.pow(tev - tev_mean, 2))
+        tev_sd = torch.sqrt(tev_var).item()
 
-    return tev_mean, tev_sd
+        return tev_mean, tev_sd
+    except RuntimeError:
+        # Return zeros if computation fails on this rank
+        return 0.0, 0.0
 
 
 @torch.no_grad()
@@ -173,22 +180,32 @@ def log_init_stats(model: torch.nn.Module, dist_config: "DistributedConfig") -> 
             continue
 
         # For FSDP2, convert DTensor to local tensor to avoid unsupported ops
-        data = _to_local_tensor(param.data).float()
+        try:
+            data = _to_local_tensor(param.data).float()
+        except Exception:
+            # Skip if we can't convert to local tensor
+            continue
 
-        # Skip empty tensors (e.g., _extra_state from Transformer Engine)
+        # Skip empty tensors (e.g., _extra_state from Transformer Engine, or empty FSDP shards)
         if data.numel() == 0:
             continue
 
         # Compute stats manually to avoid DTensor op issues
-        mean_val = data.mean().item()
-        var_val = torch.mean(torch.pow(data - mean_val, 2)).item()
-        std_val = var_val**0.5
+        try:
+            mean_val = data.mean().item()
+            var_val = torch.mean(torch.pow(data - mean_val, 2)).item()
+            std_val = var_val**0.5
+            min_val = data.min().item()
+            max_val = data.max().item()
+        except RuntimeError:
+            # Skip if stats computation fails (e.g., empty tensor edge cases)
+            continue
 
         layer_stats = {
             "mean": mean_val,
             "std": std_val,
-            "min": data.min().item(),
-            "max": data.max().item(),
+            "min": min_val,
+            "max": max_val,
         }
         stats[name] = layer_stats
 
