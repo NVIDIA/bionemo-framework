@@ -67,9 +67,11 @@ class ModelOnlyAppState:
 
     def state_dict(self):
         """Get state dict structure matching what was saved."""
+        from torch.distributed.fsdp.api import StateDictType
+
         with FullyShardedDataParallel.state_dict_type(
             self.model,
-            FullyShardedDataParallel.StateDictType.SHARDED_STATE_DICT,
+            StateDictType.SHARDED_STATE_DICT,
         ):
             model_state_dict = self.model.state_dict()
 
@@ -83,9 +85,11 @@ class ModelOnlyAppState:
 
     def load_state_dict(self, state_dict: dict):
         """Load only the model weights from state dict."""
+        from torch.distributed.fsdp.api import StateDictType
+
         with FullyShardedDataParallel.state_dict_type(
             self.model,
-            FullyShardedDataParallel.StateDictType.SHARDED_STATE_DICT,
+            StateDictType.SHARDED_STATE_DICT,
         ):
             self.model.load_state_dict(state_dict["model"])
 
