@@ -44,7 +44,7 @@ from torch.distributed.fsdp import fully_shard
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from modeling_llama_te import LlamaConfig, LlamaModel
+from modeling_llama_te import NVLlamaConfig, NVLlamaModel
 
 
 logging.basicConfig(level=logging.INFO)
@@ -130,7 +130,7 @@ def main():
 
     # Create model config
     model_cfg = cfg.get("model", cfg)
-    llama_config = LlamaConfig(
+    llama_config = NVLlamaConfig(
         vocab_size=model_cfg.get("vocab_size", 256),
         num_hidden_layers=model_cfg.get("num_hidden_layers", 32),
         hidden_size=model_cfg.get("hidden_size", 4096),
@@ -148,7 +148,7 @@ def main():
     # Create model on meta device first to save memory
     logger.info("Creating model on meta device...")
     with torch.device("meta"):
-        model = LlamaModel(llama_config)
+        model = NVLlamaModel(llama_config)
 
     # Move to real device with empty tensors
     model.to_empty(device=device)
