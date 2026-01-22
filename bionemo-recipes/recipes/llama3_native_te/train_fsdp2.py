@@ -563,8 +563,10 @@ def main(args: DictConfig) -> float | None:
 
             # Override load_dataset_kwargs for validation data
             # Keep same data format settings but use validation file with streaming for distributed loading
+            # For single files (.jsonl.gz), use path="json" with data_files parameter
             val_dataset_kwargs["load_dataset_kwargs"] = {
-                "path": val_data_path,
+                "path": "json",  # Tell HF to use JSON loader
+                "data_files": val_data_path,  # The actual file path
                 "split": "train",  # HF loads single files as "train" split
                 "streaming": True,  # Stream for proper distributed sharding across ranks
             }
