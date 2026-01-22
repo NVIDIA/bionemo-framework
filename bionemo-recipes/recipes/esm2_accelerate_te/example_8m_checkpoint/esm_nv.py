@@ -484,6 +484,8 @@ class NVEsmLMHead(nn.Module):
             features (torch.Tensor): The features.
             **kwargs: Additional arguments.
         """
+        # Keep the last layers of the network in higher precision to avoid numerical instability.
+        # Please see recipes/fp8_analysis/README.md for more details.
         with transformer_engine.pytorch.fp8_autocast(enabled=False):
             x = self.dense(features)
             x = torch.nn.functional.gelu(x)
