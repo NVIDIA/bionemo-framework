@@ -218,6 +218,24 @@ class PerfLogger:
         self.running_loss_sum = 0.0
         self.running_valid_tokens = 0
 
+    def log_validation(self, step: int, val_metrics: dict):
+        """Log validation metrics to wandb.
+
+        Args:
+            step: The current training step.
+            val_metrics: Dictionary with val_loss, val_ppl, val_tokens, val_batches.
+        """
+        if self._dist_config.is_main_process():
+            wandb.log(
+                {
+                    "val/loss": val_metrics["val_loss"],
+                    "val/ppl": val_metrics["val_ppl"],
+                    "val/tokens": val_metrics["val_tokens"],
+                    "val/batches": val_metrics["val_batches"],
+                },
+                step=step,
+            )
+
     def finish(self):
         """Finish the logger and close the progress bar."""
         if self._profiler is not None:

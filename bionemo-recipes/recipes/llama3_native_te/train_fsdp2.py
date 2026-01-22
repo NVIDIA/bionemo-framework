@@ -296,6 +296,73 @@ def get_parameter_groups_with_weight_decay(
     ]
 
 
+@torch.no_grad()
+def run_validation(
+    model: torch.nn.Module,
+    val_dataloader,
+    num_batches: int,
+    device: torch.device,
+    dist_config: DistributedConfig,
+    is_thd: bool = False,
+) -> dict:
+    """Run validation and compute loss metrics.
+
+    Args:
+        model: The model to evaluate.
+        val_dataloader: DataLoader for validation data.
+        num_batches: Number of batches to evaluate.
+        device: Device to run on.
+        dist_config: Distributed config for logging.
+        is_thd: Whether using THD format.
+
+    Returns:
+        Dictionary with val_loss and val_ppl.
+    """
+    model.eval()
+
+    total_loss = 0.0
+    total_tokens = 0
+    num_evaluated = 0
+
+    for batch in val_dataloader:
+        if num_evaluated >= num_batches:
+            break
+
+        batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
+
+        # Forward pass (no FP8 for validation to ensure consistent loss)
+        outputs = model(**batch, fp8_enabled=False)
+
+        # Compute loss with Megatron-style reduction for consistency
+        loss_sum, num_tokens = compute_megatron_loss(
+            logits=outputs.logits,
+            labels=batch["labels"],
+            is_thd=is_thd,
+        )
+
+        total_loss += loss_sum.item()
+        total_tokens += num_tokens
+        num_evaluated += 1
+
+    # Aggregate across ranks
+    loss_tensor = torch.tensor([total_loss, total_tokens], device=device)
+    torch.distributed.all_reduce(loss_tensor)
+    global_loss = loss_tensor[0].item()
+    global_tokens = int(loss_tensor[1].item())
+
+    avg_loss = global_loss / max(global_tokens, 1)
+    perplexity = torch.exp(torch.tensor(avg_loss)).item()
+
+    model.train()
+
+    return {
+        "val_loss": avg_loss,
+        "val_ppl": perplexity,
+        "val_tokens": global_tokens,
+        "val_batches": num_evaluated * dist_config.world_size,
+    }
+
+
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train Llama3 with TE layers using FSDP2.
@@ -453,6 +520,60 @@ def main(args: DictConfig) -> float | None:
 
     perf_logger = PerfLogger(dist_config, args, log_tev=log_tev)
 
+    # Setup validation if enabled
+    val_config = getattr(args, "validation", None)
+    val_enabled = val_config is not None and getattr(val_config, "enabled", False)
+    val_dataloader = None
+
+    if val_enabled:
+        val_data_path = getattr(val_config, "data_path", None)
+        if val_data_path:
+            logger.info(f"Setting up validation dataloader from {val_data_path}")
+
+            # Create validation dataloader config - copy training config and override data path
+            val_dataset_kwargs = OmegaConf.to_container(args.dataset, resolve=True)
+
+            # Override load_dataset_kwargs for validation data
+            # Keep same data format settings but use validation file with streaming for distributed loading
+            val_dataset_kwargs["load_dataset_kwargs"] = {
+                "path": val_data_path,
+                "split": "train",  # HF loads single files as "train" split
+                "streaming": True,  # Stream for proper distributed sharding across ranks
+            }
+
+            # Don't use stateful dataloader for validation (not checkpointing val state)
+            val_dataset_kwargs["use_stateful_dataloader"] = False
+
+            # Optionally override validation batch size and sequence settings
+            if hasattr(val_config, "micro_batch_size") and val_config.micro_batch_size is not None:
+                val_dataset_kwargs["micro_batch_size"] = val_config.micro_batch_size
+            if hasattr(val_config, "max_seq_length") and val_config.max_seq_length is not None:
+                val_dataset_kwargs["max_seq_length"] = val_config.max_seq_length
+            if hasattr(val_config, "stride") and val_config.stride is not None:
+                val_dataset_kwargs["stride"] = val_config.stride
+
+            # Use same data format as training (THD vs BSHD) for consistent loss computation
+            if args.dataset.use_sequence_packing:
+                if getattr(args.config_kwargs, "attn_input_format", "thd") == "bshd":
+                    # BSHD with full packing (cross-boundary attention, no cu_seqlens)
+                    val_dataloader, _ = create_bshd_packed_dataloader(dist_config, **val_dataset_kwargs)
+                    logger.info("Validation using BSHD packed dataloader (matching training)")
+                else:
+                    # THD with packing (respects boundaries via cu_seqlens)
+                    val_dataloader, _ = create_thd_dataloader(dist_config, **val_dataset_kwargs)
+                    logger.info("Validation using THD dataloader (matching training)")
+            else:
+                # Standard BSHD with windowing (no packing)
+                val_dataloader, _ = create_bshd_dataloader(dist_config, **val_dataset_kwargs)
+                logger.info("Validation using BSHD dataloader (matching training)")
+
+            logger.info(
+                f"Validation enabled: every {val_config.eval_interval} steps, {val_config.num_batches} batches"
+            )
+        else:
+            logger.warning("Validation enabled but no data_path specified, skipping validation")
+            val_enabled = False
+
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -561,6 +682,23 @@ def main(args: DictConfig) -> float | None:
                         max_checkpoints=args.checkpoint.max_checkpoints,
                         async_save=args.checkpoint.async_save,
                     )
+
+                # Run validation at specified interval
+                if val_enabled and val_dataloader is not None and step > 0 and step % val_config.eval_interval == 0:
+                    val_metrics = run_validation(
+                        model=model,
+                        val_dataloader=val_dataloader,
+                        num_batches=val_config.num_batches,
+                        device=device,
+                        dist_config=dist_config,
+                        is_thd=is_thd,
+                    )
+                    if dist_config.rank == 0:
+                        logger.info(
+                            f"[Step {step}] Validation: loss={val_metrics['val_loss']:.4f}, "
+                            f"ppl={val_metrics['val_ppl']:.2f}, tokens={val_metrics['val_tokens']:,}"
+                        )
+                    perf_logger.log_validation(step, val_metrics)
 
                 step += 1
                 if step >= args.num_train_steps:

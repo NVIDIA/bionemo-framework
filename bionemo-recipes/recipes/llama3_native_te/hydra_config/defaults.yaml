@@ -129,6 +129,17 @@ checkpoint:
 logger:
   frequency: 1  # Log every step for debugging (set higher for long runs)
 
+# Validation config (for tracking val loss during training like John's WandB curves)
+validation:
+  enabled: false  # Set to true to run periodic validation
+  eval_interval: 500  # Run validation every N steps
+  num_batches: 40  # Number of batches to evaluate (matches John's --limit-val-batches 40)
+  data_path: null  # Path to validation data (e.g., /data/opengenome2/.../data_metagenomics_valid_chunk1.jsonl.gz)
+  # Optional overrides (defaults to training config values if null)
+  micro_batch_size: null  # Override validation batch size
+  max_seq_length: null  # Override validation sequence length
+  stride: null  # Override validation stride
+
 profiler:
   enabled: false
   schedule:
