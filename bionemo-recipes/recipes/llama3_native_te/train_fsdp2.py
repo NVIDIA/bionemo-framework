@@ -66,6 +66,21 @@ def set_seed(seed: int, rank: int = 0) -> None:
     logger.info(f"Set seed to {effective_seed} (base={seed}, rank={rank})")
 
 
+def _to_local_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    """Convert a DTensor to a local tensor, or return the tensor as-is if it's already local.
+
+    Args:
+        tensor: A tensor that may be a DTensor (from FSDP2).
+
+    Returns:
+        The local tensor data.
+    """
+    # Check if it's a DTensor by checking for to_local method
+    if hasattr(tensor, "to_local"):
+        return tensor.to_local()
+    return tensor
+
+
 @torch.no_grad()
 def compute_tev(model: torch.nn.Module) -> tuple[float, float]:
     """Compute Token Embedding Variance (TEV) statistics.
@@ -84,8 +99,8 @@ def compute_tev(model: torch.nn.Module) -> tuple[float, float]:
     embed = None
     for name, param in model.named_parameters():
         if "embed_tokens" in name and "weight" in name:
-            # For FSDP2, we need to access the local shard
-            embed = param.data
+            # For FSDP2, we need to convert DTensor to local tensor
+            embed = _to_local_tensor(param.data).float()
             break
 
     if embed is None:
@@ -97,7 +112,9 @@ def compute_tev(model: torch.nn.Module) -> tuple[float, float]:
     tev = torch.sqrt(torch.mean(torch.pow(embed - embed.mean(dim=0), 2), dim=0))
 
     tev_mean = torch.mean(tev).item()
-    tev_sd = torch.std(tev).item()
+    # Compute std manually to avoid potential DTensor issues
+    tev_var = torch.mean(torch.pow(tev - tev_mean, 2))
+    tev_sd = torch.sqrt(tev_var).item()
 
     return tev_mean, tev_sd
 
@@ -108,6 +125,9 @@ def log_init_stats(model: torch.nn.Module, dist_config: "DistributedConfig") -> 
 
     Logs mean/std of weights for embeddings, lm_head, and sample projection layers.
     Useful for debugging initialization differences between frameworks.
+
+    Note: With FSDP2, this logs statistics of the LOCAL shard on each rank.
+    The stats will differ across ranks since each rank holds a different shard.
 
     Args:
         model: The initialized model.
@@ -123,11 +143,17 @@ def log_init_stats(model: torch.nn.Module, dist_config: "DistributedConfig") -> 
         if not any(key in name.lower() for key in ["embed_tokens", "lm_head", ".proj.", ".fc2."]):
             continue
 
-        # For FSDP2, we work with local shards
-        data = param.data.float()
+        # For FSDP2, convert DTensor to local tensor to avoid unsupported ops
+        data = _to_local_tensor(param.data).float()
+
+        # Compute stats manually to avoid DTensor op issues
+        mean_val = data.mean().item()
+        var_val = torch.mean(torch.pow(data - mean_val, 2)).item()
+        std_val = var_val**0.5
+
         layer_stats = {
-            "mean": data.mean().item(),
-            "std": data.std().item(),
+            "mean": mean_val,
+            "std": std_val,
             "min": data.min().item(),
             "max": data.max().item(),
         }
@@ -135,7 +161,7 @@ def log_init_stats(model: torch.nn.Module, dist_config: "DistributedConfig") -> 
 
         if dist_config.rank == 0:
             logger.info(
-                f"Init stats - {name}: mean={layer_stats['mean']:.4f}, "
+                f"Init stats (local shard) - {name}: mean={layer_stats['mean']:.4f}, "
                 f"std={layer_stats['std']:.4f}, range=[{layer_stats['min']:.4f}, {layer_stats['max']:.4f}]"
             )
 
