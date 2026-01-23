@@ -17,15 +17,18 @@
 """Demonstration of LoRA fine-tuning of ESM-2 with Transformer Engine and PEFT."""
 
 import logging
+from pathlib import Path
 
 import hydra
 import torch
 from omegaconf import DictConfig
+from torch.distributed.device_mesh import init_device_mesh
 from transformers import (
     AutoConfig,
 )
 
 import peft
+from checkpoint import save_final_model_ddp
 from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from perf_logger import PerfLogger
@@ -68,6 +71,10 @@ def main(args: DictConfig) -> float:
         **args.dataset,
     )
 
+    # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
+    # and MFSDP.
+    device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("ddp",))
+
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -91,12 +98,12 @@ def main(args: DictConfig) -> float:
         inference_mode=False,
         r=args.lora.r,
         lora_alpha=args.lora.alpha,
-        target_modules=args.lora.target_modules,
+        target_modules=list(args.lora.target_modules),
         bias="none",
     )
 
     peft_model = peft.get_peft_model(model, peft_config)
-    peft_model.to(device, dtype=torch.bfloat16)
+    peft_model.to(device=device, dtype=torch.bfloat16)
 
     print("----- PEFT Model --------")
     peft_model.print_trainable_parameters()
@@ -118,6 +125,14 @@ def main(args: DictConfig) -> float:
 
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
+    peft_model = torch.nn.parallel.DistributedDataParallel(
+        peft_model,
+        device_ids=[dist_config.local_rank],
+        output_device=dist_config.local_rank,
+        device_mesh=device_mesh["ddp"],
+        find_unused_parameters=True,
+    )
+
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
         peft_model = torch.compile(peft_model)
@@ -130,8 +145,8 @@ def main(args: DictConfig) -> float:
     while step < args.num_train_steps:
         for batch in train_dataloader:
             perf_logger.log_train_start_time()
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW290
-            # print(batch["input_ids"].shape)
+            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW2901
+
             output = peft_model(**batch)
             loss = output.loss
             loss.backward()
@@ -197,7 +212,17 @@ def main(args: DictConfig) -> float:
         epoch += 1
         train_dataset_or_sampler.set_epoch(epoch)
 
+    ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_ddp" if args.checkpoint.ckpt_dir else None
+
+    if args.checkpoint.save_final_model and ckpt_path:
+        save_final_model_ddp(
+            model=peft_model,
+            save_directory=ckpt_path / "final_model",
+            dist_config=dist_config,
+        )
+
     perf_logger.finish()
+    torch.distributed.destroy_process_group()
 
     return perf_logger.min_loss
 

@@ -148,41 +148,10 @@ def main(args: DictConfig) -> float:
         for batch in train_dataloader:
             perf_logger.log_train_start_time()
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW2901
-            # print(batch["input_ids"].shape)
-            # Monitor largest weight BEFORE forward pass
-            max_weight = 0.0
-            max_weight_name = ""
-            for name, param in peft_model.named_parameters():
-                if param.requires_grad:
-                    param_max = param.abs().max().item()
-                    if param_max > max_weight:
-                        max_weight = param_max
-                        max_weight_name = name
-
-            print(f"[Step {step}] Max weight: {max_weight:.6f} in {max_weight_name}")
-
-            for name, param in peft_model.named_parameters():
-                if param.requires_grad and (torch.isnan(param).any() or torch.isinf(param).any()):
-                    print(f"[Step {step}] Corrupted weights in {name}, exiting")
-                    exit(8)
 
             output = peft_model(**batch)
             loss = output.loss
             loss.backward()
-
-            logits = output.logits
-
-            # CRITICAL: Check for NaN/Inf BEFORE backward
-            with torch.no_grad():
-                logit_max = logits.max().item()
-                logit_min = logits.min().item()
-
-            logger.info(f"[Step {step}]: logit max: {logit_max}. logit_min: {logit_min}")
-            if torch.isnan(loss) or torch.isinf(loss):
-                logger.info(
-                    f"[Step {step}] Invalid loss: {loss.item()}, logit max: {logit_max}. logit_min: {logit_min}"
-                )
-                exit(7)
 
             # Compute and clip gradient norms.
             total_norm = torch.nn.utils.clip_grad_norm_(peft_model.parameters(), max_norm=1.0).item()
