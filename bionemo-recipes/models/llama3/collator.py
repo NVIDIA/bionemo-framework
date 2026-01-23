@@ -301,6 +301,9 @@ class DataCollatorForContextParallel:
         """
         batch = self.collator(features)
 
+        # Remove the attention mask from the batch, it's not valid for CP.
+        batch.pop("attention_mask", None)
+
         combined_batch = []
         for cp_rank in range(self.cp_world_size):
             input_ids_sharded, labels_sharded = _split_batch_by_cp_rank(
@@ -321,12 +324,10 @@ class DataCollatorForContextParallel:
                 batch_shard["pad_between_seqs"] = True
             elif self.qkv_format == "bshd":
                 max_length = batch["input_ids"].shape[1]
-                # For BSHD context parallelism, we can't handle padding, so we remove the attention mask.
-                del batch_shard["attention_mask"]
             else:
                 raise ValueError(f"Unsupported qvk_format: {self.qkv_format}!")
 
-            batch_shard["max_length_k"] = batch_shard["max_length_q"] = max_length * round(max_length / 64)
+            batch_shard["max_length_k"] = batch_shard["max_length_q"] = ((max_length + 63) // 64) * 64
             combined_batch.append(batch_shard)
 
         return combined_batch

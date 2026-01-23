@@ -46,7 +46,7 @@ class PerfLogger:
         self._dist_config = dist_config
         self._run_config = OmegaConf.to_container(args, resolve=True, throw_on_missing=True)
 
-        self.min_loss = float("inf")
+        self.min_loss = torch.tensor(float("inf"), device=torch.device(f"cuda:{dist_config.local_rank}"))
 
         self.logging_frequency = args.logger.frequency
         # Track whether to collect memory stats (disabled by default for max performance)
@@ -79,7 +79,7 @@ class PerfLogger:
         step: int,
         batch: dict[str, torch.Tensor],
         outputs: MaskedLMOutput,
-        grad_norm: float,
+        grad_norm: torch.Tensor,
         lr: float,
     ):
         """Log a step to the logger and wandb.
@@ -91,43 +91,44 @@ class PerfLogger:
             grad_norm: The gradient norm of the step.
             lr: The learning rate of the step.
         """
-        num_tokens = batch["input_ids"].numel()
-        # 1 is the padding token for ESM-2.
-        num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != 1].numel()
+        with torch.no_grad():
+            num_tokens = batch["input_ids"].numel()
+            # 1 is the padding token for ESM-2.
+            num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != 1].numel()
 
-        self.min_loss = min(self.min_loss, outputs.loss.item())
-        step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
+            self.min_loss = torch.minimum(self.min_loss, outputs.loss)
+            step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
 
-        self.metrics["train/loss"].update(outputs.loss)
-        self.metrics["train/learning_rate"].update(lr)
-        self.metrics["train/grad_norm"].update(grad_norm)
-        self.metrics["train/step_time"].update(step_time)
-        self.metrics["train/tokens_per_second_per_gpu"].update(num_tokens / step_time)
-        self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(num_unpadded_tokens / step_time)
-        self.metrics["train/total_unpadded_tokens_per_batch"].update(num_unpadded_tokens / self.logging_frequency)
+            self.metrics["train/loss"].update(outputs.loss)
+            self.metrics["train/learning_rate"].update(lr)
+            self.metrics["train/grad_norm"].update(grad_norm)
+            self.metrics["train/step_time"].update(step_time)
+            self.metrics["train/tokens_per_second_per_gpu"].update(num_tokens / step_time)
+            self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(num_unpadded_tokens / step_time)
+            self.metrics["train/total_unpadded_tokens_per_batch"].update(num_unpadded_tokens / self.logging_frequency)
 
-        # Handle sequence packing for torchmetrics calculation.
-        if outputs.logits.dim() < 3:
-            outputs.logits = outputs.logits.unsqueeze(0)
+            # Handle sequence packing for torchmetrics calculation.
+            if outputs.logits.dim() < 3:
+                outputs.logits = outputs.logits.unsqueeze(0)
 
-        self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
+            self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
 
-        if step % self.logging_frequency == 0 and step > 0:
-            memory_allocated = torch.cuda.memory_allocated() / (1024**3)
-            self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)
-            self.metrics["train/gpu_memory_allocated_mean_gb"].update(memory_allocated)
+            if step % self.logging_frequency == 0 and step > 0:
+                memory_allocated = torch.cuda.memory_allocated() / (1024**3)
+                self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)
+                self.metrics["train/gpu_memory_allocated_mean_gb"].update(memory_allocated)
 
-            metrics = self.metrics.compute()
-            self.metrics.reset()
-            metrics["train/global_step"] = torch.tensor(step, dtype=torch.int64)
+                metrics = self.metrics.compute()
+                self.metrics.reset()
+                metrics["train/global_step"] = torch.tensor(step, dtype=torch.int64)
 
-            if self._dist_config.is_main_process():
-                wandb.log(metrics, step=step)
-                self._progress_bar.update(self.logging_frequency)
-                self._progress_bar.set_postfix({"loss": outputs.loss.item()})
+                if self._dist_config.is_main_process():
+                    wandb.log(metrics, step=step)
+                    self._progress_bar.update(self.logging_frequency)
+                    self._progress_bar.set_postfix({"loss": outputs.loss.item()})
 
-            if self._dist_config.local_rank == 0:
-                logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
+                if self._dist_config.local_rank == 0:
+                    logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
 
     def finish(self):
         """Finish the logger and close the progress bar."""

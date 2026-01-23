@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.4
-FROM nvcr.io/nvidia/pytorch:25.12-py3
+# FROM nvcr.io/nvidia/pytorch:25.12-py3
+FROM gitlab-master.nvidia.com/dl/transformerengine/transformerengine:main-pytorch-py3-base
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=/requirements.txt \
