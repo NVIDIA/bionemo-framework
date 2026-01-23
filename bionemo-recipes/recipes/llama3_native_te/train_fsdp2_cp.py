@@ -211,9 +211,9 @@ def main(args: DictConfig) -> float | None:
                         async_save=args.checkpoint.async_save,
                     )
 
-            step += 1
-            if step >= args.num_train_steps:
-                break
+                step += 1
+                if step >= args.num_train_steps:
+                    break
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1

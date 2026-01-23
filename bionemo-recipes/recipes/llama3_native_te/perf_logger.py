@@ -95,6 +95,9 @@ class PerfLogger:
             batch: The batch of data for the micro step.
             outputs: The outputs of the micro step.
         """
+        if self._dist_config.local_rank == 0:
+            logger.debug("log_micro_step")
+
         with torch.no_grad():
             self.grad_acc_step_count += 1
             self.num_tokens += batch["input_ids"].numel()
@@ -119,8 +122,11 @@ class PerfLogger:
             grad_norm: The gradient norm of the step.
             lr: The learning rate of the step.
         """
-        # Use accumulated metrics from gradient accumulation
+        if self._dist_config.local_rank == 0:
+            logger.debug("log_step %s", step)
+
         with torch.no_grad():
+            # Use accumulated metrics from gradient accumulation
             assert self.grad_acc_step_count > 0, (
                 f"Gradient accumulation steps ({self.grad_acc_step_count}) must be greater than 0, "
                 f"and can be incremented by log_micro_step()."
