@@ -53,21 +53,21 @@ def main(args: DictConfig) -> float | None:
     torch.cuda.set_device(dist_config.local_rank)
 
     # TE Debug feature logging
-    if args.fp8_stats_config.enabled and not args.fp8_config.enabled:
+    if args.quant_stats_config.enabled and not args.fp8_config.enabled:
         raise ValueError(
             "fp8_stats_config.enabled is true but fp8_config.enabled is false, please set fp8_config.enabled to true in the config if you wish to collect FP8 stats"
         )
 
-    if args.fp8_stats_config.enabled:
-        fp8_stats_file = args.fp8_stats_config.fp8_stats_file
-        fp8_log_dir = Path(args.fp8_stats_config.fp8_log_dir) / f"rank_{dist_config.rank}"
-        fp8_log_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Logging FP8 stats to {fp8_log_dir}")
+    if args.quant_stats_config.enabled:
+        quant_stats_file = args.quant_stats_config.quant_stats_file
+        quant_log_dir = Path(args.quant_stats_config.quant_log_dir) / f"rank_{dist_config.rank}"
+        quant_log_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Logging quant stats to {quant_log_dir}")
         te_features_dir = str(Path(transformer_engine.__file__).parent / "debug" / "features")
         debug_api.initialize(
-            config_file=fp8_stats_file,
+            config_file=quant_stats_file,
             feature_dirs=[te_features_dir],
-            log_dir=fp8_log_dir,
+            log_dir=quant_log_dir,
             default_logging_enabled=True,
         )
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
@@ -104,7 +104,7 @@ def main(args: DictConfig) -> float | None:
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    if args.fp8_stats_config.enabled:
+    if args.quant_stats_config.enabled:
         debug_api.infer_and_assign_layer_names(model)
 
     model = model.to(device=device)
@@ -157,7 +157,7 @@ def main(args: DictConfig) -> float | None:
             loss = outputs.loss
             loss.backward()
 
-            if args.fp8_stats_config.enabled:
+            if args.quant_stats_config.enabled:
                 debug_api.step()
             # Compute and clip gradient norms.
             total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
@@ -206,7 +206,7 @@ def main(args: DictConfig) -> float | None:
 
     # Clean up distributed training
     perf_logger.finish()
-    if args.fp8_stats_config.enabled:
+    if args.quant_stats_config.enabled:
         debug_api.end_debug()
     torch.distributed.destroy_process_group()
 

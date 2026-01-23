@@ -1,10 +1,34 @@
+# Docker
 Dockerfile
+Dockerfile.*
+.dockerignore
+
+# Docs
 README.md
-checkpoint_export/
-outputs/
-.ruff_cache
+
+# Python caches
 __pycache__
 .pytest_cache
-.ruff.toml
-.dockerignore
+.ruff_cache
 .venv/
+
+# Linting
+.ruff.toml
+
+# Profiling & debugging artifacts
+memory_snapshots/
+nsight_profiling/
+*.nsys-rep
+*.sqlite
+logs/
+wandb/
+
+# Hydra / training outputs
+outputs/
+checkpoints/
+
+# Checkpoint export
+checkpoint_export/
+
+# Temp / scratch
+j/

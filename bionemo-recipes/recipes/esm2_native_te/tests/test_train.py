@@ -154,8 +154,8 @@ def test_sanity_ddp_fp8_stats_logging(tmp_path, recipe_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "fp8_config.enabled=true",
-                "fp8_stats_config.enabled=true",
-                f"fp8_stats_config.fp8_log_dir={fp8_log_dir}",
+                "quant_stats_config.enabled=true",
+                f"quant_stats_config.quant_log_dir={fp8_log_dir}",
                 "num_train_steps=4",
             ],
         )
@@ -211,8 +211,8 @@ def test_sanity_fsdp2_fp8_stats_logging(tmp_path, recipe_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "fp8_config.enabled=true",
-                "fp8_stats_config.enabled=true",
-                f"fp8_stats_config.fp8_log_dir={fp8_log_dir}",
+                "quant_stats_config.enabled=true",
+                f"quant_stats_config.quant_log_dir={fp8_log_dir}",
                 "num_train_steps=4",
             ],
         )

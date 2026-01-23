@@ -1,7 +1,8 @@
 # TransformerEngine-accelerated ESM-2 training with native PyTorch training loop
 
 This folder demonstrates how to train TE-accelerated ESM-2 with a native PyTorch training loop, including sequence
-packing and FP8 precision, using fully sharded data parallel (FSDP) for distributed training.
+packing, FP8/MXFP8/NVFP4 precision with layer-wise control, using fully sharded data parallel (FSDP) for distributed
+training.
 
 ## How to use this recipe
 
@@ -15,10 +16,10 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 ## Supported Models and Training Features
 
-| Model                                     | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP8 with THD Input Format | MXFP8<sup>[2]</sup> | Context Parallelism |
-| ----------------------------------------- | ---- | ----------------- | ---------------- | ------------------------- | ------------------- | ------------------- |
-| [ESM-2](../../models/esm2/README.md)      | ✅   | ✅                | ✅               | ✅                        | ✅                  | ✅                  |
-| [AMPLIFY](../../models/amplify/README.md) | ✅   | ❌                | 🚧               | ❌                        | ❌                  | 🚧                  |
+| Model                                     | BF16 | FP8<sup>[1]</sup> | MXFP8<sup>[2]</sup> | NVFP4<sup>[3]</sup> | THD Input Format | Context Parallelism |
+| ----------------------------------------- | ---- | ----------------- | ------------------- | ------------------- | ---------------- | ------------------- |
+| [ESM-2](../../models/esm2/README.md)      | ✅   | ✅                | ✅                  | ✅                  | ✅               | ✅                  |
+| [AMPLIFY](../../models/amplify/README.md) | ✅   | ❌                | ❌                  | ❌                  | 🚧               | 🚧                  |
 
 ✅: Supported <br/>
 🚧: Under development <br/>
@@ -26,6 +27,7 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 \[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
 \[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
+\[3\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and above (Blackwell+) <br/>
 
 ### Installing Dependencies
 
@@ -72,6 +74,35 @@ Recently, we measured 2800 tokens/second/GPU training speed on H100 with Hugging
 of THD sequence packing, however we have not been able to make this configuration work on Blackwell and this work is
 still in progress.
 
+### Low precision performance benchmarks
+![Performance Benchmarks Low Precision](../../../docs/docs/assets/images/esm2/esm2_low_precision/esm2_8gpu_tflops.png)
+In the above plot, we can see that as we increase the scale of our models, the benefits of low precision training are apparent.
+This is because at smaller parameter models (such as 650M, 3B) etc, the cost to quantize activations from high precision to low
+precision outweights the benefits of performing matrix multiplication with low precision. However, as our models scale up in
+parameter count, the fixed quantization cost is lower than our GEMM operational savings.
+
+Note: these plots were using our [fsdp2](./train_fsdp2.py) script.
+
+
+### Convergence results for low precision training
+#### MXFP8
+![Convergence Benchmarks MXFP8](../../../docs/docs/assets/images/esm2/esm2_low_precision/esm2-15b-b300-mxfp8-10node-conv.svg)
+In the above plot, for our ESM2-15B model that was trained with FSDP2 using 80 B300 GPUs nodes for 10 hours. We can clearly see that
+our MXFP8 run and our BF16 baseline run have the same results. A perfect match in convergence.
+
+#### NVFP4
+![Convergence Benchmarks NVFP4](../../../docs/docs/assets/images/esm2/esm2_low_precision/esm2-15b-b300-nvfp4-10node-conv.svg)
+In the above plot, for our ESM2-15B model, we show several lines. Each experiment shows a unique configuration using a custom
+amount of `fp4_layers` per run (more info on how to enable this below). Moreover, the experiments can be read as
+ `esm2-15b-b300-mxfp8-fp4_layer_start-fp4_layer_end-N-10-mbs-26-b300` which denotes at which point we start and end the fp4 layers.
+
+We see that as we add more and more layers, our E2E training results get worse. This is a tradeoff between performance and
+accuracy. If we look at the performance chart above, we have increased performance dramatically, but our accuracy suffers.
+It's important to note that in all NVFP4 experiments we are also utilizing stochastic rounding and random hadamard transformations.
+
+For more information regarding NVFP4 training please see [paper](https://arxiv.org/pdf/2509.25149) and [here](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html)
+
+
 ### Distributed Training
 
 This recipe supports distributed training using DDP, FSDP2, and Megatron-FSDP, shown in three separate training
@@ -97,35 +128,68 @@ torchrun --nproc_per_node=2 train_fsdp2.py  # or train_mfsdp.py / train_ddp.py
 
 Multi-Node training is supported with all three strategies, see [`slurm.sh`](slurm.sh) for an example SLURM script.
 
-### FP8 Training
+### Quantized Training (FP8 / MXFP8 / NVFP4)
 
-To run training with FP8, enable it by overriding the `fp8_config.enabled=true` configuration parameter. Additional FP8
-configuration parameters, including switching to `MXFP8BlockScaling`, can be set via the hydra configuration.
+To run training with FP8, enable it via `fp8_config.enabled=true`. By default, all transformer layers will use FP8.
 
 ```bash
 python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true
 ```
 
-#### FP8 Debugging
+Similarly, to train with NVFP4 quantization:
 
-We also provide a mechanism to receive tensor data related to FP8 layers during training which may include activations, weights and gradients.
-
-To enable this please select the following config options.
-
-```python
-python train_fsdp2.py \
-fp8_stats_config.enabled=True # whether to log stats or not
-fp8_stats_config.fp8_log_dir=./logs/fp8_stats_logs_dummy # where to store the logs
-fp8_stats_config.fp8_stats_file=./fp8_debugging_stats.yaml # specifies what stats you want to run. Currently this is saved in this yaml file.
-fp8_config.enabled=True # set this to use FP8 otherwise stats logging won't work
+```bash
+python train_fsdp2.py --config-name L0_sanity fp4_config.enabled=true
 ```
 
-Note: This feature is available for the `train_ddp` and the `train_fsdp2` scripts. It is not yet available for `train_mfsdp`.
+Additional recipe parameters (e.g., switching to `MXFP8BlockScaling`) can be set via the hydra configuration.
 
-The config file structure [fp8_debugging_stats.yaml](fp8_debugging_stats.yaml) is explained in the [NVIDIA Transformer Engine config file documentation](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/debug/2_config_file_structure.html) in more detail. Below we will cover some very basic elements of the file structure.
+#### Layer-Wise Precision
 
-This comes as a performance cost that is dependent on the `freq` parameter mentioned above. `freq=1` collects stats on every step which in our
-experiments caused a ~29% decrease in throughput (executed on a single RTX 5090). We recommend using `freq>=10` to reduce this performance hit.
+You can control which transformer layers use FP8 or FP4 by specifying 1-indexed layer numbers via `fp8_layers` and
+`fp4_layers`. Layers not assigned to either format will run in BF16.
+
+For example, to run layers 1-3 in FP8, layers 4-6 in FP4, and the rest in BF16 on a model with more than 6 layers:
+
+```bash
+python train_fsdp2.py --config-name L0_sanity \
+  fp8_config.enabled=true \
+  fp4_config.enabled=true \
+  'fp8_layers=[1,2,3]' \
+  'fp4_layers=[4,5,6]'
+```
+
+When both `fp8_config` and `fp4_config` are enabled but only one layer list is provided, the other format automatically
+claims the remaining layers. For example, if `fp8_layers=[1,2,3]` is set and `fp4_config.enabled=true` with no
+`fp4_layers`, then layers 4 through N will default to FP4.
+
+#### Quantization Stats Debugging
+
+We provide a mechanism to log tensor statistics (activations, weights, gradients) for quantized layers during training.
+When layer-wise precision is used, the stats config is automatically updated so that only the relevant layers are
+tracked.
+
+To enable stats logging:
+
+```bash
+python train_fsdp2.py \
+  quant_stats_config.enabled=true \
+  quant_stats_config.quant_log_dir=./logs/quant_stats \
+  quant_stats_config.quant_stats_file=./fp8_debugging_stats.yaml \
+  fp8_config.enabled=true
+```
+
+Note: This feature is available for the `train_ddp` and the `train_fsdp2` scripts. It is not yet available for
+`train_mfsdp`. NVFP4 stats logging is not yet supported and will be enabled in a future TransformerEngine release;
+FP8/MXFP8 stats logging works today.
+
+The config file structure [fp8_debugging_stats.yaml](fp8_debugging_stats.yaml) is explained in the
+[NVIDIA Transformer Engine config file documentation](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/debug/2_config_file_structure.html)
+in more detail.
+
+Stats collection has a performance cost dependent on the `freq` parameter in the config file. `freq=1` collects stats
+on every step which in our experiments caused a ~29% decrease in throughput (executed on a single RTX 5090). We
+recommend using `freq>=10` to reduce this performance hit.
 
 ### Sequence Packing (THD input format)
 

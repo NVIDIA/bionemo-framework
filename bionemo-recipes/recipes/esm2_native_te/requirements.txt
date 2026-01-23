@@ -8,6 +8,6 @@ torchdata
 torchmetrics
 tqdm
 transformer_engine[pytorch]
-transformers
+transformers==4.57.3
 wandb
 nvdlfw_inspect @ git+https://github.com/NVIDIA/nvidia-dlfw-inspect
