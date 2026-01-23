@@ -29,6 +29,8 @@ from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 
+from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
+
 # This import seems to be needed with meta device init and AutoModel.from_config
 from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 
@@ -57,12 +59,6 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
-    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
-    if args.fp8_stats_config.enabled and not args.fp8_config.enabled:
-        raise ValueError(
-            "fp8_stats_config.enabled is true but fp8_config.enabled is false, please set fp8_config.enabled to true in the config if you wish to collect FP8 stats"
-        )
-
     if args.fp8_stats_config.enabled:
         fp8_stats_file = args.fp8_stats_config.fp8_stats_file
         fp8_log_dir = Path(args.fp8_stats_config.fp8_log_dir) / f"rank_{dist_config.rank}"
@@ -84,12 +80,18 @@ def main(args: DictConfig) -> float | None:
     )
 
     # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-    )
-
+    if args.fp8_config.enabled:
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
+    elif args.fp4_config.enabled:
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+            fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
+        )
+    else:
+        print("No FP8 or FP4 config enabled, using default bfloat16")
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
+    config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -99,9 +101,9 @@ def main(args: DictConfig) -> float | None:
     # versions of weights are kept.
     with (
         torch.device("meta") if args.use_meta_device else nullcontext(),
-        transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs),
     ):
-        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+        # model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+        model = NVEsmForMaskedLM(config)
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -164,8 +166,11 @@ def main(args: DictConfig) -> float | None:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
+            fp_context = transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe) if args.fp8_config.enabled else nullcontext()
+            fp_context = transformer_engine.pytorch.autocast(enabled=True, recipe=fp4_recipe) if args.fp4_config.enabled else fp_context
+            # Note: FOr NVFP4 it looks like its just autocast? https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html#FP8-autocasting
             # Forward pass with mixed precision.
-            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+            with fp_context:
                 outputs = model(**batch)
 
             # Backward pass.

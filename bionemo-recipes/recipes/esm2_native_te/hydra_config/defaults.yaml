@@ -51,6 +51,14 @@ fp8_config:
   fp8_model_init_kwargs:
     enabled: false # If this is set to true, fp8_config.enabled must also be set to true.
 
+fp4_config:
+  enabled: false
+  fp4_recipe: transformer_engine.common.recipe.NVFP4BlockScaling
+  fp4_format: "E2M1"
+  fp4_recipe_kwargs: {}
+  fp4_model_init_kwargs:
+    enabled: false # If this is set to true, fp4_config.enabled must also be set to true.
+
 # Optimizer config
 adamw_kwargs:
   lr: 4e-4
