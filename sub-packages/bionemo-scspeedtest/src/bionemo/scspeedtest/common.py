@@ -87,12 +87,10 @@ class BenchmarkResult:
     peak_memory_mb: float = 0.0
     avg_memory_mb: float = 0.0
     disk_size_mb: float = 0.0
-    overall_time_seconds: float = 0.0
 
     def __post_init__(self):
         """Calculate derived metrics from epoch results."""
         self.total_samples = sum(r["samples"] for r in self.epoch_results)
-        print("Elapsed times: ", [r["elapsed"] for r in self.epoch_results])
         self.total_time_seconds = sum(r["elapsed"] for r in self.epoch_results)
         self.samples_per_second = self.total_samples / self.total_time_seconds if self.total_time_seconds > 0 else 0.0
         self.peak_memory_mb = max(r["peak_memory"] for r in self.epoch_results) - self.memory_before_instantiation_mb
