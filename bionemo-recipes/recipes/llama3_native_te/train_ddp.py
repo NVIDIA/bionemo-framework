@@ -312,6 +312,19 @@ def main(args: DictConfig) -> float | None:
         device_mesh=device_mesh["dp"],
     )
 
+    # === DEBUG AFTER DDP WRAP ===
+    if getattr(args, "debug_init", False) and dist_config.rank == 0:
+        logger.info("=" * 60)
+        logger.info("DEBUG: After DDP wrap - checking if weights changed")
+        logger.info("=" * 60)
+        print(f"proj std after DDP: {model.module.model.layers[0].self_attention.proj.weight.std():.6f}")
+        print(f"fc2 std after DDP: {model.module.model.layers[0].layernorm_mlp.fc2_weight.std():.6f}")
+        print(f"embed std after DDP: {model.module.model.embed_tokens.weight.std():.6f}")
+        import pdb
+
+        pdb.set_trace()
+    # === END DEBUG AFTER DDP WRAP ===
+
     if args.use_sequence_packing:
         if args.config_kwargs.attn_input_format == "bshd":
             # BSHD with full packing (cross-boundary attention, no cu_seqlens)
