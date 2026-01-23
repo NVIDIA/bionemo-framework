@@ -184,18 +184,11 @@ def main(args: DictConfig) -> float | None:
 
                 # Compute and clip gradient norms.
                 total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                if isinstance(total_norm, torch.distributed.tensor.DTensor):
-                    total_norm = total_norm.to_local()
 
                 # Step optimizer.
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad()
-
-                if step == 22:
-                    if torch.distributed.get_rank() == 0:
-                        breakpoint()
-                    torch.distributed.barrier()
 
                 perf_logger.log_step(
                     step=step,
