@@ -31,6 +31,7 @@ import torch
 
 from bionemo.scdl.api.single_cell_row_dataset import SingleCellRowDataset
 from bionemo.scdl.index.row_feature_index import ObservedFeatureIndex, VariableFeatureIndex
+from bionemo.scdl.io.remote_chunk_loader import RemoteChunkLoader
 from bionemo.scdl.schema.header import ArrayDType, ArrayInfo, Backend, FeatureIndexInfo, SCDLHeader
 from bionemo.scdl.schema.version import CurrentSCDLVersion
 from bionemo.scdl.util.filecopyutil import extend_files
@@ -132,6 +133,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         self.mode: Mode = mode
         self._is_chunked: bool = False
         self._chunks: List[Tuple[np.ndarray, np.ndarray, np.ndarray]] = []
+        self._chunk_loader = None  # For remote chunked datasets
         self.paginated_load_cutoff = paginated_load_cutoff
         self.load_block_row_size = load_block_row_size
         self.var_feature_index_name = var_feature_index_name
@@ -263,6 +265,56 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         (following <major>.<minor>.<point> convention).
         """
         return self._version
+
+    @classmethod
+    def from_remote(
+        cls,
+        remote_path: str,
+        cache_dir: Optional[str] = None,
+        max_cached_chunks: int = 2,
+        storage_options: Optional[Dict] = None,
+        batch_download_size: int = 10,
+        use_async_downloads: bool = True,
+    ):
+        """Load a chunked dataset from remote storage (S3, GCS, HTTP).
+
+        Args:
+            remote_path: Remote path (s3://bucket/path, gs://bucket/path, etc.)
+            cache_dir: Local directory for caching chunks. If None, uses temp directory.
+            max_cached_chunks: Maximum number of chunks to keep in cache.
+            storage_options: Options passed to fsspec (e.g., {"endpoint_url": "https://..."} for S3).
+            batch_download_size: Number of chunks to download in parallel.
+            use_async_downloads: Whether to use async downloads (currently unused).
+        """
+        loader = RemoteChunkLoader(
+            remote_path,
+            Path(cache_dir) if cache_dir else None,
+            max_cached_chunks,
+            storage_options,
+            batch_download_size=batch_download_size,
+            use_async_downloads=use_async_downloads,
+        )
+        metadata_path = loader.get_metadata()
+        ds = cls.__new__(cls)
+        # Initialize essential attributes that __init__ would set
+        ds._version = importlib.metadata.version("bionemo.scdl")
+        ds._chunk_loader = loader
+        ds.data_path = remote_path
+        ds.header = None
+        ds.mode = Mode.READ_APPEND
+        ds._is_chunked = False
+        ds._chunks = []
+        ds.dtypes = {}  # Will be populated from header in load()
+        ds._var_feature_index = None
+        ds._obs_feature_index = None
+
+        ds.load(str(metadata_path))
+
+        # Pass dtypes to loader after they're loaded from header
+        if ds.dtypes:
+            loader.set_dtypes(ds.dtypes)
+
+        return ds
 
     def _extract_neighbor_data(self, adata) -> bool:
         """Extracts neighbor data from AnnData.obsp object and saves to memmap files.
@@ -442,7 +494,12 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         """
         if self._is_chunked:
             chunk_id, local_idx = self.header.chunked_info.get_chunk_for_row(index)
-            data, rowptr, colptr = self._chunks[chunk_id]
+            if self._chunk_loader:
+                # Remote: loader returns memmaps directly (handles caching internally)
+                data, rowptr, colptr = self._chunk_loader.get_chunk(chunk_id)
+            else:
+                # Local: use pre-loaded chunk memmaps
+                data, rowptr, colptr = self._chunks[chunk_id]
             start, end = rowptr[local_idx], rowptr[local_idx + 1]
             values, columns = data[start:end], colptr[start:end]
         else:
@@ -691,8 +748,6 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         if self.header is not None and hasattr(self.header, "arrays"):
             # Map from FileNames.value to dtype string
             for array_info in self.header.arrays:
-                if FileNames[array_info.name].value not in self.dtypes:
-                    raise ValueError(f"Array name {FileNames[array_info.name].value} not found in dtypes")
                 self.dtypes[FileNames[array_info.name].value] = array_info.dtype.numpy_dtype_string
 
         # Load metadata if exists
@@ -727,20 +782,37 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
                 self._load_neighbor_memmaps()
 
     def _load_chunk_memmaps(self) -> None:
-        """Preload all chunk memmaps (lazy - just file handles, no RAM)."""
+        """Preload all chunk memmaps (lazy - just file handles, no RAM).
+
+        For local datasets, loads from data_path directly.
+        For remote datasets, this is skipped - chunks are loaded on demand.
+        """
+        # For remote datasets, don't preload - chunks are fetched on demand via get_row()
+        if self._chunk_loader is not None:
+            return
+        # Local: preload all chunk paths
         for chunk_id in range(self.header.chunked_info.num_chunks):
             chunk_path = Path(self.data_path) / f"chunk_{chunk_id:05d}"
-            self._chunks.append(
-                (
-                    np.memmap(chunk_path / FileNames.DATA.value, dtype=self.dtypes[FileNames.DATA.value], mode="r"),
-                    np.memmap(
-                        chunk_path / FileNames.ROWPTR.value, dtype=self.dtypes[FileNames.ROWPTR.value], mode="r"
-                    ),
-                    np.memmap(
-                        chunk_path / FileNames.COLPTR.value, dtype=self.dtypes[FileNames.COLPTR.value], mode="r"
-                    ),
-                )
+            self._chunks.append(self._load_chunk_from_path(chunk_path))
+
+    def _load_chunk_from_path(self, chunk_path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Load memmaps for a single chunk directory.
+
+        Uses np.memmap when dtypes are known (faster), falls back to np.load otherwise.
+        """
+        # Use np.memmap when dtypes are available (faster than np.load)
+        if self.dtypes:
+            return (
+                np.memmap(chunk_path / FileNames.DATA.value, dtype=self.dtypes[FileNames.DATA.value], mode="r"),
+                np.memmap(chunk_path / FileNames.ROWPTR.value, dtype=self.dtypes[FileNames.ROWPTR.value], mode="r"),
+                np.memmap(chunk_path / FileNames.COLPTR.value, dtype=self.dtypes[FileNames.COLPTR.value], mode="r"),
             )
+        # Fallback to np.load which auto-detects dtype from .npy header
+        return (
+            np.load(chunk_path / FileNames.DATA.value, mmap_mode="r"),
+            np.load(chunk_path / FileNames.ROWPTR.value, mmap_mode="r"),
+            np.load(chunk_path / FileNames.COLPTR.value, mmap_mode="r"),
+        )
 
     def _write_metadata(self) -> None:
         with open(f"{self.data_path}/{FileNames.METADATA.value}", f"{Mode.CREATE.value}") as mfi:
