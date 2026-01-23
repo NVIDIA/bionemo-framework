@@ -738,7 +738,12 @@ class NVEsmForConvTokenClassification(NVEsmPreTrainedModel):
             **kwargs,
         )
 
-        sequence_output = outputs[0].transpose(1, 2)
+        if outputs[0].dim() == 3:
+            sequence_output = outputs[0]
+        else:
+            sequence_output = outputs[0].unsqueeze(0)
+
+        sequence_output = sequence_output.transpose(1, 2)
 
         logits = self.classifier(sequence_output)
 

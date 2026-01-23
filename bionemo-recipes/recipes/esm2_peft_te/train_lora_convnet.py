@@ -31,6 +31,7 @@ import peft
 from checkpoint import save_final_model_ddp
 from dataset import create_dataloader
 from distributed_config import DistributedConfig
+from modeling_esm_te import NVEsmForConvTokenClassification
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
 from utils import (
@@ -87,11 +88,11 @@ def main(args: DictConfig) -> float:
         config.label2id = SS8_LABEL2ID
 
     if args.use_pretrained:
-        model = NVEsmForConvTokenClassification.from_pretrained(  # noqa F821
+        model = NVEsmForConvTokenClassification.from_pretrained(
             args.model_tag, config=config, trust_remote_code=True, dtype="bfloat16"
         )
     else:
-        model = NVEsmForConvTokenClassification.from_config(config, trust_remote_code=True)  # noqa F821
+        model = NVEsmForConvTokenClassification.from_config(config, trust_remote_code=True)
 
     peft_config = peft.LoraConfig(
         task_type=peft.TaskType.TOKEN_CLS,
