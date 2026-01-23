@@ -182,6 +182,129 @@ def main(args: DictConfig) -> float | None:
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     model = model.to(device=device)
+
+    # === DEBUG INITIALIZATION BREAKPOINT ===
+    # Set debug_init=true in config or command line to enable
+    if getattr(args, "debug_init", False) and dist_config.rank == 0:
+        import math
+
+        logger.info("=" * 60)
+        logger.info("DEBUG INIT: Entering initialization debug mode")
+        logger.info("=" * 60)
+
+        # Helper function to run all init checks
+        def debug_init_checks():
+            print("\n" + "=" * 60)
+            print("CHECK 1: Meta device / dtype / device status")
+            print("=" * 60)
+            p = next(model.parameters())
+            print(f"  is_meta: {p.is_meta}")
+            print(f"  device: {p.device}")
+            print(f"  dtype: {p.dtype}")
+            print(f"  requires_grad: {p.requires_grad}")
+
+            print("\n" + "=" * 60)
+            print("CHECK 2: Fan-in/Fan-out for fused QKV layers")
+            print("=" * 60)
+            for name, param in model.named_parameters():
+                if "layernorm_qkv.weight" in name and param.ndim == 2:
+                    fan_in, fan_out = torch.nn.init._calculate_fan_in_and_fan_out(param)
+                    print(f"\n  {name}")
+                    print(f"    shape: {list(param.shape)}")
+                    print(f"    fan_in: {fan_in}, fan_out: {fan_out}")
+                    print(f"    std: {param.std().item():.6f}")
+                    break
+
+            print("\n" + "=" * 60)
+            print("CHECK 3: Q/K/V per-projection variance (fused QKV)")
+            print("=" * 60)
+            for name, param in model.named_parameters():
+                if "layernorm_qkv.weight" in name and param.ndim == 2:
+                    # Chunk into Q, K, V along the output dimension
+                    w_q, w_k, w_v = param.chunk(3, dim=-1)
+                    print(f"\n  {name} breakdown:")
+                    print(f"    Full tensor std: {param.std().item():.6f}")
+                    print(f"    W_q std: {w_q.std().item():.6f}")
+                    print(f"    W_k std: {w_k.std().item():.6f}")
+                    print(f"    W_v std: {w_v.std().item():.6f}")
+                    ratio = max(w_q.std().item(), w_k.std().item(), w_v.std().item()) / min(
+                        w_q.std().item(), w_k.std().item(), w_v.std().item()
+                    )
+                    if ratio > 1.1:
+                        print(f"    WARNING: Q/K/V stds differ by {ratio:.2f}x!")
+                    else:
+                        print(f"    OK: Q/K/V stds are consistent (ratio={ratio:.3f})")
+                    break
+
+            print("\n" + "=" * 60)
+            print("CHECK 4: Embedding and output projection quantiles")
+            print("=" * 60)
+            for name, param in model.named_parameters():
+                if "embed_tokens" in name:
+                    q = torch.quantile(param.float().flatten(), torch.tensor([0.01, 0.5, 0.99], device=param.device))
+                    print("\n  embed_tokens:")
+                    print(f"    quantiles [1%, 50%, 99%]: [{q[0]:.4f}, {q[1]:.4f}, {q[2]:.4f}]")
+                    print(f"    first 5 values: {param.flatten()[:5].tolist()}")
+                    # For std=1.0, expect 1% quantile ~ -2.33, 99% ~ +2.33
+                    expected_99 = 2.33 * param.std().item()
+                    print(f"    expected 99% for Gaussian: +/-{expected_99:.2f}")
+                    break
+
+            print("\n" + "=" * 60)
+            print("CHECK 5: Scaled init layers (o_proj, fc2)")
+            print("=" * 60)
+            num_layers = len(model.model.layers)
+            expected_scaled_std = 0.02 / math.sqrt(2.0 * num_layers)
+            print(f"  num_layers: {num_layers}")
+            print(f"  expected scaled std: {expected_scaled_std:.6f}")
+            for name, param in model.named_parameters():
+                if "layers.0.self_attention.proj" in name:
+                    print(f"\n  {name}:")
+                    print(f"    actual std: {param.std().item():.6f}")
+                    print(f"    expected: {expected_scaled_std:.6f}")
+                    ratio = param.std().item() / expected_scaled_std
+                    if 0.8 < ratio < 1.2:
+                        print("    OK: Within 20% of expected")
+                    else:
+                        print(f"    WARNING: {ratio:.2f}x off from expected!")
+                if "layers.0.layernorm_mlp.fc2" in name:
+                    print(f"\n  {name}:")
+                    print(f"    actual std: {param.std().item():.6f}")
+                    print(f"    expected: {expected_scaled_std:.6f}")
+                    ratio = param.std().item() / expected_scaled_std
+                    if 0.8 < ratio < 1.2:
+                        print("    OK: Within 20% of expected")
+                    else:
+                        print(f"    WARNING: {ratio:.2f}x off from expected!")
+
+            print("\n" + "=" * 60)
+            print("CHECK 6: Layer norm weights (should be all 1.0)")
+            print("=" * 60)
+            for name, param in model.named_parameters():
+                if "layer_norm_weight" in name and "layers.0" in name:
+                    unique_vals = param.unique()
+                    print(f"\n  {name}:")
+                    print(f"    unique values: {unique_vals.tolist()}")
+                    if len(unique_vals) == 1 and unique_vals[0].item() == 1.0:
+                        print("    OK: All ones (correct)")
+                    else:
+                        print("    WARNING: Not all ones!")
+
+            print("\n" + "=" * 60)
+            print("DEBUG CHECKS COMPLETE - Entering pdb")
+            print("You can now inspect the model interactively.")
+            print("Type 'c' to continue to training, or 'q' to quit.")
+            print("=" * 60 + "\n")
+
+        # Run the checks
+        debug_init_checks()
+
+        # Drop into pdb for interactive inspection
+        import pdb
+
+        pdb.set_trace()
+    # === END DEBUG INITIALIZATION BREAKPOINT ===
+
     model = torch.nn.parallel.DistributedDataParallel(
         model,
         device_ids=[dist_config.local_rank],

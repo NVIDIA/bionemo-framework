@@ -25,19 +25,24 @@ config_kwargs:
   initializer_range: 0.02
   attn_input_format: thd
 
-# Spike-No-More embedding initialization (matching Hyena 1B setup)
-# The Hyena 1B uses embedding_init_method_std=1.0 and share_embeddings_and_output_weights=False
+# ============ CRITICAL FLAGS TO MATCH JOHN'S RUN ============
+# Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
+# Embeddings initialized with std=1.0 instead of 0.02
 spike_no_more_embedding_init: true
 
 # Skip weight decay on embeddings (matching Hyena's --no-weight-decay-embeddings)
 skip_embedding_weight_decay: true
 
-# NO Megatron-style scaled init - use uniform 0.02 for all layers
-# (John's run uses SNIFalse but we're testing with spike=true, no scaled init)
-use_megatron_scaled_init: false
+# Megatron-style scaled init for residual output layers (proj/fc2)
+# Uses std/sqrt(2*num_layers) for o_proj and fc2 (down_proj)
+use_megatron_scaled_init: true
 
 # Keep weight decay grouping enabled (skip decay on bias/1D params)
 use_weight_decay_grouping: true
+
+# Log initialization statistics at step 0 (useful for debugging)
+log_init_stats: true
+# ============================================================
 
 # Sequence packing for THD
 use_sequence_packing: true
