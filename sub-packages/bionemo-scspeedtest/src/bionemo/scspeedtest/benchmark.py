@@ -301,7 +301,7 @@ def benchmark_dataloaders_with_configs(
             dataloader_factory = config_dataloader_from_dataset
         else:
             dataloader_factory = config_dataloader_factory
-
+        start_time = time.perf_counter()
         result = benchmark_single_dataloader(
             dataloader_factory=dataloader_factory,
             data_path=dl_config.get("data_path", None),
@@ -318,10 +318,11 @@ def benchmark_dataloaders_with_configs(
             output_prefix=output_prefix,
             dataset_instantiation_time=shared_dataset_time,
         )
+        end_time = time.perf_counter()
+        result.overall_time_seconds = end_time - start_time
         # If this hasn't been set, set it to the minimum in the first dataloader
         if not shared_dataset_baseline:
             shared_dataset_baseline = result.memory_before_instantiation_mb
-
         print_results(result)
         if isinstance(result, list):
             for r in result:
@@ -407,7 +408,10 @@ def benchmark_single_dataloader(
             else 0,  # Combined time when no separate dataset factory
             "dataloader_instantiation_time_seconds": setup_time,
         }
-    disk_size_mb = get_disk_size(data_path)
+    if isinstance(data_path, str) and data_path.startswith("s3"):
+        disk_size_mb = None
+    else:
+        disk_size_mb = get_disk_size(data_path)
 
     results = []
     for run_idx in range(num_runs):
@@ -460,11 +464,15 @@ def print_results(result_or_results: Union[BenchmarkResult, List[BenchmarkResult
         print(f"Samples/sec: {result.samples_per_second:.2f}")
         print(f"Total samples: {result.total_samples}")
         print(f"Total time: {result.total_time_seconds:.3f}s")
+        print(f"Overall time: {result.overall_time_seconds:.3f}s")
         print(f"Dataset instantiation: {result.dataset_instantiation_time_seconds:.3f}s")
         print(f"Dataloader instantiation: {result.dataloader_instantiation_time_seconds:.3f}s")
         print(f"Peak memory durint iteration: {result.peak_memory_mb:.1f} MB")
         print(f"Peak memory during instantiation: {result.peak_memory_during_instantiation_mb:.1f} MB")
-        print(f"Disk size: {result.disk_size_mb:.1f} MB")
+        if result.disk_size_mb is not None:
+            print(f"Disk size: {result.disk_size_mb:.1f} MB")
+        else:
+            print("Disk size: N/A")
         print("=" * 60 + "\n")
 
 

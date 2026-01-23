@@ -273,6 +273,8 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         cache_dir: Optional[str] = None,
         max_cached_chunks: int = 2,
         storage_options: Optional[Dict] = None,
+        batch_download_size: int = 10,
+        use_async_downloads: bool = True,
     ):
         """Load a chunked dataset from remote storage (S3, GCS, HTTP).
 
@@ -281,9 +283,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             cache_dir: Local directory for caching chunks. If None, uses temp directory.
             max_cached_chunks: Maximum number of chunks to keep in cache.
             storage_options: Options passed to fsspec (e.g., {"endpoint_url": "https://..."} for S3).
+            batch_download_size: Number of chunks to download in parallel.
+            use_async_downloads: Whether to use async downloads (currently unused).
         """
         loader = RemoteChunkLoader(
-            remote_path, Path(cache_dir) if cache_dir else None, max_cached_chunks, storage_options
+            remote_path,
+            Path(cache_dir) if cache_dir else None,
+            max_cached_chunks,
+            storage_options,
+            batch_download_size=batch_download_size,
+            use_async_downloads=use_async_downloads,
         )
         metadata_path = loader.get_metadata()
         ds = cls.__new__(cls)
@@ -295,10 +304,16 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         ds.mode = Mode.READ_APPEND
         ds._is_chunked = False
         ds._chunks = []
-        ds.dtypes = {}
+        ds.dtypes = {}  # Will be populated from header in load()
         ds._var_feature_index = None
         ds._obs_feature_index = None
+
         ds.load(str(metadata_path))
+
+        # Pass dtypes to loader after they're loaded from header
+        if ds.dtypes:
+            loader.set_dtypes(ds.dtypes)
+
         return ds
 
     def _extract_neighbor_data(self, adata) -> bool:
@@ -480,8 +495,10 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
         if self._is_chunked:
             chunk_id, local_idx = self.header.chunked_info.get_chunk_for_row(index)
             if self._chunk_loader:
-                data, rowptr, colptr = self._load_chunk_from_path(self._chunk_loader.get_chunk(chunk_id))
+                # Remote: loader returns memmaps directly (handles caching internally)
+                data, rowptr, colptr = self._chunk_loader.get_chunk(chunk_id)
             else:
+                # Local: use pre-loaded chunk memmaps
                 data, rowptr, colptr = self._chunks[chunk_id]
             start, end = rowptr[local_idx], rowptr[local_idx + 1]
             values, columns = data[start:end], colptr[start:end]
@@ -779,11 +796,22 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             self._chunks.append(self._load_chunk_from_path(chunk_path))
 
     def _load_chunk_from_path(self, chunk_path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """Load memmaps for a single chunk directory."""
+        """Load memmaps for a single chunk directory.
+
+        Uses np.memmap when dtypes are known (faster), falls back to np.load otherwise.
+        """
+        # Use np.memmap when dtypes are available (faster than np.load)
+        if self.dtypes:
+            return (
+                np.memmap(chunk_path / FileNames.DATA.value, dtype=self.dtypes[FileNames.DATA.value], mode="r"),
+                np.memmap(chunk_path / FileNames.ROWPTR.value, dtype=self.dtypes[FileNames.ROWPTR.value], mode="r"),
+                np.memmap(chunk_path / FileNames.COLPTR.value, dtype=self.dtypes[FileNames.COLPTR.value], mode="r"),
+            )
+        # Fallback to np.load which auto-detects dtype from .npy header
         return (
-            np.memmap(chunk_path / FileNames.DATA.value, dtype=self.dtypes[FileNames.DATA.value], mode="r"),
-            np.memmap(chunk_path / FileNames.ROWPTR.value, dtype=self.dtypes[FileNames.ROWPTR.value], mode="r"),
-            np.memmap(chunk_path / FileNames.COLPTR.value, dtype=self.dtypes[FileNames.COLPTR.value], mode="r"),
+            np.load(chunk_path / FileNames.DATA.value, mmap_mode="r"),
+            np.load(chunk_path / FileNames.ROWPTR.value, mmap_mode="r"),
+            np.load(chunk_path / FileNames.COLPTR.value, mmap_mode="r"),
         )
 
     def _write_metadata(self) -> None:

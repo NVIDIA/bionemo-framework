@@ -29,8 +29,18 @@ def partition_scdl(
     output_path: Path,
     chunk_size: int = 100_000,
     delete_original: bool = False,
+    compressed: bool = False,
 ) -> SCDLHeader:
-    """Partition an SCDL dataset into chunks."""
+    """Partition an SCDL dataset into chunks.
+
+    Args:
+        input_path: Path to source SCDL dataset.
+        output_path: Path for output chunked dataset.
+        chunk_size: Number of rows per chunk.
+        delete_original: Whether to delete the source after partitioning.
+        compressed: If True, save each chunk as a single compressed .npz file
+                   (faster for remote access - 3x fewer HTTP requests).
+    """
     from bionemo.scdl.io.single_cell_memmap_dataset import SingleCellMemMapDataset
 
     input_path, output_path = Path(input_path), Path(output_path)
@@ -61,14 +71,27 @@ def partition_scdl(
 
         data_start, data_end = int(rowptr[row_start]), int(rowptr[row_end])
 
-        # Write chunk files using memmap slicing
+        # Extract chunk data
         chunk_rowptr = rowptr[row_start : row_end + 1] - data_start
-        with open(chunk_dir / FileNames.ROWPTR.value, "wb") as f:
-            f.write(chunk_rowptr.astype(source_ds.dtypes[FileNames.ROWPTR.value]).tobytes())
-        with open(chunk_dir / FileNames.DATA.value, "wb") as f:
-            f.write(np.array(source_ds.data[data_start:data_end]).tobytes())
-        with open(chunk_dir / FileNames.COLPTR.value, "wb") as f:
-            f.write(np.array(source_ds.col_index[data_start:data_end]).tobytes())
+        chunk_data = np.array(source_ds.data[data_start:data_end])
+        chunk_colptr = np.array(source_ds.col_index[data_start:data_end])
+
+        if compressed:
+            # Single compressed file (faster for remote access)
+            np.savez_compressed(
+                chunk_dir / "chunk.npz",
+                data=chunk_data,
+                row_ptr=chunk_rowptr.astype(source_ds.dtypes[FileNames.ROWPTR.value]),
+                col_ptr=chunk_colptr,
+            )
+        else:
+            # Separate files (original format)
+            with open(chunk_dir / FileNames.ROWPTR.value, "wb") as f:
+                f.write(chunk_rowptr.astype(source_ds.dtypes[FileNames.ROWPTR.value]).tobytes())
+            with open(chunk_dir / FileNames.DATA.value, "wb") as f:
+                f.write(chunk_data.tobytes())
+            with open(chunk_dir / FileNames.COLPTR.value, "wb") as f:
+                f.write(chunk_colptr.tobytes())
 
     # Copy features and metadata
     for name in [FileNames.VAR_FEATURES.value, FileNames.OBS_FEATURES.value]:
