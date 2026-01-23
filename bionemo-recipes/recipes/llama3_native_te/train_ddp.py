@@ -152,7 +152,7 @@ def main(args: DictConfig) -> float | None:
 
     # Handle Megatron-style scaled initialization for residual output layers
     if getattr(args, "use_megatron_scaled_init", False):
-        config_kwargs_dict["use_scaled_init"] = True
+        config_kwargs_dict["use_megatron_scaled_init"] = True
         logger.info("Megatron scaled init enabled for proj/fc2 layers")
 
     config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **config_kwargs_dict)
