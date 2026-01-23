@@ -640,9 +640,10 @@ def main(args: DictConfig) -> float | None:
                 accumulated_loss_sum += loss_sum.item()
                 accumulated_tokens += num_tokens
 
-                # Scale loss for backward pass (will divide by total tokens at the end)
-                # For now, just use sum/tokens for this microbatch, scaled by grad_acc_steps
-                loss = loss_sum / max(num_tokens, 1) / args.grad_acc_steps
+                # Backward pass: use per-token loss for this microbatch
+                # DO NOT divide by grad_acc_steps - gradients naturally accumulate over microbatches
+                # This matches Megatron's behavior where each token contributes equally to the gradient
+                loss = loss_sum / max(num_tokens, 1)
                 loss.backward()
 
                 # Log microbatch with Megatron-style metrics
