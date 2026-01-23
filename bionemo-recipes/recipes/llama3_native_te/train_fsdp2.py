@@ -655,7 +655,8 @@ def main(args: DictConfig) -> float | None:
                 )
             else:
                 # HuggingFace-style: use the mean loss directly
-                loss = outputs.loss / args.grad_acc_steps
+                # DO NOT divide by grad_acc_steps - gradients naturally accumulate over microbatches
+                loss = outputs.loss
                 loss.backward()
 
                 # Track loss sum and count for all-reduce (to match Megatron's global averaging)
