@@ -12,6 +12,8 @@ validation_interval: 20
 
 use_torch_compile: true
 
+use_sequence_packing: true
+
 dataset:
   tokenizer_name: ${model_tag}
   micro_batch_size: 8

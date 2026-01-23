@@ -8,6 +8,8 @@ validation_interval: 50
 # We leave this off by default since we don't see much of a performance improvement with TE layers.
 use_torch_compile: false
 
+use_sequence_packing: false
+
 dataset:
   tokenizer_name: ${model_tag}
   micro_batch_size: ???

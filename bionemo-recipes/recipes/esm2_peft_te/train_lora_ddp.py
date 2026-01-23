@@ -68,6 +68,7 @@ def main(args: DictConfig) -> float:
     train_dataloader, val_dataloader, train_dataset_or_sampler = create_dataloader(
         distributed_config=dist_config,
         perform_validation=args.perform_validation,
+        use_sequence_packing=args.use_sequence_packing,
         **args.dataset,
     )
 
@@ -77,6 +78,9 @@ def main(args: DictConfig) -> float:
 
     # For testing, we don't want to depend on loading pre-trained weights.
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
+    if args.use_sequence_packing:
+        config.attn_input_format = "thd"
+
     if args.dataset["ss3_classification"]:
         config.id2label = SS3_ID2LABEL
         config.label2id = SS3_LABEL2ID
@@ -143,7 +147,7 @@ def main(args: DictConfig) -> float:
     while step < args.num_train_steps:
         for batch in train_dataloader:
             perf_logger.log_train_start_time()
-            batch = {k: v.to(device) for k, v in batch.items()}  # noqa PLW2901
+            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW2901
             # print(batch["input_ids"].shape)
             # Monitor largest weight BEFORE forward pass
             max_weight = 0.0
@@ -202,7 +206,9 @@ def main(args: DictConfig) -> float:
                 val_steps = 0
                 with torch.no_grad():
                     for val_batch in val_dataloader:
-                        val_batch = {k: v.to(device) for k, v in val_batch.items()}  # noqa PLW2901
+                        val_batch = {  # noqa: PLW2901
+                            k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in val_batch.items()
+                        }
                         val_output = peft_model(**val_batch)
 
                         # Loss

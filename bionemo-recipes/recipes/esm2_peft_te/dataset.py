@@ -20,8 +20,10 @@ from torch.utils.data import DataLoader, DistributedSampler
 from transformers import (
     AutoTokenizer,
     DataCollatorForTokenClassification,
+    DataCollatorWithFlattening,
 )
 
+from collator import TokenPackingDataset
 from distributed_config import DistributedConfig
 from utils import SS3_LABEL2ID, SS8_LABEL2ID
 
@@ -29,6 +31,7 @@ from utils import SS3_LABEL2ID, SS8_LABEL2ID
 def create_dataloader(
     distributed_config: DistributedConfig,
     perform_validation: bool,
+    use_sequence_packing: bool,
     tokenizer_name: str,
     micro_batch_size: int,
     val_micro_batch_size: int,
@@ -60,11 +63,12 @@ def create_dataloader(
         )
         train_dataset = train_dataset.shuffle(seed=seed, buffer_size=10_000)
 
-        val_dataset = datasets.distributed.split_dataset_by_node(
-            val_dataset,
-            rank=distributed_config.rank,
-            world_size=distributed_config.world_size,
-        )
+        if perform_validation:
+            val_dataset = datasets.distributed.split_dataset_by_node(
+                val_dataset,
+                rank=distributed_config.rank,
+                world_size=distributed_config.world_size,
+            )
 
     if ss3_classification:
         ss_token_map = SS3_LABEL2ID
@@ -127,11 +131,25 @@ def create_dataloader(
             seed=seed,
         )
 
-    collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding="max_length", max_length=1024)
+    if use_sequence_packing:
+        assert isinstance(train_tokenized_dataset, datasets.IterableDataset), (
+            "THD token packing requires a streaming dataset."
+        )
+        collator = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
+        train_tokenized_dataset = TokenPackingDataset(
+            train_tokenized_dataset, max_tokens_per_batch=micro_batch_size * max_seq_length
+        )
+        batch_size = None  # The TokenPackingDataset will handle the batching.
+    else:
+        collator = DataCollatorForTokenClassification(
+            tokenizer=tokenizer, padding="max_length", max_length=max_seq_length
+        )
+        batch_size = micro_batch_size
+
     train_dataloader = DataLoader(
         train_tokenized_dataset,
         sampler=train_sampler,
-        batch_size=micro_batch_size,
+        batch_size=batch_size,
         collate_fn=collator,
         num_workers=num_workers,
         pin_memory=True,
@@ -144,7 +162,7 @@ def create_dataloader(
             remove_columns=[col for col in val_dataset.features if col not in ["input_ids", "labels"]],
         )
 
-        if isinstance(train_tokenized_dataset, IterableDataset):
+        if isinstance(val_tokenized_dataset, IterableDataset):
             val_sampler = None
         else:
             val_sampler = DistributedSampler(
@@ -154,11 +172,25 @@ def create_dataloader(
                 seed=seed,
             )
 
-        collator = DataCollatorForTokenClassification(tokenizer=tokenizer, padding="max_length", max_length=1024)
+        if use_sequence_packing:
+            assert isinstance(val_tokenized_dataset, datasets.IterableDataset), (
+                "THD token packing requires a streaming dataset."
+            )
+            collator = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
+            val_tokenized_dataset = TokenPackingDataset(
+                val_tokenized_dataset, max_tokens_per_batch=micro_batch_size * max_seq_length
+            )
+            val_batch_size = None  # The TokenPackingDataset will handle the batching.
+        else:
+            collator = DataCollatorForTokenClassification(
+                tokenizer=tokenizer, padding="max_length", max_length=max_seq_length
+            )
+            val_batch_size = val_micro_batch_size
+
         val_dataloader = DataLoader(
             val_tokenized_dataset,
             sampler=val_sampler,
-            batch_size=val_micro_batch_size,
+            batch_size=val_batch_size,
             collate_fn=collator,
             num_workers=num_workers,
             pin_memory=True,

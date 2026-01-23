@@ -16,6 +16,8 @@
 
 """Demonstration of LoRA fine-tuning of ESM-2 with Transformer Engine and PEFT."""
 
+import logging
+
 import hydra
 import torch
 from omegaconf import DictConfig
@@ -38,6 +40,10 @@ from utils import (
 )
 
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float:
     """Training loop for LoRA fine-tuning of ESM-2 with Transformer Engine and PEFT.
@@ -50,12 +56,22 @@ def main(args: DictConfig) -> float:
     """
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
+    logger.info("Initializing distributed training: %s", dist_config)
+    device = torch.device(f"cuda:{dist_config.local_rank}")
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    torch.cuda.set_device(dist_config.local_rank)
 
     train_dataloader, val_dataloader, train_dataset_or_sampler = create_dataloader(
-        distributed_config=dist_config, perform_validation=args.perform_validation, **args.dataset
+        distributed_config=dist_config,
+        perform_validation=args.perform_validation,
+        use_sequence_packing=args.use_sequence_packing,
+        **args.dataset,
     )
 
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
+    if args.use_sequence_packing:
+        config.attn_input_format = "thd"
+
     if args.dataset["ss3_classification"]:
         config.id2label = SS3_ID2LABEL
         config.label2id = SS3_LABEL2ID
@@ -80,7 +96,7 @@ def main(args: DictConfig) -> float:
     )
 
     peft_model = peft.get_peft_model(model, peft_config)
-    peft_model.to("cuda", dtype=torch.bfloat16)
+    peft_model.to(device, dtype=torch.bfloat16)
 
     print("----- PEFT Model --------")
     peft_model.print_trainable_parameters()
@@ -114,7 +130,7 @@ def main(args: DictConfig) -> float:
     while step < args.num_train_steps:
         for batch in train_dataloader:
             perf_logger.log_train_start_time()
-            batch = {k: v.to("cuda") for k, v in batch.items()}  # noqa PLW2901
+            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW290
             # print(batch["input_ids"].shape)
             output = peft_model(**batch)
             loss = output.loss
@@ -142,7 +158,9 @@ def main(args: DictConfig) -> float:
                 val_steps = 0
                 with torch.no_grad():
                     for val_batch in val_dataloader:
-                        val_batch = {k: v.to("cuda") for k, v in val_batch.items()}  # noqa PLW2901
+                        val_batch = {  # noqa: PLW2901
+                            k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in val_batch.items()
+                        }
                         val_output = peft_model(**val_batch)
 
                         # Loss
