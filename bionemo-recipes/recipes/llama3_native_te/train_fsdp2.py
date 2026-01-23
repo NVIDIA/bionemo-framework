@@ -640,10 +640,9 @@ def main(args: DictConfig) -> float | None:
                 accumulated_loss_sum += loss_sum.item()
                 accumulated_tokens += num_tokens
 
-                # Backward pass: use per-token loss for this microbatch
-                # DO NOT divide by grad_acc_steps - gradients naturally accumulate over microbatches
-                # This matches Megatron's behavior where each token contributes equally to the gradient
-                loss = loss_sum / max(num_tokens, 1)
+                # Backward pass: use per-token loss for this microbatch, scaled by grad_acc_steps
+                # This matches Megatron's legacy behavior where loss is divided by num_microbatches
+                loss = loss_sum / max(num_tokens, 1) / args.grad_acc_steps
                 loss.backward()
 
                 # Log microbatch with Megatron-style metrics
@@ -654,9 +653,8 @@ def main(args: DictConfig) -> float | None:
                     num_tokens=num_tokens,
                 )
             else:
-                # HuggingFace-style: use the mean loss directly
-                # DO NOT divide by grad_acc_steps - gradients naturally accumulate over microbatches
-                loss = outputs.loss
+                # HuggingFace-style: use the mean loss directly, scaled by grad_acc_steps
+                loss = outputs.loss / args.grad_acc_steps
                 loss.backward()
 
                 # Track loss sum and count for all-reduce (to match Megatron's global averaging)
