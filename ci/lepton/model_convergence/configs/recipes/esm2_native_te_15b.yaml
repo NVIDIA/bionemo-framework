@@ -176,4 +176,4 @@ run_script: |
     checkpoint.resume_from_checkpoint=${resume_from_checkpoint} \
     +checkpoint.save_checkpoints=${save_checkpoints} \
     +checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2} \
-    fp8_config.enabled=${fp8_enabled} 
+    fp8_config.enabled=${fp8_enabled}
