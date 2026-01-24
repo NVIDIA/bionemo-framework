@@ -41,7 +41,7 @@ from transformers.models.esm.configuration_esm import EsmConfig
 from transformers.models.esm.modeling_esm import EsmPooler, EsmPreTrainedModel
 from transformers.utils import logging
 from transformers.utils.generic import TransformersKwargs
-
+from contextlib import nullcontext
 
 logger = logging.get_logger(__name__)
 
@@ -199,22 +199,36 @@ class NVEsmEncoder(nn.Module):
             te_rope_emb = self.rotary_embeddings(max_seq_len=self.config.max_position_embeddings)
             te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
 
+        # Set some layers to BF16. (28-33) (This will be from a config later).
+        # TODO: Also make sure this is only for FP4, not FP8
+        layers_to_bf16 = {self.layers[-1],
+                        self.layers[-2],
+                        self.layers[-3],
+                        self.layers[-4],
+                        self.layers[-5],
+                        self.layers[-6]}
         for layer_module in self.layers:
+            if layer_module in layers_to_bf16:
+                fp_context = transformer_engine.pytorch.autocast(enabled=False)
+            else:
+                fp_context = nullcontext()
+
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            hidden_states = layer_module(
-                hidden_states,
-                attention_mask,
-                rotary_pos_emb=te_rope_emb,
-                cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
-                cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
-                cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
-                cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
-                max_seqlen_q=kwargs.get("max_length_q", None),
-                max_seqlen_kv=kwargs.get("max_length_k", None),
-                pad_between_seqs=kwargs.get("pad_between_seqs", None),
-            )
+            with fp_context:
+                hidden_states = layer_module(
+                    hidden_states,
+                    attention_mask,
+                    rotary_pos_emb=te_rope_emb,
+                    cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
+                    cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                    cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
+                    cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
+                    max_seqlen_q=kwargs.get("max_length_q", None),
+                    max_seqlen_kv=kwargs.get("max_length_k", None),
+                    pad_between_seqs=kwargs.get("pad_between_seqs", None),
+                )
 
         hidden_states = self.emb_layer_norm_after(hidden_states)
 
