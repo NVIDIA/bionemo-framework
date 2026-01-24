@@ -91,16 +91,16 @@ products:
     wandb_name: "esm2_native_650m__fsdp2__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
     job_name: "esm2-native-650m-fsdp2-thd"
   # OSS Convergence Baseline
-  - config: L1_650M
-    model_tag: facebook/esm2_t33_650M_UR50D
-    num_nodes: 8
-    num_devices: 8
-    task_cmd: train_fsdp2
-    parallelism_strategy: fsdp2
-    thd_enabled: false
-    micro_batch_size: 32
-    wandb_name: "esm2_native_650m__fsdp2__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2-native-650m-fsdp2"
+  # - config: L1_650M
+  #   model_tag: facebook/esm2_t33_650M_UR50D
+  #   num_nodes: 8
+  #   num_devices: 8
+  #   task_cmd: train_fsdp2
+  #   parallelism_strategy: fsdp2
+  #   thd_enabled: false
+  #   micro_batch_size: 32
+  #   wandb_name: "esm2_native_650m__fsdp2__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2-native-650m-fsdp2"
 
 ############################################################
 # run script
