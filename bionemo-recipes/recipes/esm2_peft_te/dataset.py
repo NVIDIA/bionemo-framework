@@ -30,7 +30,6 @@ from utils import SS3_LABEL2ID, SS8_LABEL2ID
 
 def create_dataloader(
     distributed_config: DistributedConfig,
-    perform_validation: bool,
     use_sequence_packing: bool,
     tokenizer_name: str,
     micro_batch_size: int,
@@ -38,22 +37,26 @@ def create_dataloader(
     num_workers: int,
     max_seq_length: int,
     stride: int,
-    validation_samples: int,
     seed: int,
     ss3_classification: bool,
     load_dataset_kwargs: dict,
 ) -> tuple[DataLoader, DataLoader | None, IterableDataset | DistributedSampler]:
     """Create a dataloader for the secondary structure dataset."""
-    train_dataset = load_dataset(**load_dataset_kwargs)
+    dataset_or_dataset_dict = load_dataset(**load_dataset_kwargs)
+
+    if isinstance(dataset_or_dataset_dict, dict):
+        train_dataset = dataset_or_dataset_dict.get("train")
+        assert train_dataset, "'train' split must be specified."
+        val_dataset = dataset_or_dataset_dict.get("validation")
+    else:
+        train_dataset = dataset_or_dataset_dict
+        val_dataset = None
 
     print(
         f"Loading dataset: path: '{load_dataset_kwargs['path']}' | data_files: '{load_dataset_kwargs['data_files']}'."
     )
 
-    # Split into train/val BEFORE any distributed operations
-    if perform_validation:
-        val_dataset = train_dataset.take(validation_samples)
-        train_dataset = train_dataset.skip(validation_samples)
+    perform_validation = val_dataset is not None
 
     if isinstance(train_dataset, IterableDataset):
         train_dataset = datasets.distributed.split_dataset_by_node(

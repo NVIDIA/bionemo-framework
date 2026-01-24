@@ -21,7 +21,7 @@ from pathlib import Path
 
 import hydra
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from transformers import (
     AutoConfig,
@@ -67,10 +67,11 @@ def main(args: DictConfig) -> float:
 
     train_dataloader, val_dataloader, train_dataset_or_sampler = create_dataloader(
         distributed_config=dist_config,
-        perform_validation=args.perform_validation,
         use_sequence_packing=args.use_sequence_packing,
-        **args.dataset,
+        **OmegaConf.to_container(args.dataset, resolve=True),
     )
+
+    perform_validation = val_dataloader is not None
 
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
     # and MFSDP.
@@ -167,7 +168,7 @@ def main(args: DictConfig) -> float:
             # Validation
             avg_val_loss = None
             avg_val_acc = None
-            if args.perform_validation and step % args.validation_interval == 0:
+            if perform_validation and step % args.validation_interval == 0:
                 peft_model.eval()
                 val_loss_total = 0.0
                 val_correct_total = 0

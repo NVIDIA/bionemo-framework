@@ -1,7 +1,6 @@
 # Training config
 model_tag: ??? # E.g., nvidia/esm2_t6_8M_UR50D, facebook/esm2_t6_8M_UR50D, or a local path (e.g ./example_8m_checkpoint)
 num_train_steps: ???
-perform_validation: false
 validation_interval: 50
 
 # Whether to wrap the model in torch.compile. Note, this is currently not supported with mfsdp (BIONEMO-2977).
@@ -17,7 +16,6 @@ dataset:
   num_workers: 1
   max_seq_length: 1024
   stride: 16
-  validation_samples: 16
   seed: 42
   ss3_classification: true
   load_dataset_kwargs:

@@ -7,7 +7,6 @@ model_tag: nvidia/esm2_t48_15B_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook
 use_pretrained: true
 num_train_steps: 1000
 
-perform_validation: true
 validation_interval: 20
 
 use_torch_compile: true
@@ -21,12 +20,13 @@ dataset:
   num_workers: 1
   max_seq_length: 1024
   stride: 16
-  validation_samples: 5098
   ss3_classification: true
   load_dataset_kwargs:
     path: "parquet"
-    split: "train"
-    data_files: "porter6_dataset_25k.parquet"
+    split: null
+    data_files:
+      train: "data/porter6_train_dataset_55k.parquet"
+      validation: "data/porter6_val_dataset_2024_692.parquet"
 
 # WandB config
 wandb_init_args:
