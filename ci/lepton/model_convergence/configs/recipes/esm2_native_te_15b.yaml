@@ -32,6 +32,8 @@ framework: native # native, accelerate
 precision: bf16 # likely bf16 or fp8
 te_enabled: true
 fp8_enabled: false
+fp8_recipe: ""
+fp8_format: ""
 # thd_enabled: false
 
 # Catchall for additional features/configs
@@ -82,47 +84,65 @@ use_distributed_checkpoint_fsdp2: false
 ############################################################
 products:
   # TE bshd perf, FSDP2
-  - config: L1_15B_perf_test
-    task_cmd: train_fsdp2
-    parallelism_strategy: fsdp2
-    thd_enabled: false
-    micro_batch_size: 8
-    wandb_name: "esm2_native_15b__fsdp2__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2-native-15b-fsdp2"
+  # - config: L1_15B_perf_test
+  #   task_cmd: train_fsdp2
+  #   parallelism_strategy: fsdp2
+  #   thd_enabled: false
+  #   micro_batch_size: 8
+  #   wandb_name: "esm2_native_15b__fsdp2__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2-native-15b-fsdp2"
   # TE thd perf, FSDP2
-  - config: L1_15B_perf_test
-    task_cmd: train_fsdp2
-    parallelism_strategy: fsdp2
-    thd_enabled: true
-    micro_batch_size: 8
-    wandb_name: "esm2_native_15b__fsdp2__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2-native-15b-fsdp2-thd"
+  # - config: L1_15B_perf_test
+  #   task_cmd: train_fsdp2
+  #   parallelism_strategy: fsdp2
+  #   thd_enabled: true
+  #   micro_batch_size: 8
+  #   wandb_name: "esm2_native_15b__fsdp2__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2-native-15b-fsdp2-thd"
   # TE bshd perf, MFSDP
-  - config: L1_15B_perf_test
-    task_cmd: train_mfsdp
-    parallelism_strategy: mfsdp
-    thd_enabled: false
-    micro_batch_size: 6
-    wandb_name: "esm2_native_15b__mfsdp__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2-native-15b-mfsdp"
+  # - config: L1_15B_perf_test
+  #   task_cmd: train_mfsdp
+  #   parallelism_strategy: mfsdp
+  #   thd_enabled: false
+  #   micro_batch_size: 6
+  #   wandb_name: "esm2_native_15b__mfsdp__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2-native-15b-mfsdp"
   # TE thd perf, MFSDP
-  - config: L1_15B_perf_test
-    task_cmd: train_mfsdp
-    parallelism_strategy: mfsdp
-    thd_enabled: true
-    micro_batch_size: 6
-    wandb_name: "esm2_native_15b__mfsdp__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2-native-15b-mfsdp-thd"
+  # - config: L1_15B_perf_test
+  #   task_cmd: train_mfsdp
+  #   parallelism_strategy: mfsdp
+  #   thd_enabled: true
+  #   micro_batch_size: 6
+  #   wandb_name: "esm2_native_15b__mfsdp__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2-native-15b-mfsdp-thd"
   # OSS performance baseline, until torch.compile is figured out
+  # - config: L1_15B_perf_test
+  #   model_tag: facebook/esm2_t48_15B_UR50D
+  #   task_cmd: train_fsdp2
+  #   parallelism_strategy: fsdp2
+  #   thd_enabled: false
+  #   use_torch_compile: false
+  #   micro_batch_size: 4
+  #   wandb_name: "esm2_native_15b__fsdp2__baseline__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2-native-15b-fsdp2-baseline"
+  # TE bshd perf, FSDP2, FP8
   - config: L1_15B_perf_test
-    model_tag: facebook/esm2_t48_15B_UR50D
     task_cmd: train_fsdp2
     parallelism_strategy: fsdp2
     thd_enabled: false
-    use_torch_compile: false
-    micro_batch_size: 4
-    wandb_name: "esm2_native_15b__fsdp2__baseline__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2-native-15b-fsdp2-baseline"
+    fp8_enabled: true
+    micro_batch_size: 8
+    wandb_name: "esm2_native_15b__fsdp2__fp8__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "esm2-native-15b-fsdp2-fp8"
+  # TE thd perf, FSDP2, FP8
+  - config: L1_15B_perf_test
+    task_cmd: train_fsdp2
+    parallelism_strategy: fsdp2
+    thd_enabled: true
+    fp8_enabled: true
+    micro_batch_size: 8
+    wandb_name: "esm2_native_15b__fsdp2__thd__fp8__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "esm2-native-15b-fsdp2-thd-fp8"
 
 ############################################################
 # run script
@@ -156,4 +176,4 @@ run_script: |
     checkpoint.resume_from_checkpoint=${resume_from_checkpoint} \
     +checkpoint.save_checkpoints=${save_checkpoints} \
     +checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2} \
-    fp8_config.enabled=${fp8_enabled}
+    fp8_config.enabled=${fp8_enabled} 
