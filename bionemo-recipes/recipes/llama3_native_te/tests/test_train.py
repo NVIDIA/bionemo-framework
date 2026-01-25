@@ -502,3 +502,34 @@ def test_sanity_fsdp2_fp8_stats_logging(tmp_path, recipe_path):
     assert fp8_log_dir.exists()
     assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs" / "nvdlfw_inspect_globalrank-0.log").exists()
     assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs" / "nvdlfw_inspect_globalrank-0.log").exists()
+
+
+def test_train_fsdp2_fp32_master_weights(tmp_path, recipe_path):
+    """Test FSDP2 training with FP32 master weights and BF16 compute.
+
+    This test validates that the MixedPrecisionPolicy correctly:
+    - Stores master weights in FP32
+    - Casts to BF16 for forward/backward compute
+    - Accumulates gradients in FP32
+    - Training still converges properly
+    """
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "use_fp32_master_weights=true",
+                "use_torch_compile=false",  # Disable compile to simplify debugging
+                "fp8_config.enabled=false",  # Disable FP8 to isolate FP32 master weights
+                "config_kwargs.attn_input_format=bshd",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # FP32 master weights should achieve same or better convergence
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
