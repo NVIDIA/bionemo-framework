@@ -1,7 +1,7 @@
 # Contributing Guidelines
 
 !!! note
-For code review standards please see the [Code Review](code-review.md) page.
+    For code review standards please see the [Code Review](code-review.md) page.
 
 ```
 For all PRs, an approved NVIDIA staff member must sign off and trigger the continuous integration (CI) tests.
@@ -31,7 +31,7 @@ Signed-off-by: Your Name <your@email.com>
 ```
 
 If you would like this to happen automatically to all of your commits, you can modify
-your local `~/.git-config-template.txt` file. You can do this with a command like the
+your local `~/.git-commit-template.txt` file. You can do this with a command like the
 following:
 
 ```
@@ -109,7 +109,7 @@ submitting. Labels can be accessed in the right sidebar of the GitHub user inter
 
 ### CI Pipeline Configuration Controls
 
-CI pipeline behavior can be controlled labels to optimize test execution:
+CI pipeline behavior can be controlled by labels to optimize test execution:
 
 Key behaviors:
 
@@ -181,9 +181,9 @@ For both internal and external developers, the next step is opening a PR:
    [requested](https://help.github.com/en/articles/creating-a-pull-request) to merge the changes from a branch of the
    fork or branch into `main`.
    - Exercise caution when selecting the source and target branches for the PR.
-     Note that versioned releases of TensorRT OSS are posted to `release/` branches of the upstream repo.
-   - Creation of a PR creation kicks off the code review process.
-   - At least one TensorRT engineer will be assigned for the review.
+     Note that versioned releases of BioNeMo are posted to `release/` branches of the upstream repo.
+   - Creation of a PR kicks off the code review process.
+   - At least one BioNeMo engineer will be assigned for the review.
    - While under review, mark your PRs as work-in-progress by prefixing the PR title with [WIP].
 2. Once ready, CI can be started by a developer with permissions when they add a `/build-ci` comment. This must pass
    prior to merging.

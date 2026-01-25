@@ -1,8 +1,7 @@
 # Training Models
 
 !!! note "5D Parallel Training Moved to bionemo-recipes"
-The 5D parallel training implementations for ESM-2 and Geneformer have been migrated to simplified TransformerEngine + FSDP implementations in [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes). For training these models, please refer to the recipes in `bionemo-recipes/recipes/` (e.g., `esm2_native_te`, `geneformer_native_te_mfsdp_fp8`). The instructions below work for bi
-onemo-framework container releases \<2.7.1.
+    The 5D parallel training implementations for ESM-2 and Geneformer have been migrated to simplified TransformerEngine + FSDP implementations in [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes). For training these models, please refer to the recipes in `bionemo-recipes/recipes/` (e.g., `esm2_native_te`, `geneformer_native_te_mfsdp_fp8`). The instructions below work for bionemo-framework container releases \<2.7.1.
 
 ## Pydantic Configuration
 
