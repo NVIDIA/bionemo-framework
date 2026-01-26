@@ -52,6 +52,83 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+@torch.no_grad()
+def run_validation(
+    model: torch.nn.Module,
+    val_dataloader,
+    num_batches: int,
+    device: torch.device,
+    dist_config: DistributedConfig,
+    fp8_config: DictConfig,
+    fp8_recipe,
+    autocast_ctx,
+) -> dict:
+    """Run validation and compute loss metrics.
+
+    Args:
+        model: The model to evaluate.
+        val_dataloader: DataLoader for validation data.
+        num_batches: Number of batches to evaluate.
+        device: Device to run on.
+        dist_config: Distributed config for logging.
+        fp8_config: FP8 configuration.
+        fp8_recipe: FP8 recipe for autocast.
+        autocast_ctx: Autocast context manager.
+
+    Returns:
+        Dictionary with val_loss and val_ppl.
+    """
+    model.eval()
+
+    total_loss = 0.0
+    total_tokens = 0
+    num_evaluated = 0
+
+    for batch in val_dataloader:
+        if num_evaluated >= num_batches:
+            break
+
+        batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
+
+        # Forward pass with same precision as training
+        with autocast_ctx:
+            with transformer_engine.pytorch.fp8_autocast(enabled=fp8_config.enabled, fp8_recipe=fp8_recipe):
+                outputs = model(**batch)
+
+        # Get loss from model output
+        loss = outputs.loss
+        if loss is not None:
+            total_loss += loss.item()
+            # Count valid tokens (non-padding labels)
+            labels = batch.get("labels", None)
+            if labels is not None:
+                num_tokens = (labels != -100).sum().item()
+            else:
+                num_tokens = batch["input_ids"].numel()
+            total_tokens += num_tokens
+        num_evaluated += 1
+
+    # Aggregate across ranks
+    loss_tensor = torch.tensor([total_loss, float(total_tokens), float(num_evaluated)], device=device)
+    torch.distributed.all_reduce(loss_tensor)
+    global_loss = loss_tensor[0].item()
+    global_tokens = int(loss_tensor[1].item())
+    global_batches = int(loss_tensor[2].item())
+
+    # Compute average loss (HF-style mean across batches)
+    avg_loss = global_loss / max(global_batches, 1)
+    perplexity = torch.exp(torch.tensor(avg_loss)).item()
+
+    model.train()
+
+    return {
+        "val_loss": avg_loss,
+        "val_ppl": perplexity,
+        "val_tokens": global_tokens,
+        "val_batches": global_batches,
+    }
+
+
 def set_seed(seed: int) -> None:
     """Set random seeds for reproducibility.
 
@@ -217,6 +294,47 @@ def main(args: DictConfig) -> float | None:
 
     perf_logger = PerfLogger(dist_config, args)
 
+    # Setup validation if enabled
+    val_config = getattr(args, "validation", None)
+    val_enabled = val_config is not None and getattr(val_config, "enabled", False)
+    val_dataloader = None
+
+    if val_enabled:
+        val_data_path = getattr(val_config, "data_path", None)
+        if val_data_path:
+            logger.info(f"Setting up validation dataloader from {val_data_path}")
+
+            # Create validation dataloader config - copy training config and override data path
+            val_dataset_kwargs = OmegaConf.to_container(args.dataset, resolve=True)
+
+            # Override load_dataset_kwargs for validation data
+            val_dataset_kwargs["load_dataset_kwargs"] = {
+                "path": "json",
+                "data_files": val_data_path,
+                "split": "train",
+                "streaming": True,
+            }
+
+            # Don't use stateful dataloader for validation
+            val_dataset_kwargs["use_stateful_dataloader"] = False
+
+            # Optionally override validation batch size
+            if hasattr(val_config, "micro_batch_size") and val_config.micro_batch_size is not None:
+                val_dataset_kwargs["micro_batch_size"] = val_config.micro_batch_size
+
+            # Use same data format as training
+            if args.use_sequence_packing:
+                val_dataloader, _ = create_thd_dataloader(dist_config, **val_dataset_kwargs)
+            else:
+                val_dataloader, _ = create_bshd_dataloader(dist_config, **val_dataset_kwargs)
+
+            logger.info(
+                f"Validation enabled: every {val_config.eval_interval} steps, {val_config.num_batches} batches"
+            )
+        else:
+            logger.warning("Validation enabled but no data_path specified, skipping validation")
+            val_enabled = False
+
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -297,6 +415,25 @@ def main(args: DictConfig) -> float | None:
                         max_checkpoints=args.checkpoint.max_checkpoints,
                         async_save=args.checkpoint.async_save,
                     )
+
+                # Run validation at specified interval
+                if val_enabled and val_dataloader is not None and step > 0 and step % val_config.eval_interval == 0:
+                    val_metrics = run_validation(
+                        model=model,
+                        val_dataloader=val_dataloader,
+                        num_batches=val_config.num_batches,
+                        device=device,
+                        dist_config=dist_config,
+                        fp8_config=args.fp8_config,
+                        fp8_recipe=fp8_recipe,
+                        autocast_ctx=autocast_ctx,
+                    )
+                    if dist_config.rank == 0:
+                        logger.info(
+                            f"[Step {step}] Validation: loss={val_metrics['val_loss']:.4f}, "
+                            f"ppl={val_metrics['val_ppl']:.2f}, tokens={val_metrics['val_tokens']:,}"
+                        )
+                    perf_logger.log_validation(step, val_metrics)
 
                 step += 1
                 if step >= args.num_train_steps:
