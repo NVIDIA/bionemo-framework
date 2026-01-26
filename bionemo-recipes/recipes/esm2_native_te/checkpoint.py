@@ -127,7 +127,7 @@ def load_checkpoint_ddp(
         weights_only=True,
     )
 
-    model.load_state_dict(checkpoint["model"])
+    model.load_state_dict(checkpoint["model"], strict=False)
     optimizer.load_state_dict(checkpoint["optimizer"])
     scheduler.load_state_dict(checkpoint["scheduler"])
     dataloader = load_dataloader(dataloader, checkpoint_path, dist_config)

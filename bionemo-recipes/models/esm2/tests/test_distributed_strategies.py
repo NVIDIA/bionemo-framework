@@ -41,10 +41,12 @@ requires_multi_gpu = pytest.mark.skipif(
     ],
 )
 @pytest.mark.parametrize("backend", ["te", "eager"])
-def test_ddp_vs_fsdp_single_gpu(strategy, backend):
+def test_ddp_vs_fsdp_single_gpu(strategy, backend, unused_tcp_port):
     cmd = [
         "torchrun",
         "--nproc_per_node=1",
+        "--rdzv-backend=c10d",
+        f"--rdzv-endpoint=localhost:{unused_tcp_port}",
         os.path.relpath(__file__),
         "--strategy",
         strategy,
@@ -69,10 +71,12 @@ def test_ddp_vs_fsdp_single_gpu(strategy, backend):
 @requires_multi_gpu
 @pytest.mark.parametrize("strategy", ["fsdp2", pytest.param("mfsdp", marks=pytest.mark.xfail(reason="BIONEMO-2726"))])
 @pytest.mark.parametrize("backend", ["te", "eager"])
-def test_ddp_vs_fsdp_multi_gpu(strategy, backend):
+def test_ddp_vs_fsdp_multi_gpu(strategy, backend, unused_tcp_port):
     cmd = [
         "torchrun",
         "--nproc_per_node=2",
+        "--rdzv-backend=c10d",
+        f"--rdzv-endpoint=localhost:{unused_tcp_port}",
         os.path.relpath(__file__),
         "--strategy",
         strategy,
@@ -160,20 +164,28 @@ if __name__ == "__main__":
             return self.rank == 0
 
     def run_forward_backward(use_te: bool, strategy: Strategy, input_data: dict, dist_config: DistributedConfig):
+        # Set seed for reproducible model initialization across strategies
+        torch.manual_seed(42)
+        torch.cuda.manual_seed_all(42)
+
         device_mesh = init_device_mesh(
             "cuda",
-            mesh_shape=(dist_config.world_size,),
-            mesh_dim_names=("dp",),
+            mesh_shape=(dist_config.world_size, 1),
+            mesh_dim_names=("dp", "tp"),  # mfsdp requires us to give a tp mesh dimension.
         )
 
         device = f"cuda:{dist_config.local_rank}"
 
         if use_te:
-            model = AutoModelForMaskedLM.from_pretrained(
-                "nvidia/esm2_t6_8M_UR50D",
+            # Import local model classes to avoid using outdated code from HF Hub
+            from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
+
+            config = NVEsmConfig.from_pretrained(
+                "facebook/esm2_t6_8M_UR50D",
                 dtype=torch.bfloat16,
-                trust_remote_code=True,
+                revision="c731040f",
             )
+            model = NVEsmForMaskedLM(config)
             transformer_layers = model.esm.encoder.layers
         else:
             model = AutoModelForMaskedLM.from_pretrained(

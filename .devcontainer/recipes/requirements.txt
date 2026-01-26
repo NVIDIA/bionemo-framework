@@ -12,7 +12,7 @@ torchdata
 torchmetrics
 tqdm
 transformer_engine
-transformers<5.0
+transformers
 typer
 wandb
 zstandard
