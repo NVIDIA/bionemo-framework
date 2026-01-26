@@ -19,6 +19,9 @@ config_kwargs: {}
 num_train_steps: ???
 grad_acc_steps: 1 # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
 
+# Random seed for reproducibility (same on all ranks for FSDP2/DTensor)
+seed: 42
+
 use_meta_device: true
 
 # Whether to wrap the model in torch.compile. Note, this is currently not supported with mfsdp (BIONEMO-2977).

@@ -15,10 +15,12 @@
 
 import gc
 import logging
+import random
 from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import numpy as np
 import nvdlfw_inspect.api as debug_api
 import torch
 import transformer_engine
@@ -50,166 +52,27 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def compute_megatron_loss(
-    logits: torch.Tensor,
-    labels: torch.Tensor,
-    is_thd: bool = False,
-) -> tuple[torch.Tensor, int]:
-    """Compute loss using Megatron-style per-token reduction.
+def set_seed(seed: int) -> None:
+    """Set random seeds for reproducibility.
 
-    This matches the loss calculation in Megatron with --no-calculate-per-token-loss:
-    1. Compute sum of per-token cross-entropy losses
-    2. Return the sum and the count of valid tokens
+    For FSDP2/DTensor, ALL ranks must use the SAME seed to ensure weights
+    are initialized identically before sharding.
 
-    The caller is responsible for dividing by total tokens across all microbatches.
+    Note: Data parallelism is handled by dataset sharding (each rank gets
+    different data via dataset.shard()), not by different random seeds.
 
     Args:
-        logits: Model logits, shape [batch, seq, vocab] or [total_tokens, vocab] for THD.
-        labels: Target labels, shape [batch, seq] or [total_tokens] for THD.
-        is_thd: Whether the input is in THD format (packed sequences).
-
-    Returns:
-        Tuple of (loss_sum, num_valid_tokens).
+        seed: Random seed (same on all ranks).
     """
-    if is_thd:
-        # THD format: logits are [total_tokens, vocab]
-        # Labels are [batch, seq] - need to shift and flatten
-        # The model handles THD internally, but labels are still batch format
-        shift_labels = labels[..., 1:].contiguous()
-        flat_logits = logits[: shift_labels.numel(), :]  # Match token count after shift
-        flat_labels = shift_labels.view(-1)
-    else:
-        # BSHD format: logits are [batch, seq, vocab]
-        # Need to shift for causal LM (predict next token)
-        shift_logits = logits[..., :-1, :].contiguous()
-        shift_labels = labels[..., 1:].contiguous()
-        flat_logits = shift_logits.view(-1, logits.size(-1))
-        flat_labels = shift_labels.view(-1)
-
-    # Count valid tokens (not -100)
-    valid_mask = flat_labels != -100
-    num_valid_tokens = valid_mask.sum().item()
-
-    # Compute sum of losses (not mean!)
-    loss_sum = torch.nn.functional.cross_entropy(flat_logits, flat_labels, ignore_index=-100, reduction="sum")
-
-    return loss_sum, num_valid_tokens
-
-
-def get_parameter_groups_with_weight_decay(
-    model: torch.nn.Module,
-    weight_decay: float,
-    skip_embeddings: bool = False,
-) -> list[dict]:
-    """Create parameter groups with proper weight decay filtering.
-
-    Follows Megatron convention:
-    - Skip weight decay on bias terms
-    - Skip weight decay on 1D parameters (LayerNorm/RMSNorm weights)
-    - Optionally skip weight decay on embedding layers
-
-    Args:
-        model: The model to get parameter groups from.
-        weight_decay: The weight decay value for parameters that should have decay.
-        skip_embeddings: Whether to skip weight decay on embedding layers. Default False to match John's setup.
-
-    Returns:
-        List of parameter group dicts for the optimizer.
-    """
-    decay_params = []
-    no_decay_params = []
-
-    for name, param in model.named_parameters():
-        if not param.requires_grad:
-            continue
-
-        # Skip weight decay on:
-        # 1. Bias terms (name ends with 'bias')
-        # 2. 1D parameters (LayerNorm/RMSNorm weights)
-        # 3. Embedding layers (when skip_embeddings=True)
-        should_skip_decay = name.endswith(".bias") or param.dim() == 1 or (skip_embeddings and "embed" in name.lower())
-
-        if should_skip_decay:
-            no_decay_params.append(param)
-        else:
-            decay_params.append(param)
-
-    # Log counts for debugging
-    logger.info(
-        f"Weight decay groups: {len(decay_params)} params with decay, {len(no_decay_params)} params without decay"
-    )
-
-    return [
-        {"params": decay_params, "weight_decay": weight_decay},
-        {"params": no_decay_params, "weight_decay": 0.0},
-    ]
-
-
-def run_validation(
-    model: torch.nn.Module,
-    val_dataloader,
-    num_batches: int,
-    device: torch.device,
-    dist_config: DistributedConfig,
-    is_thd: bool = False,
-) -> dict:
-    """Run validation and compute loss metrics.
-
-    Args:
-        model: The model to evaluate.
-        val_dataloader: DataLoader for validation data.
-        num_batches: Number of batches to evaluate.
-        device: Device to run on.
-        dist_config: Distributed config for logging.
-        is_thd: Whether using THD format.
-
-    Returns:
-        Dictionary with val_loss and val_ppl.
-    """
-    model.eval()
-
-    total_loss = 0.0
-    total_tokens = 0
-    num_evaluated = 0
-
-    with torch.no_grad():
-        for batch in val_dataloader:
-            if num_evaluated >= num_batches:
-                break
-
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
-
-            # Forward pass (no FP8 for validation to ensure consistent loss)
-            outputs = model(**batch)
-
-            # Compute loss with Megatron-style reduction for consistency
-            loss_sum, num_tokens = compute_megatron_loss(
-                logits=outputs.logits,
-                labels=batch["labels"],
-                is_thd=is_thd,
-            )
-
-            total_loss += loss_sum.item()
-            total_tokens += num_tokens
-            num_evaluated += 1
-
-    # Aggregate across ranks
-    loss_tensor = torch.tensor([total_loss, total_tokens], device=device)
-    torch.distributed.all_reduce(loss_tensor)
-    global_loss = loss_tensor[0].item()
-    global_tokens = int(loss_tensor[1].item())
-
-    avg_loss = global_loss / max(global_tokens, 1)
-    perplexity = torch.exp(torch.tensor(avg_loss)).item()
-
-    model.train()
-
-    return {
-        "val_loss": avg_loss,
-        "val_ppl": perplexity,
-        "val_tokens": global_tokens,
-        "val_batches": num_evaluated * dist_config.world_size,
-    }
+    random.seed(seed)
+    np.random.seed(seed)  # noqa: NPY002
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # For full reproducibility (may impact performance)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    logger.info(f"Set seed to {seed} (same on all ranks for FSDP2)")
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
@@ -225,6 +88,12 @@ def main(args: DictConfig) -> float | None:
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
+
+    # Set random seeds (same seed on ALL ranks for FSDP2/DTensor)
+    # This is CRITICAL - all ranks must have identical weights before sharding
+    # Data parallelism is handled by dataset sharding, not by different seeds
+    seed = getattr(args, "seed", 42)  # Default to 42 if not specified
+    set_seed(seed)
 
     # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
     if args.fp8_stats_config.enabled:
@@ -254,21 +123,8 @@ def main(args: DictConfig) -> float | None:
     if use_fp32_master_weights:
         logger.info("FP32 master weights enabled: model init in FP32, compute in BF16")
 
-    # Handle initialization flags: spike_no_more_embedding_init and use_megatron_scaled_init
-    config_kwargs = dict(args.config_kwargs) if args.config_kwargs else {}
-
-    # Spike-No-More: set embedding_init_std=1.0 if enabled
-    if getattr(args, "spike_no_more_embedding_init", False):
-        config_kwargs["embedding_init_std"] = 1.0
-        logger.info("Spike-No-More embedding init enabled: embedding_init_std=1.0")
-
-    # Megatron scaled init: set use_megatron_scaled_init flag
-    if getattr(args, "use_megatron_scaled_init", False):
-        config_kwargs["use_megatron_scaled_init"] = True
-        logger.info("Megatron scaled init enabled: proj/fc2 use scaled std")
-
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
-    config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
+    config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **args.config_kwargs)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
@@ -281,11 +137,9 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
-    if not isinstance(model, torch.nn.Module):
-        raise TypeError("Expected model_class(config) to return a torch.nn.Module.")
-
-    # Create MixedPrecisionPolicy for FSDP when using FP32 master weights.
-    # This casts FP32 master weights to BF16 for forward/backward, then back to FP32 for optimizer.
+    # Create MixedPrecisionPolicy for FSDP when using FP32 master weights
+    # This casts FP32 master weights to BF16 for forward/backward, then back to FP32 for optimizer
+    mp_policy = None
     if use_fp32_master_weights:
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward compute
@@ -327,58 +181,14 @@ def main(args: DictConfig) -> float | None:
     if first_param is not None:
         logger.info("Model param dtype before optimizer: %s", first_param.dtype)
 
-    # Create optimizer with optional weight decay grouping (Megatron-style: skip decay on bias and 1D params).
-    # Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    use_wd_grouping = getattr(args, "use_weight_decay_grouping", False)
-    adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)  # type: ignore
-
-    if use_wd_grouping:
-        # Megatron-style: skip weight decay on bias and 1D params (LayerNorm)
-        weight_decay = adamw_kwargs.pop("weight_decay", 0.1)
-        skip_embedding_wd = getattr(args, "skip_embedding_weight_decay", False)
-        param_groups = get_parameter_groups_with_weight_decay(
-            model=model,
-            weight_decay=weight_decay,
-            skip_embeddings=skip_embedding_wd,
-        )
-        logger.info(f"Weight decay grouping enabled: wd={weight_decay}, skip_embeddings={skip_embedding_wd}")
-        optimizer = AdamW(param_groups, **adamw_kwargs)
-    else:
-        logger.info(f"Weight decay grouping disabled: wd={adamw_kwargs.get('weight_decay', 0.1)} for all params")
-        optimizer = AdamW(model.parameters(), **adamw_kwargs)
-
+    # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
+    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     if args.use_sequence_packing:
         train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
     else:
         train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
-
-    # Setup validation if enabled
-    val_config = getattr(args, "validation", None)
-    val_enabled = val_config is not None and getattr(val_config, "enabled", False)
-    val_dataloader = None
-
-    if val_enabled:
-        val_data_path = getattr(val_config, "data_path", None)
-        if val_data_path:
-            # Create validation dataloader with same format as training
-            val_dataset_kwargs = {
-                "data_path": val_data_path,
-                "max_seq_length": args.dataset.max_seq_length,
-                "seed": args.dataset.seed,
-                "pad_sequences_to_be_divisible_by": getattr(args.dataset, "pad_sequences_to_be_divisible_by", None),
-            }
-            if args.use_sequence_packing:
-                val_dataloader, _ = create_thd_dataloader(dist_config, **val_dataset_kwargs)
-            else:
-                val_dataloader, _ = create_bshd_dataloader(dist_config, **val_dataset_kwargs)
-            logger.info(
-                f"Validation enabled: every {val_config.eval_interval} steps, {val_config.num_batches} batches"
-            )
-        else:
-            logger.warning("Validation enabled but no data_path specified, skipping validation")
-            val_enabled = False
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
@@ -413,15 +223,6 @@ def main(args: DictConfig) -> float | None:
     step = start_step
     micro_step = 0  # Gradient accumulation step counter
 
-    # Check if we should use Megatron-style loss computation (optional feature)
-    use_megatron_loss = getattr(args, "use_megatron_loss", False)
-    is_thd = args.use_sequence_packing  # THD format when sequence packing is enabled
-
-    # Accumulators for Megatron-style loss (across gradient accumulation steps)
-    # We track sum and count to enable proper all-reduce across ranks (like Megatron)
-    accumulated_loss_sum = 0.0
-    accumulated_tokens = 0
-
     # Create autocast context for FP32 master weights (casts compute to BF16).
     # Allow override via config for debugging (default: enabled when use_fp32_master_weights=True).
     use_autocast = getattr(args, "use_autocast", use_fp32_master_weights)
@@ -444,35 +245,9 @@ def main(args: DictConfig) -> float | None:
                 with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
                     outputs = model(**batch)
 
-            # Backward pass with optional Megatron-style loss computation
-            if use_megatron_loss:
-                # Megatron-style: compute sum of losses and accumulate tokens
-                loss_sum, num_tokens = compute_megatron_loss(
-                    logits=outputs.logits,
-                    labels=batch["labels"],
-                    is_thd=is_thd,
-                )
-                accumulated_loss_sum += loss_sum.item()
-                accumulated_tokens += num_tokens
-
-                # Backward pass: use per-token loss for this microbatch, scaled by grad_acc_steps
-                loss = loss_sum / max(num_tokens, 1) / args.grad_acc_steps
-                loss.backward()
-
-                # Log microbatch with Megatron-style metrics
-                perf_logger.log_micro_step(
-                    batch=batch,
-                    outputs=outputs,
-                    loss_sum=loss_sum.item(),
-                    num_tokens=num_tokens,
-                )
-            else:
-                # HuggingFace-style: use the mean loss directly, scaled by grad_acc_steps
-                loss = outputs.loss / args.grad_acc_steps
-                loss.backward()
-
-                # Log microbatch step data for accumulation metrics
-                perf_logger.log_micro_step(batch=batch, outputs=outputs)
+            # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
+            loss = outputs.loss / args.grad_acc_steps
+            loss.backward()
 
             if not logged_dtypes:
                 grad_param = next((p for p in model.parameters() if p.grad is not None), None)
@@ -484,6 +259,9 @@ def main(args: DictConfig) -> float | None:
                         outputs.loss.dtype,
                     )
                 logged_dtypes = True
+
+            # Log microbatch step data for accumulation metrics
+            perf_logger.log_micro_step(batch=batch, outputs=outputs)
 
             # Gradient accumulation - only step optimizer after accumulating gradients
             if micro_step % args.grad_acc_steps == 0:
@@ -503,11 +281,6 @@ def main(args: DictConfig) -> float | None:
                     lr=optimizer.param_groups[0]["lr"],
                 )
 
-                # Reset Megatron-style loss accumulators after logging
-                if use_megatron_loss:
-                    accumulated_loss_sum = 0.0
-                    accumulated_tokens = 0
-
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                     save_checkpoint_fsdp2(
                         model=model,
@@ -517,27 +290,11 @@ def main(args: DictConfig) -> float | None:
                         step=step,
                         epoch=epoch,
                         dist_config=dist_config,
-                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,  # type: ignore[arg-type]
+                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
                         process_group=device_mesh.get_group("dp"),
                         max_checkpoints=args.checkpoint.max_checkpoints,
                         async_save=args.checkpoint.async_save,
                     )
-
-                # Run validation if enabled and at the right interval
-                if val_enabled and val_dataloader is not None and step % val_config.eval_interval == 0:
-                    val_metrics = run_validation(
-                        model=model,
-                        val_dataloader=val_dataloader,
-                        num_batches=val_config.num_batches,
-                        device=device,
-                        dist_config=dist_config,
-                        is_thd=is_thd,
-                    )
-                    if dist_config.rank == 0:
-                        logger.info(
-                            f"Step {step} Validation: loss={val_metrics['val_loss']:.4f}, "
-                            f"ppl={val_metrics['val_ppl']:.2f}, tokens={val_metrics['val_tokens']}"
-                        )
 
                 step += 1
                 if step >= args.num_train_steps:
@@ -545,7 +302,7 @@ def main(args: DictConfig) -> float | None:
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1
-        dataset_or_sampler.set_epoch(epoch)  # type: ignore[attr-defined]
+        dataset_or_sampler.set_epoch(epoch)
 
     # Save final model to a .safetensors file.
     if args.checkpoint.save_final_model and ckpt_path:
