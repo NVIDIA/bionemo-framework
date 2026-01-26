@@ -22,7 +22,7 @@
 Adapted from `modeling_esm.py` in huggingface/transformers.
 """
 
-from typing import Literal, Optional, Unpack
+from typing import ClassVar, Literal, Optional, Unpack
 
 # TODO: put import guard around transformer_engine here, with an informative error message around
 # installation and the nvidia docker container.
@@ -256,8 +256,23 @@ class NVEsmPreTrainedModel(EsmPreTrainedModel):
         # Meta-device init seems to break weight tying, so we re-tie the weights here.
         self.tie_weights()
 
+    def _init_weights(self, module):
+        """Initialize module weights.
+
+        We only use this method for standard pytorch modules, TE modules handle their own weight initialization through
+        `init_method` parameters and the `reset_parameters` method.
+        """
+        if module.__module__.startswith("transformer_engine.pytorch"):
+            # Notably, we need to avoid calling this method for TE modules, since the default _init_weights will assume
+            # any class with `LayerNorm` in the name should have weights initialized to 1.0; breaking `LayerNormLinear`
+            # and `LayerNormMLP` modules that use `weight` for the linear layer and `layer_norm_weight` for the layer
+            # norm.
+            return
+
+        super()._init_weights(module)
+
     @classmethod
-    def get_init_context(cls, is_quantized: bool, _is_ds_init_called: bool):
+    def get_init_context(cls, dtype: torch.dtype, is_quantized: bool, _is_ds_init_called: bool):
         """Override the default get_init_context method to allow for fp8 model initialization."""
         return []
 
@@ -367,7 +382,7 @@ class NVEsmModel(NVEsmPreTrainedModel):
 class NVEsmForMaskedLM(NVEsmPreTrainedModel):
     """NVEsmForMaskedLM is a TransformerEngine-optimized ESM model for masked language modeling."""
 
-    _tied_weights_keys = ("lm_head.decoder.weight",)
+    _tied_weights_keys: ClassVar[dict[str, str]] = {"lm_head.decoder.weight": "esm.embeddings.word_embeddings.weight"}
 
     def __init__(self, config: NVEsmConfig):
         """Initialize a NVEsmForMaskedLM.
@@ -386,7 +401,6 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
         self.esm = NVEsmModel(config, add_pooling_layer=False)
         self.lm_head = NVEsmLMHead(config)
 
-        self.init_weights()
         self.post_init()
 
     def get_output_embeddings(self):
