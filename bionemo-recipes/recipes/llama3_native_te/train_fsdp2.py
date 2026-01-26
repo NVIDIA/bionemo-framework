@@ -152,6 +152,148 @@ def set_seed(seed: int) -> None:
     logger.info(f"Set seed to {seed} (same on all ranks for FSDP2)")
 
 
+def _to_local_tensor(tensor: torch.Tensor) -> torch.Tensor:
+    """Convert a DTensor to a local tensor, or return the tensor as-is if it's already local.
+
+    Args:
+        tensor: A tensor that may be a DTensor (from FSDP2).
+
+    Returns:
+        The local tensor data.
+    """
+    if hasattr(tensor, "to_local"):
+        return tensor.to_local()
+    return tensor
+
+
+@torch.no_grad()
+def log_init_stats(model: torch.nn.Module, dist_config: DistributedConfig) -> dict[str, dict[str, float]]:
+    """Log initialization statistics for key model layers.
+
+    Logs mean/std of weights for embeddings, lm_head, and sample projection layers.
+    Useful for debugging initialization differences between frameworks.
+
+    Note: With FSDP2, this logs statistics of the LOCAL shard on each rank.
+    The stats will differ across ranks since each rank holds a different shard.
+
+    Args:
+        model: The initialized model.
+        dist_config: Distributed config for rank checking.
+
+    Returns:
+        Dictionary mapping layer names to their init statistics.
+    """
+    stats = {}
+
+    for name, param in model.named_parameters():
+        # Log key layers for debugging initialization
+        keys_to_log = [
+            "embed_tokens",
+            "lm_head",
+            "o_proj",
+            ".proj.",
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+            ".fc1.",
+            ".fc2.",
+            "layernorm",
+            "rmsnorm",
+            "input_layernorm",
+            "post_attention_layernorm",
+            "norm",
+        ]
+        if not any(key in name.lower() for key in keys_to_log):
+            continue
+
+        # For FSDP2, convert DTensor to local tensor
+        try:
+            data = _to_local_tensor(param.data).float()
+        except Exception:
+            continue
+
+        # Skip empty tensors
+        if data.numel() == 0:
+            continue
+
+        # Compute stats
+        try:
+            mean_val = data.mean().item()
+            var_val = torch.mean(torch.pow(data - mean_val, 2)).item()
+            std_val = var_val**0.5
+            min_val = data.min().item()
+            max_val = data.max().item()
+        except RuntimeError:
+            continue
+
+        layer_stats = {
+            "mean": mean_val,
+            "std": std_val,
+            "min": min_val,
+            "max": max_val,
+        }
+        stats[name] = layer_stats
+
+        if dist_config.rank == 0:
+            logger.info(
+                f"Init stats (local shard) - {name}: mean={layer_stats['mean']:.4f}, "
+                f"std={layer_stats['std']:.4f}, range=[{layer_stats['min']:.4f}, {layer_stats['max']:.4f}]"
+            )
+
+    return stats
+
+
+def get_parameter_groups_with_weight_decay(
+    model: torch.nn.Module,
+    weight_decay: float,
+    skip_embeddings: bool = False,
+) -> list[dict]:
+    """Create parameter groups with proper weight decay filtering.
+
+    Follows Megatron convention:
+    - Skip weight decay on bias terms
+    - Skip weight decay on 1D parameters (LayerNorm/RMSNorm weights)
+    - Optionally skip weight decay on embedding layers
+
+    Args:
+        model: The model to get parameter groups from.
+        weight_decay: The weight decay value for parameters that should have decay.
+        skip_embeddings: Whether to skip weight decay on embedding layers.
+
+    Returns:
+        List of parameter group dicts for the optimizer.
+    """
+    decay_params = []
+    no_decay_params = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+
+        # Skip weight decay on:
+        # 1. Bias terms (name ends with 'bias')
+        # 2. 1D parameters (LayerNorm/RMSNorm weights)
+        # 3. Embedding layers (when skip_embeddings=True)
+        should_skip_decay = name.endswith(".bias") or param.dim() == 1 or (skip_embeddings and "embed" in name.lower())
+
+        if should_skip_decay:
+            no_decay_params.append(param)
+        else:
+            decay_params.append(param)
+
+    logger.info(
+        f"Weight decay groups: {len(decay_params)} params with decay, {len(no_decay_params)} params without decay"
+    )
+
+    return [
+        {"params": decay_params, "weight_decay": weight_decay},
+        {"params": no_decay_params, "weight_decay": 0.0},
+    ]
+
+
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train Llama3 with TE layers using FSDP2.
@@ -203,6 +345,20 @@ def main(args: DictConfig) -> float | None:
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
     # Convert DictConfig to regular dict to avoid JSON serialization issues in transformers logging
     config_kwargs = OmegaConf.to_container(args.config_kwargs, resolve=True) if args.config_kwargs else {}
+
+    # Handle Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
+    # When enabled, embeddings are initialized with std=1.0 instead of 0.02 to prevent loss spikes.
+    if getattr(args, "spike_no_more_embedding_init", False):
+        config_kwargs["embedding_init_std"] = 1.0
+        config_kwargs["tie_word_embeddings"] = False  # Must not share embeddings with output weights
+        logger.info("Spike-No-More enabled: embedding_init_std=1.0, tie_word_embeddings=False")
+
+    # Handle Megatron-style scaled initialization for residual output layers
+    # When enabled, proj and fc2 use std/sqrt(2*num_layers) instead of std
+    if getattr(args, "use_megatron_scaled_init", False):
+        config_kwargs["use_megatron_scaled_init"] = True
+        logger.info("Megatron scaled init enabled: proj/fc2 use std/sqrt(2*num_layers)")
+
     config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
@@ -255,13 +411,38 @@ def main(args: DictConfig) -> float | None:
     if args.fp8_stats_config.enabled:
         debug_api.infer_and_assign_layer_names(model)
 
+    # Log initialization statistics if enabled (useful for debugging Spike-No-More and scaled init)
+    if getattr(args, "log_init_stats", False):
+        log_init_stats(model, dist_config)
+
     # Log initial parameter dtype before optimizer setup for debugging mixed precision behavior.
     first_param = next(model.parameters(), None)
     if first_param is not None:
         logger.info("Model param dtype before optimizer: %s", first_param.dtype)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
+
+    # Check if we should use weight decay grouping (skip decay on bias and 1D params)
+    # Default to True to match Megatron convention
+    use_wd_grouping = getattr(args, "use_weight_decay_grouping", True)
+
+    if use_wd_grouping:
+        # Megatron-style: skip weight decay on bias and 1D params (LayerNorm)
+        weight_decay = adamw_kwargs.pop("weight_decay", 0.1)
+        skip_embedding_wd = getattr(args, "skip_embedding_weight_decay", False)
+        param_groups = get_parameter_groups_with_weight_decay(
+            model=model,
+            weight_decay=weight_decay,
+            skip_embeddings=skip_embedding_wd,
+        )
+        optimizer = AdamW(param_groups, **adamw_kwargs)  # type: ignore
+        logger.info(f"Weight decay grouping enabled: wd={weight_decay}, skip_embeddings={skip_embedding_wd}")
+    else:
+        # Original behavior: same weight decay for all params
+        optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
+        logger.info(f"Weight decay grouping disabled: wd={adamw_kwargs.get('weight_decay', 0.1)} for all params")
+
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     if args.use_sequence_packing:
