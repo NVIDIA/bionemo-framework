@@ -77,7 +77,6 @@ adamw_kwargs:
 # min_lr_ratio = 6e-07 / 6e-05 = 0.01
 lr_scheduler_kwargs:
   num_warmup_steps: 2500
-  num_constant_steps: 0
   num_decay_steps: 17500  # 20000 - 2500
   min_lr_ratio: 0.01  # Decay to John's min_lr (6e-07), not 2x
 

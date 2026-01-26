@@ -102,7 +102,6 @@ adamw_kwargs:
 # John's args: --lr 3e-05 --min-lr 6e-07 --warmup-steps 2500
 lr_scheduler_kwargs:
   num_warmup_steps: 2500  # Match John's --warmup-steps
-  num_constant_steps: 0  # Set to 1024 if John's run has a plateau phase
   num_decay_steps: 179814  # total_steps - warmup - constant = 182314 - 2500 - 0
   min_lr_ratio: 0.02  # min_lr / lr = 6e-07 / 3e-05 = 0.02
 
