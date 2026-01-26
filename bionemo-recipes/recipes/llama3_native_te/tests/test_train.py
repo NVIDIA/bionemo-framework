@@ -533,3 +533,38 @@ def test_train_fsdp2_fp32_master_weights(tmp_path, recipe_path):
 
     # FP32 master weights should achieve same or better convergence
     assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_train_fsdp2_fp32_master_weights_with_fp8(tmp_path, recipe_path):
+    """Test FSDP2 training with FP32 master weights and FP8 compute.
+
+    This test validates the full precision hierarchy:
+    - FP32 master weights (stored by optimizer via MixedPrecisionPolicy)
+    - BF16 intermediate compute (via torch.autocast)
+    - FP8 compute for eligible TE layers (via te.fp8_autocast)
+
+    This matches Megatron's approach where you "use the FP32 weights to get
+    a really precise quantization for FP8" (per Cory's Slack comment).
+    """
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "use_fp32_master_weights=true",
+                "use_torch_compile=false",  # Disable compile to simplify debugging
+                "fp8_config.enabled=true",  # Enable FP8 with FP32 master weights
+                "config_kwargs.attn_input_format=bshd",
+                # FP8 requires last dim divisible by 16
+                "+dataset.pad_sequences_to_be_divisible_by=16",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    # FP32 master weights + FP8 should achieve good convergence
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
