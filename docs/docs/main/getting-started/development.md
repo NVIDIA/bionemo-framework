@@ -55,13 +55,13 @@ The following components are present in each package:
 ## Model Training Process
 
 !!! note
-    See also [Training Models](./training-models.md)
+See also [Training Models](./training-models.md)
 
 The process for pretraining models from BioNeMo involves running scripts located in the `scripts` directory. Each script
 exposes a Command-Line Interface (CLI) that contains and documents the options available for that model.
 
 !!! note "5D Parallel Training Moved to bionemo-recipes"
-    The 5D parallel training implementations for ESM-2 and Geneformer have been migrated to simplified TransformerEngine + FSDP implementations in [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes). For training these models, please refer to the recipes in `bionemo-recipes/recipes/`.
+The 5D parallel training implementations for ESM-2 and Geneformer have been migrated to simplified TransformerEngine + FSDP implementations in [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes). For training these models, please refer to the recipes in `bionemo-recipes/recipes/`.
 
 To pretrain a model, you need to run the corresponding script with the required parameters. For example, to pretrain ESM-2 models using the 5D parallel implementation, refer to the `esm2_native_te` recipe in bionemo-recipes.
 

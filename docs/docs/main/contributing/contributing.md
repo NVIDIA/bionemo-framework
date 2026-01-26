@@ -1,7 +1,7 @@
 # Contributing Guidelines
 
 !!! note
-    For code review standards please see the [Code Review](code-review.md) page.
+For code review standards please see the [Code Review](code-review.md) page.
 
 ```
 For all PRs, an approved NVIDIA staff member must sign off and trigger the continuous integration (CI) tests.
