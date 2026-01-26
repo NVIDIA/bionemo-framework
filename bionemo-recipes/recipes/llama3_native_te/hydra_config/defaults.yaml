@@ -77,8 +77,5 @@ fp8_stats_config:
 
 profiler:
   enabled: false
-  schedule:
-    wait: 10
-    warmup: 10
-    active: 3
-    repeat: 1
+  start_step: 10
+  end_step: 15

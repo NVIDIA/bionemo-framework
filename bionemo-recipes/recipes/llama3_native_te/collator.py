@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any, TypedDict
 
 import datasets
+import nvtx
 import torch
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 from transformers import DataCollator, DataCollatorForLanguageModeling
@@ -290,6 +291,7 @@ class DataCollatorForContextParallel:
     cp_world_size: int
     qkv_format: str = "thd"
 
+    @nvtx.annotate("DataCollatorForContextParallel.__call__", color="orange")
     def __call__(self, features) -> list[dict[str, Any]]:
         """Process batches of data and create shards for each context parallelism rank.
 
@@ -378,7 +380,8 @@ class ContextParallelDataLoaderWrapper:
 
     def __next__(self):
         """Get the batch from the dataloader for the current CP rank."""
-        batch = self._send_data_to_cp_ranks()
+        with nvtx.annotate("ContextParallelDataLoaderWrapper._send_data_to_cp_ranks", color="blue"):
+            batch = self._send_data_to_cp_ranks()
         return batch
 
     def _send_data_to_cp_ranks(self):
@@ -778,6 +781,7 @@ class BatchType(TypedDict):
     pad_between_seqs: bool
 
 
+@nvtx.annotate("_scatter_batch_to_cp_ranks", color="yellow")
 def _scatter_batch_to_cp_ranks(
     batch: list[BatchType] | list[StopIteration], cp_group: torch.distributed.ProcessGroup | None = None
 ) -> BatchType | StopIteration:

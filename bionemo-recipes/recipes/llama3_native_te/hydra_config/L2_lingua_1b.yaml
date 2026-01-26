@@ -55,8 +55,5 @@ checkpoint:
 
 profiler:
   enabled: false
-  schedule:
-    wait: 125
-    warmup: 125
-    active: 10
-    repeat: 1
+  start_step: 250  # Previously wait + warmup (125 + 125)
+  end_step: 260  # Previously start_step + active (250 + 10)

@@ -19,6 +19,7 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import nvtx
 import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
@@ -168,12 +169,15 @@ def main(args: DictConfig) -> float | None:
             micro_step += 1
 
             # Forward pass with mixed precision.
-            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
-                outputs = model(**batch)
+            with nvtx.annotate(f"Forward pass, step {step}", color="green"):
+                with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+                    outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
-            loss.backward()
+
+            with nvtx.annotate(f"Backward pass, step {step}", color="red"):
+                loss.backward()
 
             # Log microbatch step data for accumulation metrics
             perf_logger.log_micro_step(batch=batch, outputs=outputs)
@@ -212,6 +216,7 @@ def main(args: DictConfig) -> float | None:
                     )
 
                 step += 1
+                nvtx.mark("End of step %s", step)
                 if step >= args.num_train_steps:
                     break
 

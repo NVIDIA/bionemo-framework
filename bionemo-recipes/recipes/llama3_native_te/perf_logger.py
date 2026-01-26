@@ -14,16 +14,15 @@
 # limitations under the License.
 
 import logging
+import os
 import time
-from pathlib import Path
 
+import nvtx
 import torch
 import torchmetrics
 import wandb
-from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.tensor import DTensor
-from torch.profiler import profile, schedule, tensorboard_trace_handler
 from tqdm import tqdm
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
@@ -77,8 +76,11 @@ class PerfLogger:
             self._progress_bar = tqdm(total=args.num_train_steps, desc="Training")
 
             if args.profiler.enabled:
-                self._profiler = setup_profiler(args, self._wandb_run)
-                self._profiler.__enter__()
+                self._profiler = NsightProfiler(
+                    **args.profiler,
+                    wandb_run=self._wandb_run,
+                    dist_config=dist_config,
+                )
 
         # Gradient accumulation tracking
         self.num_tokens = 0
@@ -88,6 +90,7 @@ class PerfLogger:
         self.running_loss = torch.tensor(0.0, device=torch.device(f"cuda:{dist_config.local_rank}"))
         self.grad_acc_step_count = 0
 
+    @nvtx.annotate("PerfLogger.log_micro_step", color="pink")
     def log_micro_step(self, batch: dict[str, torch.Tensor], outputs: CausalLMOutputWithPast):
         """Store data on micro step for gradient accumulation metrics.
 
@@ -109,6 +112,7 @@ class PerfLogger:
                 self.num_unpadded_tokens += batch["input_ids"].numel()
             self.running_loss += outputs.loss
 
+    @nvtx.annotate("PerfLogger.log_step", color="purple")
     def log_step(
         self,
         step: int,
@@ -150,7 +154,7 @@ class PerfLogger:
             )
 
             if self._profiler is not None:
-                self._profiler.step()
+                self._profiler.step(step)
 
             if step % self.logging_frequency == 0 and step > 0:
                 memory_allocated = torch.cuda.memory_allocated() / (1024**3)
@@ -179,9 +183,6 @@ class PerfLogger:
 
     def finish(self):
         """Finish the logger and close the progress bar."""
-        if self._profiler is not None:
-            self._profiler.__exit__(None, None, None)
-
         if not self._dist_config.is_main_process():
             return
 
@@ -189,39 +190,99 @@ class PerfLogger:
         self._progress_bar.close()
 
 
-def setup_profiler(args: DictConfig, wandb_run: wandb.Run):
-    """Setup a basic torch profiler for the experiment.
+class NsightProfiler:
+    """Nsight Systems profiler wrapper for performance analysis.
+
+    This profiler uses NVIDIA Nsight Systems to capture detailed performance traces
+    including CUDA kernels, CPU activities, and memory operations. The profiler
+    uploads results to wandb as artifacts.
 
     Args:
-        args: The arguments.
-        wandb_run: The wandb run.
+        enabled: Whether profiling is enabled.
+        start_step: The step number at which to start profiling.
+        end_step: The step number at which to end profiling.
+        wandb_run: The wandb run for logging artifacts.
+        dist_config: The distributed configuration.
 
-    Returns:
-        The profiler.
+    Attributes:
+        start_step: The step number at which to start profiling.
+        end_step: The step number at which to end profiling.
+        current_step: Current step counter.
+        profiling_started: Whether profiling has been started.
+        profiling_finished: Whether profiling has been finished.
     """
-    _trace_dir = Path(HydraConfig.get().runtime.output_dir) / "traces"
-    _trace_dir.mkdir(parents=True, exist_ok=True)
 
-    def on_trace_ready(prof):
-        """Custom callback to save chrome trace, export memory timeline, and log to wandb."""
-        # Save chrome trace using tensorboard_trace_handler
-        tensorboard_trace_handler(str(_trace_dir))(prof)
-        # Export memory timeline
-        prof.export_memory_timeline(str(_trace_dir / "memory_timeline.html"), device="cuda:0")
-        # Log artifacts to wandb
-        profile_art = wandb.Artifact(name=f"{wandb_run.name}_profile", type="profile")
-        for file in _trace_dir.glob("*.json"):
-            profile_art.add_file(str(file), name=file.name)
-        profile_art.add_file(str(_trace_dir / "memory_timeline.html"), name="memory_timeline.html")
-        wandb_run.log_artifact(profile_art)
+    def __init__(
+        self,
+        enabled: bool,
+        start_step: int,
+        end_step: int,
+        wandb_run: wandb.Run,
+        dist_config: DistributedConfig,
+    ):
+        """Initialize the Nsight profiler."""
+        self._wandb_run = wandb_run
+        self._dist_config = dist_config
 
-    return profile(
-        activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
-        schedule=schedule(**args.profiler.schedule),
-        on_trace_ready=on_trace_ready,
-        with_stack=True,
-        with_flops=True,
-        with_modules=True,
-        profile_memory=True,
-        record_shapes=True,
-    )
+        self.start_step = start_step
+        self.end_step = end_step
+
+        self.current_step = 0
+        self.profiling_started = False
+        self.profiling_finished = False
+
+        # Check if running under nsys
+        self.running_under_nsys = "NSYS_PROFILING_SESSION_ID" in os.environ
+
+        if self.running_under_nsys:
+            logger.info("Detected running under nsys - will use CUDA Profiler API for range control")
+        else:
+            logger.warning(
+                "Not running under nsys. Profiling will be skipped. "
+                "To enable profiling, run your script with: "
+                "nsys profile -o output_trace --trace=cuda,nvtx,osrt,cudnn,cublas --capture-range=cudaProfilerApi "
+                "--capture-range-end=stop python train_fsdp2.py profiler.enabled=true"
+            )
+
+    def step(self, step_num: int):
+        """Record a training step and control profiling based on the schedule.
+
+        Args:
+            step_num: The current training step number.
+        """
+        if not self.running_under_nsys or self.profiling_finished:
+            return
+
+        self.current_step = step_num
+
+        # Start profiling at start_step
+        if self.current_step == self.start_step and not self.profiling_started:
+            self._start_profiling()
+        # Stop profiling at end_step
+        elif self.current_step == self.end_step and self.profiling_started:
+            self._stop_profiling()
+
+    def _start_profiling(self):
+        """Start CUDA profiling using the CUDA Profiler API."""
+        if self.profiling_started:
+            return
+
+        logger.info(f"Starting Nsight profiling at step {self.current_step}")
+        try:
+            torch.cuda.cudart().cudaProfilerStart()  # type: ignore[attr-defined]
+            self.profiling_started = True
+        except Exception as e:
+            logger.error(f"Failed to start CUDA profiler: {e}")
+
+    def _stop_profiling(self):
+        """Stop CUDA profiling using the CUDA Profiler API."""
+        if not self.profiling_started or self.profiling_finished:
+            return
+
+        logger.info(f"Stopping Nsight profiling at step {self.current_step}")
+        try:
+            torch.cuda.cudart().cudaProfilerStop()  # type: ignore[attr-defined]
+            self.profiling_started = False
+            self.profiling_finished = True
+        except Exception as e:
+            logger.error(f"Failed to stop CUDA profiler: {e}")

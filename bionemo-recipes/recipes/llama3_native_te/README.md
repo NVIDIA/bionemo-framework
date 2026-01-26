@@ -210,6 +210,223 @@ These examples show how to save and resume your dataloader by passing the datalo
 and `load_checkpoint_*` functions using the `StatefulDataLoader` class from `torchdata`. See `checkpoint.py` for
 implementation details.
 
+## Performance Profiling with NVIDIA Nsight Systems
+
+This recipe includes built-in support for profiling with NVIDIA Nsight Systems, which provides detailed performance
+traces including CUDA kernels, CPU activities, memory operations, and NVTX ranges. The profiler allows you to specify
+the exact training step range to profile and automatically uploads results to Weights & Biases.
+
+### Prerequisites
+
+Ensure NVIDIA Nsight Systems is installed. It's typically included in CUDA installations, or can be installed separately:
+
+```bash
+# Check if nsys is available
+nsys --version
+
+# If not available, install from NVIDIA website:
+# https://developer.nvidia.com/nsight-systems
+```
+
+### Basic Usage (Single GPU)
+
+To profile a training run on a single GPU:
+
+```bash
+nsys profile \
+  -o nsight_trace \
+  --trace=cuda,nvtx,osrt,cudnn,cublas \
+  --pytorch=autograd-nvtx \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end=stop \
+  python train_fsdp2.py \
+    profiler.enabled=true \
+    profiler.start_step=10 \
+    profiler.end_step=15
+```
+
+**Profiler Configuration Parameters:**
+
+- `profiler.enabled`: Enable/disable profiling (default: false)
+- `profiler.start_step`: Training step at which to start profiling (default: 10)
+- `profiler.end_step`: Training step at which to end profiling (default: 15)
+
+**Nsight Systems Flags:**
+
+- `--pytorch=autograd-nvtx`: Adds NVTX markers for PyTorch autograd operations (forward/backward passes, optimizer steps). This helps visualize the training loop structure and identify bottlenecks in the computation graph.
+- `--pytorch-backtrace=cuda`: Captures Python backtraces for CUDA kernel launches, helping identify which Python code triggered each kernel. This is invaluable for debugging performance issues and understanding which operations are expensive.
+- `--python-sampling=true` (optional): Periodically samples Python call stacks to identify CPU-side bottlenecks. Useful when investigating data loading, preprocessing, or Python overhead. Adds ~5-15% overhead, so only use when needed.
+
+**Note**: The PyTorch-specific flags (`--pytorch=autograd-nvtx` and `--pytorch-backtrace=cuda`) add minimal overhead but provide significantly more detailed insights into PyTorch operations, making them highly recommended for training workload profiling. Use `--python-sampling=true` only when investigating CPU/Python performance.
+
+The profiler will start capturing performance data at `start_step` and stop at `end_step`. It's recommended to start profiling after a few steps to allow training to stabilize.
+
+### Multi-GPU Profiling
+
+For distributed training, **profiling is only performed on global rank 0** to minimize overhead and avoid redundant data
+collection. Other ranks will skip profiling automatically.
+
+#### Multi-GPU on Single Node
+
+```bash
+nsys profile \
+  -o nsight_trace_rank0 \
+  --trace=cuda,nvtx,osrt,cudnn,cublas \
+  --pytorch=autograd-nvtx \
+  --pytorch-backtrace=cuda \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end=stop \
+  torchrun --nproc_per_node=2 train_fsdp2.py \
+    profiler.enabled=true
+```
+
+#### Multi-Node Profiling
+
+For multi-node training, you'll need to run `nsys` only on the node that hosts rank 0. Here's an example using SLURM:
+
+```bash
+#!/bin/bash
+#SBATCH --nodes=2
+#SBATCH --ntasks-per-node=8
+#SBATCH --gpus-per-node=8
+
+# Determine if this is rank 0 node
+if [[ $SLURM_PROCID -eq 0 ]]; then
+    # Run with nsys on rank 0
+    nsys profile \
+      -o nsight_trace_rank0 \
+      --trace=cuda,nvtx,osrt,cudnn,cublas \
+      --pytorch=autograd-nvtx \
+      --pytorch-backtrace=cuda \
+      --capture-range=cudaProfilerApi \
+      --capture-range-end=stop \
+      torchrun \
+        --nnodes=2 \
+        --nproc_per_node=8 \
+        --node_rank=$SLURM_PROCID \
+        --master_addr=$MASTER_ADDR \
+        --master_port=$MASTER_PORT \
+        train_fsdp2.py profiler.enabled=true
+else
+    # Run without nsys on other nodes
+    torchrun \
+      --nnodes=2 \
+      --nproc_per_node=8 \
+      --node_rank=$SLURM_PROCID \
+      --master_addr=$MASTER_ADDR \
+      --master_port=$MASTER_PORT \
+      train_fsdp2.py profiler.enabled=true
+fi
+```
+
+### Viewing Profiling Results
+
+#### Local Analysis
+
+After profiling completes, you'll have a `.nsys-rep` file. Open it with Nsight Systems GUI:
+
+```bash
+# On a system with GUI
+nsys-ui nsight_trace.nsys-rep
+
+# Or export to various formats
+nsys export --type sqlite nsight_trace.nsys-rep
+nsys stats nsight_trace.nsys-rep
+```
+
+#### Weights & Biases Integration
+
+When `wandb` is configured, the profiler automatically uploads trace files as artifacts to your W&B run:
+
+1. Go to your W&B run page
+2. Navigate to the "Artifacts" tab
+3. Find the artifact named `{run_name}_nsight_profile`
+4. Download the `.nsys-rep` file
+5. Open it locally with `nsys-ui`
+
+Example with W&B:
+
+```bash
+nsys profile \
+  -o nsight_trace \
+  --trace=cuda,nvtx,osrt,cudnn,cublas \
+  --pytorch=autograd-nvtx \
+  --pytorch-backtrace=cuda \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end=stop \
+  python train_fsdp2.py \
+    profiler.enabled=true \
+    wandb.project=my_project \
+    wandb.name=profile_run_1
+```
+
+### Profiling Overhead
+
+Nsight Systems profiling has minimal overhead when using `--capture-range=cudaProfilerApi`:
+
+- **Zero overhead** when profiling is not active (before `start_step` or after `end_step`)
+- **~5-10% overhead** during active profiling with basic flags (`--pytorch=autograd-nvtx`, `--pytorch-backtrace=cuda`)
+- **~10-20% overhead** when adding Python sampling (`--python-sampling=true`) - use only when investigating CPU-side bottlenecks
+- Only rank 0 performs profiling in distributed setups, so other ranks have no overhead
+
+### Troubleshooting
+
+**Issue**: "No trace files found" warning
+
+**Solution**: Ensure you're running the script with `nsys profile` and using `--capture-range=cudaProfilerApi`:
+
+```bash
+nsys profile --capture-range=cudaProfilerApi --capture-range-end=stop ...
+```
+
+**Issue**: Trace files are very large
+
+**Solution**: Reduce the profiling window by using a smaller range between start and end steps:
+
+```bash
+python train_fsdp2.py profiler.enabled=true profiler.start_step=10 profiler.end_step=11
+```
+
+**Issue**: Profiling doesn't start
+
+**Solution**: Adjust the start step if your training takes longer to stabilize:
+
+```bash
+python train_fsdp2.py profiler.enabled=true profiler.start_step=20 profiler.end_step=25
+```
+
+### Advanced Nsight Options
+
+You can customize the `nsys` command for more detailed profiling:
+
+```bash
+# Profile with Python CPU sampling - useful for investigating data loading or Python overhead
+# Note: --python-sampling and --trace=python-gil add overhead, use only when needed
+nsys profile \
+  -o detailed_trace \
+  --trace=cuda,nvtx,osrt,cudnn,cublas,python-gil \
+  --python-sampling=true \
+  --pytorch=autograd-nvtx \
+  --pytorch-backtrace=cuda \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end=stop \
+  --force-overwrite=true \
+  python train_fsdp2.py profiler.enabled=true
+
+# Profile with memory operations - useful for investigating memory allocation patterns
+nsys profile \
+  -o memory_trace \
+  --trace=cuda,nvtx,osrt,cudnn,cublas \
+  --cuda-memory-usage=true \
+  --pytorch=autograd-nvtx \
+  --pytorch-backtrace=cuda \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end=stop \
+  python train_fsdp2.py profiler.enabled=true
+```
+
+For more information on Nsight Systems, see the [official documentation](https://docs.nvidia.com/nsight-systems/).
+
 ## Running Inference with the Trained Model
 
 Models can be loaded from the final checkpoint directory using the `AutoModelForCausalLM` method (or

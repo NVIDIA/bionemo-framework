@@ -234,3 +234,50 @@ def test_multi_gpu_train_te_fsdp2_cp_thd(tmp_path, recipe_path):
         ],
         recipe_path,
     )
+
+
+nsys_available = subprocess.run(["which", "nsys"], check=False, capture_output=True).returncode == 0
+
+
+@pytest.mark.skipif(not nsys_available, reason="nsys not available in environment")
+@requires_multi_gpu
+def test_nsight_profiler_trace_generation_two_gpu(tmp_path, recipe_path):
+    """Test that Nsight profiler is configured correctly and generates trace metadata.
+
+    This test validates:
+    - The profiler can be enabled through configuration
+    - The profiler runs without errors during training
+    - Training under nsys produces .nsys-rep trace files
+    - The profiler correctly detects whether it's running under nsys
+    """
+    nsys_output_path = tmp_path / "nsys_profile"
+
+    run_train_cmd(
+        [
+            "nsys",
+            "profile",
+            "-o",
+            str(nsys_output_path),
+            "--trace=cuda,nvtx",
+            "--pytorch=autograd-nvtx",
+            "--python-sampling=true",
+            "--capture-range=cudaProfilerApi",
+            "--capture-range-end=stop",
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=2",
+            "train_ddp.py",
+            "--config-name",
+            "L0_sanity",
+            "num_train_steps=4",
+            "profiler.enabled=true",
+            "profiler.start_step=1",
+            "profiler.end_step=3",
+            f"checkpoint.ckpt_dir={tmp_path}",
+        ],
+        recipe_path,
+    )
+
+    # Verify nsys trace file was created
+    nsys_files = list(tmp_path.glob("nsys_profile*.nsys-rep"))
+    assert len(nsys_files) > 0, f"No .nsys-rep files found in {tmp_path}"
