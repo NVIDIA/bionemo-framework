@@ -89,3 +89,5 @@ quant_stats_config:
   enabled: false
   quant_stats_file: ./fp8_debugging_stats.yaml
   quant_log_dir: ./log_quant_stats
+
+bf16_layers: null

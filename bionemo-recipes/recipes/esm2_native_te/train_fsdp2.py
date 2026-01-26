@@ -91,7 +91,8 @@ def main(args: DictConfig) -> float | None:
     else:
         print("No FP8 or FP4 config enabled, using default bfloat16")
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.bfloat16)
+    bf16_layers = OmegaConf.to_container(args.bf16_layers, resolve=True) if args.bf16_layers is not None and args.fp4_config.enabled else None
+    config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.bfloat16, bf16_layers=bf16_layers)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"

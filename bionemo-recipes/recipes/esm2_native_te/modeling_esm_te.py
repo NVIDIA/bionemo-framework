@@ -70,6 +70,7 @@ class NVEsmConfig(EsmConfig):
         max_seq_length: Optional[int] = None,
         padded_vocab_size: Optional[int] = 64,
         attn_mask_type: str = "padding",
+        bf16_layers: Optional[list[int]] = None,
         **kwargs,
     ):
         """Initialize the NVEsmConfig with additional TE-related config options.
@@ -111,7 +112,7 @@ class NVEsmConfig(EsmConfig):
         self.micro_batch_size = micro_batch_size
         self.max_seq_length = max_seq_length
         self.attn_mask_type = attn_mask_type
-
+        self.bf16_layers = bf16_layers
         # Set padded_vocab_size with default fallback to vocab_size
         self.padded_vocab_size = padded_vocab_size if padded_vocab_size is not None else self.vocab_size
 
@@ -201,12 +202,10 @@ class NVEsmEncoder(nn.Module):
 
         # Set some layers to BF16. (28-33) (This will be from a config later).
         # TODO: Also make sure this is only for FP4, not FP8
-        layers_to_bf16 = {self.layers[-1],
-                        self.layers[-2],
-                        self.layers[-3],
-                        self.layers[-4],
-                        self.layers[-5],
-                        self.layers[-6]}
+        layers_to_bf16 = set()
+        if self.config.bf16_layers is not None:
+            layers_to_bf16 = set(self.layers[layer_idx] for layer_idx in self.config.bf16_layers)
+
         for layer_module in self.layers:
             if layer_module in layers_to_bf16:
                 fp_context = transformer_engine.pytorch.autocast(enabled=False)

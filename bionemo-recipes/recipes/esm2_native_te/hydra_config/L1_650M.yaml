@@ -17,3 +17,12 @@ wandb_init_args:
 
 checkpoint:
   ckpt_dir: "checkpoints/esm2_t33_650M_UR50D_sanity"
+
+# Layers explicitly set to BF16 in case of NVFP4 training.
+bf16_layers:
+  - 27
+  - 28
+  - 29
+  - 30
+  - 31
+  - 32
