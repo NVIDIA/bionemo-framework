@@ -106,9 +106,11 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
-    # Create MixedPrecisionPolicy for FSDP when using FP32 master weights
-    # This casts FP32 master weights to BF16 for forward/backward, then back to FP32 for optimizer
-    mp_policy = None
+    if not isinstance(model, torch.nn.Module):
+        raise TypeError("Expected model_class(config) to return a torch.nn.Module.")
+
+    # Create MixedPrecisionPolicy for FSDP when using FP32 master weights.
+    # This casts FP32 master weights to BF16 for forward/backward, then back to FP32 for optimizer.
     if use_fp32_master_weights:
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward compute
@@ -120,11 +122,17 @@ def main(args: DictConfig) -> float | None:
             "MixedPrecisionPolicy: param_dtype=bf16, reduce_dtype=fp32, output_dtype=bf16, cast_forward_inputs=True"
         )
 
-    # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
-    # Each decoder layer should be individually sharded before sharding the full model.
-    for layer in model.model.layers:
-        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
-    fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
+        # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
+        # Each decoder layer should be individually sharded before sharding the full model.
+        for layer in model.model.layers:
+            fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
+        fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
+    else:
+        # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
+        # Each decoder layer should be individually sharded before sharding the full model.
+        for layer in model.model.layers:
+            fully_shard(layer, mesh=device_mesh["dp"])
+        fully_shard(model, mesh=device_mesh["dp"])
 
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     if args.use_meta_device and isinstance(model, NVLlamaForCausalLM):
@@ -138,6 +146,11 @@ def main(args: DictConfig) -> float | None:
     # Assign names to layers so debug API can identify them
     if args.fp8_stats_config.enabled:
         debug_api.infer_and_assign_layer_names(model)
+
+    # Log initial parameter dtype before optimizer setup for debugging mixed precision behavior.
+    first_param = next(model.parameters(), None)
+    if first_param is not None:
+        logger.info("Model param dtype before optimizer: %s", first_param.dtype)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
@@ -162,7 +175,7 @@ def main(args: DictConfig) -> float | None:
             scheduler=scheduler,
             ckpt_path=ckpt_path,
             dist_config=dist_config,
-            dataloader=train_dataloader,
+            dataloader=train_dataloader,  # type: ignore[arg-type]
             process_group=device_mesh.get_group("dp"),
         )
         logger.info(f"Checkpoint loaded, resuming from step {start_step}, epoch {epoch}")
@@ -181,9 +194,17 @@ def main(args: DictConfig) -> float | None:
     step = start_step
     micro_step = 0  # Gradient accumulation step counter
 
-    # Create autocast context for FP32 master weights (casts compute to BF16)
-    autocast_ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_fp32_master_weights else nullcontext()
+    # Create autocast context for FP32 master weights (casts compute to BF16).
+    # Allow override via config for debugging (default: enabled when use_fp32_master_weights=True).
+    use_autocast = getattr(args, "use_autocast", use_fp32_master_weights)
+    autocast_ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else nullcontext()
+    if use_fp32_master_weights:
+        logger.info("FP32 master weights: use_autocast=%s", use_autocast)
 
+    if train_dataloader is None:
+        raise RuntimeError("Expected train_dataloader to be initialized before training.")
+
+    logged_dtypes = False
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
@@ -198,6 +219,17 @@ def main(args: DictConfig) -> float | None:
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
             loss.backward()
+
+            if not logged_dtypes:
+                grad_param = next((p for p in model.parameters() if p.grad is not None), None)
+                if grad_param is not None and grad_param.grad is not None:
+                    logger.info(
+                        "Dtypes after first backward: param=%s grad=%s loss=%s",
+                        grad_param.dtype,
+                        grad_param.grad.dtype,
+                        outputs.loss.dtype,
+                    )
+                logged_dtypes = True
 
             # Log microbatch step data for accumulation metrics
             perf_logger.log_micro_step(batch=batch, outputs=outputs)
@@ -229,7 +261,7 @@ def main(args: DictConfig) -> float | None:
                         step=step,
                         epoch=epoch,
                         dist_config=dist_config,
-                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,  # type: ignore[arg-type]
                         process_group=device_mesh.get_group("dp"),
                         max_checkpoints=args.checkpoint.max_checkpoints,
                         async_save=args.checkpoint.async_save,
@@ -241,7 +273,7 @@ def main(args: DictConfig) -> float | None:
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1
-        dataset_or_sampler.set_epoch(epoch)
+        dataset_or_sampler.set_epoch(epoch)  # type: ignore[attr-defined]
 
     # Save final model to a .safetensors file.
     if args.checkpoint.save_final_model and ckpt_path:
