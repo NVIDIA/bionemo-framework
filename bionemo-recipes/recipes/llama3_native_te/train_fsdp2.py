@@ -124,7 +124,9 @@ def main(args: DictConfig) -> float | None:
         logger.info("FP32 master weights enabled: model init in FP32, compute in BF16")
 
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
-    config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **args.config_kwargs)
+    # Convert DictConfig to regular dict to avoid JSON serialization issues in transformers logging
+    config_kwargs = OmegaConf.to_container(args.config_kwargs, resolve=True) if args.config_kwargs else {}
+    config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
