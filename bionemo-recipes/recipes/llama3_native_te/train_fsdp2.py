@@ -114,10 +114,10 @@ def main(args: DictConfig) -> float | None:
             param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward compute
             reduce_dtype=torch.float32,  # Accumulate gradients in FP32 for precision
             output_dtype=torch.bfloat16,  # Output activations in BF16
-            cast_forward_inputs=True,  # Cast inputs to param_dtype (BF16)
+            cast_forward_inputs=False,  # Do not cast inputs to param_dtype (BF16)
         )
         logger.info(
-            "MixedPrecisionPolicy: param_dtype=bf16, reduce_dtype=fp32, output_dtype=bf16, cast_forward_inputs=True"
+            "MixedPrecisionPolicy: param_dtype=bf16, reduce_dtype=fp32, output_dtype=bf16, cast_forward_inputs=False"
         )
 
     # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
