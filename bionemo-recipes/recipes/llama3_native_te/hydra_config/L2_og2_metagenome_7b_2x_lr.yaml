@@ -1,0 +1,93 @@
+# EXPERIMENT: 2x Learning Rate to close early training gap
+# Based on L2_og2_metagenome_7b.yaml but with lr=6e-05 (2x John's)
+#
+# Hypothesis: Our effective learning is slower, so 2x LR may compensate.
+# Compare loss at 5k-20k steps against John's baseline.
+
+defaults:
+  - defaults
+  - _self_
+
+# 7B model config (matching EdenConfig from bionemo-evo2)
+config_name_or_path: meta-llama/Llama-3.1-8B
+config_kwargs:
+  vocab_size: 256  # CRITICAL: Must match nucleotide tokenizer vocab size!
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 32
+  max_position_embeddings: 8192
+  rope_theta: 500000
+  initializer_range: 0.02
+  attn_input_format: thd
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+
+# Initialization flags (matching John's)
+spike_no_more_embedding_init: true
+skip_embedding_weight_decay: true
+use_weight_decay_grouping: true
+use_megatron_scaled_init: false
+
+# Sequence packing for THD
+use_sequence_packing: true
+
+# Gradient accumulation
+grad_acc_steps: 8
+
+# Training setup
+num_train_steps: 182314
+
+wandb:
+  name: og2_7b_2x_lr_experiment
+  project: llama3-metagenome-7b
+
+# Dataset config
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 2
+  num_workers: 1
+  max_seq_length: 8192
+  stride: 7992
+  buffer_size: 50_000
+  use_lazy_tokenization: true
+  use_stateful_dataloader: false
+  mask_degenerate_bases: true
+  uppercase_labels: false
+  load_dataset_kwargs:
+    path: "/data/opengenome2/json/pretraining_or_both_phases/metagenomes"
+    split: "train"
+    streaming: True
+
+# ============ EXPERIMENT: 2x LEARNING RATE ============
+adamw_kwargs:
+  lr: 6e-05  # 2x John's LR (was 3e-05)
+  fused: true
+  betas: [0.9, 0.95]
+  eps: 1e-8
+  weight_decay: 0.1
+
+# LR scheduler - 2x peak LR but decay to same min_lr as John
+# Start at 6e-05 (2x) for faster early learning, decay to 6e-07 (same as John)
+# min_lr_ratio = 6e-07 / 6e-05 = 0.01
+lr_scheduler_kwargs:
+  num_warmup_steps: 2500
+  num_constant_steps: 0
+  num_decay_steps: 17500  # 20000 - 2500
+  min_lr_ratio: 0.01  # Decay to John's min_lr (6e-07), not 2x
+
+# Checkpoint config
+checkpoint:
+  ckpt_dir: null
+  save_final_model: false
+  resume_from_checkpoint: false
+  save_every_n_steps: 5000
+  async_save: true
+
+profiler:
+  enabled: false

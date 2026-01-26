@@ -1,0 +1,101 @@
+# Config for 1B Llama3 on OpenGenome2 Metagenome
+# Designed to match John's Megatron MBridge 1B run for direct comparison
+# Architecture: hidden=2048, heads=16, ffn=5120, layers=24 (~1.1B params)
+# GBS=384 = 6 nodes × 8 GPUs × MBS=4 × grad_acc=2
+
+defaults:
+  - defaults
+  - _self_
+
+# 1B model config (comparable to Striped Hyena 1B)
+# hidden_size: 2048 (matches Hyena 1B)
+# num_attention_heads: 16 (matches Hyena 1B)
+# intermediate_size: 5120 (matches Hyena 1B ffn_hidden_size)
+# num_hidden_layers: 24 (tuned to match ~1B params)
+config_name_or_path: ./model_configs/llama3-1b-hyena-comparable
+config_kwargs:
+  vocab_size: 256  # CRITICAL: Must match nucleotide tokenizer vocab size!
+  num_hidden_layers: 24
+  hidden_size: 2048
+  intermediate_size: 5120
+  num_attention_heads: 16
+  num_key_value_heads: 16  # Full MHA (not GQA) for simplicity
+  max_position_embeddings: 8192
+  rope_theta: 500000
+  initializer_range: 0.02
+  attn_input_format: thd
+
+# Spike-No-More embedding initialization (matching Hyena 1B setup)
+# The Hyena 1B uses embedding_init_method_std=1.0 and share_embeddings_and_output_weights=False
+spike_no_more_embedding_init: true
+
+# Skip weight decay on embeddings (matching Hyena's --no-weight-decay-embeddings)
+skip_embedding_weight_decay: true
+
+# NO Megatron-style scaled init - use uniform 0.02 for all layers
+# (John's run uses SNIFalse but we're testing with spike=true, no scaled init)
+use_megatron_scaled_init: false
+
+# Keep weight decay grouping enabled (skip decay on bias/1D params)
+use_weight_decay_grouping: true
+
+# Use HF-style loss for backprop (not Megatron-style per-token reduction)
+use_megatron_loss: false
+
+# Sequence packing for THD
+use_sequence_packing: true
+
+# Gradient accumulation: GBS=384 = 48 GPUs × MBS=4 × grad_acc=2
+grad_acc_steps: 2
+
+# Training setup (matching Hyena 1B run parameters)
+num_train_steps: 72926
+
+wandb:
+  name: og2_1b_spike_wd_6node_gbs384
+  project: llama3-metagenome-1b
+
+# Dataset config (OpenGenome2 Metagenome)
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 4  # MBS=4 for GBS=384 (matching John's run)
+  num_workers: 2  # Hyena used workers=8
+  max_seq_length: 8192
+  stride: 7992
+  buffer_size: 50_000
+  use_stateful_dataloader: false
+  mask_degenerate_bases: true
+  uppercase_labels: false
+  load_dataset_kwargs:
+    path: "/data/opengenome2/json/pretraining_or_both_phases/metagenomes"
+    split: "train"
+    streaming: True
+
+# Optimizer (matching John's MBridge 1B settings)
+adamw_kwargs:
+  lr: 3e-04  # John uses 3e-4 (10x higher than old Hyena runs)
+  fused: true
+  betas: [0.9, 0.95]
+  eps: 1e-8
+  weight_decay: 0.01
+
+# Learning rate scheduler (matching John's settings)
+# Note: John uses constant_steps=1024 (plateau) which we don't have yet
+lr_scheduler_kwargs:
+  num_warmup_steps: 1024
+  num_decay_steps: 71902  # total_steps - warmup = 72926 - 1024
+  min_lr_ratio: 0.02  # min_lr / lr = 6e-06 / 3e-04 = 0.02
+
+# Checkpoint config
+checkpoint:
+  ckpt_dir: null
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 2_000
+  async_save: true
+
+logger:
+  frequency: 1
+
+profiler:
+  enabled: false

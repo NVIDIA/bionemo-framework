@@ -1,0 +1,119 @@
+# Config for 7B Llama3 on OpenGenome2 Metagenome (matching John's Eden run)
+# THD format with sequence packing
+#
+# John's Megatron run args:
+#   --spike-no-more-embedding-init (embedding std=1.0, not tied)
+#   --attention-dropout 0 --hidden-dropout 0
+#   --wd 0.1 with weight decay skipping on bias/1D params
+#   --lr 3e-05 --min-lr 6e-07 --warmup-steps 2500
+#   --fp8 --no-fp32-residual-connection
+#   --no-calculate-per-token-loss
+
+defaults:
+  - defaults
+  - _self_
+
+# 7B model config (matching EdenConfig from bionemo-evo2)
+# Using 8B config as template, but overriding to 7B architecture
+config_name_or_path: meta-llama/Llama-3.1-8B
+config_kwargs:
+  vocab_size: 256  # CRITICAL: Must match nucleotide tokenizer vocab size!
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 32  # Not GQA for 7B
+  max_position_embeddings: 8192
+  rope_theta: 500000  # rotary_base from Eden
+  initializer_range: 0.02  # init_method_std from Eden
+  attn_input_format: thd  # THD format for sequence packing
+  rope_scaling:
+    type: "llama3"  # HuggingFace requires this!
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+
+# ============ CRITICAL FLAGS TO MATCH JOHN'S RUN ============
+# Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
+# Embeddings initialized with std=1.0 instead of 0.02
+spike_no_more_embedding_init: true
+
+# Skip weight decay on embeddings (matching John's Megatron behavior)
+skip_embedding_weight_decay: true
+
+# Use Megatron-style weight decay grouping (skip decay on bias/1D params)
+# This follows the rule: if len(param.shape) == 1 or name.endswith('.bias'), skip decay
+use_weight_decay_grouping: true
+
+# NO Megatron-style scaled init for proj/fc2 - TE uses uniform 0.02
+# John's run uses SNI=False (spike-no-more is for embeddings, not proj layers)
+use_megatron_scaled_init: false
+
+# Use Megatron-style per-token loss reduction (matches John's --no-calculate-per-token-loss)
+# When true: loss = sum(per_token_losses) / total_valid_tokens across all microbatches
+# This can reduce loss by 0.03-0.07 compared to HuggingFace-style mean reduction
+use_megatron_loss: false  # Disabled - using HF-style loss for backprop
+
+# NOTE: log_tev and log_init_stats not yet supported in current train_fsdp2.py
+# ============================================================
+
+# Sequence packing for THD
+use_sequence_packing: true
+
+# Gradient accumulation
+grad_acc_steps: 8  # Higher accumulation for memory constraints
+
+# Training setup (matching John's)
+num_train_steps: 182314
+
+wandb:
+  name: og2_7b_thd_6node_mbs2_ga4
+  project: llama3-metagenome-7b
+
+# Dataset config (OpenGenome2 Metagenome from HuggingFace)
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 2
+  num_workers: 1  # John used workers=1
+  max_seq_length: 8192  # Match John's seq_length
+  stride: 7992  # Match John's stride (almost full overlap)
+  buffer_size: 50_000
+  use_stateful_dataloader: false
+  mask_degenerate_bases: true  # Genomic data needs masking
+  uppercase_labels: false
+  load_dataset_kwargs:
+    path: "/data/opengenome2/json/pretraining_or_both_phases/metagenomes"
+    split: "train"
+    streaming: True
+
+# Optimizer (matching John's settings)
+adamw_kwargs:
+  lr: 3e-05  # Match John's --lr
+  fused: true
+  betas: [0.9, 0.95]
+  eps: 1e-8
+  weight_decay: 0.1  # Match John's --wd
+
+# Learning rate scheduler (matching John's Megatron run)
+# John's args: --lr 3e-05 --min-lr 6e-07 --warmup-steps 2500
+# Note: Megatron may use constant_steps for a plateau phase after warmup
+lr_scheduler_kwargs:
+  num_warmup_steps: 2500  # Match John's --warmup-steps
+  num_constant_steps: 0  # Set to 1024 if John's run has a plateau phase
+  num_decay_steps: 179814  # total_steps - warmup - constant = 182314 - 2500 - 0
+  min_lr_ratio: 0.02  # min_lr / lr = 6e-07 / 3e-05 = 0.02
+
+# Checkpoint config
+checkpoint:
+  ckpt_dir: null
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 5_000
+  async_save: true
+
+logger:
+  frequency: 1
+
+profiler:
+  enabled: false

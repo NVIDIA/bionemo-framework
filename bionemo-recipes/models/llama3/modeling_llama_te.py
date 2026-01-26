@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import math
 from collections import OrderedDict
 from typing import Unpack
 
@@ -40,10 +41,23 @@ AUTO_MAP = {
 
 
 class NVLlamaConfig(LlamaConfig):
-    """NVLlama configuration."""
+    """NVLlama configuration.
+
+    Additional attributes:
+        attn_input_format: Input format for attention ("thd" or "bshd").
+        self_attn_mask_type: Attention mask type for self-attention.
+        embedding_init_std: Standard deviation for embedding initialization.
+            If None, uses initializer_range (typically 0.02).
+            Set to 1.0 for Spike-No-More paper approach.
+        use_megatron_scaled_init: Whether to use Megatron's scaled initialization
+            for residual output layers (attention proj, MLP fc2).
+            Scaled init uses std / sqrt(2 * num_layers) for these layers.
+    """
 
     attn_input_format: str = "thd"
     self_attn_mask_type: str = "padding_causal"
+    embedding_init_std: float | None = None  # None means use initializer_range
+    use_megatron_scaled_init: bool = False  # Use scaled init for proj/fc2 (std/sqrt(2*n))
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -76,17 +90,95 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """Initialize module weights.
 
-        We only use this method for standard pytorch modules, TE modules handle their own weight initialization through
-        `init_method` parameters and the `reset_parameters` method.
-        """
-        if module.__module__.startswith("transformer_engine.pytorch"):
-            # Notably, we need to avoid calling this method for TE modules, since the default _init_weights will assume
-            # any class with `LayerNorm` in the name should have weights initialized to 1.0; breaking `LayerNormLinear`
-            # and `LayerNormMLP` modules that use `weight` for the linear layer and `layer_norm_weight` for the layer
-            # norm.
-            return
+        This method ensures that models with randomly-initialized weights get the correct initial value distribution,
+        which can be critical for training stability. We also call this method when using meta-device init via
+        `init_empty_weights()`.
 
-        super()._init_weights(module)
+        Initialization strategy:
+        - Embeddings: config.embedding_init_std if set, else initializer_range (0.02)
+          - For Spike-No-More: set embedding_init_std=1.0 in config
+        - QKV, fc1, LM head: regular init = initializer_range (0.02)
+        - Attention proj, MLP fc2: depends on config.use_megatron_scaled_init:
+          - If False (default): regular init = initializer_range (0.02)
+          - If True: scaled init = initializer_range / sqrt(2 * num_layers)
+
+        Note: Megatron uses scaled init for proj and fc2, but TE's fused TransformerLayer
+        was designed with uniform initialization. If you see loss increasing after initial
+        decrease, try setting use_megatron_scaled_init=False.
+
+        Args:
+            module (nn.Module): The module to initialize the weights for.
+        """
+        # Get base std from config (typically 0.02)
+        if hasattr(self.config, "initializer_range"):
+            std = self.config.initializer_range
+        else:
+            std = getattr(self.config.get_text_config(), "initializer_range", 0.02)
+
+        # Check if we should use Megatron's scaled init for residual output layers
+        use_scaled_init = getattr(self.config, "use_megatron_scaled_init", False)
+        if use_scaled_init:
+            num_layers = getattr(self.config, "num_hidden_layers", 32)
+            output_std = std / math.sqrt(2.0 * num_layers)
+        else:
+            output_std = std  # Use regular std for all layers (TE's default)
+
+        # Embedding init std: default to regular std (0.02), use 1.0 only if explicitly set
+        # For Spike-No-More paper approach, set config.embedding_init_std = 1.0
+        embedding_init_std = getattr(self.config, "embedding_init_std", None)
+        embedding_std = embedding_init_std if embedding_init_std is not None else std
+
+        # Embeddings
+        if isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=embedding_std)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
+
+        # Regular Linear layers: LM head and other Linear use regular std (0.02)
+        # Note: In Megatron, LM head (output_layer) uses init_method, NOT output_layer_init_method
+        if isinstance(
+            module, (nn.Linear, transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)
+        ):
+            module.weight.data.normal_(mean=0.0, std=std)
+            if module.bias is not None:
+                module.bias.data.zero_()
+
+        if isinstance(module, transformer_engine.pytorch.LayerNorm):
+            if hasattr(module, "weight") and module.weight is not None:
+                module.weight.data.fill_(1.0)
+            if hasattr(module, "bias") and module.bias is not None:
+                module.bias.data.zero_()
+        if isinstance(module, transformer_engine.pytorch.RMSNorm):
+            if hasattr(module, "weight") and module.weight is not None:
+                module.weight.data.fill_(1.0)
+        if isinstance(module, transformer_engine.pytorch.LayerNormLinear):
+            module.layer_norm_weight.data.fill_(1.0)
+            if module.layer_norm_bias is not None:
+                module.layer_norm_bias.data.zero_()
+
+        # MLP: fc1 uses regular std, fc2 uses output_std (scaled if use_megatron_scaled_init=True)
+        if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
+            module.layer_norm_weight.data.fill_(1.0)
+            if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
+                module.fc1_weight.data.normal_(mean=0.0, std=std)
+            if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
+                module.fc2_weight.data.normal_(mean=0.0, std=output_std)
+            if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
+                module.fc1_bias.data.zero_()
+            if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
+                module.fc2_bias.data.zero_()
+
+        # TE TransformerLayer: attention output projection uses output_std
+        if isinstance(module, transformer_engine.pytorch.TransformerLayer):
+            if hasattr(module, "self_attention") and hasattr(module.self_attention, "proj"):
+                proj = module.self_attention.proj
+                if hasattr(proj, "weight") and proj.weight is not None:
+                    proj.weight.data.normal_(mean=0.0, std=output_std)
+                if hasattr(proj, "bias") and proj.bias is not None:
+                    proj.bias.data.zero_()
+
+        if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
+            module.inv_freq = LlamaRotaryEmbedding(config=self.config).inv_freq.to(module.inv_freq.device)
 
 
 class NVLlamaModel(NVLlamaPreTrainedModel):
@@ -99,10 +191,22 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
+        # Spike-No-More embedding init is handled in _init_weights using config.embedding_init_std
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx, dtype=config.dtype)
 
+        # Regular init method for QKV, fc1, LM head (use standard initializer_range)
         def _init_method(x):
             torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
+
+        # Output init method for attention proj, MLP fc2 (use scaled init if enabled)
+        use_scaled_init = getattr(config, "use_megatron_scaled_init", False)
+        if use_scaled_init:
+            output_std = config.initializer_range / math.sqrt(2.0 * config.num_hidden_layers)
+        else:
+            output_std = config.initializer_range
+
+        def _output_init_method(x):
+            torch.nn.init.normal_(x, mean=0.0, std=output_std)
 
         self.layers = nn.ModuleList(
             [
@@ -125,7 +229,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                     params_dtype=config.dtype,
                     device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
                     init_method=_init_method,
-                    output_layer_init_method=_init_method,
+                    output_layer_init_method=_output_init_method,  # Use scaled init if use_megatron_scaled_init=True
                 )
                 for layer_idx in range(config.num_hidden_layers)
             ]
