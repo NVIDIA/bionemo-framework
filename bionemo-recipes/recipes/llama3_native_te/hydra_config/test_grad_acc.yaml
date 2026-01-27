@@ -1,0 +1,49 @@
+defaults:
+  - L0_sanity
+  - _self_
+
+# Override for gradient accumulation testing
+num_train_steps: 1000
+
+# Disable torch.compile for faster testing iteration
+use_torch_compile: false
+
+# Use meta device for memory efficiency
+use_meta_device: true
+
+# Gradient accumulation - override via CLI
+grad_acc_steps: 1  # Override this in tests: 1, 2, 4, 8
+
+# Dataset config - override micro_batch_size via CLI
+dataset:
+  micro_batch_size: 8  # Override this in tests: 8, 4, 2, 1
+  max_seq_length: 1024  # Shorter for faster testing
+  buffer_size: 10000
+
+# Logging - more frequent for better resolution
+logger:
+  frequency: 10
+
+# WandB config
+wandb:
+  name: "llama3_grad_acc_test_mb${dataset.micro_batch_size}_ga${grad_acc_steps}"
+  project: "llama3_grad_acc_validation"
+  mode: "online"  # Set to online to track experiments
+  tags:
+    - gradient_accumulation_test
+    - micro_batch_${dataset.micro_batch_size}
+    - grad_acc_${grad_acc_steps}
+
+# Checkpoint config - save for resume testing
+checkpoint:
+  ckpt_dir: "./checkpoints/grad_acc_test_mb${dataset.micro_batch_size}_ga${grad_acc_steps}"
+  save_final_model: false
+  resume_from_checkpoint: false
+  save_every_n_steps: 250
+  max_checkpoints: 2
+
+# Learning rate scheduler
+lr_scheduler_kwargs:
+  num_warmup_steps: 50
+  num_decay_steps: 950
+  min_lr_ratio: 0.1
