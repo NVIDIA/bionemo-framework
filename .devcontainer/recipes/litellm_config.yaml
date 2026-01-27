@@ -1,0 +1,94 @@
+model_list:
+  # ===========================================
+  # NVIDIA Inference API Model Mappings
+  # ===========================================
+  # Maps Claude Code model requests to NVIDIA's hosted Claude models
+  #
+  # Available NVIDIA models:
+  #   - aws/anthropic/claude-opus-4-5         (Opus 4.5)
+  #   - aws/anthropic/bedrock-claude-sonnet-4-5-v1  (Sonnet 4.5)
+  #
+  # IMPORTANT: NVIDIA's Bedrock-hosted models have smaller context windows
+  # than direct Anthropic API (~100K vs 200K). We set max_input_tokens to
+  # enable pre-call validation, which allows Claude Code to trigger
+  # context compaction before hitting the API limit.
+  #
+  # Claude Code requests these models by name, so we map them appropriately.
+
+  # --- Sonnet models → NVIDIA Sonnet ---
+  - model_name: claude-sonnet-4-5-20250929
+    litellm_params:
+      model: openai/aws/anthropic/bedrock-claude-sonnet-4-5-v1
+      api_base: https://inference-api.nvidia.com
+      api_key: os.environ/NVIDIA_API_KEY
+    model_info:
+      max_input_tokens: 100000  # Tested: NVIDIA limit is ~111K, using 100K for safety
+      max_output_tokens: 8192
+
+  - model_name: claude-sonnet-4-20250514
+    litellm_params:
+      model: openai/aws/anthropic/bedrock-claude-sonnet-4-5-v1
+      api_base: https://inference-api.nvidia.com
+      api_key: os.environ/NVIDIA_API_KEY
+    model_info:
+      max_input_tokens: 100000
+      max_output_tokens: 8192
+
+  - model_name: claude-3-5-sonnet-20241022
+    litellm_params:
+      model: openai/aws/anthropic/bedrock-claude-sonnet-4-5-v1
+      api_base: https://inference-api.nvidia.com
+      api_key: os.environ/NVIDIA_API_KEY
+    model_info:
+      max_input_tokens: 100000
+      max_output_tokens: 8192
+
+  # --- Haiku models → NVIDIA Sonnet (no Haiku available) ---
+  - model_name: claude-haiku-4-5-20251001
+    litellm_params:
+      model: openai/aws/anthropic/bedrock-claude-sonnet-4-5-v1
+      api_base: https://inference-api.nvidia.com
+      api_key: os.environ/NVIDIA_API_KEY
+    model_info:
+      max_input_tokens: 100000
+      max_output_tokens: 8192
+
+  # --- Opus models → NVIDIA Opus ---
+  - model_name: claude-opus-4-5-20250929
+    litellm_params:
+      model: openai/aws/anthropic/claude-opus-4-5
+      api_base: https://inference-api.nvidia.com
+      api_key: os.environ/NVIDIA_API_KEY
+    model_info:
+      max_input_tokens: 100000  # Tested: NVIDIA limit is ~111K, using 100K for safety
+      max_output_tokens: 8192
+
+  - model_name: claude-3-opus-20240229
+    litellm_params:
+      model: openai/aws/anthropic/claude-opus-4-5
+      api_base: https://inference-api.nvidia.com
+      api_key: os.environ/NVIDIA_API_KEY
+    model_info:
+      max_input_tokens: 100000
+      max_output_tokens: 8192
+
+general_settings:
+  master_key: sk-litellm-local-dev
+
+router_settings:
+  # Enable pre-call validation of context window limits
+  # This checks if input exceeds max_input_tokens BEFORE making the API call
+  # Allows Claude Code to receive ContextWindowExceededError early and trigger compaction
+  enable_pre_call_checks: true
+
+litellm_settings:
+  drop_params: true
+  num_retries: 2
+  # Context window fallbacks: when a model hits context limit, try Opus
+  # Note: Both models have same ~100K limit on NVIDIA, so fallback may not help
+  # The real fix is enable_pre_call_checks which lets Claude Code compact early
+  context_window_fallbacks:
+    - claude-sonnet-4-5-20250929: ["claude-opus-4-5-20250929"]
+    - claude-sonnet-4-20250514: ["claude-opus-4-5-20250929"]
+    - claude-3-5-sonnet-20241022: ["claude-opus-4-5-20250929"]
+    - claude-haiku-4-5-20251001: ["claude-sonnet-4-5-20250929", "claude-opus-4-5-20250929"]

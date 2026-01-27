@@ -2,10 +2,13 @@ accelerate
 datasets
 deepspeed
 hydra-core
+litellm[proxy]
 lm-eval
 megatron-fsdp
+nvdlfw_inspect @ git+https://github.com/NVIDIA/nvidia-dlfw-inspect
 peft
 pytest
+seaborn
 torch
 torchao!=0.14.0
 torchdata
@@ -16,5 +19,3 @@ transformers
 typer
 wandb
 zstandard
-nvdlfw_inspect @ git+https://github.com/NVIDIA/nvidia-dlfw-inspect
-seaborn
