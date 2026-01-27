@@ -18,6 +18,7 @@ import logging
 import random
 from contextlib import nullcontext
 from pathlib import Path
+from typing import Any, cast
 
 import hydra
 import numpy as np
@@ -161,8 +162,9 @@ def _to_local_tensor(tensor: torch.Tensor) -> torch.Tensor:
     Returns:
         The local tensor data.
     """
-    if hasattr(tensor, "to_local"):
-        return tensor.to_local()
+    to_local = getattr(tensor, "to_local", None)
+    if callable(to_local):
+        return cast(torch.Tensor, to_local())
     return tensor
 
 
@@ -344,7 +346,9 @@ def main(args: DictConfig) -> float | None:
 
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
     # Convert DictConfig to regular dict to avoid JSON serialization issues in transformers logging
-    config_kwargs = OmegaConf.to_container(args.config_kwargs, resolve=True) if args.config_kwargs else {}
+    config_kwargs: dict[str, Any] = {}
+    if args.config_kwargs:
+        config_kwargs = cast(dict[str, Any], OmegaConf.to_container(args.config_kwargs, resolve=True))
 
     # Handle Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
     # When enabled, embeddings are initialized with std=1.0 instead of 0.02 to prevent loss spikes.
@@ -369,12 +373,14 @@ def main(args: DictConfig) -> float | None:
         transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs),
     ):
         model = model_class(config)
+        model = cast(torch.nn.Module, model)
 
     logger.info("Initialized Model:\n%s", model)
 
     # Create MixedPrecisionPolicy for FSDP when using FP32 master weights
     # This casts FP32 master weights to BF16 for forward/backward, then back to FP32 for optimizer
     mp_policy = None
+    model_layers = cast(Any, model).model.layers
     if use_fp32_master_weights:
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward compute
@@ -388,13 +394,13 @@ def main(args: DictConfig) -> float | None:
 
         # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
         # Each decoder layer should be individually sharded before sharding the full model.
-        for layer in model.model.layers:
+        for layer in model_layers:
             fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
         fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
     else:
         # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
         # Each decoder layer should be individually sharded before sharding the full model.
-        for layer in model.model.layers:
+        for layer in model_layers:
             fully_shard(layer, mesh=device_mesh["dp"])
         fully_shard(model, mesh=device_mesh["dp"])
 
@@ -421,7 +427,7 @@ def main(args: DictConfig) -> float | None:
         logger.info("Model param dtype before optimizer: %s", first_param.dtype)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
+    adamw_kwargs = cast(dict[str, Any], OmegaConf.to_container(args.adamw_kwargs, resolve=True))
 
     # Check if we should use weight decay grouping (skip decay on bias and 1D params)
     # Default to True to match Megatron convention
@@ -453,6 +459,7 @@ def main(args: DictConfig) -> float | None:
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
         model = torch.compile(model)
+        model = cast(torch.nn.Module, model)
 
     # If we're resuming from a checkpoint, load it and set the start step. Otherwise, start from step 0.
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
@@ -476,17 +483,18 @@ def main(args: DictConfig) -> float | None:
     perf_logger = PerfLogger(dist_config, args)
 
     # Setup validation if enabled
-    val_config = getattr(args, "validation", None)
+    val_config = cast(DictConfig | None, getattr(args, "validation", None))
     val_enabled = val_config is not None and getattr(val_config, "enabled", False)
+    val_config_enabled = cast(DictConfig | None, val_config) if val_enabled else None
     val_dataloader = None
 
-    if val_enabled:
-        val_data_path = getattr(val_config, "data_path", None)
+    if val_config_enabled is not None:
+        val_data_path = getattr(val_config_enabled, "data_path", None)
         if val_data_path:
             logger.info(f"Setting up validation dataloader from {val_data_path}")
 
             # Create validation dataloader config - copy training config and override data path
-            val_dataset_kwargs = OmegaConf.to_container(args.dataset, resolve=True)
+            val_dataset_kwargs = cast(dict[str, Any], OmegaConf.to_container(args.dataset, resolve=True))
 
             # Override load_dataset_kwargs for validation data
             val_dataset_kwargs["load_dataset_kwargs"] = {
@@ -500,17 +508,18 @@ def main(args: DictConfig) -> float | None:
             val_dataset_kwargs["use_stateful_dataloader"] = False
 
             # Optionally override validation batch size
-            if hasattr(val_config, "micro_batch_size") and val_config.micro_batch_size is not None:
-                val_dataset_kwargs["micro_batch_size"] = val_config.micro_batch_size
+            if hasattr(val_config_enabled, "micro_batch_size") and val_config_enabled.micro_batch_size is not None:
+                val_dataset_kwargs["micro_batch_size"] = val_config_enabled.micro_batch_size
 
             # Use same data format as training
             if args.use_sequence_packing:
-                val_dataloader, _ = create_thd_dataloader(dist_config, **val_dataset_kwargs)
+                val_dataloader, _ = create_thd_dataloader(dist_config, **val_dataset_kwargs)  # type: ignore[arg-type]
             else:
-                val_dataloader, _ = create_bshd_dataloader(dist_config, **val_dataset_kwargs)
+                val_dataloader, _ = create_bshd_dataloader(dist_config, **val_dataset_kwargs)  # type: ignore[arg-type]
 
             logger.info(
-                f"Validation enabled: every {val_config.eval_interval} steps, {val_config.num_batches} batches"
+                f"Validation enabled: every {val_config_enabled.eval_interval} steps, "
+                f"{val_config_enabled.num_batches} batches"
             )
         else:
             logger.warning("Validation enabled but no data_path specified, skipping validation")
@@ -591,18 +600,23 @@ def main(args: DictConfig) -> float | None:
                         step=step,
                         epoch=epoch,
                         dist_config=dist_config,
-                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,  # type: ignore[arg-type]
                         process_group=device_mesh.get_group("dp"),
                         max_checkpoints=args.checkpoint.max_checkpoints,
                         async_save=args.checkpoint.async_save,
                     )
 
                 # Run validation at specified interval
-                if val_enabled and val_dataloader is not None and step > 0 and step % val_config.eval_interval == 0:
+                if (
+                    val_config_enabled is not None
+                    and val_dataloader is not None
+                    and step > 0
+                    and step % val_config_enabled.eval_interval == 0
+                ):
                     val_metrics = run_validation(
                         model=model,
                         val_dataloader=val_dataloader,
-                        num_batches=val_config.num_batches,
+                        num_batches=val_config_enabled.num_batches,
                         device=device,
                         dist_config=dist_config,
                         fp8_config=args.fp8_config,
@@ -622,7 +636,8 @@ def main(args: DictConfig) -> float | None:
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1
-        dataset_or_sampler.set_epoch(epoch)
+        if hasattr(dataset_or_sampler, "set_epoch"):
+            cast(Any, dataset_or_sampler).set_epoch(epoch)
 
     # Save final model to a .safetensors file.
     if args.checkpoint.save_final_model and ckpt_path:
