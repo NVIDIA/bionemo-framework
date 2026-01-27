@@ -356,6 +356,13 @@ def main(args: DictConfig) -> float | None:
         elif "rope_type" not in rope_scaling:
             rope_scaling = {**rope_scaling, "rope_type": "default"}
         config_kwargs["rope_scaling"] = rope_scaling
+    rope_theta = config_kwargs.get("rope_theta")
+    if rope_theta is None and isinstance(rope_scaling, dict):
+        rope_type = rope_scaling.get("rope_type")
+        if rope_type == "llama3":
+            rope_theta = 500000.0
+    if rope_theta is not None:
+        config_kwargs["rope_theta"] = rope_theta
 
     # Handle Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
     # When enabled, embeddings are initialized with std=1.0 instead of 0.02 to prevent loss spikes.
@@ -371,6 +378,12 @@ def main(args: DictConfig) -> float | None:
         logger.info("Megatron scaled init enabled: proj/fc2 use std/sqrt(2*num_layers)")
 
     config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
+    if getattr(config, "rope_theta", None) is None:
+        rope_type = None
+        if isinstance(config_kwargs.get("rope_scaling"), dict):
+            rope_type = config_kwargs["rope_scaling"].get("rope_type")
+        config.rope_theta = 500000.0 if rope_type == "llama3" else 10000.0
+        logger.warning("config.rope_theta was None; defaulting to %s", config.rope_theta)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
