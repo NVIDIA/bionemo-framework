@@ -17,8 +17,16 @@ import logging
 import time
 from pathlib import Path
 
-import nvdlfw_inspect.api as debug_api
 import torch
+
+
+try:
+    import nvdlfw_inspect.api as debug_api
+
+    HAS_NVDLFW_INSPECT = True
+except ImportError:
+    debug_api = None
+    HAS_NVDLFW_INSPECT = False
 import torchmetrics
 import wandb
 from hydra.core.hydra_config import HydraConfig
@@ -140,7 +148,7 @@ class PerfLogger:
         if self._profiler is not None:
             self._profiler.step()
 
-        if self.fp8_stats_enabled:
+        if self.fp8_stats_enabled and HAS_NVDLFW_INSPECT:
             debug_api.step()
 
         if step % self.logging_frequency == 0 and step > 0:
@@ -195,7 +203,7 @@ class PerfLogger:
         wandb.finish()
         self._progress_bar.close()
 
-        if self.fp8_stats_enabled:
+        if self.fp8_stats_enabled and HAS_NVDLFW_INSPECT:
             debug_api.end_debug()
 
 

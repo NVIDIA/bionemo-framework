@@ -14,25 +14,36 @@
 # limitations under the License.
 
 import logging
+from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
-import nvdlfw_inspect.api as debug_api
 import torch
+
+
+try:
+    import nvdlfw_inspect.api as debug_api
+
+    HAS_NVDLFW_INSPECT = True
+except ImportError:
+    debug_api = None
+    HAS_NVDLFW_INSPECT = False
 import transformer_engine
 import transformer_engine.pytorch
+from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from omegaconf import DictConfig
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
-from transformers import AutoConfig, AutoModelForMaskedLM
+from transformers.models.llama.configuration_llama import LlamaConfig
+from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from fp8_debugging import initialize_fp8_debugging
 from perf_logger import PerfLogger
-from scheduler import get_linear_schedule_with_warmup
+from scheduler import get_cosine_annealing_schedule_with_warmup
 
 
 logger = logging.getLogger(__name__)
@@ -41,7 +52,7 @@ logger.setLevel(logging.INFO)
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
-    """Train ESM-2 with TE layers using DDP.
+    """Train Llama3 with TE layers using DDP for genomic sequences.
 
     Returns:
         float: The loss value for the final batch.
@@ -53,45 +64,42 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
-    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    # TE Debug feature logging
     if args.fp8_stats_config.enabled:
         initialize_fp8_debugging(dist_config, **args.fp8_stats_config, fp8_enabled=args.fp8_config.enabled)
 
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
     # and MFSDP.
-    device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("ddp",))
+    device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
 
     # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
     fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
         fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
     )
 
-    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
-    # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
-    if args.use_sequence_packing:
-        config.attn_input_format = "thd"
+    if args.use_te:
+        config_class = NVLlamaConfig
+        model_class = NVLlamaForCausalLM
+    else:
+        config_class = LlamaConfig
+        model_class = LlamaForCausalLM
+
+    # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
+    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
     with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
-        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+        model = model_class(config)
 
     logger.info("Initialized Model:\n%s", model)
 
-    # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
-    # avoid errors with unused parameters.
-    try:
-        del model.esm.contact_head
-    except AttributeError:
-        pass
-
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
-    scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+    scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    if args.fp8_stats_config.enabled:
+    if args.fp8_stats_config.enabled and HAS_NVDLFW_INSPECT:
         debug_api.infer_and_assign_layer_names(model)
 
     model = model.to(device=device)
@@ -99,15 +107,13 @@ def main(args: DictConfig) -> float | None:
         model,
         device_ids=[dist_config.local_rank],
         output_device=dist_config.local_rank,
-        device_mesh=device_mesh["ddp"],
+        device_mesh=device_mesh["dp"],
     )
 
-    # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
-    train_dataloader, dataset_or_sampler = (
-        create_thd_dataloader(dist_config, **args.dataset)
-        if args.use_sequence_packing
-        else create_bshd_dataloader(dist_config, **args.dataset)
-    )
+    if args.use_sequence_packing:
+        train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
+    else:
+        train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
@@ -132,50 +138,60 @@ def main(args: DictConfig) -> float | None:
 
     # Training loop
     step = start_step
+    micro_step = 0  # Gradient accumulation step counter
     while step < args.num_train_steps:
         for batch in train_dataloader:
+            print(batch["input_ids"].shape)
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW2901
 
-            # Forward pass with mixed precision.
-            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
-                outputs = model(**batch)
+            micro_step += 1
+            # Use no_sync to prevent gradient synchronization until the last microbatch
+            with model.no_sync() if micro_step % args.grad_acc_steps != 0 else nullcontext():
+                # Forward pass with mixed precision.
+                with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+                    outputs = model(**batch)
 
-            # Backward pass.
-            loss = outputs.loss
-            loss.backward()
+                # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
+                loss = outputs.loss / args.grad_acc_steps
+                loss.backward()
 
-            # Compute and clip gradient norms.
-            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+                # Log microbatch step data for accumulation metrics
+                perf_logger.log_micro_step(batch=batch, outputs=outputs)
 
-            # Step optimizer.
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
+            # Gradient accumulation - only step optimizer after accumulating gradients
+            if micro_step % args.grad_acc_steps == 0:
+                micro_step = 0
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
+                # Compute and clip gradient norms.
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
-            if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
-                save_checkpoint_ddp(
-                    model=model,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    ckpt_path=ckpt_path,
+                # Step optimizer.
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+
+                perf_logger.log_step(
                     step=step,
-                    epoch=epoch,
-                    dist_config=dist_config,
-                    dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                    max_checkpoints=args.checkpoint.max_checkpoints,
+                    grad_norm=total_norm,
+                    lr=optimizer.param_groups[0]["lr"],
                 )
 
-            step += 1
-            if step >= args.num_train_steps:
-                break
+                if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
+                    save_checkpoint_ddp(
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        ckpt_path=ckpt_path,
+                        step=step,
+                        epoch=epoch,
+                        dist_config=dist_config,
+                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                        max_checkpoints=args.checkpoint.max_checkpoints,
+                    )
+
+                step += 1
+                if step >= args.num_train_steps:
+                    break
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1

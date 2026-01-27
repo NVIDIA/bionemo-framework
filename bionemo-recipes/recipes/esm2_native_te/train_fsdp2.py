@@ -18,8 +18,16 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
-import nvdlfw_inspect.api as debug_api
 import torch
+
+
+try:
+    import nvdlfw_inspect.api as debug_api
+
+    HAS_NVDLFW_INSPECT = True
+except ImportError:
+    debug_api = None
+    HAS_NVDLFW_INSPECT = False
 import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
@@ -109,7 +117,7 @@ def main(args: DictConfig) -> float | None:
             model.apply(model._init_weights)
 
     # Assign names to layers so debug API can identify them
-    if args.fp8_stats_config.enabled:
+    if args.fp8_stats_config.enabled and HAS_NVDLFW_INSPECT:
         debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).

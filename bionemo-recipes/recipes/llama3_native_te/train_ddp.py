@@ -18,8 +18,16 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
-import nvdlfw_inspect.api as debug_api
 import torch
+
+
+try:
+    import nvdlfw_inspect.api as debug_api
+
+    HAS_NVDLFW_INSPECT = True
+except ImportError:
+    debug_api = None
+    HAS_NVDLFW_INSPECT = False
 import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig
@@ -91,7 +99,7 @@ def main(args: DictConfig) -> float | None:
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    if args.fp8_stats_config.enabled:
+    if args.fp8_stats_config.enabled and HAS_NVDLFW_INSPECT:
         debug_api.infer_and_assign_layer_names(model)
 
     model = model.to(device=device)

@@ -15,15 +15,25 @@
 
 import logging
 import time
+from pathlib import Path
 
-import nvdlfw_inspect.api as debug_api
 import torch
+
+
+try:
+    import nvdlfw_inspect.api as debug_api
+
+    HAS_NVDLFW_INSPECT = True
+except ImportError:
+    debug_api = None
+    HAS_NVDLFW_INSPECT = False
 import torchmetrics
-import torchmetrics.text
 import wandb
+from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
+from torch.profiler import profile, schedule, tensorboard_trace_handler
 from tqdm import tqdm
-from transformers.modeling_outputs import MaskedLMOutput
+from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from distributed_config import DistributedConfig
 
@@ -50,7 +60,6 @@ class PerfLogger:
         self.min_loss = float("inf")
 
         self.logging_frequency = args.logger.frequency
-        # Track whether to collect memory stats (disabled by default for max performance)
 
         metrics_dict = {
             "train/loss": torchmetrics.MeanMetric(),
@@ -60,7 +69,6 @@ class PerfLogger:
             "train/tokens_per_second_per_gpu": torchmetrics.MeanMetric(),
             "train/unpadded_tokens_per_second_per_gpu": torchmetrics.MeanMetric(),
             "train/total_unpadded_tokens_per_batch": torchmetrics.SumMetric(),
-            "train/perplexity": torchmetrics.text.Perplexity(ignore_index=-100),
             "train/gpu_memory_allocated_max_gb": torchmetrics.MaxMetric(),
             "train/gpu_memory_allocated_mean_gb": torchmetrics.MeanMetric(),
         }
@@ -69,20 +77,46 @@ class PerfLogger:
         # We move metrics to a GPU device so we can use torch.distributed to aggregate them before logging.
         self.metrics.to(torch.device(f"cuda:{dist_config.local_rank}"))
         self.previous_step_time = time.perf_counter()
+        self._profiler = None
 
         if self._dist_config.is_main_process():
             # Log the entire args object to wandb for experiment tracking and reproducibility.
-            wandb.init(**args.wandb_init_args, config=self._run_config)
+            self._wandb_run = wandb.init(**args.wandb, config=self._run_config)
             self._progress_bar = tqdm(total=args.num_train_steps, desc="Training")
+
+            if args.profiler.enabled:
+                self._profiler = setup_profiler(args, self._wandb_run)
+                self._profiler.__enter__()
+
+        # Gradient accumulation tracking
+        self.num_tokens = 0
+        self.num_unpadded_tokens = 0
+        self.running_loss = 0.0
+        self.grad_acc_step_count = 0
 
         # Whether to step debug_api.step() after each step
         self.fp8_stats_enabled = args.fp8_stats_config.enabled
 
+    def log_micro_step(self, batch: dict[str, torch.Tensor], outputs: CausalLMOutputWithPast):
+        """Store data on micro step for gradient accumulation metrics.
+
+        Args:
+            batch: The batch of data for the micro step.
+            outputs: The outputs of the micro step.
+        """
+        self.grad_acc_step_count += 1
+        self.num_tokens += batch["input_ids"].numel()
+        # Use attention_mask to count unpadded tokens (works for both BSHD and THD)
+        if "attention_mask" in batch:
+            self.num_unpadded_tokens += batch["attention_mask"].sum().item()
+        else:
+            # Fallback for pure sequence packing with no padding: all tokens are unpadded
+            self.num_unpadded_tokens += batch["input_ids"].numel()
+        self.running_loss += outputs.loss.item()
+
     def log_step(
         self,
         step: int,
-        batch: dict[str, torch.Tensor],
-        outputs: MaskedLMOutput,
         grad_norm: float,
         lr: float,
     ):
@@ -90,33 +124,31 @@ class PerfLogger:
 
         Args:
             step: The step number.
-            batch: The batch of data for the step.
-            outputs: The outputs of the step.
             grad_norm: The gradient norm of the step.
             lr: The learning rate of the step.
         """
-        num_tokens = batch["input_ids"].numel()
-        # 1 is the padding token for ESM-2.
-        num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != 1].numel()
+        # Use accumulated metrics from gradient accumulation
+        assert self.grad_acc_step_count > 0, (
+            f"Gradient accumulation steps ({self.grad_acc_step_count}) must be greater than 0, "
+            f"and can be incremented by log_micro_step()."
+        )
 
-        self.min_loss = min(self.min_loss, outputs.loss.item())
+        avg_loss = self.running_loss / self.grad_acc_step_count
+        self.min_loss = min(self.min_loss, avg_loss)
         step_time, self.previous_step_time = time.perf_counter() - self.previous_step_time, time.perf_counter()
 
-        self.metrics["train/loss"].update(outputs.loss)
+        self.metrics["train/loss"].update(avg_loss)
         self.metrics["train/learning_rate"].update(lr)
         self.metrics["train/grad_norm"].update(grad_norm)
         self.metrics["train/step_time"].update(step_time)
-        self.metrics["train/tokens_per_second_per_gpu"].update(num_tokens / step_time)
-        self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(num_unpadded_tokens / step_time)
-        self.metrics["train/total_unpadded_tokens_per_batch"].update(num_unpadded_tokens / self.logging_frequency)
+        self.metrics["train/tokens_per_second_per_gpu"].update(self.num_tokens / step_time)
+        self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(self.num_unpadded_tokens / step_time)
+        self.metrics["train/total_unpadded_tokens_per_batch"].update(self.num_unpadded_tokens / self.logging_frequency)
 
-        # Handle sequence packing for torchmetrics calculation.
-        if outputs.logits.dim() < 3:
-            outputs.logits = outputs.logits.unsqueeze(0)
+        if self._profiler is not None:
+            self._profiler.step()
 
-        self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
-
-        if self.fp8_stats_enabled:
+        if self.fp8_stats_enabled and HAS_NVDLFW_INSPECT:
             debug_api.step()
 
         if step % self.logging_frequency == 0 and step > 0:
@@ -131,18 +163,83 @@ class PerfLogger:
             if self._dist_config.is_main_process():
                 wandb.log(metrics, step=step)
                 self._progress_bar.update(self.logging_frequency)
-                self._progress_bar.set_postfix({"loss": outputs.loss.item()})
+                self._progress_bar.set_postfix({"loss": avg_loss})
 
             if self._dist_config.local_rank == 0:
                 logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
 
+        # Reset gradient accumulation tracking for next step
+        self.num_tokens = 0
+        self.num_unpadded_tokens = 0
+        self.running_loss = 0.0
+        self.grad_acc_step_count = 0
+
+    def log_validation(self, step: int, val_metrics: dict):
+        """Log validation metrics to wandb.
+
+        Args:
+            step: The current training step.
+            val_metrics: Dictionary with val_loss, val_ppl, val_tokens, val_batches.
+        """
+        if self._dist_config.is_main_process():
+            wandb.log(
+                {
+                    "val/loss": val_metrics["val_loss"],
+                    "val/ppl": val_metrics["val_ppl"],
+                    "val/tokens": val_metrics["val_tokens"],
+                    "val/batches": val_metrics["val_batches"],
+                },
+                step=step,
+            )
+
     def finish(self):
         """Finish the logger and close the progress bar."""
+        if self._profiler is not None:
+            self._profiler.__exit__(None, None, None)
+
         if not self._dist_config.is_main_process():
             return
 
         wandb.finish()
         self._progress_bar.close()
 
-        if self.fp8_stats_enabled:
+        if self.fp8_stats_enabled and HAS_NVDLFW_INSPECT:
             debug_api.end_debug()
+
+
+def setup_profiler(args: DictConfig, wandb_run: wandb.Run):
+    """Setup a basic torch profiler for the experiment.
+
+    Args:
+        args: The arguments.
+        wandb_run: The wandb run.
+
+    Returns:
+        The profiler.
+    """
+    _trace_dir = Path(HydraConfig.get().runtime.output_dir) / "traces"
+    _trace_dir.mkdir(parents=True, exist_ok=True)
+
+    def on_trace_ready(prof):
+        """Custom callback to save chrome trace, export memory timeline, and log to wandb."""
+        # Save chrome trace using tensorboard_trace_handler
+        tensorboard_trace_handler(str(_trace_dir))(prof)
+        # Export memory timeline
+        prof.export_memory_timeline(str(_trace_dir / "memory_timeline.html"), device="cuda:0")
+        # Log artifacts to wandb
+        profile_art = wandb.Artifact(name=f"{wandb_run.name}_profile", type="profile")
+        for file in _trace_dir.glob("*.json"):
+            profile_art.add_file(str(file), name=file.name)
+        profile_art.add_file(str(_trace_dir / "memory_timeline.html"), name="memory_timeline.html")
+        wandb_run.log_artifact(profile_art)
+
+    return profile(
+        activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA],
+        schedule=schedule(**args.profiler.schedule),
+        on_trace_ready=on_trace_ready,
+        with_stack=True,
+        with_flops=True,
+        with_modules=True,
+        profile_memory=True,
+        record_shapes=True,
+    )
