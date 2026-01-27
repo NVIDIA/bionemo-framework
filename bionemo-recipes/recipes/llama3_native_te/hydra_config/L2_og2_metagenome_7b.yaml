@@ -28,7 +28,7 @@ config_kwargs:
   initializer_range: 0.02  # init_method_std from Eden
   attn_input_format: thd  # THD format for sequence packing
   rope_scaling:
-    rope_type: "llama3"
+    type: "llama3"  # HuggingFace requires this!
     factor: 1
     low_freq_factor: 1
     high_freq_factor: 4
