@@ -427,6 +427,41 @@ def main(args: DictConfig) -> float | None:
         # TE requires a special method to initialize the weights from the meta device.
         model.init_empty_weights()
 
+        # Verify initialization values (critical for debugging Spike-No-More and scaled init)
+        if dist_config.rank == 0:
+            # Check embedding initialization (should be ~1.0 for Spike-No-More, ~0.02 otherwise)
+            emb_weight = _to_local_tensor(model.model.embed_tokens.weight)
+            emb_std = emb_weight.std().item()
+            emb_mean = emb_weight.mean().item()
+            logger.info(f"[Init Verification] Embedding: std={emb_std:.4f}, mean={emb_mean:.6f}")
+
+            # Check a TE layer's QKV weights (should be ~0.02)
+            first_layer = model.model.layers[0]
+            qkv_weight = _to_local_tensor(first_layer.self_attention.layernorm_qkv.weight)
+            qkv_std = qkv_weight.std().item()
+            logger.info(f"[Init Verification] Layer0 QKV: std={qkv_std:.4f}")
+
+            # Check a TE layer's output proj (should be ~0.02 or scaled if use_megatron_scaled_init)
+            proj_weight = _to_local_tensor(first_layer.self_attention.proj.weight)
+            proj_std = proj_weight.std().item()
+            logger.info(f"[Init Verification] Layer0 Proj: std={proj_std:.4f}")
+
+            # Check MLP fc2 (should be ~0.02 or scaled if use_megatron_scaled_init)
+            # TE's LayerNormMLP has fused weights, access via fc2_weight
+            if hasattr(first_layer.layernorm_mlp, "fc2_weight"):
+                fc2_weight = _to_local_tensor(first_layer.layernorm_mlp.fc2_weight)
+                fc2_std = fc2_weight.std().item()
+                logger.info(f"[Init Verification] Layer0 FC2: std={fc2_std:.4f}")
+
+            # Expected values summary
+            expected_emb = "~1.0" if getattr(args, "spike_no_more_embedding_init", False) else "~0.02"
+            if getattr(args, "use_megatron_scaled_init", False):
+                num_layers = config.num_hidden_layers
+                expected_proj = f"~{0.02 / (2 * num_layers) ** 0.5:.4f}"
+            else:
+                expected_proj = "~0.02"
+            logger.info(f"[Init Verification] Expected: emb={expected_emb}, qkv=~0.02, proj/fc2={expected_proj}")
+
     elif args.use_meta_device and isinstance(model, LlamaForCausalLM):
         model.to_empty(device=device)
         model.apply(model._init_weights)
