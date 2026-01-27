@@ -17,18 +17,10 @@ import logging
 import os
 from pathlib import Path
 
+import nvdlfw_inspect.api as debug_api
 import transformer_engine
 
 from distributed_config import DistributedConfig
-
-
-try:
-    import nvdlfw_inspect.api as debug_api
-
-    HAS_NVDLFW_INSPECT = True
-except ImportError:
-    debug_api = None
-    HAS_NVDLFW_INSPECT = False
 
 
 logger = logging.getLogger(__name__)
@@ -52,13 +44,6 @@ def initialize_fp8_debugging(
         fp8_enabled: Whether FP8 autocast is enabled.
     """
     if not enabled:
-        return
-
-    if not HAS_NVDLFW_INSPECT:
-        logger.warning(
-            "fp8_stats_config.enabled is true but nvdlfw_inspect is not installed. "
-            "FP8 stats collection will be disabled. Install nvdlfw_inspect to enable."
-        )
         return
 
     if not fp8_enabled:

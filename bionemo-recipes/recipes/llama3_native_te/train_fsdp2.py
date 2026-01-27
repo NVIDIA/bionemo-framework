@@ -21,16 +21,8 @@ from pathlib import Path
 
 import hydra
 import numpy as np
+import nvdlfw_inspect.api as debug_api
 import torch
-
-
-try:
-    import nvdlfw_inspect.api as debug_api
-
-    HAS_NVDLFW_INSPECT = True
-except ImportError:
-    debug_api = None
-    HAS_NVDLFW_INSPECT = False
 import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
@@ -416,7 +408,7 @@ def main(args: DictConfig) -> float | None:
         model.apply(model._init_weights)
 
     # Assign names to layers so debug API can identify them
-    if args.fp8_stats_config.enabled and HAS_NVDLFW_INSPECT:
+    if args.fp8_stats_config.enabled:
         debug_api.infer_and_assign_layer_names(model)
 
     # Log initialization statistics if enabled (useful for debugging Spike-No-More and scaled init)
