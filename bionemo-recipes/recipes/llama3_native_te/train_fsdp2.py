@@ -373,14 +373,12 @@ def main(args: DictConfig) -> float | None:
         transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs),
     ):
         model = model_class(config)
-        model = cast(torch.nn.Module, model)
 
     logger.info("Initialized Model:\n%s", model)
 
     # Create MixedPrecisionPolicy for FSDP when using FP32 master weights
     # This casts FP32 master weights to BF16 for forward/backward, then back to FP32 for optimizer
     mp_policy = None
-    model_layers = cast(Any, model).model.layers
     if use_fp32_master_weights:
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward compute
@@ -394,13 +392,13 @@ def main(args: DictConfig) -> float | None:
 
         # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
         # Each decoder layer should be individually sharded before sharding the full model.
-        for layer in model_layers:
+        for layer in model.model.layers:
             fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
         fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
     else:
         # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
         # Each decoder layer should be individually sharded before sharding the full model.
-        for layer in model_layers:
+        for layer in model.model.layers:
             fully_shard(layer, mesh=device_mesh["dp"])
         fully_shard(model, mesh=device_mesh["dp"])
 
