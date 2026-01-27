@@ -349,6 +349,13 @@ def main(args: DictConfig) -> float | None:
     config_kwargs: dict[str, Any] = {}
     if args.config_kwargs:
         config_kwargs = cast(dict[str, Any], OmegaConf.to_container(args.config_kwargs, resolve=True))
+    rope_scaling = config_kwargs.get("rope_scaling")
+    if isinstance(rope_scaling, dict):
+        if "rope_type" not in rope_scaling and "type" in rope_scaling:
+            rope_scaling = {**rope_scaling, "rope_type": rope_scaling.pop("type")}
+        elif "rope_type" not in rope_scaling:
+            rope_scaling = {**rope_scaling, "rope_type": "default"}
+        config_kwargs["rope_scaling"] = rope_scaling
 
     # Handle Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
     # When enabled, embeddings are initialized with std=1.0 instead of 0.02 to prevent loss spikes.
