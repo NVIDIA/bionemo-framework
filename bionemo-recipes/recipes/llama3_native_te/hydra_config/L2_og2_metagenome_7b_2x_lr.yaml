@@ -22,7 +22,7 @@ config_kwargs:
   initializer_range: 0.02
   attn_input_format: thd
   rope_scaling:
-    type: "llama3"  # transformers 5.0+ uses 'type' instead of 'rope_type'
+    rope_type: "llama3"
     factor: 1
     low_freq_factor: 1
     high_freq_factor: 4
