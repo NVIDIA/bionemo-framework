@@ -471,6 +471,59 @@ def main(args: DictConfig) -> float | None:
         model.to_empty(device=device)
         model.apply(model._init_weights)
 
+    # Verify initialization values (critical for debugging Spike-No-More and scaled init)
+    if dist_config.rank == 0:
+        logger.info("=" * 60)
+        logger.info("[Init Verification] Checking weight initialization statistics...")
+
+        # Check embedding initialization (should be ~1.0 for Spike-No-More, ~0.02 otherwise)
+        emb_weight = _to_local_tensor(model.model.embed_tokens.weight)
+        emb_std = emb_weight.std().item()
+        emb_mean = emb_weight.mean().item()
+        logger.info(f"[Init Verification] Embedding: std={emb_std:.4f}, mean={emb_mean:.6f}")
+
+        # Check a TE layer's QKV weights (should be ~0.02)
+        first_layer = model.model.layers[0]
+        if hasattr(first_layer, "self_attention") and hasattr(first_layer.self_attention, "layernorm_qkv"):
+            qkv_weight = _to_local_tensor(first_layer.self_attention.layernorm_qkv.weight)
+            qkv_std = qkv_weight.std().item()
+            logger.info(f"[Init Verification] Layer0 QKV: std={qkv_std:.4f}")
+
+        # Check a TE layer's output proj (should be ~0.02 or scaled if use_megatron_scaled_init)
+        if hasattr(first_layer, "self_attention") and hasattr(first_layer.self_attention, "proj"):
+            proj_weight = _to_local_tensor(first_layer.self_attention.proj.weight)
+            proj_std = proj_weight.std().item()
+            logger.info(f"[Init Verification] Layer0 Proj: std={proj_std:.4f}")
+
+        # Check MLP fc1 (should be ~0.02)
+        if hasattr(first_layer, "layernorm_mlp"):
+            if hasattr(first_layer.layernorm_mlp, "fc1_weight"):
+                fc1_weight = _to_local_tensor(first_layer.layernorm_mlp.fc1_weight)
+                fc1_std = fc1_weight.std().item()
+                logger.info(f"[Init Verification] Layer0 FC1: std={fc1_std:.4f}")
+
+            # Check MLP fc2 (should be ~0.02 or scaled if use_megatron_scaled_init)
+            if hasattr(first_layer.layernorm_mlp, "fc2_weight"):
+                fc2_weight = _to_local_tensor(first_layer.layernorm_mlp.fc2_weight)
+                fc2_std = fc2_weight.std().item()
+                logger.info(f"[Init Verification] Layer0 FC2: std={fc2_std:.4f}")
+
+        # Check lm_head (should be ~0.02)
+        if hasattr(model, "lm_head") and hasattr(model.lm_head, "weight"):
+            lm_head_weight = _to_local_tensor(model.lm_head.weight)
+            lm_head_std = lm_head_weight.std().item()
+            logger.info(f"[Init Verification] LM Head: std={lm_head_std:.4f}")
+
+        # Expected values summary
+        expected_emb = "~1.0" if getattr(args, "spike_no_more_embedding_init", False) else "~0.02"
+        if getattr(args, "use_megatron_scaled_init", False):
+            num_layers = config.num_hidden_layers
+            expected_proj = f"~{0.02 / (2 * num_layers) ** 0.5:.4f}"
+        else:
+            expected_proj = "~0.02"
+        logger.info(f"[Init Verification] Expected: emb={expected_emb}, qkv=~0.02, proj/fc2={expected_proj}")
+        logger.info("=" * 60)
+
     # Log initialization statistics if enabled (matches John's debugging approach)
     if getattr(args, "log_init_stats", False):
         log_init_stats(model, dist_config)
