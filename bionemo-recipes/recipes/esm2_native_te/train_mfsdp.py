@@ -23,8 +23,8 @@ import transformers
 from megatron_fsdp.fully_shard import fully_shard
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
-from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
+from transformer_engine.pytorch.optimizers import FusedAdam
 from transformers import AutoConfig, AutoModelForMaskedLM
 
 from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp, should_save_checkpoint
@@ -85,7 +85,7 @@ def main(args: DictConfig) -> float | None:
     logger.info("Initialized Model:\n%s", model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    optimizer = FusedAdam(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
 
     # Wrap model in megatron-fsdp
     model, optimizer = fully_shard(

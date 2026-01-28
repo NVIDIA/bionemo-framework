@@ -25,8 +25,8 @@ import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard
-from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
+from transformer_engine.pytorch.optimizers import FusedAdam
 from transformers import AutoConfig, AutoModelForMaskedLM
 
 # This import seems to be needed with meta device init and AutoModel.from_config
@@ -113,7 +113,7 @@ def main(args: DictConfig) -> float | None:
         debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    optimizer = FusedAdam(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.

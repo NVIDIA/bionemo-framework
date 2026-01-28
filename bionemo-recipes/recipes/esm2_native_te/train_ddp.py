@@ -23,8 +23,8 @@ import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig
 from torch.distributed.device_mesh import init_device_mesh
-from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
+from transformer_engine.pytorch.optimizers import FusedAdam
 from transformers import AutoConfig, AutoModelForMaskedLM
 
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
@@ -88,7 +88,7 @@ def main(args: DictConfig) -> float | None:
         pass
 
     # Create optimizer.
-    optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
+    optimizer = FusedAdam(model.parameters(), **args.adamw_kwargs)
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     if args.fp8_stats_config.enabled:
