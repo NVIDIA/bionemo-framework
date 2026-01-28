@@ -264,7 +264,24 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         # We use TE's RotaryPositionEmbedding, but we ensure that we use the same inv_freq as the original
         # LlamaRotaryEmbedding.
         self.rotary_emb = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
-        self.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=config).inv_freq
+        hf_rope = LlamaRotaryEmbedding(config=config)
+        self.rotary_emb.inv_freq = hf_rope.inv_freq
+
+        # DEBUG: Print RoPE configuration
+        import logging
+
+        _logger = logging.getLogger(__name__)
+        _logger.info("=" * 80)
+        _logger.info("[ROPE DEBUG] RoPE Configuration:")
+        _logger.info(f"[ROPE DEBUG]   rope_theta (config): {getattr(config, 'rope_theta', 'NOT SET')}")
+        _logger.info(f"[ROPE DEBUG]   rope_scaling (config): {getattr(config, 'rope_scaling', 'NOT SET')}")
+        _logger.info(f"[ROPE DEBUG]   rope_parameters (config): {getattr(config, 'rope_parameters', 'NOT SET')}")
+        _logger.info(f"[ROPE DEBUG]   inv_freq shape: {self.rotary_emb.inv_freq.shape}")
+        _logger.info(f"[ROPE DEBUG]   inv_freq device: {self.rotary_emb.inv_freq.device}")
+        # Skip printing values if on meta device
+        if self.rotary_emb.inv_freq.device.type != "meta":
+            _logger.info(f"[ROPE DEBUG]   inv_freq first 5: {self.rotary_emb.inv_freq[:5].tolist()}")
+        _logger.info("=" * 80)
 
         self.gradient_checkpointing = False
 
