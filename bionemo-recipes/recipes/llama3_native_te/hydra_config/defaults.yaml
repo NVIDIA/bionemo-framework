@@ -44,6 +44,11 @@ fp8_config:
   fp8_model_init_kwargs:
     enabled: false # If this is set to true, fp8_config.enabled must also be set to true.
 
+# FP32 Master Weights
+# When enabled, model is initialized in FP32 and MixedPrecisionPolicy casts to BF16 for compute.
+# This matches Megatron's main_params_dtype=torch.float32 for better numerical stability.
+use_fp32_master_weights: false
+
 # Optimizer config
 adamw_kwargs:
   lr: 3e-3
