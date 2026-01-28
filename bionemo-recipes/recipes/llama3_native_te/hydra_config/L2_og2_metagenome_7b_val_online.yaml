@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 7B Llama3 on OpenGenome2 Metagenome - ONLINE VERSION (loads from HuggingFace)
+# Extends L2_og2_metagenome_7b_val but uses HuggingFace datasets instead of local paths
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name L2_og2_metagenome_7b_val_online ...
+
+defaults:
+  - L2_og2_metagenome_7b
+  - _self_
+
+# FP32 master weights for numerical stability (matches Megatron's main_params_dtype=torch.float32)
+use_fp32_master_weights: false
+
+# Override dataset to load from HuggingFace instead of local paths
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 1
+  num_workers: 1
+  max_seq_length: 8192
+  stride: 7992
+  buffer_size: 50000
+  use_stateful_dataloader: false
+  mask_degenerate_bases: true
+  uppercase_labels: false
+  load_dataset_kwargs:
+    path: "arcinstitute/opengenome2"
+    data_dir: "json/pretraining_or_both_phases/metagenomes"
+    split: "train"
+    streaming: true
+
+# Enable validation logging from HuggingFace
+validation:
+  enabled: true
+  eval_interval: 50
+  num_batches: 40
+  # Load validation from HuggingFace - use the validation split
+  data_path: "hf://datasets/arcinstitute/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz"
+  micro_batch_size: null
+  max_seq_length: null
+  stride: null
+
+# Settings from your wandb config
+spike_no_more_embedding_init: true
+skip_embedding_weight_decay: false
+use_megatron_scaled_init: true
+use_weight_decay_grouping: true
+
+grad_acc_steps: 8
+num_train_steps: 10000
+
+checkpoint:
+  ckpt_dir: null
+  save_every_n_steps: 1000
+  resume_from_checkpoint: false
+  async_save: false
+  save_final_model: true
+  max_checkpoints: 5
+
+fp8_config:
+  enabled: false
+
+logger:
+  frequency: 1
+
+wandb:
+  name: og2-7b-online-hf
+  project: llama3-metagenome-7b

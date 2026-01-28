@@ -15,6 +15,7 @@
 
 import gc
 import logging
+import math
 import random
 from contextlib import nullcontext
 from pathlib import Path
@@ -188,6 +189,132 @@ def _to_local_tensor(tensor: torch.Tensor) -> torch.Tensor:
     if hasattr(tensor, "to_local"):
         return tensor.to_local()
     return tensor
+
+
+@torch.no_grad()
+def verify_init_at_checkpoint(
+    model: torch.nn.Module,
+    checkpoint_name: str,
+    dist_config: DistributedConfig,
+    expected_std: float = 0.02,
+    expected_output_std: float | None = None,
+    expected_emb_std: float | None = None,
+) -> dict[str, float]:
+    """Verify initialization at a specific checkpoint in the training pipeline.
+
+    This is a debugging function to help identify where initialization goes wrong.
+
+    Args:
+        model: The model to verify.
+        checkpoint_name: Name of this checkpoint (e.g., "after_model_creation", "after_fsdp").
+        dist_config: Distributed config for rank checking.
+        expected_std: Expected std for QKV/FC1 weights.
+        expected_output_std: Expected std for proj/fc2 (if None, uses expected_std).
+        expected_emb_std: Expected std for embeddings (if None, uses expected_std).
+
+    Returns:
+        Dictionary with verification results.
+    """
+    if expected_output_std is None:
+        expected_output_std = expected_std
+    if expected_emb_std is None:
+        expected_emb_std = expected_std
+
+    results = {}
+
+    if dist_config.rank != 0:
+        return results
+
+    logger.info("=" * 80)
+    logger.info(f"[CHECKPOINT: {checkpoint_name}] Verifying initialization...")
+    logger.info("=" * 80)
+
+    try:
+        # Check embedding
+        if hasattr(model, "model") and hasattr(model.model, "embed_tokens"):
+            emb_weight = _to_local_tensor(model.model.embed_tokens.weight)
+            if emb_weight.device.type != "meta" and emb_weight.numel() > 0:
+                emb_std = emb_weight.float().std().item()
+                emb_mean = emb_weight.float().mean().item()
+                results["emb_std"] = emb_std
+                status = "✓" if abs(emb_std - expected_emb_std) < 0.1 else "✗"
+                logger.info(
+                    f"[{checkpoint_name}] {status} Embedding: std={emb_std:.6f} (expected ~{expected_emb_std:.4f}), "
+                    f"mean={emb_mean:.6f}"
+                )
+            else:
+                logger.info(f"[{checkpoint_name}] Embedding: on meta device or empty")
+
+        # Check layers 0, middle, and last
+        if hasattr(model, "model") and hasattr(model.model, "layers"):
+            num_layers = len(model.model.layers)
+            sample_layers = [0, num_layers // 2, num_layers - 1]
+
+            for layer_idx in sample_layers:
+                layer = model.model.layers[layer_idx]
+
+                # QKV
+                if hasattr(layer, "self_attention") and hasattr(layer.self_attention, "layernorm_qkv"):
+                    qkv_weight = _to_local_tensor(layer.self_attention.layernorm_qkv.weight)
+                    if qkv_weight.device.type != "meta" and qkv_weight.numel() > 0:
+                        qkv_std = qkv_weight.float().std().item()
+                        results[f"layer{layer_idx}_qkv_std"] = qkv_std
+                        status = "✓" if abs(qkv_std - expected_std) < 0.005 else "✗"
+                        logger.info(
+                            f"[{checkpoint_name}] {status} Layer{layer_idx} QKV: std={qkv_std:.6f} "
+                            f"(expected ~{expected_std:.4f})"
+                        )
+
+                # Proj
+                if hasattr(layer, "self_attention") and hasattr(layer.self_attention, "proj"):
+                    proj_weight = _to_local_tensor(layer.self_attention.proj.weight)
+                    if proj_weight.device.type != "meta" and proj_weight.numel() > 0:
+                        proj_std = proj_weight.float().std().item()
+                        results[f"layer{layer_idx}_proj_std"] = proj_std
+                        status = "✓" if abs(proj_std - expected_output_std) < 0.005 else "✗"
+                        logger.info(
+                            f"[{checkpoint_name}] {status} Layer{layer_idx} Proj: std={proj_std:.6f} "
+                            f"(expected ~{expected_output_std:.6f})"
+                        )
+
+                # FC1
+                if hasattr(layer, "layernorm_mlp") and hasattr(layer.layernorm_mlp, "fc1_weight"):
+                    fc1_weight = _to_local_tensor(layer.layernorm_mlp.fc1_weight)
+                    if fc1_weight.device.type != "meta" and fc1_weight.numel() > 0:
+                        fc1_std = fc1_weight.float().std().item()
+                        results[f"layer{layer_idx}_fc1_std"] = fc1_std
+                        status = "✓" if abs(fc1_std - expected_std) < 0.005 else "✗"
+                        logger.info(
+                            f"[{checkpoint_name}] {status} Layer{layer_idx} FC1: std={fc1_std:.6f} "
+                            f"(expected ~{expected_std:.4f})"
+                        )
+
+                # FC2
+                if hasattr(layer, "layernorm_mlp") and hasattr(layer.layernorm_mlp, "fc2_weight"):
+                    fc2_weight = _to_local_tensor(layer.layernorm_mlp.fc2_weight)
+                    if fc2_weight.device.type != "meta" and fc2_weight.numel() > 0:
+                        fc2_std = fc2_weight.float().std().item()
+                        results[f"layer{layer_idx}_fc2_std"] = fc2_std
+                        status = "✓" if abs(fc2_std - expected_output_std) < 0.005 else "✗"
+                        logger.info(
+                            f"[{checkpoint_name}] {status} Layer{layer_idx} FC2: std={fc2_std:.6f} "
+                            f"(expected ~{expected_output_std:.6f})"
+                        )
+
+        # LM Head
+        if hasattr(model, "lm_head"):
+            lm_weight = _to_local_tensor(model.lm_head.weight)
+            if lm_weight.device.type != "meta" and lm_weight.numel() > 0:
+                lm_std = lm_weight.float().std().item()
+                results["lm_head_std"] = lm_std
+                status = "✓" if abs(lm_std - expected_std) < 0.005 else "✗"
+                logger.info(f"[{checkpoint_name}] {status} LM Head: std={lm_std:.6f} (expected ~{expected_std:.4f})")
+
+    except Exception as e:
+        logger.warning(f"[{checkpoint_name}] Error during verification: {e}")
+
+    logger.info("=" * 80)
+    return results
 
 
 @torch.no_grad()
@@ -385,6 +512,25 @@ def main(args: DictConfig) -> float | None:
 
     config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
 
+    # Compute expected std values for verification
+    std = getattr(config, "initializer_range", 0.02)
+    num_layers = getattr(config, "num_hidden_layers", 32)
+    use_scaled_init = getattr(args, "use_megatron_scaled_init", False)
+    expected_output_std = std / (2.0 * num_layers) ** 0.5 if use_scaled_init else std
+    embedding_init_std = getattr(config, "embedding_init_std", None)
+    expected_emb_std = embedding_init_std if embedding_init_std is not None else std
+
+    logger.info("=" * 80)
+    logger.info("[CONFIG] Initialization settings:")
+    logger.info(f"[CONFIG]   initializer_range (std) = {std}")
+    logger.info(f"[CONFIG]   use_megatron_scaled_init = {use_scaled_init}")
+    logger.info(f"[CONFIG]   num_hidden_layers = {num_layers}")
+    logger.info(f"[CONFIG]   expected_output_std (proj/fc2) = {expected_output_std:.6f}")
+    logger.info(f"[CONFIG]   embedding_init_std = {embedding_init_std}")
+    logger.info(f"[CONFIG]   expected_emb_std = {expected_emb_std}")
+    logger.info(f"[CONFIG]   spike_no_more_embedding_init = {getattr(args, 'spike_no_more_embedding_init', False)}")
+    logger.info("=" * 80)
+
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
@@ -395,6 +541,16 @@ def main(args: DictConfig) -> float | None:
         model = model_class(config)
 
     logger.info("Initialized Model:\n%s", model)
+
+    # CHECKPOINT 1: After model creation, before FSDP
+    verify_init_at_checkpoint(
+        model,
+        "AFTER_MODEL_CREATION",
+        dist_config,
+        expected_std=std,
+        expected_output_std=expected_output_std,
+        expected_emb_std=expected_emb_std,
+    )
 
     # Create MixedPrecisionPolicy for FSDP when using FP32 master weights
     # This casts FP32 master weights to BF16 for forward/backward, then back to FP32 for optimizer
@@ -422,45 +578,39 @@ def main(args: DictConfig) -> float | None:
             fully_shard(layer, mesh=device_mesh["dp"])
         fully_shard(model, mesh=device_mesh["dp"])
 
+    # CHECKPOINT 2: After FSDP sharding, before init_empty_weights
+    verify_init_at_checkpoint(
+        model,
+        "AFTER_FSDP_SHARDING",
+        dist_config,
+        expected_std=std,
+        expected_output_std=expected_output_std,
+        expected_emb_std=expected_emb_std,
+    )
+
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     if args.use_meta_device and isinstance(model, NVLlamaForCausalLM):
         # TE requires a special method to initialize the weights from the meta device.
+        logger.info("[INIT] Calling model.init_empty_weights()...")
         model.init_empty_weights()
 
-        # Verify initialization values (critical for debugging Spike-No-More and scaled init)
-        if dist_config.rank == 0:
-            # Check embedding initialization (should be ~1.0 for Spike-No-More, ~0.02 otherwise)
-            emb_weight = _to_local_tensor(model.model.embed_tokens.weight)
-            emb_std = emb_weight.std().item()
-            emb_mean = emb_weight.mean().item()
-            logger.info(f"[Init Verification] Embedding: std={emb_std:.4f}, mean={emb_mean:.6f}")
+        # CHECKPOINT 3: After init_empty_weights - this is the critical checkpoint
+        verify_init_at_checkpoint(
+            model,
+            "AFTER_INIT_EMPTY_WEIGHTS",
+            dist_config,
+            expected_std=std,
+            expected_output_std=expected_output_std,
+            expected_emb_std=expected_emb_std,
+        )
 
-            # Check a TE layer's QKV weights (should be ~0.02)
-            first_layer = model.model.layers[0]
-            qkv_weight = _to_local_tensor(first_layer.self_attention.layernorm_qkv.weight)
-            qkv_std = qkv_weight.std().item()
-            logger.info(f"[Init Verification] Layer0 QKV: std={qkv_std:.4f}")
-
-            # Check a TE layer's output proj (should be ~0.02 or scaled if use_megatron_scaled_init)
-            proj_weight = _to_local_tensor(first_layer.self_attention.proj.weight)
-            proj_std = proj_weight.std().item()
-            logger.info(f"[Init Verification] Layer0 Proj: std={proj_std:.4f}")
-
-            # Check MLP fc2 (should be ~0.02 or scaled if use_megatron_scaled_init)
-            # TE's LayerNormMLP has fused weights, access via fc2_weight
-            if hasattr(first_layer.layernorm_mlp, "fc2_weight"):
-                fc2_weight = _to_local_tensor(first_layer.layernorm_mlp.fc2_weight)
-                fc2_std = fc2_weight.std().item()
-                logger.info(f"[Init Verification] Layer0 FC2: std={fc2_std:.4f}")
-
-            # Expected values summary
-            expected_emb = "~1.0" if getattr(args, "spike_no_more_embedding_init", False) else "~0.02"
-            if getattr(args, "use_megatron_scaled_init", False):
-                num_layers = config.num_hidden_layers
-                expected_proj = f"~{0.02 / (2 * num_layers) ** 0.5:.4f}"
-            else:
-                expected_proj = "~0.02"
-            logger.info(f"[Init Verification] Expected: emb={expected_emb}, qkv=~0.02, proj/fc2={expected_proj}")
+        # DEBUG BREAKPOINT: Uncomment to inspect weights after init (rank 0 only)
+        # if dist_config.rank == 0:
+        #     # Access weights for inspection:
+        #     #   emb = model.model.embed_tokens.weight
+        #     #   proj = model.model.layers[0].self_attention.proj.weight
+        #     #   fc2 = model.model.layers[0].layernorm_mlp.fc2_weight
+        #     breakpoint()
 
     elif args.use_meta_device and isinstance(model, LlamaForCausalLM):
         model.to_empty(device=device)
@@ -578,6 +728,16 @@ def main(args: DictConfig) -> float | None:
     gc.collect()
     torch.cuda.empty_cache()
 
+    # CHECKPOINT 4: Right before training loop - final verification
+    verify_init_at_checkpoint(
+        model,
+        "BEFORE_TRAINING_LOOP",
+        dist_config,
+        expected_std=std,
+        expected_output_std=expected_output_std,
+        expected_emb_std=expected_emb_std,
+    )
+
     # Training loop
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
@@ -594,6 +754,7 @@ def main(args: DictConfig) -> float | None:
         raise RuntimeError("Expected train_dataloader to be initialized before training.")
 
     logged_dtypes = False
+    logged_first_loss = False
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
@@ -608,6 +769,26 @@ def main(args: DictConfig) -> float | None:
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
             loss.backward()
+
+            # Log the first loss to verify initialization is producing reasonable outputs
+            if not logged_first_loss and dist_config.rank == 0:
+                raw_loss = outputs.loss.item()
+                # For a random init model with vocab_size=256, expect loss ~= ln(256) ≈ 5.5
+                expected_random_loss = math.log(config.vocab_size)
+                logger.info("=" * 80)
+                logger.info("[FIRST_BATCH] First batch loss analysis:")
+                logger.info(f"[FIRST_BATCH]   Raw loss = {raw_loss:.4f}")
+                logger.info(
+                    f"[FIRST_BATCH]   Expected for random init (ln({config.vocab_size})) = {expected_random_loss:.4f}"
+                )
+                if raw_loss > expected_random_loss + 1.0:
+                    logger.warning("[FIRST_BATCH] ⚠️  Loss is higher than expected! May indicate init issue.")
+                elif raw_loss < expected_random_loss - 1.0:
+                    logger.warning("[FIRST_BATCH] ⚠️  Loss is lower than expected! May indicate data issue.")
+                else:
+                    logger.info("[FIRST_BATCH] ✓ Loss is in expected range for random initialization")
+                logger.info("=" * 80)
+                logged_first_loss = True
 
             if not logged_dtypes:
                 grad_param = next((p for p in model.parameters() if p.grad is not None), None)
