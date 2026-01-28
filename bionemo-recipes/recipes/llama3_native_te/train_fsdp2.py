@@ -113,7 +113,6 @@ def main(args: DictConfig) -> float | None:
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward compute
             reduce_dtype=torch.float32,  # Accumulate gradients in FP32 for precision
-            output_dtype=torch.bfloat16,  # Output activations in BF16
             cast_forward_inputs=False,  # Do not cast inputs to param_dtype (BF16)
         )
         logger.info(
