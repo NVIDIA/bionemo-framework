@@ -20,7 +20,7 @@ This should eventually get moved to a separate package, or possibly upstreamed i
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 import datasets
 import torch
@@ -275,6 +275,7 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         self.dataset.set_epoch(epoch)
 
 
+@dataclass
 class DataCollatorForContextParallel:
     """A collator that is aware of context parallelism.
 
@@ -285,15 +286,9 @@ class DataCollatorForContextParallel:
     appropriate GPUs.
     """
 
-    def __init__(self, collator: DataCollator, cp_world_size: int):
-        """Initialize the DataCollatorForContextParallel.
-
-        Args:
-            collator: The collator to use for masking tokens.
-            cp_world_size: The size of the context parallelism group.
-        """
-        self.collator = collator
-        self.cp_world_size = cp_world_size
+    collator: DataCollator
+    cp_world_size: int
+    qkv_format: str = "thd"
 
     def __call__(self, features) -> list[dict[str, Any]]:
         """Process batches of data and create shards for each context parallelism rank.
@@ -309,10 +304,10 @@ class DataCollatorForContextParallel:
         combined_batch = []
         for cp_rank in range(self.cp_world_size):
             input_ids_sharded, labels_sharded = _split_batch_by_cp_rank(
-                cu_seqlens_padded=batch["cu_seq_lens_q_padded"],
+                cu_seqlens_padded=batch.get("cu_seq_lens_q_padded", None),  # This will be None for BSHD format.
                 input_ids_padded=batch["input_ids"],
                 labels_padded=batch["labels"],
-                qvk_format="thd",
+                qvk_format=self.qkv_format,
                 cp_rank=cp_rank,
                 cp_world_size=self.cp_world_size,
             )
@@ -320,10 +315,18 @@ class DataCollatorForContextParallel:
             batch_shard["input_ids"] = input_ids_sharded
             batch_shard["labels"] = labels_sharded
             # Now determine the max length of the sequence.
-            seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
-            batch_shard["max_length_q"] = int((seqlens_q.max().item() + 63) // 64 * 64)
-            batch_shard["max_length_k"] = batch_shard["max_length_q"]
-            batch_shard["pad_between_seqs"] = True
+            if self.qkv_format == "thd":
+                seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
+                max_length = seqlens_q.max().item()
+                batch_shard["pad_between_seqs"] = True
+            elif self.qkv_format == "bshd":
+                max_length = batch["input_ids"].shape[1]
+                # For BSHD context parallelism, we can't handle padding, so we remove the attention mask.
+                del batch_shard["attention_mask"]
+            else:
+                raise ValueError(f"Unsupported qvk_format: {self.qkv_format}!")
+
+            batch_shard["max_length_k"] = batch_shard["max_length_q"] = max_length * round(max_length / 64)
             combined_batch.append(batch_shard)
 
         return combined_batch
@@ -334,7 +337,7 @@ class ContextParallelDataLoaderWrapper:
 
     def __init__(
         self,
-        dataloader: torch.utils.data.DataLoader,
+        dataloader: torch.utils.data.DataLoader | None,
         cp_mesh: torch.distributed.device_mesh.DeviceMesh,
     ):
         """A dataloader wrapper that distributes the data across the context parallelism group.
@@ -348,15 +351,28 @@ class ContextParallelDataLoaderWrapper:
             cp_mesh: The context parallel mesh.
             cp_rank: The rank of the current context parallel process.
         """
-        self.dataloader = dataloader
+        if cp_mesh.get_local_rank() == 0:
+            assert dataloader is not None, "dataloader must be provided on rank 0"
+            self.dataloader = dataloader
+
+        else:
+            assert dataloader is None, "Dataloader on non-rank 0 will not be used"
+
         self.cp_rank = cp_mesh.get_local_rank()
         self.cp_group = cp_mesh.get_group()
         self.num_cp_ranks = cp_mesh.size()
         self._iterator = None
 
+        logger.debug(
+            "Created ContextParallelDataLoaderWrapper on global rank %s, cp rank %s",
+            torch.distributed.get_rank() if torch.distributed.is_initialized() else "<not initialized>",
+            self.cp_rank,
+        )
+
     def __iter__(self):
         """Make the dataloader iterable."""
-        self._iterator = iter(self.dataloader)  # < --- collator output.
+        if self.cp_rank == 0:
+            self._iterator = iter(self.dataloader)  # < --- collator output.
         return self
 
     def __next__(self):
@@ -385,24 +401,53 @@ class ContextParallelDataLoaderWrapper:
             batch: The batch for the current CP rank.
 
         """
-        if self.cp_rank == 0:
-            # Get data once, then make copies for each rank.
-            if self._iterator is None:
-                self._iterator = iter(self.dataloader)
-            combined_batch = next(self._iterator)
+        try:
+            combined_batch = next(self._iterator) if self.cp_rank == 0 else None
+        except StopIteration as ex:
+            # If we encounter a StopIteration in the dataloader, we want to raise this error on all the CP ranks, so
+            # that the dataloader can be restarted.
+            combined_batch = [ex] * self.num_cp_ranks
 
+        batch_on_this_rank = _scatter_batch_to_cp_ranks(combined_batch, self.cp_group)
+
+        if isinstance(batch_on_this_rank, StopIteration):
+            raise batch_on_this_rank
+
+        return batch_on_this_rank
+
+    def state_dict(self):
+        """Get the state dict by delegating to the dataloader."""
+        if self.cp_rank != 0:
+            return {}
+        elif hasattr(self.dataloader, "state_dict"):
+            return {"dataloader": self.dataloader.state_dict()}
         else:
-            combined_batch = None
+            logger.warning(
+                "Attempting to get the state dict of the dataloader, but the dataloader does not support state_dict, "
+                "returning empty dict"
+            )
+            return {"dataloader": {}}
 
-        scatter_object_output_list = [None]
-        # Note: This does not provide an async_op handle. Thus its blocking.
-        torch.distributed.scatter_object_list(
-            scatter_object_output_list=scatter_object_output_list,
-            scatter_object_input_list=combined_batch,
-            group=self.cp_group,
-            group_src=0,
-        )
-        return scatter_object_output_list[0]
+    def load_state_dict(self, state_dict):
+        """Load the state dict by delegating to the dataloader."""
+        if self.cp_rank != 0:
+            return
+        elif hasattr(self.dataloader, "load_state_dict"):
+            self.dataloader.load_state_dict(state_dict["dataloader"])
+        else:
+            logger.warning(
+                "Attempting to load the state dict of the dataloader, but the dataloader does not support "
+                "load_state_dict, returning without loading the state dict."
+            )
+            return
+
+    @property
+    def num_workers(self):
+        """Get the number of workers of the dataloader."""
+        if self.cp_rank != 0:
+            return 0
+        else:
+            return self.dataloader.num_workers
 
 
 def _split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -561,7 +606,7 @@ def _pt_pad_to_multiple_of(batch: dict[str, Any], pad_to_multiple_of: int, token
 # TODO(@jomitchell): Once this gets merged: https://github.com/NVIDIA/TransformerEngine/pull/2387
 # we can replace this with the one in TransformerEngine.
 def _split_batch_by_cp_rank(
-    cu_seqlens_padded: torch.Tensor,
+    cu_seqlens_padded: torch.Tensor | None,
     input_ids_padded: torch.Tensor,
     labels_padded: torch.Tensor,
     cp_group: torch.distributed.ProcessGroup | None = None,
@@ -569,104 +614,179 @@ def _split_batch_by_cp_rank(
     cp_rank: int | None = None,
     cp_world_size: int | None = None,
 ):
-    """Slice batch input along sequence dimension into multiple chunks for THD format.
+    """Slice batch input along sequence dimension into multiple chunks for THD or BSHD format.
 
-    This function is inteded for use in self attention. It will not work for cross attention because
+    This function is intended for use in self attention. It will not work for cross attention because
     it does not handle the case where the sequence length of the query and key are different.
     Which are parallelized across GPUs in a context parallel group.
-    This version works with variable-length sequences using cumulative sequence lengths.
+    This version works with variable-length sequences using cumulative sequence lengths for THD format,
+    and with padded sequences for BSHD format.
 
     Args:
-        cu_seqlens_padded: Cumulative sequence length.
+        cu_seqlens_padded: Cumulative sequence length. Required for THD format, optional for BSHD format.
         input_ids_padded: Input IDs.
         labels_padded: Labels.
         cp_group: Context parallel group.
-        qvk_format: Format of the input data.
+        qvk_format: Format of the input data ("thd" or "bshd").
         cp_world_size: The size of the context parallelism group. If provided, the function will use this value to determine the rank.
         cp_rank: Optional manual CP rank index. When provided, the function shards tensors as if it
             were executing on that rank without querying `torch.distributed.get_rank`.
     """
     if qvk_format not in ["thd", "bshd", "sbhd"]:
         raise ValueError(f"Unsupported qvk_format: {qvk_format}!")
+
+    if cp_world_size is None or cp_world_size <= 1:
+        # No splitting needed
+        return input_ids_padded, labels_padded
+
+    if cp_rank is None:
+        cp_rank = torch.distributed.get_rank(group=cp_group)
+    elif not (0 <= cp_rank < cp_world_size):
+        raise ValueError(f"cp_rank must be in [0, {cp_world_size}), but received {cp_rank}.")
+
     if qvk_format == "thd":
-        # Get context parallel size and rank
-        if cp_world_size > 1:
-            if cp_rank is None:
-                cp_rank = torch.distributed.get_rank(group=cp_group)
-            elif not (0 <= cp_rank < cp_world_size):
-                raise ValueError(f"cp_rank must be in [0, {cp_world_size}), but received {cp_rank}.")
+        if cu_seqlens_padded is None:
+            raise ValueError("cu_seqlens_padded is required for THD format")
 
-            # Calculate the chunk sizes for each sequence
-            total_slices_of_any_sequence = 2 * cp_world_size
-            slice_sizes = (cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]) // total_slices_of_any_sequence
+        # Calculate the chunk sizes for each sequence
+        total_slices_of_any_sequence = 2 * cp_world_size
+        slice_sizes = (cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]) // total_slices_of_any_sequence
 
-            # Process each tensor directly instead of using keys_to_change loop
-            def process_tensor(val):
-                if val is None:
-                    return val
-                # Determine which dimension is the sequence dimension
-                # Ensure cu_seqlens_padded[-1] is a Python int, not a 0-dim tensor
-                if isinstance(cu_seqlens_padded[-1], torch.Tensor):
-                    seq_len_val = cu_seqlens_padded[-1].item()
+        # Process each tensor directly instead of using keys_to_change loop
+        def process_tensor(val):
+            if val is None:
+                return val
+            # Determine which dimension is the sequence dimension
+            # Ensure cu_seqlens_padded[-1] is a Python int, not a 0-dim tensor
+            if isinstance(cu_seqlens_padded[-1], torch.Tensor):
+                seq_len_val = cu_seqlens_padded[-1].item()
+            else:
+                seq_len_val = cu_seqlens_padded[-1]
+
+            # Handle 1D tensors (like position_ids that don't have batch dimension)
+            if val.ndim == 1:
+                if val.shape[0] == seq_len_val:
+                    current_seq_dim = 0
                 else:
-                    seq_len_val = cu_seqlens_padded[-1]
-
-                # Handle 1D tensors (like position_ids that don't have batch dimension)
-                if val.ndim == 1:
-                    if val.shape[0] == seq_len_val:
-                        current_seq_dim = 0
-                    else:
-                        raise ValueError(
-                            "1D tensor shape doesn't match expected sequence length. Make sure the"
-                            " inputs are in THD format and padded correctly."
-                        )
-                elif val.ndim >= 2:
-                    if val.shape[1] == seq_len_val:
-                        current_seq_dim = 1
-                    elif val.shape[0] == seq_len_val:
-                        current_seq_dim = 0
-                    else:
-                        raise ValueError("Make sure the inputs are in THD format and padded correctly.")
+                    raise ValueError(
+                        "1D tensor shape doesn't match expected sequence length. Make sure the"
+                        " inputs are in THD format and padded correctly."
+                    )
+            elif val.ndim >= 2:
+                if val.shape[1] == seq_len_val:
+                    current_seq_dim = 1
+                elif val.shape[0] == seq_len_val:
+                    current_seq_dim = 0
                 else:
-                    raise ValueError("Tensor must be at least 1D")
+                    raise ValueError("Make sure the inputs are in THD format and padded correctly.")
+            else:
+                raise ValueError("Tensor must be at least 1D")
 
-                # On this particular rank, for each sequence, get two slices, one from the beginning
-                # and one from the end.
-                cp_rank_slices = []
-                for slice_size, seq_start in zip(slice_sizes, cu_seqlens_padded[:-1]):
-                    # 1st segment
-                    cp_rank_slices.append(
-                        torch.arange(
-                            seq_start + (cp_rank * slice_size),
-                            seq_start + ((cp_rank + 1) * slice_size),
-                            device=val.device,
-                        )
+            # On this particular rank, for each sequence, get two slices, one from the beginning
+            # and one from the end.
+            cp_rank_slices = []
+            for slice_size, seq_start in zip(slice_sizes, cu_seqlens_padded[:-1]):
+                # 1st segment
+                cp_rank_slices.append(
+                    torch.arange(
+                        seq_start + (cp_rank * slice_size),
+                        seq_start + ((cp_rank + 1) * slice_size),
+                        device=val.device,
                     )
+                )
 
-                    # 2nd segment
-                    cp_rank_slices.append(
-                        torch.arange(
-                            seq_start + ((total_slices_of_any_sequence - cp_rank - 1) * slice_size),
-                            seq_start + ((total_slices_of_any_sequence - cp_rank) * slice_size),
-                            device=val.device,
-                        )
+                # 2nd segment
+                cp_rank_slices.append(
+                    torch.arange(
+                        seq_start + ((total_slices_of_any_sequence - cp_rank - 1) * slice_size),
+                        seq_start + ((total_slices_of_any_sequence - cp_rank) * slice_size),
+                        device=val.device,
                     )
+                )
 
-                return val.index_select(current_seq_dim, torch.cat(cp_rank_slices))
+            return val.index_select(current_seq_dim, torch.cat(cp_rank_slices))
 
-            # Process each tensor directly
-            input_ids_padded = process_tensor(input_ids_padded)
-            labels_padded = process_tensor(labels_padded)
+        # Process each tensor directly
+        input_ids_padded = process_tensor(input_ids_padded)
+        labels_padded = process_tensor(labels_padded)
+
+    elif qvk_format == "bshd":
+        # BSHD format: [batch, seq_len, ...]
+        # Split along sequence dimension (dim=1)
+        # Each sequence is split into 2*cp_world_size chunks
+        # Each rank gets chunks at positions: [cp_rank, 2*cp_world_size - cp_rank - 1]
+
+        def process_tensor_bshd(val):
+            if val is None:
+                return val
+
+            if val.ndim < 2:
+                raise ValueError(f"BSHD format requires at least 2D tensors, got {val.ndim}D")
+
+            seq_len = val.shape[1]
+
+            # Calculate chunk size
+            total_chunks = 2 * cp_world_size
+            chunk_size = seq_len // total_chunks
+
+            if chunk_size == 0:
+                raise ValueError(
+                    f"Sequence length {seq_len} must be divisible by {total_chunks} "
+                    f"(2 * cp_world_size) for BSHD context parallelism"
+                )
+
+            # Determine which chunks this rank should get
+            # Rank 0 gets chunks [0, total_chunks-1]
+            # Rank 1 gets chunks [1, total_chunks-2]
+            # Rank k gets chunks [k, total_chunks-k-1]
+            chunk_indices = [cp_rank, total_chunks - cp_rank - 1]
+
+            # Collect slices for this rank
+            rank_slices = []
+            for chunk_idx in chunk_indices:
+                start_idx = chunk_idx * chunk_size
+                end_idx = start_idx + chunk_size
+                rank_slices.append(torch.arange(start_idx, end_idx, device=val.device))
+
+            # Concatenate indices for all chunks this rank should get
+            indices = torch.cat(rank_slices)
+
+            # Select along sequence dimension (dim=1)
+            return val.index_select(1, indices)
+
+        input_ids_padded = process_tensor_bshd(input_ids_padded)
+        labels_padded = process_tensor_bshd(labels_padded)
+
     else:
         raise ValueError(f"Support not implemented yet for qvk_format: {qvk_format}!")
 
     return input_ids_padded, labels_padded
 
 
-def _get_group_local_rank(group: torch.distributed.ProcessGroup | None = None) -> int:
-    """Rank of the current process within `group`."""
-    if group is None:
-        # default group; this is just the global rank
-        return torch.distributed.get_rank()
-    global_rank = torch.distributed.get_rank()
-    return torch.distributed.get_group_rank(group, global_rank)
+class BatchType(TypedDict):
+    """The fields in the batch dictionary fo THD context parallel."""
+
+    input_ids: torch.Tensor
+    labels: torch.Tensor
+    cu_seq_lens_q: torch.Tensor
+    cu_seq_lens_k: torch.Tensor
+    cu_seq_lens_q_padded: torch.Tensor
+    cu_seq_lens_k_padded: torch.Tensor
+    max_length_q: int
+    max_length_k: int
+    pad_between_seqs: bool
+
+
+def _scatter_batch_to_cp_ranks(
+    batch: list[BatchType] | list[StopIteration], cp_group: torch.distributed.ProcessGroup | None = None
+) -> BatchType | StopIteration:
+    """Scatter a batch to all the CP ranks."""
+    scatter_object_output_list = [None]
+    # Note: This does not provide an async_op handle. Thus its blocking.
+    torch.distributed.scatter_object_list(
+        scatter_object_output_list=scatter_object_output_list,
+        scatter_object_input_list=batch,
+        group=cp_group,
+        group_src=0,
+    )
+    return scatter_object_output_list[0]

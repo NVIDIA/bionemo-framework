@@ -67,19 +67,19 @@ may collapse to a single review.
 
 ### 4. Coverage Check
 
-Our repository has automated checks to ensure test coverage has not regresed.
+Our repository has automated checks to ensure test coverage has not regressed.
 The coverage check approvers will be the same as the Approval-list users. If
 codeline test coverage regresses, the Approvers must make a judgement call
-whether it is acceptible or not the merge the code. Occaisonally the coverage
+whether it is acceptable or not to merge the code. Occasionally the coverage
 check algorithm has a false positive (i.e. code coverage doesn't regress, yet
-coverage check approval is flagged by gitlab), and in this case Approvers are i
+coverage check approval is flagged by gitlab), and in this case Approvers are
 free to simply approve the false coverage regression.
 
 ## Responsibilities
 
 ### All Commenters (Reviewers, Owners, Approvers, etc.)
 
-If a comment thread is start by anyone, it is expected that **the thread starter
+If a comment thread is started by anyone, it is expected that **the thread starter
 resolves the comment**. Resolving a thread by the original thread starter indicates
 that the person who started the discussion is happy with the outcome.
 
@@ -207,7 +207,7 @@ a fruitful interaction across the team members.
 
 - Follow code styling and rules stated in the project's documents
   (for example, [contributing.md](contributing.md), of which the [Google Python
-  Style Guide](https://google.github.io/styleguide/pyguide.html) is a subet) as these define the
+  Style Guide](https://google.github.io/styleguide/pyguide.html) is a subset) as these define the
   look and feel of the code which defines the most fundamentals of how the code should be
   developed and allows reviewers to focus on the most important aspects of a new piece of code.
   For bash scripting please follow the Google Shell Style Guide [here](https://google.github.io/styleguide/shellguide.html)
@@ -252,7 +252,7 @@ a fruitful interaction across the team members.
   that approves the change must review the entire change holistically
   If you are a code owner of a particular file, it is appropriate to only reviews the files you own.
 
-- If request an PR change their code, you are responsible for giving concrete
+- If you request a PR to change their code, you are responsible for giving concrete
   recommendations for what could be changed to resolve the issue the
   patch addresses. If you feel strongly that a patch should NEVER be
   merged, you are responsible for defending your position and
@@ -461,7 +461,7 @@ a fruitful interaction across the team members.
   production, we put them inside the `bionemo2/contrib` folder. This allows for teams to develop
   faster (less strict reviews) while testing code. When a feature is
   complete and well tested, we move it to `bionemo2/src` or
-  `bionemo2/core` and we complete all the requirements for productroduction.
+  `bionemo2/core` and we complete all the requirements for production.
 
 ## References
 

@@ -252,11 +252,16 @@ def create_cp_dataloader(
         logger.info("pad_sequences_to_be_divisible_by is not provided, using cp_mesh.size() * 2")
         kwargs["pad_sequences_to_be_divisible_by"] = cp_mesh.size() * 2
 
-    train_dataloader, tokenized_dataset = create_thd_dataloader(*args, **kwargs)
+    if cp_mesh.get_local_rank() == 0:
+        train_dataloader, tokenized_dataset = create_thd_dataloader(*args, **kwargs)
 
-    train_dataloader.collate_fn = DataCollatorForContextParallel(
-        collator=train_dataloader.collate_fn,
-        cp_world_size=cp_mesh.size(),
-    )
+        train_dataloader.collate_fn = DataCollatorForContextParallel(
+            collator=train_dataloader.collate_fn,
+            cp_world_size=cp_mesh.size(),
+        )
+
+    else:
+        train_dataloader = None
+        tokenized_dataset = None
 
     return ContextParallelDataLoaderWrapper(train_dataloader, cp_mesh), tokenized_dataset

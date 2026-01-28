@@ -22,7 +22,7 @@ def test_convert_te_to_hf_roundtrip():
     """Test that converting HF -> TE -> HF produces the same model."""
     from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf
 
-    model_hf_original = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    model_hf_original = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
 
     model_te = convert_esm_hf_to_te(model_hf_original)
     model_hf_converted = convert_esm_te_to_hf(model_te)
@@ -42,7 +42,7 @@ def test_qkv_unpacking():
     """Test that QKV unpacking works correctly."""
     from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf
 
-    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     model_te = convert_esm_hf_to_te(model_hf)
     model_hf_converted = convert_esm_te_to_hf(model_te)
 
@@ -64,7 +64,7 @@ def test_config_conversion():
     """Test that config conversion works correctly."""
     from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf
 
-    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     model_te = convert_esm_hf_to_te(model_hf)
     model_hf_converted = convert_esm_te_to_hf(model_te)
 
@@ -97,7 +97,7 @@ def test_padding_unpadding_operations():
     """Test that padding and unpadding operations work correctly for embeddings and decoder weights."""
     from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf
 
-    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     model_te = convert_esm_hf_to_te(model_hf)
     model_hf_converted = convert_esm_te_to_hf(model_te)
 
@@ -146,7 +146,7 @@ def test_weight_initialization_matches_hf():
 
     set_seed(42)
 
-    config_hf = AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D", vocab_size=64)
+    config_hf = AutoConfig.from_pretrained("facebook/esm2_t6_8M_UR50D", vocab_size=64, revision="c731040f")
     model_hf = EsmForMaskedLM(config_hf)
     model_te_converted = convert_esm_hf_to_te(model_hf)
 

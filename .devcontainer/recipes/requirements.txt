@@ -12,7 +12,9 @@ torchdata
 torchmetrics
 tqdm
 transformer_engine
-transformers
+transformers<5.0
 typer
 wandb
 zstandard
+nvdlfw_inspect @ git+https://github.com/NVIDIA/nvidia-dlfw-inspect
+seaborn

@@ -17,7 +17,9 @@ import logging
 from pathlib import Path
 
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
+import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig
 from torch.distributed.device_mesh import init_device_mesh
@@ -28,6 +30,7 @@ from transformers import AutoConfig, AutoModelForMaskedLM
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
+from fp8_debugging import initialize_fp8_debugging
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
 
@@ -49,6 +52,10 @@ def main(args: DictConfig) -> float | None:
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
+
+    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    if args.fp8_stats_config.enabled:
+        initialize_fp8_debugging(dist_config, **args.fp8_stats_config, fp8_enabled=args.fp8_config.enabled)
 
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
     # and MFSDP.
@@ -83,6 +90,9 @@ def main(args: DictConfig) -> float | None:
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+
+    if args.fp8_stats_config.enabled:
+        debug_api.infer_and_assign_layer_names(model)
 
     model = model.to(device=device)
     model = torch.nn.parallel.DistributedDataParallel(

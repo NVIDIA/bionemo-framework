@@ -17,13 +17,13 @@ from transformers import AutoTokenizer
 
 
 def test_tokenizer_vocab_equivalence():
-    original_tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    original_tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     fast_tokenizer = AutoTokenizer.from_pretrained("esm_fast_tokenizer")
     assert original_tokenizer.get_vocab() == fast_tokenizer.get_vocab()
 
 
 def test_tokenizer_tokenization_equivalence(test_proteins):
-    original_tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
+    original_tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     fast_tokenizer = AutoTokenizer.from_pretrained("esm_fast_tokenizer")
 
     original_output = original_tokenizer(test_proteins)

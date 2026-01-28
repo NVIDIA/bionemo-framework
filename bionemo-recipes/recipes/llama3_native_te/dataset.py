@@ -22,7 +22,10 @@ from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
-from collator import DataCollatorWithFlattening, TokenPackingDataset
+from collator import (
+    DataCollatorWithFlattening,
+    TokenPackingDataset,
+)
 from distributed_config import DistributedConfig
 from genomic_dataset import GenomicDataCollator
 
@@ -37,7 +40,6 @@ def create_tokenized_dataset(
     max_seq_length: int = 8192,
     stride: int = 200,
     buffer_size: int = 5_000,
-    use_lazy_tokenization: bool = True,
     text_column: str = "text",
     tokenize_batch_size: int = 100,
 ):
@@ -50,7 +52,6 @@ def create_tokenized_dataset(
         max_seq_length: The maximum length of sequences (window size).
         stride: The stride for windowing (overlap = stride tokens).
         buffer_size: The buffer size for shuffle.
-        use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         text_column: Name of the column containing genomic sequences (default: "text").
         tokenize_batch_size: The batch size for tokenization.
 
@@ -91,16 +92,17 @@ def create_tokenized_dataset(
         )
         return result
 
-    if isinstance(dataset, datasets.Dataset) and use_lazy_tokenization:
-        # Using dataset.map on a non-streaming dataset will automatically perform and cache the transform
-        tokenized_dataset = dataset.with_transform(tokenize_with_windowing)
-    else:
-        tokenized_dataset = dataset.select_columns(text_column).map(
-            tokenize_with_windowing,
-            batched=True,
-            batch_size=tokenize_batch_size,
-            remove_columns=[text_column],
-        )
+    tokenized_dataset = dataset.select_columns(text_column).map(
+        tokenize_with_windowing,
+        batched=True,
+        batch_size=tokenize_batch_size,
+        remove_columns=[text_column],
+    )
+
+    # Even in THD mode, we use a base MLM collator that requires a padding token to be set.
+    if tokenizer.pad_token is None:
+        logger.warning(f"Tokenizer does not have a padding token. Setting it to the EOS token: {tokenizer.eos_token}")
+        tokenizer.pad_token = tokenizer.eos_token
 
     return tokenized_dataset, tokenizer
 
@@ -116,13 +118,13 @@ def create_bshd_dataloader(
     stride: int = 200,
     seed: int = 42,
     buffer_size: int = 500_000,
-    use_lazy_tokenization: bool = True,
     use_stateful_dataloader: bool = False,
     text_column: str = "text",
     uppercase_labels: bool = False,
-    mask_degenerate_bases: bool = True,
+    mask_degenerate_bases: bool = False,
+    pad_sequences_to_be_divisible_by: int | None = None,
 ):
-    """Create a BSHD dataloader for genomic sequences using CLM (causal language modeling).
+    """Create a BSHD dataloader for llama3 pre-training.
 
     Args:
         distributed_config: The distributed configuration.
@@ -135,11 +137,12 @@ def create_bshd_dataloader(
         stride: The stride for windowing (overlap = stride tokens).
         seed: The seed to use for the distributed sampler and data collator.
         buffer_size: The buffer size for shuffle.
-        use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
-        text_column: Name of the column containing genomic sequences (default: "text").
+        text_column: Name of the column containing text sequences (default: "text").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
         mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
+        pad_sequences_to_be_divisible_by: The number to pad sequences to be divisible by, required for FP8 training.
+            Default: None.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -151,7 +154,6 @@ def create_bshd_dataloader(
         max_seq_length=max_seq_length,
         stride=stride,
         buffer_size=buffer_size,
-        use_lazy_tokenization=use_lazy_tokenization,
         text_column=text_column,
         tokenize_batch_size=micro_batch_size * prefetch_factor,
     )
@@ -170,6 +172,7 @@ def create_bshd_dataloader(
     base_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm=False,  # Causal language modeling
+        pad_to_multiple_of=pad_sequences_to_be_divisible_by,
     )
 
     # Wrap with genomic collator if masking options are enabled
@@ -214,12 +217,12 @@ def create_thd_dataloader(
     max_seq_length: int = 8192,
     stride: int = 200,
     buffer_size: int = 500_000,
-    use_lazy_tokenization: bool = True,
     use_stateful_dataloader: bool = False,
     text_column: str = "text",
     uppercase_labels: bool = False,
-    mask_degenerate_bases: bool = True,
+    mask_degenerate_bases: bool = False,
     split_samples_in_token_packing: bool = True,
+    pad_sequences_to_be_divisible_by: int | None = None,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
 
@@ -236,16 +239,17 @@ def create_thd_dataloader(
         stride: The stride for windowing (overlap = stride tokens).
         seed: The seed to use for the distributed sampler and data collator.
         buffer_size: The buffer size for shuffle.
-        use_lazy_tokenization: Whether to use datasets.set_transform for tokenization.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         text_column: Name of the column containing genomic sequences (default: "text").
         uppercase_labels: Whether to uppercase labels (genomic masking). Default: False.
-        mask_degenerate_bases: Whether to mask degenerate bases (genomic masking). Default: True.
+        mask_degenerate_bases: Whether to mask degenerate bases (genomic masking). Default: False.
         split_samples_in_token_packing: Whether to split samples to form batches with exactly token_micro_batch_size
             tokens. Default: True.
+        pad_sequences_to_be_divisible_by: If provided, sequences will be padded to be divisible by this value.
+            This is useful for context parallelism. Defaults to None.
 
     Returns:
-        A dataloader that can be used for training.
+        A tuple of (dataloader, dataset_or_sampler).
     """
     tokenized_dataset, tokenizer = create_tokenized_dataset(
         distributed_config=distributed_config,
@@ -254,7 +258,6 @@ def create_thd_dataloader(
         max_seq_length=max_seq_length,
         stride=stride,
         buffer_size=buffer_size,
-        use_lazy_tokenization=use_lazy_tokenization,
         text_column=text_column,
     )
 
@@ -267,11 +270,10 @@ def create_thd_dataloader(
         assert token_micro_batch_size >= max_seq_length, "token_micro_batch_size must be greater than max_seq_length."
 
     # Create base MLM collator and wrap with flattening collator
-    base_mlm_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm=False,  # Causal language modeling
+    data_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        pad_sequences_to_be_divisible_by=pad_sequences_to_be_divisible_by,
     )
-    data_collator = DataCollatorWithFlattening(collator=base_mlm_collator)
 
     if uppercase_labels or mask_degenerate_bases:
         # Wrap with genomic collator if masking options are enabled

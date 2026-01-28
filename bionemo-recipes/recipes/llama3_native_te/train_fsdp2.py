@@ -19,7 +19,9 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
+import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
@@ -29,9 +31,16 @@ from transformer_engine.common.recipe import Format
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
-from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
+from checkpoint import (
+    _ckpt_futures,
+    load_checkpoint_fsdp2,
+    save_checkpoint_fsdp2,
+    save_final_model_fsdp2,
+    should_save_checkpoint,
+)
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
+from fp8_debugging import initialize_fp8_debugging
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
 from scheduler import get_cosine_annealing_schedule_with_warmup
@@ -54,6 +63,10 @@ def main(args: DictConfig) -> float | None:
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
+
+    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    if args.fp8_stats_config.enabled:
+        initialize_fp8_debugging(dist_config, **args.fp8_stats_config, fp8_enabled=args.fp8_config.enabled)
 
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
@@ -99,6 +112,10 @@ def main(args: DictConfig) -> float | None:
         model.to_empty(device=device)
         model.apply(model._init_weights)
 
+    # Assign names to layers so debug API can identify them
+    if args.fp8_stats_config.enabled:
+        debug_api.infer_and_assign_layer_names(model)
+
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
@@ -139,7 +156,7 @@ def main(args: DictConfig) -> float | None:
     # Training loop
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
-    micro_step = 0
+    micro_step = 0  # Gradient accumulation step counter
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
@@ -205,6 +222,10 @@ def main(args: DictConfig) -> float | None:
             save_directory=ckpt_path / "final_model",
             dist_config=dist_config,
         )
+
+    # Make sure we don't have any outstanding checkpoint save futures.
+    if args.checkpoint.async_save and "fsdp2" in _ckpt_futures and _ckpt_futures["fsdp2"] is not None:
+        _ckpt_futures["fsdp2"].result()
 
     # Clean up distributed training
     perf_logger.finish()

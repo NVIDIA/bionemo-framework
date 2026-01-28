@@ -511,8 +511,20 @@ class HyenaModelProvider(TransformerConfig, ModelProviderMixin[MCoreHyenaModel])
             rotary_percent=self.rotary_percent,
             rotary_base=self.rotary_base,
             seq_len_interpolation_factor=self.seq_len_interpolation_factor,
-            pre_process=pre_process or parallel_state.is_pipeline_first_stage(),
-            post_process=post_process or parallel_state.is_pipeline_last_stage(),
+            # Note: When self.pre_process/self.post_process is explicitly False (e.g., for embedding
+            # extraction), we must use that value regardless of what the caller passes. This is because
+            # _create_model in megatron.bridge always passes the pipeline stage values, but we want to
+            # disable post-processing when extracting embeddings.
+            pre_process=(
+                False
+                if self.pre_process is False
+                else (pre_process if pre_process is not None else parallel_state.is_pipeline_first_stage())
+            ),
+            post_process=(
+                False
+                if self.post_process is False
+                else (post_process if post_process is not None else parallel_state.is_pipeline_last_stage())
+            ),
             share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
             hyena_init_method=self.hyena_init_method,
             hyena_output_layer_init_method=self.hyena_output_layer_init_method,

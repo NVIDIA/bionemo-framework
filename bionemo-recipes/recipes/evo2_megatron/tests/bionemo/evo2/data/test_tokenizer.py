@@ -56,6 +56,45 @@ def test_tokenizer_vocab_size(tokenizer_path: Path, expected_vocab_size: int) ->
     assert tokenizer.vocab_size == expected_vocab_size
 
 
+@pytest.mark.parametrize(
+    "tokenizer_path",
+    [
+        DEFAULT_HF_TOKENIZER_MODEL_PATH,
+        DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+    ],
+)
+def test_tokenizer_roundtrip_without_spaces(tokenizer_path: Path) -> None:
+    """Verifies tokenization followed by detokenization returns the original sequence.
+
+    This is critical for character-level tokenizers used in DNA sequence modeling.
+    The tokenizer should NOT add spaces between tokens during detokenization.
+    """
+    tokenizer = build_tokenizer(
+        TokenizerConfig(
+            tokenizer_type="HuggingFaceTokenizer",
+            hf_tokenizer_kwargs={"trust_remote_code": False},
+            tokenizer_model=tokenizer_path,
+        )
+    )
+    # Test basic DNA sequence
+    original = "ATCGATCGATCG"
+    token_ids = tokenizer.text_to_ids(original)
+    reconstructed = tokenizer.detokenize(token_ids)
+    assert reconstructed == original, f"Expected '{original}', got '{reconstructed}'"
+
+    # Test longer sequence with all nucleotides
+    original_long = "AAAAACCCCCGGGGGTTTTTATCGATCGNNNNN"
+    token_ids_long = tokenizer.text_to_ids(original_long)
+    reconstructed_long = tokenizer.detokenize(token_ids_long)
+    assert reconstructed_long == original_long, f"Expected '{original_long}', got '{reconstructed_long}'"
+
+    # Test sequence with special characters (pipe-delimited tags)
+    original_tagged = "|info|ATCG|end|"
+    token_ids_tagged = tokenizer.text_to_ids(original_tagged)
+    reconstructed_tagged = tokenizer.detokenize(token_ids_tagged)
+    assert reconstructed_tagged == original_tagged, f"Expected '{original_tagged}', got '{reconstructed_tagged}'"
+
+
 def test_tokenizer_handles_long_dna_sequence(tokenizer: Evo2DatasetTokenizer) -> None:
     """Verifies tokenizer correctly processes a long DNA sequence into expected token IDs.
 

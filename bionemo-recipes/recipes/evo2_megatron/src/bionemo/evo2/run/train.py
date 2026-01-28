@@ -236,6 +236,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     # )  # FIXME not supported in megatron
     # parser.add_argument("--wandb-offline", action="store_true", help="Use wandb in offline mode")  # TODO implement
     parser.add_argument("--sequence-parallel", action="store_true", help="Set to enable sequence parallelism.")  # DONE
+    parser.add_argument("--no-fp8-wgrad", action="store_true", help="Set to disable fp8 weight gradients.")
+    parser.add_argument("--no-fp8-param-gather", action="store_true", help="Set to disable fp8 parameter gathering.")
     parser.add_argument(
         "--mixed-precision-recipe",
         type=str,
@@ -598,12 +600,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     #     default=True,
     #     help="Disable saving the last checkpoint.",
     # )  # TODO implement
-    parser.add_argument(
-        "--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False
-    )  # TODO implement
-    parser.add_argument(
-        "--lora-checkpoint-path", type=str, default=None, help="LoRA checkpoint path"
-    )  # TODO implement
+    # parser.add_argument(
+    #     "--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False
+    # )  # TODO implement
+    # parser.add_argument(
+    #     "--lora-checkpoint-path", type=str, default=None, help="LoRA checkpoint path"
+    # )  # TODO implement
     parser.add_argument(
         "--no-calculate-per-token-loss",
         action="store_true",
@@ -647,7 +649,16 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Enable NVIDIA fault tolerance. This only works on internal NVIDIA clusters.",
     )  # DONE
-    parser.add_argument(
+
+    # Optimizer format
+    optimizer_fmt_group = parser.add_mutually_exclusive_group(required=False)
+    optimizer_fmt_group.add_argument(
+        "--optim-fmt-pre-mcore-014",
+        action="store_true",
+        default=False,
+        help="Use the pre-Megatron-Core-v0.14 optimizer format.",
+    )
+    optimizer_fmt_group.add_argument(
         "--optim-full-reshardable",
         action="store_true",
         default=False,
@@ -710,9 +721,9 @@ def train(args: argparse.Namespace) -> None:
         recipe_kwargs["stride"] = args.stride
         recipe_kwargs["window_min_length_threshold"] = args.window_min_length_threshold
         recipe_kwargs["rc_aug"] = args.rc_aug
-    elif args.dataset_config_path:
+    elif args.dataset_config:
         recipe_kwargs["dataset_dir"] = args.dataset_dir
-        recipe_kwargs["dataset_config_path"] = args.dataset_config_path
+        recipe_kwargs["dataset_config_path"] = args.dataset_config
 
     recipe_kwargs["pad_eod_loss_mask"] = args.eod_pad_in_loss_mask
 
@@ -764,6 +775,15 @@ def train(args: argparse.Namespace) -> None:
     cfg.checkpoint.use_persistent_ckpt_worker = True
     cfg.checkpoint.exit_on_missing_checkpoint = False
     cfg.checkpoint.dist_ckpt_strictness = "assume_ok_unexpected"
+
+    if args.no_fp8_wgrad:
+        # change if a change is requested to the mixed precision recipe
+        cfg.mixed_precision.fp8_wgrad = False
+    if args.grad_reduce_in_fp32:
+        cfg.mixed_precision.grad_reduce_in_fp32 = True
+        cfg.ddp.grad_reduce_in_fp32 = True
+    if args.no_fp8_param_gather:
+        cfg.mixed_precision.fp8_param_gather = False
 
     # 3. Apply Manual Overrides (for settings not exposed in recipe kwargs)
     if args.no_renormalize_loss:
@@ -824,7 +844,10 @@ def train(args: argparse.Namespace) -> None:
     cfg.optimizer.log_num_zeros_in_grad = args.log_num_zeros_in_grad
     cfg.optimizer.clip_grad = args.clip_grad
     # Optimizer checkpointing resharding
-    cfg.checkpoint.dist_ckpt_optim_fully_reshardable = args.optim_full_reshardable
+    if args.optim_fmt_pre_mcore_014:
+        cfg.checkpoint.dist_ckpt_save_pre_mcore_014 = True
+    elif args.optim_full_reshardable:
+        cfg.checkpoint.dist_ckpt_optim_fully_reshardable = True
 
     cfg.dataset.num_workers = args.workers
 
@@ -832,7 +855,6 @@ def train(args: argparse.Namespace) -> None:
     cfg.ddp.align_param_gather = args.align_param_gather
     cfg.ddp.overlap_param_gather = args.overlap_param_gather
     cfg.ddp.overlap_grad_reduce = args.overlap_grad_reduce
-    cfg.ddp.grad_reduce_in_fp32 = args.grad_reduce_in_fp32
     cfg.ddp.check_for_nan_in_grad = not args.no_check_for_nan_in_grad
     if args.use_megatron_comm_overlap_llama3_8k:
         # Pick the floating point appropriate config.
@@ -918,6 +940,7 @@ def train(args: argparse.Namespace) -> None:
     if args.finetune_ckpt_dir:
         cfg.checkpoint.finetune = True
         cfg.checkpoint.pretrained_checkpoint = args.finetune_ckpt_dir
+        cfg.checkpoint.dist_ckpt_strictness = "ignore_all"  # necessary unfortunately to avoid extra_state issues.
     if args.nvidia_fault_tolerance:
         cfg.ft = FaultToleranceConfig(
             enable_ft_package=True,

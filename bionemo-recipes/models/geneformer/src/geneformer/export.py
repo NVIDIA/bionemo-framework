@@ -35,7 +35,7 @@ def export_hf_checkpoint(model_name: str, export_path: Path):
     """
     print(f"Loading Geneformer model: {model_name}")
 
-    model_hf = AutoModelForMaskedLM.from_pretrained("ctheodoris/Geneformer", subfolder=model_name)
+    model_hf = AutoModelForMaskedLM.from_pretrained("ctheodoris/Geneformer", subfolder=model_name, revision="f45a6c7d")
 
     print(f"Loaded HF model with {len(list(model_hf.parameters()))} parameters")
 

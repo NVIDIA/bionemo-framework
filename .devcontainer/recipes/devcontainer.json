@@ -6,13 +6,15 @@
         "dockerfile": "Dockerfile"
     },
     "mounts": [
-        "source=${localEnv:HOME}/.cache,target=/home/ubuntu/.cache,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.netrc,target=/home/ubuntu/.netrc,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.bash_history_devcontainer,target=/home/ubuntu/.bash_history,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.ssh,target=/home/ubuntu/.ssh,readonly,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.gnupg,target=/home/ubuntu/.gnupg,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.cache,target=/home/ubuntu/.cache,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.claude,target=/home/ubuntu/.claude,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.claude.json,target=/home/ubuntu/.claude.json,type=bind,consistency=cached"
         "source=${localEnv:HOME}/.config,target=/home/ubuntu/.config,type=bind,consistency=cached",
-        "source=${localEnv:HOME}/.cursor,target=/home/ubuntu/.cursor,type=bind,consistency=cached"
+        "source=${localEnv:HOME}/.cursor,target=/home/ubuntu/.cursor,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.gnupg,target=/home/ubuntu/.gnupg,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.netrc,target=/home/ubuntu/.netrc,type=bind,consistency=cached",
+        "source=${localEnv:HOME}/.ssh,target=/home/ubuntu/.ssh,readonly,type=bind,consistency=cached",
     ],
     "postCreateCommand": ".devcontainer/recipes/postCreateCommand.sh",
     "initializeCommand": ".devcontainer/recipes/initializeCommand.sh",
@@ -27,14 +29,15 @@
     "customizations": {
         "vscode": {
             "extensions": [
-                "ms-python.python",
+                "Anthropic.claude-code",
                 "charliermarsh.ruff",
-                "redhat.vscode-yaml",
-                "ms-toolsai.jupyter",
                 "eamodio.gitlens",
-                "tamasfe.even-better-toml",
+                "ms-azuretools.vscode-docker",
+                "ms-python.python",
+                "ms-toolsai.jupyter",
+                "redhat.vscode-yaml",
                 "streetsidesoftware.code-spell-checker",
-                "ms-azuretools.vscode-docker"
+                "tamasfe.even-better-toml"
             ]
         }
     }

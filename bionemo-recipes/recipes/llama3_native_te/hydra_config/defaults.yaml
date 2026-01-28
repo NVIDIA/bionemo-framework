@@ -4,16 +4,13 @@ config_name_or_path: ??? # E.g., meta-llama/Llama-3.2-1B or ./model_configs/meta
 config_kwargs: {}
 
 num_train_steps: ???
-grad_acc_steps: 1  # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
+grad_acc_steps: 1 # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
 
 use_meta_device: true
 
 # Whether to wrap the model in torch.compile. Note, this is currently not supported with mfsdp (BIONEMO-2977).
 # We leave this off by default since we don't see much of a performance improvement with TE layers.
 use_torch_compile: false
-
-# Whether to use gradient checkpointing to trade compute for memory
-use_gradient_checkpointing: false
 
 use_sequence_packing: false
 
@@ -24,8 +21,8 @@ dataset:
   max_seq_length: 8192 # Window size for genomic sequences
   stride: 200 # Overlap for windowing
   buffer_size: 500_000 # Shuffle buffer size
-  use_lazy_tokenization: true
   use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
+  pad_sequences_to_be_divisible_by: null
   load_dataset_kwargs:
     path: ???
     split: "train"
@@ -72,6 +69,11 @@ checkpoint:
 
 logger:
   frequency: 100
+
+fp8_stats_config:
+  enabled: false
+  fp8_stats_file: ./fp8_debugging_stats.yaml
+  fp8_log_dir: ./log_fp8_stats
 
 profiler:
   enabled: false

@@ -26,8 +26,6 @@ from megatron.bridge.training.tokenizers.config import TokenizerConfig
 from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH, DEFAULT_HF_TOKENIZER_MODEL_PATH_512
-
-# FIXME revive this since it might make some tests/training runs easier.
 from bionemo.evo2.data.sharded_eden_dataset_provider import (
     DatasetBuildContext,
     ShardedEdenDataset,

@@ -25,7 +25,7 @@ dependencies = [
     "megatron-core",
     "nvidia-resiliency-ext",
     "emerging_optimizers",
-    "subquadratic-ops-torch-cu12",
+    "subquadratic-ops-torch-cu13",
     # External
     "polars", # needed by sharded_eden_dataset_provider
 ]
@@ -35,11 +35,12 @@ test = []
 
 [project.scripts]
 torchrun = "torch.distributed.run:main"
-#infer_evo2 = "bionemo.evo2.run.infer:main"
+infer_evo2 = "bionemo.evo2.run.infer:main"
 train_evo2 = "bionemo.evo2.run.train:main"
-#predict_evo2 = "bionemo.evo2.run.predict:main"
+predict_evo2 = "bionemo.evo2.run.predict:main"
 preprocess_evo2 = "bionemo.evo2.data.preprocess:main"
 splice_evo2 = "bionemo.evo2.data.transcript_extraction:main"
+evo2_convert_nemo2_to_mbridge = "bionemo.evo2.utils.checkpoint.nemo2_to_mbridge:main"
 #evo2_convert_to_nemo2 = "bionemo.evo2.utils.checkpoint.convert_to_nemo:main"
 #evo2_nemo2_to_hf = "bionemo.evo2.utils.checkpoint.nemo2_to_hf:main"
 #evo2_remove_optimizer = "bionemo.evo2.utils.checkpoint.evo2_remove_optimizer:main"

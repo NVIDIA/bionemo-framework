@@ -7,7 +7,7 @@ notifications:
     slack:
       nvidia:
         channels:
-          - id: ${{ vars.BIONEMO_FW_CI_ALERTS_SLACK_ID }} # bionemo-fw-ci-alerts
+          - id: C0832RNTR09 # bionemo-fw-ci-alerts
     match: >
       workflow_run.conclusion = "failure"
       and workflow_run.name = "BioNeMo Framework CI"
@@ -26,7 +26,7 @@ notifications:
     slack:
       nvidia:
         channels:
-          - id: ${{ vars.BIONEMO_FW_CI_ALERTS_SLACK_ID }}
+          - id: C0832RNTR09
     match: >
       workflow_run.conclusion = "failure"
       and workflow_run.name = "BioNeMo Recipes CI"

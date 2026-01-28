@@ -16,697 +16,1420 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# FIXME get this working with megatron bridge
-
-# import argparse
-# import functools
-# import tempfile
-# from pathlib import Path
-# from typing import Any, Literal
-
-# import nemo.lightning as nl
-# import torch
-# from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
-# from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
-
-# # Add import for Mamba models
-# from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel
-# from bionemo.evo2.models.peft import Evo2LoRA
-# from bionemo.evo2.run.utils import infer_model_type, patch_eden_tokenizer
-# from bionemo.llm.data import collate
-# from bionemo.llm.lightning import LightningPassthroughPredictionMixin
-# from bionemo.llm.utils.callbacks import PredictionWriter
-# from lightning.pytorch import LightningDataModule
-# from megatron.core import parallel_state
-# from megatron.core.enums import Fp8Recipe
-# from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
-# from megatron.core.utils import get_batch_on_this_cp_rank
-# from nemo.collections.llm.gpt.data.megatron.hyena.evo2_dataset import Evo2Dataset
-# from nemo.collections.llm.gpt.model.base import GPTModel, get_packed_seq_params
-# from nemo.collections.llm.gpt.model.hyena import HYENA_MODEL_OPTIONS, HyenaModel
-# from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
-# from nemo.lightning import NeMoLogger
-# from nemo.lightning.data import WrappedDataLoader
-# from nemo.utils import logging as logger
-# from torch import Tensor
-
-
-# CheckpointFormats = Literal["torch_dist", "zarr"]
-
-# SHUFFLE_MESSAGE = (
-#     "Per token log probabilities are not supported when using context parallelism. The results will be "
-#     "zigzag shuffled along the sequence dimension. Raise a feature request if you need this and do "
-#     "not want to manually do the unshuffling yourself. You need to undo the shuffling that happened in "
-#     "`megatron.core.utils.get_batch_on_this_cp_rank`."
-# )
-
-
-# def parse_args():
-#     """Parse arguments for Evo2 inference."""
-#     ap = argparse.ArgumentParser()
-#     ap.add_argument("--num-nodes", type=int, default=1, help="Number of nodes to use for prediction, defaults to 1.")
-#     ap.add_argument(
-#         "--devices",
-#         type=int,
-#         help="Number of devices to use for prediction, defaults to tensor_model_parallel_size * pipeline_model_parallel_size * context_parallel_size.",
-#     )
-#     ap.add_argument(
-#         "--eden-tokenizer",
-#         action="store_true",
-#         help="Patch the tokenizer to work with the one used in training the Eden model.",
-#     )
-#     ap.add_argument("--fasta", type=Path, required=True, help="Fasta path from which to generate logit predictions.")
-#     ap.add_argument("--ckpt-dir", type=Path, required=True, help="NeMo2 checkpoint directory for inference.")
-#     ap.add_argument("--min-length", type=int, required=False, help="Minimum sequence length for padding.")
-#     ap.add_argument("--prepend-bos", action="store_true", help="Prepend BOS token to sequences. Defaults to False.")
-#     ap.add_argument(
-#         "--mask-phylogenetic-tags",
-#         action="store_true",
-#         help="Mask phylogenetic tags in loss computation. Defaults to False.",
-#     )
-#     ap.add_argument("--tensor-parallel-size", type=int, default=1, help="Order of tensor parallelism. Defaults to 1.")
-#     ap.add_argument(
-#         "--pipeline-model-parallel-size",
-#         type=int,
-#         choices=[1],
-#         default=1,
-#         help="Order of pipeline parallelism. Defaults to 1 and currently only 1 is supported.",
-#     )
-#     ap.add_argument(
-#         "--context-parallel-size", type=int, default=1, help="Order of context parallelism. Defaults to 1."
-#     )
-#     ap.add_argument(
-#         "--fp8-recipe",
-#         type=str,
-#         default="delayed",
-#         choices=list(Fp8Recipe.__members__.keys()),
-#         help="FP8 recipe to use for FP8 tensors in the forward and backward pass. Note that some recipes are only "
-#         "supported by certain architectures. For example 'mxfp8' requires at least blackwell, and 'blockwise' is only "
-#         "implemented for hopper (but not blackwell). 'tensorwise' and 'delayed' are currently supported by all "
-#         "architectures, but 'tensorwise' is preferred over 'delayed' which is the default for historical reasons.",
-#     )
-#     ap.add_argument(
-#         "--no-sequence-parallel",
-#         action="store_true",
-#         help="When using TP, skip sequence parallelism. Otherwise sequence parallelism is used whenever tensor "
-#         "parallelism is used. sequence parallelism should save a small amount of GPU memory so it's on"
-#         " by default.",
-#     )
-#     ap.add_argument("--micro-batch-size", type=int, default=1, help="Batch size for prediction. Defaults to 1.")
-#     ap.add_argument(
-#         "--write-interval",
-#         type=str,
-#         default="epoch",
-#         choices=["epoch", "batch"],
-#         help="Interval to write predictions to disk. If doing very large predictions, you may want to set this to 'batch'.",
-#     )
-#     ap.add_argument(
-#         "--model-size",
-#         type=str,
-#         default="7b_arc_longcontext",
-#         choices=sorted(
-#             list(HYENA_MODEL_OPTIONS.keys()) + list(MAMBA_MODEL_OPTIONS.keys()) + list(LLAMA_MODEL_OPTIONS.keys())
-#         ),
-#         help="Model size to use. Defaults to '7b_arc_longcontext'.",
-#     )
-#     # output args:
-#     ap.add_argument(
-#         "--output-dir",
-#         type=Path,
-#         default=None,
-#         help="Output dir that will contain the generated text produced by the Evo2 model. If not provided, the output will be logged.",
-#     )
-#     ap.add_argument(
-#         "--files-per-subdir",
-#         type=int,
-#         help="Number of files to write to each subdirectory. If provided, subdirectories with N files each will be created. Ignored unless --write-interval is 'batch'.",
-#     )
-#     ap.add_argument(
-#         "--full-fp8",
-#         action="store_true",
-#         help="Use full FP8 precision (faster but less accurate) rather than vortex style which "
-#         "only applies FP8 to the projection layer of the hyena mixer, when using FP8.",
-#     )
-#     ap.add_argument("--fp8", action="store_true", help="Use FP8 precision. Defaults to BF16.")
-#     # extra:
-#     ap.add_argument(
-#         "--ckpt-format",
-#         type=str,
-#         choices=["torch_dist", "zarr"],
-#         default="torch_dist",
-#         help="Specify checkpoint format to use. Defaults to 'torch_dist', as 'zarr' is deprecated.",
-#     )
-#     ap.add_argument(
-#         "--output-log-prob-seqs", action="store_true", help="Output log probability of sequences. Defaults to False."
-#     )
-#     ap.add_argument(
-#         "--log-prob-collapse-option",
-#         choices=["sum", "mean", "per_token"],
-#         default="mean",
-#         help="How to collapse the log probabilities across the sequence dimension.",
-#     )
-#     ap.add_argument(
-#         "--hybrid-override-pattern",
-#         type=str,
-#         help="Override the hybrid override pattern in the config (specifies hyena layer ordering and type).",
-#     )
-#     ap.add_argument(
-#         "--num-layers", type=int, help="If set, override the number of layers specified in the requested config."
-#     )
-#     ap.add_argument(
-#         "--seq-len-interpolation-factor",
-#         type=int,
-#         help="If set, override the sequence length interpolation factor specified in the requested config. If you "
-#         "know a model was trained with a specific interpolation factor for ROPE, provide it here, it can make a big "
-#         "difference in accuracy.",
-#     )
-#     ap.add_argument(
-#         "--lora-checkpoint-path",
-#         type=Path,
-#         required=False,
-#         default=None,
-#         help="Path to the lora states to restore from.",
-#     )
-#     return ap.parse_args()
-
-
-# def _gather_along_cp_dim(input_, seq_dim: int = 1):
-#     """Gather tensors and concatenate along the last dimension."""
-#     world_size = parallel_state.get_context_parallel_world_size()
-#     # Bypass the function if we are using only 1 GPU.
-#     if world_size == 1:
-#         return input_
-
-#     dim_size = list(input_.size())
-#     dim_size[0] = dim_size[0] * world_size
-
-#     output = torch.empty(dim_size, dtype=input_.dtype, device=torch.cuda.current_device())
-#     # TODO: handle zigzag packing here. Currently this just gathers along ranks, but if you want to see the sequence in
-#     #   the original order you need to undo the zigzag packing that happens in
-#     #   `megatron.core.utils.get_batch_on_this_cp_rank`.
-#     torch.distributed.all_gather_into_tensor(
-#         output, input_.contiguous(), group=parallel_state.get_context_parallel_group()
-#     )
-#     tensor_list = output.chunk(world_size, dim=0)
-#     output = torch.cat(tensor_list, dim=seq_dim).contiguous()
-
-#     return output
-
-
-# def _to_cpu(inputs: dict[str, Tensor]) -> dict[str, Tensor]:
-#     return {k: v.cpu() for k, v in inputs.items()}
-
-
-# def _identity(inputs: dict[str, Tensor]) -> dict[str, Tensor]:
-#     return inputs
-
-
-# class BasePredictor(LightningPassthroughPredictionMixin):
-#     """Base predictor for GPT-style models."""
-
-#     def __init__(
-#         self,
-#         *args,
-#         output_log_prob_seqs: bool = False,
-#         include_tokens_with_logprob_seqs: bool = False,
-#         log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
-#         **kwargs,
-#     ):
-#         """Initialize the base predictor with arguments needed for writing predictions."""
-#         super().__init__(*args, **kwargs)
-#         self.output_log_prob_seqs = output_log_prob_seqs
-#         self.log_prob_collapse_option = log_prob_collapse_option
-#         self.include_tokens_with_logprob_seqs = include_tokens_with_logprob_seqs
-#         self.shuffle_warning_raised = False
-
-#     def predict_step(
-#         self, batch, batch_idx: int | None = None, to_cpu: bool = True
-#     ) -> Tensor | dict[str, Tensor] | None:
-#         """Alias for forward_step, also log the pad mask since sequences may not all have the same length."""
-#         if len(batch) == 0:
-#             return
-#         assert self.training is False, "predict_step should be called in eval mode"
-#         with torch.no_grad():
-#             forward_out = self.forward_step(batch)
-#         if not parallel_state.is_pipeline_last_stage():
-#             return None
-#         # Reminder: the model's predictions for input i land at output i+1. To get everything to align, we prepend the
-#         # EOS token to the input sequences and take the outputs for all but the first token.
-#         forward_out_tp_gathered = _gather_along_last_dim(
-#             forward_out, group=parallel_state.get_tensor_model_parallel_group()
-#         )
-
-#         forward_out_gathered = _gather_along_cp_dim(forward_out_tp_gathered)
-#         loss_mask_gathered = _gather_along_cp_dim(batch["loss_mask"])
-#         tokens_gathered = _gather_along_cp_dim(batch["tokens"])
-#         cp_group_size = max(parallel_state.get_context_parallel_world_size(), 1)
-#         assert self.tokenizer.vocab_size == forward_out_gathered.shape[-1]
-#         to_cpu_fn = _to_cpu if to_cpu else _identity
-#         if self.output_log_prob_seqs:
-#             if self.log_prob_collapse_option == "per_token" and cp_group_size > 1 and not self.shuffle_warning_raised:
-#                 logger.warning(SHUFFLE_MESSAGE)
-#                 self.shuffle_warning_raised = True
-#             softmax_logprobs = torch.log_softmax(forward_out_gathered, dim=-1)
-#             softmax_logprobs = softmax_logprobs[:, :-1]
-#             input_ids = tokens_gathered[:, 1:]
-#             if softmax_logprobs.shape[1] != input_ids.shape[1]:
-#                 raise RuntimeError(
-#                     f"Softmax logprobs shape {softmax_logprobs.shape} does not match input ids shape {input_ids.shape}"
-#                 )
-
-#             logprobs = torch.gather(
-#                 softmax_logprobs,  # Gather likelihoods...
-#                 2,  # along the vocab dimension...
-#                 input_ids.unsqueeze(-1),  # using the token ids to index.
-#             ).squeeze(-1)
-#             log_prob_per_token = logprobs * loss_mask_gathered[:, 1:].float()
-#             if self.log_prob_collapse_option == "per_token":
-#                 return to_cpu_fn(
-#                     {
-#                         "log_probs_seqs": log_prob_per_token,
-#                         "seq_idx": batch["seq_idx"],
-#                         "loss_mask": loss_mask_gathered[:, 1:],
-#                     }
-#                 )
-#             else:
-#                 log_prob_seqs = torch.sum(log_prob_per_token, dim=1)
-#                 if self.log_prob_collapse_option == "mean":
-#                     log_prob_seqs = log_prob_seqs / torch.clamp(loss_mask_gathered[:, 1:].float().sum(dim=-1), min=1.0)
-#                 return to_cpu_fn({"log_probs_seqs": log_prob_seqs, "seq_idx": batch["seq_idx"]})
-#         else:
-#             # If the user wants to match back to logits, then they will need to do the offsetting logic themselves.
-#             if cp_group_size > 1 and not self.shuffle_warning_raised:
-#                 logger.warning(SHUFFLE_MESSAGE)
-#                 self.shuffle_warning_raised = True
-#             logprob_seqs_result = {
-#                 "token_logits": forward_out_gathered,
-#                 "pad_mask": loss_mask_gathered,
-#                 "seq_idx": batch["seq_idx"],
-#             }
-#             if self.include_tokens_with_logprob_seqs:
-#                 logprob_seqs_result["tokens"] = tokens_gathered
-#             # Note, to match up tokens with logprobs, you need to offset by 1. Eg something like this:
-#             #  shifted_token_logits = token_logits[:, :-1]
-#             #  shifted_pad_mask = pad_mask[:, 1:]
-#             #  shifted_tokens = tokens[:, 1:]
-#             return to_cpu_fn(logprob_seqs_result)
-
-
-# class HyenaPredictor(BasePredictor, HyenaModel):
-#     """A predictor for the Hyena model. This adds in the predict step and the passthrough method."""
-
-#     def configure_model(self, *args, **kwargs) -> None:
-#         """Configure the model."""
-#         super().configure_model(*args, **kwargs)
-#         self.trainer.strategy._init_model_parallel = True
-
-
-# class MambaPredictor(BasePredictor, MambaModel):
-#     """Mamba model for prediction with additional metrics."""
-
-
-# class LlamaPredictor(BasePredictor, GPTModel):
-#     """Llama model for prediction with additional metrics."""
-
-
-# def hyena_predict_forward_step(model, batch) -> torch.Tensor:
-#     """Performs a forward step for the Hyena model.
-
-#     Args:
-#         model: The Hyena model
-#         batch: Dictionary containing input batch data with keys:
-#             - tokens: Input token IDs
-#             - position_ids: Position IDs
-#             - labels: Labels for loss computation
-#             - loss_mask: Mask for loss computation
-
-#     Returns:
-#         torch.Tensor: Output from the model forward pass
-#     """
-#     forward_args = {
-#         "input_ids": batch["tokens"],
-#         "position_ids": batch["position_ids"],
-#         # "labels": batch["labels"],
-#         # "loss_mask": batch["loss_mask"],
-#     }
-
-#     forward_args["attention_mask"] = None
-#     if "cu_seqlens" in batch:
-#         forward_args["packed_seq_params"] = get_packed_seq_params(batch)
-#     return model(**forward_args)
-
-
-# def hyena_predict_data_step(dataloader_iter) -> dict[str, torch.Tensor]:
-#     """Data step for the Hyena model prediction. Modified from the original gpt data step to include the seq_idx."""
-#     from megatron.core import parallel_state
-
-#     # Based on: https://github.com/NVIDIA/Megatron-LM/blob/main/pretrain_gpt.py#L87
-#     # https://github.com/NVIDIA/NeMo/blob/main/nemo/collections/nlp/models/language_modeling/megatron_gpt_model.py#L828-L842
-
-#     batch = next(dataloader_iter)
-
-#     _batch: dict
-#     if isinstance(batch, tuple) and len(batch) == 3:
-#         _batch = batch[0]
-#     else:
-#         _batch = batch
-
-#     required_device_keys = set()
-#     required_host_keys = set()
-
-#     required_device_keys.add("attention_mask")
-#     if "cu_seqlens" in _batch:
-#         required_device_keys.add("cu_seqlens")
-#         required_host_keys.add("cu_seqlens_argmin")
-#         required_host_keys.add("max_seqlen")
-
-#     if parallel_state.is_pipeline_first_stage():
-#         required_device_keys.update(("tokens", "position_ids"))
-#     include_seq_idx = False
-#     if parallel_state.is_pipeline_last_stage():
-#         include_seq_idx = True
-#         required_device_keys.update(("labels", "tokens", "loss_mask"))
-
-#     _batch_required_keys = {}
-#     for key, val in _batch.items():
-#         if key in required_device_keys:
-#             _batch_required_keys[key] = val.cuda(non_blocking=True)
-#         elif key in required_host_keys:
-#             _batch_required_keys[key] = val.cpu()
-#         else:
-#             _batch_required_keys[key] = None
-
-#     # slice batch along sequence dimension for context parallelism
-#     output = get_batch_on_this_cp_rank(_batch_required_keys)
-#     if include_seq_idx:
-#         output["seq_idx"] = _batch["seq_idx"].cuda(non_blocking=True)
-#     return output
-
-
-# class PredictDataModule(LightningDataModule):
-#     """Create a dataloader for prediction."""
-
-#     def __init__(
-#         self,
-#         dataset: torch.utils.data.Dataset,
-#         batch_size: int = 1,
-#         tokenizer=None,
-#         min_length: int | None = None,
-#     ):
-#         """Create a dataloader for prediction."""
-#         super().__init__()
-#         self.dataset = dataset
-#         self.batch_size = batch_size
-#         self.tokenizer = tokenizer
-#         self.min_length = min_length
-#         default_pad_id = 0
-#         self.pad_token_id = getattr(tokenizer, "pad_id", default_pad_id) if tokenizer is not None else default_pad_id
-
-#     def setup(self, stage: str | None = None) -> None:
-#         """Set up the dataloader."""
-#         pass
-
-#     def predict_dataloader(self):
-#         """Create a dataloader for prediction."""
-#         # need to use this to communicate that we are in predict mode and safe to not drop last batch
-#         return WrappedDataLoader(
-#             mode="predict",
-#             dataset=self.dataset,
-#             batch_size=self.batch_size,
-#             num_workers=8,
-#             shuffle=False,
-#             drop_last=False,
-#             collate_fn=functools.partial(
-#                 collate.padding_collate_fn,
-#                 padding_values={"tokens": self.pad_token_id, "position_ids": self.pad_token_id, "loss_mask": False},
-#                 min_length=self.min_length,
-#                 max_length=None,
-#             ),
-#         )
-
-
-# def predict(
-#     fasta_path: Path,
-#     ckpt_dir: str,
-#     output_dir: Path,
-#     tensor_parallel_size: int,
-#     pipeline_model_parallel_size: int,
-#     context_parallel_size: int,
-#     num_nodes: int = 1,
-#     devices: int | None = None,
-#     eden_tokenizer: bool = False,
-#     model_size: str = "7b",
-#     ckpt_format: CheckpointFormats = "torch_dist",
-#     fp8: bool = False,
-#     full_fp8: bool = False,
-#     fp8_recipe: str = "delayed",
-#     work_dir: Path | None = None,
-#     micro_batch_size: int = 1,
-#     output_log_prob_seqs: bool = False,
-#     log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
-#     write_interval: Literal["epoch", "batch"] = "epoch",
-#     prepend_bos: bool = False,
-#     no_sequence_parallel: bool = False,
-#     hybrid_override_pattern: str | None = None,
-#     num_layers: int | None = None,
-#     seq_len_interpolation_factor: int | None = None,
-#     files_per_subdir: int | None = None,
-#     lora_checkpoint_path: Path | None = None,
-#     mask_phylogenetic_tags: bool = False,
-#     min_length: int | None = None,
-#     extra_callbacks: list | None = None,  # use this for making testing the predict loop easier.
-# ):
-#     """Inference workflow for Evo2.
-
-#     Returns:
-#         None
-#     """
-#     if fp8 and not full_fp8 and fp8_recipe != "delayed":
-#         logger.warning(
-#             "fp8_recipe is ignored when using fp8 and not full_fp8 since it is set inside of the layer "
-#             "config to match vortex style FP8."
-#         )
-#     if work_dir is None:
-#         work_dir = Path(tempfile.mkdtemp())
-#     if files_per_subdir is None and write_interval == "batch":
-#         logger.warning(
-#             "--files-per-subdir is not set with --write-interval batch, will write all predictions to a "
-#             "single directory. This may cause problems if you are predicting on a very large dataset."
-#         )
-#     sequence_parallel = tensor_parallel_size > 1 and not no_sequence_parallel
-#     output_dir.mkdir(parents=True, exist_ok=True)  # Make sure the output directory exists, files will be written here.
-#     model_parallel_size = tensor_parallel_size * pipeline_model_parallel_size * context_parallel_size
-#     if devices is None:
-#         devices = model_parallel_size
-#     world_size = num_nodes * devices
-#     if world_size % model_parallel_size != 0:
-#         raise ValueError(
-#             f"world_size must be divisible by model_parallel_size, got {world_size} and"
-#             f" {model_parallel_size}. Please set --num-nodes and --devices such that num_nodes * devices is divisible "
-#             "by model_parallel_size, which is TP * CP * PP."
-#         )
-#     global_batch_size = micro_batch_size * world_size // model_parallel_size
-
-#     callbacks = [
-#         PredictionWriter(
-#             output_dir=output_dir,
-#             write_interval=write_interval,
-#             batch_dim_key_defaults={"token_logits": 0},
-#             seq_dim_key_defaults={"token_logits": 1},
-#             files_per_subdir=files_per_subdir,
-#             save_all_model_parallel_ranks=False,  # only write one copy of predictions.
-#         )
-#     ]
-#     if extra_callbacks is not None:
-#         callbacks.extend(extra_callbacks)
-
-#     # The following two config options are really only used for testing, but may also be useful for getting output from
-#     #   specific layers of the model.
-#     config_modifiers_init: dict[str, Any] = {
-#         "distribute_saved_activations": False if sequence_parallel and tensor_parallel_size > 1 else True,
-#     }
-#     if hybrid_override_pattern is not None:
-#         config_modifiers_init["hybrid_override_pattern"] = hybrid_override_pattern
-#     if num_layers is not None:
-#         config_modifiers_init["num_layers"] = num_layers
-#     if seq_len_interpolation_factor is not None:
-#         config_modifiers_init["seq_len_interpolation_factor"] = seq_len_interpolation_factor
-
-#     tokenizer = get_nmt_tokenizer("byte-level")
-#     if eden_tokenizer:
-#         patch_eden_tokenizer(tokenizer)
-
-#     model_type = infer_model_type(model_size)
-
-#     # Select model config based on model type
-#     if model_type == "hyena":
-#         if model_size not in HYENA_MODEL_OPTIONS:
-#             raise ValueError(f"Invalid model size for Hyena: {model_size}")
-#         config = HYENA_MODEL_OPTIONS[model_size](
-#             forward_step_fn=hyena_predict_forward_step,
-#             data_step_fn=hyena_predict_data_step,
-#             # Only use vortex style FP8 in the model config if using FP8 and not full FP8. This will only apply FP8 to
-#             #   the projection layer of the hyena mixer.
-#             vortex_style_fp8=fp8 and not full_fp8,
-#             **config_modifiers_init,
-#         )
-
-#         if lora_checkpoint_path:
-#             model_transform = Evo2LoRA(peft_ckpt_path=str(lora_checkpoint_path))
-#             callbacks.append(model_transform)
-#         else:
-#             model_transform = None
-
-#         model = HyenaPredictor(
-#             config,
-#             tokenizer=tokenizer,
-#             output_log_prob_seqs=output_log_prob_seqs,
-#             log_prob_collapse_option=log_prob_collapse_option,
-#             model_transform=model_transform,
-#         )
-#     elif model_type == "mamba":  # mamba
-#         if model_size not in MAMBA_MODEL_OPTIONS:
-#             raise ValueError(f"Invalid model size for Mamba: {model_size}")
-#         config = MAMBA_MODEL_OPTIONS[model_size](
-#             forward_step_fn=hyena_predict_forward_step,  # Can reuse the same forward steps
-#             data_step_fn=hyena_predict_data_step,
-#             **config_modifiers_init,
-#         )
-
-#         model = MambaPredictor(
-#             config,
-#             tokenizer=tokenizer,
-#             output_log_prob_seqs=output_log_prob_seqs,
-#             log_prob_collapse_option=log_prob_collapse_option,
-#         )
-#     elif model_type == "llama":
-#         if model_size not in LLAMA_MODEL_OPTIONS:
-#             raise ValueError(f"Invalid model size for Llama: {model_size}")
-#         config = LLAMA_MODEL_OPTIONS[model_size](
-#             forward_step_fn=hyena_predict_forward_step,
-#             data_step_fn=hyena_predict_data_step,
-#             **config_modifiers_init,
-#         )
-#         model = LlamaPredictor(
-#             config,
-#             tokenizer=tokenizer,
-#             output_log_prob_seqs=output_log_prob_seqs,
-#             log_prob_collapse_option=log_prob_collapse_option,
-#         )
-#     else:
-#         # This shouldn't be possible to reach.
-#         raise ValueError(f"Invalid model type: {model_type}.")
-
-#     # Create PTL trainer.
-#     trainer = nl.Trainer(
-#         accelerator="gpu",
-#         num_nodes=num_nodes,
-#         devices=devices,
-#         strategy=nl.MegatronStrategy(
-#             drop_last_batch=False,
-#             tensor_model_parallel_size=tensor_parallel_size,
-#             pipeline_model_parallel_size=pipeline_model_parallel_size,
-#             context_parallel_size=context_parallel_size,
-#             pipeline_dtype=torch.bfloat16,
-#             ckpt_load_optimizer=False,  # Needs to be false for a normal model checkpoint.
-#             ckpt_save_optimizer=False,
-#             ckpt_async_save=False,
-#             sequence_parallel=sequence_parallel,
-#             save_ckpt_format=ckpt_format,
-#             ckpt_load_strictness="log_all",
-#             setup_optimizers=False,
-#             store_optimizer_states=False,
-#             configure_optimizers=False,
-#             data_sampler=nl.MegatronDataSampler(
-#                 micro_batch_size=micro_batch_size,
-#                 global_batch_size=global_batch_size,
-#                 seq_len=8192,
-#                 output_log=False,  # this is needed for predict step to work
-#             ),
-#         ),
-#         log_every_n_steps=1,
-#         limit_val_batches=10,
-#         num_sanity_val_steps=0,
-#         callbacks=callbacks,
-#         plugins=nl.MegatronMixedPrecision(
-#             precision="bf16-mixed",
-#             params_dtype=torch.bfloat16,
-#             # Only use FP8 in this plugin when using full FP8 precision and FP8.
-#             #   Otherwise use vortex_style_fp8 in the model config.
-#             fp8_recipe=fp8_recipe,
-#             fp8="hybrid" if fp8 and full_fp8 else None,
-#             fp8_amax_history_len=16 if fp8 and full_fp8 else 1,
-#             fp8_amax_compute_algo="max" if fp8 and full_fp8 else "most_recent",
-#         ),
-#     )
-
-#     nemo_logger = NeMoLogger(log_dir=str(work_dir))
-#     nemo_logger.setup(trainer, resume_if_exists=True)
-#     resume = nl.AutoResume(
-#         resume_if_exists=True,
-#         resume_ignore_no_checkpoint=False,
-#         resume_past_end=False,
-#         resume_from_path=str(ckpt_dir),
-#         restore_config=None,
-#     )
-
-#     resume.setup(trainer, model)  # this pulls weights from the starting checkpoint.
-
-#     if mask_phylogenetic_tags:
-
-#         def custom_loss_masker(tokens):
-#             # Run the evo2 dataset mask_phylogenetic_tags function
-#             return Evo2Dataset.mask_phylogenetic_tags(
-#                 tokens,
-#                 Evo2Dataset.TAG_BOUNDS,
-#                 Evo2Dataset.TAG_CHARS,
-#                 tokenizer.eod if tokenizer is not None else Evo2Dataset.DEFAULT_EOD,
-#                 Evo2Dataset.MAX_TAG_LEN,
-#             )
-#     else:
-#         custom_loss_masker = None
-
-#     dataset = SimpleFastaDataset(fasta_path, tokenizer, prepend_bos=prepend_bos, custom_loss_masker=custom_loss_masker)
-#     datamodule = PredictDataModule(dataset, batch_size=micro_batch_size, tokenizer=tokenizer, min_length=min_length)
-#     trainer.predict(model, datamodule=datamodule)  # TODO return_predictions=False
-#     dataset.write_idx_map(
-#         output_dir
-#     )  # Finally write out the index map so we can match the predictions to the original sequences.
-
-
-# def main():
-#     """Entrypoint for Evo2 prediction (single inference step, no new tokens)."""
-#     args = parse_args()
-#     predict(
-#         num_nodes=args.num_nodes,
-#         devices=args.devices,
-#         fasta_path=args.fasta,
-#         ckpt_dir=args.ckpt_dir,
-#         tensor_parallel_size=args.tensor_parallel_size,
-#         pipeline_model_parallel_size=args.pipeline_model_parallel_size,
-#         context_parallel_size=args.context_parallel_size,
-#         output_dir=args.output_dir,
-#         model_size=args.model_size,
-#         ckpt_format=args.ckpt_format,
-#         fp8=args.fp8,
-#         full_fp8=args.full_fp8,
-#         fp8_recipe=args.fp8_recipe,
-#         micro_batch_size=args.micro_batch_size,
-#         output_log_prob_seqs=args.output_log_prob_seqs,
-#         log_prob_collapse_option=args.log_prob_collapse_option,
-#         prepend_bos=args.prepend_bos,
-#         no_sequence_parallel=args.no_sequence_parallel,
-#         hybrid_override_pattern=args.hybrid_override_pattern,
-#         seq_len_interpolation_factor=args.seq_len_interpolation_factor,
-#         num_layers=args.num_layers,
-#         files_per_subdir=args.files_per_subdir,
-#         write_interval=args.write_interval,
-#         lora_checkpoint_path=args.lora_checkpoint_path,
-#         mask_phylogenetic_tags=args.mask_phylogenetic_tags,
-#         min_length=args.min_length,
-#         eden_tokenizer=args.eden_tokenizer,
-#     )
-
-
-# if __name__ == "__main__":
-#     main()
+r"""Prediction (inference) workflow for Evo2 using Megatron Bridge.
+
+This module provides functionality to run inference on Evo2 models using MBridge checkpoints.
+It supports various parallelism strategies (TP, CP, DP) and can output either full logits
+or collapsed log probabilities.
+
+Usage (CLI):
+    # Single GPU inference
+    torchrun --nproc_per_node 1 -m bionemo.evo2.run.predict \
+        --fasta input.fasta --ckpt-dir /path/to/mbridge/checkpoint \
+        --output-dir /path/to/output
+
+    # Multi-GPU with tensor parallelism
+    torchrun --nproc_per_node 2 -m bionemo.evo2.run.predict \
+        --fasta input.fasta --ckpt-dir /path/to/mbridge/checkpoint \
+        --output-dir /path/to/output --tensor-parallel-size 2
+
+    # With context parallelism for long sequences
+    torchrun --nproc_per_node 2 -m bionemo.evo2.run.predict \
+        --fasta input.fasta --ckpt-dir /path/to/mbridge/checkpoint \
+        --output-dir /path/to/output --context-parallel-size 2
+
+Output Format:
+    Batch mode (--write-interval batch):
+    - predictions__rank_{global_rank}__dp_rank_{dp_rank}__batch_{batch_idx}.pt
+    - With --files-per-subdir: subdir_{N}/predictions__rank_...
+    - Each file includes batch_idx tensor for reconstruction
+
+    Epoch mode (--write-interval epoch, default):
+    - predictions__rank_{global_rank}__dp_rank_{dp_rank}.pt
+    - All batches collated into single file
+
+    Both modes:
+    - seq_idx_map.json: Mapping from sequence names to indices in predictions
+
+Key Functions:
+    - predict(): Main prediction workflow
+    - batch_collator(): Collate predictions from multiple batches/ranks
+    - initialize_inference_distributed(): Set up distributed environment for inference
+"""
+
+import argparse
+import datetime
+import logging
+import os
+from pathlib import Path
+from typing import List, Literal, Optional, Tuple, TypeVar, Union
+
+import torch
+import torch.distributed as dist
+from megatron.bridge.data.samplers import build_pretraining_data_loader
+from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
+from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
+from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES, get_mixed_precision_config
+from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer
+from megatron.bridge.training.utils.checkpoint_utils import (
+    file_exists,
+    get_checkpoint_run_config_filename,
+    read_run_config,
+)
+from megatron.bridge.utils.common_utils import (
+    get_local_rank_preinit,
+    get_master_addr_safe,
+    get_master_port_safe,
+    get_rank_safe,
+    get_world_size_safe,
+)
+from megatron.bridge.utils.instantiate_utils import instantiate
+from megatron.core import parallel_state, tensor_parallel
+from megatron.core.num_microbatches_calculator import init_num_microbatches_calculator
+from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
+from megatron.core.transformer.module import Float16Module
+from megatron.core.utils import get_batch_on_this_cp_rank
+from torch import Tensor
+
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
+from bionemo.evo2.data.fasta_dataset import SimpleFastaDataset
+
+
+logger: logging.Logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# Type alias for recursive batch structures (dicts, lists, tuples of Tensors)
+ReductionT = TypeVar("ReductionT", bound=Union[Tensor, dict, list, tuple])
+
+
+# =============================================================================
+# Checkpoint Path Resolution
+# =============================================================================
+
+
+def resolve_checkpoint_path(checkpoint_path: Path) -> Path:
+    """Resolve a checkpoint path to the actual checkpoint directory.
+
+    MBridge checkpoints can be organized in two ways:
+    1. Direct checkpoint: A directory containing run_config.yaml directly
+       (e.g., after conversion or for single checkpoints)
+    2. Training output: A parent directory containing iter_XXXXXXX subdirectories
+
+    This function handles both cases:
+    - If run_config.yaml exists in the given path, return it as-is
+    - Otherwise, find the latest iter_XXXXXXX subdirectory and return that
+
+    Args:
+        checkpoint_path: Path to either a direct checkpoint or a training output directory.
+
+    Returns:
+        Path to the checkpoint directory containing run_config.yaml.
+
+    Raises:
+        FileNotFoundError: If the path doesn't exist or no valid checkpoint is found.
+        NotADirectoryError: If the path is not a directory.
+
+    Examples:
+        >>> # Direct checkpoint path
+        >>> resolve_checkpoint_path(Path("/checkpoints/evo2_1b_mbridge"))
+        PosixPath('/checkpoints/evo2_1b_mbridge')
+
+        >>> # Training output with iter_* subdirectories
+        >>> resolve_checkpoint_path(Path("/training/output"))
+        PosixPath('/training/output/iter_0007000')  # Returns latest
+    """
+    if not checkpoint_path.exists():
+        raise FileNotFoundError(f"Checkpoint path '{checkpoint_path}' does not exist.")
+    if not checkpoint_path.is_dir():
+        raise NotADirectoryError(f"Checkpoint path '{checkpoint_path}' must be a directory.")
+
+    # Check if run_config.yaml exists directly in this path
+    run_config_path = get_checkpoint_run_config_filename(str(checkpoint_path))
+    if file_exists(run_config_path):
+        return checkpoint_path
+
+    # Look for iter_* subdirectories
+    iter_dirs = [
+        (child.name, child) for child in checkpoint_path.iterdir() if child.is_dir() and child.name.startswith("iter_")
+    ]
+
+    if not iter_dirs:
+        raise FileNotFoundError(
+            f"No valid checkpoint found at '{checkpoint_path}'. "
+            "Expected either run_config.yaml in the directory or iter_* subdirectories."
+        )
+
+    # Find the latest iteration by parsing the iteration number
+    def _parse_iter_num(item: tuple[str, Path]) -> int:
+        try:
+            return int(item[0].replace("iter_", ""))
+        except ValueError:
+            return -1
+
+    _, latest_iter_path = max(iter_dirs, key=_parse_iter_num)
+
+    # Verify the selected iter directory has run_config.yaml
+    run_config_path = get_checkpoint_run_config_filename(str(latest_iter_path))
+    if not file_exists(run_config_path):
+        raise FileNotFoundError(f"Latest checkpoint directory '{latest_iter_path}' does not contain run_config.yaml.")
+
+    logger.info(f"Resolved checkpoint path to: {latest_iter_path}")
+    return latest_iter_path
+
+
+# =============================================================================
+# Batch Collation Utilities
+# =============================================================================
+
+
+def batch_collator(
+    batches: Optional[Union[Tuple[ReductionT, ...], List[ReductionT]]],
+    batch_dim: int = 0,
+    seq_dim: int = 1,
+    batch_dim_key_defaults: Optional[dict[str, int]] = None,
+    seq_dim_key_defaults: Optional[dict[str, int]] = None,
+    preferred_gpu: int = 0,
+) -> Optional[ReductionT]:
+    """Collate multiple batches into a single batch by concatenating along the batch dimension.
+
+    This function handles nested structures (dicts, lists, tuples) containing tensors.
+    Unlike PyTorch's default_collate, this assumes the batch dimension already exists
+    (as when parallelizing across microbatches or DP ranks).
+
+    Args:
+        batches: Sequence of batches to collate. Each batch can be a tensor, dict, list, or tuple.
+            The structure must be consistent across all batches.
+        batch_dim: Dimension along which to concatenate tensors. Default 0.
+        seq_dim: Sequence dimension, used for padding to max length. Default 1.
+        batch_dim_key_defaults: For dict batches, override batch_dim for specific keys.
+            Default: {"token_logits": 1} (legacy compatibility, recommend passing {}).
+        seq_dim_key_defaults: For dict batches, override seq_dim for specific keys.
+            Default: {"token_logits": 0} (legacy compatibility, recommend passing {}).
+        preferred_gpu: If any tensor is on GPU, move all to this device. Default 0.
+
+    Returns:
+        Collated batch with same structure as input batches, or None if input contains None.
+
+    Raises:
+        ValueError: If batches is empty or contains unsupported types.
+
+    Examples:
+        >>> # Collate dict batches
+        >>> batch1 = {"logits": torch.randn(2, 10, 512), "mask": torch.ones(2, 10)}
+        >>> batch2 = {"logits": torch.randn(3, 10, 512), "mask": torch.ones(3, 10)}
+        >>> result = batch_collator([batch1, batch2], batch_dim=0, seq_dim=1,
+        ...                         batch_dim_key_defaults={}, seq_dim_key_defaults={})
+        >>> result["logits"].shape  # torch.Size([5, 10, 512])
+
+        >>> # Collate with padding (different sequence lengths)
+        >>> batch1 = {"tokens": torch.randn(2, 100)}
+        >>> batch2 = {"tokens": torch.randn(2, 150)}
+        >>> result = batch_collator([batch1, batch2], batch_dim=0, seq_dim=1,
+        ...                         batch_dim_key_defaults={}, seq_dim_key_defaults={})
+        >>> result["tokens"].shape  # torch.Size([4, 150]) - padded to max length
+    """
+    # Apply defaults for backward compatibility
+    if batch_dim_key_defaults is None:
+        batch_dim_key_defaults = {"token_logits": 1}
+    if seq_dim_key_defaults is None:
+        seq_dim_key_defaults = {"token_logits": 0}
+
+    match batches:
+        # Base case: list starting with None
+        case [None, *_]:
+            return None
+
+        # Base case: list of tensors
+        case [Tensor(), *_]:
+            return _collate_tensors(batches, batch_dim=batch_dim, seq_dim=seq_dim, preferred_gpu=preferred_gpu)
+
+        # Recursive case: list of dicts
+        case [dict(), *_]:
+            return {
+                key: batch_collator(
+                    [batch[key] for batch in batches],
+                    batch_dim=batch_dim_key_defaults.get(key, batch_dim),
+                    seq_dim=seq_dim_key_defaults.get(key, seq_dim),
+                    batch_dim_key_defaults=batch_dim_key_defaults,
+                    seq_dim_key_defaults=seq_dim_key_defaults,
+                    preferred_gpu=preferred_gpu,
+                )
+                for key in batches[0]
+            }
+
+        # Recursive case: list of tuples
+        case [tuple(), *_]:
+            return tuple(
+                batch_collator(
+                    [batch[i] for batch in batches],
+                    batch_dim=batch_dim,
+                    seq_dim=seq_dim,
+                    batch_dim_key_defaults=batch_dim_key_defaults,
+                    seq_dim_key_defaults=seq_dim_key_defaults,
+                    preferred_gpu=preferred_gpu,
+                )
+                for i in range(len(batches[0]))
+            )
+
+        # Recursive case: list of lists
+        case [list(), *_]:
+            return [
+                batch_collator(
+                    [batch[i] for batch in batches],
+                    batch_dim=batch_dim,
+                    seq_dim=seq_dim,
+                    batch_dim_key_defaults=batch_dim_key_defaults,
+                    seq_dim_key_defaults=seq_dim_key_defaults,
+                    preferred_gpu=preferred_gpu,
+                )
+                for i in range(len(batches[0]))
+            ]
+
+        # Error cases
+        case []:
+            raise ValueError("Cannot collate an empty sequence of batches")
+        case _:
+            raise ValueError(f"Unsupported batch type: {type(batches[0]) if batches else 'empty'}")
+
+
+def _collate_tensors(
+    tensors: List[Tensor],
+    batch_dim: int,
+    seq_dim: int,
+    preferred_gpu: int,
+) -> Tensor:
+    """Concatenate tensors along batch dimension, padding sequence dimension if needed.
+
+    Args:
+        tensors: List of tensors to concatenate
+        batch_dim: Dimension to concatenate along
+        seq_dim: Dimension to pad to max length
+        preferred_gpu: GPU device to use if any tensor is on GPU
+
+    Returns:
+        Concatenated tensor
+    """
+    # Move all to same device if any is on GPU
+    if any(t.is_cuda for t in tensors):
+        device = torch.device(f"cuda:{preferred_gpu}")
+        tensors = [t.to(device) for t in tensors]
+
+    # For 1D tensors, just concatenate (no sequence dimension)
+    if tensors[0].ndim == 1:
+        return torch.cat(tensors, dim=0)
+
+    # Pad to max sequence length
+    max_seq_len = max(t.size(seq_dim) for t in tensors)
+    padded_tensors = []
+
+    for tensor in tensors:
+        pad_amount = max_seq_len - tensor.size(seq_dim)
+        if pad_amount > 0:
+            # Build padding tuple: [left_last, right_last, left_second_last, right_second_last, ...]
+            pad_spec = [0] * (2 * tensor.ndim)
+            # Pad on the right of the sequence dimension
+            pad_spec[2 * (tensor.ndim - 1 - seq_dim) + 1] = pad_amount
+            padded_tensor = torch.nn.functional.pad(tensor, tuple(pad_spec))
+        else:
+            padded_tensor = tensor
+        padded_tensors.append(padded_tensor)
+
+    return torch.cat(padded_tensors, dim=batch_dim)
+
+
+# =============================================================================
+# Distributed Initialization
+# =============================================================================
+
+
+def initialize_inference_distributed(
+    tensor_model_parallel_size: int = 1,
+    pipeline_model_parallel_size: int = 1,
+    context_parallel_size: int = 1,
+    micro_batch_size: int = 1,
+    global_batch_size: int = 1,
+    rng_config: Optional[RNGConfig] = None,
+    dist_config: Optional[DistributedInitConfig] = None,
+) -> None:
+    """Initialize distributed environment for inference.
+
+    Sets up the minimal distributed infrastructure needed for model-parallel inference:
+    1. torch.distributed process group
+    2. Model parallel groups (TP, PP, CP, DP)
+    3. Microbatch calculator (for batch scheduling)
+    4. Random seeds for reproducibility
+
+    This is a lightweight alternative to full Megatron initialization, skipping
+    training-specific components like the rerun state machine.
+
+    Args:
+        tensor_model_parallel_size: Tensor parallelism degree (splits model across GPUs)
+        pipeline_model_parallel_size: Pipeline parallelism degree (must be 1 for inference)
+        context_parallel_size: Context parallelism degree (splits sequence across GPUs)
+        micro_batch_size: Batch size per forward pass
+        global_batch_size: Total batch size across all DP ranks
+        rng_config: Random number generator configuration. Defaults to seed=1234.
+        dist_config: Distributed backend configuration. Defaults to NCCL backend.
+
+    Note:
+        This function must be called before creating the model. It initializes
+        parallel_state which is used throughout the codebase.
+    """
+    import random
+
+    import numpy as np
+
+    # Apply defaults
+    if rng_config is None:
+        rng_config = RNGConfig(seed=1234)
+    if dist_config is None:
+        dist_config = DistributedInitConfig()
+
+    assert torch.cuda.is_available(), "Inference requires CUDA."
+
+    device_count = torch.cuda.device_count()
+    world_size = get_world_size_safe()
+    model_parallel_size = tensor_model_parallel_size * pipeline_model_parallel_size * context_parallel_size
+    data_parallel_size = world_size // model_parallel_size
+
+    # Initialize microbatch calculator
+    init_num_microbatches_calculator(
+        rank=get_rank_safe(),
+        rampup_batch_size=None,
+        global_batch_size=global_batch_size,
+        micro_batch_size=micro_batch_size,
+        data_parallel_size=data_parallel_size,
+        decrease_batch_size_if_needed=False,
+    )
+
+    # Initialize torch.distributed
+    if not torch.distributed.is_initialized():
+        if get_rank_safe() == 0:
+            print("> initializing torch distributed for inference ...", flush=True)
+
+        if device_count > 0:
+            torch.cuda.set_device(get_local_rank_preinit())
+
+        # Ensure environment variables are set
+        if "MASTER_ADDR" not in os.environ:
+            os.environ["MASTER_ADDR"] = get_master_addr_safe()
+        if "MASTER_PORT" not in os.environ:
+            os.environ["MASTER_PORT"] = str(get_master_port_safe())
+
+        torch.distributed.init_process_group(
+            backend=dist_config.distributed_backend,
+            world_size=world_size,
+            rank=get_rank_safe(),
+            timeout=datetime.timedelta(minutes=dist_config.distributed_timeout_minutes),
+        )
+        torch.distributed.barrier(device_ids=[get_local_rank_preinit()])
+    else:
+        if get_rank_safe() == 0:
+            print("torch distributed is already initialized, skipping ...", flush=True)
+
+    # Initialize model parallel groups
+    if device_count > 0 and not parallel_state.model_parallel_is_initialized():
+        parallel_state.initialize_model_parallel(
+            tensor_model_parallel_size=tensor_model_parallel_size,
+            pipeline_model_parallel_size=pipeline_model_parallel_size,
+            context_parallel_size=context_parallel_size,
+            distributed_timeout_minutes=dist_config.distributed_timeout_minutes,
+        )
+        if get_rank_safe() == 0:
+            print(
+                f"> initialized tensor model parallel with size {parallel_state.get_tensor_model_parallel_world_size()}"
+            )
+            print(
+                f"> initialized pipeline model parallel with size {parallel_state.get_pipeline_model_parallel_world_size()}"
+            )
+            print(f"> initialized data parallel with size {parallel_state.get_data_parallel_world_size()}")
+    elif get_rank_safe() == 0:
+        print("model parallel is already initialized", flush=True)
+
+    # Set random seeds
+    if get_rank_safe() == 0:
+        print(f"> setting random seeds to {rng_config.seed} ...", flush=True)
+
+    seed = rng_config.seed + (100 * parallel_state.get_pipeline_model_parallel_rank())
+    if rng_config.data_parallel_random_init:
+        seed = seed + (10 * parallel_state.get_data_parallel_rank())
+
+    random.seed(seed)
+    np.random.seed(seed)  # noqa: NPY002
+    torch.manual_seed(seed)
+
+    if device_count > 0:
+        tensor_parallel.model_parallel_cuda_manual_seed(
+            seed,
+            rng_config.te_rng_tracker,
+            rng_config.inference_rng_tracker,
+        )
+
+
+# =============================================================================
+# Context Parallelism Utilities
+# =============================================================================
+
+
+def _gather_along_cp_dim(input_: Tensor, seq_dim: int = 1, unshuffle_zigzag: bool = True) -> Tensor:
+    """Gather tensors from all CP ranks and restore original sequence order.
+
+    When using context parallelism (CP), sequences are split across multiple GPUs using a
+    "zigzag" pattern for load balancing. This function gathers the split tensors from all
+    CP ranks and optionally restores the original sequence order.
+
+    Zigzag Pattern (CP=2 example):
+        Original sequence: [chunk0, chunk1, chunk2, chunk3]
+        CP rank 0 receives: [chunk0, chunk3]  (positions 0 and 3)
+        CP rank 1 receives: [chunk1, chunk2]  (positions 1 and 2)
+
+    After gathering and unshuffling, the original order is restored.
+
+    Args:
+        input_: Input tensor with shape [B, S/CP, ...] where S is full sequence length
+        seq_dim: Sequence dimension in the tensor. Default 1.
+        unshuffle_zigzag: If True, restore original sequence order after gathering.
+            Set to False only if you need the raw gathered order. Default True.
+
+    Returns:
+        Gathered tensor with shape [B, S, ...] in original sequence order.
+        If CP=1, returns input unchanged.
+
+    Note:
+        This function requires parallel_state to be initialized with CP groups.
+    """
+    cp_size = parallel_state.get_context_parallel_world_size()
+    if cp_size == 1:
+        return input_
+
+    # Gather from all CP ranks
+    # After all_gather: [B * cp_size, seq_len_per_rank, ...]
+    dim_size = list(input_.size())
+    dim_size[0] = dim_size[0] * cp_size
+
+    output = torch.empty(dim_size, dtype=input_.dtype, device=torch.cuda.current_device())
+    torch.distributed.all_gather_into_tensor(
+        output, input_.contiguous(), group=parallel_state.get_context_parallel_group()
+    )
+
+    # Chunk by batch dimension and concatenate by sequence dimension
+    # Result: [B, seq_len_per_rank * cp_size, ...]
+    tensor_list = output.chunk(cp_size, dim=0)
+    output = torch.cat(tensor_list, dim=seq_dim).contiguous()
+
+    if not unshuffle_zigzag:
+        return output
+
+    # Undo the zigzag pattern from get_batch_on_this_cp_rank
+    # The zigzag assigns chunk i and (2*cp_size - i - 1) to rank i
+    seq_len = output.shape[seq_dim]
+    num_chunks = 2 * cp_size
+    chunk_size = seq_len // num_chunks
+
+    chunks = output.split(chunk_size, dim=seq_dim)
+
+    # Build the order in which chunks appear after gathering:
+    # [rank0_first, rank0_second, rank1_first, rank1_second, ...]
+    # where rank_i has chunks (i, 2*cp_size - i - 1)
+    gathered_order = []
+    for rank in range(cp_size):
+        gathered_order.append(rank)
+        gathered_order.append(2 * cp_size - rank - 1)
+
+    # Create inverse mapping: original_position -> gathered_position
+    inverse_order = [0] * num_chunks
+    for pos, orig_idx in enumerate(gathered_order):
+        inverse_order[orig_idx] = pos
+
+    # Reorder to original sequence order [0, 1, 2, ..., 2*cp_size-1]
+    reordered_chunks = [chunks[inverse_order[i]] for i in range(num_chunks)]
+    return torch.cat(reordered_chunks, dim=seq_dim).contiguous()
+
+
+# =============================================================================
+# Argument Parsing
+# =============================================================================
+
+
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for Evo2 inference.
+
+    Returns:
+        Parsed arguments namespace
+    """
+    ap = argparse.ArgumentParser(
+        description="Run inference on Evo2 models using MBridge checkpoints",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    # Required arguments
+    ap.add_argument(
+        "--fasta",
+        type=Path,
+        required=True,
+        help="Path to input FASTA file containing sequences for prediction",
+    )
+    ap.add_argument(
+        "--ckpt-dir",
+        type=Path,
+        required=True,
+        help="Path to MBridge checkpoint directory (must contain run_config.yaml)",
+    )
+
+    # Output arguments
+    ap.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory for output predictions. If not set, predictions are discarded.",
+    )
+    ap.add_argument(
+        "--write-interval",
+        type=str,
+        default="epoch",
+        choices=["epoch", "batch"],
+        help="When to write predictions: 'epoch' writes all at end, 'batch' writes after each batch",
+    )
+    ap.add_argument(
+        "--files-per-subdir",
+        type=int,
+        help="Group output files into subdirectories. Only used with --write-interval batch.",
+    )
+
+    # Parallelism arguments
+    ap.add_argument("--num-nodes", type=int, default=1, help="Number of nodes for distributed inference")
+    ap.add_argument(
+        "--devices",
+        type=int,
+        help="Number of GPUs per node. Default: TP * PP * CP",
+    )
+    ap.add_argument("--tensor-parallel-size", type=int, default=1, help="Tensor parallelism degree")
+    ap.add_argument(
+        "--pipeline-model-parallel-size",
+        type=int,
+        choices=[1],
+        default=1,
+        help="Pipeline parallelism degree (only 1 supported)",
+    )
+    ap.add_argument("--context-parallel-size", type=int, default=1, help="Context parallelism degree")
+    ap.add_argument(
+        "--no-sequence-parallel",
+        action="store_true",
+        help="Disable sequence parallelism when using TP > 1",
+    )
+
+    # Model/precision arguments
+    ap.add_argument(
+        "--mixed-precision-recipe",
+        type=str,
+        choices=list(MIXED_PRECISION_RECIPES.keys()),
+        help="Override mixed precision recipe (default: use checkpoint setting)",
+    )
+    ap.add_argument(
+        "--vortex-style-fp8",
+        action="store_true",
+        help="Use vortex-style FP8 (applies FP8 only to projection layers)",
+    )
+    ap.add_argument(
+        "--use-subquadratic-ops",
+        action="store_true",
+        help="Use subquadratic_ops for improved performance. Note, due to increased compilation time this is only "
+        "recommended for predicting on a larger number of input sequences.",
+    )
+
+    # Batch/sequence arguments
+    ap.add_argument("--micro-batch-size", type=int, default=1, help="Batch size per forward pass")
+    ap.add_argument("--min-length", type=int, help="Minimum sequence length (pad shorter sequences)")
+    ap.add_argument("--prepend-bos", action="store_true", help="Prepend BOS token to sequences")
+
+    # Output format arguments
+    ap.add_argument(
+        "--output-log-prob-seqs",
+        action="store_true",
+        help="Output log probabilities instead of raw logits",
+    )
+    ap.add_argument(
+        "--log-prob-collapse-option",
+        choices=["sum", "mean", "per_token"],
+        default="mean",
+        help="How to aggregate per-token log probs: sum, mean, or keep per_token",
+    )
+
+    # Model configuration overrides (for testing)
+    ap.add_argument(
+        "--hybrid-override-pattern",
+        type=str,
+        help="Override hybrid layer pattern (e.g., 'SDH*' for testing)",
+    )
+    ap.add_argument("--num-layers", type=int, help="Override number of layers (for testing)")
+    ap.add_argument(
+        "--seq-len-interpolation-factor",
+        type=int,
+        help="ROPE sequence length interpolation factor",
+    )
+
+    # Embedding extraction arguments
+    ap.add_argument(
+        "--embedding-layer",
+        type=int,
+        help="Extract embeddings from a specific transformer layer instead of logits. "
+        "Supports Python-style negative indexing (e.g., -1 for last layer, -2 for second-to-last). "
+        "For a 25-layer model, layer 24 and layer -1 both refer to the last layer.",
+    )
+
+    # Tokenizer arguments
+    ap.add_argument(
+        "--eden-tokenizer",
+        action="store_true",
+        help="Use Eden tokenizer patches",
+    )
+    ap.add_argument(
+        "--mask-phylogenetic-tags",
+        action="store_true",
+        help="Mask phylogenetic tags in loss computation",
+    )
+
+    return ap.parse_args()
+
+
+def on_writing_rank() -> bool:
+    """Returns True if the current rank is one that should own writing predictions."""
+    return (
+        (parallel_state.is_pipeline_last_stage())
+        and (parallel_state.get_tensor_model_parallel_rank() == 0)
+        and (parallel_state.get_context_parallel_rank() == 0)
+    )
+
+
+# =============================================================================
+# Data Loading Utilities
+# =============================================================================
+
+
+def _padding_collate_fn_factory(
+    pad_token_id: int = 0,
+    min_length: Optional[int] = None,
+):
+    """Create a collate function that pads sequences to uniform length.
+
+    Args:
+        pad_token_id: Token ID to use for padding
+        min_length: Minimum sequence length (pad shorter sequences to this)
+
+    Returns:
+        Collate function compatible with DataLoader
+    """
+
+    def collate_fn(batch: list[dict[str, Tensor]]) -> dict[str, Tensor]:
+        return _padding_collate_fn(batch, pad_token_id, min_length)
+
+    return collate_fn
+
+
+def _padding_collate_fn(
+    batch: list[dict[str, Tensor]],
+    pad_token_id: int = 0,
+    min_length: Optional[int] = None,
+) -> dict[str, Tensor]:
+    """Pad sequences in a batch to the same length.
+
+    Handles the following keys specially:
+    - tokens: Padded with pad_token_id
+    - position_ids: Extended with consecutive positions
+    - loss_mask: Padded with 0 (masked)
+    - seq_idx: Not padded (scalar per sample)
+    - Other keys: Padded with 0
+
+    Args:
+        batch: List of sample dictionaries from the dataset
+        pad_token_id: Token ID for padding
+        min_length: Minimum length to pad to
+
+    Returns:
+        Dictionary with batched and padded tensors
+    """
+    max_len = max(sample["tokens"].shape[0] for sample in batch)
+    if min_length is not None:
+        max_len = max(max_len, min_length)
+
+    padded_batch: dict[str, list[Tensor]] = {key: [] for key in batch[0].keys()}
+
+    for sample in batch:
+        seq_len = sample["tokens"].shape[0]
+        pad_len = max_len - seq_len
+
+        for key, value in sample.items():
+            if key == "tokens":
+                padded = torch.nn.functional.pad(value, (0, pad_len), value=pad_token_id)
+            elif key == "position_ids":
+                if pad_len > 0:
+                    padded = torch.cat([value, torch.arange(seq_len, max_len, dtype=value.dtype)])
+                else:
+                    padded = value
+            elif key == "loss_mask":
+                padded = torch.nn.functional.pad(value, (0, pad_len), value=0)
+            elif key == "seq_idx":
+                padded = value  # Scalar, no padding
+            else:
+                padded = torch.nn.functional.pad(value, (0, pad_len), value=0)
+            padded_batch[key].append(padded)
+
+    return {key: torch.stack(values) for key, values in padded_batch.items()}
+
+
+# =============================================================================
+# Prediction Step
+# =============================================================================
+
+
+def _predict_step(
+    model: torch.nn.Module,
+    batch: dict[str, Tensor],
+    output_log_prob_seqs: bool = False,
+    log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
+    context_parallel_size: int = 1,
+    output_embeddings: bool = False,
+) -> Optional[dict[str, Tensor]]:
+    """Run a single prediction step and gather outputs across parallel ranks.
+
+    Args:
+        model: The Evo2 model to run inference with
+        batch: Input batch containing:
+            - tokens: Input token IDs [B, S]
+            - position_ids: Position indices [B, S]
+            - loss_mask: Mask indicating valid tokens [B, S]
+            - seq_idx: Original sequence indices [B]
+        output_log_prob_seqs: If True, return log probabilities instead of logits
+        log_prob_collapse_option: How to aggregate log probs ('sum', 'mean', or 'per_token')
+        context_parallel_size: CP size (for warning about per_token output)
+        output_embeddings: If True, return embeddings instead of logits (model must have
+            post_process=False)
+
+    Returns:
+        Dictionary containing predictions:
+        - If output_embeddings=True: hidden_embeddings, pad_mask, seq_idx, tokens
+        - If output_log_prob_seqs=False: token_logits, pad_mask, seq_idx, tokens
+        - If output_log_prob_seqs=True with sum/mean: log_probs_seqs, seq_idx
+        - If output_log_prob_seqs=True with per_token: log_probs_seqs, seq_idx, loss_mask
+        Returns None if not on the last pipeline stage.
+    """
+    if not parallel_state.is_pipeline_last_stage():
+        return None
+
+    # Forward pass
+    output_tensor = model(
+        input_ids=batch["tokens"],
+        position_ids=batch["position_ids"],
+        attention_mask=None,
+    )
+
+    # Gather across tensor parallel ranks
+    # For logits (post_process=True): gather along vocabulary dimension (last dim is sharded)
+    # For embeddings (post_process=False): hidden states are not sharded across TP, skip gathering
+    if output_embeddings:
+        # Hidden states are not sharded across TP ranks, just use the output directly
+        forward_out_tp_gathered = output_tensor
+    else:
+        # Logits have the vocab dimension sharded across TP ranks
+        forward_out_tp_gathered = _gather_along_last_dim(
+            output_tensor, group=parallel_state.get_tensor_model_parallel_group()
+        )
+
+    # Gather across context parallel ranks (sequence dimension)
+    forward_out_gathered = _gather_along_cp_dim(forward_out_tp_gathered)
+    loss_mask_gathered = _gather_along_cp_dim(batch["loss_mask"])
+    tokens_gathered = _gather_along_cp_dim(batch["tokens"])
+
+    if output_embeddings:
+        # When extracting embeddings, the model output is hidden states, not logits
+        # Model outputs [S, B, H] (sequence-first format), transpose to [B, S, H] for consistency
+        hidden_embeddings = forward_out_gathered.transpose(0, 1).contiguous()
+        return {
+            "hidden_embeddings": hidden_embeddings,
+            "pad_mask": loss_mask_gathered,
+            "seq_idx": batch["seq_idx"],
+            "tokens": tokens_gathered,
+        }
+    elif output_log_prob_seqs:
+        return _compute_log_probs(
+            logits=forward_out_gathered,
+            tokens=tokens_gathered,
+            loss_mask=loss_mask_gathered,
+            seq_idx=batch["seq_idx"],
+            collapse_option=log_prob_collapse_option,
+            context_parallel_size=context_parallel_size,
+        )
+    else:
+        return {
+            "token_logits": forward_out_gathered,
+            "pad_mask": loss_mask_gathered,
+            "seq_idx": batch["seq_idx"],
+            "tokens": tokens_gathered,
+        }
+
+
+def _compute_log_probs(
+    logits: Tensor,
+    tokens: Tensor,
+    loss_mask: Tensor,
+    seq_idx: Tensor,
+    collapse_option: Literal["sum", "mean", "per_token"],
+    context_parallel_size: int,
+) -> dict[str, Tensor]:
+    """Compute log probabilities from model logits.
+
+    Computes P(token_i | token_0, ..., token_{i-1}) for each token.
+
+    Args:
+        logits: Model output logits [B, S, V]
+        tokens: Input token IDs [B, S]
+        loss_mask: Mask for valid tokens [B, S]
+        seq_idx: Sequence indices [B]
+        collapse_option: How to aggregate: 'sum', 'mean', or 'per_token'
+        context_parallel_size: CP size (for per_token warning)
+
+    Returns:
+        Dictionary with log_probs_seqs and seq_idx (and loss_mask if per_token)
+    """
+    # Predictions for token i are at position i, labels are at i+1
+    softmax_logprobs = torch.log_softmax(logits, dim=-1)
+    softmax_logprobs = softmax_logprobs[:, :-1]  # [B, S-1, V]
+    target_tokens = tokens[:, 1:]  # [B, S-1]
+
+    if softmax_logprobs.shape[1] != target_tokens.shape[1]:
+        raise RuntimeError(f"Shape mismatch: logprobs {softmax_logprobs.shape} vs targets {target_tokens.shape}")
+
+    # Gather log probs for actual tokens
+    log_probs_per_token = torch.gather(softmax_logprobs, 2, target_tokens.unsqueeze(-1)).squeeze(-1)
+
+    # Apply loss mask (zero out padding)
+    loss_mask_shifted = loss_mask[:, 1:].float()
+    log_probs_per_token = log_probs_per_token * loss_mask_shifted
+
+    if collapse_option == "per_token":
+        if context_parallel_size > 1:
+            logger.warning(
+                "Per-token log probabilities with CP>1 will have zigzag-shuffled order. "
+                "Use 'sum' or 'mean' to get correctly aggregated results."
+            )
+        return {
+            "log_probs_seqs": log_probs_per_token,
+            "seq_idx": seq_idx,
+            "loss_mask": loss_mask_shifted.bool(),
+        }
+
+    # Sum log probs across sequence
+    log_prob_seqs = torch.sum(log_probs_per_token, dim=1)
+
+    if collapse_option == "mean":
+        # Divide by number of valid tokens
+        valid_token_count = torch.clamp(loss_mask_shifted.sum(dim=-1), min=1.0)
+        log_prob_seqs = log_prob_seqs / valid_token_count
+
+    return {"log_probs_seqs": log_prob_seqs, "seq_idx": seq_idx}
+
+
+# =============================================================================
+# Output Writing
+# =============================================================================
+
+
+def _write_predictions_batch(
+    predictions: dict[str, Tensor],
+    output_dir: Path,
+    batch_idx: int,
+    global_rank: int,
+    dp_rank: int,
+    files_per_subdir: Optional[int] = None,
+    num_files_written: int = 0,
+    data_parallel_world_size: int = 1,
+) -> tuple[Path, int, int]:
+    """Write predictions to disk as a PyTorch file (batch mode).
+
+    File naming follows the original PredictionWriter convention:
+    predictions__rank_{global_rank}__dp_rank_{dp_rank}__batch_{batch_idx}.pt
+
+    Subdirectory structure (when files_per_subdir is set):
+    subdir_{num}/predictions__rank_...
+
+    The subdirectory numbering starts from 1 and increments when the number of files
+    written (across all DP ranks) reaches files_per_subdir.
+
+    Args:
+        predictions: Dictionary of prediction tensors to save
+        output_dir: Base output directory
+        batch_idx: Batch index for file naming
+        global_rank: Global rank of this process
+        dp_rank: Data parallel rank (included in filename for multi-GPU)
+        files_per_subdir: If set, organize files into subdirectories
+        num_files_written: Number of files already written in current subdir
+        data_parallel_world_size: Number of data parallel ranks
+
+    Returns:
+        Tuple of (output_path, updated_num_files_written, updated_num_subdirs)
+    """
+    if (not predictions) or (not on_writing_rank()):
+        return output_dir, num_files_written, 0
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Track subdirectory state
+    current_output_dir = output_dir
+    num_subdirs_written = 0
+
+    if files_per_subdir is not None:
+        # Calculate how many subdirs we've created based on total files written
+        # (counting all DP ranks)
+        effective_files = num_files_written * data_parallel_world_size
+        if effective_files >= files_per_subdir:
+            # Need a new subdirectory
+            num_subdirs_written = effective_files // files_per_subdir + 1
+            current_output_dir = output_dir / f"subdir_{num_subdirs_written}"
+            current_output_dir.mkdir(parents=True, exist_ok=True)
+            num_files_written = 0
+
+    filename = f"predictions__rank_{global_rank}__dp_rank_{dp_rank}__batch_{batch_idx}.pt"
+    output_path = current_output_dir / filename
+
+    # Add batch_idx to predictions (matching original PredictionWriter behavior)
+    predictions["batch_idx"] = torch.tensor([batch_idx], dtype=torch.int64)
+
+    torch.save(predictions, output_path)
+    logger.info(f"Inference predictions are stored in {output_path}\n{predictions.keys()}")
+
+    return output_path, num_files_written + 1, num_subdirs_written
+
+
+def _write_predictions_epoch(
+    predictions: dict[str, Tensor],
+    output_dir: Path,
+    global_rank: int,
+    dp_rank: int,
+) -> Path:
+    """Write predictions to disk as a PyTorch file (epoch mode).
+
+    File naming follows the original PredictionWriter convention:
+    predictions__rank_{global_rank}__dp_rank_{dp_rank}.pt
+
+    Args:
+        predictions: Dictionary of prediction tensors to save
+        output_dir: Base output directory
+        global_rank: Global rank of this process
+        dp_rank: Data parallel rank
+
+    Returns:
+        Path to the saved file
+    """
+    if (not predictions) or (not on_writing_rank()):
+        return output_dir
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"predictions__rank_{global_rank}__dp_rank_{dp_rank}.pt"
+    output_path = output_dir / filename
+
+    torch.save(predictions, output_path)
+    logger.info(f"Inference predictions are stored in {output_path}\n{predictions.keys()}")
+
+    return output_path
+
+
+# =============================================================================
+# Main Prediction Workflow
+# =============================================================================
+
+
+def predict(
+    fasta_path: Path,
+    ckpt_dir: Path,
+    output_dir: Optional[Path] = None,
+    *,
+    # Parallelism settings
+    tensor_parallel_size: int = 1,
+    pipeline_model_parallel_size: int = 1,
+    context_parallel_size: int = 1,
+    no_sequence_parallel: bool = False,
+    # Precision settings
+    mixed_precision_recipe: Optional[str] = None,
+    use_subquadratic_ops: bool = False,
+    # Batch/sequence settings
+    micro_batch_size: int = 1,
+    min_length: Optional[int] = None,
+    prepend_bos: bool = False,
+    # Output settings
+    write_interval: Literal["epoch", "batch"] = "epoch",
+    files_per_subdir: Optional[int] = None,
+    output_log_prob_seqs: bool = False,
+    log_prob_collapse_option: Literal["sum", "mean", "per_token"] = "mean",
+    # Embedding extraction
+    embedding_layer: Optional[int] = None,
+) -> None:
+    """Run the complete Evo2 prediction workflow.
+
+    This function orchestrates the full inference pipeline:
+    1. Load model configuration from MBridge checkpoint
+    2. Override parallelism and precision settings
+    3. Initialize distributed environment
+    4. Create and configure the model
+    5. Load model weights
+    6. Process FASTA sequences and write predictions
+
+    Args:
+        fasta_path: Path to input FASTA file containing sequences for prediction.
+        ckpt_dir: Path to MBridge checkpoint directory (must contain run_config.yaml).
+        output_dir: Directory for output predictions. If None, predictions are discarded.
+        tensor_parallel_size: Tensor parallelism degree (splits model across GPUs).
+        pipeline_model_parallel_size: Pipeline parallelism degree (must be 1).
+        context_parallel_size: Context parallelism degree (splits sequence across GPUs).
+        no_sequence_parallel: Disable sequence parallelism when using TP > 1.
+        mixed_precision_recipe: Override mixed precision recipe (default: use checkpoint).
+        use_subquadratic_ops: Use subquadratic_ops for improved performance.
+        micro_batch_size: Batch size per forward pass.
+        min_length: Minimum sequence length (pad shorter sequences to this).
+        prepend_bos: Prepend BOS token to sequences.
+        write_interval: When to write predictions: 'epoch' or 'batch'.
+        files_per_subdir: Group output files into subdirectories (batch mode only).
+        output_log_prob_seqs: Output log probabilities instead of raw logits.
+        log_prob_collapse_option: How to aggregate log probs: 'sum', 'mean', 'per_token'.
+        embedding_layer: Extract embeddings from a specific layer instead of logits.
+            Supports Python-style negative indexing (-1 for last layer, -2 for second-to-last).
+            For a 25-layer model, layer 24 and -1 both refer to the last layer.
+
+    Raises:
+        ValueError: If pipeline parallelism > 1 is requested.
+        FileNotFoundError: If checkpoint run_config.yaml is missing.
+
+    Example:
+        >>> from pathlib import Path
+        >>> predict(
+        ...     fasta_path=Path("sequences.fasta"),
+        ...     ckpt_dir=Path("/path/to/mbridge/checkpoint"),
+        ...     output_dir=Path("/path/to/output"),
+        ...     tensor_parallel_size=2,
+        ...     micro_batch_size=4,
+        ... )
+    """
+    if pipeline_model_parallel_size != 1:
+        raise ValueError("Pipeline parallelism > 1 is not currently supported for prediction.")
+
+    # -------------------------------------------------------------------------
+    # Step 1: Resolve and load configuration from checkpoint
+    # -------------------------------------------------------------------------
+    # Handle both direct checkpoint paths and training output directories with iter_* subdirs
+    resolved_ckpt_dir = resolve_checkpoint_path(ckpt_dir)
+    logger.info(f"Loading configuration from checkpoint: {resolved_ckpt_dir}")
+
+    run_config_filename = get_checkpoint_run_config_filename(str(resolved_ckpt_dir))
+
+    run_config = read_run_config(run_config_filename)
+    model_provider = instantiate(run_config["model"])
+    logger.info(f"Instantiated model provider: {type(model_provider).__name__}")
+
+    # -------------------------------------------------------------------------
+    # Step 2: Override parallelism and precision settings
+    # -------------------------------------------------------------------------
+    model_provider.tensor_model_parallel_size = tensor_parallel_size
+    model_provider.pipeline_model_parallel_size = pipeline_model_parallel_size
+    model_provider.context_parallel_size = context_parallel_size
+    model_provider.sequence_parallel = tensor_parallel_size > 1 and not no_sequence_parallel
+
+    # Configure subquadratic ops for improved performance
+    if use_subquadratic_ops:
+        model_provider.use_subquadratic_ops = True
+
+    # Configure mixed precision
+    if mixed_precision_recipe is not None:
+        mp_config = get_mixed_precision_config(mixed_precision_recipe)
+    elif "mixed_precision" in run_config and run_config["mixed_precision"] is not None:
+        mp_value = run_config["mixed_precision"]
+        if isinstance(mp_value, str):
+            mp_config = get_mixed_precision_config(mp_value)
+            logger.info(f"Using mixed precision recipe from checkpoint: {mp_value}")
+        else:
+            mp_config = instantiate(mp_value)
+            logger.info("Using mixed precision config from checkpoint")
+    else:
+        mp_config = get_mixed_precision_config("bf16_mixed")
+
+    mp_config.finalize()
+    mp_config.setup(model_provider)
+
+    # -------------------------------------------------------------------------
+    # Step 3: Load tokenizer
+    # -------------------------------------------------------------------------
+    tokenizer_dir = resolved_ckpt_dir / "tokenizer"
+    if tokenizer_dir.exists():
+        tokenizer = _HuggingFaceTokenizer(tokenizer_dir)
+    else:
+        tokenizer = _HuggingFaceTokenizer(DEFAULT_HF_TOKENIZER_MODEL_PATH)
+
+    model_provider.vocab_size = tokenizer.vocab_size
+    model_provider.should_pad_vocab = True
+
+    # -------------------------------------------------------------------------
+    # Step 3.5: Handle embedding layer extraction
+    # -------------------------------------------------------------------------
+    # Get the original number of layers from the checkpoint config
+    original_num_layers = model_provider.num_layers
+    output_embeddings = embedding_layer is not None
+
+    if output_embeddings:
+        # Validate and resolve the embedding layer index
+        # Support Python-style negative indexing
+        if embedding_layer < 0:
+            # Convert negative index to positive (e.g., -1 -> last layer)
+            target_num_layers = original_num_layers + embedding_layer + 1
+        else:
+            # Positive index: layer N means we need N+1 layers (0-indexed)
+            target_num_layers = embedding_layer + 1
+
+        if target_num_layers <= 0 or target_num_layers > original_num_layers:
+            raise ValueError(
+                f"Invalid embedding_layer={embedding_layer} for model with {original_num_layers} layers. "
+                f"Valid range: -{original_num_layers} to {original_num_layers - 1}."
+            )
+
+        # Set the model to use fewer layers and skip post-processing (output heads)
+        model_provider.num_layers = target_num_layers
+        model_provider.post_process = False
+
+        # Also truncate the hybrid_override_pattern if it exists, since it must match num_layers
+        if hasattr(model_provider, "hybrid_override_pattern") and model_provider.hybrid_override_pattern is not None:
+            original_pattern = model_provider.hybrid_override_pattern
+            if len(original_pattern) > target_num_layers:
+                model_provider.hybrid_override_pattern = original_pattern[:target_num_layers]
+                logger.info(
+                    f"Truncated hybrid_override_pattern from {len(original_pattern)} to {target_num_layers} chars"
+                )
+
+        # Disable remove_activation_post_first_layer if we only have 1 layer, since it requires at least 2 layers
+        if target_num_layers == 1 and hasattr(model_provider, "remove_activation_post_first_layer"):
+            if model_provider.remove_activation_post_first_layer:
+                model_provider.remove_activation_post_first_layer = False
+                logger.info("Disabled remove_activation_post_first_layer (requires at least 2 layers)")
+
+        logger.info(
+            f"Embedding extraction mode: extracting from layer {embedding_layer} "
+            f"(using {target_num_layers} of {original_num_layers} layers, post_process=False)"
+        )
+
+        # Cannot use log prob output with embedding mode
+        if output_log_prob_seqs:
+            raise ValueError("Cannot use --output-log-prob-seqs with --embedding-layer. Embeddings are not logits.")
+
+    # -------------------------------------------------------------------------
+    # Step 4: Initialize distributed environment
+    # -------------------------------------------------------------------------
+    rng_config = instantiate(run_config.get("rng")) if run_config.get("rng") else RNGConfig(seed=1234)
+    dist_config = instantiate(run_config.get("dist")) if run_config.get("dist") else DistributedInitConfig()
+
+    model_parallel_size = tensor_parallel_size * pipeline_model_parallel_size * context_parallel_size
+    world_size = get_world_size_safe()
+    data_parallel_size = world_size // model_parallel_size
+    global_batch_size = micro_batch_size * data_parallel_size
+
+    initialize_inference_distributed(
+        tensor_model_parallel_size=tensor_parallel_size,
+        pipeline_model_parallel_size=pipeline_model_parallel_size,
+        context_parallel_size=context_parallel_size,
+        micro_batch_size=micro_batch_size,
+        global_batch_size=global_batch_size,
+        rng_config=rng_config,
+        dist_config=dist_config,
+    )
+    logger.info("Initialized distributed environment")
+
+    # -------------------------------------------------------------------------
+    # Step 5: Create model and load weights
+    # -------------------------------------------------------------------------
+    logger.info("Creating model...")
+    model_provider.finalize()
+
+    model = model_provider.provide_distributed_model(
+        ddp_config=None,
+        wrap_with_ddp=False,
+        data_parallel_random_init=False,
+        bf16=mp_config.bf16,
+        fp16=mp_config.fp16,
+        mixed_precision_wrapper=Float16Module if (mp_config.bf16 or mp_config.fp16) else None,
+    )
+
+    for model_module in model:
+        model_module.eval()
+
+    # Log model layer information
+    # Access the underlying model to get layer count
+    model_for_inspection = model[0]
+    if hasattr(model_for_inspection, "module"):
+        # Handle Float16Module wrapper
+        model_for_inspection = model_for_inspection.module
+    if hasattr(model_for_inspection, "decoder") and hasattr(model_for_inspection.decoder, "layers"):
+        actual_num_layers = len(model_for_inspection.decoder.layers)
+        logger.info(f"Model initialized with {actual_num_layers} layers")
+        if output_embeddings:
+            logger.info(
+                f"Embedding extraction: model has {actual_num_layers} layers "
+                f"(from original {original_num_layers} layers)"
+            )
+    else:
+        logger.warning("Could not determine number of layers from model structure")
+
+    logger.info(f"Loading weights from: {resolved_ckpt_dir}")
+    _load_model_weights_from_checkpoint(
+        checkpoint_path=str(resolved_ckpt_dir),
+        model=model,
+        dist_ckpt_strictness="ignore_all",
+    )
+    logger.info("Weights loaded successfully")
+
+    # -------------------------------------------------------------------------
+    # Step 6: Create dataset and dataloader
+    # -------------------------------------------------------------------------
+    logger.info(f"Loading dataset from: {fasta_path}")
+    dataset = SimpleFastaDataset(
+        fasta_path=fasta_path,
+        tokenizer=tokenizer,
+        prepend_bos=prepend_bos,
+        custom_loss_masker=None,
+    )
+
+    data_parallel_rank = parallel_state.get_data_parallel_rank()
+    data_parallel_size = parallel_state.get_data_parallel_world_size()
+
+    dataloader = build_pretraining_data_loader(
+        dataset=dataset,
+        consumed_samples=0,
+        dataloader_type="single",
+        micro_batch_size=micro_batch_size,
+        num_workers=4,
+        data_sharding=False,
+        collate_fn=_padding_collate_fn_factory(
+            pad_token_id=getattr(tokenizer, "pad_id", 0),
+            min_length=min_length,
+        ),
+        pin_memory=True,
+        persistent_workers=False,
+        data_parallel_rank=data_parallel_rank,
+        data_parallel_size=data_parallel_size,
+        drop_last=False,
+    )
+
+    # -------------------------------------------------------------------------
+    # Step 7: Run prediction loop
+    # -------------------------------------------------------------------------
+    logger.info("Starting prediction loop...")
+    predictions: list[dict[str, Tensor]] = []
+
+    # Get ranks for file naming (matching original PredictionWriter behavior)
+    global_rank = get_rank_safe()
+    num_files_written = 0
+
+    with torch.no_grad():
+        for batch_idx, batch_data in enumerate(dataloader):
+            # Move to GPU
+            batch_gpu = {
+                k: v.cuda(non_blocking=True) if isinstance(v, torch.Tensor) else v for k, v in batch_data.items()
+            }
+
+            # Apply context parallel slicing (seq_idx must NOT be sliced)
+            if context_parallel_size > 1:
+                seq_idx = batch_gpu.pop("seq_idx", None)
+                batch_gpu = get_batch_on_this_cp_rank(batch_gpu)
+                if seq_idx is not None:
+                    batch_gpu["seq_idx"] = seq_idx
+
+            # Forward pass
+            result = _predict_step(
+                model=model[0],
+                batch=batch_gpu,
+                output_log_prob_seqs=output_log_prob_seqs,
+                log_prob_collapse_option=log_prob_collapse_option,
+                context_parallel_size=context_parallel_size,
+                output_embeddings=output_embeddings,
+            )
+
+            if result is not None:
+                predictions.append({k: v.cpu() for k, v in result.items()})
+
+            if (batch_idx + 1) % 10 == 0:
+                logger.info(f"Processed batch {batch_idx + 1}/{len(dataloader)}")
+
+            # Write at batch interval
+            if write_interval == "batch" and output_dir is not None and predictions:
+                _, num_files_written, _ = _write_predictions_batch(
+                    predictions=predictions[0],
+                    output_dir=output_dir,
+                    batch_idx=batch_idx,
+                    global_rank=global_rank,
+                    dp_rank=data_parallel_rank,
+                    files_per_subdir=files_per_subdir,
+                    num_files_written=num_files_written,
+                    data_parallel_world_size=data_parallel_size,
+                )
+                predictions = []
+
+    # Write at epoch end
+    if write_interval == "epoch" and output_dir is not None and predictions:
+        combined = batch_collator(
+            predictions,
+            batch_dim=0,
+            seq_dim=1,
+            batch_dim_key_defaults={},
+            seq_dim_key_defaults={},
+        )
+        _write_predictions_epoch(
+            predictions=combined,
+            output_dir=output_dir,
+            global_rank=global_rank,
+            dp_rank=data_parallel_rank,
+        )
+
+    # Write sequence index map
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        dataset.write_idx_map(output_dir)
+
+    logger.info("Prediction complete!")
+
+    # Cleanup
+    if dist.is_initialized():
+        dist.barrier()
+        dist.destroy_process_group()
+
+
+# =============================================================================
+# Entry Point
+# =============================================================================
+
+
+def main() -> None:
+    """CLI entry point for Evo2 prediction."""
+    args = parse_args()
+    predict(
+        fasta_path=args.fasta,
+        ckpt_dir=args.ckpt_dir,
+        output_dir=args.output_dir,
+        # Parallelism settings
+        tensor_parallel_size=args.tensor_parallel_size,
+        pipeline_model_parallel_size=args.pipeline_model_parallel_size,
+        context_parallel_size=args.context_parallel_size,
+        no_sequence_parallel=args.no_sequence_parallel,
+        # Precision settings
+        mixed_precision_recipe=args.mixed_precision_recipe,
+        use_subquadratic_ops=args.use_subquadratic_ops,
+        # Batch/sequence settings
+        micro_batch_size=args.micro_batch_size,
+        min_length=args.min_length,
+        prepend_bos=args.prepend_bos,
+        # Output settings
+        write_interval=args.write_interval,
+        files_per_subdir=args.files_per_subdir,
+        output_log_prob_seqs=args.output_log_prob_seqs,
+        log_prob_collapse_option=args.log_prob_collapse_option,
+        # Embedding extraction
+        embedding_layer=args.embedding_layer,
+    )
+
+
+if __name__ == "__main__":
+    main()

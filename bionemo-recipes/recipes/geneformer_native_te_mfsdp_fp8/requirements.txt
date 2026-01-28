@@ -6,5 +6,5 @@ torch
 torchao!=0.14.0
 tqdm
 transformer_engine
-transformers
+transformers<5.0
 wandb

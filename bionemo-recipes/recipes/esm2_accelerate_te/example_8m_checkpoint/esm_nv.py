@@ -188,43 +188,15 @@ class NVEsmEncoder(nn.Module):
             **kwargs: Additional arguments, see TransformersKwargs for more details.
         """
         all_hidden_states: tuple[torch.Tensor, ...] = ()
-        has_thd_input = [
-            x is not None
-            for x in [
-                kwargs.get("cu_seq_lens_q", None),
-                kwargs.get("cu_seq_lens_k", None),
-                kwargs.get("max_length_q", None),
-                kwargs.get("max_length_k", None),
-            ]
-        ]
 
-        if self.config.attn_input_format == "thd":
-            if not all(has_thd_input):
-                raise ValueError(
-                    "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k must be provided when using THD inputs."
-                )
-            assert hidden_states.dim() == 3 and hidden_states.size(0) == 1, (
-                "THD expects embeddings shaped [1, total_tokens, hidden_size]."
-            )
+        if self.config.attn_input_format == "thd" and hidden_states.dim() == 3 and hidden_states.size(0) == 1:
+            # For THD, the embedding output is a 3-dimensional tensor with shape [1, total_tokens, hidden_size], but TE
+            # expects a 2-dimensional tensor with shape [total_tokens, hidden_size].
             hidden_states = hidden_states.squeeze(0)
-            attention_mask = None
-
-        elif self.config.attn_input_format == "bshd" and any(has_thd_input):
-            raise ValueError(
-                "cu_seq_lens_q, cu_seq_lens_k, max_length_q, and max_length_k are not allowed when using BSHD inputs."
-            )
 
         # Ensure that rotary embeddings are computed with at a higher precision outside the torch autocast context.
         with torch.autocast(device_type="cuda", enabled=False):
-            if self.config.position_embedding_type == "rotary":
-                if self.config.attn_input_format == "bshd":
-                    te_rope_emb = self.rotary_embeddings(max_seq_len=hidden_states.shape[1])
-                elif self.config.attn_input_format == "thd":
-                    te_rope_emb = self.rotary_embeddings(
-                        max_seq_len=kwargs["cu_seq_lens_q_padded"][-1]
-                        if "cu_seq_lens_q_padded" in kwargs
-                        else kwargs["cu_seq_lens_q"][-1]
-                    )
+            te_rope_emb = self.rotary_embeddings(max_seq_len=self.config.max_position_embeddings)
             te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
 
         for layer_module in self.layers:
@@ -512,6 +484,8 @@ class NVEsmLMHead(nn.Module):
             features (torch.Tensor): The features.
             **kwargs: Additional arguments.
         """
+        # Keep the last layers of the network in higher precision to avoid numerical instability.
+        # Please see recipes/fp8_analysis/README.md for more details.
         with transformer_engine.pytorch.fp8_autocast(enabled=False):
             x = self.dense(features)
             x = torch.nn.functional.gelu(x)

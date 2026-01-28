@@ -24,7 +24,6 @@ dataset:
   max_seq_length: 4096
   stride: 512
   buffer_size: 50_000
-  use_lazy_tokenization: true
   use_stateful_dataloader: false
   mask_degenerate_bases: false
   uppercase_labels: false

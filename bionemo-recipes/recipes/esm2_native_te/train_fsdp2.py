@@ -18,7 +18,9 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
+import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
@@ -33,6 +35,7 @@ from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
+from fp8_debugging import initialize_fp8_debugging
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
 
@@ -54,6 +57,10 @@ def main(args: DictConfig) -> float | None:
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
+
+    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    if args.fp8_stats_config.enabled:
+        initialize_fp8_debugging(dist_config, **args.fp8_stats_config, fp8_enabled=args.fp8_config.enabled)
 
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh(
@@ -86,6 +93,7 @@ def main(args: DictConfig) -> float | None:
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
+
     for layer in transformer_stack:
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
@@ -99,6 +107,10 @@ def main(args: DictConfig) -> float | None:
         else:
             model.to_empty(device=device)
             model.apply(model._init_weights)
+
+    # Assign names to layers so debug API can identify them
+    if args.fp8_stats_config.enabled:
+        debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore

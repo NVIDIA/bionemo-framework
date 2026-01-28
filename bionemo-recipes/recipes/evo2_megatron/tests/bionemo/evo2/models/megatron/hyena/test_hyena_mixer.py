@@ -13,65 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import contextlib
-import os
-
 import pytest
 import torch
-import torch.distributed as dist
-from megatron.core import parallel_state
-from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
 
 from bionemo.evo2.models.evo2_provider import HyenaNVTestModelProvider, HyenaTestModelProvider
 from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import hyena_stack_spec_no_te
 from bionemo.evo2.models.megatron.hyena.hyena_mixer import HyenaMixer
 
+from ....utils import distributed_model_parallel_state
+
 
 # Add skip decorator for GPU tests
 skip_if_no_gpu = pytest.mark.skipif(not torch.cuda.is_available(), reason="Test requires GPU")
-
-
-@contextlib.contextmanager
-def init_distributed_parallel_state(
-    world_size=1, rank=0, tensor_model_parallel_size=1, context_parallel_size=1, pipeline_model_parallel_size=1
-):
-    """Initialize a distributed environment for testing.
-
-    Creates a real distributed environment with specified parameters.
-    """
-    # Initialize distributed with a single process
-    if not dist.is_initialized():
-        # Setup minimal environment for single process distributed
-        os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = "29500"
-        os.environ["RANK"] = str(rank)
-        os.environ["WORLD_SIZE"] = str(world_size)
-
-        # Set device
-        torch.cuda.set_device(0)
-
-        # Initialize process group
-        dist.init_process_group(backend="nccl")
-
-    # Initialize model parallel
-    parallel_state.destroy_model_parallel()
-    parallel_state.initialize_model_parallel(
-        tensor_model_parallel_size=tensor_model_parallel_size,
-        pipeline_model_parallel_size=pipeline_model_parallel_size,
-        context_parallel_size=context_parallel_size,
-    )
-
-    # Initialize the model parallel RNG
-    model_parallel_cuda_manual_seed(42)
-
-    try:
-        yield
-    finally:
-        # Clean up
-        parallel_state.destroy_model_parallel()
-        if dist.is_initialized():
-            dist.destroy_process_group()
 
 
 @pytest.fixture(params=[pytest.param(torch.bfloat16, id="bf16"), pytest.param(torch.float32, id="fp32")])
@@ -115,31 +69,27 @@ def operator_type(request):
     return request.param
 
 
-@pytest.fixture
-def hyena_mixer(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str):
-    """Create a HyenaMixer instance for testing."""
-    with init_distributed_parallel_state(world_size=1):
-        # Create submodules
-        submodules = hyena_stack_spec_no_te.submodules.hyena_layer.submodules.mixer.submodules
-
-        # Create mixer
-        mixer = HyenaMixer(
-            transformer_config=test_config,
-            hyena_config=hyena_config,
-            max_sequence_length=512,
-            submodules=submodules,
-            layer_number=1,
-            operator_type=operator_type,
-        )
-        yield mixer
+def _create_hyena_mixer(
+    test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str
+) -> HyenaMixer:
+    """Helper to create a HyenaMixer instance. Must be called inside a distributed context."""
+    submodules = hyena_stack_spec_no_te.submodules.hyena_layer.submodules.mixer.submodules
+    return HyenaMixer(
+        transformer_config=test_config,
+        hyena_config=hyena_config,
+        max_sequence_length=512,
+        submodules=submodules,
+        layer_number=1,
+        operator_type=operator_type,
+    )
 
 
 @skip_if_no_gpu
-def test_mixer_initialization(
-    hyena_mixer: HyenaMixer, test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str
-):
+def test_mixer_initialization(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str):
     """Test proper initialization of HyenaMixer with different configurations."""
-    with init_distributed_parallel_state(world_size=1):
+    with distributed_model_parallel_state():
+        hyena_mixer = _create_hyena_mixer(test_config, hyena_config, operator_type)
+
         # Verify basic attributes
         assert hyena_mixer.transformer_config == test_config
         assert hyena_mixer.hyena_config == hyena_config
@@ -164,9 +114,11 @@ def test_mixer_initialization(
 
 
 @skip_if_no_gpu
-def test_mixer_forward_pass(hyena_mixer: HyenaMixer):
+def test_mixer_forward_pass(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str):
     """Test forward pass of HyenaMixer with different input shapes and configurations."""
-    with init_distributed_parallel_state(world_size=1):
+    with distributed_model_parallel_state():
+        hyena_mixer = _create_hyena_mixer(test_config, hyena_config, operator_type)
+
         # Test different batch sizes and sequence lengths
         test_cases = [
             (1, 128),  # Small batch, short sequence
@@ -196,9 +148,13 @@ def test_mixer_forward_pass(hyena_mixer: HyenaMixer):
 
 
 @skip_if_no_gpu
-def test_mixer_dtypes(hyena_mixer: HyenaMixer, dtype: torch.dtype):
+def test_mixer_dtypes(
+    test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str, dtype: torch.dtype
+):
     """Test HyenaMixer with different input data types."""
-    with init_distributed_parallel_state(world_size=1):
+    with distributed_model_parallel_state():
+        hyena_mixer = _create_hyena_mixer(test_config, hyena_config, operator_type)
+
         batch_size = 2
         seq_len = 512
 
@@ -217,22 +173,16 @@ def test_mixer_dtypes(hyena_mixer: HyenaMixer, dtype: torch.dtype):
 
 
 @skip_if_no_gpu
-def test_mixer_state_dict(hyena_mixer: HyenaMixer, operator_type: str):
+def test_mixer_state_dict(test_config: HyenaTestModelProvider, hyena_config: HyenaConfig, operator_type: str):
     """Test state dict functionality of HyenaMixer."""
-    with init_distributed_parallel_state(world_size=1):
+    with distributed_model_parallel_state():
+        hyena_mixer = _create_hyena_mixer(test_config, hyena_config, operator_type)
+
         # Get state dict
         state_dict = hyena_mixer.state_dict()
 
         # Create new mixer with same config
-        submodules = hyena_stack_spec_no_te.submodules.hyena_layer.submodules.mixer.submodules
-        new_mixer = HyenaMixer(
-            transformer_config=hyena_mixer.transformer_config,
-            hyena_config=hyena_mixer.hyena_config,
-            max_sequence_length=512,
-            submodules=submodules,
-            layer_number=1,
-            operator_type=operator_type,
-        )
+        new_mixer = _create_hyena_mixer(test_config, hyena_config, operator_type)
 
         # Load state dict
         new_mixer.load_state_dict(state_dict)

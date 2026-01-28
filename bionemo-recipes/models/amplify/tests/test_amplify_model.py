@@ -68,7 +68,7 @@ def test_te_model_has_all_te_layers(config):
 
 
 def test_models_have_identical_outputs(input_data):
-    model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
+    model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M", revision="d918a9e8")
     model_te = convert_amplify_hf_to_te(model_hf)
     input_data = {k: v.to("cuda") for k, v in input_data.items()}
 
@@ -85,7 +85,7 @@ def test_models_have_identical_outputs(input_data):
 
 
 def test_converted_model_roundtrip(input_data, tmp_path):
-    model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
+    model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M", revision="d918a9e8")
     model_te = convert_amplify_hf_to_te(model_hf)
 
     model_te.save_pretrained(tmp_path / "AMPLIFY_120M")
@@ -108,7 +108,7 @@ def test_converted_model_roundtrip(input_data, tmp_path):
 
 
 def test_convert_state_dict():
-    model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
+    model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M", revision="d918a9e8")
     model_te = convert_amplify_hf_to_te(model_hf)
 
     from amplify.state_dict_convert import _pack_qkv_weight, _pad_bias, _pad_weights, mapping
@@ -171,7 +171,7 @@ def test_convert_state_dict():
 
 
 def test_hf_trained_model_loss(input_data):
-    model = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
+    model = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M", revision="d918a9e8")
     model.to("cuda", dtype=torch.bfloat16)
     input_data = {k: v.to("cuda") for k, v in input_data.items()}
     model.eval()
@@ -182,7 +182,7 @@ def test_hf_trained_model_loss(input_data):
 
 
 def test_te_trained_model_loss(input_data):
-    model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M")
+    model_hf = amp_hf.AMPLIFY.from_pretrained("chandar-lab/AMPLIFY_120M", revision="d918a9e8")
     model = convert_amplify_hf_to_te(model_hf)
     model.to("cuda", dtype=torch.bfloat16)
     input_data = {k: v.to("cuda") for k, v in input_data.items()}
@@ -194,7 +194,7 @@ def test_te_trained_model_loss(input_data):
 
 
 def test_hf_reinitialized_model_loss(input_data):
-    config = amp_hf.AMPLIFYConfig.from_pretrained("chandar-lab/AMPLIFY_120M")
+    config = amp_hf.AMPLIFYConfig.from_pretrained("chandar-lab/AMPLIFY_120M", revision="d918a9e8")
     model = amp_hf.AMPLIFY(config)
     model.to("cuda", dtype=torch.bfloat16)
     input_data = {k: v.to("cuda") for k, v in input_data.items()}
@@ -207,7 +207,7 @@ def test_hf_reinitialized_model_loss(input_data):
 
 
 def test_te_reinitialized_model_loss(input_data):
-    config = amp_te.AMPLIFYConfig.from_pretrained("chandar-lab/AMPLIFY_120M")
+    config = amp_te.AMPLIFYConfig.from_pretrained("chandar-lab/AMPLIFY_120M", revision="d918a9e8")
     model = amp_te.AMPLIFYForMaskedLM(config)
     model.to("cuda", dtype=torch.bfloat16)
     input_data = {k: v.to("cuda") for k, v in input_data.items()}

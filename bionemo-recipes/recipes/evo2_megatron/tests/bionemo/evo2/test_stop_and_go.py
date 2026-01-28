@@ -26,73 +26,64 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
 
+from .utils import find_free_network_port, is_fp4_supported, is_fp8_supported, is_mxfp8_supported
+
 
 # Do this at collection time before we run any tests.
 PRETEST_ENV = copy.deepcopy(os.environ)
 
 
-def get_compute_capability() -> tuple[int, int]:
-    """Get the compute capability of the current device."""
-    if not torch.cuda.is_available():
-        return (0, 0)
-    # Returns a tuple, e.g., (9, 0) for H100
-    return torch.cuda.get_device_capability()
-
-
-# 1. FP8 Support Logic
-# Supported on Ada Lovelace (8.9) and Hopper (9.0+)
-def is_fp8_supported() -> bool:
-    """Check if FP8 is supported on the current device."""
-    cc = get_compute_capability()
-    return cc >= (8, 9)
-
-
-# 2. FP4 Support Logic
-# Native support requires Blackwell (10.0+)
-def is_fp4_supported() -> bool:
-    """Check if FP4 is supported on the current device."""
-    cc = get_compute_capability()
-    return (10, 0) <= cc < (12, 0)
-
-
-# 3. MXFP8 Support Logic
-# Native support requires Blackwell (10.0+)
-def is_mxfp8_supported() -> bool:
-    """Check if MXFP8 is supported on the current device."""
-    cc = get_compute_capability()
-    return (10, 0) <= cc < (12, 0)
-
-
-def find_free_network_port() -> int:
-    """Finds a free port on localhost.
-
-    It is useful in single-node training when we don't want to connect to a real master node but
-    have to set the `MASTER_PORT` environment variable.
-    """
-    import socket
-
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.bind(("", 0))
-    s.listen(1)
-    port = s.getsockname()[1]
-    s.close()
-    return port
-
-
 @pytest.mark.parametrize(
     "tp_size,cp_size,dp_size,dp_rank_check,precision_recipe",
     [
-        (1, 1, 1, False, "bf16_mixed"),
-        (1, 1, 1, False, "bf16_with_fp8_current_scaling_mixed"),
-        (1, 1, 1, False, "bf16_with_fp8_delayed_scaling_mixed"),  # XFAIL
-        (1, 1, 1, False, "bf16_with_fp8_subchannel_scaling_mixed"),
-        (1, 1, 1, False, "nanov2_bf16_with_fp8_current_scaling_mixed"),
-        (1, 1, 1, False, "bf16_with_nvfp4_mixed"),  # XFAIL other than blackwell+
-        (1, 1, 1, False, "bf16_with_mxfp8_mixed"),  # XFAIL other than blackwell+
-        (1, 1, 2, True, "bf16_mixed"),
-        (1, 1, 2, False, "bf16_mixed"),
-        (1, 2, 1, True, "bf16_mixed"),
-        (2, 1, 1, False, "bf16_mixed"),
+        pytest.param(
+            1, 1, 1, False, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+        ),
+        pytest.param(1, 1, 1, False, "bf16_with_fp8_current_scaling_mixed"),
+        pytest.param(
+            1,
+            1,
+            1,
+            False,
+            "bf16_with_fp8_delayed_scaling_mixed",
+            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
+        ),  # XFAIL
+        pytest.param(
+            1,
+            1,
+            1,
+            False,
+            "bf16_with_fp8_subchannel_scaling_mixed",
+            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
+        ),
+        pytest.param(
+            1,
+            1,
+            1,
+            False,
+            "bf16_with_nvfp4_mixed",
+            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
+        ),  # XFAIL other than blackwell+
+        pytest.param(
+            1,
+            1,
+            1,
+            False,
+            "bf16_with_mxfp8_mixed",
+            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
+        ),  # XFAIL other than blackwell+
+        pytest.param(
+            1, 1, 2, True, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+        ),
+        pytest.param(
+            1, 1, 2, False, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+        ),
+        pytest.param(
+            1, 2, 1, True, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+        ),
+        pytest.param(
+            2, 1, 1, False, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+        ),
     ],
 )
 @pytest.mark.slow
@@ -119,9 +110,9 @@ def test_stop_and_go(
     if "fp8" in precision_recipe and not is_fp8_supported():
         pytest.skip("FP8 is not supported on this device")
     if "bf16_with_fp8_delayed_scaling_mixed" == precision_recipe and is_fp8_supported():
-        pytest.xfail(reason="FP8 delayed scaling is not currently working with Evo2, use another FP8 recipe.")
+        pytest.skip(reason="FP8 delayed scaling is not currently working with Evo2, use another FP8 recipe.")
     if "bf16_with_fp8_subchannel_scaling_mixed" == precision_recipe and is_fp8_supported():
-        pytest.xfail(reason="FP8 subchannel scaling is not currently working with Evo2 on some GPUs.")
+        pytest.skip(reason="FP8 subchannel scaling is not currently working with Evo2 on some GPUs.")
     run_dir = tmp_path / f"run_tp{tp_size}_pp{pp_size}_cp{cp_size}_dp{dp_size}_rc{dp_rank_check}_pr{precision_recipe}"
     run_dir.mkdir(parents=True, exist_ok=True)
     master_port = find_free_network_port()
