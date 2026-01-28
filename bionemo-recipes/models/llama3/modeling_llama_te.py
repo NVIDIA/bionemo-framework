@@ -84,26 +84,6 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
 
         self.model.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=self.model.config).inv_freq.to("cuda")
 
-        # TE's reset_parameters() doesn't use output_layer_init_method for proj/fc2.
-        # If use_megatron_scaled_init is enabled, we need to manually apply scaled init.
-        use_scaled_init = getattr(self.config, "use_megatron_scaled_init", False)
-        if use_scaled_init:
-            std = getattr(self.config, "initializer_range", 0.02)
-            num_layers = getattr(self.config, "num_hidden_layers", 32)
-            output_std = std / math.sqrt(2.0 * num_layers)
-
-            # Apply scaled init to attention proj and MLP fc2 in each TransformerLayer
-            for layer in self.model.layers:
-                # Attention output projection
-                if hasattr(layer, "self_attention") and hasattr(layer.self_attention, "proj"):
-                    proj = layer.self_attention.proj
-                    if hasattr(proj, "weight") and proj.weight is not None:
-                        proj.weight.data.normal_(mean=0.0, std=output_std)
-
-                # MLP fc2 (output layer)
-                if hasattr(layer, "layernorm_mlp") and hasattr(layer.layernorm_mlp, "fc2_weight"):
-                    layer.layernorm_mlp.fc2_weight.data.normal_(mean=0.0, std=output_std)
-
         # Meta-device init seems to break weight tying, so we re-tie the weights here.
         self.tie_weights()
 
