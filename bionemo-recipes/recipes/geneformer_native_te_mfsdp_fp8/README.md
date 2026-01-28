@@ -7,9 +7,9 @@ This file contains comprehensive documentation specifically designed for AI agen
 
 # Geneformer Pretraining with mfsdp and a custom pytorch training loop.
 
-The code runs inside of a container. To construct this container please look at [container build](#container-build) and [container run](#container-run). In this folder we supply a pretraining script capable of training several variants of [Geneformer](https://huggingface.co/ctheodoris/Geneformer). Those variants are located in our [hydra_config](hydra_config/). This code was forked from the original geneformer repository, and enhanced to increase its performance.
+The code runs inside of a container. To construct this container refer to [container build](#container-build) and [container run](#container-run). In this folder, we supply a pretraining script capable of training several variants of [Geneformer](https://huggingface.co/ctheodoris/Geneformer). Those variants are located in our [hydra_config](hydra_config/). This code was forked from the original geneformer repository, and enhanced to increase its performance.
 
-[Geneformer](https://www.nature.com/articles/s41586-023-06139-9) is a BERT-based transformer pretrained on single-cell transcriptomes. For more information, please see the nature paper [here](https://www.nature.com/articles/s41586-023-06139-9).
+[Geneformer](https://www.nature.com/articles/s41586-023-06139-9) is a BERT-based transformer pretrained on single-cell transcriptomes. For more information, refer to the nature paper [here](https://www.nature.com/articles/s41586-023-06139-9).
 
 ## Training Commands
 
@@ -26,7 +26,7 @@ torchrun --nproc_per_node=<num_gpus> train.py --config-name <config_name>
 torchrun --nproc_per_node=1 train.py
 ```
 
-> **Note:** The config name is the filename without `.yaml` extension (e.g., `4b` for `4b.yaml`).
+> **Note:** The config name is the filename without `.yaml` extension (for example, `4b` for `4b.yaml`).
 
 ### Advanced Configuration
 
@@ -107,7 +107,7 @@ data:
   path: "/workspace/data/Genecorpus-30M/genecorpus_1M_samples.parquet"  # Path to the training dataset file
 ```
 
-For detailed model-specific configuration files, see the [hydra_config/model](./hydra_config/model) directory. Some example configs have already been provided such as
+For detailed model-specific configuration files, refer to the [hydra_config/model](./hydra_config/model) directory. Some example configs have already been provided such as
 You can find the full configuration for the 4B parameter model in [`hydra_config/model/4b.yaml`](./hydra_config/model/4b.yaml).
 
 ## Checkpoint Management
@@ -220,13 +220,13 @@ docker run -it --gpus all --network host --ipc=host \
 
 ### WandB
 
-We support full integration with weights and biases. To use this please supply the environment variable:
+We support full integration with weights and biases. To use this, the environment variable:nter
 
 ```
 export WANDB_API_KEY=<yourapikey>
 ```
 
-and supply the hydra config section `wandb_init_args` with your experiment name and project.
+Also, enter your experiment name and project in the hydra config section `wandb_init_args`.
 
 ### Dataset
 
