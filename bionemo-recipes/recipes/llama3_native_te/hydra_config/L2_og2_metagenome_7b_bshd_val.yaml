@@ -1,0 +1,47 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 7B Llama3 on OpenGenome2 Metagenome - BSHD FORMAT WITH VALIDATION
+# Extends L2_og2_metagenome_7b_bshd with:
+#   - Periodic validation to track val/loss curve
+#   - Globally all-reduced train/reduced_train_loss (matches John's Megatron logging)
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name L2_og2_metagenome_7b_bshd_val ...
+
+defaults:
+  - L2_og2_metagenome_7b_bshd
+  - _self_
+
+# FP32 master weights for numerical stability (matches Megatron's main_params_dtype=torch.float32)
+use_fp32_master_weights: true
+
+# Enable validation logging (matches John's val/loss curve)
+validation:
+  enabled: true
+  eval_interval: 500  # Run validation every 500 steps
+  num_batches: 40  # Number of batches per rank (matches John's --limit-val-batches 40)
+  data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
+  # Use same settings as training (inherits from dataset config)
+  micro_batch_size: null
+  max_seq_length: null
+  stride: null
+
+logger:
+  frequency: 1
+
+wandb:
+  name: og2_7b_bshd_6node_val
+  project: llama3-metagenome-7b

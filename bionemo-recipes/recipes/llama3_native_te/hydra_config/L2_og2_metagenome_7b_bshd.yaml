@@ -54,7 +54,7 @@ use_weight_decay_grouping: true
 
 # NO Megatron-style scaled init for proj/fc2 - TE uses uniform 0.02
 # John's run uses SNI=False (spike-no-more is for embeddings, not proj layers)
-use_megatron_scaled_init: false
+use_megatron_scaled_init: true
 # ============================================================
 
 # NO sequence packing - matches John's format!
@@ -82,7 +82,6 @@ dataset:
   max_seq_length: 8192  # Match John's seq_length
   stride: 7992  # Match John's stride (almost full overlap)
   buffer_size: 50_000
-  use_lazy_tokenization: true
   use_stateful_dataloader: false
   mask_degenerate_bases: true  # Genomic data needs masking
   uppercase_labels: false
