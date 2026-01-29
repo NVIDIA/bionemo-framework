@@ -179,18 +179,21 @@ class PerfLogger:
 
         Args:
             step: The current training step.
-            val_metrics: Dictionary with val_loss, val_ppl, val_tokens, val_batches.
+            val_metrics: Dictionary with val_loss, val_ppl, val_tokens, val_batches, and optional Megatron-style.
         """
         if self._dist_config.is_main_process():
-            wandb.log(
-                {
-                    "val/loss": val_metrics["val_loss"],
-                    "val/ppl": val_metrics["val_ppl"],
-                    "val/tokens": val_metrics["val_tokens"],
-                    "val/batches": val_metrics["val_batches"],
-                },
-                step=step,
-            )
+            metrics = {
+                "val/loss": val_metrics["val_loss"],
+                "val/ppl": val_metrics["val_ppl"],
+                "val/tokens": val_metrics["val_tokens"],
+                "val/batches": val_metrics["val_batches"],
+            }
+            # Add Megatron-style metrics if available
+            if "val_loss_megatron" in val_metrics:
+                metrics["val/loss_megatron"] = val_metrics["val_loss_megatron"]
+            if "val_ppl_megatron" in val_metrics:
+                metrics["val/ppl_megatron"] = val_metrics["val_ppl_megatron"]
+            wandb.log(metrics, step=step)
 
     def finish(self):
         """Finish the logger and close the progress bar."""
