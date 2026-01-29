@@ -23,10 +23,13 @@ defaults:
   - L2_og2_metagenome_1b
   - _self_
 
+# Use HuggingFace model as base (we override all architecture params anyway)
+config_name_or_path: meta-llama/Llama-3.1-8B
+
 # FP32 master weights for numerical stability (matches Megatron's main_params_dtype=torch.float32)
 use_fp32_master_weights: false
 
-# Override config_kwargs to use old-style RoPE format (transformers <5.0)
+# Override config_kwargs to 1B architecture with old-style RoPE format (transformers <5.0)
 config_kwargs:
   vocab_size: 256
   num_hidden_layers: 24
