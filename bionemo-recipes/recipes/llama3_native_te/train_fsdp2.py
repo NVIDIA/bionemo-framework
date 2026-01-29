@@ -89,7 +89,8 @@ def run_validation(
     """
     model.eval()
 
-    total_loss = 0.0
+    total_loss = 0.0  # Sum of per-batch mean losses (HF-style)
+    total_weighted_loss = 0.0  # Sum of (batch_loss * batch_tokens) for Megatron-style
     total_tokens = 0
     num_evaluated = 0
 
@@ -116,7 +117,8 @@ def run_validation(
             # Get loss from model output
             loss = outputs.loss
             if loss is not None:
-                total_loss += loss.item()
+                loss_val = loss.item()
+                total_loss += loss_val
                 # Count valid tokens (non-padding labels)
                 labels = batch.get("labels", None)
                 if labels is not None:
@@ -124,6 +126,18 @@ def run_validation(
                 else:
                     num_tokens = batch["input_ids"].numel()
                 total_tokens += num_tokens
+                # Megatron-style: weight batch loss by number of tokens
+                total_weighted_loss += loss_val * num_tokens
+
+                # Log first batch token stats for debugging
+                if num_evaluated == 0 and dist_config.rank == 0:
+                    total_in_batch = labels.numel() if labels is not None else batch["input_ids"].numel()
+                    batch_shape = tuple(batch["input_ids"].shape)
+                    logger.info(
+                        f"[VAL_TOKEN_DEBUG] batch_idx=0 valid_tokens={num_tokens} "
+                        f"total_tokens={total_in_batch} batch_shape={batch_shape} "
+                        f"masked_tokens={total_in_batch - num_tokens} loss={loss.item():.4f}"
+                    )
             num_evaluated += 1
         except Exception as e:
             logger.warning(f"Validation forward pass failed on rank {dist_config.rank}: {e}")
@@ -134,21 +148,43 @@ def run_validation(
     torch.distributed.barrier()
 
     # Aggregate across ranks
-    loss_tensor = torch.tensor([total_loss, float(total_tokens), float(num_evaluated)], device=device)
+    loss_tensor = torch.tensor(
+        [total_loss, float(total_tokens), float(num_evaluated), total_weighted_loss], device=device
+    )
     torch.distributed.all_reduce(loss_tensor)
     global_loss = loss_tensor[0].item()
     global_tokens = int(loss_tensor[1].item())
     global_batches = int(loss_tensor[2].item())
+    global_weighted_loss = loss_tensor[3].item()
 
     # Compute average loss (HF-style mean across batches)
     avg_loss = global_loss / max(global_batches, 1)
     perplexity = torch.exp(torch.tensor(avg_loss)).item()
+
+    # Compute Megatron-style loss (true per-token average)
+    # This is sum(batch_loss * batch_tokens) / sum(batch_tokens)
+    megatron_style_loss = global_weighted_loss / max(global_tokens, 1)
+    megatron_ppl = torch.exp(torch.tensor(megatron_style_loss)).item()
+
+    # Log validation summary for debugging
+    if dist_config.rank == 0:
+        avg_tokens_per_batch = global_tokens / max(global_batches, 1)
+        logger.info(
+            f"[VAL_SUMMARY] global_batches={global_batches} global_tokens={global_tokens} "
+            f"avg_tokens_per_batch={avg_tokens_per_batch:.1f}"
+        )
+        logger.info(
+            f"[VAL_SUMMARY] HF-style loss={avg_loss:.4f} (ppl={perplexity:.2f}) | "
+            f"Megatron-style loss={megatron_style_loss:.4f} (ppl={megatron_ppl:.2f})"
+        )
 
     model.train()
 
     return {
         "val_loss": avg_loss,
         "val_ppl": perplexity,
+        "val_loss_megatron": megatron_style_loss,
+        "val_ppl_megatron": megatron_ppl,
         "val_tokens": global_tokens,
         "val_batches": global_batches,
     }
@@ -804,6 +840,19 @@ def main(args: DictConfig) -> float | None:
             # Log microbatch step data for accumulation metrics
             perf_logger.log_micro_step(batch=batch, outputs=outputs)
 
+            # Log valid tokens count periodically (for debugging BSHD/masking differences)
+            if step % 500 == 0 and micro_step == 1 and dist_config.rank == 0:
+                labels = batch.get("labels", batch.get("input_ids"))
+                if labels is not None:
+                    num_valid_tokens = (labels != -100).sum().item()
+                    total_tokens = labels.numel()
+                    batch_shape = tuple(batch["input_ids"].shape)
+                    logger.info(
+                        f"[TOKEN_DEBUG] step={step} valid_tokens={num_valid_tokens} "
+                        f"total_tokens={total_tokens} batch_shape={batch_shape} "
+                        f"masked_tokens={total_tokens - num_valid_tokens}"
+                    )
+
             # Gradient accumulation - only step optimizer after accumulating gradients
             if micro_step % args.grad_acc_steps == 0:
                 micro_step = 0
@@ -852,7 +901,8 @@ def main(args: DictConfig) -> float | None:
                         )
                         if dist_config.rank == 0:
                             logger.info(
-                                f"[Step {step}] Validation: loss={val_metrics['val_loss']:.4f}, "
+                                f"[Step {step}] Validation: loss={val_metrics['val_loss']:.4f} "
+                                f"(megatron={val_metrics.get('val_loss_megatron', 0):.4f}), "
                                 f"ppl={val_metrics['val_ppl']:.2f}, tokens={val_metrics['val_tokens']:,}"
                             )
                         perf_logger.log_validation(step, val_metrics)
