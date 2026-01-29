@@ -21,15 +21,16 @@ from transformers import DataCollatorForLanguageModeling
 
 from esm.collator import (
     DataCollatorWithFlattening,
-    MLMDataCollatorWithFlattening,
     TokenPackingDataset,
     _split_sample_by_num_tokens,
 )
 
 
-def test_data_collator_with_flattening_basic():
+def test_data_collator_with_flattening_basic(tokenizer):
     """Test DataCollatorWithFlattening with input_ids and attention_mask."""
-    collator = DataCollatorWithFlattening(return_position_ids=True)
+    # Use DataCollatorForLanguageModeling with mlm_probability=0.0 to disable masking
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.0)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, return_position_ids=True)
 
     # Create test sequences of different lengths
     features = [
@@ -70,19 +71,24 @@ def test_data_collator_with_flattening_basic():
     expected_input_ids = torch.tensor([[0, 5, 6, 7, 2, 0, 8, 9, 10, 11, 2, 0, 12, 13, 2]], dtype=torch.int64)
     torch.testing.assert_close(input_ids_tensor, expected_input_ids)
 
-    # Assert labels are not present when not provided in input
-    assert "labels" not in batch
+    # Assert labels are present (DataCollatorForLanguageModeling always creates them)
+    # With mlm_probability=0.0, all labels should be -100 (ignored)
+    assert "labels" in batch
+    assert (batch["labels"] == -100).all(), "With mlm_probability=0.0, all labels should be -100"
 
 
-def test_data_collator_with_flattening_with_labels():
+def test_data_collator_with_flattening_with_labels(tokenizer):
     """Test DataCollatorWithFlattening with input_ids, attention_mask, and labels."""
-    collator = DataCollatorWithFlattening()
+    # Use DataCollatorForLanguageModeling with mlm_probability=0.0 to disable masking
+    # Note: DataCollatorForLanguageModeling ignores input labels and creates its own
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.0)
+    collator = DataCollatorWithFlattening(collator=mlm_collator)
 
-    # Create test sequences with labels
+    # Create test sequences (labels will be created by DataCollatorForLanguageModeling)
     features = [
-        {"input_ids": [0, 5, 6, 7, 2], "labels": [0, 5, 6, 7, 2]},  # 5 tokens
-        {"input_ids": [0, 8, 9, 10, 11, 2], "labels": [0, 8, 9, 10, 11, 2]},  # 6 tokens
-        {"input_ids": [0, 12, 13, 2], "labels": [0, 12, 13, 2]},  # 4 tokens
+        {"input_ids": [0, 5, 6, 7, 2]},  # 5 tokens
+        {"input_ids": [0, 8, 9, 10, 11, 2]},  # 6 tokens
+        {"input_ids": [0, 12, 13, 2]},  # 4 tokens
     ]
 
     # Calculate expected total tokens
@@ -114,12 +120,12 @@ def test_data_collator_with_flattening_with_labels():
     assert batch["max_length_q"] == 6, f"Expected max_length_q=6, got {batch['max_length_q']}"
     assert batch["max_length_k"] == 6, f"Expected max_length_k=6, got {batch['max_length_k']}"
 
-    # Assert flattened input_ids and labels match concatenated original sequences
+    # Assert flattened input_ids match concatenated original sequences
     expected_input_ids = torch.tensor([[0, 5, 6, 7, 2, 0, 8, 9, 10, 11, 2, 0, 12, 13, 2]], dtype=torch.int64)
-    expected_labels = torch.tensor([[0, 5, 6, 7, 2, 0, 8, 9, 10, 11, 2, 0, 12, 13, 2]], dtype=torch.int64)
-
     torch.testing.assert_close(input_ids_tensor, expected_input_ids)
-    torch.testing.assert_close(labels_tensor, expected_labels)
+
+    # With mlm_probability=0.0, all labels should be -100 (ignored)
+    assert (labels_tensor == -100).all(), "With mlm_probability=0.0, all labels should be -100"
 
     # Assert that sequence boundaries are properly maintained
     # by checking that token positions match expected values
@@ -134,9 +140,11 @@ def test_data_collator_with_flattening_with_labels():
         start_idx = end_idx
 
 
-def test_data_collator_pads_to_multiple_of():
+def test_data_collator_pads_to_multiple_of(tokenizer):
     """Test DataCollatorWithFlattening with input_ids and attention_mask."""
-    collator = DataCollatorWithFlattening(pad_to_multiple_of=8, token_pad=1, label_pad=-100, return_position_ids=True)
+    # Use DataCollatorForLanguageModeling with mlm_probability=0.0 to disable masking
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.0)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, pad_to_multiple_of=8, return_position_ids=True)
 
     # Create test sequences with labels
     features = [
@@ -168,11 +176,8 @@ def test_data_collator_pads_to_multiple_of():
 
 def test_mlm_data_collator_with_flattening_basic(tokenizer):
     """Test MLMDataCollatorWithFlattening with basic input_ids and verify labels are created."""
-    collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        return_position_ids=True,
-    )
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, return_position_ids=True)
 
     # Create test sequences of different lengths
     features = [
@@ -232,11 +237,8 @@ def test_mlm_data_collator_with_flattening_basic(tokenizer):
 def test_mlm_data_collator_with_flattening_masking(tokenizer, test_proteins):
     """Test MLMDataCollatorWithFlattening with reproducible masking using a seed."""
     # Use a fixed seed for reproducibility
-    collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        seed=42,
-    )
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15, seed=42)
+    collator = DataCollatorWithFlattening(collator=mlm_collator)
 
     features = [tokenizer(protein) for protein in test_proteins]
 
@@ -293,11 +295,8 @@ def test_mlm_data_collator_with_flattening_pad_to_multiple_of(tokenizer, test_pr
     remainder = -total_tokens % 8
     assert remainder != 0, "Test assumes we need to pad to reach a multiple of 8"
 
-    collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        pad_to_multiple_of=8,
-    )
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, pad_to_multiple_of=8)
 
     features = [tokenizer(protein) for protein in test_proteins]
 
@@ -334,20 +333,21 @@ def test_mlm_data_collator_with_flattening_pad_to_multiple_of(tokenizer, test_pr
 
 def test_mlm_data_collator_with_flattening_bshd_equivalent(tokenizer, test_proteins):
     """Test MLMDataCollatorWithFlattening with bshd_equivalent=True."""
-    thd_collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        seed=42,
-        pad_to_multiple_of=16,
-        bshd_equivalent=True,
-        bshd_pad_to_multiple_of=256,
-    )
-
+    # Create separate collator instances with the same seed to ensure matching masking
+    # The BSHD collator pads to 256
     bshd_collator = DataCollatorForLanguageModeling(
         tokenizer=tokenizer,
         mlm_probability=0.15,
         seed=42,
         pad_to_multiple_of=256,
+    )
+    thd_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            mlm_probability=0.15,
+            seed=42,
+            pad_to_multiple_of=256,
+        )
     )
 
     features = [tokenizer(protein) for protein in test_proteins]
@@ -375,11 +375,8 @@ def test_mlm_data_collator_with_flattening_bshd_equivalent(tokenizer, test_prote
 
 def test_mlm_data_collator_with_flattening_pad_sequences_to_be_divisible_by(tokenizer, test_proteins):
     """Test MLMDataCollatorWithFlattening with pad_sequences_to_be_divisible_by."""
-    collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
-        pad_sequences_to_be_divisible_by=16,
-    )
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, pad_sequences_to_be_divisible_by=16)
     features = [tokenizer(protein) for protein in test_proteins]
     batch = collator(features)
     assert batch["input_ids"].numel() % 16 == 0, (

@@ -153,7 +153,7 @@ if __name__ == "__main__":
     )
     device = f"cuda:{dist_config.local_rank}"
 
-    config = NVEsmConfig.from_pretrained("nvidia/esm2_t6_8M_UR50D", dtype=torch.bfloat16)
+    config = NVEsmConfig.from_pretrained("facebook/esm2_t6_8M_UR50D", dtype=torch.bfloat16, revision="c731040f")
     model = NVEsmForMaskedLM(config)
 
     if args.strategy is Strategy.FSDP2:
@@ -213,6 +213,9 @@ if __name__ == "__main__":
     # For some reason, this one doesn't get an fp8 recipe? It's the only te.LayerNorm.
     key = filter(lambda x: x.endswith("encoder.emb_layer_norm_after._extra_state"), fp8_extra_states.keys())
     fp8_extra_states.pop(next(key))
+
+    # lm_head.dense and lm_head.decoder are BF16, not FP8, so exclude them from FP8 checks
+    fp8_extra_states = {key: val for key, val in fp8_extra_states.items() if "lm_head." not in key}
 
     # 2 ranks, test to ensure that both ranks have the same FP8 extra states
     if torch.distributed.get_world_size() == 2:

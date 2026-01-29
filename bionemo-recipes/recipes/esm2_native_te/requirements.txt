@@ -10,3 +10,4 @@ tqdm
 transformer_engine[pytorch]
 transformers
 wandb
+nvdlfw_inspect @ git+https://github.com/NVIDIA/nvidia-dlfw-inspect

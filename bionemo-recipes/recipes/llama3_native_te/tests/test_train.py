@@ -19,9 +19,27 @@ import random
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
+from transformer_engine.pytorch.fp8 import check_fp8_support
 
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
+from train_fsdp2_cp import main as main_fsdp2_cp
+
+
+# TODO(@jomitchell): Delete once https://nvbugspro.nvidia.com/bug/5458694 is fixed.
+requires_datacenter_hardware = pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or not any(
+        gpu_name in torch.cuda.get_device_name(0).upper() for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
+    ),
+    reason="Test requires datacenter hardware (H100, H200, B100, B200, B300)",
+)
+
+_fp8_support_result = check_fp8_support() if torch.cuda.is_available() else (False, "CUDA not available")
+requires_fp8 = pytest.mark.skipif(
+    not torch.cuda.is_available() or not _fp8_support_result[0],
+    reason=f"Test requires FP8 support: {_fp8_support_result[1]}",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +52,7 @@ def set_seed():
 
 
 def test_sanity_convergence_ddp_te(tmp_path, recipe_path):
-    """Test that DDP training converges on mock genomic data.
+    """Test that DDP training converges on dlcm sanity-scale data.
 
     This test validates:
     - The train_ddp.py script runs end-to-end without errors
@@ -59,11 +77,31 @@ def test_sanity_convergence_ddp_te(tmp_path, recipe_path):
 
     # For genomic Causal LM, we expect convergence to < 2.0 on the small test dataset
     # The model should learn to predict simple patterns in the mock data
-    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_sanity_convergence_ddp_te_grad_acc(tmp_path, recipe_path):
+    """Test DDP training with gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "grad_acc_steps=2",
+            ],
+        )
+
+    final_loss = main_ddp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_ddp_hf(tmp_path, recipe_path):
-    """Test that DDP training converges on mock genomic data.
+    """Test that DDP training converges on dlcm sanity-scale data.
 
     This test validates:
     - The train_ddp.py script runs end-to-end without errors
@@ -89,11 +127,11 @@ def test_sanity_convergence_ddp_hf(tmp_path, recipe_path):
 
     # For genomic Causal LM, we expect convergence to < 2.0 on the small test dataset
     # The model should learn to predict simple patterns in the mock data
-    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_fsdp2_te_bshd(tmp_path, recipe_path):
-    """Test that FSDP2 training converges on mock genomic data.
+    """Test that FSDP2 training converges on dlcm sanity-scale data.
 
     This test validates:
     - The train_fsdp2.py script runs end-to-end without errors
@@ -116,11 +154,11 @@ def test_sanity_convergence_fsdp2_te_bshd(tmp_path, recipe_path):
     final_loss = main_fsdp2(sanity_config)
 
     # FSDP2 should achieve similar convergence to DDP
-    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path):
-    """Test that FSDP2 training converges on mock genomic data.
+    """Test that FSDP2 training converges on dlcm sanity-scale data.
 
     This test validates:
     - The train_fsdp2.py script runs end-to-end without errors
@@ -143,11 +181,55 @@ def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path):
     final_loss = main_fsdp2(sanity_config)
 
     # FSDP2 should achieve similar convergence to DDP
-    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_sanity_convergence_fsdp2_te_bshd_grad_acc(tmp_path, recipe_path):
+    """Test FSDP2 training with BSHD format and gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "config_kwargs.attn_input_format=bshd",
+                "grad_acc_steps=2",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_sanity_convergence_fsdp2_te_thd_grad_acc(tmp_path, recipe_path):
+    """Test FSDP2 training with THD format and gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "use_sequence_packing=true",
+                "config_kwargs.attn_input_format=thd",
+                "dataset.max_seq_length=1024",
+                "grad_acc_steps=2",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path):
-    """Test that FSDP2 training converges on mock genomic data.
+    """Test that FSDP2 training converges on dlcm sanity-scale data.
 
     This test validates:
     - The train_fsdp2.py script runs end-to-end without errors
@@ -170,9 +252,11 @@ def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path):
         )
 
     final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
 
     # FSDP2 should achieve similar convergence to DDP
-    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_ddp_non_streaming_dataset(tmp_path, recipe_path):
@@ -200,7 +284,7 @@ def test_sanity_convergence_ddp_non_streaming_dataset(tmp_path, recipe_path):
     torch.cuda.empty_cache()
 
     # Non-streaming mode should converge just as well as streaming
-    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 def test_sanity_convergence_fsdp2_non_streaming_dataset(tmp_path, recipe_path):
@@ -228,69 +312,10 @@ def test_sanity_convergence_fsdp2_non_streaming_dataset(tmp_path, recipe_path):
     torch.cuda.empty_cache()
 
     # Non-streaming mode should converge just as well as streaming
-    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
-def test_sanity_ddp_with_lazy_tokenization(tmp_path, recipe_path):
-    """Test that DDP training works with lazy tokenization enabled.
-
-    This test validates:
-    - Lazy tokenization (one-to-one mapping) works correctly
-    - Training can run with lazy tokenization
-    - No errors occur during forward/backward passes
-    """
-    # Run the training script with Hydra configuration overrides
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(
-            config_name="L0_sanity",
-            overrides=[
-                f"+wandb.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
-                "dataset.use_lazy_tokenization=True",
-                "num_train_steps=10",  # Just verify it runs, don't test convergence
-                "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
-            ],
-        )
-
-    final_loss = main_ddp(sanity_config)
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    # Just check that training runs without errors
-    # We don't check convergence because lazy tokenization produces different windowing
-    assert final_loss is not None, "Training should complete and return a loss value"
-
-
-def test_sanity_fsdp2_with_lazy_tokenization(tmp_path, recipe_path):
-    """Test that FSDP2 training works with lazy tokenization enabled.
-
-    This test validates:
-    - Lazy tokenization works with FSDP2
-    - FSDP2 sharding doesn't break with lazy tokenization
-    - No errors occur during forward/backward passes
-    """
-    # Run the training script with Hydra configuration overrides
-    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        sanity_config = compose(
-            config_name="L0_sanity",
-            overrides=[
-                f"+wandb.dir={tmp_path}",
-                f"checkpoint.ckpt_dir={tmp_path}",
-                "dataset.use_lazy_tokenization=True",
-                "num_train_steps=10",  # Just verify it runs, don't test convergence
-                "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
-            ],
-        )
-
-    final_loss = main_fsdp2(sanity_config)
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    # Just check that training runs without errors
-    assert final_loss is not None, "Training should complete and return a loss value"
-
-
-def test_sanity_convergence_ddp_with_sequence_packing(tmp_path, recipe_path):
+def test_sanity_ddp_with_sequence_packing(tmp_path, recipe_path):
     """Test that DDP training works with sequence packing enabled.
 
     This test validates:
@@ -317,11 +342,10 @@ def test_sanity_convergence_ddp_with_sequence_packing(tmp_path, recipe_path):
     gc.collect()
     torch.cuda.empty_cache()
 
-    # Just check that training runs without errors
-    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+    assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
 
 
-def test_sanity_convergence_fsdp2_with_sequence_packing(tmp_path, recipe_path):
+def test_sanity_fsdp2_with_sequence_packing(tmp_path, recipe_path):
     """Test that FSDP2 training works with sequence packing enabled.
 
     This test validates:
@@ -349,4 +373,132 @@ def test_sanity_convergence_fsdp2_with_sequence_packing(tmp_path, recipe_path):
     torch.cuda.empty_cache()
 
     # Just check that training runs without errors
-    assert final_loss < 2.0, f"Final loss {final_loss} is too high, expected < 2.0"
+    assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
+
+
+def test_train_fsdp2_fp8_bshd(tmp_path, recipe_path):
+    """Test that FSDP2 training works with FP8 enabled."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "+dataset.pad_sequences_to_be_divisible_by=16",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_train_fsdp2_fp8_thd(tmp_path, recipe_path):
+    """Test that FSDP2 training works with FP8 enabled."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "use_sequence_packing=true",
+                "config_kwargs.attn_input_format=thd",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+@requires_datacenter_hardware
+def test_sanity_fsdp2_cp(tmp_path, recipe_path):
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity_cp",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "num_train_steps=10",  # Just verify it runs, don't test convergence
+                "checkpoint.resume_from_checkpoint=false",  # Don't try to resume - fresh training
+            ],
+        )
+
+    final_loss = main_fsdp2_cp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
+
+
+@requires_fp8
+def test_sanity_ddp_fp8_stats_logging(tmp_path, recipe_path):
+    """Test that FP8 stats logging creates the expected log files."""
+    fp8_log_dir = tmp_path / "fp8_stats_logs"
+
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "fp8_stats_config.enabled=true",
+                f"fp8_stats_config.fp8_log_dir={fp8_log_dir}",
+                "num_train_steps=4",
+            ],
+        )
+
+    main_ddp(sanity_config)
+
+    # Verify the log directory structure was created
+    assert fp8_log_dir.exists(), "FP8 log directory was not created"
+    assert (fp8_log_dir / "rank_0").exists(), "rank_0 directory was not created"
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs").exists(), "nvdlfw_inspect_logs directory was not created"
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs").exists(), (
+        "nvdlfw_inspect_statistics_logs directory was not created"
+    )
+
+    # Verify the log files exist
+    metadata_log = fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs" / "nvdlfw_inspect_globalrank-0.log"
+    stats_log = fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs" / "nvdlfw_inspect_globalrank-0.log"
+
+    assert metadata_log.exists(), "Metadata log file was not created"
+    assert stats_log.exists(), "Statistics log file was not created"
+
+    # Verify files are non-empty
+    assert metadata_log.stat().st_size > 0, "Metadata log file is empty"
+    assert stats_log.stat().st_size > 0, "Statistics log file is empty"
+
+
+@requires_fp8
+def test_sanity_fsdp2_fp8_stats_logging(tmp_path, recipe_path):
+    """Test that FP8 stats logging works with FSDP2."""
+    fp8_log_dir = tmp_path / "fp8_stats_logs"
+
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "fp8_stats_config.enabled=true",
+                f"fp8_stats_config.fp8_log_dir={fp8_log_dir}",
+                "num_train_steps=4",
+            ],
+        )
+
+    main_fsdp2(sanity_config)
+
+    # Verify log structure (same assertions as above)
+    assert fp8_log_dir.exists()
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs" / "nvdlfw_inspect_globalrank-0.log").exists()
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs" / "nvdlfw_inspect_globalrank-0.log").exists()

@@ -15,7 +15,6 @@
 
 
 import os
-import pickle
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Union, get_args
 
@@ -96,15 +95,10 @@ def pickles_to_tars(
         for name in input_prefix_subset:
             try:
                 if isinstance(input_suffix, str):
-                    suffix_to_data = {
-                        input_suffix: pickle.dumps(
-                            pickle.loads((Path(dir_input) / f"{name}.{input_suffix}").read_bytes())
-                        )
-                    }
+                    suffix_to_data = {input_suffix: (Path(dir_input) / f"{name}.{input_suffix}").read_bytes()}
                 else:
                     suffix_to_data = {
-                        suffix: pickle.dumps(pickle.loads((Path(dir_input) / f"{name}.{suffix}").read_bytes()))
-                        for suffix in input_suffix
+                        suffix: (Path(dir_input) / f"{name}.{suffix}").read_bytes() for suffix in input_suffix
                     }
                 # the prefix name shouldn't contain any "." per webdataset's
                 # specification

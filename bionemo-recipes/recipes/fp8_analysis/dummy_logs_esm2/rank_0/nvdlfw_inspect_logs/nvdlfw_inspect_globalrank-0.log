@@ -1,0 +1,253 @@
+2026-01-15 23:06:30,348 - INFO - Default logging to file enabled at ./logs/fp8_stats_logs_ddp_esm2_dummy1/rank_0
+2026-01-15 23:06:31,042 - INFO - Reading config from ./fp8_stats.yaml.
+2026-01-15 23:06:31,042 - INFO - Loaded configs for ['example_fp8_tensor_stat_collection'].
+2026-01-15 23:06:31,201 - INFO - Assigned layer name: model
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.embeddings
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.embeddings.word_embeddings
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1.self_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1.self_attention.layernorm_qkv
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1.self_attention.core_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1.self_attention.core_attention.flash_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1.self_attention.core_attention.fused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1.self_attention.core_attention.unfused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1.self_attention.core_attention.unfused_attention.scale_mask_softmax
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1.self_attention.core_attention.unfused_attention.attention_dropout
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1.self_attention.proj
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.1.layernorm_mlp
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2.self_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2.self_attention.layernorm_qkv
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2.self_attention.core_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2.self_attention.core_attention.flash_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2.self_attention.core_attention.fused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2.self_attention.core_attention.unfused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2.self_attention.core_attention.unfused_attention.scale_mask_softmax
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2.self_attention.core_attention.unfused_attention.attention_dropout
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2.self_attention.proj
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.2.layernorm_mlp
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3.self_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3.self_attention.layernorm_qkv
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3.self_attention.core_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3.self_attention.core_attention.flash_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3.self_attention.core_attention.fused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3.self_attention.core_attention.unfused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3.self_attention.core_attention.unfused_attention.scale_mask_softmax
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3.self_attention.core_attention.unfused_attention.attention_dropout
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3.self_attention.proj
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.3.layernorm_mlp
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4.self_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4.self_attention.layernorm_qkv
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4.self_attention.core_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4.self_attention.core_attention.flash_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4.self_attention.core_attention.fused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4.self_attention.core_attention.unfused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4.self_attention.core_attention.unfused_attention.scale_mask_softmax
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4.self_attention.core_attention.unfused_attention.attention_dropout
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4.self_attention.proj
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.4.layernorm_mlp
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5.self_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5.self_attention.layernorm_qkv
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5.self_attention.core_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5.self_attention.core_attention.flash_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5.self_attention.core_attention.fused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5.self_attention.core_attention.unfused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5.self_attention.core_attention.unfused_attention.scale_mask_softmax
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5.self_attention.core_attention.unfused_attention.attention_dropout
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5.self_attention.proj
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.5.layernorm_mlp
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6.self_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6.self_attention.layernorm_qkv
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6.self_attention.core_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6.self_attention.core_attention.flash_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6.self_attention.core_attention.fused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6.self_attention.core_attention.unfused_attention
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6.self_attention.core_attention.unfused_attention.scale_mask_softmax
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6.self_attention.core_attention.unfused_attention.attention_dropout
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6.self_attention.proj
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.layers.6.layernorm_mlp
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.emb_layer_norm_after
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.esm.encoder.rotary_embeddings
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.lm_head
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.lm_head.dense
+2026-01-15 23:06:31,202 - INFO - Assigned layer name: model.lm_head.decoder
+2026-01-15 23:06:33,943 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.layernorm_qkv: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:33,943 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.layernorm_qkv: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:33,943 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.layernorm_qkv: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:33,943 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.layernorm_qkv: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:33,943 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.layernorm_qkv: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:33,943 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.layernorm_qkv: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:34,116 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: activation
+2026-01-15 23:06:34,117 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: weight
+2026-01-15 23:06:39,600 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.proj: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,600 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.proj: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,600 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.proj: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,600 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.proj: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,600 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.proj: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,600 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.proj: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,688 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc1: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,688 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc1: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,688 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc1: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,688 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc1: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,688 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc1: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,688 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc1: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,688 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc2: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,688 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc2: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,689 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc2: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,689 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc2: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,689 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc2: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,689 - INFO - LAYER=model.esm.encoder.layers.1.layernorm_mlp.fc2: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,931 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.layernorm_qkv: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,931 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.layernorm_qkv: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,931 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.layernorm_qkv: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,931 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.layernorm_qkv: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,931 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.layernorm_qkv: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,931 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.layernorm_qkv: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,933 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: activation
+2026-01-15 23:06:39,934 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: weight
+2026-01-15 23:06:39,937 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.proj: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,937 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.proj: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,937 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.proj: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,937 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.proj: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,938 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.proj: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,938 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.proj: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,994 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc1: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,994 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc1: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,995 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc1: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,995 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc1: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,995 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc1: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,995 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc1: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,995 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc2: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,995 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc2: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:39,995 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc2: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:39,995 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc2: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,995 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc2: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:39,995 - INFO - LAYER=model.esm.encoder.layers.2.layernorm_mlp.fc2: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,118 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.layernorm_qkv: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,118 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.layernorm_qkv: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,118 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.layernorm_qkv: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,118 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.layernorm_qkv: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,119 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.layernorm_qkv: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,119 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.layernorm_qkv: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,120 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: activation
+2026-01-15 23:06:40,121 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: weight
+2026-01-15 23:06:40,124 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.proj: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,124 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.proj: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,124 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.proj: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,124 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.proj: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,124 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.proj: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,124 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.proj: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc1: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc1: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc1: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc1: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc1: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc1: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc2: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc2: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc2: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc2: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc2: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,125 - INFO - LAYER=model.esm.encoder.layers.3.layernorm_mlp.fc2: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,249 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.layernorm_qkv: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,249 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.layernorm_qkv: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,249 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.layernorm_qkv: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,249 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.layernorm_qkv: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,249 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.layernorm_qkv: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,249 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.layernorm_qkv: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,251 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: activation
+2026-01-15 23:06:40,252 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: weight
+2026-01-15 23:06:40,255 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.proj: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,255 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.proj: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,255 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.proj: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,255 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.proj: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,255 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.proj: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,255 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.proj: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,255 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc1: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,255 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc1: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,255 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc1: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,255 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc1: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,256 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc1: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,256 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc1: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,256 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc2: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,256 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc2: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,256 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc2: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,256 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc2: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,256 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc2: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,256 - INFO - LAYER=model.esm.encoder.layers.4.layernorm_mlp.fc2: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,387 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.layernorm_qkv: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,387 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.layernorm_qkv: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,387 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.layernorm_qkv: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,387 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.layernorm_qkv: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,387 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.layernorm_qkv: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,387 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.layernorm_qkv: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,388 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: activation
+2026-01-15 23:06:40,389 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: weight
+2026-01-15 23:06:40,392 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.proj: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,392 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.proj: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,392 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.proj: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,392 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.proj: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,392 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.proj: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,392 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.proj: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc1: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc1: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc1: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc1: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc1: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc1: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc2: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc2: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc2: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc2: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc2: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,393 - INFO - LAYER=model.esm.encoder.layers.5.layernorm_mlp.fc2: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,519 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.layernorm_qkv: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,519 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.layernorm_qkv: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,519 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.layernorm_qkv: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,519 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.layernorm_qkv: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,519 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.layernorm_qkv: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,519 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.layernorm_qkv: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,521 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: activation
+2026-01-15 23:06:40,522 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: weight
+2026-01-15 23:06:40,524 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.proj: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,524 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.proj: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.proj: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.proj: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.proj: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.proj: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc1: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc1: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc1: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc1: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc1: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc1: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc2: Tensor: activation, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,525 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc2: Tensor: activation, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:40,526 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc2: Tensor: weight, gemm fprop - FP8 Quantize
+2026-01-15 23:06:40,526 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc2: Tensor: weight, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,526 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc2: Tensor: gradient, gemm dgrad - FP8 Quantize
+2026-01-15 23:06:40,526 - INFO - LAYER=model.esm.encoder.layers.6.layernorm_mlp.fc2: Tensor: gradient, gemm wgrad - FP8 Quantize
+2026-01-15 23:06:41,019 - INFO - LAYER=model.lm_head.dense: Tensor: activation, gemm fprop - High Precision
+2026-01-15 23:06:41,019 - INFO - LAYER=model.lm_head.dense: Tensor: activation, gemm wgrad - High Precision
+2026-01-15 23:06:41,020 - INFO - LAYER=model.lm_head.dense: Tensor: weight, gemm fprop - High Precision
+2026-01-15 23:06:41,020 - INFO - LAYER=model.lm_head.dense: Tensor: weight, gemm dgrad - High Precision
+2026-01-15 23:06:41,020 - INFO - LAYER=model.lm_head.dense: Tensor: gradient, gemm dgrad - High Precision
+2026-01-15 23:06:41,020 - INFO - LAYER=model.lm_head.dense: Tensor: gradient, gemm wgrad - High Precision
+2026-01-15 23:06:41,117 - INFO - LAYER=model.lm_head.decoder: Tensor: activation, gemm fprop - High Precision
+2026-01-15 23:06:41,117 - INFO - LAYER=model.lm_head.decoder: Tensor: activation, gemm wgrad - High Precision
+2026-01-15 23:06:41,117 - INFO - LAYER=model.lm_head.decoder: Tensor: weight, gemm fprop - High Precision
+2026-01-15 23:06:41,117 - INFO - LAYER=model.lm_head.decoder: Tensor: weight, gemm dgrad - High Precision
+2026-01-15 23:06:41,117 - INFO - LAYER=model.lm_head.decoder: Tensor: gradient, gemm dgrad - High Precision
+2026-01-15 23:06:41,117 - INFO - LAYER=model.lm_head.decoder: Tensor: gradient, gemm wgrad - High Precision
+2026-01-15 23:06:41,418 - INFO - LAYER=model.esm.encoder.layers.6.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: gradient
+2026-01-15 23:06:41,422 - INFO - LAYER=model.esm.encoder.layers.5.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: gradient
+2026-01-15 23:06:41,425 - INFO - LAYER=model.esm.encoder.layers.4.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: gradient
+2026-01-15 23:06:41,427 - INFO - LAYER=model.esm.encoder.layers.3.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: gradient
+2026-01-15 23:06:41,430 - INFO - LAYER=model.esm.encoder.layers.2.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: gradient
+2026-01-15 23:06:41,432 - INFO - LAYER=model.esm.encoder.layers.1.self_attention.layernorm_qkv: Feature=LogFp8TensorStats, API=inspect_tensor: gradient

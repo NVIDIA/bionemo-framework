@@ -13,13 +13,26 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import itertools
+import os
+import subprocess
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 import torch
+from hydra import compose, initialize_config_dir
+from torch.distributed.device_mesh import init_device_mesh
 
+from collator import ContextParallelDataLoaderWrapper, DataCollatorForContextParallel
 from dataset import create_bshd_dataloader, create_thd_dataloader, create_tokenized_dataset
 from distributed_config import DistributedConfig
+
+
+requires_multi_gpu = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+    reason="Test requires at least 2 GPUs",
+)
 
 
 @pytest.fixture
@@ -73,7 +86,6 @@ def test_dataset_loads_and_tokenizes_sequence(tokenizer_path, tmp_path):
         max_seq_length=20,  # Large enough to fit the sequence
         stride=10,
         buffer_size=10_000,
-        use_lazy_tokenization=False,  # Eager to get predictable dataset
     )
 
     # Only 1 sequence → 1 window → dataset[0] is predictable regardless of shuffle
@@ -123,9 +135,8 @@ def test_dataloader_returns_expected_batch(tokenizer_path, tmp_path):
         load_dataset_kwargs=load_dataset_kwargs,
         micro_batch_size=1,  # Just one sample per batch
         num_workers=0,
-        max_seq_length=10,  # Large enough for 5bp sequence
+        max_seq_length=7,  # Large enough for 5bp sequence
         stride=5,
-        use_lazy_tokenization=False,  # Eager for deterministic behavior
         uppercase_labels=False,  # Use standard collator for this test
         mask_degenerate_bases=False,  # Use standard collator for this test
     )
@@ -241,7 +252,6 @@ def test_windowing_in_dataset_creates_multiple_samples(tokenizer_path, tmp_path)
         max_seq_length=1000,
         stride=800,  # 800 token overlap, so 200 token step
         buffer_size=10_000,
-        use_lazy_tokenization=False,  # Use eager tokenization to expand windows
     )
 
     # Count samples
@@ -271,7 +281,6 @@ def test_lazy_tokenization_returns_batch(tokenizer_path, simple_parquet):
         num_workers=0,
         max_seq_length=500,
         stride=100,
-        use_lazy_tokenization=True,
     )
 
     # Get a batch
@@ -318,7 +327,6 @@ def test_multiple_sequences_batch_correctly(tokenizer_path, simple_parquet, stre
         max_seq_length=500,
         stride=100,
         buffer_size=10_000,  # Only used for streaming
-        use_lazy_tokenization=False,
     )
 
     # Get first batch
@@ -398,7 +406,6 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
         num_workers=0,
         max_seq_length=50,  # Large enough - no windowing
         stride=10,
-        use_lazy_tokenization=False,  # Use eager to ensure predictable batching
     )
 
     # Collect all batches
@@ -411,6 +418,37 @@ def test_batching_produces_correct_batch_size(tokenizer_path, tmp_path):
     assert batches[0]["input_ids"].shape[0] == 2, "Batch 0 should have 2 sequences"
     assert batches[1]["input_ids"].shape[0] == 2, "Batch 1 should have 2 sequences"
     assert batches[2]["input_ids"].shape[0] == 1, "Batch 2 should have 1 sequence (remainder)"
+
+
+def test_non_streaming_dataset_produces_correct_batch_size(recipe_path):
+    """Test that batching combines multiple sequences correctly with exact batch counts.
+
+    Creates 5 short sequences (no windowing) with micro_batch_size=2.
+    Should produce exactly 3 batches with shapes: [2, 2, 1].
+    """
+    distributed_config = DistributedConfig(rank=0, world_size=1)
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                "dataset.load_dataset_kwargs.streaming=False",
+            ],
+        )
+
+    dataloader, sampler = create_bshd_dataloader(
+        distributed_config=distributed_config,
+        **sanity_config.dataset,
+    )
+
+    assert isinstance(sampler, torch.utils.data.distributed.DistributedSampler), (
+        "Sampler should be a DistributedSampler"
+    )
+
+    batches = list(itertools.islice(dataloader, 50))
+
+    for batch in batches:
+        assert batch["input_ids"].shape[0] == sanity_config.dataset.micro_batch_size
+        assert batch["input_ids"].shape[1] <= sanity_config.dataset.max_seq_length
 
 
 def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, tmp_path):
@@ -436,7 +474,6 @@ def test_batching_produces_correct_batch_size_sequence_packing(tokenizer_path, t
         token_micro_batch_size=15,
         max_seq_length=15,
         stride=10,
-        use_lazy_tokenization=False,  # Use eager to ensure predictable batching
         split_samples_in_token_packing=False,
     )
 
@@ -495,7 +532,6 @@ def test_streaming_dataset_removes_columns_correctly(tokenizer_path, tmp_path):
         max_seq_length=100,
         stride=10,
         buffer_size=1000,
-        use_lazy_tokenization=False,
         text_column="text",  # Specify which column has sequences
     )
 
@@ -565,7 +601,6 @@ def test_streaming_dataset_handles_missing_record_column(tokenizer_path, tmp_pat
         max_seq_length=100,
         stride=10,
         buffer_size=1000,
-        use_lazy_tokenization=False,
         text_column="text",
     )
 
@@ -609,7 +644,6 @@ def test_dataloader_with_genomic_masking(tokenizer_path, tmp_path):
         num_workers=0,
         max_seq_length=10,
         stride=5,
-        use_lazy_tokenization=False,
         mask_degenerate_bases=True,  # Enable degenerate masking
     )
 
@@ -653,3 +687,167 @@ def test_token_packing_dataloader(tokenizer_path):
 
     batches = list(dataloader)
     assert len(batches) > 1
+
+
+def test_cp_dataloader(tokenizer_path):
+    load_dataset_kwargs = {
+        "path": "parquet",
+        "split": "train",
+        "data_files": "dlcm_sanity_dataset.parquet",
+        "streaming": True,
+    }
+
+    dist_config = DistributedConfig()
+
+    device = torch.device(f"cuda:{dist_config.local_rank}")
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    torch.cuda.set_device(dist_config.local_rank)
+    device_mesh = init_device_mesh("cuda", mesh_shape=(1, 1), mesh_dim_names=("dp", "cp"))
+
+    cp_mesh = device_mesh["cp"]
+
+    # Create the context-parallel dataloader directly following the pattern in train_fsdp2_cp.py
+    if cp_mesh.get_local_rank() == 0:
+        train_dataloader, _ = create_thd_dataloader(
+            distributed_config=dist_config,
+            tokenizer_name_or_path=tokenizer_path,
+            load_dataset_kwargs=load_dataset_kwargs,
+            text_column="text",
+            micro_batch_size=1,
+            max_seq_length=1024,
+            pad_sequences_to_be_divisible_by=cp_mesh.size() * 2,
+        )
+
+        train_dataloader.collate_fn = DataCollatorForContextParallel(
+            collator=train_dataloader.collate_fn,
+            cp_world_size=cp_mesh.size(),
+        )
+    else:
+        train_dataloader = None
+
+    dataloader = ContextParallelDataLoaderWrapper(train_dataloader, cp_mesh)
+
+    batches = list(dataloader)
+    assert len(batches) > 1
+
+    for batch in batches:
+        assert set(batch.keys()) == {
+            "max_length_q",
+            "max_length_k",
+            "input_ids",
+            "cu_seq_lens_q",
+            "cu_seq_lens_k",
+            "attention_mask",
+            "labels",
+            "cu_seq_lens_q_padded",
+            "cu_seq_lens_k_padded",
+            "pad_between_seqs",
+        }
+
+    torch.distributed.destroy_process_group()
+
+
+@requires_multi_gpu
+@pytest.mark.parametrize("dataset_path", ["dlcm_sanity_dataset.parquet", "test_genomic_sequences.parquet"])
+def test_cp_dataloader_multi_gpu(recipe_path, dataset_path):
+    """Tests that the CP dataloader works correctly with multiple GPUs.
+
+    The `test_genomic_sequences.parquet` dataset is too small to even fill a single batch with the default context
+    length of 8192 tokens, so this test ensures that the dataloader fails gracefully when it encounters a StopIteration.
+    """
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(recipe_path)
+
+    cmd = [
+        "torchrun",
+        "--nproc_per_node=2",
+        "tests/test_dataset.py",
+        "--dataset_path",
+        dataset_path,
+    ]
+
+    result = subprocess.run(
+        cmd,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=240,
+        cwd=str(recipe_path),
+        env=env,
+    )
+    if result.returncode != 0:
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+        pytest.fail(f"Command failed with exit code {result.returncode}")
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dataset_path", type=str, default="dlcm_sanity_dataset.parquet")
+    args = parser.parse_args()
+
+    dist_config = DistributedConfig()
+    device = torch.device(f"cuda:{dist_config.local_rank}")
+    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    torch.cuda.set_device(dist_config.local_rank)
+    device_mesh = init_device_mesh("cuda", mesh_shape=(1, 2), mesh_dim_names=("dp", "cp"))
+
+    cp_mesh = device_mesh["cp"]
+
+    # Create the context-parallel dataloader directly following the pattern in train_fsdp2_cp.py
+    if cp_mesh.get_local_rank() == 0:
+        train_dataloader, _ = create_thd_dataloader(
+            distributed_config=dist_config,
+            tokenizer_name_or_path="nvidia/Llama-3.1-8B-Instruct-FP8",
+            micro_batch_size=1,
+            text_column="text" if args.dataset_path == "dlcm_sanity_dataset.parquet" else "sequence",
+            load_dataset_kwargs={
+                "path": "parquet",
+                "split": "train",
+                "data_files": args.dataset_path,
+                "streaming": True,
+            },
+            num_workers=1,
+            pad_sequences_to_be_divisible_by=cp_mesh.size() * 2,
+        )
+
+        train_dataloader.collate_fn = DataCollatorForContextParallel(
+            collator=train_dataloader.collate_fn,
+            cp_world_size=cp_mesh.size(),
+        )
+    else:
+        train_dataloader = None
+
+    dataloader = ContextParallelDataLoaderWrapper(train_dataloader, cp_mesh)
+
+    batches = list(itertools.islice(dataloader, 10))
+
+    # With CP size 2, each sequence is split into 2 * cp_world_size = 4 slices.
+    # Each rank gets 2 slices (beginning and end), so each rank gets approximately
+    # (8 * 1024) / 2 = 4096 tokens per rank
+    # Note: Sequences are padded to be divisible by pad_sequences_to_be_divisible_by
+    # (which defaults to cp_mesh.size() * 2 = 4 if not provided)
+    # The actual token count per rank can vary due to:
+    # 1. Sequence packing (variable-length sequences packed up to token_micro_batch_size)
+    # 2. Per-sequence padding to be divisible by pad_sequences_to_be_divisible_by
+    # 3. CP splitting logic that takes slices from beginning and end
+    expected_tokens_per_rank = (8 * 1024) // device_mesh["cp"].size()
+
+    for batch in batches:
+        actual_shape = batch["input_ids"].shape[1]
+        # Allow for variance due to sequence packing, padding, and CP splitting
+        # The actual shape should be close to expected_tokens_per_rank but can vary
+        # Allow up to 100 tokens of variance (both above and below) to account for
+        # sequence packing and padding effects
+        assert actual_shape >= expected_tokens_per_rank - 100, (
+            f"Expected at least {expected_tokens_per_rank - 100} tokens, got {actual_shape}"
+        )
+        assert actual_shape <= expected_tokens_per_rank + 100, (
+            f"Expected at most {expected_tokens_per_rank + 100} tokens, got {actual_shape}"
+        )
+        assert batch["labels"].shape[1] == actual_shape
+
+    torch.distributed.destroy_process_group()

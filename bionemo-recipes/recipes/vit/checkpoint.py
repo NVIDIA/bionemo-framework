@@ -36,7 +36,7 @@ def load_torch_checkpoint(checkpoint_path, model, megatron_fsdp=False):
     """
     # Load model checkpoint. Must load with weights_only=False
     # if you have an optimizer state in your checkpoint.
-    checkpoint = torch.load(checkpoint_path, weights_only=False)
+    checkpoint = torch.load(checkpoint_path, weights_only=True)
     # Remove the "module." prefix from the keys of checkpoints
     # derived from Megatron-FSDP.
     # TODO(@cspades): Remove this when the Megatron-FSDP checkpoint naming is fixed.
@@ -67,7 +67,7 @@ def load_dcp_checkpoint(checkpoint_path, model=None, optimizer=None):
         state_dict["optimizer"] = optimizer.state_dict()
     torch.distributed.checkpoint.load(state_dict, checkpoint_id=checkpoint_path)
     if model is not None:
-        model.load_state_dict(state_dict["model"])
+        model.load_state_dict(state_dict["model"], strict=False)
     if optimizer is not None:
         optimizer.load_state_dict(state_dict["optimizer"])
 

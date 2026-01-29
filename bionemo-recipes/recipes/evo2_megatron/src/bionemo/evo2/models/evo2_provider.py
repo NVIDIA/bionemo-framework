@@ -1,0 +1,1136 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024 Arc Institute. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024 Michael Poli. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024 Stanford University. All rights reserved
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+import math
+from dataclasses import dataclass
+from functools import partial
+from typing import Callable, Iterable, Literal, Optional, Type
+
+import torch
+from megatron.bridge.models.model_provider import ModelProviderMixin
+from megatron.bridge.models.transformer_config import TransformerConfig
+from megatron.bridge.training.config import ConfigContainer
+from megatron.bridge.training.gpt_step import get_batch_from_iterator
+from megatron.bridge.training.losses import masked_next_token_loss
+from megatron.bridge.training.state import GlobalState
+from megatron.bridge.training.utils.packed_seq_utils import get_packed_seq_params
+from megatron.bridge.training.utils.pg_utils import get_pg_collection
+from megatron.bridge.utils.vocab_utils import calculate_padded_vocab_size
+from megatron.core import parallel_state
+from megatron.core.inference.contexts import StaticInferenceContext
+from megatron.core.pipeline_parallel.utils import is_pp_first_stage, is_pp_last_stage
+from megatron.core.transformer.enums import AttnBackend
+from megatron.core.utils import get_batch_on_this_cp_rank, get_model_config
+
+from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig as _HyenaConfigForFlops
+
+# from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step  # FIXME do megatron bridge thing instead of this
+from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import get_hyena_stack_spec
+from bionemo.evo2.models.megatron.hyena.hyena_model import HyenaModel as MCoreHyenaModel
+from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
+
+
+# from nemo.lightning import get_vocab_size, io, teardown
+# from nemo.lightning.base import NEMO_MODELS_CACHE
+# from nemo.lightning.io.state import TransformFns
+# from nemo.utils import logging
+
+
+def get_vocab_size(*args, **kwargs):
+    raise NotImplementedError("FIXME get_vocab_size is not implemented Find it in megatron bridge")
+
+
+def gpt_data_step(*args, **kwargs):
+    raise NotImplementedError("FIXME gpt_data_step is not implemented Find it in megatron bridge")
+
+
+# FIXME convert the nemo style configs to megatron bridge style configs
+
+
+class HyenaInferenceContext(StaticInferenceContext):
+    """Hyena-specific inference context."""
+
+    def reset(self):
+        """Reset the inference context."""
+        super().reset()  # standard state reset for GPT models
+        for key in dir(self):
+            # Remove all of the state that we add in hyena.py
+            if "filter_state_dict" in key:
+                delattr(self, key)
+
+
+# FIXME convert this to the megatron bridge style config for inference.
+# class HyenaModel(GPTModel):
+#     """This is a wrapper around the MCoreHyenaModel to allow for inference.
+
+#     Our model follows the same API as the GPTModel, but the megatron model class is different so we need to handle the inference wrapper slightly differently.
+#     """
+
+#     def get_inference_wrapper(
+#         self, params_dtype, inference_batch_times_seqlen_threshold, inference_max_seq_length=None
+#     ) -> torch.Tensor:
+#         """Gets the inference wrapper for the Hyena model.
+
+#         Args:
+#             params_dtype: The data type for model parameters
+#             inference_batch_times_seqlen_threshold: Threshold for batch size * sequence length during inference
+#             inference_max_seq_length: Maximum sequence length for inference
+
+#         Returns:
+#             GPTInferenceWrapper: The inference wrapper for the model
+
+#         Raises:
+#             ValueError: If MCoreHyenaModel instance not found or vocab size cannot be determined
+#         """
+#         # This is to get the MCore model required in GPTInferenceWrapper.
+#         mcore_model = self.module
+#         while mcore_model:
+#             if type(mcore_model) is MCoreHyenaModel:
+#                 break
+#             mcore_model = getattr(mcore_model, "module", None)
+#         if mcore_model is None or type(mcore_model) is not MCoreHyenaModel:
+#             raise ValueError("Exact MCoreHyenaModel instance not found in the model structure.")
+
+#         vocab_size = None
+#         if self.tokenizer is not None:
+#             vocab_size = self.tokenizer.vocab_size
+#         elif hasattr(self.config, "vocab_size"):
+#             vocab_size = self.config.vocab_size
+#         else:
+#             raise ValueError(
+#                 "Unable to find vocab size."
+#                 " Either pass in a tokenizer with vocab size, or set vocab size in the model config"
+#             )
+
+#         inference_wrapper_config = InferenceWrapperConfig(
+#             hidden_size=mcore_model.config.hidden_size,
+#             params_dtype=params_dtype,
+#             inference_batch_times_seqlen_threshold=inference_batch_times_seqlen_threshold,
+#             padded_vocab_size=vocab_size,
+#             inference_max_seq_length=inference_max_seq_length,
+#             inference_max_requests=1,
+#         )
+
+#         inference_context = HyenaInferenceContext.from_config(inference_wrapper_config)
+#         model_inference_wrapper = GPTInferenceWrapper(mcore_model, inference_wrapper_config, inference_context)
+#         return model_inference_wrapper
+
+#     def forward(
+#         self,
+#         input_ids: torch.Tensor,
+#         position_ids: torch.Tensor,
+#         attention_mask: Optional[torch.Tensor] = None,
+#         labels: Optional[torch.Tensor] = None,
+#         decoder_input: Optional[torch.Tensor] = None,
+#         loss_mask: Optional[torch.Tensor] = None,
+#         inference_context=None,
+#         packed_seq_params=None,
+#     ) -> torch.Tensor:
+#         """Forward pass of the Hyena model.
+
+#         Args:
+#             input_ids: Input token IDs
+#             position_ids: Position IDs for input tokens
+#             attention_mask: Optional attention mask
+#             labels: Optional labels for loss computation
+#             decoder_input: Optional decoder input
+#             loss_mask: Optional loss mask
+#             inference_context: Optional inference parameters
+#             packed_seq_params: Optional parameters for packed sequences
+
+
+#         Returns:
+#             torch.Tensor: Output tensor from the model
+#         """
+#         extra_kwargs = {"packed_seq_params": packed_seq_params} if packed_seq_params is not None else {}
+#         output_tensor = self.module(
+#             input_ids,
+#             position_ids,
+#             attention_mask,
+#             decoder_input=decoder_input,
+#             labels=labels,
+#             inference_context=inference_context,
+#             loss_mask=loss_mask,
+#             **extra_kwargs,
+#         )
+#         return output_tensor
+
+
+def get_batch(
+    data_iterator: Iterable, cfg: ConfigContainer, use_mtp: bool = False, *, pg_collection
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
+    """Generate a batch.
+
+    Args:
+        data_iterator: Input data iterator
+        cfg: Configuration container
+        use_mtp: Whether Multi-Token Prediction layers are enabled
+        pg_collection: Process group collection
+    Returns:
+        tuple of tensors containing tokens, labels, loss_mask, attention_mask, position_ids,
+        cu_seqlens, cu_seqlens_argmin, and max_seqlen
+    """
+    # Determine pipeline stage role via process group collection
+    is_first = is_pp_first_stage(pg_collection.pp)
+    is_last = is_pp_last_stage(pg_collection.pp)
+    if (not is_first) and (not is_last):
+        return None, None, None, None, None, None, None, None
+    need_attention_mask = not getattr(cfg.dataset, "skip_getting_attention_mask_from_dataset", True)
+    batch = get_batch_from_iterator(
+        data_iterator,
+        use_mtp,
+        need_attention_mask,
+        is_first_pp_stage=is_first,
+        is_last_pp_stage=is_last,
+    )
+
+    # slice batch along sequence dimension for context parallelism
+    batch = get_batch_on_this_cp_rank(batch)
+    attention_mask = batch.get("attention_mask")
+    if need_attention_mask and attention_mask is None:
+        raise ValueError("Attention mask is required but not found in the batch")
+
+    return (
+        batch["tokens"],
+        batch["labels"],
+        batch["loss_mask"],
+        attention_mask,
+        batch["position_ids"],
+        batch.get("cu_seqlens"),
+        batch.get("cu_seqlens_argmin"),
+        batch.get("max_seqlen"),
+    )
+
+
+def _forward_step_common(
+    state: GlobalState, data_iterator: Iterable, model: MCoreHyenaModel, return_schedule_plan: bool = False
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Forward training step.
+
+    Args:
+        state: Global state for the run
+        data_iterator: Input data iterator
+        model: The GPT Model
+        return_schedule_plan (bool): Whether to return the schedule plan instead of the output tensor
+
+    Returns:
+        tuple containing the output tensor and loss mask
+    """
+    timers = state.timers
+    straggler_timer = state.straggler_timer
+
+    config = get_model_config(model)
+    pg_collection = get_pg_collection(model)
+    use_mtp = (getattr(config, "mtp_num_layers", None) or 0) > 0
+
+    timers("batch-generator", log_level=2).start()
+    with straggler_timer(bdata=True):
+        tokens, labels, loss_mask, _, position_ids, cu_seqlens, cu_seqlens_argmin, max_seqlen = get_batch(
+            data_iterator, state.cfg, use_mtp, pg_collection=pg_collection
+        )
+    timers("batch-generator").stop()
+
+    forward_args = {
+        "input_ids": tokens,
+        "position_ids": position_ids,
+        "attention_mask": None,
+        "loss_mask": loss_mask,
+        "labels": labels,
+    }
+
+    # Add packed sequence support
+    if cu_seqlens is not None:
+        packed_seq_params = {
+            "cu_seqlens": cu_seqlens,
+            "cu_seqlens_argmin": cu_seqlens_argmin,
+            "max_seqlen": max_seqlen,
+        }
+        forward_args["packed_seq_params"] = get_packed_seq_params(packed_seq_params)
+
+    with straggler_timer:
+        if return_schedule_plan:
+            assert config.overlap_moe_expert_parallel_comm, (
+                "overlap_moe_expert_parallel_comm must be enabled to return the schedule plan"
+            )
+            schedule_plan = model.build_schedule_plan(tokens, position_ids, None, labels=labels, loss_mask=loss_mask)
+            return schedule_plan, loss_mask
+        else:
+            output_tensor = model(**forward_args)
+
+    return output_tensor, loss_mask
+
+
+def hyena_forward_step(
+    state: GlobalState, data_iterator: Iterable, model: MCoreHyenaModel, return_schedule_plan: bool = False
+) -> tuple[torch.Tensor, partial]:
+    """Forward training step.
+
+    Args:
+        state: Global state for the run
+        data_iterator: Input data iterator
+        model: The GPT Model
+        return_schedule_plan (bool): Whether to return the schedule plan instead of the output tensor
+
+    Returns:
+        tuple containing the output tensor and the loss function
+    """
+    output, loss_mask = _forward_step_common(state, data_iterator, model, return_schedule_plan)
+
+    loss_function = _create_loss_function(
+        loss_mask,
+        check_for_nan_in_loss=state.cfg.rerun_state_machine.check_for_nan_in_loss,
+        check_for_spiky_loss=state.cfg.rerun_state_machine.check_for_spiky_loss,
+    )
+
+    return output, loss_function
+
+
+def _create_loss_function(loss_mask: torch.Tensor, check_for_nan_in_loss: bool, check_for_spiky_loss: bool) -> partial:
+    """Create a partial loss function with the specified configuration.
+
+    Args:
+        loss_mask: Used to mask out some portions of the loss
+        check_for_nan_in_loss: Whether to check for NaN values in the loss
+        check_for_spiky_loss: Whether to check for spiky loss values
+
+    Returns:
+        A partial function that can be called with output_tensor to compute the loss
+    """
+    return partial(
+        masked_next_token_loss,
+        loss_mask,
+        check_for_nan_in_loss=check_for_nan_in_loss,
+        check_for_spiky_loss=check_for_spiky_loss,
+    )
+
+
+# FIXME make sure these conform to megatron/megatron bridge style.
+@dataclass
+class HyenaModelProvider(TransformerConfig, ModelProviderMixin[MCoreHyenaModel]):
+    """Configuration dataclass for Hyena.
+
+    For adjusting ROPE when doing context extension, set seq_len_interpolation_factor relative to 8192.
+    For example, if your context length is 512k, then set the factor to 512k / 8k = 64.
+    """
+
+    # From megatron.core.models.hyena.hyena_model.HyenaModel
+    fp16_lm_cross_entropy: bool = False
+    parallel_output: bool = True
+    params_dtype: torch.dtype = torch.bfloat16
+    fp16: bool = False
+    bf16: bool = True
+    num_layers: int = 2
+    hidden_size: int = 1024
+    num_attention_heads: int = 8
+    num_groups_hyena: int = None
+    num_groups_hyena_medium: int = None
+    num_groups_hyena_short: int = None
+    hybrid_attention_ratio: float = 0.0
+    hybrid_mlp_ratio: float = 0.0
+    hybrid_override_pattern: str = None
+    post_process: bool = True
+    pre_process: bool = True
+    seq_length: int = 2048
+    position_embedding_type: Literal["learned_absolute", "rope", "none"] = "rope"
+    rotary_percent: float = 1.0
+    rotary_base: int = 10000
+    seq_len_interpolation_factor: Optional[float] = None
+    apply_rope_fusion: bool = True
+    make_vocab_size_divisible_by: int = 128
+    gated_linear_unit: bool = True
+    fp32_residual_connection: bool = True
+    normalization: str = "RMSNorm"
+    add_bias_linear: bool = False
+    hidden_dropout: float = 0.0
+    attention_dropout: float = 0.0
+    layernorm_epsilon: float = 1e-6
+    attention_backend: AttnBackend = AttnBackend.flash
+    # TODO: Move this to better places?
+    get_attention_mask_from_fusion: bool = False
+    recompute_granularity: str = "full"
+    recompute_method: str = "uniform"
+    recompute_num_layers: int = 4
+    forward_step_fn: Callable = hyena_forward_step
+    data_step_fn: Callable = gpt_data_step  # FIXME do megatron bridge thing instead of this
+    tokenizer_model_path: str = None
+    hyena_init_method: str = None
+    hyena_output_layer_init_method: str = None
+    hyena_filter_no_wd: bool = True
+    remove_activation_post_first_layer: bool = True
+    add_attn_proj_bias: bool = True
+    cross_entropy_loss_fusion: bool = False  # Faster but lets default to False for more precision
+    tp_comm_overlap: bool = False
+    bias_activation_fusion: bool = True
+    bias_dropout_add_fusion: bool = True
+    add_bias_output: bool = False
+    use_te: bool = True
+    to_upper: str = "normalized_weighted"  # choose between "weighted" and "normalized_weighted"
+    use_short_conv_bias: bool = False
+    # Use this if you want to turn FP8 on for the linear layer in the mixer only. When using this, do not set
+    #  Fp8 in the mixed precision plugin.
+    vortex_style_fp8: bool = False
+    use_subquadratic_ops: bool = False
+    share_embeddings_and_output_weights: bool = True
+    unfused_rmsnorm: bool = False  # Use unfused RMSNorm + TELinear for dense projection
+    plain_row_linear: bool = False  # Use plain pytorch implementation instead of Megatron's row parallel linears
+    vocab_size: Optional[int] = None
+    should_pad_vocab: bool = False
+
+    def __post_init__(self):
+        """Post-initialization hook that sets up weight decay conditions."""
+        super().__post_init__()
+        self.hyena_no_weight_decay_cond_fn = hyena_no_weight_decay_cond if self.hyena_filter_no_wd else None
+
+    def _get_num_floating_point_operations(self, batch_size: int) -> int:
+        """Get the number of floating point operations for the model. This overrides the default in megatron bridge."""
+        # Ported from https://github.com/NVIDIA-NeMo/NeMo/blob/45a3b5cad3434692b1fb805934913d95be8668ea/nemo/utils/hyena_flops_formulas.py
+        """Model FLOPs for Hyena family. FPL = 'flops per layer'."""
+
+        # TODO(@cye): For now, pull the Hyena defaults directly from a constant dataclass. Merge this config with the NeMo
+        #   model config.
+        hyena_config = _HyenaConfigForFlops()
+        # Hyena Parameters
+        hyena_short_conv_L = hyena_config.short_conv_L  # noqa: N806
+        hyena_short_conv_len = hyena_config.hyena_short_conv_len
+        hyena_medium_conv_len = hyena_config.hyena_medium_conv_len
+
+        def _hyena_layer_count(model_pattern: Optional[str]):
+            """Count how many small, medium, and large Hyena layers there are in the model. Also, count the number of Attention layers."""
+            S, D, H, A = 0, 0, 0, 0  # noqa: N806
+            if model_pattern is None:
+                return 0, 0, 0, 0
+            for layer in model_pattern:
+                if layer == "S":
+                    S += 1  # noqa: N806
+                elif layer == "D":
+                    D += 1  # noqa: N806
+                elif layer == "H":
+                    H += 1  # noqa: N806
+                elif layer == "*":
+                    A += 1  # noqa: N806
+            return S, D, H, A
+
+        # Count S, D, H, and * layers in HyenaModel.
+        S, D, H, A = _hyena_layer_count(self.hybrid_override_pattern)  # noqa: N806
+        # Logits FLOPs per batch for a flattened L x H -> V GEMM.
+        logits_fpl = 2 * batch_size * self.seq_length * self.hidden_size * self.vocab_size
+        # Hyena Mixer Common FLOPs - Pre-Attention QKV Projections, Post-Attention Projections, and
+        #   GLU FFN FLOPs per layer.
+        pre_attn_qkv_proj_fpl = 2 * 3 * batch_size * self.seq_length * self.hidden_size**2
+        post_attn_proj_fpl = 2 * batch_size * self.seq_length * self.hidden_size**2
+        # 3 Batched GEMMs: y = A(gelu(Bx) * Cx) where B,C: H -> F and A: F -> H.
+        glu_ffn_fpl = 2 * 3 * batch_size * self.seq_length * self.ffn_hidden_size * self.hidden_size
+        # Transformer (Self) Attention FLOPs - QK Attention Logits ((L, D) x (D, L)) & Attention-Weighted
+        #   Values FLOPs ((L, L) x (L, D))
+        attn_fpl = 2 * 2 * batch_size * self.hidden_size * self.seq_length**2
+        # Hyena Projection
+        hyena_proj_fpl = 2 * 3 * batch_size * self.seq_length * hyena_short_conv_L * self.hidden_size
+        # Hyena Short Conv
+        hyena_short_conv_fpl = 2 * batch_size * self.seq_length * hyena_short_conv_len * self.hidden_size
+        # Hyena Medium Conv
+        hyena_medium_conv_fpl = 2 * batch_size * self.seq_length * hyena_medium_conv_len * self.hidden_size
+        # Hyena Long Conv (FFT)
+        hyena_long_conv_fft_fpl = batch_size * 10 * self.seq_length * math.log2(self.seq_length) * self.hidden_size
+        # Based off of https://gitlab-master.nvidia.com/clara-discovery/savanna/-/blob/main/savanna/mfu.py#L182
+        # Assumption: 1x Backwards Pass FLOPS = 2x Forward Pass FLOPS
+        return 3 * (
+            logits_fpl
+            + self.num_layers * (pre_attn_qkv_proj_fpl + post_attn_proj_fpl + glu_ffn_fpl)
+            + A * attn_fpl
+            + (S + D + H) * hyena_proj_fpl
+            + S * hyena_short_conv_fpl
+            + D * hyena_medium_conv_fpl
+            + H * hyena_long_conv_fft_fpl
+        )
+
+    def provide(self, pre_process=None, post_process=None, vp_stage=None) -> MCoreHyenaModel:
+        """Configures and returns a Hyena model instance based on the config settings.
+
+        Args:
+            pre_process: Whether to preprocess the inputs prior to running the rest of forward. Set to False if this is not the first stage of the pipeline.
+            post_process: Whether to postprocess the outputs after running the rest of forward. Set to False if this is not the last stage of the pipeline, or if you are collecting hidden states.
+            vp_stage: Virtual pipeline stage if using VPP and pipeline parallelism.
+
+        Returns:
+            MCoreHyenaModel: Configured Hyena model instance
+        """
+        self.bias_activation_fusion = False if self.remove_activation_post_first_layer else self.bias_activation_fusion
+
+        assert getattr(self, "virtual_pipeline_model_parallel_size", None) is None and vp_stage is None, (
+            "Virtual pipeline model parallelism is temporarily unsupported in Hyena."
+        )
+
+        assert self.vocab_size is not None, "vocab_size must be configured before calling provide()"
+        if self.should_pad_vocab:
+            padded_vocab_size = calculate_padded_vocab_size(
+                self.vocab_size, self.make_vocab_size_divisible_by, self.tensor_model_parallel_size
+            )
+        else:
+            padded_vocab_size = self.vocab_size
+
+        model = MCoreHyenaModel(
+            self,
+            hyena_stack_spec=get_hyena_stack_spec(
+                use_te=self.use_te,
+                vortex_style_fp8=self.vortex_style_fp8,
+                unfused_rmsnorm=self.unfused_rmsnorm,
+                plain_row_linear=self.plain_row_linear,
+            ),
+            vocab_size=padded_vocab_size,
+            max_sequence_length=self.seq_length,
+            num_groups_hyena=self.num_groups_hyena,
+            num_groups_hyena_medium=self.num_groups_hyena_medium,
+            num_groups_hyena_short=self.num_groups_hyena_short,
+            hybrid_override_pattern=self.hybrid_override_pattern,
+            position_embedding_type=self.position_embedding_type,
+            rotary_percent=self.rotary_percent,
+            rotary_base=self.rotary_base,
+            seq_len_interpolation_factor=self.seq_len_interpolation_factor,
+            # Note: When self.pre_process/self.post_process is explicitly False (e.g., for embedding
+            # extraction), we must use that value regardless of what the caller passes. This is because
+            # _create_model in megatron.bridge always passes the pipeline stage values, but we want to
+            # disable post-processing when extracting embeddings.
+            pre_process=(
+                False
+                if self.pre_process is False
+                else (pre_process if pre_process is not None else parallel_state.is_pipeline_first_stage())
+            ),
+            post_process=(
+                False
+                if self.post_process is False
+                else (post_process if post_process is not None else parallel_state.is_pipeline_last_stage())
+            ),
+            share_embeddings_and_output_weights=self.share_embeddings_and_output_weights,
+            hyena_init_method=self.hyena_init_method,
+            hyena_output_layer_init_method=self.hyena_output_layer_init_method,
+            remove_activation_post_first_layer=self.remove_activation_post_first_layer,
+            add_attn_proj_bias=self.add_attn_proj_bias,
+        )
+        return model
+
+
+@dataclass
+class HyenaTestModelProvider(HyenaModelProvider):
+    """Configuration for testing Hyena models."""
+
+    hybrid_override_pattern: str = "SDH*"
+    num_layers: int = 4
+    seq_length: int = 8192
+    hidden_size: int = 4096
+    num_groups_hyena: int = 4096
+    num_groups_hyena_medium: int = 256
+    num_groups_hyena_short: int = 256
+    make_vocab_size_divisible_by: int = 8
+    tokenizer_library: str = "byte-level"
+    mapping_type: str = "base"
+    ffn_hidden_size: int = 11008
+    gated_linear_unit: bool = True
+    num_attention_heads: int = 32
+    use_cpu_initialization: bool = False
+    hidden_dropout: float = 0.0
+    attention_dropout: float = 0.0
+    params_dtype: torch.dtype = torch.bfloat16
+    normalization: str = "RMSNorm"
+    add_qkv_bias: bool = False
+    add_bias_linear: bool = False
+    layernorm_epsilon: float = 1e-6
+    recompute_granularity: str = "full"
+    recompute_method: str = "uniform"
+    recompute_num_layers: int = 2
+    hyena_init_method: str = "small_init"
+    hyena_output_layer_init_method: str = "wang_init"
+    hyena_filter_no_wd: bool = True
+    use_short_conv_bias: bool = False
+    use_subquadratic_ops: bool = False
+
+
+@dataclass
+class HyenaNVTestModelProvider(HyenaTestModelProvider):
+    """This config addresses several design improvements over the original implementation, and may provide better training stability for new models."""
+
+    remove_activation_post_first_layer: bool = False
+    add_attn_proj_bias: bool = False
+    use_short_conv_bias: bool = True
+
+
+@dataclass
+class Hyena1bModelProvider(HyenaModelProvider):
+    """Config matching the 1b 8k context Evo2 model."""
+
+    hybrid_override_pattern: str = "SDH*SDHSDH*SDHSDH*SDHSDH*"
+    num_layers: int = 25
+    recompute_num_layers: int = 5  # needs to be a multiple of num_layers
+    seq_length: int = 8192
+    hidden_size: int = 1920
+    num_groups_hyena: int = 1920
+    num_groups_hyena_medium: int = 128
+    num_groups_hyena_short: int = 128
+    make_vocab_size_divisible_by: int = 8
+    tokenizer_library: str = "byte-level"
+    mapping_type: str = "base"
+    ffn_hidden_size: int = 5120
+    gated_linear_unit: bool = True
+    num_attention_heads: int = 15
+    use_cpu_initialization: bool = False
+    hidden_dropout: float = 0.0
+    attention_dropout: float = 0.0
+    params_dtype: torch.dtype = torch.bfloat16
+    normalization: str = "RMSNorm"
+    add_qkv_bias: bool = False
+    add_bias_linear: bool = False
+    layernorm_epsilon: float = 1e-6
+    recompute_granularity: str = "full"
+    recompute_method: str = "uniform"
+    recompute_num_layers: int = 5
+    hyena_init_method: str = "small_init"
+    hyena_output_layer_init_method: str = "wang_init"
+    hyena_filter_no_wd: bool = True
+
+
+@dataclass
+class HyenaNV1bModelProvider(Hyena1bModelProvider):
+    """This config addresses several design improvements over the original implementation, and may provide better training stability for new models."""
+
+    remove_activation_post_first_layer: bool = False
+    add_attn_proj_bias: bool = False
+    use_short_conv_bias: bool = True
+
+
+@dataclass
+class Hyena7bModelProvider(HyenaModelProvider):
+    """Config matching the 7b 8k context Evo2 model."""
+
+    hybrid_override_pattern: str = "SDH*SDHSDH*SDHSDH*SDHSDH*SDHSDH*"
+    num_layers: int = 32
+    seq_length: int = 8192
+    hidden_size: int = 4096
+    num_groups_hyena: int = 4096
+    num_groups_hyena_medium: int = 256
+    num_groups_hyena_short: int = 256
+    make_vocab_size_divisible_by: int = 8
+    tokenizer_library: str = "byte-level"
+    mapping_type: str = "base"
+    ffn_hidden_size: int = 11008
+    gated_linear_unit: bool = True
+    num_attention_heads: int = 32
+    use_cpu_initialization: bool = False
+    hidden_dropout: float = 0.0
+    attention_dropout: float = 0.0
+    params_dtype: torch.dtype = torch.bfloat16
+    normalization: str = "RMSNorm"
+    add_qkv_bias: bool = False
+    add_bias_linear: bool = False
+    layernorm_epsilon: float = 1e-6
+    recompute_granularity: str = "full"
+    recompute_method: str = "uniform"
+    recompute_num_layers: int = 4
+    hyena_init_method: str = "small_init"
+    hyena_output_layer_init_method: str = "wang_init"
+    hyena_filter_no_wd: bool = True
+
+
+@dataclass
+class HyenaNV7bModelProvider(Hyena7bModelProvider):
+    """This config addresses several design improvements over the original implementation, and may provide better training stability for new models."""
+
+    remove_activation_post_first_layer: bool = False
+    add_attn_proj_bias: bool = False
+    use_short_conv_bias: bool = True
+    ffn_hidden_size: int = 11264  # start with the larger FFN hidden size to avoid having to pad during extension.
+    rotary_base: int = 1_000_000
+
+
+@dataclass
+class Hyena40bModelProvider(HyenaModelProvider):
+    """Config matching the 40b 8k context Evo2 model."""
+
+    hybrid_override_pattern: str = "SDH*SDHSDH*SDHSDH*SDHSDH*SDHSDH*SDH*SDHSDH*SDHSDH*"
+    num_layers: int = 50
+    seq_length: int = 8192
+    hidden_size: int = 8192
+    num_groups_hyena: int = 8192
+    num_groups_hyena_medium: int = 512
+    num_groups_hyena_short: int = 512
+    make_vocab_size_divisible_by: int = 8
+    tokenizer_library: str = "byte-level"
+    mapping_type: str = "base"
+    ffn_hidden_size: int = 21888
+    gated_linear_unit: bool = True
+    num_attention_heads: int = 64
+    use_cpu_initialization: bool = False
+    hidden_dropout: float = 0.0
+    attention_dropout: float = 0.0
+    params_dtype: torch.dtype = torch.bfloat16
+    normalization: str = "RMSNorm"
+    add_qkv_bias: bool = False
+    add_bias_linear: bool = False
+    layernorm_epsilon: float = 1e-6
+    recompute_granularity: str = "full"
+    recompute_method: str = "uniform"
+    recompute_num_layers: int = 2
+    hyena_init_method: str = "small_init"
+    hyena_output_layer_init_method: str = "wang_init"
+    hyena_filter_no_wd: bool = True
+    rotary_base: int = 1_000_000
+
+
+@dataclass
+class HyenaNV40bModelProvider(Hyena40bModelProvider):
+    """This config addresses several design improvements over the original implementation, and may provide better training stability for new models."""
+
+    remove_activation_post_first_layer: bool = False
+    add_attn_proj_bias: bool = False
+    use_short_conv_bias: bool = True
+    ffn_hidden_size: int = 22528  # start with the larger FFN hidden size to avoid having to pad during extension.
+
+
+@dataclass
+class Hyena7bARCLongContextModelProvider(Hyena7bModelProvider):
+    """The checkpoint from ARC requires padding to the FFN dim due to requirements of large TP size for training at long context.
+
+    NOTE: This config _could be used_ for short context as well with a different seq_length.
+    """
+
+    seq_length: int = 1_048_576
+    ###
+    # Hand verification of RoPE base for 7B-1M @antonvnv
+    # >>> def inv_freq(base, dim):
+    #     return 1.0 / (base ** (torch.arange(0, dim, 2, device="cuda", dtype=torch.float32) / dim))
+    #
+    # >>> pt = torch.load("evo2_7b.pt", weights_only=False, mmap=True, map_location="cpu")
+    #
+    # >>> torch.mean(pt["blocks.3.inner_mha_cls.rotary_emb.inv_freq"] - inv_freq(1e11, 128).cpu())
+    # tensor(0.0688)
+    #
+    # >>> torch.mean(pt["blocks.3.inner_mha_cls.rotary_emb.inv_freq"] - inv_freq(1e6, 128).cpu())
+    # tensor(0.0361)
+    #
+    # >>> torch.mean(pt["blocks.3.inner_mha_cls.rotary_emb.inv_freq"] - inv_freq(1e4, 128).cpu())
+    # tensor(5.2014e-06)
+    rotary_base: int = 10_000
+    ffn_hidden_size: int = 11264
+    seq_len_interpolation_factor: float = 128
+
+
+@dataclass
+class Hyena40bARCLongContextModelProvider(Hyena40bModelProvider):
+    """The checkpoint from ARC requires padding to the FFN dim due to requirements of large TP size for training at long context.
+
+    NOTE: This config _could be used_ for short context as well with a different seq_length.
+    """
+
+    seq_length: int = 1_048_576
+    ####
+    # For 40B-1M hand verification of RoPE base @antonvnv
+    # >>> def inv_freq(base, dim):
+    #     return 1.0 / (base ** (torch.arange(0, dim, 2, device="cuda", dtype=torch.float32) / dim))
+    #
+    # >>> pt = torch.load("evo2_40b.pt", weights_only=False, mmap=True, map_location="cpu")
+    #
+    # >>> torch.mean(pt["blocks.3.inner_mha_cls.rotary_emb.inv_freq"] - inv_freq(1e11, 128).cpu())
+    # tensor(0.0326)
+    #
+    # >>> torch.mean(pt["blocks.3.inner_mha_cls.rotary_emb.inv_freq"] - inv_freq(1e6, 128).cpu())
+    # tensor(-2.5294e-05)
+    rotary_base: int = 1_000_000
+    ffn_hidden_size: int = 22528
+    seq_len_interpolation_factor: float = 128
+
+
+@dataclass
+class HyenaNV1b2ModelProvider(HyenaNV1bModelProvider):
+    """A parallel friendly version of the HyenaNV1bConfig."""
+
+    hidden_size: int = 2048  # 1920
+    num_groups_hyena: int = 2048  # 1920
+    num_attention_heads: int = 16  # 15
+    ffn_hidden_size: int = 5120  # 5120
+    # Spike-no-more-embedding init by default.
+    share_embeddings_and_output_weights: bool = False
+    embedding_init_method_std: float = 1.0
+    # activation_func_clamp_value: Optional[float] = 7.0
+    # glu_linear_offset: float = 1.0
+
+
+# FIXME use the following as a starting point for the new megatron bridge style model importer/exporter.
+# @io.model_importer(HyenaModel, "pytorch")
+# class PyTorchHyenaImporter(io.ModelConnector["HyenaModel", HyenaModel]):
+#     """Importer class for converting PyTorch Hyena models to NeMo format."""
+
+#     def __new__(cls, path: str, model_config=None):
+#         """Creates a new importer instance.
+
+#         Args:
+#             path: Path to the PyTorch model
+#             model_config: Optional model configuration
+
+#         Returns:
+#             PyTorchHyenaImporter instance
+#         """
+#         instance = super().__new__(cls, path)
+#         instance.model_config = model_config
+#         return instance
+
+#     def init(self) -> HyenaModel:
+#         """Initializes a new HyenaModel instance.
+
+#         Returns:
+#             HyenaModel: Initialized model
+#         """
+#         return HyenaModel(self.config, tokenizer=self.tokenizer)
+
+#     def get_source_model(self):
+#         """Returns the source model."""
+#         return torch.load(str(self), map_location="cpu")
+
+#     def apply(self, output_path: Path, checkpoint_format: str = "torch_dist") -> Path:
+#         """Applies the model conversion from PyTorch to NeMo format.
+
+#         Args:
+#             output_path: Path to save the converted model
+#             checkpoint_format: Format for saving checkpoints
+
+#         Returns:
+#             Path: Path to the saved NeMo model
+#         """
+#         source = self.get_source_model()
+
+#         if "model" in source:
+#             source = source["model"]
+
+#         class ModelState:
+#             """Wrapper around the source model state dictionary that also handles some weight transformations."""
+
+#             def __init__(self, state_dict, num_layers, fp32_suffixes):
+#                 """Wrapper around the source model state dictionary that also handles some weight transformations.
+
+#                 Args:
+#                     state_dict: original state dictionary from the source model
+#                     num_layers: number of layers in the source model
+#                     fp32_suffixes: suffixes of the weights that should be converted to float32
+#                 """
+#                 self.num_layers = num_layers
+#                 state_dict = self.transform_source_dict(state_dict)
+#                 self._state_dict = state_dict
+#                 self.fp32_suffixes = fp32_suffixes
+
+#             def state_dict(self):
+#                 """Return the state dictionary."""
+#                 return self._state_dict
+
+#             def to(self, dtype):
+#                 """Convert the state dictionary to the target dtype."""
+#                 for k, v in self._state_dict.items():
+#                     if "_extra" not in k:
+#                         if v.dtype != dtype:
+#                             logging.warning(f"Converting {k} from {v.dtype} (source model) to {dtype} (target model)")
+#                         k_suffix = k.split(".")[-1]
+#                         if k_suffix in self.fp32_suffixes:
+#                             _dtype = torch.float32
+#                         else:
+#                             _dtype = dtype
+#                         self._state_dict[k] = v.to(_dtype)
+
+#             def adjust_medium_filter(self, updated_data):
+#                 """Adjust the medium filter."""
+#                 from nemo.collections.llm.gpt.model.megatron.hyena.hyena_config import HyenaConfig
+
+#                 for k, v in updated_data.items():
+#                     if "filter.h" in k or "filter.decay" in k:
+#                         updated_data[k] = v[:, : HyenaConfig().hyena_medium_conv_len]
+#                 return updated_data
+
+#             def transform_source_dict(self, source):
+#                 """Transform the source state dictionary.
+
+#                 This function works by applying some challenging layer name re-mappings and
+#                 removing extra keys, as well as truncating a filter that didn't need to extend to the full
+#                 sequence length dim.
+#                 """
+#                 import re
+
+#                 layer_map = {i + 2: i for i in range(self.num_layers)}
+#                 layer_map[self.num_layers + 3] = self.num_layers
+#                 updated_data = {}
+
+#                 for key in list(source["module"].keys()):
+#                     if "_extra" in key:
+#                         source["module"].pop(key)
+#                     else:
+#                         match = re.search(r"sequential\.(\d+)", key)
+#                         if match:
+#                             original_layer_num = int(match.group(1))
+#                             if original_layer_num in layer_map:
+#                                 # Create the updated key by replacing the layer number
+#                                 new_key = re.sub(rf"\b{original_layer_num}\b", str(layer_map[original_layer_num]), key)
+#                                 updated_data[new_key] = source["module"][key]
+#                             else:
+#                                 # Keep the key unchanged if no mapping exists
+#                                 updated_data[key] = source["module"][key]
+#                         else:
+#                             updated_data[key] = source["module"][key]
+#                 updated_data = self.adjust_medium_filter(updated_data)
+#                 return updated_data
+
+#         target = self.init()
+#         trainer = self.nemo_setup(target, ckpt_async_save=False, save_ckpt_format=checkpoint_format)
+#         target.to(self.config.params_dtype)
+#         fp32_suffixes = {n.split(".")[-1] for n, p in target.named_parameters() if p.dtype == torch.float32}
+#         source = ModelState(source, self.config.num_layers, fp32_suffixes)
+#         source.to(self.config.params_dtype)
+#         self.convert_state(source, target)
+#         self.nemo_save(output_path, trainer)
+
+#         logging.info(f"Converted Hyena model to Nemo, model saved to {output_path}")
+
+#         teardown(trainer, target)
+#         del trainer, target
+
+#         return output_path
+
+#     def convert_state(self, source, target):
+#         """Converts the state dictionary from source format to target format.
+
+#         Args:
+#             source: Source model state
+#             target: Target model
+
+#         Returns:
+#             Result of applying state transforms
+#         """
+#         mapping = {}
+#         mapping["sequential.0.word_embeddings.weight"] = "embedding.word_embeddings.weight"
+#         mapping[f"sequential.{len(self.config.hybrid_override_pattern)}.norm.weight"] = "decoder.final_norm.weight"
+#         te_enabled = self.config.use_te
+#         for i, symbol in enumerate(self.config.hybrid_override_pattern):
+#             if te_enabled:
+#                 mapping[f"sequential.{i}.pre_mlp_layernorm.weight"] = (
+#                     f"decoder.layers.{i}.mlp.linear_fc1.layer_norm_weight"
+#                 )
+#             else:
+#                 mapping[f"sequential.{i}.pre_mlp_layernorm.weight"] = f"decoder.layers.{i}.pre_mlp_layernorm.weight"
+#             mapping[f"sequential.{i}.mlp.w3.weight"] = f"decoder.layers.{i}.mlp.linear_fc2.weight"
+
+#             if symbol != "*":
+#                 if te_enabled:
+#                     mapping[f"sequential.{i}.input_layernorm.weight"] = (
+#                         f"decoder.layers.{i}.mixer.dense_projection.layer_norm_weight"
+#                     )
+#                 else:
+#                     mapping[f"sequential.{i}.input_layernorm.weight"] = f"decoder.layers.{i}.norm.weight"
+
+#                 mapping[f"sequential.{i}.mixer.dense_projection.weight"] = (
+#                     f"decoder.layers.{i}.mixer.dense_projection.weight"
+#                 )
+#                 mapping[f"sequential.{i}.mixer.hyena_proj_conv.short_conv_weight"] = (
+#                     f"decoder.layers.{i}.mixer.hyena_proj_conv.short_conv_weight"
+#                 )
+#                 mapping[f"sequential.{i}.mixer.dense.weight"] = f"decoder.layers.{i}.mixer.dense.weight"
+#                 mapping[f"sequential.{i}.mixer.dense.bias"] = f"decoder.layers.{i}.mixer.dense.bias"
+
+#                 if symbol == "S":
+#                     mapping[f"sequential.{i}.mixer.mixer.short_conv.short_conv_weight"] = (
+#                         f"decoder.layers.{i}.mixer.mixer.short_conv.short_conv_weight"
+#                     )
+
+#                 elif symbol == "D":
+#                     mapping[f"sequential.{i}.mixer.mixer.conv_bias"] = f"decoder.layers.{i}.mixer.mixer.conv_bias"
+#                     mapping[f"sequential.{i}.mixer.mixer.filter.h"] = f"decoder.layers.{i}.mixer.mixer.filter.h"
+#                     mapping[f"sequential.{i}.mixer.mixer.filter.decay"] = (
+#                         f"decoder.layers.{i}.mixer.mixer.filter.decay"
+#                     )
+
+#                 elif symbol == "H":
+#                     mapping[f"sequential.{i}.mixer.mixer.conv_bias"] = f"decoder.layers.{i}.mixer.mixer.conv_bias"
+#                     mapping[f"sequential.{i}.mixer.mixer.filter.gamma"] = (
+#                         f"decoder.layers.{i}.mixer.mixer.filter.gamma"
+#                     )
+#                     mapping[f"sequential.{i}.mixer.mixer.filter.R"] = f"decoder.layers.{i}.mixer.mixer.filter.R"
+#                     mapping[f"sequential.{i}.mixer.mixer.filter.p"] = f"decoder.layers.{i}.mixer.mixer.filter.p"
+
+#             elif symbol == "*":
+#                 if te_enabled:
+#                     mapping[f"sequential.{i}.input_layernorm.weight"] = (
+#                         f"decoder.layers.{i}.self_attention.linear_qkv.layer_norm_weight"
+#                     )
+#                 else:
+#                     mapping[f"sequential.{i}.input_layernorm.weight"] = f"decoder.layers.{i}.input_layernorm.weight"
+
+#                 mapping[f"sequential.{i}.mixer.dense_projection.weight"] = (
+#                     f"decoder.layers.{i}.self_attention.linear_qkv.weight"
+#                 )
+#                 mapping[f"sequential.{i}.mixer.dense.weight"] = f"decoder.layers.{i}.self_attention.linear_proj.weight"
+#                 mapping[f"sequential.{i}.mixer.dense.bias"] = f"decoder.layers.{i}.self_attention.linear_proj.bias"
+#             else:
+#                 raise ValueError(f"Unknown symbol: {symbol}")
+
+#         return io.apply_transforms(
+#             source,
+#             target,
+#             mapping=mapping,
+#             transforms=[
+#                 # Transforms that are more complicated than a simple mapping of an old key name to a new one:
+#                 io.state_transform(
+#                     source_key=("sequential.*.mlp.w1.weight", "sequential.*.mlp.w2.weight"),
+#                     target_key="decoder.layers.*.mlp.linear_fc1.weight",
+#                     fn=TransformFns.merge_fc1,
+#                 )
+#             ],
+#         )
+
+#     @property
+#     def tokenizer(self):
+#         """Gets the tokenizer for the model.
+
+#         Returns:
+#             Tokenizer instance
+#         """
+#         from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenizer
+
+#         tokenizer = get_nmt_tokenizer(
+#             library=self.model_config.tokenizer_library,
+#         )
+
+#         return tokenizer
+
+#     @property
+#     def config(self) -> HyenaConfig:
+#         """Gets the model configuration.
+
+#         Returns:
+#             HyenaConfig: Model configuration
+#         """
+#         return self.model_config
+
+
+# @io.model_importer(HyenaModel, "hf")
+# class HuggingFaceSavannaHyenaImporter(PyTorchHyenaImporter):
+#     """Importer class for converting HuggingFace Savanna Hyena models to NeMo format.
+
+#     See: https://huggingface.co/arcinstitute/savanna_evo2_7b for an example of a savanna model that this can
+#     import and convert to NeMo format. Any of the Arc models that start with "savanna_" should work.
+#     """
+
+#     def get_source_model(self):
+#         """Returns the source model."""
+#         import huggingface_hub.errors
+#         from huggingface_hub import hf_hub_download
+
+#         if os.path.exists(str(self)):
+#             logging.info(f"Loading model from local path {self!s}")
+#             return torch.load(str(self), map_location="cpu", weights_only=False)
+#         else:
+#             if ":" in str(self):
+#                 repo_id, revision = str(self).split(":")
+#             else:
+#                 repo_id = str(self)
+#                 revision = None
+#             # See HF download logic here:
+#             #   https://github.com/ArcInstitute/evo2/blob/96ac9d9cd/evo2/models.py#L191-L231
+#             modelname = repo_id.split("/")[-1]
+#             download_dir = str(NEMO_MODELS_CACHE / repo_id)
+#             weights_filename = f"{modelname}.pt"
+#             try:
+#                 weights_path = hf_hub_download(
+#                     repo_id=repo_id, local_dir=download_dir, revision=revision, filename=weights_filename
+#                 )
+#             except Exception:
+#                 # Try downloading multi-part
+#                 # If file is split, download and join parts
+#                 logging.warning(f"Single path download failed, try loading checkpoint shards for {modelname}")
+#                 # If file is split, get the first part's directory to use the same cache location
+#                 weights_path = os.path.join(download_dir, weights_filename)
+#                 if os.path.exists(weights_path):
+#                     logging.info(f"Found {weights_path}")
+#                 else:
+#                     # Download and join parts
+#                     parts = []
+#                     part_num = 0
+#                     while True:
+#                         try:
+#                             part_path = hf_hub_download(
+#                                 repo_id=repo_id,
+#                                 local_dir=download_dir,
+#                                 revision=revision,
+#                                 filename=f"{weights_filename}.part{part_num}",
+#                             )
+#                             parts.append(part_path)
+#                             part_num += 1
+#                         except huggingface_hub.errors.EntryNotFoundError:
+#                             break
+
+#                     # Join in the same directory
+#                     with open(weights_path, "wb") as outfile:
+#                         for part in parts:
+#                             with open(part, "rb") as infile:
+#                                 while True:
+#                                     chunk = infile.read(8192 * 1024)
+#                                     if not chunk:
+#                                         break
+#                                     outfile.write(chunk)
+
+#                     # Cleaning up the parts
+#                     for part in parts:
+#                         try:
+#                             os.remove(part)
+#                         except OSError as e:
+#                             print(f"Error removing {part}: {e}")
+#                         print("Cleaned up shards, final checkpoint saved to", weights_path)
+
+#         return torch.load(weights_path, map_location="cpu", weights_only=False)
+
+
+HYENA_MODEL_OPTIONS: dict[str, Type[HyenaModelProvider]] = {
+    "1b": Hyena1bModelProvider,
+    "1b_nv": HyenaNV1bModelProvider,
+    "7b": Hyena7bModelProvider,
+    "7b_arc_longcontext": Hyena7bARCLongContextModelProvider,
+    "7b_nv": HyenaNV7bModelProvider,
+    "40b": Hyena40bModelProvider,
+    "40b_arc_longcontext": Hyena40bARCLongContextModelProvider,
+    "40b_nv": HyenaNV40bModelProvider,
+    "test": HyenaTestModelProvider,
+    "test_nv": HyenaNVTestModelProvider,
+    "striped_hyena_1b_nv_parallel": HyenaNV1b2ModelProvider,
+}
+
+
+__all__ = [
+    "HYENA_MODEL_OPTIONS",
+    "Hyena1bModelProvider",
+    "Hyena7bARCLongContextModelProvider",
+    "Hyena7bModelProvider",
+    "Hyena40bARCLongContextModelProvider",
+    "Hyena40bModelProvider",
+    "HyenaModelProvider",
+    "HyenaNV1bModelProvider",
+    "HyenaNV7bModelProvider",
+    "HyenaNV40bModelProvider",
+    "HyenaNVTestModelProvider",
+    "HyenaTestModelProvider",
+]

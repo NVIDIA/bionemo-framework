@@ -1,5 +1,3 @@
-- [ESM-2](bionemo-esm2/)
 - [Evo2](bionemo-evo2/)
-- [Geneformer](bionemo-geneformer/)
 - [MoCo](bionemo-moco/)
 - [SCDL](bionemo-scdl/)

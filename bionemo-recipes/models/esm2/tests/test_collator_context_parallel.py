@@ -14,15 +14,21 @@
 # limitations under the License.
 
 import copy
-import unittest
-from itertools import pairwise
 from typing import Dict, Iterator, List
 from unittest import mock
 
+import pytest
 import torch
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
+from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import ContextParallelDataLoaderWrapper, _split_batch_by_cp_rank
+from esm.collator import (
+    BatchType,
+    ContextParallelDataLoaderWrapper,
+    DataCollatorForContextParallel,
+    DataCollatorWithFlattening,
+    _split_batch_by_cp_rank,
+)
 
 
 def get_dummy_data_thd_with_padding_dp0(cp_size: int):
@@ -208,64 +214,25 @@ class _DummyLoader:
         return copy.deepcopy(self._batch)
 
 
-class _DummyCPGroup:
-    def __init__(self, size: int):
+class _DummyDeviceMesh:
+    """Dummy device mesh for testing ContextParallelDataLoaderWrapper."""
+
+    def __init__(self, size: int, rank: int = 0):
         self._size = size
+        self._rank = rank
+        self._group = mock.MagicMock()  # Mock process group
+
+    def get_local_rank(self) -> int:
+        """Return the local rank within this mesh."""
+        return self._rank
+
+    def get_group(self):
+        """Return the process group."""
+        return self._group
 
     def size(self) -> int:
+        """Return the size of the mesh."""
         return self._size
-
-
-def _fake_get_batch(
-    cu_seqlens_padded,
-    input_ids_padded,
-    labels_padded,
-    cp_group,
-    qvk_format,
-    cp_rank,
-):
-    cp_size = cp_group.size()
-    total_slices = 2 * cp_size
-    seq_tokens = input_ids_padded.view(-1)
-    seq_labels = labels_padded.view(-1)
-    shard_tokens: List[torch.Tensor] = []
-    shard_labels: List[torch.Tensor] = []
-
-    for start, end in pairwise(cu_seqlens_padded):
-        start_idx = int(start)
-        end_idx = int(end)
-        slice_size = (end_idx - start_idx) // total_slices
-
-        first_start = start_idx + (cp_rank * slice_size)
-        first_end = first_start + slice_size
-        second_start = start_idx + ((total_slices - cp_rank - 1) * slice_size)
-        second_end = second_start + slice_size
-
-        shard_tokens.append(torch.cat([seq_tokens[first_start:first_end], seq_tokens[second_start:second_end]]))
-        shard_labels.append(torch.cat([seq_labels[first_start:first_end], seq_labels[second_start:second_end]]))
-
-    return (
-        torch.cat(shard_tokens).unsqueeze(0),
-        torch.cat(shard_labels).unsqueeze(0),
-    )
-
-
-def _make_cp_shards(base_batch: Dict[str, torch.Tensor], cp_group: _DummyCPGroup):
-    combined_batch = []
-    for cp_rank in range(cp_group.size()):
-        input_ids_sharded, labels_sharded = _fake_get_batch(
-            cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
-            input_ids_padded=base_batch["input_ids"],
-            labels_padded=base_batch["labels"],
-            cp_group=cp_group,
-            qvk_format="thd",
-            cp_rank=cp_rank,
-        )
-        batch_shard = dict(base_batch)
-        batch_shard["input_ids"] = input_ids_sharded
-        batch_shard["labels"] = labels_sharded
-        combined_batch.append(batch_shard)
-    return combined_batch
 
 
 def test_pad_thd_sequences_for_cp():
@@ -368,7 +335,7 @@ def test_dataloader_scatter_nopadding():
     CP0 | 1,2,7,8 | 9, 10, 15, 16 |
     CP1 | 3,4,5,6 | 11, 12, 13, 14|
     """
-    cp_group = _DummyCPGroup(size=2)
+    cp_size = 2
 
     def run_roundtrip(base_batch):
         combined_batch = [
@@ -381,7 +348,7 @@ def test_dataloader_scatter_nopadding():
                         labels_padded=base_batch["labels"],
                         qvk_format="thd",
                         cp_rank=cp_rank,
-                        cp_world_size=cp_group.size(),
+                        cp_world_size=cp_size,
                     )[0],
                     "labels": _split_batch_by_cp_rank(
                         cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
@@ -389,14 +356,16 @@ def test_dataloader_scatter_nopadding():
                         labels_padded=base_batch["labels"],
                         qvk_format="thd",
                         cp_rank=cp_rank,
-                        cp_world_size=cp_group.size(),
+                        cp_world_size=cp_size,
                     )[1],
                 },
             )
-            for cp_rank in range(cp_group.size())
+            for cp_rank in range(cp_size)
         ]
-        loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=0)
-        loader_rank1 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=1)
+        cp_mesh_rank0 = _DummyDeviceMesh(size=cp_size, rank=0)
+        cp_mesh_rank1 = _DummyDeviceMesh(size=cp_size, rank=1)
+        loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_mesh_rank0)
+        loader_rank1 = ContextParallelDataLoaderWrapper(None, cp_mesh_rank1)
 
         scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
         current_rank = {"value": None}
@@ -455,7 +424,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
     CP0 | 1,<p>,5,<p> | 9, <p>, 13, <p>|
     CP1 | 2,3,6, <p>  | 10, 11, 14, 15 |
     """
-    cp_group = _DummyCPGroup(size=2)
+    cp_size = 2
 
     def run_roundtrip(base_batch):
         combined_batch = [
@@ -468,7 +437,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
                         labels_padded=base_batch["labels"],
                         qvk_format="thd",
                         cp_rank=cp_rank,
-                        cp_world_size=cp_group.size(),
+                        cp_world_size=cp_size,
                     )[0],
                     "labels": _split_batch_by_cp_rank(
                         cu_seqlens_padded=base_batch["cu_seq_lens_q_padded"],
@@ -476,14 +445,16 @@ def test_dataloader_scatter_with_pad_between_seqs():
                         labels_padded=base_batch["labels"],
                         qvk_format="thd",
                         cp_rank=cp_rank,
-                        cp_world_size=cp_group.size(),
+                        cp_world_size=cp_size,
                     )[1],
                 },
             )
-            for cp_rank in range(cp_group.size())
+            for cp_rank in range(cp_size)
         ]
-        loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=0)
-        loader_rank1 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_group, cp_rank=1)
+        cp_mesh_rank0 = _DummyDeviceMesh(size=cp_size, rank=0)
+        cp_mesh_rank1 = _DummyDeviceMesh(size=cp_size, rank=1)
+        loader_rank0 = ContextParallelDataLoaderWrapper(_DummyLoader(combined_batch), cp_mesh_rank0)
+        loader_rank1 = ContextParallelDataLoaderWrapper(None, cp_mesh_rank1)
 
         scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
         current_rank = {"value": None}
@@ -526,5 +497,499 @@ def test_dataloader_scatter_with_pad_between_seqs():
     torch.testing.assert_close(batch_dp1_cp1["input_ids"], torch.tensor([[10, 11, 14, 15]], dtype=torch.int64))
 
 
-if __name__ == "__main__":
-    unittest.main()
+def get_dummy_data_bshd_single_sequence(cp_size: int, seq_len: int = 8):
+    """Create dummy BSHD format data with a single sequence.
+
+    Args:
+        cp_size: The size of the context parallelism group.
+        seq_len: The sequence length (must be divisible by 2*cp_size).
+
+    Returns:
+        A dictionary containing input_ids and labels in BSHD format.
+    """
+    if seq_len % (2 * cp_size) != 0:
+        raise ValueError(f"seq_len ({seq_len}) must be divisible by 2*cp_size ({2 * cp_size})")
+
+    # Create a simple sequence: [1, 2, 3, ..., seq_len]
+    input_ids = torch.arange(1, seq_len + 1, dtype=torch.int64).unsqueeze(0)  # [1, seq_len]
+    labels = torch.arange(10, 10 + seq_len, dtype=torch.int64).unsqueeze(0)  # [1, seq_len]
+
+    return {
+        "input_ids": input_ids,
+        "labels": labels,
+    }
+
+
+def get_dummy_data_bshd_multiple_sequences(cp_size: int, batch_size: int = 2, seq_len: int = 8):
+    """Create dummy BSHD format data with multiple sequences.
+
+    Args:
+        cp_size: The size of the context parallelism group.
+        batch_size: The batch size.
+        seq_len: The sequence length (must be divisible by 2*cp_size).
+
+    Returns:
+        A dictionary containing input_ids and labels in BSHD format.
+    """
+    if seq_len % (2 * cp_size) != 0:
+        raise ValueError(f"seq_len ({seq_len}) must be divisible by 2*cp_size ({2 * cp_size})")
+
+    # Create sequences: each sequence starts at a different offset
+    input_ids_list = []
+    labels_list = []
+    for i in range(batch_size):
+        seq_input_ids = torch.arange(i * 100 + 1, i * 100 + seq_len + 1, dtype=torch.int64)
+        seq_labels = torch.arange(i * 1000 + 10, i * 1000 + seq_len + 10, dtype=torch.int64)
+        input_ids_list.append(seq_input_ids)
+        labels_list.append(seq_labels)
+
+    input_ids = torch.stack(input_ids_list)  # [batch_size, seq_len]
+    labels = torch.stack(labels_list)  # [batch_size, seq_len]
+
+    return {
+        "input_ids": input_ids,
+        "labels": labels,
+    }
+
+
+def test_split_batch_by_cp_rank_bshd_single_sequence():
+    """Test BSHD format splitting for a single sequence with CP=2.
+
+    For a sequence of length 8 with CP=2:
+    - Total chunks = 2 * 2 = 4
+    - Chunk size = 8 / 4 = 2
+    - CP rank 0 gets chunks [0, 3]: indices [0:2] and [6:8] -> [1,2,7,8]
+    - CP rank 1 gets chunks [1, 2]: indices [2:4] and [4:6] -> [3,4,5,6]
+    """
+    cp_size = 2
+    seq_len = 8
+    batch = get_dummy_data_bshd_single_sequence(cp_size=cp_size, seq_len=seq_len)
+
+    # Test CP rank 0
+    input_ids_cp0, labels_cp0 = _split_batch_by_cp_rank(
+        cu_seqlens_padded=None,
+        input_ids_padded=batch["input_ids"],
+        labels_padded=batch["labels"],
+        qvk_format="bshd",
+        cp_rank=0,
+        cp_world_size=cp_size,
+    )
+
+    # CP rank 0 should get chunks [0, 3]: [1,2] and [7,8]
+    expected_input_ids_cp0 = torch.tensor([[1, 2, 7, 8]], dtype=torch.int64)
+    expected_labels_cp0 = torch.tensor([[10, 11, 16, 17]], dtype=torch.int64)
+
+    torch.testing.assert_close(input_ids_cp0, expected_input_ids_cp0)
+    torch.testing.assert_close(labels_cp0, expected_labels_cp0)
+
+    # Test CP rank 1
+    input_ids_cp1, labels_cp1 = _split_batch_by_cp_rank(
+        cu_seqlens_padded=None,
+        input_ids_padded=batch["input_ids"],
+        labels_padded=batch["labels"],
+        qvk_format="bshd",
+        cp_rank=1,
+        cp_world_size=cp_size,
+    )
+
+    # CP rank 1 should get chunks [1, 2]: [3,4] and [5,6]
+    expected_input_ids_cp1 = torch.tensor([[3, 4, 5, 6]], dtype=torch.int64)
+    expected_labels_cp1 = torch.tensor([[12, 13, 14, 15]], dtype=torch.int64)
+
+    torch.testing.assert_close(input_ids_cp1, expected_input_ids_cp1)
+    torch.testing.assert_close(labels_cp1, expected_labels_cp1)
+
+
+def test_split_batch_by_cp_rank_bshd_multiple_sequences():
+    """Test BSHD format splitting for multiple sequences with CP=2.
+
+    For batch_size=2, seq_len=8 with CP=2:
+    - Each sequence is split independently
+    - Sequence 0: [1,2,3,4,5,6,7,8] (i=0, starts at 0*100+1=1)
+    - Sequence 1: [101,102,103,104,105,106,107,108] (i=1, starts at 1*100+1=101)
+    - CP rank 0 gets chunks [0, 3] from each sequence
+    - CP rank 1 gets chunks [1, 2] from each sequence
+    """
+    cp_size = 2
+    batch_size = 2
+    seq_len = 8
+    batch = get_dummy_data_bshd_multiple_sequences(cp_size=cp_size, batch_size=batch_size, seq_len=seq_len)
+
+    # Test CP rank 0
+    input_ids_cp0, labels_cp0 = _split_batch_by_cp_rank(
+        cu_seqlens_padded=None,
+        input_ids_padded=batch["input_ids"],
+        labels_padded=batch["labels"],
+        qvk_format="bshd",
+        cp_rank=0,
+        cp_world_size=cp_size,
+    )
+
+    # CP rank 0 should get chunks [0, 3] from each sequence
+    # Sequence 0: [1,2] and [7,8] -> [1,2,7,8]
+    # Sequence 1: [101,102] and [107,108] -> [101,102,107,108]
+    expected_input_ids_cp0 = torch.tensor([[1, 2, 7, 8], [101, 102, 107, 108]], dtype=torch.int64)
+    expected_labels_cp0 = torch.tensor([[10, 11, 16, 17], [1010, 1011, 1016, 1017]], dtype=torch.int64)
+
+    torch.testing.assert_close(input_ids_cp0, expected_input_ids_cp0)
+    torch.testing.assert_close(labels_cp0, expected_labels_cp0)
+
+    # Test CP rank 1
+    input_ids_cp1, labels_cp1 = _split_batch_by_cp_rank(
+        cu_seqlens_padded=None,
+        input_ids_padded=batch["input_ids"],
+        labels_padded=batch["labels"],
+        qvk_format="bshd",
+        cp_rank=1,
+        cp_world_size=cp_size,
+    )
+
+    # CP rank 1 should get chunks [1, 2] from each sequence
+    # Sequence 0: [3,4] and [5,6] -> [3,4,5,6]
+    # Sequence 1: [103,104] and [105,106] -> [103,104,105,106]
+    expected_input_ids_cp1 = torch.tensor([[3, 4, 5, 6], [103, 104, 105, 106]], dtype=torch.int64)
+    expected_labels_cp1 = torch.tensor([[12, 13, 14, 15], [1012, 1013, 1014, 1015]], dtype=torch.int64)
+
+    torch.testing.assert_close(input_ids_cp1, expected_input_ids_cp1)
+    torch.testing.assert_close(labels_cp1, expected_labels_cp1)
+
+
+def test_split_batch_by_cp_rank_bshd_cp4():
+    """Test BSHD format splitting with CP=4.
+
+    For a sequence of length 16 with CP=4:
+    - Total chunks = 2 * 4 = 8
+    - Chunk size = 16 / 8 = 2
+    - CP rank 0 gets chunks [0, 7]: [1,2] and [15,16]
+    - CP rank 1 gets chunks [1, 6]: [3,4] and [13,14]
+    - CP rank 2 gets chunks [2, 5]: [5,6] and [11,12]
+    - CP rank 3 gets chunks [3, 4]: [7,8] and [9,10]
+    """
+    cp_size = 4
+    seq_len = 16
+    batch = get_dummy_data_bshd_single_sequence(cp_size=cp_size, seq_len=seq_len)
+
+    # Test each CP rank
+    for cp_rank in range(cp_size):
+        input_ids_shard, labels_shard = _split_batch_by_cp_rank(
+            cu_seqlens_padded=None,
+            input_ids_padded=batch["input_ids"],
+            labels_padded=batch["labels"],
+            qvk_format="bshd",
+            cp_rank=cp_rank,
+            cp_world_size=cp_size,
+        )
+
+        # Verify shape: should be [1, 4] (batch_size=1, 2 chunks * chunk_size=2)
+        assert input_ids_shard.shape == (1, 4), (
+            f"CP rank {cp_rank}: expected shape (1, 4), got {input_ids_shard.shape}"
+        )
+        assert labels_shard.shape == (1, 4), f"CP rank {cp_rank}: expected shape (1, 4), got {labels_shard.shape}"
+
+        # Verify that all values are unique (no duplicates)
+        unique_values = torch.unique(input_ids_shard)
+        assert len(unique_values) == 4, f"CP rank {cp_rank}: expected 4 unique values, got {len(unique_values)}"
+
+    # Verify that all ranks together reconstruct the original sequence
+    all_shards = []
+    for cp_rank in range(cp_size):
+        input_ids_shard, _ = _split_batch_by_cp_rank(
+            cu_seqlens_padded=None,
+            input_ids_padded=batch["input_ids"],
+            labels_padded=batch["labels"],
+            qvk_format="bshd",
+            cp_rank=cp_rank,
+            cp_world_size=cp_size,
+        )
+        all_shards.append(input_ids_shard.squeeze(0))
+
+    # Concatenate all shards
+    reconstructed = torch.cat(all_shards)
+    # Sort to compare with original (chunks are interleaved)
+    reconstructed_sorted = torch.sort(reconstructed)[0]
+    original_sorted = torch.sort(batch["input_ids"].squeeze(0))[0]
+
+    torch.testing.assert_close(reconstructed_sorted, original_sorted)
+
+
+def test_split_batch_by_cp_rank_bshd_3d_tensor():
+    """Test BSHD format splitting for 3D tensors (e.g., [batch, seq_len, hidden_dim]).
+
+    This tests that the function works correctly for tensors with more than 2 dimensions.
+    """
+    cp_size = 2
+    batch_size = 2
+    seq_len = 8
+    hidden_dim = 128
+
+    # Create 3D tensors
+    input_ids = torch.randn(batch_size, seq_len, hidden_dim)
+    labels = torch.randn(batch_size, seq_len, hidden_dim)
+
+    # Test CP rank 0
+    input_ids_cp0, labels_cp0 = _split_batch_by_cp_rank(
+        cu_seqlens_padded=None,
+        input_ids_padded=input_ids,
+        labels_padded=labels,
+        qvk_format="bshd",
+        cp_rank=0,
+        cp_world_size=cp_size,
+    )
+
+    # Should split along seq_len dimension (dim=1)
+    # CP rank 0 gets chunks [0, 3]: indices [0:2] and [6:8]
+    expected_shape = (batch_size, 4, hidden_dim)  # 2 chunks * chunk_size=2
+    assert input_ids_cp0.shape == expected_shape, f"Expected shape {expected_shape}, got {input_ids_cp0.shape}"
+    assert labels_cp0.shape == expected_shape, f"Expected shape {expected_shape}, got {labels_cp0.shape}"
+
+    # Verify the chunks are correct by checking indices
+    # First chunk should be original[:, 0:2, :]
+    torch.testing.assert_close(input_ids_cp0[:, 0:2, :], input_ids[:, 0:2, :])
+    # Second chunk should be original[:, 6:8, :]
+    torch.testing.assert_close(input_ids_cp0[:, 2:4, :], input_ids[:, 6:8, :])
+
+    # Test CP rank 1
+    input_ids_cp1, labels_cp1 = _split_batch_by_cp_rank(
+        cu_seqlens_padded=None,
+        input_ids_padded=input_ids,
+        labels_padded=labels,
+        qvk_format="bshd",
+        cp_rank=1,
+        cp_world_size=cp_size,
+    )
+
+    assert input_ids_cp1.shape == expected_shape
+    # CP rank 1 gets chunks [1, 2]: indices [2:4] and [4:6]
+    torch.testing.assert_close(input_ids_cp1[:, 0:2, :], input_ids[:, 2:4, :])
+    torch.testing.assert_close(input_ids_cp1[:, 2:4, :], input_ids[:, 4:6, :])
+    torch.testing.assert_close(labels_cp1[:, 0:2, :], labels[:, 2:4, :])
+    torch.testing.assert_close(labels_cp1[:, 2:4, :], labels[:, 4:6, :])
+
+
+def test_bshd_and_thd_equivalence(tokenizer):
+    """Test that BSHD and THD formats produce equivalent CP shards for real protein sequences.
+
+    This test verifies that when we shard data for context parallelism using both BSHD and THD
+    formats, the actual protein tokens (excluding padding) end up on the same CP ranks.
+
+    For CP=2, each sequence is split into 4 chunks (2*cp_size). Each CP rank gets 2 chunks:
+    - CP rank 0 gets chunks [0, 3] (first and last)
+    - CP rank 1 gets chunks [1, 2] (middle)
+    """
+    cp_size = 2
+    divisibility_factor = 2 * cp_size  # = 4
+
+    # Use proteins with lengths that will result in clean padding
+    protein1 = "MKTAYIAKQRQISFVKSHFSRQLEERLGLL"  # 30 AA -> 32 tokens with special tokens
+    protein2 = "MSHHWGYGKHNGPEHWHKDFPIAKGERFLL"  # 30 AA -> 32 tokens with special tokens
+
+    tok1 = tokenizer(protein1, add_special_tokens=True)
+    tok2 = tokenizer(protein2, add_special_tokens=True)
+
+    # For BSHD format: pad each sequence to same length (multiple of divisibility_factor)
+    # We need the pad length to match what THD will use
+    assert len(tok1["input_ids"]) == len(tok2["input_ids"])
+    assert len(tok1["input_ids"]) % divisibility_factor == 0
+
+    # Create BSHD collator - no MLM masking to make comparison deterministic
+    data_collator_bshd_base = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,
+    )
+    batch_bshd = data_collator_bshd_base([tok1, tok2])
+
+    # Create THD collator with per-sequence padding for CP
+    data_collator_thd = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        pad_sequences_to_be_divisible_by=divisibility_factor,
+    )
+    batch_thd = data_collator_thd([tok1, tok2])
+
+    # Verify the unsharded batches have the expected structure
+    # BSHD: [batch_size, seq_len] with padding at the end of each sequence
+    assert batch_bshd["input_ids"].shape[0] == 2, "BSHD batch should have 2 sequences"
+    # THD: [1, total_tokens] with sequences concatenated
+    assert batch_thd["input_ids"].shape[0] == 1, "THD batch should have batch_size=1"
+
+    # Get sequence lengths for THD
+    cu_seqlens_padded = batch_thd["cu_seq_lens_q_padded"]
+    seq_lengths_thd = cu_seqlens_padded[1:] - cu_seqlens_padded[:-1]
+
+    # Now split both formats by CP rank and verify equivalence
+    for cp_rank in range(cp_size):
+        # Split BSHD batch
+        bshd_input_ids, bshd_labels = _split_batch_by_cp_rank(
+            cu_seqlens_padded=None,
+            input_ids_padded=batch_bshd["input_ids"],
+            labels_padded=batch_bshd["labels"],
+            qvk_format="bshd",
+            cp_rank=cp_rank,
+            cp_world_size=cp_size,
+        )
+
+        # Split THD batch
+        thd_input_ids, thd_labels = _split_batch_by_cp_rank(
+            cu_seqlens_padded=batch_thd["cu_seq_lens_q_padded"],
+            input_ids_padded=batch_thd["input_ids"],
+            labels_padded=batch_thd["labels"],
+            qvk_format="thd",
+            cp_rank=cp_rank,
+            cp_world_size=cp_size,
+        )
+
+        # Extract per-sequence shards from THD format
+        # THD shards should match BSHD shards when extracted per-sequence
+        thd_seq1_shard_len = seq_lengths_thd[0].item() // (2 * cp_size) * 2
+        thd_seq2_shard_len = seq_lengths_thd[1].item() // (2 * cp_size) * 2
+
+        thd_seq1_shard = thd_input_ids[0, :thd_seq1_shard_len]
+        thd_seq2_shard = thd_input_ids[0, thd_seq1_shard_len : thd_seq1_shard_len + thd_seq2_shard_len]
+
+        # Compare BSHD sequence shards with THD sequence shards
+        bshd_seq1_shard = bshd_input_ids[0]
+        bshd_seq2_shard = bshd_input_ids[1]
+
+        # The tokens should match (accounting for any padding differences)
+        torch.testing.assert_close(
+            bshd_seq1_shard,
+            thd_seq1_shard,
+            msg=f"CP rank {cp_rank}: Sequence 1 shards don't match between BSHD and THD",
+        )
+        torch.testing.assert_close(
+            bshd_seq2_shard,
+            thd_seq2_shard,
+            msg=f"CP rank {cp_rank}: Sequence 2 shards don't match between BSHD and THD",
+        )
+
+    # Verify that all CP ranks together reconstruct the original sequences
+    all_bshd_shards_seq1 = []
+    all_bshd_shards_seq2 = []
+    for cp_rank in range(cp_size):
+        bshd_input_ids, _ = _split_batch_by_cp_rank(
+            cu_seqlens_padded=None,
+            input_ids_padded=batch_bshd["input_ids"],
+            labels_padded=batch_bshd["labels"],
+            qvk_format="bshd",
+            cp_rank=cp_rank,
+            cp_world_size=cp_size,
+        )
+        all_bshd_shards_seq1.append(bshd_input_ids[0])
+        all_bshd_shards_seq2.append(bshd_input_ids[1])
+
+    # Sort and verify all tokens are present
+    reconstructed_seq1 = torch.cat(all_bshd_shards_seq1)
+    reconstructed_seq2 = torch.cat(all_bshd_shards_seq2)
+
+    torch.testing.assert_close(
+        torch.sort(reconstructed_seq1)[0],
+        torch.sort(batch_bshd["input_ids"][0])[0],
+        msg="Reconstructed sequence 1 doesn't match original",
+    )
+    torch.testing.assert_close(
+        torch.sort(reconstructed_seq2)[0],
+        torch.sort(batch_bshd["input_ids"][1])[0],
+        msg="Reconstructed sequence 2 doesn't match original",
+    )
+
+
+@pytest.mark.parametrize("cp_world_size", [2, 4])
+def test_data_collator_for_context_parallel_returns_correct_list_size(tokenizer, cp_world_size):
+    """Test that DataCollatorForContextParallel returns a list of the correct size."""
+    divisibility_factor = 2 * cp_world_size
+
+    # Create the wrapped collator that produces padded THD batches
+    base_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15),
+        pad_sequences_to_be_divisible_by=divisibility_factor,
+    )
+
+    # Create the context parallel collator
+    cp_collator = DataCollatorForContextParallel(collator=base_collator, cp_world_size=cp_world_size)
+
+    # Create test sequences
+    features = [
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2]},  # 9 tokens
+    ]
+
+    # Call the collator
+    result = cp_collator(features)
+
+    # Assert that the result is a list of the correct size
+    assert isinstance(result, list), f"Expected list, got {type(result)}"
+    assert len(result) == cp_world_size, f"Expected list of size {cp_world_size}, got {len(result)}"
+
+
+def test_data_collator_for_context_parallel_thd(tokenizer):
+    """Test that each shard from DataCollatorForContextParallel has all required keys from BatchType."""
+
+    cp_world_size = 2
+    divisibility_factor = 2 * cp_world_size
+
+    # Create the wrapped collator that produces padded THD batches
+    base_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15),
+        pad_sequences_to_be_divisible_by=divisibility_factor,
+    )
+
+    # Create the context parallel collator
+    cp_collator = DataCollatorForContextParallel(collator=base_collator, cp_world_size=cp_world_size)
+
+    # Create test sequences
+    features = [
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2]},  # 9 tokens
+    ]
+
+    # Call the collator
+    result = cp_collator(features)
+
+    assert len(result) == cp_world_size, f"Expected list of size {cp_world_size}, got {len(result)}"
+
+    # Define the required keys from BatchType
+    required_keys = set(BatchType.__annotations__.keys())
+
+    # Assert each shard has all required keys
+    for cp_rank, shard in enumerate(result):
+        assert set(shard.keys()) == required_keys, (
+            f"CP rank {cp_rank}: difference: {set(shard.keys()) - required_keys}"
+        )
+
+
+def test_data_collator_for_context_parallel_bshd(tokenizer):
+    """Test that each shard from DataCollatorForContextParallel has all required keys from BatchType."""
+
+    cp_world_size = 2
+    divisibility_factor = 2 * cp_world_size
+
+    # Create the wrapped collator that produces padded THD batches
+    base_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm_probability=0.15,
+        pad_to_multiple_of=divisibility_factor,
+    )
+
+    # Create the context parallel collator
+    cp_collator = DataCollatorForContextParallel(
+        collator=base_collator, cp_world_size=cp_world_size, qkv_format="bshd"
+    )
+
+    # Create test sequences
+    features = [
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2]},  # 9 tokens
+    ]
+
+    # Call the collator
+    result = cp_collator(features)
+
+    assert len(result) == cp_world_size, f"Expected list of size {cp_world_size}, got {len(result)}"
+
+    # Define the required keys from BatchType
+    required_keys = {"input_ids", "labels", "max_length_q", "max_length_k"}
+
+    # Assert each shard has all required keys
+    for cp_rank, shard in enumerate(result):
+        assert set(shard.keys()) == required_keys, (
+            f"CP rank {cp_rank}: expected keys {required_keys}, got {set(shard.keys())}"
+        )

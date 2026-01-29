@@ -14,10 +14,13 @@
 # limitations under the License.
 
 import logging
+from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
+import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig
 from torch.distributed.device_mesh import init_device_mesh
@@ -52,6 +55,25 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
+    # TE Debug feature logging
+    if args.fp8_stats_config.enabled and not args.fp8_config.enabled:
+        raise ValueError(
+            "fp8_stats_config.enabled is true but fp8_config.enabled is false, please set fp8_config.enabled to true in the config if you wish to collect FP8 stats"
+        )
+
+    if args.fp8_stats_config.enabled:
+        fp8_stats_file = args.fp8_stats_config.fp8_stats_file
+        fp8_log_dir = Path(args.fp8_stats_config.fp8_log_dir) / f"rank_{dist_config.rank}"
+        fp8_log_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Logging FP8 stats to {fp8_log_dir}")
+        te_features_dir = str(Path(transformer_engine.__file__).parent / "debug" / "features")
+        debug_api.initialize(
+            config_file=fp8_stats_file,
+            feature_dirs=[te_features_dir],
+            log_dir=fp8_log_dir,
+            default_logging_enabled=True,
+        )
+
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
     # and MFSDP.
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
@@ -82,6 +104,9 @@ def main(args: DictConfig) -> float | None:
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+
+    if args.fp8_stats_config.enabled:
+        debug_api.infer_and_assign_layer_names(model)
 
     model = model.to(device=device)
     model = torch.nn.parallel.DistributedDataParallel(
@@ -119,50 +144,62 @@ def main(args: DictConfig) -> float | None:
 
     # Training loop
     step = start_step
+    micro_step = 0  # Gradient accumulation step counter
     while step < args.num_train_steps:
         for batch in train_dataloader:
+            print(batch["input_ids"].shape)
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW2901
 
-            # Forward pass with mixed precision.
-            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
-                outputs = model(**batch)
+            micro_step += 1
+            # Use no_sync to prevent gradient synchronization until the last microbatch
+            with model.no_sync() if micro_step % args.grad_acc_steps != 0 else nullcontext():
+                # Forward pass with mixed precision.
+                with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+                    outputs = model(**batch)
 
-            # Backward pass.
-            loss = outputs.loss
-            loss.backward()
+                # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
+                loss = outputs.loss / args.grad_acc_steps
+                loss.backward()
 
-            # Compute and clip gradient norms.
-            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+                # Log microbatch step data for accumulation metrics
+                perf_logger.log_micro_step(batch=batch, outputs=outputs)
+            if args.fp8_stats_config.enabled:
+                debug_api.step()
 
-            # Step optimizer.
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
+            # Gradient accumulation - only step optimizer after accumulating gradients
+            if micro_step % args.grad_acc_steps == 0:
+                micro_step = 0
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
+                # Compute and clip gradient norms.
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
-            if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
-                save_checkpoint_ddp(
-                    model=model,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    ckpt_path=ckpt_path,
+                # Step optimizer.
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+
+                perf_logger.log_step(
                     step=step,
-                    epoch=epoch,
-                    dist_config=dist_config,
-                    dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                    max_checkpoints=args.checkpoint.max_checkpoints,
+                    grad_norm=total_norm,
+                    lr=optimizer.param_groups[0]["lr"],
                 )
 
-            step += 1
-            if step >= args.num_train_steps:
-                break
+                if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
+                    save_checkpoint_ddp(
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        ckpt_path=ckpt_path,
+                        step=step,
+                        epoch=epoch,
+                        dist_config=dist_config,
+                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                        max_checkpoints=args.checkpoint.max_checkpoints,
+                    )
+
+                step += 1
+                if step >= args.num_train_steps:
+                    break
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1
@@ -178,6 +215,8 @@ def main(args: DictConfig) -> float | None:
 
     # Clean up distributed training
     perf_logger.finish()
+    if args.fp8_stats_config.enabled:
+        debug_api.end_debug()
     torch.distributed.destroy_process_group()
 
     return perf_logger.min_loss

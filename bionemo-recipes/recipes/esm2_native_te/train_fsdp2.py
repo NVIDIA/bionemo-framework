@@ -18,7 +18,9 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import nvdlfw_inspect.api as debug_api
 import torch
+import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
@@ -55,6 +57,25 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
+    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
+    if args.fp8_stats_config.enabled and not args.fp8_config.enabled:
+        raise ValueError(
+            "fp8_stats_config.enabled is true but fp8_config.enabled is false, please set fp8_config.enabled to true in the config if you wish to collect FP8 stats"
+        )
+
+    if args.fp8_stats_config.enabled:
+        fp8_stats_file = args.fp8_stats_config.fp8_stats_file
+        fp8_log_dir = Path(args.fp8_stats_config.fp8_log_dir) / f"rank_{dist_config.rank}"
+        fp8_log_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Logging FP8 stats to {fp8_log_dir}")
+        te_features_dir = str(Path(transformer_engine.__file__).parent / "debug" / "features")
+        debug_api.initialize(
+            config_file=fp8_stats_file,
+            feature_dirs=[te_features_dir],
+            log_dir=fp8_log_dir,
+            default_logging_enabled=True,
+        )
+
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh(
         "cuda",
@@ -86,17 +107,28 @@ def main(args: DictConfig) -> float | None:
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
+
     for layer in transformer_stack:
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
 
+    # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
+    # Note, this should happen before we create the optimizer.
+    if args.use_meta_device:
+        if hasattr(model, "init_empty_weights"):
+            # TE layers require special handling to initialize the weights from the meta device.
+            model.init_empty_weights()
+        else:
+            model.to_empty(device=device)
+            model.apply(model._init_weights)
+
+    # Assign names to layers so debug API can identify them
+    if args.fp8_stats_config.enabled:
+        debug_api.infer_and_assign_layer_names(model)
+
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
-
-    if args.use_meta_device:
-        model.to_empty(device=device)
-        model.apply(model._init_weights)
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
     train_dataloader, dataset_or_sampler = (
@@ -146,6 +178,10 @@ def main(args: DictConfig) -> float | None:
             # Step optimizer.
             optimizer.step()
             scheduler.step()
+
+            if args.fp8_stats_config.enabled:
+                debug_api.step()
+
             optimizer.zero_grad()
 
             perf_logger.log_step(
@@ -187,6 +223,8 @@ def main(args: DictConfig) -> float | None:
 
     # Clean up distributed training
     perf_logger.finish()
+    if args.fp8_stats_config.enabled:
+        debug_api.end_debug()
     torch.distributed.destroy_process_group()
 
     return perf_logger.min_loss

@@ -47,6 +47,15 @@ runs on NVIDIA's compute resources.
 - If a pull request is opened by an untrusted user or contains untrusted changes, an NVIDIA org member must leave an
   `/ok to test` comment on the pull request to trigger CI. This will need to be done for each new commit.
 
+#### Triggering Code Rabbit AI Review
+
+To trigger a code review from code rabbit, comment on a pull request with one of these commands:
+
+- @coderabbitai review - Triggers a standard review
+- @coderabbitai full review - Triggers a comprehensive review
+
+See https://docs.coderabbit.ai/reference/review-commands for a full list of commands.
+
 ### Pre-submit Checklist
 
 <!--- Ensure all items are completed before submitting -->

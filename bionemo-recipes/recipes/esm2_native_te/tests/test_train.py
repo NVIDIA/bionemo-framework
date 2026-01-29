@@ -143,6 +143,46 @@ def test_sanity_ddp_fp8(tmp_path, recipe_path):
 
 
 @requires_fp8
+def test_sanity_ddp_fp8_stats_logging(tmp_path, recipe_path):
+    """Test that FP8 stats logging creates the expected log files."""
+    fp8_log_dir = tmp_path / "fp8_stats_logs"
+
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "fp8_stats_config.enabled=true",
+                f"fp8_stats_config.fp8_log_dir={fp8_log_dir}",
+                "num_train_steps=4",
+            ],
+        )
+
+    main_ddp(sanity_config)
+
+    # Verify the log directory structure was created
+    assert fp8_log_dir.exists(), "FP8 log directory was not created"
+    assert (fp8_log_dir / "rank_0").exists(), "rank_0 directory was not created"
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs").exists(), "nvdlfw_inspect_logs directory was not created"
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs").exists(), (
+        "nvdlfw_inspect_statistics_logs directory was not created"
+    )
+
+    # Verify the log files exist
+    metadata_log = fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs" / "nvdlfw_inspect_globalrank-0.log"
+    stats_log = fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs" / "nvdlfw_inspect_globalrank-0.log"
+
+    assert metadata_log.exists(), "Metadata log file was not created"
+    assert stats_log.exists(), "Statistics log file was not created"
+
+    # Verify files are non-empty
+    assert metadata_log.stat().st_size > 0, "Metadata log file is empty"
+    assert stats_log.stat().st_size > 0, "Statistics log file is empty"
+
+
+@requires_fp8
 def test_sanity_convergence_fsdp2_fp8(tmp_path, recipe_path):
     """For FSDP2, we check that the script can run successfully with FP8 and check convergence."""
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
@@ -157,6 +197,32 @@ def test_sanity_convergence_fsdp2_fp8(tmp_path, recipe_path):
 
     final_loss = main_fsdp2(sanity_config)
     assert final_loss < 3.0, f"Final loss {final_loss} is too high"
+
+
+@requires_fp8
+def test_sanity_fsdp2_fp8_stats_logging(tmp_path, recipe_path):
+    """Test that FP8 stats logging works with FSDP2."""
+    fp8_log_dir = tmp_path / "fp8_stats_logs"
+
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "fp8_config.enabled=true",
+                "fp8_stats_config.enabled=true",
+                f"fp8_stats_config.fp8_log_dir={fp8_log_dir}",
+                "num_train_steps=4",
+            ],
+        )
+
+    main_fsdp2(sanity_config)
+
+    # Verify log structure (same assertions as above)
+    assert fp8_log_dir.exists()
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs" / "nvdlfw_inspect_globalrank-0.log").exists()
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs" / "nvdlfw_inspect_globalrank-0.log").exists()
 
 
 @requires_fp8

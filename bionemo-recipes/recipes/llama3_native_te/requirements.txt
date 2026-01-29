@@ -9,3 +9,4 @@ transformer_engine[pytorch]
 transformers
 wandb
 zstandard
+nvdlfw_inspect @ git+https://github.com/NVIDIA/nvidia-dlfw-inspect

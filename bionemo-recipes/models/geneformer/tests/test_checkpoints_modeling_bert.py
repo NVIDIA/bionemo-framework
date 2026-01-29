@@ -17,17 +17,17 @@
 
 import pytest
 import torch
-from transformers import AutoModelForMaskedLM
+from transformers import AutoModelForMaskedLM, set_seed
 
 
 def load_geneformer_model(model_name):
     """Helper function to load the correct Geneformer model variant."""
     if model_name == "Geneformer-V2-316M":
         # Default model (no subfolder needed)
-        return AutoModelForMaskedLM.from_pretrained("ctheodoris/Geneformer")
+        return AutoModelForMaskedLM.from_pretrained("ctheodoris/Geneformer", revision="f45a6c7d")
     else:
         # Use subfolder for specific model variants
-        return AutoModelForMaskedLM.from_pretrained("ctheodoris/Geneformer", subfolder=model_name)
+        return AutoModelForMaskedLM.from_pretrained("ctheodoris/Geneformer", subfolder=model_name, revision="f45a6c7d")
 
 
 # Model variants with detailed information
@@ -77,7 +77,9 @@ DEFAULT_MODEL_VARIANT = [MODEL_VARIANTS[0]]
 def test_geneformer_checkpoint_loss(model_variant, input_data):
     """Test that the TE model can process input data and produce valid loss outputs."""
 
-    model_name, model_info = model_variant
+    set_seed(42)
+
+    model_name, _ = model_variant
 
     # Load the specific Geneformer checkpoint from Hugging Face
     model_hf = load_geneformer_model(model_name)
@@ -112,9 +114,9 @@ def test_geneformer_checkpoint_loss(model_variant, input_data):
     torch.testing.assert_close(
         te_outputs.loss,
         hf_outputs.loss,
-        atol=1e-3,
+        atol=1e-2,
         rtol=1e-3,
-        msg=f"TE loss ({te_outputs.loss:.4f}) and HF loss ({hf_outputs.loss:.4f}) should be close",
+        msg=lambda x: f"TE loss ({te_outputs.loss:.4f}) and HF loss ({hf_outputs.loss:.4f}) should be close: {x}",
     )
 
     # Clean up

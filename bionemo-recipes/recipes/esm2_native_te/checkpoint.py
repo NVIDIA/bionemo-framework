@@ -124,7 +124,7 @@ def load_checkpoint_ddp(
     checkpoint = torch.load(
         checkpoint_path / "checkpoint.pt",
         map_location=f"cuda:{dist_config.local_rank}",
-        weights_only=False,
+        weights_only=True,
     )
 
     model.load_state_dict(checkpoint["model"])
@@ -240,7 +240,7 @@ def load_checkpoint_mfsdp(
     }
     torch.distributed.checkpoint.load(state_dict=ckpt_state_dict, checkpoint_id=checkpoint_path)
 
-    model.load_state_dict(ckpt_state_dict["model"])
+    model.load_state_dict(ckpt_state_dict["model"], strict=False)
     optimizer.load_state_dict(ckpt_state_dict["optimizer"])
     scheduler.load_state_dict(ckpt_state_dict["scheduler"])
     dataloader = load_dataloader(dataloader, checkpoint_path, dist_config)

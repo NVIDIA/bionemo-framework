@@ -124,7 +124,7 @@ def load_checkpoint_ddp(
     checkpoint = torch.load(
         checkpoint_path / "checkpoint.pt",
         map_location=f"cuda:{dist_config.local_rank}",
-        weights_only=False,
+        weights_only=True,
     )
 
     model.load_state_dict(checkpoint["model"])
@@ -328,13 +328,15 @@ def save_checkpoint_fsdp2(
         )
         logger.info(f"Saved FSDP2 dataloader to {ckpt_path}")
 
-    # If we're using asynchronous checkpointing, make sure we only have one checkpoint future at a time.
-    if async_save and "fsdp2" in _ckpt_futures and _ckpt_futures["fsdp2"] is not None:
-        _ckpt_futures["fsdp2"].result()
-
     state_dict = {"app": AppState(model=model, optimizer=optimizer, scheduler=scheduler, step=step, epoch=epoch)}
-    ckpt_save_func = dcp_async_save if async_save else dcp_save
-    _ckpt_futures["fsdp2"] = ckpt_save_func(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
+    if async_save:
+        # If we're using asynchronous checkpointing, make sure we only have one checkpoint future at a time.
+        if "fsdp2" in _ckpt_futures and _ckpt_futures["fsdp2"] is not None:
+            _ckpt_futures["fsdp2"].result()
+
+        _ckpt_futures["fsdp2"] = dcp_async_save(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
+    else:
+        dcp_save(state_dict, checkpoint_id=checkpoint_path, process_group=process_group)
 
     if max_checkpoints is not None and dist_config.is_main_process():
         prune_checkpoints(ckpt_path, max_checkpoints)

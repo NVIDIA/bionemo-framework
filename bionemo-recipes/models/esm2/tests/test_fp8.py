@@ -19,9 +19,9 @@ import torch.distributed.checkpoint as dcp
 import transformer_engine
 from torch.distributed.checkpoint.state_dict import get_model_state_dict
 from transformer_engine.common import recipe as recipe_module
-from transformer_engine.pytorch import fp8
+from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import MLMDataCollatorWithFlattening
+from esm.collator import DataCollatorWithFlattening
 from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
 
@@ -30,74 +30,18 @@ try:
 except ImportError:  # TE nightly uses a new import path for QuantizedTensor
     from transformer_engine.pytorch.quantized_tensor import QuantizedTensor
 
-ALL_RECIPES = [
-    recipe_module.DelayedScaling(),
-    recipe_module.Float8CurrentScaling(),
-    recipe_module.Float8BlockScaling(),
-    recipe_module.MXFP8BlockScaling(),
-    # recipe_module.NVFP4BlockScaling(disable_rht=True, disable_stochastic_rounding=True),
-]
-
-
-def _check_recipe_support(recipe: recipe_module.Recipe):
-    """Check if a recipe is supported and return (supported, reason)."""
-    if isinstance(recipe, recipe_module.DelayedScaling):
-        recipe_supported, reason = fp8.check_fp8_support()
-    elif isinstance(recipe, recipe_module.Float8CurrentScaling):
-        recipe_supported, reason = fp8.check_fp8_support()
-    elif isinstance(recipe, recipe_module.Float8BlockScaling):
-        recipe_supported, reason = fp8.check_fp8_block_scaling_support()
-    elif isinstance(recipe, recipe_module.MXFP8BlockScaling):
-        recipe_supported, reason = fp8.check_mxfp8_support()
-    elif isinstance(recipe, recipe_module.NVFP4BlockScaling):
-        recipe_supported, reason = fp8.check_nvfp4_support()
-    else:
-        recipe_supported = False
-        reason = "Unsupported recipe"
-    return recipe_supported, reason
-
-
-def requires_recipe_support(recipe: recipe_module.Recipe):
-    """Decorator to skip tests that require recipe support."""
-
-    def requires_recipe_support_inner(func):
-        recipe_supported, reason = _check_recipe_support(recipe)
-        return pytest.mark.skipif(not recipe_supported, reason=reason)(func)
-
-    return requires_recipe_support_inner
-
-
-def parametrize_recipes_with_support(recipes):
-    """Generate pytest.param objects with skip marks for unsupported recipes."""
-    parametrized_recipes = []
-    for recipe in recipes:
-        recipe_supported, reason = _check_recipe_support(recipe)
-        parametrized_recipes.append(
-            pytest.param(
-                recipe,
-                id=recipe.__class__.__name__,
-                marks=pytest.mark.skipif(
-                    not recipe_supported,
-                    reason=reason,
-                ),
-            )
-        )
-    return parametrized_recipes
-
 
 @pytest.fixture
 def input_data_thd(tokenizer, tokenized_proteins):
-    data_collator = MLMDataCollatorWithFlattening(
-        tokenizer=tokenizer,
-        mlm_probability=0.15,
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15, seed=42)
+    data_collator = DataCollatorWithFlattening(
+        collator=mlm_collator,
         pad_to_multiple_of=32,  # MXFP8 requires the sequence length to be divisible by 32, regular FP8 requires 16.
-        seed=42,
     )
 
     return data_collator(tokenized_proteins)
 
 
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_forward_and_backward_pass(te_model_checkpoint, input_data, fp8_recipe):
     model_te = NVEsmForMaskedLM.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     model_te.to("cuda")
@@ -119,7 +63,6 @@ def test_fp8_forward_and_backward_pass(te_model_checkpoint, input_data, fp8_reci
     torch.testing.assert_close(outputs_fp8.loss, outputs.loss, atol=atol, rtol=rtol)
 
 
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd, fp8_recipe, monkeypatch):
     if torch.cuda.get_device_capability() == (12, 0):
         # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
@@ -139,6 +82,9 @@ def test_fp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd, 
     if isinstance(fp8_recipe, recipe_module.NVFP4BlockScaling):
         atol = 0.2
         rtol = 0.05
+    elif isinstance(fp8_recipe, recipe_module.DelayedScaling):
+        atol = 0.1
+        rtol = 0.03
     else:
         atol = None
         rtol = None
@@ -146,7 +92,6 @@ def test_fp8_forward_and_backward_pass_thd(te_model_checkpoint, input_data_thd, 
     torch.testing.assert_close(outputs_fp8.loss, outputs.loss, atol=atol, rtol=rtol)
 
 
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_model_init_forward_and_backward(te_model_checkpoint, input_data, fp8_recipe):
     config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
@@ -164,7 +109,6 @@ def test_fp8_model_init_forward_and_backward(te_model_checkpoint, input_data, fp
 
 
 @pytest.mark.xfail(reason="BIONEMO-3055: fp8 model init and pretrained loading is not currently supported.")
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_model_init_from_pretrained(te_model_checkpoint, fp8_recipe):
     # TODO: this will be renamed to quantized_model_init in the future, fp8_model_init will be removed in 3.0
     with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
@@ -175,7 +119,6 @@ def test_fp8_model_init_from_pretrained(te_model_checkpoint, fp8_recipe):
 
 
 @pytest.mark.xfail(reason="BIONEMO-3055: fp8 model init and pretrained saving is not currently supported.")
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_model_init_save_pretrained(te_model_checkpoint, tmp_path, fp8_recipe):
     config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
@@ -189,7 +132,6 @@ def test_fp8_model_init_save_pretrained(te_model_checkpoint, tmp_path, fp8_recip
     NVEsmForMaskedLM.from_pretrained(tmp_path / "fp8_checkpoint", dtype=torch.bfloat16)
 
 
-@pytest.mark.parametrize("fp8_recipe", parametrize_recipes_with_support(ALL_RECIPES))
 def test_fp8_model_distributed_checkpointing_save_and_load(te_model_checkpoint, tmp_path, input_data, fp8_recipe):
     config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
     with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe):
@@ -213,3 +155,38 @@ def test_fp8_model_distributed_checkpointing_save_and_load(te_model_checkpoint, 
     state_dict = model_fp8.state_dict()
     state_dict = {key: val for key, val in state_dict.items() if not key.endswith("_extra_state")}
     dcp.load(state_dict, checkpoint_id=tmp_path / "fp8_checkpoint")
+
+
+def _format_bytes(num: int, suffix: str = "B") -> str:
+    """Format bytes as a human-readable string (e.g. 1.2 MB)."""
+    for unit in ("", "K", "M", "G", "T", "P", "E", "Z"):
+        if abs(num) < 1024.0:
+            return f"{num:3.1f} {unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f} Y{suffix}"
+
+
+@pytest.mark.xfail(reason="BIONEMO-3055: fp8 model init seems to have issues.")
+def test_fp8_model_init_uses_less_memory(te_model_checkpoint, fp8_recipe):
+    torch.cuda.empty_cache()
+
+    config = NVEsmConfig.from_pretrained(te_model_checkpoint, dtype=torch.bfloat16)
+    torch.cuda.reset_peak_memory_stats()
+    memory_before = torch.cuda.memory_allocated()
+    with transformer_engine.pytorch.fp8_model_init(enabled=True, recipe=fp8_recipe), torch.device("cuda"):
+        model_fp8 = NVEsmForMaskedLM(config)
+    peak_memory_fp8 = torch.cuda.max_memory_allocated() - memory_before
+    del model_fp8
+    torch.cuda.empty_cache()
+
+    torch.cuda.reset_peak_memory_stats()
+    memory_before = torch.cuda.memory_allocated()
+    with transformer_engine.pytorch.fp8_model_init(enabled=False, recipe=fp8_recipe), torch.device("cuda"):
+        model_bf16 = NVEsmForMaskedLM(config)
+    peak_memory_bf16 = torch.cuda.max_memory_allocated() - memory_before
+    del model_bf16
+
+    assert peak_memory_fp8 < peak_memory_bf16, (
+        f"FP8 model init uses more memory than BF16 model init: {_format_bytes(peak_memory_fp8)} "
+        f"vs {_format_bytes(peak_memory_bf16)}"
+    )

@@ -1,9 +1,11 @@
-accelerate @ git+https://github.com/huggingface/accelerate.git  # Until huggingface/accelerate#3852 is released.
+accelerate
 datasets
 deepspeed
 hydra-core
+lm-eval
 megatron-fsdp
 peft
+pytest
 torch
 torchao!=0.14.0
 torchdata
@@ -14,3 +16,5 @@ transformers
 typer
 wandb
 zstandard
+nvdlfw_inspect @ git+https://github.com/NVIDIA/nvidia-dlfw-inspect
+seaborn

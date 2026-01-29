@@ -53,7 +53,7 @@ def test_load_pytorch_checkpoint_with_map_location(tmp_path):
         mock_torch_load.return_value = checkpoint_data
         load_checkpoint(str(checkpoint_path), map_location="cuda:0")
 
-        mock_torch_load.assert_called_once_with(str(checkpoint_path), map_location="cuda:0", weights_only=False)
+        mock_torch_load.assert_called_once_with(str(checkpoint_path), map_location="cuda:0", weights_only=True)
 
 
 def test_load_safetensors_directory(tmp_path):

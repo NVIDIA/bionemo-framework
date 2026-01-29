@@ -43,6 +43,7 @@ class NVLlamaConfig(LlamaConfig):
     """NVLlama configuration."""
 
     attn_input_format: str = "thd"
+    self_attn_mask_type: str = "padding_causal"
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -53,56 +54,39 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
     _no_split_modules = ("TransformerLayer",)
     _skip_keys_device_placement = ("past_key_values",)
 
+    def init_empty_weights(self):
+        """Handles moving the model from the meta device to the cuda device and initializing the weights."""
+        # For TE layers, calling `reset_parameters` is sufficient to move them to the cuda device and apply the weight
+        # initialization we passed them during module creation.
+        for module in self.modules():
+            if hasattr(module, "reset_parameters"):
+                module.reset_parameters()
+
+        # The esm.embeddings layer is the only non-TE layer in this model we need to deal with. We use
+        # `model._init_weights` rather than `reset_parameters` to ensure we honor the original config standard
+        # deviation.
+        self.model.embed_tokens.to_empty(device="cuda")
+        self.model.embed_tokens.apply(self._init_weights)
+
+        self.model.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=self.model.config).inv_freq.to("cuda")
+
+        # Meta-device init seems to break weight tying, so we re-tie the weights here.
+        self.tie_weights()
+
     def _init_weights(self, module):
         """Initialize module weights.
 
-        This method ensures that models with randomly-initialized weights get the correct initial value distribution,
-        which can be critical for training stability. We also call this method directly when using meta-device init, as
-        the `to_empty` method does not initialize the weights. While the base Transformers model has a similar method,
-        we need to extend it to handle TE-specific modules.
-
-        Args:
-            module (nn.Module): The module to initialize the weights for.
+        We only use this method for standard pytorch modules, TE modules handle their own weight initialization through
+        `init_method` parameters and the `reset_parameters` method.
         """
+        if module.__module__.startswith("transformer_engine.pytorch"):
+            # Notably, we need to avoid calling this method for TE modules, since the default _init_weights will assume
+            # any class with `LayerNorm` in the name should have weights initialized to 1.0; breaking `LayerNormLinear`
+            # and `LayerNormMLP` modules that use `weight` for the linear layer and `layer_norm_weight` for the layer
+            # norm.
+            return
+
         super()._init_weights(module)
-
-        # Copied from transformers.modeling_utils.PreTrainedModel._init_weights
-        if hasattr(self.config, "initializer_range"):
-            std = self.config.initializer_range
-        else:
-            # 0.02 is the standard default value across the library
-            std = getattr(self.config.get_text_config(), "initializer_range", 0.02)
-
-        if isinstance(
-            module, (nn.Linear, transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)
-        ):
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.bias is not None:
-                module.bias.data.zero_()
-        if isinstance(module, transformer_engine.pytorch.LayerNorm):
-            if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
-            if hasattr(module, "bias") and module.bias is not None:
-                module.bias.data.zero_()
-        if isinstance(module, transformer_engine.pytorch.RMSNorm):
-            if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
-        if isinstance(module, transformer_engine.pytorch.LayerNormLinear):
-            module.layer_norm_weight.data.fill_(1.0)
-            if module.layer_norm_bias is not None:
-                module.layer_norm_bias.data.zero_()
-        if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
-            module.layer_norm_weight.data.fill_(1.0)
-            if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
-                module.fc1_weight.data.normal_(mean=0.0, std=std)
-            if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
-                module.fc2_weight.data.normal_(mean=0.0, std=std)
-            if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
-                module.fc1_bias.data.zero_()
-            if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
-                module.fc2_bias.data.zero_()
-        if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
-            module.inv_freq = LlamaRotaryEmbedding(config=self.config).inv_freq.to(module.inv_freq.device)
 
 
 class NVLlamaModel(NVLlamaPreTrainedModel):
@@ -116,6 +100,10 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         self.vocab_size = config.vocab_size
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx, dtype=config.dtype)
+
+        def _init_method(x):
+            torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
+
         self.layers = nn.ModuleList(
             [
                 transformer_engine.pytorch.TransformerLayer(
@@ -131,15 +119,23 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                     normalization="RMSNorm",
                     activation="swiglu",
                     attn_input_format=config.attn_input_format,
-                    self_attn_mask_type="padding_causal",
+                    self_attn_mask_type=config.self_attn_mask_type,
                     num_gqa_groups=config.num_key_value_heads,
                     layer_number=layer_idx + 1,
                     params_dtype=config.dtype,
+                    device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+                    init_method=_init_method,
+                    output_layer_init_method=_init_method,
                 )
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
-        self.norm = transformer_engine.pytorch.RMSNorm(config.hidden_size, eps=config.rms_norm_eps, dtype=config.dtype)
+        self.norm = transformer_engine.pytorch.RMSNorm(
+            config.hidden_size,
+            eps=config.rms_norm_eps,
+            dtype=config.dtype,
+            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+        )
 
         # We use TE's RotaryPositionEmbedding, but we ensure that we use the same inv_freq as the original
         # LlamaRotaryEmbedding.
@@ -186,49 +182,32 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         hidden_states = inputs_embeds
 
+        # TE-specific input handling.
         has_thd_input = [x in kwargs for x in ["cu_seq_lens_q", "cu_seq_lens_k", "max_length_q", "max_length_k"]]
         should_pack_inputs = not any(has_thd_input) and self.config.attn_input_format == "thd"
 
-        # This might be slower for BSHD + padding with fused attention backend. But it should be faster for the flash
-        # attention backend.
-        self_attn_mask_type = "padding_causal"
         if should_pack_inputs:
-            # Left-side padding is not supported in TE layers, so to make generation work with TE we dynamically convert
-            # to THD-style inputs in our forward pass, and then convert back to BSHD for the output. This lets the
-            # entire transformer stack run in THD mode.
+            # Left-side padding is not supported in TE layers, so to make huggingface-style generation work with TE we
+            # dynamically convert to THD-style inputs in our forward pass, and then convert back to BSHD for the output.
+            # This lets the entire transformer stack run in THD mode. This might be slower for BSHD + padding with fused
+            # attention backend, but it should be faster for the flash attention backend.
             assert attention_mask is not None, "Attention mask is required when packing BSHD inputs."
             batch_size = hidden_states.size(0)
             hidden_states, indices, cu_seqlens, max_seqlen, _ = _unpad_input(hidden_states, attention_mask)
-            cu_seq_lens_q = cu_seq_lens_k = cu_seqlens
-            max_length_q = max_length_k = max_seqlen
+            kwargs["cu_seq_lens_q"] = kwargs["cu_seq_lens_k"] = cu_seqlens
+            kwargs["max_length_q"] = kwargs["max_length_k"] = max_seqlen
 
-        elif self.config.attn_input_format == "thd":
-            # Here, we're providing THD-style inputs, so we can just grab the kwargs.
-            assert hidden_states.dim() == 3 and hidden_states.size(0) == 1, (
-                "THD expects embeddings shaped [1, total_tokens, hidden_size]."
-            )
+        if self.config.attn_input_format == "thd" and hidden_states.dim() == 3 and hidden_states.size(0) == 1:
+            # For THD, the embedding output is a 3-dimensional tensor with shape [1, total_tokens, hidden_size], but TE
+            # expects a 2-dimensional tensor with shape [total_tokens, hidden_size].
             hidden_states = hidden_states.squeeze(0)
-            cu_seq_lens_q = kwargs["cu_seq_lens_q"]
-            cu_seq_lens_k = kwargs["cu_seq_lens_k"]
-            max_length_q = kwargs["max_length_q"]
-            max_length_k = kwargs["max_length_k"]
 
-        else:
-            if attention_mask is not None:
-                attention_mask = attention_mask[:, None, None, :] < -1
-            else:
-                self_attn_mask_type = "causal"
-            cu_seq_lens_q = cu_seq_lens_k = None
-            max_length_q = max_length_k = hidden_states.size(1)
+        if self.config.attn_input_format == "bshd" and attention_mask is not None and attention_mask.dim() == 2:
+            # If we're using padded BSHD inputs, we need to convert the 2-dimensional mask to a 4-dimensional mask in
+            # the expected boolean format for TE.
+            attention_mask = attention_mask[:, None, None, :] < -1
 
-        # If we're using kv-caching, we can't trust the max_length_q value as the true max length for rotary
-        # embeddings, since this will be 1 in generation. Instead we can take the max sequence length from the past
-        # key values object.
-        te_rope_emb = self.rotary_emb(
-            max_seq_len=max_length_q if past_key_values is None else past_key_values.max_ctx_len
-        )
-
-        if isinstance(past_key_values, InferenceParams):
+        if isinstance(past_key_values, InferenceParams):  # InferenceParams is TE's way of managing kv-caching.
             # In generation mode, we set the length to 1 for each batch index. Otherwise, we use the attention mask to
             # compute the lengths of each sequence in the batch.
             lengths = (
@@ -238,6 +217,10 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             )
             past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths)))
 
+        # Ensure that rotary embeddings are computed with at a higher precision
+        with torch.autocast(device_type="cuda", enabled=False):
+            te_rope_emb = self.rotary_emb(max_seq_len=self.config.max_position_embeddings)
+
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
@@ -246,12 +229,14 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                 hidden_states,
                 attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
                 rotary_pos_emb=te_rope_emb,
-                self_attn_mask_type=self_attn_mask_type,
                 inference_params=past_key_values,
-                cu_seqlens_q=cu_seq_lens_q,
-                cu_seqlens_kv=cu_seq_lens_k,
-                max_seqlen_q=max_length_q,
-                max_seqlen_kv=max_length_k,
+                cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
+                cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
+                cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
+                max_seqlen_q=kwargs.get("max_length_q", None),
+                max_seqlen_kv=kwargs.get("max_length_k", None),
+                pad_between_seqs=kwargs.get("pad_between_seqs", None),
             )
 
         hidden_states = self.norm(hidden_states)
@@ -263,7 +248,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         if should_pack_inputs:
             # If we've converted BSHD to THD for our TE layers, we need to convert back to BSHD for the output.
-            hidden_states = _pad_input(hidden_states, indices, batch_size, max_length_q)
+            hidden_states = _pad_input(hidden_states, indices, batch_size, max_seqlen)
 
         return BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
@@ -287,6 +272,8 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             config.vocab_size,
             bias=False,
             params_dtype=config.dtype,
+            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
         )
 
         # Initialize weights and apply final processing
@@ -338,10 +325,11 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
 
-        if hidden_states.ndim == 3:
-            logits = self.lm_head(hidden_states[:, slice_indices, :])
-        else:  # With THD inputs, batch and sequence dimensions are collapsed in the first dimension.
-            logits = self.lm_head(hidden_states[slice_indices, :])
+        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+            if hidden_states.ndim == 3:
+                logits = self.lm_head(hidden_states[:, slice_indices, :])
+            else:  # With THD inputs, batch and sequence dimensions are collapsed in the first dimension.
+                logits = self.lm_head(hidden_states[slice_indices, :])
 
         loss = None
         if labels is not None:
