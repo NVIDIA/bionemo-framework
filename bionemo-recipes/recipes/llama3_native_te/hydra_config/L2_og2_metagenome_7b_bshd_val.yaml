@@ -35,7 +35,7 @@ validation:
   num_batches: 40  # Number of batches per rank (matches John's --limit-val-batches 40)
   data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
   # Use same settings as training (inherits from dataset config)
-  micro_batch_size: null
+  micro_batch_size: 8
   max_seq_length: null
   stride: null
 
