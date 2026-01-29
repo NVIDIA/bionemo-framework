@@ -14,10 +14,13 @@
 # limitations under the License.
 
 import logging
+import math
+import random
 from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import numpy as np
 import torch
 
 
@@ -30,7 +33,7 @@ except ImportError:
     HAS_NVDLFW_INSPECT = False
 import transformer_engine
 import transformer_engine.pytorch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
@@ -50,6 +53,70 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def set_seed(seed: int) -> None:
+    """Set random seeds for reproducibility.
+
+    Args:
+        seed: Random seed (same on all ranks).
+    """
+    random.seed(seed)
+    np.random.seed(seed)  # noqa: NPY002
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    logger.info(f"Set seed to {seed}")
+
+
+def get_parameter_groups_with_weight_decay(
+    model: torch.nn.Module,
+    weight_decay: float,
+    skip_embeddings: bool = False,
+) -> list[dict]:
+    """Create parameter groups with proper weight decay filtering.
+
+    Follows Megatron convention:
+    - Skip weight decay on bias terms
+    - Skip weight decay on 1D parameters (LayerNorm/RMSNorm weights)
+    - Optionally skip weight decay on embedding layers
+
+    Args:
+        model: The model to get parameter groups from.
+        weight_decay: The weight decay value for parameters that should have decay.
+        skip_embeddings: Whether to skip weight decay on embedding layers.
+
+    Returns:
+        List of parameter group dicts for the optimizer.
+    """
+    decay_params = []
+    no_decay_params = []
+
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            continue
+
+        # Skip weight decay on:
+        # 1. Bias terms (name ends with 'bias')
+        # 2. 1D parameters (LayerNorm/RMSNorm weights)
+        # 3. Embedding layers (when skip_embeddings=True)
+        should_skip_decay = name.endswith(".bias") or param.dim() == 1 or (skip_embeddings and "embed" in name.lower())
+
+        if should_skip_decay:
+            no_decay_params.append(param)
+        else:
+            decay_params.append(param)
+
+    logger.info(
+        f"Weight decay groups: {len(decay_params)} params with decay, {len(no_decay_params)} params without decay"
+    )
+
+    return [
+        {"params": decay_params, "weight_decay": weight_decay},
+        {"params": no_decay_params, "weight_decay": 0.0},
+    ]
+
+
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train Llama3 with TE layers using DDP for genomic sequences.
@@ -63,6 +130,10 @@ def main(args: DictConfig) -> float | None:
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
+
+    # Set random seeds for reproducibility
+    seed = getattr(args, "seed", 42)
+    set_seed(seed)
 
     # TE Debug feature logging
     if args.fp8_stats_config.enabled:
@@ -85,18 +156,88 @@ def main(args: DictConfig) -> float | None:
         model_class = LlamaForCausalLM
 
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
-    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
+    # Convert DictConfig to regular dict to avoid JSON serialization issues in transformers logging
+    config_kwargs = OmegaConf.to_container(args.config_kwargs, resolve=True) if args.config_kwargs else {}
+
+    # Handle Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
+    # When enabled, embeddings are initialized with std=1.0 instead of 0.02 to prevent loss spikes.
+    if getattr(args, "spike_no_more_embedding_init", False):
+        config_kwargs["embedding_init_std"] = 1.0
+        config_kwargs["tie_word_embeddings"] = False  # Must not share embeddings with output weights
+        logger.info("Spike-No-More enabled: embedding_init_std=1.0, tie_word_embeddings=False")
+
+    # Handle Megatron-style scaled initialization for residual output layers
+    # When enabled, proj and fc2 use std/sqrt(2*num_layers) instead of std
+    if getattr(args, "use_megatron_scaled_init", False):
+        config_kwargs["use_megatron_scaled_init"] = True
+        logger.info("Megatron scaled init enabled: proj/fc2 use std/sqrt(2*num_layers)")
+
+    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **config_kwargs)
+
+    # Log initialization settings for debugging
+    std = getattr(config, "initializer_range", 0.02)
+    num_layers = getattr(config, "num_hidden_layers", 32)
+    use_scaled_init = getattr(args, "use_megatron_scaled_init", False)
+    expected_output_std = std / (2.0 * num_layers) ** 0.5 if use_scaled_init else std
+    embedding_init_std = getattr(config, "embedding_init_std", None)
+    expected_emb_std = embedding_init_std if embedding_init_std is not None else std
+
+    logger.info("=" * 80)
+    logger.info("[CONFIG] Initialization settings:")
+    logger.info(f"[CONFIG]   initializer_range (std) = {std}")
+    logger.info(f"[CONFIG]   use_megatron_scaled_init = {use_scaled_init}")
+    logger.info(f"[CONFIG]   num_hidden_layers = {num_layers}")
+    logger.info(f"[CONFIG]   expected_output_std (proj/fc2) = {expected_output_std:.6f}")
+    logger.info(f"[CONFIG]   embedding_init_std = {embedding_init_std}")
+    logger.info(f"[CONFIG]   expected_emb_std = {expected_emb_std}")
+    logger.info(f"[CONFIG]   spike_no_more_embedding_init = {getattr(args, 'spike_no_more_embedding_init', False)}")
+    logger.info("=" * 80)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
-    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
+    #
+    # If use_meta_device is True, we create the model on meta device first, then materialize weights.
+    # This is mainly for memory efficiency during large model initialization.
+    with (
+        torch.device("meta") if getattr(args, "use_meta_device", False) else nullcontext(),
+        transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs),
+    ):
         model = model_class(config)
 
     logger.info("Initialized Model:\n%s", model)
 
-    # Create optimizer.
-    optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
+    # If we're using meta device, we need to materialize weights before moving to device
+    if getattr(args, "use_meta_device", False):
+        if isinstance(model, NVLlamaForCausalLM):
+            # TE requires a special method to initialize the weights from the meta device.
+            logger.info("[INIT] Calling model.init_empty_weights()...")
+            model.init_empty_weights()
+        elif isinstance(model, LlamaForCausalLM):
+            model.to_empty(device=device)
+            model.apply(model._init_weights)
+
+    # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues.
+    adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
+
+    # Check if we should use weight decay grouping (skip decay on bias and 1D params)
+    use_wd_grouping = getattr(args, "use_weight_decay_grouping", True)
+
+    if use_wd_grouping:
+        # Megatron-style: skip weight decay on bias and 1D params (LayerNorm)
+        weight_decay = adamw_kwargs.pop("weight_decay", 0.1)
+        skip_embedding_wd = getattr(args, "skip_embedding_weight_decay", False)
+        param_groups = get_parameter_groups_with_weight_decay(
+            model=model,
+            weight_decay=weight_decay,
+            skip_embeddings=skip_embedding_wd,
+        )
+        optimizer = AdamW(param_groups, **adamw_kwargs)  # type: ignore
+        logger.info(f"Weight decay grouping enabled: wd={weight_decay}, skip_embeddings={skip_embedding_wd}")
+    else:
+        # Original behavior: same weight decay for all params
+        optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
+        logger.info(f"Weight decay grouping disabled: wd={adamw_kwargs.get('weight_decay', 0.1)} for all params")
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     if args.fp8_stats_config.enabled and HAS_NVDLFW_INSPECT:
@@ -137,12 +278,13 @@ def main(args: DictConfig) -> float | None:
     perf_logger = PerfLogger(dist_config, args)
 
     # Training loop
+    logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
     micro_step = 0  # Gradient accumulation step counter
+    logged_first_loss = False
     while step < args.num_train_steps:
         for batch in train_dataloader:
-            print(batch["input_ids"].shape)
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW2901
+            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
             micro_step += 1
             # Use no_sync to prevent gradient synchronization until the last microbatch
@@ -154,6 +296,26 @@ def main(args: DictConfig) -> float | None:
                 # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
                 loss = outputs.loss / args.grad_acc_steps
                 loss.backward()
+
+                # Log the first loss to verify initialization is producing reasonable outputs
+                if not logged_first_loss and dist_config.rank == 0:
+                    raw_loss = outputs.loss.item()
+                    # For a random init model with vocab_size, expect loss ~= ln(vocab_size)
+                    expected_random_loss = math.log(config.vocab_size)
+                    logger.info("=" * 80)
+                    logger.info("[FIRST_BATCH] First batch loss analysis:")
+                    logger.info(f"[FIRST_BATCH]   Raw loss = {raw_loss:.4f}")
+                    logger.info(
+                        f"[FIRST_BATCH]   Expected for random init (ln({config.vocab_size})) = {expected_random_loss:.4f}"
+                    )
+                    if raw_loss > expected_random_loss + 1.0:
+                        logger.warning("[FIRST_BATCH] ⚠️  Loss is higher than expected! May indicate init issue.")
+                    elif raw_loss < expected_random_loss - 1.0:
+                        logger.warning("[FIRST_BATCH] ⚠️  Loss is lower than expected! May indicate data issue.")
+                    else:
+                        logger.info("[FIRST_BATCH] ✓ Loss is in expected range for random initialization")
+                    logger.info("=" * 80)
+                    logged_first_loss = True
 
                 # Log microbatch step data for accumulation metrics
                 perf_logger.log_micro_step(batch=batch, outputs=outputs)

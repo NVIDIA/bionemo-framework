@@ -23,10 +23,10 @@ config_kwargs:
   max_position_embeddings: 8192
   initializer_range: 0.02
   attn_input_format: thd
-  # Use rope_parameters (transformers v5+) instead of rope_scaling
-  rope_parameters:
-    rope_type: "llama3"
-    rope_theta: 500000  # rotary_base from Eden - MUST be inside rope_parameters
+  # OLD-STYLE RoPE config for transformers <5.0
+  rope_theta: 500000  # rotary_base from Eden
+  rope_scaling:
+    type: "llama3"
     factor: 1
     low_freq_factor: 1
     high_freq_factor: 4
