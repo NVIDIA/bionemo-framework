@@ -24,12 +24,9 @@ import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import fully_shard
-from torch.optim import AdamW
+from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from transformer_engine.common.recipe import Format
-from transformers import AutoConfig, AutoModelForMaskedLM
-
-from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
+from transformer_engine.pytorch.optimizers import FusedAdam
 
 # This import seems to be needed with meta device init and AutoModel.from_config
 from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
@@ -37,6 +34,7 @@ from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
+from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 from perf_logger import PerfLogger
 from scheduler import get_linear_schedule_with_warmup
 
@@ -91,7 +89,12 @@ def main(args: DictConfig) -> float | None:
     else:
         print("No FP8 or FP4 config enabled, using default bfloat16")
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    bf16_layers = OmegaConf.to_container(args.bf16_layers, resolve=True) if args.bf16_layers is not None and args.fp4_config.enabled else None
+    bf16_layers = (
+        OmegaConf.to_container(args.bf16_layers, resolve=True)
+        if args.bf16_layers is not None and args.fp4_config.enabled
+        else None
+    )
+    # Keep master/optimizer weights in FP32 while computing in BF16 via FSDP mixed precision.
     config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.bfloat16, bf16_layers=bf16_layers)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
@@ -111,9 +114,14 @@ def main(args: DictConfig) -> float | None:
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
 
+    mp_policy = MixedPrecisionPolicy(
+        param_dtype=torch.float32,
+        reduce_dtype=torch.bfloat16,
+        output_dtype=torch.bfloat16,
+    )
     for layer in transformer_stack:
-        fully_shard(layer, mesh=device_mesh["dp"])
-    fully_shard(model, mesh=device_mesh["dp"])
+        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
+    fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
 
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     # Note, this should happen before we create the optimizer.
@@ -130,8 +138,26 @@ def main(args: DictConfig) -> float | None:
         debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    optimizer = FusedAdam(
+        model.parameters(),
+        master_weights=True,
+        master_weight_dtype=torch.float32,
+        lr=args.adamw_kwargs.lr,
+        betas=args.adamw_kwargs.betas,
+        eps=args.adamw_kwargs.eps,
+        weight_decay=args.adamw_kwargs.weight_decay,
+    )
+    # optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+
+    p = optimizer.param_groups[0]["params"][0]
+    state = optimizer.state[p]
+    import pdb
+
+    pdb.set_trace()
+    # print(state["master_params"].dtype)
+    # print(state["exp_avg"].dtype)
+    # print(state["exp_avg_sq"].dtype)
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
     train_dataloader, dataset_or_sampler = (
@@ -167,8 +193,16 @@ def main(args: DictConfig) -> float | None:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
-            fp_context = transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe) if args.fp8_config.enabled else nullcontext()
-            fp_context = transformer_engine.pytorch.autocast(enabled=True, recipe=fp4_recipe) if args.fp4_config.enabled else fp_context
+            fp_context = (
+                transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe)
+                if args.fp8_config.enabled
+                else nullcontext()
+            )
+            fp_context = (
+                transformer_engine.pytorch.autocast(enabled=True, recipe=fp4_recipe)
+                if args.fp4_config.enabled
+                else fp_context
+            )
             # Note: FOr NVFP4 it looks like its just autocast? https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html#FP8-autocasting
             # Forward pass with mixed precision.
             with fp_context:
