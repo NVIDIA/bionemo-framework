@@ -13,17 +13,62 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Simple vLLM inference example.
+"""vLLM ESM2 embedding example with weight name remapping.
 
-This script demonstrates vLLM's text generation API with a small decoder model.
+This script demonstrates how to run ESM2 embeddings with vLLM by monkey-patching
+the weight loading to fix the naming mismatch between the checkpoint and vLLM's
+TransformersForEmbedding wrapper.
 
-Note: vLLM's transformers backend requires transformers>=5.0.0.dev0 for encoder-only
-models (like ESM2, BERT). Until then, encoder models won't work with vLLM's
-transformers backend regardless of whether they use TransformerEngine or not.
+## The Problem
+
+vLLM wraps models in adapter classes (e.g., TransformersForEmbedding) which adds
+a "model." prefix to weight names. ESM2 checkpoints have weights like:
+    - esm.embeddings.word_embeddings.weight
+    - esm.encoder.layer.0.attention.self.query.weight
+
+But vLLM expects:
+    - model.esm.embeddings.word_embeddings.weight
+    - model.esm.encoder.layer.0.attention.self.query.weight
+
+## The Solution
+
+We monkey-patch vLLM's DefaultModelLoader.get_all_weights to add the "model."
+prefix when loading ESM2 weights. This must be done BEFORE importing vLLM's LLM class.
 """
 
-import torch
-from vllm import LLM, SamplingParams
+import os
+
+
+# =============================================================================
+# MONKEY-PATCH: Fix ESM2 weight naming for vLLM compatibility
+# This MUST be done before importing vLLM's LLM class
+# =============================================================================
+def _apply_esm2_weight_patch():
+    """Patch vLLM's weight loading to add 'model.' prefix for ESM2 models."""
+    from vllm.model_executor.model_loader.default_loader import DefaultModelLoader
+
+    _original_get_all_weights = DefaultModelLoader.get_all_weights
+
+    def _patched_get_all_weights(self, model_config, model):
+        """Wrap get_all_weights to add 'model.' prefix for ESM models."""
+        for name, weight in _original_get_all_weights(self, model_config, model):
+            # ESM2 weights start with "esm." or "lm_head." but vLLM expects "model." prefix
+            if name.startswith("esm.") or name.startswith("lm_head.") or name.startswith("contact_head."):
+                yield f"model.{name}", weight
+            else:
+                yield name, weight
+
+    DefaultModelLoader.get_all_weights = _patched_get_all_weights
+    print("Applied ESM2 weight naming patch for vLLM compatibility")
+
+
+# Apply the patch before importing LLM
+_apply_esm2_weight_patch()
+
+# Now import vLLM components (must be after patch, hence noqa)
+import numpy as np  # noqa: E402
+import torch  # noqa: E402
+from vllm import LLM  # noqa: E402
 
 
 if __name__ == "__main__":
@@ -31,30 +76,37 @@ if __name__ == "__main__":
     num_gpus = torch.cuda.device_count()
     print(f"Detected {num_gpus} GPU(s)")
 
-    # Use a small decoder model that vLLM natively supports
-    # tensor_parallel_size splits the model across GPUs
+    # Load ESM2 as a pooling/embedding model
     model = LLM(
-        model="Qwen/Qwen2.5-0.5B",
-        max_model_len=512,
-        tensor_parallel_size=num_gpus,  # Use all available GPUs
+        model="facebook/esm2_t12_35M_UR50D",
+        runner="pooling",
+        hf_token=os.getenv("HF_TOKEN"),
+        trust_remote_code=True,
     )
 
+    # Example protein sequences
     prompts = [
-        "The capital of France is",
-        "Machine learning is",
+        "LKGHAMCLGCLHMLMCGLLAGAMCGLMKLLKCCGKCLMHLMKAMLGLKCACHHHHLLLHACAAKKLCLGAKLAMGLKLLGAHGKGLKMACGHHMLHLHMH",
+        "CLLCCMHMHAHHCHGHGHKCKCLMMGMALMCAGCCACGMKGGCHCCLLAHCAHAKAGKGKCKLMCKKKHGLHAGLHAMLLCHLGLGCGHHHKKCKKHKCA",
     ]
 
-    sampling_params = SamplingParams(max_tokens=32, temperature=0.7)
-    outputs = model.generate(prompts, sampling_params)
+    print(f"\nGenerating embeddings for {len(prompts)} sequences...")
+    outputs = model.embed(prompts)
 
-    for prompt, output in zip(prompts, outputs):
-        generated = output.outputs[0].text
-        print(f"Prompt: {prompt}")
-        print(f"Generated: {generated}\n")
+    # Display results
+    for i, (prompt, output) in enumerate(zip(prompts, outputs)):
+        embedding = output.outputs.embedding
+        # Handle both list and numpy array types
+        if isinstance(embedding, list):
+            embedding = np.array(embedding)
+        print(f"\nSequence {i + 1}:")
+        print(f"  Length: {len(prompt)} amino acids")
+        print(f"  Embedding shape: {embedding.shape}")
+        print(f"  First 5 dims: {embedding[:5].tolist()}")
 
-    # Cleanup: explicitly delete model to trigger proper shutdown
+    print("\nSUCCESS: ESM2 embeddings generated with vLLM!")
+
+    # Cleanup
     del model
-
-    # Cleanup distributed process group if initialized
     if torch.distributed.is_initialized():
         torch.distributed.destroy_process_group()

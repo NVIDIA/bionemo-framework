@@ -31,7 +31,9 @@ vLLM fails with:
     for encoder models support, but got 4.57.1
 
 This is a vLLM limitation - encoder-only models are not yet supported in the
-transformers backend until transformers 5.0+ is released and integrated.
+transformers backend until transformers 5.0+ is released and integrated. However,
+manually installing Transformers 5.0 does not work either as there are breaking changes
+that are not fixed in vLLM. Seems to be a version mismatch.
 
 ### Issue 2: NVIDIA TE model has weight naming mismatch (additional issue)
 

@@ -1,4 +1,4 @@
-FROM nvcr.io/nvidia/vllm:25.12.post1-py3
+FROM nvcr.io/nvidia/vllm:26.01-py3
 
 # The vLLM image has CUDA 13.1 runtime and nvcc, but missing dev headers (cusparse.h, nvtx, etc.)
 # Install cuda-keyring to add NVIDIA's apt repo, then install the dev headers for transformer_engine
