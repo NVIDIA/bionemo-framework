@@ -81,7 +81,12 @@ class Evo2DatasetTokenizer:
             else:
                 t_fixed = t
             # Tokenize the string.
-            text_ids: list = self.tokenizer.text_to_ids(t_fixed)
+            if hasattr(self.tokenizer, "text_to_ids"):
+                # Handle the legacy NeMo2 style tokenizer.
+                text_ids: list = self.tokenizer.text_to_ids(t_fixed)
+            else:
+                # Handle the new Megatron-Bridge style tokenizer.
+                text_ids: list = self.tokenizer.tokenize(t_fixed)
             if drop_empty_sequences and len(text_ids) == 0:
                 continue
             # Append EOD token (EOD ID: 0) if appropriate.
