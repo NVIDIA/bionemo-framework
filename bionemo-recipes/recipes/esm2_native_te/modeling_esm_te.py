@@ -166,6 +166,7 @@ class NVEsmEncoder(nn.Module):
                 for i in range(config.num_hidden_layers)
             ]
         )
+        self.layer_number_quantized_recipe_map = None
         self.emb_layer_norm_after = transformer_engine.pytorch.LayerNorm(
             config.hidden_size,
             eps=config.layer_norm_eps,
@@ -200,20 +201,17 @@ class NVEsmEncoder(nn.Module):
             te_rope_emb = self.rotary_embeddings(max_seq_len=self.config.max_position_embeddings)
             te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
 
-        # Set some layers to BF16. (28-33) (This will be from a config later).
-        # TODO: Also make sure this is only for FP4, not FP8
-        layers_to_bf16 = set()
-        if self.config.bf16_layers is not None:
-            layers_to_bf16 = set(self.layers[layer_idx] for layer_idx in self.config.bf16_layers)
-
-        for layer_module in self.layers:
-            if layer_module in layers_to_bf16:
-                fp_context = transformer_engine.pytorch.autocast(enabled=False)
-            else:
-                fp_context = nullcontext()
+        # Utilize the layer number quantized recipe map to determine the context for each layer.
+        for layer_number, layer_module in enumerate(self.layers):
+            fp_recipe = self.layer_number_quantized_recipe_map[layer_number] if layer_number in self.layer_number_quantized_recipe_map else None
 
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)
+            
+            if fp_recipe is not None:
+                fp_context = transformer_engine.pytorch.autocast(enabled=True, recipe=fp_recipe)
+            else:
+                fp_context = nullcontext()
 
             with fp_context:
                 hidden_states = layer_module(

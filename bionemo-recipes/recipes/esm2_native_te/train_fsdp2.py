@@ -84,15 +84,16 @@ def main(args: DictConfig) -> float | None:
         fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
             fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
         )
-    elif args.fp4_config.enabled:
+    
+    if args.fp4_config.enabled:
         fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
             fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
         )
-    else:
-        print("No FP8 or FP4 config enabled, using default bfloat16")
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    bf16_layers = OmegaConf.to_container(args.bf16_layers, resolve=True) if args.bf16_layers is not None and args.fp4_config.enabled else None
-    config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.bfloat16, bf16_layers=bf16_layers)
+    fp8_layers = OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None and args.fp8_config.enabled else None
+    fp4_layers = OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None and args.fp4_config.enabled else None
+
+    config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -112,9 +113,21 @@ def main(args: DictConfig) -> float | None:
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
 
     for layer in transformer_stack:
-        fully_shard(layer, mesh=device_mesh["dp"])
+        fully_shard(layer, mesh=device_mesh["dp"]) # TODO: Update mixed precision policy to set it to FP#2
     fully_shard(model, mesh=device_mesh["dp"])
 
+    # Create a layer map for the transformer stack.
+    layer_number_quantized_recipe_map = {}
+    for layer_number, layer in enumerate(transformer_stack):
+        
+        if layer_number in fp8_layers:
+            layer_number_quantized_recipe_map[layer_number] = fp8_recipe
+        elif layer_number in fp4_layers:
+            layer_number_quantized_recipe_map[layer_number] = fp4_recipe
+        else:
+            layer_number_quantized_recipe_map[layer_number] = None
+
+    model.esm.encoder.layer_number_quantized_recipe_map = layer_number_quantized_recipe_map
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     # Note, this should happen before we create the optimizer.
     if args.use_meta_device:
@@ -167,11 +180,12 @@ def main(args: DictConfig) -> float | None:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
-            fp_context = transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe) if args.fp8_config.enabled else nullcontext()
-            fp_context = transformer_engine.pytorch.autocast(enabled=True, recipe=fp4_recipe) if args.fp4_config.enabled else fp_context
+            
             # Note: FOr NVFP4 it looks like its just autocast? https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html#FP8-autocasting
             # Forward pass with mixed precision.
-            with fp_context:
+            # Make the FP context just MXFP8. Then use NVFP4 for certain layers.
+            # with fp_context: #TODO: I think I can get rid of this, and just do it inside forward.
+            with transformer_engine.pytorch.autocast():
                 outputs = model(**batch)
 
             # Backward pass.

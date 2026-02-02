@@ -19,10 +19,18 @@ checkpoint:
   ckpt_dir: "checkpoints/esm2_t33_650M_UR50D_sanity"
 
 # Layers explicitly set to BF16 in case of NVFP4 training.
-bf16_layers:
+fp8_layers:
   - 27
   - 28
   - 29
   - 30
   - 31
   - 32
+
+fp4_layers:
+  - 0
+  - 14
+  - 15
+  - 16
+
+use_fp32_optimizer_weights: true

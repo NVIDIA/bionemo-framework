@@ -113,7 +113,7 @@ def main(args: DictConfig) -> float | None:
         device_ids=[dist_config.local_rank],
         output_device=dist_config.local_rank,
         device_mesh=device_mesh["ddp"],
-    )
+    ) #TODO: Try BF16 compute weights with FP32 master weights here.
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
     train_dataloader, dataset_or_sampler = (
