@@ -40,7 +40,7 @@
 - ESM2 LoRA model inference issue resolved. https://github.com/NVIDIA/bionemo-framework/pull/996
 - Added experimental evo2-mamba model. https://github.com/NVIDIA/bionemo-framework/pull/888
 - Updated base Docker image to [nvidia-pytorch 25.06-py3](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch/tags)
-- NCCL issue in ESM2 pretraing resolved. https://github.com/NVIDIA/bionemo-framework/issues/970
+- NCCL issue in ESM2 pretraining resolved. https://github.com/NVIDIA/bionemo-framework/issues/970
 
 ### What's Changed
 
@@ -86,7 +86,7 @@
 
 ### Updates & Improvements
 
-- Fixes around ESM2 pretraining and funetuning checkpoints.
+- Fixes around ESM2 pretraining and finetuning checkpoints.
 - Added sanity dataset for AMPLIFY testing.
 - Tested against A100 [brev](https://developer.nvidia.com/brev) instances.
 - Update `tornado` package to `>6.5.0` to fix container CVEs.

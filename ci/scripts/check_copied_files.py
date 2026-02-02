@@ -50,6 +50,9 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     "bionemo-recipes/models/llama3/nucleotide_fast_tokenizer": [
         "bionemo-recipes/recipes/llama3_native_te/tokenizers/nucleotide_fast_tokenizer",
     ],
+    "bionemo-recipes/recipes/esm2_native_te/fp8_debugging.py": [
+        "bionemo-recipes/recipes/llama3_native_te/fp8_debugging.py",
+    ],
 }
 
 

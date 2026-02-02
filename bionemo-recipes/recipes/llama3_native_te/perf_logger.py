@@ -17,6 +17,7 @@ import logging
 import time
 from pathlib import Path
 
+import nvdlfw_inspect.api as debug_api
 import torch
 import torchmetrics
 import wandb
@@ -100,6 +101,9 @@ class PerfLogger:
         self.running_moe_dropped_tokens = 0.0
         self.running_moe_capacity = 0.0
 
+        # Whether to step debug_api.step() after each step
+        self.fp8_stats_enabled = args.fp8_stats_config.enabled
+
     def log_micro_step(self, batch: dict[str, torch.Tensor], outputs: CausalLMOutputWithPast):
         """Store data on micro step for gradient accumulation metrics.
 
@@ -165,6 +169,9 @@ class PerfLogger:
         if self._profiler is not None:
             self._profiler.step()
 
+        if self.fp8_stats_enabled:
+            debug_api.step()
+
         if step % self.logging_frequency == 0 and step > 0:
             memory_allocated = torch.cuda.memory_allocated() / (1024**3)
             self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)
@@ -203,6 +210,9 @@ class PerfLogger:
 
         wandb.finish()
         self._progress_bar.close()
+
+        if self.fp8_stats_enabled:
+            debug_api.end_debug()
 
 
 def setup_profiler(args: DictConfig, wandb_run: wandb.Run):

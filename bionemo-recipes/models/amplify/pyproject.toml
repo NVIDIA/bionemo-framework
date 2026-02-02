@@ -18,7 +18,7 @@ dependencies = [
     "pytest",
     "torch==2.6.0a0+ecf3bae40a.nv25.01",
     "transformer_engine[pytorch]",
-    "transformers",
+    "transformers<5.0",
     "xformers",
 ]
 

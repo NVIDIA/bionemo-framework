@@ -16,6 +16,7 @@
 import logging
 import time
 
+import nvdlfw_inspect.api as debug_api
 import torch
 import torchmetrics
 import torchmetrics.text
@@ -74,6 +75,9 @@ class PerfLogger:
             wandb.init(**args.wandb_init_args, config=self._run_config)
             self._progress_bar = tqdm(total=args.num_train_steps, desc="Training")
 
+        # Whether to step debug_api.step() after each step
+        self.fp8_stats_enabled = args.fp8_stats_config.enabled
+
     def log_step(
         self,
         step: int,
@@ -112,6 +116,9 @@ class PerfLogger:
 
         self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
 
+        if self.fp8_stats_enabled:
+            debug_api.step()
+
         if step % self.logging_frequency == 0 and step > 0:
             memory_allocated = torch.cuda.memory_allocated() / (1024**3)
             self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)
@@ -136,3 +143,6 @@ class PerfLogger:
 
         wandb.finish()
         self._progress_bar.close()
+
+        if self.fp8_stats_enabled:
+            debug_api.end_debug()

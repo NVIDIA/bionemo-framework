@@ -58,7 +58,7 @@ wandb_init_args:
 # these should match the keys in the recipe's config file
 model_tag: nvidia/esm2_t36_650M_UR50D
 # task_cmd: train_fsdp2 # mfsdp
-num_train_steps: 20_000
+num_train_steps: 10_000
 # dataset commands
 micro_batch_size: 16
 load_dataset_kwargs_path: nvidia/esm2_uniref_pretraining_data
@@ -67,7 +67,7 @@ load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995 # pragma:
 num_workers: 1
 
 # lr commands
-num_warmup_steps: 2_000
+num_warmup_steps: 1_000
 # checkpoint controls
 ckpt_dir: ""
 save_checkpoints: false
@@ -91,16 +91,16 @@ products:
     wandb_name: "esm2_native_650m__fsdp2__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
     job_name: "esm2-native-650m-fsdp2-thd"
   # OSS Convergence Baseline
-  - config: L1_650M
-    model_tag: facebook/esm2_t33_650M_UR50D
-    num_nodes: 8
-    num_devices: 8
-    task_cmd: train_fsdp2
-    parallelism_strategy: fsdp2
-    thd_enabled: false
-    micro_batch_size: 32
-    wandb_name: "esm2_native_650m__fsdp2__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "esm2-native-650m-fsdp2"
+  # - config: L1_650M
+  #   model_tag: facebook/esm2_t33_650M_UR50D
+  #   num_nodes: 8
+  #   num_devices: 8
+  #   task_cmd: train_fsdp2
+  #   parallelism_strategy: fsdp2
+  #   thd_enabled: false
+  #   micro_batch_size: 32
+  #   wandb_name: "esm2_native_650m__fsdp2__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+  #   job_name: "esm2-native-650m-fsdp2"
 
 ############################################################
 # run script

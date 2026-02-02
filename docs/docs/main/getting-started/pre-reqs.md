@@ -3,7 +3,7 @@
 Before you begin using the BioNeMo Framework, ensure the hardware and software prerequisites outlined below are
 met.
 
-## Hardware Prequisites
+## Hardware Prerequisites
 
 The BioNeMo Framework is compatible with environments that have access to NVIDIA GPUs. `bfloat16` precision requires an
 Ampere generation GPU or higher ([Compute Capability ≥8.0](https://developer.nvidia.com/cuda-gpus)). You may be able

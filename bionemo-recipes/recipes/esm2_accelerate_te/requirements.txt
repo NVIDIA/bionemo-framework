@@ -5,5 +5,5 @@ hydra-core
 torchao!=0.14.0
 torchmetrics
 transformer_engine[pytorch]
-transformers
+transformers<5.0
 wandb
