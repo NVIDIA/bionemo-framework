@@ -179,13 +179,9 @@ def main(args: DictConfig) -> float | None:
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
-
             
-            # Note: FOr NVFP4 it looks like its just autocast? https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html#FP8-autocasting
-            # Forward pass with mixed precision.
-            # Make the FP context just MXFP8. Then use NVFP4 for certain layers.
-            # with fp_context: #TODO: I think I can get rid of this, and just do it inside forward.
-            with transformer_engine.pytorch.autocast():
+            # Use an outer FP8 recipe.
+            with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
                 outputs = model(**batch)
 
             # Backward pass.

@@ -20,6 +20,14 @@ checkpoint:
 
 # Layers explicitly set to BF16 in case of NVFP4 training.
 fp8_layers:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
   - 27
   - 28
   - 29
@@ -28,9 +36,23 @@ fp8_layers:
   - 32
 
 fp4_layers:
-  - 0
+  - 9
+  - 10
+  - 11
+  - 12
+  - 13
   - 14
   - 15
   - 16
+  - 17
+  - 18
+  - 19
+  - 20
+  - 21
+  - 22
+  - 23
+  - 24
+  - 25
+  - 26
 
 use_fp32_optimizer_weights: true

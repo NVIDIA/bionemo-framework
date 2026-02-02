@@ -37,6 +37,7 @@ from transformers.modeling_outputs import (
     MaskedLMOutput,
     TokenClassifierOutput,
 )
+import transformer_engine.common.recipe
 from transformers.models.esm.configuration_esm import EsmConfig
 from transformers.models.esm.modeling_esm import EsmPooler, EsmPreTrainedModel
 from transformers.utils import logging
@@ -53,6 +54,13 @@ AUTO_MAP = {
     "AutoModelForMaskedLM": "esm_nv.NVEsmForMaskedLM",
     "AutoModelForTokenClassification": "esm_nv.NVEsmForTokenClassification",
 }
+
+# From https://github.com/NVIDIA/TransformerEngine/blob/3ceb248e01a2c0dc1215fe0f46ebc235f289ba0d/transformer_engine/common/recipe/__init__.py#L86
+FP8_RECIPES = (transformer_engine.common.recipe.MXFP8BlockScaling,
+                        transformer_engine.common.recipe.DelayedScaling,
+                        transformer_engine.common.recipe.Float8CurrentScaling,
+                        transformer_engine.common.recipe.Float8BlockScaling)
+FP4_RECIPES = (transformer_engine.common.recipe.NVFP4BlockScaling)
 
 
 class NVEsmConfig(EsmConfig):
@@ -208,10 +216,16 @@ class NVEsmEncoder(nn.Module):
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)
             
-            if fp_recipe is not None:
+            # If BF16 desired --> use autocast(false) so it goes to BF16.
+            # If FP8 desired --> use nullcontext so it uses upper context manager to FP8.
+            # If FP4 desired --> use autocast(true, recipe=fp4_recipe) so it uses FP4.
+            if isinstance(fp_recipe, FP8_RECIPES):
+                fp_context = nullcontext()
+            elif isinstance(fp_recipe, FP4_RECIPES):
                 fp_context = transformer_engine.pytorch.autocast(enabled=True, recipe=fp_recipe)
             else:
-                fp_context = nullcontext()
+                fp_context = transformer_engine.pytorch.autocast(enabled=False)
+            # TODO(@jomitchell): Double check that this works, make a funciton for it then unit test it.
 
             with fp_context:
                 hidden_states = layer_module(
