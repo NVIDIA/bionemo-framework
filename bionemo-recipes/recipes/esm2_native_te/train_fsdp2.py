@@ -22,10 +22,12 @@ import nvdlfw_inspect.api as debug_api
 import torch
 import transformer_engine
 import transformer_engine.pytorch
+
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import fully_shard
+from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.optim import AdamW
+
 from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 
@@ -93,7 +95,7 @@ def main(args: DictConfig) -> float | None:
     fp8_layers = OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None and args.fp8_config.enabled else None
     fp4_layers = OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None and args.fp4_config.enabled else None
 
-    config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.bfloat16)
+    config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.float32)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -112,9 +114,14 @@ def main(args: DictConfig) -> float | None:
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
 
+    mp_policy = MixedPrecisionPolicy(
+    param_dtype=torch.bfloat16,    # Cast params to BF16 for forward/backward
+    reduce_dtype=torch.bfloat16,   # Gradient reductions in BF16
+    output_dtype=torch.bfloat16,   # Forward output dtype
+    )
     for layer in transformer_stack:
-        fully_shard(layer, mesh=device_mesh["dp"]) # TODO: Update mixed precision policy to set it to FP#2
-    fully_shard(model, mesh=device_mesh["dp"])
+        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy) # TODO: Update mixed precision policy to set it to FP#2
+    fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
 
     # Create a layer map for the transformer stack.
     layer_number_quantized_recipe_map = {}
