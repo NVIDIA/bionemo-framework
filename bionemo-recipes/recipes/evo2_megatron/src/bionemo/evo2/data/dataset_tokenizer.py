@@ -27,8 +27,8 @@ from bionemo.evo2.utils.config import Evo2PreprocessingConfig
 
 
 REPO_BASE_DIR = Path(__file__).parent.parent.parent.parent.parent
-DEFAULT_HF_TOKENIZER_MODEL_PATH = REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_256"
-DEFAULT_HF_TOKENIZER_MODEL_PATH_512 = REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_512"
+DEFAULT_HF_TOKENIZER_MODEL_PATH = str(REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_256")
+DEFAULT_HF_TOKENIZER_MODEL_PATH_512 = str(REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_512")
 
 
 class Evo2DatasetTokenizer:
@@ -39,9 +39,9 @@ class Evo2DatasetTokenizer:
         # Pass all NeMo2/Megatron-compliant parameters associated with config.Evo2PreprocessingConfig.
         self.params: Evo2PreprocessingConfig = params if params is not None else Evo2PreprocessingConfig()
         if self.params.hf_tokenizer_model_path is not None:
-            hf_tokenizer_model_or_path = Path(self.params.hf_tokenizer_model_path)
-            hf_tokenizer_desc: str = hf_tokenizer_model_or_path.name
-            assert hf_tokenizer_model_or_path.exists(), (
+            hf_tokenizer_model_or_path = str(self.params.hf_tokenizer_model_path)
+            hf_tokenizer_desc: str = Path(hf_tokenizer_model_or_path).name
+            assert Path(hf_tokenizer_model_or_path).exists(), (
                 f"Hugging Face tokenizer model path {hf_tokenizer_model_or_path} does not exist."
             )
         elif self.params.hf_tokenizer_model_name is not None:
@@ -49,8 +49,8 @@ class Evo2DatasetTokenizer:
             hf_tokenizer_desc = hf_tokenizer_model_or_path.replace("/", "--").replace(":", "--")
         else:
             hf_tokenizer_model_or_path = DEFAULT_HF_TOKENIZER_MODEL_PATH
-            hf_tokenizer_desc = hf_tokenizer_model_or_path.name
-            assert hf_tokenizer_model_or_path.exists(), (
+            hf_tokenizer_desc = Path(hf_tokenizer_model_or_path).name
+            assert Path(hf_tokenizer_model_or_path).exists(), (
                 f"Default Hugging Face tokenizer model path {hf_tokenizer_model_or_path} does not exist."
             )
         self.hf_tokenizer_desc = hf_tokenizer_desc

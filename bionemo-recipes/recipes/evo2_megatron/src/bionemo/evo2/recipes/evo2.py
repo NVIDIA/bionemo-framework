@@ -274,7 +274,9 @@ def _evo2_common(
         ),
         tokenizer=TokenizerConfig(
             tokenizer_type="HuggingFaceTokenizer",
-            tokenizer_model=hf_tokenizer_model_or_path or "EleutherAI/gpt-neox-20b",
+            tokenizer_model=str(hf_tokenizer_model_or_path)
+            if hf_tokenizer_model_or_path is not None
+            else "EleutherAI/gpt-neox-20b",
         ),
         checkpoint=CheckpointConfig(
             save_interval=2000,

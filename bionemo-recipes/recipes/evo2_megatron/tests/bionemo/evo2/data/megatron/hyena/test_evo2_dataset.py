@@ -1059,7 +1059,7 @@ def test_evo2_dataset_getitem(monkeypatch):
     tokenizer = build_tokenizer(
         TokenizerConfig(
             tokenizer_type="HuggingFaceTokenizer",
-            hf_tokenizer_kwargs={"trust_remote_code": True},
+            hf_tokenizer_kwargs={"trust_remote_code": False},
             tokenizer_model=DEFAULT_HF_TOKENIZER_MODEL_PATH,
         )
     )
@@ -1091,6 +1091,7 @@ def test_evo2_dataset_getitem(monkeypatch):
             self.drop_last_partial_validation_sequence = True
             self.add_extra_token_to_sequence = True
             self.s3_cache_path = None
+            self.defer_npy_index_mmap = False
 
             # BlendedMegatronDatasetConfig
             self.random_seed = 42
