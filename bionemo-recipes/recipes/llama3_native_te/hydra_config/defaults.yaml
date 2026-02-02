@@ -3,6 +3,15 @@ use_te: true # Whether to use TransformerEngine layers through NVLlamaForCausalL
 config_name_or_path: ??? # E.g., meta-llama/Llama-3.2-1B or ./model_configs/meta-llama/Llama-3.2-1B
 config_kwargs: {}
 
+# MoE config (only used when use_te: true and use_moe: true)
+use_moe: false
+moe_num_experts: 8
+moe_top_k: 1
+moe_capacity_factor: 1.25
+moe_min_capacity: 4
+moe_drop_tokens: true
+moe_aux_loss_coef: 0.01
+
 num_train_steps: ???
 grad_acc_steps: 1 # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
 
