@@ -168,18 +168,18 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
             "value in the window DB metadata. Defaults to 0 (disabled)."
         ),
     )  # DONE
-    # parser.add_argument(
-    #     "--log-windows",
-    #     action="store_true",
-    #     default=False,
-    #     help=("Enable window access logging for ShardedEdenDataset (applies only to --sharded-eden-data)."),
-    # )  # TODO implement
-    # parser.add_argument(
-    #     "--window-log-dir",
-    #     type=str,
-    #     default=None,
-    #     help=("Directory for window-access logging SQLite files (applies only to --sharded-eden-data)."),
-    # )  # TODO implement
+    parser.add_argument(
+        "--log-windows",
+        action="store_true",
+        default=False,
+        help=("Enable window access logging for ShardedEdenDataset (applies only to --sharded-eden-data)."),
+    )
+    parser.add_argument(
+        "--window-log-dir",
+        type=str,
+        default=None,
+        help=("Directory for window-access logging CSV files (applies only to --sharded-eden-data)."),
+    )
     parser.add_argument(
         "--rc-aug",
         action="store_true",
@@ -721,6 +721,8 @@ def train(args: argparse.Namespace) -> None:
         recipe_kwargs["stride"] = args.stride
         recipe_kwargs["window_min_length_threshold"] = args.window_min_length_threshold
         recipe_kwargs["rc_aug"] = args.rc_aug
+        recipe_kwargs["log_windows"] = args.log_windows
+        recipe_kwargs["window_log_dir"] = args.window_log_dir
     elif args.dataset_config:
         recipe_kwargs["dataset_dir"] = args.dataset_dir
         recipe_kwargs["dataset_config_path"] = args.dataset_config

@@ -55,6 +55,7 @@ from fp8_debugging import initialize_fp8_debugging
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
 from scheduler import get_cosine_annealing_schedule_with_warmup
+from tensor_dataset import create_tensor_dataloader
 
 
 logger = logging.getLogger(__name__)
@@ -690,7 +691,26 @@ def main(args: DictConfig) -> float | None:
 
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    if args.use_sequence_packing:
+    # Create dataloader based on config
+    use_tensor_dataset = getattr(args, "use_tensor_dataset", False)
+    tensor_dir = getattr(args, "tensor_dir", None)
+    log_sequences = getattr(args, "log_sequences", False)
+    sequence_log_dir = getattr(args, "sequence_log_dir", None)
+
+    if use_tensor_dataset:
+        if tensor_dir is None:
+            raise ValueError("tensor_dir must be specified when use_tensor_dataset=True")
+        logger.info(f"Using pre-dumped tensor dataset from {tensor_dir}")
+        train_dataloader, dataset_or_sampler = create_tensor_dataloader(
+            distributed_config=dist_config,
+            tensor_dir=tensor_dir,
+            micro_batch_size=args.dataset.micro_batch_size,
+            grad_acc_steps=args.grad_acc_steps,
+            num_workers=args.dataset.get("num_workers", 0),
+            log_sequences=log_sequences,
+            log_dir=sequence_log_dir,
+        )
+    elif args.use_sequence_packing:
         train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
     else:
         train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
@@ -778,6 +798,7 @@ def main(args: DictConfig) -> float | None:
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
     micro_step = 0  # Gradient accumulation step counter
+    global_micro_step = 0  # Total micro-steps across all optimizer steps
 
     # Create autocast context for FP32 master weights (casts compute to BF16).
     # Allow override via config for debugging (default: enabled when use_fp32_master_weights=True).
@@ -789,6 +810,29 @@ def main(args: DictConfig) -> float | None:
     if train_dataloader is None:
         raise RuntimeError("Expected train_dataloader to be initialized before training.")
 
+    # Setup sequence logging if enabled (for debugging data ordering)
+    seq_log_writer = None
+    seq_log_file = None
+    if log_sequences and sequence_log_dir:
+        import csv
+
+        log_dir = Path(sequence_log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        seq_log_path = log_dir / f"training_sequences_rank{dist_config.rank}.csv"
+        seq_log_file = open(seq_log_path, "w", newline="")
+        seq_log_writer = csv.writer(seq_log_file)
+        seq_log_writer.writerow(
+            [
+                "optimizer_step",
+                "micro_step",
+                "global_micro_step",
+                "batch_idx",
+                "first_10_tokens",
+                "loss",
+            ]
+        )
+        logger.info(f"Sequence logging enabled: {seq_log_path}")
+
     logged_dtypes = False
     logged_first_loss = False
     while step < args.num_train_steps:
@@ -796,6 +840,7 @@ def main(args: DictConfig) -> float | None:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
             micro_step += 1
+            global_micro_step += 1
 
             # Forward pass with mixed precision.
             with autocast_ctx:
@@ -805,6 +850,28 @@ def main(args: DictConfig) -> float | None:
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
             loss.backward()
+
+            # Log sequence tokens if enabled (for debugging data ordering)
+            if seq_log_writer is not None:
+                input_ids = batch.get("input_ids", batch.get("tokens"))
+                if input_ids is not None:
+                    # Log first sample in batch
+                    first_10 = (
+                        input_ids[0, :10].cpu().tolist() if input_ids.dim() > 1 else input_ids[:10].cpu().tolist()
+                    )
+                    seq_log_writer.writerow(
+                        [
+                            step,
+                            micro_step,
+                            global_micro_step,
+                            0,  # batch_idx (first sample)
+                            first_10,
+                            outputs.loss.item(),
+                        ]
+                    )
+                    # Flush periodically
+                    if global_micro_step % 100 == 0:
+                        seq_log_file.flush()
 
             # Log the first loss to verify initialization is producing reasonable outputs
             if not logged_first_loss and dist_config.rank == 0:

@@ -134,6 +134,8 @@ def _evo2_common(
     rc_aug: bool = False,
     stride: int = 7992,
     window_min_length_threshold: int = 0,
+    log_windows: bool = False,
+    window_log_dir: str | None = None,
     # Model configuration
     tensor_model_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
@@ -191,8 +193,8 @@ def _evo2_common(
             stride=stride,
             window_min_length_threshold=window_min_length_threshold,
             use_control_tags=False,
-            log_windows=False,
-            log_dir=None,
+            log_windows=log_windows,
+            log_dir=window_log_dir,
             skip_stats=True,
             create_attention_mask=False,
         )
