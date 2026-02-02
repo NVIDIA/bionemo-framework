@@ -273,7 +273,6 @@ def _create_loss_function(loss_mask: torch.Tensor, check_for_nan_in_loss: bool, 
     )
 
 
-# FIXME make sure these conform to megatron/megatron bridge style.
 @dataclass
 class HyenaModelProvider(TransformerConfig, ModelProviderMixin[MCoreHyenaModel]):
     """Configuration dataclass for Hyena.

@@ -18,7 +18,6 @@
 import contextlib
 from unittest.mock import MagicMock, patch
 
-import pytest
 import torch
 from megatron.bridge.training.config import OptimizerConfig, OptimizerConfigOverrideProviderContext, SchedulerConfig
 from megatron.core.optimizer import _get_param_groups
@@ -115,7 +114,5 @@ def test_weight_decay_conditions():
         )
         assert len(param_groups2) == len(param_groups)
         assert len(param_groups2) == 2
-        with pytest.raises(AssertionError):  # FIXME remove this once the API for an alternative has been finalized
-            assert set(param_groups2[0]["params"]) == set(param_groups[0]["params"])
-        with pytest.raises(AssertionError):  # FIXME remove this once the API for an alternative has been finalized
-            assert set(param_groups2[1]["params"]) == set(param_groups[1]["params"])
+        assert set(param_groups2[0]["params"]) != set(param_groups[0]["params"])
+        assert set(param_groups2[1]["params"]) != set(param_groups[1]["params"])
