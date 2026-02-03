@@ -85,9 +85,13 @@ dataset:
   mask_degenerate_bases: true
   uppercase_labels: false
 
-  # Enable logging to verify batch composition
-  log_sample_indices: true
-  sample_log_dir: /data/parquet_sample_logs
+  # DISABLED: IndexTrackingDataset has multi-worker issues
+  # log_sample_indices: true
+  # sample_log_dir: /data/parquet_sample_logs
+
+# Enable training loop logging (runs in main process, no multi-worker issues)
+log_sequences: true
+sequence_log_dir: /data/savithas/parquet_sample_logs
 
 # Optimizer (matching John's settings)
 adamw_kwargs:
