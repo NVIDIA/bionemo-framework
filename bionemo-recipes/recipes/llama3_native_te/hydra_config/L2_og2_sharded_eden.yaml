@@ -1,0 +1,62 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+
+# Configuration for training with ShardedEdenDataset directly (no parquet dumping)
+# Uses standard PyTorch DataLoader with shuffle=True
+
+defaults:
+  - _self_
+
+# Model configuration - using a smaller model for testing
+config_name_or_path: meta-llama/Llama-3.1-8B
+config_kwargs:
+  vocab_size: 259  # Nucleotide tokenizer vocab size
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_hidden_layers: 8  # Reduced for testing
+  num_attention_heads: 32
+  num_key_value_heads: 8
+  max_position_embeddings: 8192
+  use_cache: false
+  torch_dtype: bfloat16
+  attn_implementation: flash_attention_2
+
+# Training configuration
+num_train_steps: 10  # Small test run
+grad_acc_steps: 8
+learning_rate: 3.0e-5
+seed: 42
+log_every_n_steps: 1
+checkpoint_every_n_steps: 1000
+eval_every_n_steps: 1000
+
+# Precision
+use_fp8: false
+use_bf16: true
+
+# FSDP configuration
+fsdp_cpu_offload: false
+
+# Enable ShardedEden dataset mode
+use_sharded_eden: true
+
+# ShardedEden dataset configuration
+sharded_eden:
+  tokenizer_name_or_path: tokenizers/nucleotide_fast_tokenizer
+  sequence_db_dir: /data/bcr_eden/OG2_database_splits
+  window_db_path: /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite
+  micro_batch_size: 1
+  seq_length: 8192
+  stride: 7992
+  num_workers: 4
+  shuffle: true
+  seed: 42
+  rc_aug: false
+  log_windows: false
+  log_dir: null
+
+# Disable regular dataset config (not used in sharded_eden mode)
+dataset:
+  micro_batch_size: 1
+  max_seq_length: 8192
+  tokenizer_name_or_path: tokenizers/nucleotide_fast_tokenizer

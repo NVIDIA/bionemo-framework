@@ -1,0 +1,74 @@
+# Simple 8-GPU debug run to verify window ordering in HuggingFace streaming dataset.
+#
+# This config runs a quick training to log whether windows from the same sequence
+# are yielded consecutively (expected with streaming + shuffle) or shuffled independently.
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name L0_debug_window_order
+#
+# Look for [WINDOW_DEBUG] lines in the log output on rank 0.
+# Consecutive windows from the same sequence should show:
+#   - idx=0 seq_id=0 (window 0 from seq 0)
+#   - idx=1 seq_id=0 (window 1 from seq 0)
+#   - idx=2 seq_id=0 (window 2 from seq 0)
+#   - idx=3 seq_id=1 (window 0 from seq 1) <- NEW SEQUENCE
+#   - ...
+#
+# If windows are shuffled, you'd see interleaved seq_ids like:
+#   - idx=0 seq_id=0
+#   - idx=1 seq_id=2
+#   - idx=2 seq_id=1
+#   - ...
+
+defaults:
+  - defaults
+  - _self_
+
+# Use small 1B model for quick test
+config_name_or_path: ./model_configs/meta-llama/Llama-3.2-1B
+config_kwargs:
+  vocab_size: 256  # Nucleotide tokenizer
+  attn_input_format: bshd
+
+# Quick debug run
+num_train_steps: 20
+grad_acc_steps: 1
+
+# Disable features not needed for debug
+use_sequence_packing: false
+spike_no_more_embedding_init: false
+use_megatron_scaled_init: false
+
+wandb:
+  name: debug_window_order
+  project: null  # Disable wandb for debug
+
+# Dataset config with debug_window_order enabled
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 4
+  num_workers: 0  # Single worker makes debugging easier
+  max_seq_length: 8192
+  stride: 7992  # Match production config
+  buffer_size: 5_000  # Smaller buffer for faster startup
+  shuffle: true  # This is what we're testing!
+  use_stateful_dataloader: false
+  debug_window_order: true  # ← ENABLE WINDOW ORDER LOGGING
+  load_dataset_kwargs:
+    path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes
+    split: train
+    streaming: true
+
+# Minimal checkpoint config
+checkpoint:
+  ckpt_dir: null
+  save_final_model: false
+  resume_from_checkpoint: false
+
+# Fast logging
+logger:
+  frequency: 1
+
+# Disable validation
+validation:
+  enabled: false

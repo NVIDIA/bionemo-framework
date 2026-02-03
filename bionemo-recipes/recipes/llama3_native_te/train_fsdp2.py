@@ -49,7 +49,7 @@ from checkpoint import (
     save_final_model_fsdp2,
     should_save_checkpoint,
 )
-from dataset import create_bshd_dataloader, create_thd_dataloader
+from dataset import create_bshd_dataloader, create_sharded_eden_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from fp8_debugging import initialize_fp8_debugging
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
@@ -702,8 +702,30 @@ def main(args: DictConfig) -> float | None:
     tensor_dir = getattr(args, "tensor_dir", None)
     log_sequences = getattr(args, "log_sequences", False)
     sequence_log_dir = getattr(args, "sequence_log_dir", None)
+    use_sharded_eden = getattr(args, "use_sharded_eden", False)
 
-    if use_tensor_dataset:
+    if use_sharded_eden:
+        # Use ShardedEdenDataset directly from SQLite (no parquet dumping needed)
+        sharded_eden_config = getattr(args, "sharded_eden", {})
+        logger.info("Using ShardedEdenDataset directly from SQLite")
+        train_dataloader, dataset_or_sampler = create_sharded_eden_dataloader(
+            distributed_config=dist_config,
+            tokenizer_name_or_path=sharded_eden_config.get(
+                "tokenizer_name_or_path", args.dataset.get("tokenizer_name_or_path")
+            ),
+            sequence_db_dir=sharded_eden_config.get("sequence_db_dir"),
+            window_db_path=sharded_eden_config.get("window_db_path"),
+            micro_batch_size=sharded_eden_config.get("micro_batch_size", args.dataset.get("micro_batch_size", 1)),
+            seq_length=sharded_eden_config.get("seq_length", 8192),
+            stride=sharded_eden_config.get("stride", 7992),
+            num_workers=sharded_eden_config.get("num_workers", 4),
+            shuffle=sharded_eden_config.get("shuffle", True),
+            seed=sharded_eden_config.get("seed", args.seed),
+            rc_aug=sharded_eden_config.get("rc_aug", False),
+            log_windows=sharded_eden_config.get("log_windows", False),
+            log_dir=sharded_eden_config.get("log_dir"),
+        )
+    elif use_tensor_dataset:
         if tensor_dir is None:
             raise ValueError("tensor_dir must be specified when use_tensor_dataset=True")
         logger.info(f"Using pre-dumped tensor dataset from {tensor_dir}")
