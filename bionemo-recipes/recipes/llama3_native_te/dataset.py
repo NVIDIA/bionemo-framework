@@ -29,7 +29,13 @@ from collator import (
 )
 from distributed_config import DistributedConfig
 from genomic_dataset import GenomicDataCollator
-from tensor_dataset import create_tensor_dataloader
+
+
+# Lazy import for tensor_dataset (optional, only needed for tensor dataset mode)
+try:
+    from tensor_dataset import create_tensor_dataloader
+except ImportError:
+    create_tensor_dataloader = None  # Not available, tensor dataset mode disabled
 
 
 logger = logging.getLogger(__name__)
