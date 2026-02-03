@@ -254,15 +254,22 @@ class IndexTrackingDataset(torch.utils.data.Dataset):
         self.rank = rank
         self.log_dir = log_dir
         self.access_count = 0
+        self.log_file = None  # Don't open file in __init__ - defer to avoid worker issues
+        self._file_initialized = False
 
-        if log_dir:
+    def _ensure_log_file(self):
+        """Lazily initialize log file (called on first access, works with DataLoader workers)."""
+        if self.log_file is None and self.log_dir:
             import os
 
-            os.makedirs(log_dir, exist_ok=True)
-            self.log_file = open(os.path.join(log_dir, f"sample_indices_rank{rank}.csv"), "w")
+            os.makedirs(self.log_dir, exist_ok=True)
+            # Include worker info in filename to avoid conflicts
+            worker_info = torch.utils.data.get_worker_info()
+            worker_id = worker_info.id if worker_info else "main"
+            log_path = os.path.join(self.log_dir, f"sample_indices_rank{self.rank}_worker{worker_id}.csv")
+            self.log_file = open(log_path, "w")
             self.log_file.write("access_order,dataset_index,first_5_tokens\n")
-        else:
-            self.log_file = None
+            self._file_initialized = True
 
     def __len__(self):
         """Return length of underlying dataset."""
@@ -271,6 +278,10 @@ class IndexTrackingDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         """Get item and log the access."""
         item = self.dataset[idx]
+
+        # Lazily initialize log file on first access
+        if self.log_dir and not self._file_initialized:
+            self._ensure_log_file()
 
         if self.log_file:
             # Log the index and first few tokens
@@ -281,9 +292,8 @@ class IndexTrackingDataset(torch.utils.data.Dataset):
                 first_tokens = input_ids[:5]
             self.log_file.write(f"{self.access_count},{idx},{first_tokens}\n")
 
-            # Flush periodically
-            if self.access_count % 100 == 0:
-                self.log_file.flush()
+            # Flush every access to ensure logs are captured even if training stops early
+            self.log_file.flush()
 
         self.access_count += 1
         return item
