@@ -1,0 +1,121 @@
+# Config for 1B Llama3 using pre-dumped parquet data from ShardedEdenDataset
+#
+# This approach uses the EXISTING HuggingFace dataset pipeline with:
+# - Pre-tokenized data from dump_sharded_eden_as_parquet.py
+# - Existing DistributedSampler for sharding
+# - Existing DataCollatorForLanguageModeling for batching
+#
+# This is SAFER than the tensor dataset approach because it reuses
+# the battle-tested HF pipeline components.
+#
+# STEP 1: Dump the data (on lepton node with access to John's data):
+#   python scripts/dump_sharded_eden_as_parquet.py \
+#       --sequence-db-dir /data/bcr_eden/OG2_database_splits/opengenome2-metagenome \
+#       --window-db-path /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite \
+#       --output-dir /data/sharded_eden_parquet \
+#       --num-samples 3072000 \
+#       --seed 42
+#
+# STEP 2: Run training:
+#   torchrun --nproc_per_node=48 train_fsdp2.py --config-name L2_og2_parquet \
+#       dataset.load_dataset_kwargs.data_files=/data/sharded_eden_parquet/*.parquet
+
+defaults:
+  - defaults
+  - _self_
+
+# 1B model config (same as L2_og2_metagenome_1b.yaml)
+config_name_or_path: ./model_configs/llama3-1b-hyena-comparable
+config_kwargs:
+  vocab_size: 256
+  num_hidden_layers: 24
+  hidden_size: 2048
+  intermediate_size: 5120
+  num_attention_heads: 16
+  num_key_value_heads: 16
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: bshd
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+
+# Initialization settings (same as Megatron)
+spike_no_more_embedding_init: true
+skip_embedding_weight_decay: true
+use_megatron_scaled_init: false
+use_weight_decay_grouping: true
+use_megatron_loss: false
+
+# IMPORTANT: Use BSHD mode (not sequence packing)
+use_sequence_packing: false
+
+# Gradient accumulation - 48 GPUs * 1 mbs * 8 grad_acc = 384 GBS
+grad_acc_steps: 8
+
+# Training setup
+num_train_steps: 8000
+
+wandb:
+  name: og2_1b_parquet_test
+  project: llama3-metagenome-1b
+
+# Dataset config - using pre-tokenized parquet files
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 1
+  num_workers: 4
+  prefetch_factor: 4
+  max_seq_length: 8192
+
+  # Load parquet files directly
+  load_dataset_kwargs:
+    path: parquet
+    data_files: /data/sharded_eden_parquet/*.parquet
+    split: train
+    streaming: false  # CRITICAL: Use map-style dataset for DistributedSampler
+
+  # CRITICAL: Disable shuffle to preserve dump order
+  shuffle: false
+
+  # CRITICAL: Data is already tokenized - skip tokenization
+  skip_tokenization: true
+
+  use_stateful_dataloader: false
+
+  # Logging to verify batch composition
+  # Set to true to log which sample indices each rank accesses
+  log_sample_indices: true
+  sample_log_dir: /data/parquet_sample_logs
+
+# Optimizer (matching John's MBridge 1B settings)
+adamw_kwargs:
+  lr: 3e-04
+  fused: true
+  betas: [0.9, 0.95]
+  eps: 1e-8
+  weight_decay: 0.01
+
+# Learning rate scheduler
+lr_scheduler_kwargs:
+  num_warmup_steps: 1024
+  num_decay_steps: 6976
+  min_lr_ratio: 0.02
+
+# Checkpoint config
+checkpoint:
+  ckpt_dir: null
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 2_000
+  async_save: true
+
+logger:
+  frequency: 1
+
+profiler:
+  enabled: false
