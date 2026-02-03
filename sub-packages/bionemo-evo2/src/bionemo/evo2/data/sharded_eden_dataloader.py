@@ -341,7 +341,7 @@ class ShardedEdenDataset(Dataset):
         log_windows: bool = False,
         log_dir: Optional[str] = None,
         skip_stats: bool = True,
-        log_tokens: bool = False,
+        log_tokens: bool = True,  # Always log tokens when log_windows=True
     ) -> None:
         """Initialize the ShardedEdenDataset."""
         super().__init__()
@@ -358,7 +358,7 @@ class ShardedEdenDataset(Dataset):
         self.skip_stats = skip_stats
         # Window access logging setup (lazy init in __getitem__)
         self.log_windows = log_windows
-        self.log_tokens = log_tokens  # Also log first 10 tokens for debugging
+        self.log_tokens = log_tokens if log_windows else False  # Only log tokens if log_windows is enabled
         # Remember desired log directory for lazy init in worker processes
         self._log_dir = log_dir
 
