@@ -28,6 +28,7 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.optim import AdamW
 
+from transformer_engine.pytorch.optimizers import FusedAdam
 from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
 
@@ -151,6 +152,15 @@ def main(args: DictConfig) -> float | None:
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    # optimizer = FusedAdam(model.parameters(),
+    #     lr=4e-4,
+    #     betas=(0.9, 0.98),
+    #     eps=1e-8,
+    #     weight_decay=0.01,
+    #     master_weights=True,
+    #     master_weight_dtype=torch.float32,
+    #     )
+    # Note: Got an error about mixed torch.Tensor and DTensor here, so using AdamW instead.
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
