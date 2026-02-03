@@ -265,6 +265,7 @@ def dump_as_parquet(
     logger.info(f"Dumping {num_samples} samples to parquet files...")
 
     all_input_ids = []
+    all_window_idx = []  # Store window_idx for comparison with John's logs
     file_idx = 0
     parquet_files = []
 
@@ -279,21 +280,23 @@ def dump_as_parquet(
         # We need to convert to a list for parquet storage
         input_ids = sample["tokens"].tolist()
         all_input_ids.append(input_ids)
+        all_window_idx.append(int(permuted_idx))  # This is John's window_idx!
 
         # Write parquet file when we have enough samples
         if len(all_input_ids) >= samples_per_file:
             output_file = os.path.join(output_dir, f"data_{file_idx:06d}.parquet")
-            table = pa.table({"input_ids": all_input_ids})
+            table = pa.table({"input_ids": all_input_ids, "window_idx": all_window_idx})
             pq.write_table(table, output_file)
             parquet_files.append(f"data_{file_idx:06d}.parquet")
             logger.info(f"Wrote {len(all_input_ids)} samples to {output_file}")
             all_input_ids = []
+            all_window_idx = []
             file_idx += 1
 
     # Write remaining samples
     if all_input_ids:
         output_file = os.path.join(output_dir, f"data_{file_idx:06d}.parquet")
-        table = pa.table({"input_ids": all_input_ids})
+        table = pa.table({"input_ids": all_input_ids, "window_idx": all_window_idx})
         pq.write_table(table, output_file)
         parquet_files.append(f"data_{file_idx:06d}.parquet")
         logger.info(f"Wrote {len(all_input_ids)} samples to {output_file}")

@@ -89,27 +89,47 @@ def load_john_window_logs(log_dir: str) -> pd.DataFrame:
     return combined
 
 
-def load_parquet_data(parquet_dir: str) -> list:
-    """Load the expected token sequences from parquet files."""
+def load_parquet_data(parquet_dir: str) -> tuple:
+    """Load the expected token sequences and window_idx from parquet files.
+
+    Returns:
+        Tuple of (input_ids_list, window_idx_list) or (input_ids_list, None) if no window_idx.
+    """
     try:
         import pyarrow.parquet as pq
     except ImportError:
         print("Warning: pyarrow not available, skipping parquet comparison")
-        return None
+        return None, None
 
     parquet_files = sorted([f for f in os.listdir(parquet_dir) if f.endswith(".parquet")])
 
     if not parquet_files:
         print(f"Warning: No parquet files found in {parquet_dir}")
-        return None
+        return None, None
 
     all_input_ids = []
+    all_window_idx = []
+    has_window_idx = None
+
     for pf in parquet_files:
         table = pq.read_table(os.path.join(parquet_dir, pf))
-        all_input_ids.extend(table.to_pydict()["input_ids"])
+        data = table.to_pydict()
+        all_input_ids.extend(data["input_ids"])
+
+        # Check if window_idx column exists
+        if has_window_idx is None:
+            has_window_idx = "window_idx" in data
+
+        if has_window_idx and "window_idx" in data:
+            all_window_idx.extend(data["window_idx"])
 
     print(f"Loaded {len(all_input_ids)} sequences from parquet files")
-    return all_input_ids
+    if has_window_idx:
+        print(f"  Also loaded {len(all_window_idx)} window_idx values (for John comparison)")
+    else:
+        print("  No window_idx column found (re-dump parquet to enable John comparison)")
+
+    return all_input_ids, all_window_idx if has_window_idx else None
 
 
 def analyze_our_logs(logs: pd.DataFrame, world_size: int, grad_acc: int, mbs: int) -> list:
@@ -215,8 +235,16 @@ def compare_with_parquet(logs: pd.DataFrame, parquet_data: list, world_size: int
     return issues
 
 
-def compare_with_john(our_logs: pd.DataFrame, john_logs: pd.DataFrame, world_size: int, grad_acc: int) -> list:
-    """Compare our training order with John's window access order."""
+def compare_with_john(
+    john_logs: pd.DataFrame,
+    parquet_window_idx: list | None,
+    world_size: int,
+) -> list:
+    """Compare John's window access order with our parquet dump order.
+
+    This is the key comparison: if John's window_idx sequence matches
+    our parquet dump's window_idx sequence, then we're using identical data.
+    """
     issues = []
 
     print("=" * 70)
@@ -224,65 +252,55 @@ def compare_with_john(our_logs: pd.DataFrame, john_logs: pd.DataFrame, world_siz
     print("=" * 70)
 
     print(f"John's logs: {len(john_logs)} window accesses")
-    print(f"Our logs: {len(our_logs)} samples")
     print()
 
-    # John's window_idx is the global index into the dataset (after permutation)
-    # Our samples should match in order
+    # Sort John's logs by access timestamp to get the order he processed them
+    john_sorted = john_logs.sort_values("access_ts").reset_index(drop=True)
+    john_window_indices = john_sorted["window_idx"].tolist()
 
-    # Group John's logs by rank and order by access time
-    john_by_rank = {}
-    for rank in range(world_size):
+    print("John's first 20 window_idx values (in processing order):")
+    print(f"  {john_window_indices[:20]}")
+    print()
+
+    if parquet_window_idx is None:
+        print("⚠️  No window_idx in parquet files!")
+        print("   Re-run dump_sharded_eden_as_parquet.py to add window_idx column.")
+        print("   Then we can directly compare John's indices with ours.")
+        return issues
+
+    print("Our parquet first 20 window_idx values (in dump order):")
+    print(f"  {parquet_window_idx[:20]}")
+    print()
+
+    # Compare the sequences
+    num_to_compare = min(len(john_window_indices), len(parquet_window_idx))
+    print(f"Comparing first {num_to_compare} window_idx values...")
+    print()
+
+    mismatches = [
+        (i, john_window_indices[i], parquet_window_idx[i])
+        for i in range(num_to_compare)
+        if john_window_indices[i] != parquet_window_idx[i]
+    ]
+
+    if not mismatches:
+        print(f"✓ ALL {num_to_compare} window_idx values MATCH!")
+        print("  This proves John and our training see the EXACT SAME DATA in the SAME ORDER!")
+    else:
+        print(f"✗ Found {len(mismatches)} mismatches!")
+        print("  First 10 mismatches:")
+        for i, john_idx, our_idx in mismatches[:10]:
+            print(f"    Position {i}: John={john_idx}, Ours={our_idx}")
+        issues.append(f"{len(mismatches)} window_idx mismatches between John and parquet")
+
+    print()
+
+    # Also show per-rank breakdown
+    print("Per-rank breakdown (John's first 8 samples per rank):")
+    for rank in range(min(world_size, 8)):
         rank_data = john_logs[john_logs["rank"] == rank].sort_values("access_ts")
-        john_by_rank[rank] = rank_data["window_idx"].tolist()
-
-    # Group our logs by rank and order by micro_step
-    our_by_rank = {}
-    for rank in range(world_size):
-        rank_data = our_logs[our_logs["rank"] == rank].sort_values(["optimizer_step", "micro_step"])
-        our_by_rank[rank] = list(range(len(rank_data)))  # We don't have window_idx, just position
-
-    print("Window index sequences by rank:")
-    print()
-
-    for rank in range(min(world_size, 4)):  # Show first 4 ranks
-        john_indices = john_by_rank.get(rank, [])[:16]  # First 16 accesses
-        print(f"  Rank {rank} (John's window_idx): {john_indices}")
-
-    print()
-    print("To verify the data is the same:")
-    print("  1. The parquet was dumped using John's ShardedEdenDataset + permute function")
-    print("  2. Our training reads parquet in order (verified by parquet comparison)")
-    print("  3. If John's window_idx sequence matches the parquet dump order, data is identical")
-    print()
-
-    # Check if John's window indices are sequential starting from 0
-    # (which would match our parquet dump order)
-    all_john_indices = john_logs.sort_values("access_ts")["window_idx"].tolist()
-
-    # Expected: for each optimizer step, indices should be [0, 1, 2, ..., GBS-1], [GBS, GBS+1, ...], etc.
-    # But distributed across ranks
-
-    gbs = world_size * grad_acc
-    num_steps = len(all_john_indices) // gbs if gbs > 0 else 0
-
-    print(f"John processed {num_steps} optimizer steps worth of data")
-    print()
-
-    for step in range(min(num_steps, 2)):
-        step_start = step * gbs
-        step_end = step_start + gbs
-        step_indices = sorted(all_john_indices[step_start:step_end])
-
-        expected_indices = list(range(step * gbs, (step + 1) * gbs))
-
-        if step_indices == expected_indices:
-            print(f"  Step {step}: ✓ John's indices match expected range [{step * gbs}, {(step + 1) * gbs})")
-        else:
-            print(f"  Step {step}: ✗ Index mismatch!")
-            print(f"    Expected: {expected_indices[:10]}...")
-            print(f"    Got: {step_indices[:10]}...")
-            issues.append(f"Step {step}: John's window indices don't match expected range")
+        rank_indices = rank_data["window_idx"].tolist()[:8]
+        print(f"  Rank {rank}: {rank_indices}")
 
     return issues
 
@@ -320,10 +338,12 @@ def main():
     issues = analyze_our_logs(our_logs, args.world_size, args.grad_acc, args.mbs)
     all_issues.extend(issues)
 
-    # Compare with parquet if available
+    # Load parquet data if available
+    parquet_data = None
+    parquet_window_idx = None
     if args.parquet_dir:
         print("Loading parquet data...")
-        parquet_data = load_parquet_data(args.parquet_dir)
+        parquet_data, parquet_window_idx = load_parquet_data(args.parquet_dir)
         if parquet_data:
             print()
             issues = compare_with_parquet(our_logs, parquet_data, args.world_size)
@@ -336,7 +356,7 @@ def main():
             john_logs = load_john_window_logs(args.john_log_dir)
             print(f"Loaded {len(john_logs)} window access entries")
             print()
-            issues = compare_with_john(our_logs, john_logs, args.world_size, args.grad_acc)
+            issues = compare_with_john(john_logs, parquet_window_idx, args.world_size)
             all_issues.extend(issues)
         except ValueError as e:
             print(f"Warning: {e}")
