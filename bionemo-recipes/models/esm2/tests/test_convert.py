@@ -40,6 +40,7 @@ def test_convert_te_to_hf_roundtrip():
 
 def test_load_from_converted_checkpoint(te_model_checkpoint):
     from esm.modeling_esm_te import NVEsmForMaskedLM
+
     NVEsmForMaskedLM.from_pretrained(te_model_checkpoint)
 
 
