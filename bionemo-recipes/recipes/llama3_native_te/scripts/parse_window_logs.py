@@ -55,11 +55,17 @@ USAGE:
    python parse_window_logs.py ... --interleave-ranks
 """
 
+# Fix numexpr threading issue - must be set before numpy/pyarrow imports
+import os
+
+
+os.environ["NUMEXPR_MAX_THREADS"] = "256"
+os.environ["NUMEXPR_NUM_THREADS"] = "8"
+
 import argparse
 import csv
 import json
 import logging
-import os
 import sys
 from glob import glob
 from pathlib import Path
