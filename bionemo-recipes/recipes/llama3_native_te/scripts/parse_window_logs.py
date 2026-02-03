@@ -529,6 +529,7 @@ def convert_to_sequential_parquet(
     Each consecutive micro_batch_size samples form one micro-batch.
 
     Uses multiprocessing for faster token fetching.
+    Writes chunks incrementally to avoid losing progress.
 
     Args:
         window_indices: List of window_idx values in exact training order
@@ -544,6 +545,8 @@ def convert_to_sequential_parquet(
     from concurrent.futures import ProcessPoolExecutor
 
     os.makedirs(output_dir, exist_ok=True)
+    chunks_dir = os.path.join(output_dir, "chunks")
+    os.makedirs(chunks_dir, exist_ok=True)
 
     logger.info(f"Fetching {len(window_indices)} samples with {num_workers} workers...")
 
@@ -552,6 +555,7 @@ def convert_to_sequential_parquet(
     batches = [window_indices[i : i + batch_size] for i in range(0, len(window_indices), batch_size)]
 
     logger.info(f"  Split into {len(batches)} batches of ~{batch_size} samples each")
+    logger.info(f"  Chunks will be written to {chunks_dir} as they complete")
 
     # Estimate time
     samples_per_sec_estimate = 150 * num_workers  # Rough estimate: ~150 samples/sec per worker
@@ -559,25 +563,72 @@ def convert_to_sequential_parquet(
     estimated_time_min = estimated_time_sec / 60
     logger.info(f"  Estimated time: ~{estimated_time_min:.1f} minutes (at ~{samples_per_sec_estimate} samples/sec)")
 
-    # Prepare arguments for each batch
-    args_list = [(batch, sequence_db_dir, window_db_path, tokenizer_path, seq_length, stride) for batch in batches]
+    # Check for existing chunks (resume support)
+    existing_chunks = sorted(glob(os.path.join(chunks_dir, "chunk_*.parquet")))
+    start_batch = len(existing_chunks)
+    if start_batch > 0:
+        logger.info(f"  Found {start_batch} existing chunks, resuming from batch {start_batch}")
 
-    # Fetch in parallel
-    all_results = []
+    # Prepare arguments for remaining batches
+    remaining_batches = batches[start_batch:]
+    args_list = [
+        (batch, sequence_db_dir, window_db_path, tokenizer_path, seq_length, stride) for batch in remaining_batches
+    ]
+
+    # Track batch indices for chunk files
+    batch_indices = list(range(start_batch, len(batches)))
+
+    # Fetch in parallel and write chunks incrementally
     if num_workers > 1:
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
-            for batch_results in tqdm(
-                executor.map(fetch_tokens_batch, args_list), total=len(batches), desc="Fetching batches"
-            ):
-                all_results.extend(batch_results)
+            futures_to_batch_idx = {}
+            from concurrent.futures import as_completed
+
+            # Submit all jobs
+            for batch_idx, args in zip(batch_indices, args_list):
+                future = executor.submit(fetch_tokens_batch, args)
+                futures_to_batch_idx[future] = batch_idx
+
+            # Process as they complete and write chunks
+            for future in tqdm(as_completed(futures_to_batch_idx), total=len(args_list), desc="Fetching batches"):
+                batch_idx = futures_to_batch_idx[future]
+                batch_results = future.result()
+
+                # Write this batch to a chunk file
+                chunk_file = os.path.join(chunks_dir, f"chunk_{batch_idx:06d}.parquet")
+                chunk_input_ids = [r[1] for r in batch_results]
+                chunk_window_idx = [r[0] for r in batch_results]
+                chunk_table = pa.table({"input_ids": chunk_input_ids, "window_idx": chunk_window_idx})
+                pq.write_table(chunk_table, chunk_file)
     else:
         # Single-threaded fallback
-        for args in tqdm(args_list, desc="Fetching batches"):
-            all_results.extend(fetch_tokens_batch(args))
+        for batch_idx, args in tqdm(zip(batch_indices, args_list), total=len(args_list), desc="Fetching batches"):
+            batch_results = fetch_tokens_batch(args)
 
-    # Results are in order within batches, but batches might complete out of order
-    # Sort by original index to restore order
-    index_to_result = dict(all_results)
+            # Write this batch to a chunk file
+            chunk_file = os.path.join(chunks_dir, f"chunk_{batch_idx:06d}.parquet")
+            chunk_input_ids = [r[1] for r in batch_results]
+            chunk_window_idx = [r[0] for r in batch_results]
+            chunk_table = pa.table({"input_ids": chunk_input_ids, "window_idx": chunk_window_idx})
+            pq.write_table(chunk_table, chunk_file)
+
+    logger.info("\nAll chunks written. Merging into final parquet file...")
+
+    # Read all chunks in order and merge
+    all_chunk_files = sorted(glob(os.path.join(chunks_dir, "chunk_*.parquet")))
+    chunk_data = {}  # batch_idx -> list of (window_idx, input_ids)
+
+    for chunk_file in tqdm(all_chunk_files, desc="Reading chunks"):
+        batch_idx = int(os.path.basename(chunk_file).split("_")[1].split(".")[0])
+        table = pq.read_table(chunk_file)
+        chunk_data[batch_idx] = list(zip(table["window_idx"].to_pylist(), table["input_ids"].to_pylist()))
+
+    # Reconstruct in original order
+    index_to_result = {
+        window_idx: input_ids
+        for batch_idx in sorted(chunk_data.keys())
+        for window_idx, input_ids in chunk_data[batch_idx]
+    }
 
     all_input_ids = []
     all_window_idx = []
@@ -624,6 +675,9 @@ def convert_to_sequential_parquet(
     logger.info("\n  IMPORTANT: For debugging, run with:")
     logger.info("    - Single GPU: torchrun --nproc_per_node=1 train_fsdp2.py ...")
     logger.info("    - Or ensure DataLoader doesn't shuffle!")
+
+    # Optionally clean up chunks
+    logger.info(f"\n  Chunk files preserved in {chunks_dir} (can be deleted if not needed)")
 
 
 def convert_to_parquet(
