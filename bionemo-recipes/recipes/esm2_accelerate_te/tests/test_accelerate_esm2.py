@@ -20,27 +20,27 @@ from launch import launch_accelerate, requires_multi_gpu
 
 
 def test_te_with_default_config(tmp_path):
-    train_loss = launch_accelerate("default.yaml", tmp_path, 1, "L0_sanity", "model_tag=nvidia/esm2_t6_8M_UR50D")
+    train_loss = launch_accelerate("default.yaml", tmp_path, 1, "L0_sanity", "model_tag=./example_8m_checkpoint")
     assert train_loss < 3.0, f"Final train_loss {train_loss} should be less than 3.0"
 
 
 def test_te_with_fsdp1_config(tmp_path):
-    train_loss = launch_accelerate("fsdp1_te.yaml", tmp_path, 1, "L0_sanity", "model_tag=nvidia/esm2_t6_8M_UR50D")
+    train_loss = launch_accelerate("fsdp1_te.yaml", tmp_path, 1, "L0_sanity", "model_tag=./example_8m_checkpoint")
     assert train_loss < 3.0, f"Final train_loss {train_loss} should be less than 3.0"
 
 
 def test_te_with_fsdp2_config(tmp_path):
-    train_loss = launch_accelerate("fsdp2_te.yaml", tmp_path, 1, "L0_sanity", "model_tag=nvidia/esm2_t6_8M_UR50D")
+    train_loss = launch_accelerate("fsdp2_te.yaml", tmp_path, 1, "L0_sanity", "model_tag=./example_8m_checkpoint")
     assert train_loss < 3.0, f"Final train_loss {train_loss} should be less than 3.0"
 
 
 def test_te_with_dynamo_config(tmp_path):
-    train_loss = launch_accelerate("dynamo.yaml", tmp_path, 1, "L0_sanity", "model_tag=nvidia/esm2_t6_8M_UR50D")
+    train_loss = launch_accelerate("dynamo.yaml", tmp_path, 1, "L0_sanity", "model_tag=./example_8m_checkpoint")
     assert train_loss < 3.0, f"Final train_loss {train_loss} should be less than 3.0"
 
 
 def test_te_with_fp8_config(tmp_path):
-    train_loss = launch_accelerate("fp8.yaml", tmp_path, 1, "L0_sanity", "model_tag=nvidia/esm2_t6_8M_UR50D")
+    train_loss = launch_accelerate("fp8.yaml", tmp_path, 1, "L0_sanity", "model_tag=./example_8m_checkpoint")
     assert train_loss < 3.0, f"Final train_loss {train_loss} should be less than 3.0"
 
 
@@ -57,19 +57,19 @@ def test_hf_with_fsdp2_config(tmp_path):
 
 @requires_multi_gpu
 def test_te_with_default_config_two_gpus(tmp_path):
-    train_loss = launch_accelerate("default.yaml", tmp_path, 2, "L0_sanity", "model_tag=nvidia/esm2_t6_8M_UR50D")
+    train_loss = launch_accelerate("default.yaml", tmp_path, 2, "L0_sanity", "model_tag=./example_8m_checkpoint")
     assert train_loss < 3.0, f"Final train_loss {train_loss} should be less than 3.0"
 
 
 @requires_multi_gpu
 def test_te_with_fsdp1_config_two_gpus(tmp_path):
-    train_loss = launch_accelerate("fsdp1_te.yaml", tmp_path, 2, "L0_sanity", "model_tag=nvidia/esm2_t6_8M_UR50D")
+    train_loss = launch_accelerate("fsdp1_te.yaml", tmp_path, 2, "L0_sanity", "model_tag=./example_8m_checkpoint")
     assert train_loss < 3.0, f"Final train_loss {train_loss} should be less than 3.0"
 
 
 @requires_multi_gpu
 def test_te_with_fsdp2_config_two_gpus(tmp_path):
-    train_loss = launch_accelerate("fsdp2_te.yaml", tmp_path, 2, "L0_sanity", "model_tag=nvidia/esm2_t6_8M_UR50D")
+    train_loss = launch_accelerate("fsdp2_te.yaml", tmp_path, 2, "L0_sanity", "model_tag=./example_8m_checkpoint")
     assert train_loss < 3.0, f"Final train_loss {train_loss} should be less than 3.0"
 
 
