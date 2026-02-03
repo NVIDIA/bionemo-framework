@@ -175,6 +175,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help=("Enable window access logging for ShardedEdenDataset (applies only to --sharded-eden-data)."),
     )
     parser.add_argument(
+        "--log-tokens",
+        action="store_true",
+        default=False,
+        help=("Also log first 10 tokens in window logs (requires --log-windows)."),
+    )
+    parser.add_argument(
         "--window-log-dir",
         type=str,
         default=None,
@@ -722,6 +728,7 @@ def train(args: argparse.Namespace) -> None:
         recipe_kwargs["window_min_length_threshold"] = args.window_min_length_threshold
         recipe_kwargs["rc_aug"] = args.rc_aug
         recipe_kwargs["log_windows"] = args.log_windows
+        recipe_kwargs["log_tokens"] = args.log_tokens
         recipe_kwargs["window_log_dir"] = args.window_log_dir
     elif args.dataset_config:
         recipe_kwargs["dataset_dir"] = args.dataset_dir

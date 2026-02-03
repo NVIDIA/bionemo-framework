@@ -341,6 +341,7 @@ class ShardedEdenDataset(Dataset):
         log_windows: bool = False,
         log_dir: Optional[str] = None,
         skip_stats: bool = True,
+        log_tokens: bool = False,
     ) -> None:
         """Initialize the ShardedEdenDataset."""
         super().__init__()
@@ -357,6 +358,7 @@ class ShardedEdenDataset(Dataset):
         self.skip_stats = skip_stats
         # Window access logging setup (lazy init in __getitem__)
         self.log_windows = log_windows
+        self.log_tokens = log_tokens  # Also log first 10 tokens for debugging
         # Remember desired log directory for lazy init in worker processes
         self._log_dir = log_dir
 
@@ -560,7 +562,7 @@ class ShardedEdenDataset(Dataset):
             except Exception:
                 sample_id_for_log = "unknown"
 
-            # Synchronously write CSV row (no flush here; only on cleanup)
+            # Build CSV row
             row = [
                 int(idx),
                 sequence_id,
@@ -569,8 +571,14 @@ class ShardedEdenDataset(Dataset):
                 int(self._rank),
                 int(time.time_ns()),
             ]
-            self._log_writer.writerow(row)
-            self._log_file.flush()
+
+            if self.log_tokens:
+                # Store for later when tokens are available
+                self._pending_log_tokens = row
+            else:
+                # Write immediately
+                self._log_writer.writerow(row)
+                self._log_file.flush()
 
         # if there is only one DB connection, use it directly
         if len(self.db_connections) == 1:
@@ -662,6 +670,14 @@ class ShardedEdenDataset(Dataset):
         if self.create_attention_mask:
             batch["attention_mask"] = self.attention_mask
 
+        # Log tokens if enabled (append to existing log row)
+        if self.log_windows and self.log_tokens and hasattr(self, "_pending_log_tokens"):
+            # Write the pending token data
+            first_10 = tokens[:10].tolist()
+            self._log_writer.writerow(self._pending_log_tokens + [str(first_10)])
+            self._log_file.flush()
+            del self._pending_log_tokens
+
         return batch
 
     def collate_fn(self, batch):
@@ -715,16 +731,17 @@ class ShardedEdenDataset(Dataset):
         # Open CSV file in append mode and write header
         self._log_file = open(self._log_file_path, mode="a", newline="")
         self._log_writer = csv.writer(self._log_file)
-        self._log_writer.writerow(
-            [
-                "window_idx",
-                "sequence_id",
-                "sample_id",
-                "window_in_seq_idx",
-                "rank",
-                "access_ts",
-            ]
-        )
+        header = [
+            "window_idx",
+            "sequence_id",
+            "sample_id",
+            "window_in_seq_idx",
+            "rank",
+            "access_ts",
+        ]
+        if self.log_tokens:
+            header.append("first_10_tokens")
+        self._log_writer.writerow(header)
 
         print(f"Window access logger initialised at {self._log_file_path}")
 

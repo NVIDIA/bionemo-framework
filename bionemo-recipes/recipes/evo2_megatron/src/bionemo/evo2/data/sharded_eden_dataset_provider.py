@@ -76,6 +76,7 @@ class ShardedEdenDatasetProvider(DatasetProvider):
     window_min_length_threshold: Optional[int] = None
     use_control_tags: bool = False
     log_windows: bool = False
+    log_tokens: bool = False
     log_dir: Optional[str] = None
     skip_stats: bool = True
     create_attention_mask: bool = False
@@ -106,6 +107,7 @@ class ShardedEdenDatasetProvider(DatasetProvider):
             use_control_tags=self.use_control_tags,
             split=split,
             log_windows=self.log_windows,
+            log_tokens=self.log_tokens,
             log_dir=self.log_dir,
         )
 
