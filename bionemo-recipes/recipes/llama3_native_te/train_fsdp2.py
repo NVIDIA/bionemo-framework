@@ -55,7 +55,13 @@ from fp8_debugging import initialize_fp8_debugging
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
 from scheduler import get_cosine_annealing_schedule_with_warmup
-from tensor_dataset import create_tensor_dataloader
+
+
+# Lazy import for tensor_dataset (optional, only needed for tensor dataset mode)
+try:
+    from tensor_dataset import create_tensor_dataloader
+except ImportError:
+    create_tensor_dataloader = None  # Not available, tensor dataset mode disabled
 
 
 logger = logging.getLogger(__name__)
