@@ -211,7 +211,7 @@ class NVEsmEncoder(nn.Module):
 
         # Utilize the layer number quantized recipe map to determine the context for each layer.
         for layer_number, layer_module in enumerate(self.layers):
-            fp_recipe = self.layer_number_quantized_recipe_map[layer_number] if layer_number in self.layer_number_quantized_recipe_map else None
+            fp_recipe = self.layer_number_quantized_recipe_map[layer_number] if self.layer_number_quantized_recipe_map is not None and layer_number in self.layer_number_quantized_recipe_map else None
 
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)

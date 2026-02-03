@@ -17,6 +17,9 @@ import logging
 from pathlib import Path
 
 import hydra
+
+from contextlib import nullcontext
+from omegaconf import DictConfig, OmegaConf
 import nvdlfw_inspect.api as debug_api
 import torch
 import transformer_engine
@@ -25,7 +28,7 @@ from omegaconf import DictConfig
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
-from transformers import AutoConfig, AutoModelForMaskedLM
+from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp, save_final_model_ddp, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
@@ -52,22 +55,16 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
-    # TE Debug feature logging
-    if args.fp8_stats_config.enabled and not args.fp8_config.enabled:
-        raise ValueError(
-            "fp8_stats_config.enabled is true but fp8_config.enabled is false, please set fp8_config.enabled to true in the config if you wish to collect FP8 stats"
-        )
-
-    if args.fp8_stats_config.enabled:
-        fp8_stats_file = args.fp8_stats_config.fp8_stats_file
-        fp8_log_dir = Path(args.fp8_stats_config.fp8_log_dir) / f"rank_{dist_config.rank}"
-        fp8_log_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"Logging FP8 stats to {fp8_log_dir}")
+    if args.quant_stats_config.enabled:
+        quant_stats_file = args.quant_stats_config.quant_stats_file
+        quant_log_dir = Path(args.quant_stats_config.quant_log_dir) / f"rank_{dist_config.rank}"
+        quant_log_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Logging quant stats to {quant_log_dir}")
         te_features_dir = str(Path(transformer_engine.__file__).parent / "debug" / "features")
         debug_api.initialize(
-            config_file=fp8_stats_file,
+            config_file=quant_stats_file,
             feature_dirs=[te_features_dir],
-            log_dir=fp8_log_dir,
+            log_dir=quant_log_dir,
             default_logging_enabled=True,
         )
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
@@ -75,12 +72,20 @@ def main(args: DictConfig) -> float | None:
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("ddp",))
 
     # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-    )
-
+    if args.fp8_config.enabled:
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
+    
+    if args.fp4_config.enabled:
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+            fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
+        )
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
+    fp8_layers = OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None and args.fp8_config.enabled else None
+    fp4_layers = OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None and args.fp4_config.enabled else None
+
+    config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.float32)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -88,8 +93,18 @@ def main(args: DictConfig) -> float | None:
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
-    with transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs):
-        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    if args.fp8_config.fp8_model_init_kwargs.enabled:
+        quantized_model_init = transformer_engine.pytorch.quantized_model_init(enabled=True, recipe=fp8_recipe, preserve_high_precision_init_val=True)
+    elif args.fp4_config.fp4_model_init_kwargs.enabled:
+        quantized_model_init = transformer_engine.pytorch.quantized_model_init(enabled=True, recipe=fp4_recipe, preserve_high_precision_init_val=True)
+    else:
+        quantized_model_init = nullcontext()
+
+    with (
+        quantized_model_init,
+    ):
+        # model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+        model = NVEsmForMaskedLM(config)
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -104,7 +119,7 @@ def main(args: DictConfig) -> float | None:
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    if args.fp8_stats_config.enabled:
+    if args.quant_stats_config.enabled:
         debug_api.infer_and_assign_layer_names(model)
 
     model = model.to(device=device)
@@ -150,14 +165,14 @@ def main(args: DictConfig) -> float | None:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa PLW2901
 
             # Forward pass with mixed precision.
-            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+            with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
                 outputs = model(**batch)
 
             # Backward pass.
             loss = outputs.loss
             loss.backward()
 
-            if args.fp8_stats_config.enabled:
+            if args.quant_stats_config.enabled:
                 debug_api.step()
             # Compute and clip gradient norms.
             total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
@@ -165,6 +180,8 @@ def main(args: DictConfig) -> float | None:
             # Step optimizer.
             optimizer.step()
             scheduler.step()
+            if args.quant_stats_config.enabled:
+                debug_api.step()
             optimizer.zero_grad()
 
             perf_logger.log_step(
@@ -206,7 +223,7 @@ def main(args: DictConfig) -> float | None:
 
     # Clean up distributed training
     perf_logger.finish()
-    if args.fp8_stats_config.enabled:
+    if args.quant_stats_config.enabled:
         debug_api.end_debug()
     torch.distributed.destroy_process_group()
 

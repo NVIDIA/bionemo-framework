@@ -104,8 +104,17 @@ def main(args: DictConfig) -> float | None:
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
+
+    if args.fp8_config.fp8_model_init_kwargs.enabled:
+        quantized_model_init = transformer_engine.pytorch.quantized_model_init(enabled=True, recipe=fp8_recipe, preserve_high_precision_init_val=True)
+    elif args.fp4_config.fp4_model_init_kwargs.enabled:
+        quantized_model_init = transformer_engine.pytorch.quantized_model_init(enabled=True, recipe=fp4_recipe, preserve_high_precision_init_val=True)
+    else:
+        quantized_model_init = None
+
     with (
         torch.device("meta") if args.use_meta_device else nullcontext(),
+        quantized_model_init,
     ):
         # model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
         model = NVEsmForMaskedLM(config)
@@ -158,7 +167,7 @@ def main(args: DictConfig) -> float | None:
     #     eps=1e-8,
     #     weight_decay=0.01,
     #     master_weights=True,
-    #     master_weight_dtype=torch.float32,
+    #     master_weight_dtype=torch.float32, # TODO: Store as Dtensor.
     #     )
     # Note: Got an error about mixed torch.Tensor and DTensor here, so using AdamW instead.
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
