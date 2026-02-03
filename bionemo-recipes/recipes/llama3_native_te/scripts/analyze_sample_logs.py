@@ -287,11 +287,34 @@ def compare_with_john(
         print(f"✓ ALL {num_to_compare} window_idx values MATCH!")
         print("  This proves John and our training see the EXACT SAME DATA in the SAME ORDER!")
     else:
-        print(f"✗ Found {len(mismatches)} mismatches!")
+        print(f"✗ Found {len(mismatches)} ORDER mismatches!")
         print("  First 10 mismatches:")
         for i, john_idx, our_idx in mismatches[:10]:
             print(f"    Position {i}: John={john_idx}, Ours={our_idx}")
-        issues.append(f"{len(mismatches)} window_idx mismatches between John and parquet")
+
+        # Check if the SETS match even if order doesn't
+        john_set = set(john_window_indices[:num_to_compare])
+        our_set = set(parquet_window_idx[:num_to_compare])
+        common = john_set & our_set
+        only_john = john_set - our_set
+        only_ours = our_set - john_set
+
+        print()
+        print("  SET COMPARISON (ignoring order):")
+        print(f"    John's unique window_idx: {len(john_set)}")
+        print(f"    Our unique window_idx: {len(our_set)}")
+        print(f"    In common: {len(common)} ({100 * len(common) / max(len(john_set), 1):.1f}%)")
+        print(f"    Only in John's: {len(only_john)}")
+        print(f"    Only in ours: {len(only_ours)}")
+
+        if len(common) == len(john_set) == len(our_set):
+            print()
+            print("  ✓ SETS MATCH! Same data, different distribution order.")
+            print("    This is expected if using different samplers:")
+            print("    - John: MegatronPretrainingSampler (contiguous chunks)")
+            print("    - Ours: DistributedSampler (interleaved)")
+        else:
+            issues.append(f"{len(mismatches)} window_idx mismatches between John and parquet")
 
     print()
 
