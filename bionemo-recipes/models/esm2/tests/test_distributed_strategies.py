@@ -37,7 +37,9 @@ requires_multi_gpu = pytest.mark.skipif(
     "strategy",
     [
         "fsdp2",
-        "mfsdp",
+        pytest.param(
+            "mfsdp", marks=pytest.mark.xfail(reason="BIO-146: mFSDP currently failing on latest torch container.")
+        ),
     ],
 )
 @pytest.mark.parametrize("backend", ["te", "eager"])
