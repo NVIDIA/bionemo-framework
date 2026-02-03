@@ -30,7 +30,7 @@ Configure CI behavior by applying the relevant labels. By default, only basic un
 - [ciflow:all](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/main/contributing/contributing.md#ciflow:all) - Run all tests (unit tests, slow tests, and notebooks) for bionemo2. This label can be used to enforce running tests for all bionemo2.
 - [ciflow:all-recipes](https://github.com/NVIDIA/bionemo-framework/blob/main/docs/docs/main/contributing/contributing.md#ciflow:all-recipes) - Run tests for all recipes (under bionemo-recipes). This label can be used to enforce running tests for all recipes.
 
-Unit tests marked as `@pytest.mark.multi_gpu` or `@pytest.mark.distributed` are not run in the PR pipeline.
+Multi-GPU tests (marked with `@pytest.mark.multi_gpu`) are not run in PR CI. They run automatically in nightly builds after single-GPU tests pass.
 
 For more details, see [CONTRIBUTING](CONTRIBUTING.md)
 

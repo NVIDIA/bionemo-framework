@@ -136,6 +136,7 @@ def test_checkpoint_save_and_load_single_process_mfsdp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 @pytest.mark.slow
 def test_checkpoint_save_and_load_two_processes_mfsdp():
@@ -312,6 +313,7 @@ def test_checkpoint_save_and_load_one_processes_ddp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.mark.multi_gpu
 @pytest.mark.slow
 @requires_multi_gpu
 def test_checkpoint_save_and_load_two_processes_ddp():
@@ -565,6 +567,7 @@ def test_safetensors_save_load_roundtrip_mfsdp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 @pytest.mark.slow
 @pytest.mark.xfail(reason="BIONEMO-3252: mfsdp gather_uneven_dtensor_to_full_tensor fails with 25.10 torch base image")
@@ -683,6 +686,7 @@ def test_distributed_safetensors_multiprocess_mfsdp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 @pytest.mark.slow
 @pytest.mark.xfail(reason="BIONEMO-3252: mfsdp gather_uneven_dtensor_to_full_tensor fails with 25.10 torch base image")
@@ -803,6 +807,7 @@ def test_safetensors_multiprocess_roundtrip_mfsdp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.mark.multi_gpu
 @pytest.mark.slow
 @requires_multi_gpu
 @pytest.mark.xfail(reason="BIONEMO-3252: mfsdp gather_uneven_dtensor_to_full_tensor fails with 25.10 torch base image")
@@ -965,6 +970,7 @@ def test_safetensors_unsharded_weights_consistency():
         shutil.rmtree(temp_dir_multi, ignore_errors=True)
 
 
+@pytest.mark.multi_gpu
 @pytest.mark.slow
 @requires_multi_gpu
 def test_distributed_safetensors_multiprocess_ddp():
@@ -1082,6 +1088,7 @@ def test_distributed_safetensors_multiprocess_ddp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 @pytest.mark.slow
 def test_safetensors_multiprocess_roundtrip_ddp():
@@ -1201,6 +1208,7 @@ def test_safetensors_multiprocess_roundtrip_ddp():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@pytest.mark.multi_gpu
 @pytest.mark.slow
 @requires_multi_gpu
 def test_safetensors_unsharded_weights_consistency_ddp():

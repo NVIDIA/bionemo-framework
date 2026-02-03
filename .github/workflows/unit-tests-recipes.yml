@@ -1,3 +1,26 @@
+# BioNeMo Recipes CI Workflow
+#
+# This workflow runs tests for BioNeMo recipes and models on various triggers:
+#
+# TRIGGERS:
+# - Push to pull-request branches or dependabot branches
+# - Merge group events (when PRs are merged via merge queue)
+# - Scheduled runs (daily at 9 AM UTC)
+#
+# WORKFLOW OVERVIEW:
+# 1. changed-dirs: Detects which recipe/model directories have changed
+# 2. get-pr-labels: Retrieves PR labels for conditional job execution
+# 3. unit-tests-single-gpu: Runs single-GPU tests for changed directories
+# 4. unit-tests-multi-gpu: Runs multi-GPU tests (conditional - see below)
+# 5. verify-recipe-tests: Verifies all test jobs completed successfully
+#
+# MULTI-GPU TEST EXECUTION:
+# Multi-GPU tests run in these situations:
+# - On schedule (nightly): if changed dirs exist AND single-GPU tests pass
+# - On PRs (push events): if changed dirs exist AND (ciflow:all-recipes OR ciflow:multi-gpu)
+# - NOT on merge_group or any other events
+# Note: On push, multi-GPU tests run in parallel with single-GPU tests (no dependency)
+
 name: "BioNeMo Recipes CI"
 
 on:
@@ -127,11 +150,11 @@ jobs:
           echo '${{ toJSON(steps.set-dirs.outputs) }}'
         shell: bash
 
-  unit-tests:
+  unit-tests-single-gpu:
     needs: changed-dirs
     runs-on: linux-amd64-gpu-l4-latest-1
     if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
-    name: "unit-tests (${{ matrix.recipe.name }})"
+    name: "unit-tests-single-gpu (${{ matrix.recipe.name }})"
     container:
       image: ${{ matrix.recipe.image }}
       options: --shm-size=16G
@@ -181,24 +204,124 @@ jobs:
             exit 1
           fi
 
-      - name: Run tests
+      - name: Run single-GPU tests
         working-directory: ${{ matrix.recipe.dir }}
         run: |
           if [ -f .ci_test_env.sh ]; then
             source .ci_test_env.sh
           fi
-          pytest -v .
+          pytest -v -m "not multi_gpu" .
+
+  # With copy-pr-bot, we need to get the PR labels from the PR API rather than from the event metadata.
+  get-pr-labels:
+    runs-on: ubuntu-latest
+    outputs:
+      labels: ${{ steps.get-labels.outputs.labels || steps.get-labels-empty.outputs.labels }}
+    steps:
+      - name: Get PR number from branch
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        id: get-pr-num
+        run: |
+          PR_NUM=$(echo ${{ github.ref_name }} | grep -oE '[0-9]+$')
+          echo "pr_num=$PR_NUM" >> $GITHUB_OUTPUT
+
+      - name: Get PR labels
+        id: get-labels
+        if: startsWith(github.ref, 'refs/heads/pull-request/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LABELS=$(gh api repos/${{ github.repository }}/pulls/${{ steps.get-pr-num.outputs.pr_num }} --jq '[.labels[].name]' || echo "[]")
+          echo "labels=$LABELS" >> $GITHUB_OUTPUT
+          echo "Retrieved labels: $LABELS"
+
+      - name: Set empty labels for non-PR branches
+        if: ${{ !startsWith(github.ref, 'refs/heads/pull-request/') }}
+        id: get-labels-empty
+        run: |
+          echo "labels=[]" >> $GITHUB_OUTPUT
+          echo "Set empty labels for non-PR branch"
+
+  unit-tests-multi-gpu:
+    needs:
+      - changed-dirs
+      - unit-tests-single-gpu
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
+    # Run multi-GPU tests ONLY when:
+    # 1. On schedule: if changed dirs exist AND single-GPU tests pass
+    # 2. On push: if changed dirs exist AND (ciflow:all-recipes OR ciflow:multi-gpu label)
+    # Do NOT run on merge_group or any other events
+    if: |
+      (needs.changed-dirs.outputs.dirs != '[]') &&
+      (
+        (
+          github.event_name == 'schedule' &&
+          needs.unit-tests-single-gpu.result == 'success'
+        ) ||
+        (
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all-recipes') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
+        )
+      )
+    name: "unit-tests-multi-gpu (${{ matrix.recipe.name }})"
+    container:
+      image: ${{ matrix.recipe.image }}
+      options: --shm-size=16G
+    strategy:
+      matrix:
+        recipe: ${{ fromJson(needs.changed-dirs.outputs.dirs) }}
+      fail-fast: false
+
+    steps:
+      - name: Show GPU info
+        run: nvidia-smi
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: "${{ matrix.recipe.dir }}"
+          sparse-checkout-cone-mode: false
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.recipe.dir }}
+        run: |
+          if [ -f pyproject.toml ] || [ -f setup.py ]; then
+            PIP_CONSTRAINT= pip install -e .
+            echo "Installed ${{ matrix.recipe.dir }} as editable package"
+          elif [ -f requirements.txt ]; then
+            PIP_CONSTRAINT= pip install -r requirements.txt
+            echo "Installed ${{ matrix.recipe.dir }} from requirements.txt"
+          else
+            echo "No pyproject.toml, setup.py, or requirements.txt found in ${{ matrix.recipe.dir }}"
+            exit 1
+          fi
+
+      - name: Run multi-GPU tests
+        working-directory: ${{ matrix.recipe.dir }}
+        run: |
+          if [ -f .ci_test_env.sh ]; then
+            source .ci_test_env.sh
+          fi
+          # Run multi-GPU tests, but allow exit code 5 (no tests found) to pass
+          pytest -v -m "multi_gpu" . || [ $? -eq 5 ]
 
   verify-recipe-tests:
     # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.
     # Use this job as the required check for PRs.
-    needs: unit-tests
+    needs:
+      - changed-dirs
+      - get-pr-labels
+      - unit-tests-single-gpu
+      - unit-tests-multi-gpu
     runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Check unit-tests matrix status
         run: |
-          if [[ "${{ needs.unit-tests.result }}" == "failure" || "${{ needs.unit-tests.result }}" == "cancelled" ]]; then
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
             echo "Some unit-tests matrix jobs have failed or been cancelled!"
             exit 1
           else

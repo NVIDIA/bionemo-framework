@@ -19,16 +19,29 @@
 # 2. pre-commit: Runs static code checks and linting
 # 3. get-pr-labels: Retrieves PR labels for conditional job execution
 # 4. build-bionemo-image: Builds Docker image (conditional on triggers/labels)
-# 5. run-tests: Runs unit tests (when image build succeeds)
-# 6. run-tests-slow: Runs slow tests (when image succeeds + ciflow:slow label OR schedule/merge_group/ciflow:all)
-# 7. run-tests-notebooks: Runs notebook tests (when image succeeds + ciflow:notebooks label OR schedule/merge_group/ciflow:all)
-# 8. verify-tests-status: Verifies all test jobs completed successfully
+# 5. run-tests-single-gpu: Runs fast single-GPU unit tests (when image build succeeds)
+# 6. run-tests-multi-gpu: Runs fast multi-GPU tests (conditional - see below)
+# 7. run-tests-slow-single-gpu: Runs slow single-GPU tests (when image succeeds + ciflow:slow/ciflow:all label OR schedule/merge_group)
+# 8. run-tests-slow-multi-gpu: Runs slow multi-GPU tests (conditional - see below)
+# 9. run-tests-notebooks: Runs notebook tests (when image succeeds + ciflow:notebooks/ciflow:all label OR schedule/merge_group)
+# 10. verify-tests-status: Verifies all test jobs completed successfully
 #
 # CONDITIONAL EXECUTION:
 # - build-bionemo-image runs on: schedule, ciflow:all label, (no ciflow:skip + modified files), (merge_group + modified files)
-# - run-tests runs when: build-bionemo-image succeeds
-# - run-tests-slow runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
+# - run-tests-single-gpu runs when: build-bionemo-image succeeds
+# - run-tests-multi-gpu runs when: build succeeds AND ((schedule AND single-gpu passes) OR (push AND ciflow:multi-gpu label))
+# - run-tests-slow-single-gpu runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
+# - run-tests-slow-multi-gpu runs when: build succeeds AND ((schedule AND slow-single-gpu passes) OR (push AND ciflow:multi-gpu label))
 # - run-tests-notebooks runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:notebooks)
+#
+# MULTI-GPU TEST EXECUTION:
+# Multi-GPU tests run in these situations:
+# - On schedule (nightly): if build succeeds AND corresponding single-GPU tests pass
+# - On PRs (push events): if build succeeds AND labels match:
+#   * Fast multi-GPU: ciflow:all OR ciflow:multi-gpu
+#   * Slow multi-GPU: ciflow:all OR (ciflow:multi-gpu AND ciflow:slow)
+# - NOT on merge_group or any other events
+# Note: On push, multi-GPU tests run in parallel with single-GPU tests (no dependency)
 
 name: "BioNeMo Framework CI"
 
@@ -207,7 +220,7 @@ jobs:
           cache-to: ${{ steps.cache.outputs.cache-to }}
 
 
-  run-tests:
+  run-tests-single-gpu:
     needs:
       - build-bionemo-image
       - get-pr-labels
@@ -225,7 +238,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run tests
+      - name: Run single-GPU tests
         # Tests in this stage generate code coverage metrics for the repository
         # Coverage data is uploaded to Codecov in subsequent stages
         env:
@@ -250,7 +263,45 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  run-tests-slow:
+  run-tests-multi-gpu:
+    needs:
+      - build-bionemo-image
+      - run-tests-single-gpu
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
+    container:
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    # Run multi-GPU tests ONLY when:
+    # 1. On schedule: if build succeeds AND single-GPU tests pass
+    # 2. On push: if build succeeds AND (ciflow:all OR ciflow:multi-gpu label)
+    # Do NOT run on merge_group or any other events
+    if: |
+        (needs.build-bionemo-image.result == 'success') &&
+        (
+          (
+            github.event_name == 'schedule' &&
+            needs.run-tests-single-gpu.result == 'success'
+          ) ||
+          (
+            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu')
+          )
+        )
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run multi-GPU tests
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        run: |
+          chmod +x ./ci/scripts/run_pytest_multigpu.sh
+          ./ci/scripts/run_pytest_multigpu.sh
+
+  run-tests-slow-single-gpu:
     needs:
       - build-bionemo-image
       - get-pr-labels
@@ -272,15 +323,55 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Run slow tests
+      - name: Run slow single-GPU tests
+        env:
+          BIONEMO_DATA_SOURCE: ngc
+        run: |
+          chmod +x ./ci/scripts/pytest_runner.sh
+          ./ci/scripts/pytest_runner.sh --no-nbval --only-slow --skip-multi-gpu --allow-no-tests
 
+  run-tests-slow-multi-gpu:
+    needs:
+      - build-bionemo-image
+      - run-tests-slow-single-gpu
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-rtxa6000-latest-2-nemo
+    container:
+      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
+      credentials:
+        username: ${{ vars.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    # Run slow multi-GPU tests ONLY when:
+    # 1. On schedule: if build succeeds AND slow single-GPU tests pass
+    # 2. On push: if build succeeds AND (ciflow:all OR (ciflow:multi-gpu AND ciflow:slow))
+    # Do NOT run on merge_group or any other events
+    if: |
+        (needs.build-bionemo-image.result == 'success') &&
+        (
+          (
+            github.event_name == 'schedule' &&
+            needs.run-tests-slow-single-gpu.result == 'success'
+          ) ||
+          (
+            contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+            (
+              contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:multi-gpu') &&
+              contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
+            )
+          )
+        )
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run slow multi-GPU tests
         env:
           BIONEMO_DATA_SOURCE: ngc
         # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
         #  to run package by package like we do with the fast tests.
         run: |
-          chmod +x ./ci/scripts/run_pytest_slow.sh
-          ./ci/scripts/run_pytest_slow.sh
+          chmod +x ./ci/scripts/run_pytest_slow_multigpu.sh
+          ./ci/scripts/run_pytest_slow_multigpu.sh
 
 
   run-tests-notebooks:
@@ -321,8 +412,10 @@ jobs:
       - pre-commit
       - get-pr-labels
       - build-bionemo-image
-      - run-tests
-      - run-tests-slow
+      - run-tests-single-gpu
+      - run-tests-multi-gpu
+      - run-tests-slow-single-gpu
+      - run-tests-slow-multi-gpu
       - run-tests-notebooks
       # Add all other run-*-test jobs
     runs-on: ubuntu-latest

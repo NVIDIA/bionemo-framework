@@ -135,14 +135,14 @@ def test_predict_does_not_instantiate_optimizer(tmp_path: Path, checkpoint_1b_8k
     "ddp,pp,wi",
     [
         pytest.param(1, 1, "epoch", id="ddp=1,pp=1,wi=epoch"),
-        pytest.param(2, 1, "epoch", id="ddp=2,pp=1,wi=epoch"),
-        pytest.param(2, 1, "batch", id="ddp=2,pp=1,wi=batch"),
+        pytest.param(2, 1, "epoch", id="ddp=2,pp=1,wi=epoch", marks=pytest.mark.multi_gpu),
+        pytest.param(2, 1, "batch", id="ddp=2,pp=1,wi=batch", marks=pytest.mark.multi_gpu),
         pytest.param(
             1,
             2,
             "epoch",
             id="ddp=1,pp=2,wi=epoch",
-            marks=pytest.mark.skip("Pipeline parallelism test currently hangs."),
+            marks=[pytest.mark.multi_gpu, pytest.mark.skip("Pipeline parallelism test currently hangs.")],
         ),
     ],
 )
@@ -292,12 +292,18 @@ def baseline_predictions_7b_1m_results(
     "ddp,cp,pp,tp,fp8,wi",
     [
         pytest.param(1, 1, 1, 1, False, "epoch", id="ddp=1,cp=1,pp=1,tp=1,fp8=False,wi=epoch"),
-        pytest.param(2, 1, 1, 1, False, "epoch", id="ddp=2,cp=1,pp=1,tp=1,fp8=False,wi=epoch"),
         pytest.param(
-            2, 1, 1, 1, False, "batch", id="ddp=2,cp=1,pp=1,tp=1,fp8=False,wi=batch"
+            2, 1, 1, 1, False, "epoch", id="ddp=2,cp=1,pp=1,tp=1,fp8=False,wi=epoch", marks=pytest.mark.multi_gpu
+        ),
+        pytest.param(
+            2, 1, 1, 1, False, "batch", id="ddp=2,cp=1,pp=1,tp=1,fp8=False,wi=batch", marks=pytest.mark.multi_gpu
         ),  # simulate a large prediction run with dp parallelism
-        pytest.param(1, 2, 1, 1, False, "epoch", id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=epoch"),
-        pytest.param(1, 2, 1, 1, False, "batch", id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=batch"),
+        pytest.param(
+            1, 2, 1, 1, False, "epoch", id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=epoch", marks=pytest.mark.multi_gpu
+        ),
+        pytest.param(
+            1, 2, 1, 1, False, "batch", id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=batch", marks=pytest.mark.multi_gpu
+        ),
         pytest.param(
             1,
             1,
@@ -306,12 +312,14 @@ def baseline_predictions_7b_1m_results(
             False,
             "epoch",
             id="ddp=1,cp=1,pp=2,tp=1,fp8=False,wi=epoch",
-            marks=pytest.mark.skip("Pipeline parallelism test currently hangs."),
+            marks=[pytest.mark.multi_gpu, pytest.mark.skip("Pipeline parallelism test currently hangs.")],
         ),
         pytest.param(
-            1, 1, 1, 2, True, "epoch", id="ddp=1,cp=1,pp=1,tp=2,fp8=True,wi=epoch"
+            1, 1, 1, 2, True, "epoch", id="ddp=1,cp=1,pp=1,tp=2,fp8=True,wi=epoch", marks=pytest.mark.multi_gpu
         ),  # Cover case where FP8 was not supported with TP=2
-        pytest.param(1, 1, 1, 2, False, "epoch", id="ddp=1,cp=1,pp=1,tp=2,fp8=False,wi=epoch"),
+        pytest.param(
+            1, 1, 1, 2, False, "epoch", id="ddp=1,cp=1,pp=1,tp=2,fp8=False,wi=epoch", marks=pytest.mark.multi_gpu
+        ),
     ],
     ids=lambda x: f"ddp={x[0]},cp={x[1]},pp={x[2]},tp={x[3]},fp8={x[4]},wi={x[5]}",
 )

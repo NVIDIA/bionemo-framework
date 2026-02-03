@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import socket
 from typing import Optional
 
 import pytest
@@ -54,7 +56,13 @@ def vdm_parallel_interpolate(
         assert result.shape == (5, 10)
 
 
-@pytest.mark.parametrize("world_size", [1, 2])
+@pytest.mark.parametrize(
+    "world_size",
+    [
+        pytest.param(1, id="world_size=1"),
+        pytest.param(2, id="world_size=2", marks=pytest.mark.multi_gpu),
+    ],
+)
 def test_vdm_parallel_interpolate(
     vdm,
     world_size,
@@ -67,6 +75,24 @@ def test_vdm_parallel_interpolate(
     visible_devices = torch.cuda.device_count() if device_type == "cuda" else 1  # assume 1 for non-CUDA (e.g., CPU)
     if world_size > visible_devices:
         pytest.skip(f"Insufficient devices: {world_size} devices requested, but only {visible_devices} are visible")
+
+    # Set up environment variables BEFORE spawning so all processes use the same values
+    if "MASTER_ADDR" not in os.environ:
+        os.environ["MASTER_ADDR"] = "localhost"
+    if "MASTER_PORT" not in os.environ:
+        # Find a free port for this test (bind to localhost only for security)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(("localhost", 0))
+        port = s.getsockname()[1]
+        s.close()
+        os.environ["MASTER_PORT"] = str(port)
+
+    # Fix hanging issue on A6000 GPUs
+    if torch.cuda.is_available():
+        for i in range(torch.cuda.device_count()):
+            if "A6000" in torch.cuda.get_device_name(i):
+                os.environ["NCCL_P2P_DISABLE"] = "1"
+                break
 
     torch.multiprocessing.spawn(  # type: ignore
         fn=vdm_parallel_interpolate,

@@ -173,6 +173,7 @@ def test_checkpoint_save_and_load_single_process_ddp(recipe_path, tmp_path):
     assert set(all_step_dirs) == {"step_5", "step_10"}, f"Expected step_5 and step_10, found: {all_step_dirs}"
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
     """Test checkpoint save/resume functionality for DDP with two processes.
@@ -428,6 +429,7 @@ def test_checkpoint_save_and_load_single_process_mfsdp(recipe_path, tmp_path):
     )
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 def test_checkpoint_save_and_load_two_processes_mfsdp(recipe_path, tmp_path):
     """Test checkpoint save/resume functionality for mFSDP with two processes.
@@ -748,6 +750,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2(recipe_path, tmp_path):
     )
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
     """Test checkpoint save/resume functionality for FSDP2 with two processes.
@@ -1036,6 +1039,7 @@ def test_scheduler_resume_single_gpu(recipe_path, tmp_path):
         assert os.path.isfile(checkpoint_file), f"Missing checkpoint file: {checkpoint_file}"
 
 
+@pytest.mark.multi_gpu
 @requires_multi_gpu
 def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
     """Test that learning rate scheduler resumes correctly with multi-GPU training.
