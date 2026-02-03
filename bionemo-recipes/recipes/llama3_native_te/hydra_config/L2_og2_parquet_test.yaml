@@ -1,7 +1,7 @@
-# MINIMAL TEST CONFIG for single-node (8 GPU) data ordering verification
+# TEST CONFIG for data ordering verification with parquet data
 #
-# This config is for testing that data ordering works correctly
-# before running the full 48-GPU job.
+# Based on L2_og2_metagenome_7b_bshd.yaml but using pre-dumped parquet data
+# from John's ShardedEdenDataset.
 #
 # Setup:
 #   8 GPUs × 1 mbs × 8 grad_acc = 64 GBS
@@ -10,7 +10,7 @@
 # Usage:
 #   # First, dump 128 samples:
 #   python scripts/dump_sharded_eden_as_parquet.py \
-#       --sequence-db-dir /data/bcr_eden/OG2_database_splits/opengenome2-metagenome \
+#       --sequence-db-dir /data/bcr_eden/OG2_database_splits \
 #       --window-db-path /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite \
 #       --output-dir /data/parquet_test \
 #       --num-samples 128 \
@@ -23,32 +23,33 @@ defaults:
   - defaults
   - _self_
 
-# Use a tiny model for testing (faster)
-config_name_or_path: ./model_configs/llama3-1b-hyena-comparable
+# 7B model config (matching EdenConfig from bionemo-evo2)
+config_name_or_path: meta-llama/Llama-3.1-8B
 config_kwargs:
-  vocab_size: 256
-  num_hidden_layers: 4  # REDUCED for testing
-  hidden_size: 512      # REDUCED for testing
-  intermediate_size: 1024
-  num_attention_heads: 8
-  num_key_value_heads: 8
+  vocab_size: 256  # CRITICAL: Must match nucleotide tokenizer vocab size!
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 32
   max_position_embeddings: 8192
   initializer_range: 0.02
   attn_input_format: bshd
-  rope_theta: 500000
-  rope_scaling:
-    type: "llama3"
+  rope_parameters:
+    rope_type: "llama3"
+    rope_theta: 500000
     factor: 1
     low_freq_factor: 1
     high_freq_factor: 4
     original_max_position_embeddings: 8192
 
-# Initialization settings
+# ============ CRITICAL FLAGS TO MATCH JOHN'S RUN ============
 spike_no_more_embedding_init: true
-skip_embedding_weight_decay: true
-use_megatron_scaled_init: false
+skip_embedding_weight_decay: false  # John APPLIES weight decay to embeddings
 use_weight_decay_grouping: true
+use_megatron_scaled_init: true
 use_megatron_loss: false
+# ============================================================
 
 use_sequence_packing: false
 
@@ -59,44 +60,47 @@ grad_acc_steps: 8
 num_train_steps: 2
 
 wandb:
-  name: parquet_test_8gpu
+  name: parquet_test_8gpu_7b
   project: llama3-data-ordering-test
   mode: disabled  # Disable wandb for testing
 
-# Dataset config
+# Dataset config - using pre-dumped parquet from John's ShardedEdenDataset
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1
-  num_workers: 2
+  num_workers: 1
   prefetch_factor: 2
   max_seq_length: 8192
+  stride: 7992
 
   load_dataset_kwargs:
     path: parquet
     data_files: /data/parquet_test/*.parquet
     split: train
-    streaming: false
+    streaming: false  # CRITICAL: map-style for DistributedSampler
 
-  shuffle: false
-  skip_tokenization: true
+  shuffle: false  # CRITICAL: preserve John's data order
+  skip_tokenization: true  # Data is already tokenized
   use_stateful_dataloader: false
+  mask_degenerate_bases: true
+  uppercase_labels: false
 
   # Enable logging to verify batch composition
   log_sample_indices: true
   sample_log_dir: /data/parquet_sample_logs
 
-# Simple optimizer for testing
+# Optimizer (matching John's settings)
 adamw_kwargs:
-  lr: 1e-04
+  lr: 3e-05
   fused: true
   betas: [0.9, 0.95]
   eps: 1e-8
-  weight_decay: 0.01
+  weight_decay: 0.1
 
 lr_scheduler_kwargs:
   num_warmup_steps: 0
   num_decay_steps: 2
-  min_lr_ratio: 0.1
+  min_lr_ratio: 0.02
 
 # No checkpointing for test
 checkpoint:
