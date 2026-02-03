@@ -406,6 +406,220 @@ def interleave_ranks(
     return interleaved
 
 
+def interleave_for_distributed_sampler(
+    window_indices_by_rank: dict[int, list[int]],
+    micro_batch_size: int,
+    grad_acc_batches: int,
+    target_dp_ranks: int,
+) -> list[int]:
+    """Interleave samples so DistributedSampler gives each rank the correct data.
+
+    DistributedSampler with N ranks gives rank i samples at indices: i, i+N, i+2N, ...
+    So we interleave sample-by-sample across source DP ranks to match this pattern.
+
+    For GBS=384 with 12 source DP ranks → 32 samples/rank/step:
+    - Position 0: DP0 sample 0
+    - Position 1: DP1 sample 0
+    - ...
+    - Position 11: DP11 sample 0
+    - Position 12: DP0 sample 1
+    - Position 13: DP1 sample 1
+    - ...
+
+    Then with DistributedSampler(num_replicas=12):
+    - Rank 0 gets positions 0, 12, 24, ... = DP0 samples 0, 1, 2, ...  ✓
+
+    Args:
+        window_indices_by_rank: Dict mapping source DP rank -> list of window_idx values
+        micro_batch_size: Source micro batch size
+        grad_acc_batches: Source gradient accumulation batches
+        target_dp_ranks: Number of DP ranks in target training (for validation)
+
+    Returns:
+        List of window_idx values interleaved for DistributedSampler
+    """
+    num_source_dp_ranks = len(window_indices_by_rank)
+    samples_per_step_per_rank = micro_batch_size * grad_acc_batches
+
+    # Find minimum samples across all ranks
+    min_samples = min(len(indices) for indices in window_indices_by_rank.values())
+
+    logger.info("Interleaving for DistributedSampler:")
+    logger.info(f"  Source: {num_source_dp_ranks} DP ranks, {samples_per_step_per_rank} samples/step/rank")
+    logger.info(f"  Target: {target_dp_ranks} DP ranks")
+    logger.info(f"  GBS = {samples_per_step_per_rank * num_source_dp_ranks}")
+
+    if target_dp_ranks != num_source_dp_ranks:
+        logger.warning(f"  Target DP ranks ({target_dp_ranks}) != Source DP ranks ({num_source_dp_ranks})")
+        logger.warning("  Data distribution will NOT match exactly!")
+
+    # Interleave sample-by-sample across DP ranks
+    # This ensures DistributedSampler gives each rank the correct samples
+    sorted_ranks = sorted(window_indices_by_rank.keys())
+
+    interleaved = [
+        window_indices_by_rank[dp_rank][sample_idx] for sample_idx in range(min_samples) for dp_rank in sorted_ranks
+    ]
+
+    logger.info(f"  Total interleaved samples: {len(interleaved)}")
+    logger.info(f"  Samples per optimizer step: {num_source_dp_ranks * samples_per_step_per_rank}")
+
+    # Verify the pattern
+    logger.info("\n  Verification (first 24 positions):")
+    for i in range(min(24, len(interleaved))):
+        src_rank = i % num_source_dp_ranks
+        src_sample = i // num_source_dp_ranks
+        logger.info(f"    Position {i:3d}: from DP{src_rank}, sample {src_sample}")
+
+    return interleaved
+
+
+def fetch_tokens_batch(args_tuple):
+    """Fetch tokens for a batch of window indices (for multiprocessing)."""
+    window_indices_batch, sequence_db_dir, window_db_path, tokenizer_path, seq_length, stride = args_tuple
+
+    from transformers import AutoTokenizer
+
+    hf_tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    if hf_tokenizer.pad_token is None:
+        hf_tokenizer.pad_token = hf_tokenizer.eos_token
+    tokenizer_adapter = MegatronTokenizerAdapter(hf_tokenizer)
+
+    from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataset
+
+    dataset = ShardedEdenDataset(
+        tokenizer=tokenizer_adapter,
+        sequence_db_dir=sequence_db_dir,
+        window_db_path=window_db_path,
+        seq_length=seq_length,
+        stride=stride,
+        create_attention_mask=False,
+        rc_aug=False,
+        skip_stats=True,
+    )
+
+    results = []
+    for window_idx in window_indices_batch:
+        sample = dataset[np.int64(window_idx)]
+        results.append((window_idx, sample["tokens"].tolist()))
+
+    return results
+
+
+def convert_to_sequential_parquet(
+    window_indices: list[int],
+    sequence_db_dir: str,
+    window_db_path: str,
+    output_dir: str,
+    tokenizer_path: str,
+    micro_batch_size: int = 8,
+    seq_length: int = 8192,
+    stride: int = 7992,
+    num_workers: int = 4,
+):
+    """Convert window indices to a single parquet file preserving exact order.
+
+    This saves data in EXACT sequential order for single-GPU or careful multi-GPU debugging.
+    Each consecutive micro_batch_size samples form one micro-batch.
+
+    Uses multiprocessing for faster token fetching.
+
+    Args:
+        window_indices: List of window_idx values in exact training order
+        sequence_db_dir: Directory containing per-sample SQLite databases
+        window_db_path: Path to the window mappings database
+        output_dir: Directory to save parquet file
+        tokenizer_path: Path to HuggingFace tokenizer
+        micro_batch_size: Micro batch size (for logging/verification)
+        seq_length: Sequence length
+        stride: Stride for windowing
+        num_workers: Number of parallel workers for fetching
+    """
+    from concurrent.futures import ProcessPoolExecutor
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    logger.info(f"Fetching {len(window_indices)} samples with {num_workers} workers...")
+
+    # Split into batches for parallel processing
+    batch_size = max(1000, len(window_indices) // (num_workers * 10))
+    batches = [window_indices[i : i + batch_size] for i in range(0, len(window_indices), batch_size)]
+
+    logger.info(f"  Split into {len(batches)} batches of ~{batch_size} samples each")
+
+    # Estimate time
+    samples_per_sec_estimate = 150 * num_workers  # Rough estimate: ~150 samples/sec per worker
+    estimated_time_sec = len(window_indices) / samples_per_sec_estimate
+    estimated_time_min = estimated_time_sec / 60
+    logger.info(f"  Estimated time: ~{estimated_time_min:.1f} minutes (at ~{samples_per_sec_estimate} samples/sec)")
+
+    # Prepare arguments for each batch
+    args_list = [(batch, sequence_db_dir, window_db_path, tokenizer_path, seq_length, stride) for batch in batches]
+
+    # Fetch in parallel
+    all_results = []
+    if num_workers > 1:
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            for batch_results in tqdm(
+                executor.map(fetch_tokens_batch, args_list), total=len(batches), desc="Fetching batches"
+            ):
+                all_results.extend(batch_results)
+    else:
+        # Single-threaded fallback
+        for args in tqdm(args_list, desc="Fetching batches"):
+            all_results.extend(fetch_tokens_batch(args))
+
+    # Results are in order within batches, but batches might complete out of order
+    # Sort by original index to restore order
+    index_to_result = dict(all_results)
+
+    all_input_ids = []
+    all_window_idx = []
+    all_batch_idx = []
+
+    for i, window_idx in enumerate(window_indices):
+        all_input_ids.append(index_to_result[window_idx])
+        all_window_idx.append(window_idx)
+        all_batch_idx.append(i // micro_batch_size)
+
+    # Save to SINGLE parquet file (preserves order)
+    output_file = os.path.join(output_dir, "data_sequential.parquet")
+    table = pa.table(
+        {
+            "input_ids": all_input_ids,
+            "window_idx": all_window_idx,
+            "batch_idx": all_batch_idx,
+        }
+    )
+    pq.write_table(table, output_file)
+
+    logger.info(f"\nWrote {len(all_input_ids)} samples to {output_file}")
+    logger.info(f"  Total micro-batches: {len(all_input_ids) // micro_batch_size}")
+    logger.info(f"  Samples per micro-batch: {micro_batch_size}")
+
+    # Show batch structure
+    logger.info("\n  Batch structure (first 3 micro-batches):")
+    for batch in range(min(3, len(all_input_ids) // micro_batch_size)):
+        start = batch * micro_batch_size
+        end = start + micro_batch_size
+        batch_windows = all_window_idx[start:end]
+        logger.info(f"    Micro-batch {batch}: window_idx = {batch_windows}")
+
+    # Save metadata
+    metadata = {
+        "total_samples": len(all_input_ids),
+        "micro_batch_size": micro_batch_size,
+        "total_micro_batches": len(all_input_ids) // micro_batch_size,
+        "order": "sequential - samples 0-7 = micro-batch 0, samples 8-15 = micro-batch 1, etc.",
+    }
+    with open(os.path.join(output_dir, "metadata.json"), "w") as f:
+        json.dump(metadata, f, indent=2)
+
+    logger.info("\n  IMPORTANT: For debugging, run with:")
+    logger.info("    - Single GPU: torchrun --nproc_per_node=1 train_fsdp2.py ...")
+    logger.info("    - Or ensure DataLoader doesn't shuffle!")
+
+
 def convert_to_parquet(
     window_indices_by_rank: dict[int, list[int]],
     sequence_db_dir: str,
@@ -516,6 +730,7 @@ def main():
     parser.add_argument("--tokenizer", default="tokenizers/nucleotide_fast_tokenizer", help="Tokenizer path")
     parser.add_argument("--seq-length", type=int, default=8192)
     parser.add_argument("--stride", type=int, default=7992)
+    parser.add_argument("--num-workers", type=int, default=4, help="Parallel workers for fetching tokens")
 
     # Step range options
     parser.add_argument("--max-steps", type=int, default=5000, help="Max training steps to extract")
@@ -529,6 +744,22 @@ def main():
         "--interleave-ranks",
         action="store_true",
         help="Interleave samples from all DP ranks to reconstruct full global batches",
+    )
+    parser.add_argument(
+        "--sequential",
+        action="store_true",
+        help="Save as single file in exact sequential order (best for debugging)",
+    )
+    parser.add_argument(
+        "--for-distributed-sampler",
+        action="store_true",
+        help="Interleave for DistributedSampler: ensures each target DP rank gets correct source DP rank data",
+    )
+    parser.add_argument(
+        "--target-dp-ranks",
+        type=int,
+        default=None,
+        help="Number of DP ranks in target training (for --for-distributed-sampler validation)",
     )
 
     args = parser.parse_args()
@@ -566,7 +797,18 @@ def main():
     )
 
     # Optionally interleave ranks to get full global batches
-    if args.interleave_ranks:
+    if args.for_distributed_sampler:
+        # Interleave for DistributedSampler compatibility
+        target_dp = args.target_dp_ranks or len(window_indices_by_rank)
+        interleaved_indices = interleave_for_distributed_sampler(
+            window_indices_by_rank=window_indices_by_rank,
+            micro_batch_size=args.micro_batch_size,
+            grad_acc_batches=args.grad_acc_batches,
+            target_dp_ranks=target_dp,
+        )
+        window_indices_by_rank = {0: interleaved_indices}
+        logger.info("Using DistributedSampler-compatible interleaving")
+    elif args.interleave_ranks:
         interleaved_indices = interleave_ranks(
             window_indices_by_rank=window_indices_by_rank,
             micro_batch_size=args.micro_batch_size,
@@ -576,16 +818,39 @@ def main():
         window_indices_by_rank = {0: interleaved_indices}
         logger.info("Using interleaved indices (full global batches)")
 
-    # Convert to parquet
-    convert_to_parquet(
-        window_indices_by_rank=window_indices_by_rank,
-        sequence_db_dir=args.sequence_db_dir,
-        window_db_path=args.window_db_path,
-        output_dir=args.output_dir,
-        tokenizer_path=args.tokenizer,
-        seq_length=args.seq_length,
-        stride=args.stride,
-    )
+    # Use sequential mode for debugging (single file, exact order)
+    if args.sequential:
+        # Combine all ranks into one list (or use single rank)
+        if len(window_indices_by_rank) == 1:
+            all_indices = next(iter(window_indices_by_rank.values()))
+        else:
+            # For multiple ranks, concatenate in DP rank order
+            all_indices = []
+            for dp_rank in sorted(window_indices_by_rank.keys()):
+                all_indices.extend(window_indices_by_rank[dp_rank])
+
+        convert_to_sequential_parquet(
+            window_indices=all_indices,
+            sequence_db_dir=args.sequence_db_dir,
+            window_db_path=args.window_db_path,
+            output_dir=args.output_dir,
+            tokenizer_path=args.tokenizer,
+            micro_batch_size=args.micro_batch_size,
+            seq_length=args.seq_length,
+            stride=args.stride,
+            num_workers=args.num_workers,
+        )
+    else:
+        # Convert to parquet (one file per rank)
+        convert_to_parquet(
+            window_indices_by_rank=window_indices_by_rank,
+            sequence_db_dir=args.sequence_db_dir,
+            window_db_path=args.window_db_path,
+            output_dir=args.output_dir,
+            tokenizer_path=args.tokenizer,
+            seq_length=args.seq_length,
+            stride=args.stride,
+        )
 
 
 if __name__ == "__main__":
