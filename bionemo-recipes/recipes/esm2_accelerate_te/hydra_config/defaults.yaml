@@ -23,7 +23,6 @@ dataset:
 trainer:
   output_dir: "results"
   run_name: ???
-  save_safetensors: True
   do_train: True
   do_eval: False
   per_device_train_batch_size: ???
