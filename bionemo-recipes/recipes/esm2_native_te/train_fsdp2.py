@@ -116,11 +116,11 @@ def main(args: DictConfig) -> float | None:
 
     mp_policy = MixedPrecisionPolicy(
     param_dtype=torch.bfloat16,    # Cast params to BF16 for forward/backward
-    reduce_dtype=torch.bfloat16,   # Gradient reductions in BF16
+    reduce_dtype=torch.float32,   # Gradient reductions in FP32
     output_dtype=torch.bfloat16,   # Forward output dtype
     )
     for layer in transformer_stack:
-        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy) # TODO: Update mixed precision policy to set it to FP#2
+        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
     fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
 
     # Create a layer map for the transformer stack.
