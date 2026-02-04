@@ -37,14 +37,15 @@ config_kwargs:
 
 # ============ CRITICAL FLAGS TO MATCH JOHN'S RUN ============
 spike_no_more_embedding_init: true
-skip_embedding_weight_decay: true
+skip_embedding_weight_decay: false  # Apply weight decay to embeddings (matches John)
 use_weight_decay_grouping: true
 use_megatron_scaled_init: true
 use_megatron_loss: false
+use_meta_device: false
+use_fp32_master_weights: false
 # ============================================================
 
 use_sequence_packing: false  # BSHD format, no packing
-use_meta_device: false
 
 # Gradient accumulation (8 GPUs × 1 mbs × 8 ga = 64 GBS per node)
 grad_acc_steps: 8

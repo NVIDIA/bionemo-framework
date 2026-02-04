@@ -671,6 +671,15 @@ class ShardedEdenDatasetWrapper(torch.utils.data.Dataset):
         """Get an item and convert to HuggingFace format."""
         sample = self.dataset[idx]
         tokens = sample["tokens"]
+        labels = sample["labels"].clone()  # Clone to avoid modifying original
+        loss_mask = sample.get("loss_mask")
+
+        # CRITICAL: HuggingFace models ignore loss where labels == -100
+        # ShardedEdenDataset sets labels = pad_id for padding, but we need -100
+        # Use loss_mask to identify positions that should be ignored in loss
+        if loss_mask is not None:
+            # Where loss_mask == 0, set labels to -100 (HF's ignore index)
+            labels[loss_mask == 0] = -100
 
         # Create attention_mask in HuggingFace EXTENDED format:
         # - 0.0 = attend to this token
@@ -686,9 +695,9 @@ class ShardedEdenDatasetWrapper(torch.utils.data.Dataset):
         # Convert from ShardedEdenDataset format to HuggingFace format
         return {
             "input_ids": tokens,  # Rename tokens -> input_ids
-            "labels": sample["labels"],
+            "labels": labels,  # Now with -100 for ignored positions
             "attention_mask": attention_mask,
-            "loss_mask": sample.get("loss_mask"),
+            "loss_mask": loss_mask,  # Keep for debugging/logging
             "position_ids": sample.get("position_ids"),
         }
 

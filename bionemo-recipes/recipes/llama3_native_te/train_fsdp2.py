@@ -896,6 +896,12 @@ def main(args: DictConfig) -> float | None:
                     logger.info(f"[DEBUG_BATCH {debug_batch_count}] loss_mask sum: {loss_mask.sum().item()}")
                 if labels is not None:
                     logger.info(f"[DEBUG_BATCH {debug_batch_count}] labels first 20: {labels[0, :20].tolist()}")
+                    # Count labels == -100 (ignored in HF loss computation)
+                    ignored_count = (labels == -100).sum().item()
+                    valid_count = (labels != -100).sum().item()
+                    logger.info(
+                        f"[DEBUG_BATCH {debug_batch_count}] labels: {valid_count} valid, {ignored_count} ignored (-100)"
+                    )
                 debug_batch_count += 1
 
             # Forward pass with mixed precision.

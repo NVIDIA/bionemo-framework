@@ -106,9 +106,20 @@ class PerfLogger:
         """
         self.grad_acc_step_count += 1
         self.num_tokens += batch["input_ids"].numel()
-        # Use attention_mask to count unpadded tokens (works for both BSHD and THD)
-        if "attention_mask" in batch:
-            self.num_unpadded_tokens += batch["attention_mask"].sum().item()
+        # Count unpadded tokens using loss_mask (has standard 0/1 format)
+        # Note: attention_mask may use HuggingFace extended format (0 for real, -10000 for padding)
+        # so we can't just sum it directly
+        if "loss_mask" in batch:
+            self.num_unpadded_tokens += batch["loss_mask"].sum().item()
+        elif "attention_mask" in batch:
+            # Handle both 0/1 format and extended format (0 for real, negative for masked)
+            attn_mask = batch["attention_mask"]
+            if attn_mask.min() < 0:
+                # Extended format: count where mask == 0 (real tokens)
+                self.num_unpadded_tokens += (attn_mask == 0).sum().item()
+            else:
+                # Standard 0/1 format: sum directly
+                self.num_unpadded_tokens += attn_mask.sum().item()
         else:
             # Fallback for pure sequence packing with no padding: all tokens are unpadded
             self.num_unpadded_tokens += batch["input_ids"].numel()
