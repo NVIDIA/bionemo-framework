@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+
+# Configuration for debugging weight initialization
+# Logs mean/std of ALL layer weights at startup for comparison with John's Megatron code
+# Based on L2_og2_sharded_eden but with minimal training steps
+
+defaults:
+  - L2_og2_sharded_eden
+  - _self_
+
+# ============ WEIGHT INIT DEBUGGING ============
+# Log initialization weight statistics (mean, std) for all layers
+# Useful for comparing initialization between TE FSDP2 and John's Megatron code
+log_init_stats: true
+log_init_stats_all_layers: true  # If true, log ALL layers; if false, log only key layers
+# ===============================================
+
+# Minimal training for init debugging - just need to see weight stats at startup
+num_train_steps: 5
+
+# Disable validation for quick debugging
+validation:
+  enabled: false
+
+# Disable checkpointing for quick debugging
+checkpoint:
+  ckpt_dir: null
+  save_final_model: false
+  resume_from_checkpoint: false
+
+# Disable wandb for local debugging
+wandb:
+  mode: disabled
+  name: weight_init_debug
+  project: debug
