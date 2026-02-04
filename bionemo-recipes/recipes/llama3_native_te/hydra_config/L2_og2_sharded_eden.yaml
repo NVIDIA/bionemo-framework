@@ -31,11 +31,12 @@ config_kwargs:
 
 # ============ CRITICAL FLAGS TO MATCH JOHN'S RUN ============
 spike_no_more_embedding_init: true
-skip_embedding_weight_decay: false  # John APPLIES weight decay to embeddings
+skip_embedding_weight_decay: false  # Apply weight decay to embeddings
 use_weight_decay_grouping: true
-use_megatron_scaled_init: true
+use_megatron_scaled_init: true  # Use Megatron-style scaled init for proj/fc2
 use_megatron_loss: false
 use_meta_device: false
+use_fp32_master_weights: false  # Implementation not working, disabled
 # ============================================================
 
 use_sequence_packing: false  # BSHD format
@@ -43,14 +44,16 @@ use_sequence_packing: false  # BSHD format
 # Enable ShardedEden dataset mode
 use_sharded_eden: true
 
-# Gradient accumulation (8 GPUs × 1 mbs × 8 ga = 64 GBS per node)
+# Gradient accumulation
+# 6 nodes × 8 GPUs × 1 MBS × 8 GA = 384 GBS (matches John's production)
 grad_acc_steps: 8
 
-# Training steps
-num_train_steps: 10000
+# Training steps (matching John's Megatron run)
+# At GBS=384, one epoch = 238M / 384 = ~620k steps
+num_train_steps: 182314
 
 wandb:
-  name: sharded_eden_direct_test
+  name: og2_7b_sharded_eden_6node
   project: llama3-metagenome-7b
   mode: online
 
@@ -62,12 +65,12 @@ sharded_eden:
   micro_batch_size: 1
   seq_length: 8192
   stride: 7992
-  num_workers: 4
+  num_workers: 8  # Increased for production
   shuffle: true
   seed: 42
-  rc_aug: false
-  log_windows: false
-  log_dir: null
+  rc_aug: false  # Set to true if you want reverse complement augmentation
+  log_windows: true
+  log_dir: /data/savithas/sharded_eden_logs
 
 # Regular dataset config (needed for validation and PerfLogger serialization)
 dataset:
@@ -97,17 +100,18 @@ adamw_kwargs:
   eps: 1e-8
   weight_decay: 0.1
 
-# Learning rate scheduler
+# Learning rate scheduler (matching John's Megatron run)
+# John's args: --lr 3e-05 --min-lr 6e-07 --warmup-steps 2500
 lr_scheduler_kwargs:
-  num_warmup_steps: 0
-  num_decay_steps: 200
-  min_lr_ratio: 0.02
+  num_warmup_steps: 2500  # Match John's --warmup-steps
+  num_decay_steps: 179814  # total_steps - warmup = 182314 - 2500
+  min_lr_ratio: 0.02  # min_lr / lr = 6e-07 / 3e-05 = 0.02
 
 # Validation settings (uses JSONL dataloader, NOT ShardedEden)
 validation:
-  enabled: false  # Enable with validation.enabled=true on CLI
-  eval_interval: 50
-  num_batches: 40
+  enabled: true
+  eval_interval: 500  # Run validation every 500 steps (matches John)
+  num_batches: 40  # Number of batches per rank (matches John's --limit-val-batches 40)
   data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
   micro_batch_size: 8
   max_seq_length: null
@@ -115,10 +119,10 @@ validation:
 
 # Checkpoint config
 checkpoint:
-  ckpt_dir: null
+  ckpt_dir: null  # Set via CLI: checkpoint.ckpt_dir=/path/to/checkpoints
   save_final_model: true
   resume_from_checkpoint: true
-  save_every_n_steps: 999999
+  save_every_n_steps: 5000  # Save every 5k steps
   async_save: true
 
 logger:

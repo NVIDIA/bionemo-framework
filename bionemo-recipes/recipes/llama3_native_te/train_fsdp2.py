@@ -866,12 +866,37 @@ def main(args: DictConfig) -> float | None:
 
     logged_dtypes = False
     logged_first_loss = False
+    debug_batch_count = 0  # For debugging batch contents
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
             micro_step += 1
             global_micro_step += 1
+
+            # DEBUG: Log first 5 batches to check data integrity
+            if debug_batch_count < 5 and dist_config.rank == 0:
+                input_ids = batch.get("input_ids", batch.get("tokens"))
+                attention_mask = batch.get("attention_mask")
+                loss_mask = batch.get("loss_mask")
+                labels = batch.get("labels")
+                logger.info(
+                    f"[DEBUG_BATCH {debug_batch_count}] input_ids shape: {input_ids.shape if input_ids is not None else None}"
+                )
+                logger.info(
+                    f"[DEBUG_BATCH {debug_batch_count}] input_ids first 20: {input_ids[0, :20].tolist() if input_ids is not None else None}"
+                )
+                logger.info(
+                    f"[DEBUG_BATCH {debug_batch_count}] attention_mask sum: {attention_mask.sum().item() if attention_mask is not None else 'None'}"
+                )
+                logger.info(
+                    f"[DEBUG_BATCH {debug_batch_count}] attention_mask first 20: {attention_mask[0, :20].tolist() if attention_mask is not None else None}"
+                )
+                if loss_mask is not None:
+                    logger.info(f"[DEBUG_BATCH {debug_batch_count}] loss_mask sum: {loss_mask.sum().item()}")
+                if labels is not None:
+                    logger.info(f"[DEBUG_BATCH {debug_batch_count}] labels first 20: {labels[0, :20].tolist()}")
+                debug_batch_count += 1
 
             # Forward pass with mixed precision.
             with autocast_ctx:
