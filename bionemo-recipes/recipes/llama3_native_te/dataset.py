@@ -644,20 +644,22 @@ class ShardedEdenDatasetWrapper(torch.utils.data.Dataset):
     """Wrapper that converts ShardedEdenDataset output to HuggingFace format.
 
     ShardedEdenDataset returns: {"tokens": tensor, "labels": tensor, "loss_mask": tensor, ...}
-    HuggingFace expects: {"input_ids": tensor, ...}
+    HuggingFace expects: {"input_ids": tensor, "attention_mask": tensor, ...}
 
-    This wrapper does the conversion and optionally logs accessed indices.
+    This wrapper does the conversion and creates proper attention_mask for padding.
     """
 
-    def __init__(self, sharded_eden_dataset, log_indices: bool = False, log_dir: str | None = None):
+    def __init__(self, sharded_eden_dataset, pad_id: int, log_indices: bool = False, log_dir: str | None = None):
         """Initialize the wrapper.
 
         Args:
             sharded_eden_dataset: The underlying ShardedEdenDataset
+            pad_id: The padding token ID (used to create attention_mask)
             log_indices: Whether to log accessed indices
             log_dir: Directory for logging
         """
         self.dataset = sharded_eden_dataset
+        self.pad_id = pad_id
         self.log_indices = log_indices
         self.log_dir = log_dir
 
@@ -668,11 +670,16 @@ class ShardedEdenDatasetWrapper(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         """Get an item and convert to HuggingFace format."""
         sample = self.dataset[idx]
+        tokens = sample["tokens"]
+
+        # Create attention_mask: 1 for real tokens, 0 for padding
+        attention_mask = (tokens != self.pad_id).long()
 
         # Convert from ShardedEdenDataset format to HuggingFace format
         return {
-            "input_ids": sample["tokens"],  # Rename tokens -> input_ids
+            "input_ids": tokens,  # Rename tokens -> input_ids
             "labels": sample["labels"],
+            "attention_mask": attention_mask,
             "loss_mask": sample.get("loss_mask"),
             "position_ids": sample.get("position_ids"),
         }
@@ -753,8 +760,8 @@ def create_sharded_eden_dataloader(
 
     logger.info(f"Dataset has {len(eden_dataset)} windows")
 
-    # Wrap with HuggingFace-compatible output format
-    wrapped_dataset = ShardedEdenDatasetWrapper(eden_dataset)
+    # Wrap with HuggingFace-compatible output format (pass pad_id for attention_mask creation)
+    wrapped_dataset = ShardedEdenDatasetWrapper(eden_dataset, pad_id=tokenizer_adapter.pad_id)
 
     # Create DistributedSampler
     sampler = DistributedSampler(
