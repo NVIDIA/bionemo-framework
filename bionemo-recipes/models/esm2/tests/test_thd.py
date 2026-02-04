@@ -326,4 +326,5 @@ def test_thd_vs_padded_thd_equivalence(
     # Now index select the padded logits to get the real logits.
     logits_unpadded = outputs_thd_padded.logits.index_select(0, real_idx.cuda())
 
+    breakpoint()
     torch.testing.assert_close(outputs_thd.logits, logits_unpadded, atol=1e-8, rtol=1e-5)

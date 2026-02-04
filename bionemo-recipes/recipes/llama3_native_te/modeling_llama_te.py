@@ -204,6 +204,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             # attention backend, but it should be faster for the flash attention backend.
             assert attention_mask is not None, "Attention mask is required when packing BSHD inputs."
             batch_size = hidden_states.size(0)
+            padded_seq_len = input_ids.size(1)
             hidden_states, indices, cu_seqlens, max_seqlen, _ = _unpad_input(hidden_states, attention_mask)
             kwargs["cu_seq_lens_q"] = kwargs["cu_seq_lens_k"] = cu_seqlens
             kwargs["max_length_q"] = kwargs["max_length_k"] = max_seqlen
@@ -259,7 +260,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         if should_pack_inputs:
             # If we've converted BSHD to THD for our TE layers, we need to convert back to BSHD for the output.
-            hidden_states = _pad_input(hidden_states, indices, batch_size, max_seqlen)
+            hidden_states = _pad_input(hidden_states, indices, batch_size, padded_seq_len)
 
         return BaseModelOutputWithPast(
             last_hidden_state=hidden_states,

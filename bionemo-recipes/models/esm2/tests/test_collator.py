@@ -387,6 +387,7 @@ def test_mlm_data_collator_with_flattening_pad_sequences_to_be_divisible_by(toke
     )
     assert (batch["input_ids"][:, -1] == tokenizer.pad_token_id).all()
     assert (batch["labels"][:, -1] == -100).all()
+    assert batch["pad_between_seqs"] is True
 
 
 def test_token_packing_dataset():

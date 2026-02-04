@@ -272,6 +272,7 @@ def create_thd_dataloader(
     # Create base MLM collator and wrap with flattening collator
     data_collator = DataCollatorWithFlattening(
         collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        separator_id=-100,
         pad_sequences_to_be_divisible_by=pad_sequences_to_be_divisible_by,
     )
 

@@ -16,6 +16,8 @@
 import importlib
 import os
 import socket
+import sys
+from pathlib import Path
 
 import pytest
 import transformer_engine.pytorch
@@ -24,6 +26,12 @@ from transformer_engine.pytorch import fp8
 from transformers import AutoModelForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
 
 from esm.convert import convert_esm_hf_to_te
+
+
+sys.path.append(Path(__file__).parent.parent.as_posix())
+sys.path.append(Path(__file__).parent.as_posix())
+
+pytest_plugins = ["tests.common.fixtures"]
 
 
 # Fix Triton UTF-8 decoding issue by setting CUDA library path
