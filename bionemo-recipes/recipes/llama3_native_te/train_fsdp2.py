@@ -792,6 +792,9 @@ def main(args: DictConfig) -> float | None:
             # Don't use stateful dataloader for validation
             val_dataset_kwargs["use_stateful_dataloader"] = False
 
+            # Validation data needs tokenization (even if training data is pre-tokenized)
+            val_dataset_kwargs["skip_tokenization"] = False
+
             # Optionally override validation batch size
             if hasattr(val_config, "micro_batch_size") and val_config.micro_batch_size is not None:
                 val_dataset_kwargs["micro_batch_size"] = val_config.micro_batch_size
