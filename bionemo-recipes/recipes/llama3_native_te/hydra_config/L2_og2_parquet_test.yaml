@@ -1,23 +1,15 @@
-# TEST CONFIG for data ordering verification with parquet data
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+
+# 7B Llama3 on OpenGenome2 using pre-extracted parquet data from John's logs
+# BSHD format (no sequence packing) - matches John's exact data order
 #
-# Based on L2_og2_metagenome_7b_bshd.yaml but using pre-dumped parquet data
-# from John's ShardedEdenDataset.
-#
-# Setup:
-#   8 GPUs × 1 mbs × 8 grad_acc = 64 GBS
-#   2 optimizer steps = 128 samples needed
+# This config uses parquet data extracted via parse_window_logs.py to ensure
+# we train on the exact same data in the exact same order as John's Megatron run.
 #
 # Usage:
-#   # First, dump 128 samples:
-#   python scripts/dump_sharded_eden_as_parquet.py \
-#       --sequence-db-dir /data/bcr_eden/OG2_database_splits \
-#       --window-db-path /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite \
-#       --output-dir /data/parquet_test \
-#       --num-samples 128 \
-#       --seed 42
-#
-#   # Then run training:
-#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name L2_og2_parquet_test
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name L2_og2_parquet_test \
+#       dataset.load_dataset_kwargs.data_files=/data/savithas/john_data_10k/data_sequential.parquet
 
 defaults:
   - defaults
@@ -34,10 +26,10 @@ config_kwargs:
   num_key_value_heads: 32
   max_position_embeddings: 8192
   initializer_range: 0.02
-  attn_input_format: bshd
-  rope_parameters:
-    rope_type: "llama3"
-    rope_theta: 500000
+  attn_input_format: bshd  # BSHD format for parquet data
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
     factor: 1
     low_freq_factor: 1
     high_freq_factor: 4
@@ -45,37 +37,38 @@ config_kwargs:
 
 # ============ CRITICAL FLAGS TO MATCH JOHN'S RUN ============
 spike_no_more_embedding_init: true
-skip_embedding_weight_decay: false  # John APPLIES weight decay to embeddings
+skip_embedding_weight_decay: true
 use_weight_decay_grouping: true
-use_megatron_scaled_init: true
+use_megatron_scaled_init: false
 use_megatron_loss: false
 # ============================================================
 
-use_sequence_packing: false
+use_sequence_packing: false  # BSHD format, no packing
 
-# 8 GPUs × 1 mbs × 8 grad_acc = 64 GBS
+# Gradient accumulation (8 GPUs × 1 mbs × 8 ga = 64 GBS per node)
 grad_acc_steps: 8
 
-# Just 2 steps for testing
-num_train_steps: 2
+# Training steps (adjust based on available data)
+# 10k steps of data = 10000 * 384 / 64 = 60,000 optimizer steps max for 1 node
+num_train_steps: 10000
 
 wandb:
-  name: parquet_test_8gpu_7b
-  project: llama3-data-ordering-test
-  mode: disabled  # Disable wandb for testing
+  name: og2_7b_parquet_data_debug
+  project: llama3-metagenome-7b
+  mode: online
 
-# Dataset config - using pre-dumped parquet from John's ShardedEdenDataset
+# Dataset config - using pre-dumped parquet from John's logs
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1
-  num_workers: 1
+  num_workers: 4
   prefetch_factor: 2
   max_seq_length: 8192
   stride: 7992
 
   load_dataset_kwargs:
     path: parquet
-    data_files: /data/parquet_test/*.parquet
+    data_files: /data/savithas/john_data_10k/data_sequential.parquet
     split: train
     streaming: false  # CRITICAL: map-style for DistributedSampler
 
@@ -85,14 +78,6 @@ dataset:
   mask_degenerate_bases: true
   uppercase_labels: false
 
-  # DISABLED: IndexTrackingDataset has multi-worker issues
-  # log_sample_indices: true
-  # sample_log_dir: /data/parquet_sample_logs
-
-# Enable training loop logging (runs in main process, no multi-worker issues)
-log_sequences: true
-sequence_log_dir: /data/savithas/parquet_sample_logs
-
 # Optimizer (matching John's settings)
 adamw_kwargs:
   lr: 3e-05
@@ -101,18 +86,29 @@ adamw_kwargs:
   eps: 1e-8
   weight_decay: 0.1
 
+# Learning rate scheduler (matching John's Megatron run)
 lr_scheduler_kwargs:
-  num_warmup_steps: 0
-  num_decay_steps: 2
+  num_warmup_steps: 2500
+  num_decay_steps: 7500  # num_train_steps - warmup
   min_lr_ratio: 0.02
 
-# No checkpointing for test
+# Validation settings (matching John's val/loss curve)
+validation:
+  enabled: true
+  eval_interval: 500
+  num_batches: 40
+  data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
+  micro_batch_size: 8
+  max_seq_length: null
+  stride: null
+
+# Checkpoint config
 checkpoint:
   ckpt_dir: null
-  save_final_model: false
-  resume_from_checkpoint: false
-  save_every_n_steps: 999999
-  async_save: false
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 5000
+  async_save: true
 
 logger:
   frequency: 1
