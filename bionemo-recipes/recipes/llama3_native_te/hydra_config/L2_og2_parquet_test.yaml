@@ -90,7 +90,7 @@ adamw_kwargs:
 # Learning rate scheduler (matching John's Megatron run)
 lr_scheduler_kwargs:
   num_warmup_steps: 2500
-  num_decay_steps: 7500  # num_train_steps - warmup
+  num_decay_steps: 179814  # num_train_steps - warmup
   min_lr_ratio: 0.02
 
 # Validation settings (matching John's val/loss curve)
