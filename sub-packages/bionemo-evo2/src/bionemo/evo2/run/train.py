@@ -53,7 +53,7 @@ from bionemo.evo2.models.llama import LLAMA_MODEL_OPTIONS
 from bionemo.evo2.models.mamba import MAMBA_MODEL_OPTIONS, MambaModel, mamba_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.models.peft import Evo2LoRA
 from bionemo.evo2.run.utils import infer_model_type, patch_eden_tokenizer
-from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime, _FirstBatchCudaSync
+from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime, InitWeightStatsCallback, _FirstBatchCudaSync
 from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
@@ -667,6 +667,19 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=None,
         help="Dim parameter for LoRA fine-tuning.",
     )
+    parser.add_argument(
+        "--log-init-weight-stats",
+        action="store_true",
+        default=False,
+        help="Log weight initialization statistics (mean, std) for all layers at the start of training. "
+        "Useful for comparing initialization between frameworks.",
+    )
+    parser.add_argument(
+        "--log-init-weight-stats-all-layers",
+        action="store_true",
+        default=True,
+        help="If set, log ALL layers. Otherwise, log only key layers (embeddings, projections, etc.).",
+    )
 
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
@@ -857,6 +870,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
 
     if args.garbage_collect_at_inference:
         callbacks.append(GarbageCollectAtInferenceTime())
+
+    if args.log_init_weight_stats:
+        callbacks.append(InitWeightStatsCallback(log_all_layers=args.log_init_weight_stats_all_layers))
 
     if args.lora_finetune:
         callbacks.append(lora_transform)

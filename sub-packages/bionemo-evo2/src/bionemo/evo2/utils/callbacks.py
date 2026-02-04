@@ -58,3 +58,115 @@ class GarbageCollectAtInferenceTime(Callback):
                 gc.collect()
             except Exception as e:
                 print(f"Warning: CUDA cleanup failed: {e}")
+
+
+class InitWeightStatsCallback(Callback):
+    """Callback to log initialization weight statistics (mean, std) for all model layers.
+
+    Logs weight statistics at the start of training before the first batch.
+    Useful for comparing initialization between different frameworks (e.g., TE FSDP2 vs Megatron).
+
+    Args:
+        log_all_layers: If True, log all layers. If False, log only key layers.
+    """
+
+    def __init__(self, log_all_layers: bool = True):
+        """Initialize the callback.
+
+        Args:
+            log_all_layers: If True, log all layers. If False, log only key layers.
+        """
+        super().__init__()
+        self.log_all_layers = log_all_layers
+        self._logged = False
+
+    def on_train_start(self, trainer, pl_module) -> None:
+        """Log weight initialization statistics at the start of training."""
+        if self._logged:
+            return
+        self._logged = True
+
+        rank = trainer.global_rank if hasattr(trainer, "global_rank") else 0
+
+        if rank == 0:
+            print("=" * 100)
+            print("[INIT_WEIGHT_STATS] Logging weight initialization statistics for all layers")
+            print("=" * 100)
+
+        stats = {}
+        model = pl_module
+
+        # Handle wrapped models (e.g., Megatron models)
+        if hasattr(model, "module"):
+            model = model.module
+
+        for name, param in model.named_parameters():
+            if not self.log_all_layers:
+                # Log only key layers for debugging initialization
+                keys_to_log = [
+                    "embed",
+                    "output_layer",
+                    "lm_head",
+                    "o_proj",
+                    "proj",
+                    "q_proj",
+                    "k_proj",
+                    "v_proj",
+                    "gate_proj",
+                    "up_proj",
+                    "down_proj",
+                    "fc1",
+                    "fc2",
+                    "layernorm",
+                    "rmsnorm",
+                    "input_layernorm",
+                    "norm",
+                    "linear_qkv",
+                    "linear_proj",
+                    "linear_fc1",
+                    "linear_fc2",
+                ]
+                if not any(key in name.lower() for key in keys_to_log):
+                    continue
+
+            # Skip meta tensors
+            if param.device.type == "meta":
+                continue
+
+            # Skip empty tensors
+            if param.numel() == 0:
+                continue
+
+            # Compute stats
+            try:
+                with torch.no_grad():
+                    data = param.data.float()
+                    mean_val = data.mean().item()
+                    var_val = torch.mean(torch.pow(data - mean_val, 2)).item()
+                    std_val = var_val**0.5
+                    min_val = data.min().item()
+                    max_val = data.max().item()
+            except (RuntimeError, AttributeError):
+                continue
+
+            layer_stats = {
+                "mean": mean_val,
+                "std": std_val,
+                "min": min_val,
+                "max": max_val,
+                "shape": list(param.shape),
+                "numel": param.numel(),
+            }
+            stats[name] = layer_stats
+
+            if rank == 0:
+                print(
+                    f"[INIT_WEIGHT_STATS] {name}: mean={layer_stats['mean']:.6f}, "
+                    f"std={layer_stats['std']:.6f}, range=[{layer_stats['min']:.6f}, {layer_stats['max']:.6f}], "
+                    f"shape={layer_stats['shape']}"
+                )
+
+        if rank == 0:
+            print("=" * 100)
+            print(f"[INIT_WEIGHT_STATS] Total parameters logged: {len(stats)}")
+            print("=" * 100)

@@ -361,10 +361,12 @@ def verify_init_at_checkpoint(
 
 
 @torch.no_grad()
-def log_init_stats(model: torch.nn.Module, dist_config: DistributedConfig) -> dict[str, dict[str, float]]:
-    """Log initialization statistics for key model layers.
+def log_init_stats(
+    model: torch.nn.Module, dist_config: DistributedConfig, log_all_layers: bool = True
+) -> dict[str, dict[str, float]]:
+    """Log initialization statistics for model layers.
 
-    Logs mean/std of weights for embeddings, lm_head, and sample projection layers.
+    Logs mean/std of weights for all layers or just key layers (embeddings, projections, etc.).
     Useful for debugging initialization differences between frameworks.
 
     Note: With FSDP2, this logs statistics of the LOCAL shard on each rank.
@@ -373,35 +375,42 @@ def log_init_stats(model: torch.nn.Module, dist_config: DistributedConfig) -> di
     Args:
         model: The initialized model.
         dist_config: Distributed config for rank checking.
+        log_all_layers: If True, log all layers. If False, log only key layers.
 
     Returns:
         Dictionary mapping layer names to their init statistics.
     """
     stats = {}
 
+    if dist_config.rank == 0:
+        logger.info("=" * 100)
+        logger.info("[INIT_WEIGHT_STATS] Logging weight initialization statistics for all layers")
+        logger.info("=" * 100)
+
     for name, param in model.named_parameters():
-        # Log key layers for debugging initialization
-        keys_to_log = [
-            "embed_tokens",
-            "lm_head",
-            "o_proj",
-            ".proj.",
-            "q_proj",
-            "k_proj",
-            "v_proj",
-            "gate_proj",
-            "up_proj",
-            "down_proj",
-            ".fc1.",
-            ".fc2.",
-            "layernorm",
-            "rmsnorm",
-            "input_layernorm",
-            "post_attention_layernorm",
-            "norm",
-        ]
-        if not any(key in name.lower() for key in keys_to_log):
-            continue
+        if not log_all_layers:
+            # Log only key layers for debugging initialization
+            keys_to_log = [
+                "embed_tokens",
+                "lm_head",
+                "o_proj",
+                ".proj.",
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
+                ".fc1.",
+                ".fc2.",
+                "layernorm",
+                "rmsnorm",
+                "input_layernorm",
+                "post_attention_layernorm",
+                "norm",
+            ]
+            if not any(key in name.lower() for key in keys_to_log):
+                continue
 
         # For FSDP2, convert DTensor to local tensor
         try:
@@ -428,14 +437,22 @@ def log_init_stats(model: torch.nn.Module, dist_config: DistributedConfig) -> di
             "std": std_val,
             "min": min_val,
             "max": max_val,
+            "shape": list(param.shape),
+            "numel": param.numel(),
         }
         stats[name] = layer_stats
 
         if dist_config.rank == 0:
             logger.info(
-                f"Init stats (local shard) - {name}: mean={layer_stats['mean']:.4f}, "
-                f"std={layer_stats['std']:.4f}, range=[{layer_stats['min']:.4f}, {layer_stats['max']:.4f}]"
+                f"[INIT_WEIGHT_STATS] {name}: mean={layer_stats['mean']:.6f}, "
+                f"std={layer_stats['std']:.6f}, range=[{layer_stats['min']:.6f}, {layer_stats['max']:.6f}], "
+                f"shape={layer_stats['shape']}"
             )
+
+    if dist_config.rank == 0:
+        logger.info("=" * 100)
+        logger.info(f"[INIT_WEIGHT_STATS] Total parameters logged: {len(stats)}")
+        logger.info("=" * 100)
 
     return stats
 
@@ -665,7 +682,8 @@ def main(args: DictConfig) -> float | None:
 
     # Log initialization statistics if enabled (useful for debugging Spike-No-More and scaled init)
     if getattr(args, "log_init_stats", False):
-        log_init_stats(model, dist_config)
+        log_all_layers = getattr(args, "log_init_stats_all_layers", True)
+        log_init_stats(model, dist_config, log_all_layers=log_all_layers)
 
     # Log initial parameter dtype before optimizer setup for debugging mixed precision behavior.
     first_param = next(model.parameters(), None)
