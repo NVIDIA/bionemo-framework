@@ -14,21 +14,62 @@
 # limitations under the License.
 
 import torch
-from transformers import BatchEncoding
+from hydra import compose, initialize_config_dir
 
-from train_lora import create_dataloader, train_lora
-
-
-def test_create_dataloader():
-    dataloader = create_dataloader(use_sanity_dataset=True)
-    for batch in dataloader:
-        assert isinstance(batch, BatchEncoding)
-        assert isinstance(batch["input_ids"], torch.Tensor)
-        assert isinstance(batch["labels"], torch.Tensor)
-        break
+from train_lora_ddp import main as main_ddp
 
 
-def test_train_lora():
-    dataloader = create_dataloader(use_sanity_dataset=True)
-    loss = train_lora(dataloader)
-    assert loss < 1.5
+def test_sanity_convergence_ddp(tmp_path, recipe_path):
+    """Test that the main function can be invoked wrapping the model in DDP."""
+
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+            ],
+        )
+
+    final_loss = main_ddp(sanity_config)
+    assert final_loss < 3.0, f"Final loss {final_loss} is too high"
+
+
+def test_sanity_convergence_ddp_non_streaming_dataset(tmp_path, recipe_path):
+    """Test that the training script works with a non-streaming dataset."""
+
+    # Run the training script with Hydra configuration overrides
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "dataset.load_dataset_kwargs.streaming=False",
+            ],
+        )
+
+    final_loss = main_ddp(sanity_config)
+    assert final_loss < 3.0, f"Final loss {final_loss} is too high"
+
+
+def test_sanity_ddp_thd(tmp_path, monkeypatch, recipe_path):
+    if torch.cuda.get_device_capability() == (12, 0):
+        # TODO(BIONEMO-2840): On sm120, we need to set NVTE_FUSED_ATTN to 0 since TE will choose fused attn by default,
+        # but it's missing this THD implementation.
+        monkeypatch.setenv("NVTE_FUSED_ATTN", "0")
+
+    # For DDP, we only check that the script can run successfully with THD, not convergence.
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb_init_args.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "use_sequence_packing=true",
+                "num_train_steps=4",
+            ],
+        )
+
+    main_ddp(sanity_config)

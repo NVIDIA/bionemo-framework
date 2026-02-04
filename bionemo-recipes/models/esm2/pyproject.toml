@@ -14,7 +14,7 @@ dependencies = [
     "jinja2",
     "megatron-fsdp",
     "omegaconf",
-    "peft",
+    "peft @ git+https://github.com/balvisio/peft.git@dev/ba/support-te-lora",
     "pytest",
     "torch",
     "torchao!=0.14.0",
