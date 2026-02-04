@@ -33,7 +33,7 @@ config_kwargs:
 spike_no_more_embedding_init: true
 skip_embedding_weight_decay: false  # John APPLIES weight decay to embeddings
 use_weight_decay_grouping: true
-use_megatron_scaled_init: false
+use_megatron_scaled_init: true
 use_megatron_loss: false
 use_meta_device: false
 # ============================================================
@@ -47,7 +47,7 @@ use_sharded_eden: true
 grad_acc_steps: 8
 
 # Training steps
-num_train_steps: 200
+num_train_steps: 10000
 
 wandb:
   name: sharded_eden_direct_test
