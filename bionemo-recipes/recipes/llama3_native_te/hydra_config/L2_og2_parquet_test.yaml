@@ -39,7 +39,7 @@ config_kwargs:
 spike_no_more_embedding_init: true
 skip_embedding_weight_decay: true
 use_weight_decay_grouping: true
-use_megatron_scaled_init: false
+use_megatron_scaled_init: true
 use_megatron_loss: false
 # ============================================================
 
@@ -68,7 +68,7 @@ dataset:
 
   load_dataset_kwargs:
     path: parquet
-    data_files: /data/savithas/john_data_10k/data_sequential.parquet
+    data_files: /data/savithas/john_data_10k/chunks/*.parquet
     split: train
     streaming: false  # CRITICAL: map-style for DistributedSampler
 
