@@ -90,6 +90,7 @@ quant_stats_config:
   quant_stats_file: ./fp8_debugging_stats.yaml
   quant_log_dir: ./log_quant_stats
 
+# Note: The layers are going to come in 1 indexed and we convert them to be 0 indexed at runtime.
 fp8_layers: null
 fp4_layers: null
 use_fp32_optimizer_weights: false

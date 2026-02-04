@@ -1,18 +1,10 @@
-example_fp8_tensor_stat_collection:
+example_fp4_tensor_stat_collection:
     enabled: True
     layers:
-        # Match the actual linear layers within attention that support FP8 stats
-        layer_types: [layernorm_qkv, proj, fc1, fc2]
+        # Use regex to select layers 0-4 (1-indexed as layers.1 through layers.5 in the naming)
+        # This matches: model.esm.encoder.layers.[1-5].*.(layernorm_qkv|proj|fc1|fc2)
+        layer_name_regex_pattern: 'model\.esm\.encoder\.layers\.[1-5]\..*(layernorm_qkv|proj|fc1|fc2)'
     transformer_engine:
-        # LogFp8TensorStats:
-        #     enabled: True
-        #     tensors_struct:
-        #     - tensor: activation
-        #       stats: [underflows%, scale_inv_min, scale_inv_max, mse]
-        #       freq: 10
-        #     - tensor: gradient
-        #       stats: [underflows%, scale_inv_min, scale_inv_max, mse]
-        #       freq: 10
         LogNvfp4TensorStats:
             enabled: True
             tensors_struct:
@@ -22,8 +14,20 @@ example_fp8_tensor_stat_collection:
             - tensor: gradient
               stats: [underflows%, mse]
               freq: 10
-        LogTensorStats:
-          enabled: True
-          stats: [max, min, mean, std, l1_norm] #TODO: Can you get underflows% here?
-          tensors: [dgrad, wgrad, fprop]
-          freq: 10
+
+example_fp8_tensor_stat_collection:
+    enabled: True
+    layers:
+        # Use regex to select layers 0-4 (1-indexed as layers.1 through layers.5 in the naming)
+        # This matches: model.esm.encoder.layers.[1-5].*.(layernorm_qkv|proj|fc1|fc2)
+        layer_name_regex_pattern: 'model\.esm\.encoder\.layers\.([6-9]|10)\..*(layernorm_qkv|proj|fc1|fc2)'
+    transformer_engine:
+        LogFp8TensorStats:
+            enabled: True
+            tensors_struct:
+            - tensor: activation
+              stats: [underflows%, scale_inv_min, scale_inv_max, mse]
+              freq: 10
+            - tensor: gradient
+              stats: [underflows%, scale_inv_min, scale_inv_max, mse]
+              freq: 10

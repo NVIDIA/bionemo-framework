@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+import tempfile
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -22,6 +23,7 @@ import nvdlfw_inspect.api as debug_api
 import torch
 import transformer_engine
 import transformer_engine.pytorch
+import yaml
 
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
@@ -48,6 +50,65 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def generate_layer_regex(layer_numbers: list[int]) -> str:
+    """Generate a regex pattern to match specific layer numbers (1-indexed).
+    
+    Args:
+        layer_numbers: List of layer numbers (1-indexed, as shown in logs).
+        
+    Returns:
+        Regex pattern string for matching those layers' linear sublayers.
+    """
+    if not layer_numbers:
+        return ""
+    # Use alternation for arbitrary layer lists: (1|2|3|4|5)
+    layer_pattern = "|".join(str(n) for n in sorted(layer_numbers))
+    return rf"model\.esm\.encoder\.layers\.({layer_pattern})\..*(layernorm_qkv|proj|fc1|fc2)"
+
+
+def update_quant_stats_config(
+    config_file: str,
+    fp4_layers: list[int] | None,
+    fp8_layers: list[int] | None,
+) -> str:
+    """Update the quant stats YAML config with layer-specific regex patterns.
+    
+    Args:
+        config_file: Path to the original YAML config file.
+        fp4_layers: List of layer numbers for FP4 (1-indexed).
+        fp8_layers: List of layer numbers for FP8 (1-indexed).
+        
+    Returns:
+        Path to the updated config file (may be a temp file).
+    """
+    with open(config_file, "r") as f:
+        config = yaml.safe_load(f)
+    
+    # Update FP4 section if it exists and fp4_layers is provided
+    if fp4_layers and "example_fp4_tensor_stat_collection" in config:
+        fp4_regex = generate_layer_regex(fp4_layers)
+        config["example_fp4_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"] = fp4_regex
+        logger.info(f"Updated FP4 layer regex to match layers: {fp4_layers}")
+    
+    # Update FP8 section if it exists and fp8_layers is provided
+    if fp8_layers and "example_fp8_tensor_stat_collection" in config:
+        fp8_regex = generate_layer_regex(fp8_layers)
+        config["example_fp8_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"] = fp8_regex
+        logger.info(f"Updated FP8 layer regex to match layers: {fp8_layers}")
+    
+    # Write to a temp file to avoid modifying the original
+    temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
+    yaml.dump(config, temp_file, default_flow_style=False)
+    temp_file.close()
+    
+    # Log the updated config for visibility
+    config_str = yaml.dump(config, default_flow_style=False)
+    logger.info(f"Created updated quant stats config at: {temp_file.name}")
+    logger.info(f"Updated quant stats config contents:\n{config_str}")
+    
+    return temp_file.name
+
+
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train ESM-2 with TE layers using fsdp2.
@@ -62,8 +123,24 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
+    # Parse layer lists first (1-indexed from args, used for both quant stats and internal recipe mapping)
+    fp8_layers_1indexed = OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None and args.fp8_config.enabled else None
+    fp4_layers_1indexed = OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None and args.fp4_config.enabled else None
+    
+    # Convert to 0-indexed for internal use
+    fp8_layers = [layer - 1 for layer in fp8_layers_1indexed] if fp8_layers_1indexed else None
+    fp4_layers = [layer - 1 for layer in fp4_layers_1indexed] if fp4_layers_1indexed else None
+
     if args.quant_stats_config.enabled:
         quant_stats_file = args.quant_stats_config.quant_stats_file
+        
+        # Update the quant stats config with layer-specific regex patterns (using 1-indexed layer numbers)
+        quant_stats_file = update_quant_stats_config(
+            config_file=quant_stats_file,
+            fp4_layers=fp4_layers_1indexed,
+            fp8_layers=fp8_layers_1indexed,
+        )
+        
         quant_log_dir = Path(args.quant_stats_config.quant_log_dir) / f"rank_{dist_config.rank}"
         quant_log_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Logging quant stats to {quant_log_dir}")
@@ -92,9 +169,6 @@ def main(args: DictConfig) -> float | None:
         fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
             fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
         )
-    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    fp8_layers = OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None and args.fp8_config.enabled else None
-    fp4_layers = OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None and args.fp4_config.enabled else None
 
     config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.float32)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.

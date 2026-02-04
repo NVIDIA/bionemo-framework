@@ -18,7 +18,7 @@ wandb_init_args:
 checkpoint:
   ckpt_dir: "checkpoints/esm2_t33_650M_UR50D_sanity"
 
-# Layers explicitly set to BF16 in case of NVFP4 training.
+# Note: The layers are going to come in 1 indexed and we convert them to be 0 indexed at runtime.
 fp8_layers:
   - 1
   - 2
@@ -34,6 +34,7 @@ fp8_layers:
   - 30
   - 31
   - 32
+  - 33
 
 fp4_layers:
   - 9
