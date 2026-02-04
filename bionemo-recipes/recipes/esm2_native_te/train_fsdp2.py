@@ -50,17 +50,19 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-def generate_layer_regex(layer_numbers: list[int]) -> str:
+def generate_layer_regex(layer_numbers: list[int] | None) -> str:
     """Generate a regex pattern to match specific layer numbers (1-indexed).
     
     Args:
         layer_numbers: List of layer numbers (1-indexed, as shown in logs).
+                       If empty or None, returns a pattern that matches nothing.
         
     Returns:
         Regex pattern string for matching those layers' linear sublayers.
     """
     if not layer_numbers:
-        return ""
+        # Return a pattern that matches nothing (non-existent layer)
+        return r"model\.esm\.encoder\.layers\.DISABLED_NO_LAYERS_SPECIFIED"
     # Use alternation for arbitrary layer lists: (1|2|3|4|5)
     layer_pattern = "|".join(str(n) for n in sorted(layer_numbers))
     return rf"model\.esm\.encoder\.layers\.({layer_pattern})\..*(layernorm_qkv|proj|fc1|fc2)"
@@ -80,21 +82,40 @@ def update_quant_stats_config(
         
     Returns:
         Path to the updated config file (may be a temp file).
+        
+    Raises:
+        ValueError: If fp4_layers and fp8_layers have overlapping layer numbers.
     """
+    # Check for overlapping layers
+    fp4_set = set(fp4_layers) if fp4_layers else set()
+    fp8_set = set(fp8_layers) if fp8_layers else set()
+    overlap = fp4_set & fp8_set
+    if overlap:
+        raise ValueError(
+            f"fp4_layers and fp8_layers cannot have overlapping layer numbers. "
+            f"Found overlap: {sorted(overlap)}"
+        )
+    
     with open(config_file, "r") as f:
         config = yaml.safe_load(f)
     
-    # Update FP4 section if it exists and fp4_layers is provided
-    if fp4_layers and "example_fp4_tensor_stat_collection" in config:
+    # Update FP4 section if it exists (always update, even if empty to disable matching)
+    if "example_fp4_tensor_stat_collection" in config:
         fp4_regex = generate_layer_regex(fp4_layers)
         config["example_fp4_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"] = fp4_regex
-        logger.info(f"Updated FP4 layer regex to match layers: {fp4_layers}")
+        if fp4_layers:
+            logger.info(f"Updated FP4 layer regex to match layers: {fp4_layers}")
+        else:
+            logger.info("FP4 layers empty - regex set to match nothing")
     
-    # Update FP8 section if it exists and fp8_layers is provided
-    if fp8_layers and "example_fp8_tensor_stat_collection" in config:
+    # Update FP8 section if it exists (always update, even if empty to disable matching)
+    if "example_fp8_tensor_stat_collection" in config:
         fp8_regex = generate_layer_regex(fp8_layers)
         config["example_fp8_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"] = fp8_regex
-        logger.info(f"Updated FP8 layer regex to match layers: {fp8_layers}")
+        if fp8_layers:
+            logger.info(f"Updated FP8 layer regex to match layers: {fp8_layers}")
+        else:
+            logger.info("FP8 layers empty - regex set to match nothing")
     
     # Write to a temp file to avoid modifying the original
     temp_file = tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False)
@@ -127,9 +148,9 @@ def main(args: DictConfig) -> float | None:
     fp8_layers_1indexed = OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None and args.fp8_config.enabled else None
     fp4_layers_1indexed = OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None and args.fp4_config.enabled else None
     
-    # Convert to 0-indexed for internal use
-    fp8_layers = [layer - 1 for layer in fp8_layers_1indexed] if fp8_layers_1indexed else None
-    fp4_layers = [layer - 1 for layer in fp4_layers_1indexed] if fp4_layers_1indexed else None
+    # Convert to 0-indexed for internal use (use 'is not None' to handle empty lists correctly)
+    fp8_layers = [layer - 1 for layer in fp8_layers_1indexed] if fp8_layers_1indexed is not None else None
+    fp4_layers = [layer - 1 for layer in fp4_layers_1indexed] if fp4_layers_1indexed is not None else None
 
     if args.quant_stats_config.enabled:
         quant_stats_file = args.quant_stats_config.quant_stats_file
@@ -200,11 +221,12 @@ def main(args: DictConfig) -> float | None:
 
     # Create a layer map for the transformer stack.
     layer_number_quantized_recipe_map = {}
+    fp8_layers_set = set(fp8_layers) if fp8_layers else set()
+    fp4_layers_set = set(fp4_layers) if fp4_layers else set()
     for layer_number, layer in enumerate(transformer_stack):
-        
-        if layer_number in fp8_layers:
+        if layer_number in fp8_layers_set:
             layer_number_quantized_recipe_map[layer_number] = fp8_recipe
-        elif layer_number in fp4_layers:
+        elif layer_number in fp4_layers_set:
             layer_number_quantized_recipe_map[layer_number] = fp4_recipe
         else:
             layer_number_quantized_recipe_map[layer_number] = None
