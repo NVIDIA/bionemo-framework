@@ -69,7 +69,7 @@ sharded_eden:
   log_windows: false
   log_dir: null
 
-# Regular dataset config (needed for validation)
+# Regular dataset config (needed for validation and PerfLogger serialization)
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1
@@ -77,6 +77,17 @@ dataset:
   prefetch_factor: 2
   max_seq_length: 8192
   stride: 7992
+  shuffle: false
+  skip_tokenization: false
+  use_stateful_dataloader: false
+  mask_degenerate_bases: true
+  uppercase_labels: false
+  # Placeholder for PerfLogger (not used when use_sharded_eden=true)
+  load_dataset_kwargs:
+    path: "unused"
+    data_files: "unused"
+    split: train
+    streaming: false
 
 # Optimizer (matching John's settings)
 adamw_kwargs:
