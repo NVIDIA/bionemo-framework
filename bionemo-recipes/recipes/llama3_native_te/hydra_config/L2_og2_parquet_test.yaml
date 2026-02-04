@@ -44,6 +44,7 @@ use_megatron_loss: false
 # ============================================================
 
 use_sequence_packing: false  # BSHD format, no packing
+use_meta_device: false
 
 # Gradient accumulation (8 GPUs × 1 mbs × 8 ga = 64 GBS per node)
 grad_acc_steps: 8
