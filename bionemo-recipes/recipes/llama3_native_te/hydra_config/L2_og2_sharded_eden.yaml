@@ -3,46 +3,60 @@
 
 # Configuration for training with ShardedEdenDataset directly (no parquet dumping)
 # Uses standard PyTorch DataLoader with shuffle=True
+# Reads directly from SQLite databases - same as John's Megatron code but without Megatron deps
 
 defaults:
+  - defaults
   - _self_
 
-# Model configuration - using a smaller model for testing
+# 7B model config (matching EdenConfig from bionemo-evo2)
 config_name_or_path: meta-llama/Llama-3.1-8B
 config_kwargs:
-  vocab_size: 259  # Nucleotide tokenizer vocab size
+  vocab_size: 256  # CRITICAL: Must match nucleotide tokenizer vocab size!
+  num_hidden_layers: 32
   hidden_size: 4096
   intermediate_size: 14336
-  num_hidden_layers: 8  # Reduced for testing
   num_attention_heads: 32
-  num_key_value_heads: 8
+  num_key_value_heads: 32
   max_position_embeddings: 8192
-  use_cache: false
-  torch_dtype: bfloat16
-  attn_implementation: flash_attention_2
+  initializer_range: 0.02
+  attn_input_format: bshd
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
 
-# Training configuration
-num_train_steps: 10  # Small test run
-grad_acc_steps: 8
-learning_rate: 3.0e-5
-seed: 42
-log_every_n_steps: 1
-checkpoint_every_n_steps: 1000
-eval_every_n_steps: 1000
+# ============ CRITICAL FLAGS TO MATCH JOHN'S RUN ============
+spike_no_more_embedding_init: true
+skip_embedding_weight_decay: false  # John APPLIES weight decay to embeddings
+use_weight_decay_grouping: true
+use_megatron_scaled_init: false
+use_megatron_loss: false
+use_meta_device: false
+# ============================================================
 
-# Precision
-use_fp8: false
-use_bf16: true
-
-# FSDP configuration
-fsdp_cpu_offload: false
+use_sequence_packing: false  # BSHD format
 
 # Enable ShardedEden dataset mode
 use_sharded_eden: true
 
-# ShardedEden dataset configuration
+# Gradient accumulation (8 GPUs × 1 mbs × 8 ga = 64 GBS per node)
+grad_acc_steps: 8
+
+# Training steps
+num_train_steps: 200
+
+wandb:
+  name: sharded_eden_direct_test
+  project: llama3-metagenome-7b
+  mode: online
+
+# ShardedEden dataset configuration - reads directly from SQLite
 sharded_eden:
-  tokenizer_name_or_path: tokenizers/nucleotide_fast_tokenizer
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   sequence_db_dir: /data/bcr_eden/OG2_database_splits
   window_db_path: /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite
   micro_batch_size: 1
@@ -55,8 +69,49 @@ sharded_eden:
   log_windows: false
   log_dir: null
 
-# Disable regular dataset config (not used in sharded_eden mode)
+# Regular dataset config (needed for validation)
 dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1
+  num_workers: 4
+  prefetch_factor: 2
   max_seq_length: 8192
-  tokenizer_name_or_path: tokenizers/nucleotide_fast_tokenizer
+  stride: 7992
+
+# Optimizer (matching John's settings)
+adamw_kwargs:
+  lr: 3e-05
+  fused: true
+  betas: [0.9, 0.95]
+  eps: 1e-8
+  weight_decay: 0.1
+
+# Learning rate scheduler
+lr_scheduler_kwargs:
+  num_warmup_steps: 0
+  num_decay_steps: 200
+  min_lr_ratio: 0.02
+
+# Validation settings (uses JSONL dataloader, NOT ShardedEden)
+validation:
+  enabled: false  # Enable with validation.enabled=true on CLI
+  eval_interval: 50
+  num_batches: 40
+  data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
+  micro_batch_size: 8
+  max_seq_length: null
+  stride: null
+
+# Checkpoint config
+checkpoint:
+  ckpt_dir: null
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 999999
+  async_save: true
+
+logger:
+  frequency: 1
+
+profiler:
+  enabled: false
