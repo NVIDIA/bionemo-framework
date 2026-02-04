@@ -672,8 +672,16 @@ class ShardedEdenDatasetWrapper(torch.utils.data.Dataset):
         sample = self.dataset[idx]
         tokens = sample["tokens"]
 
-        # Create attention_mask: 1 for real tokens, 0 for padding
-        attention_mask = (tokens != self.pad_id).long()
+        # Create attention_mask in HuggingFace EXTENDED format:
+        # - 0.0 = attend to this token
+        # - Large negative value = don't attend (masked/padding)
+        #
+        # The model (modeling_llama_te.py line 349) converts 2D mask to 4D via:
+        #   attention_mask[:, None, None, :] < -1
+        # So we need: padding tokens = -10000 (< -1 = True = masked)
+        #             real tokens = 0 (< -1 = False = not masked)
+        padding_mask = tokens == self.pad_id  # True for padding tokens
+        attention_mask = padding_mask.float() * -10000.0  # -10000 for padding, 0 for real tokens
 
         # Convert from ShardedEdenDataset format to HuggingFace format
         return {
