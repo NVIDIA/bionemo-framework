@@ -719,20 +719,8 @@ def create_sharded_eden_dataloader(
     Returns:
         Tuple of (dataloader, sampler)
     """
-    import sys
-    from pathlib import Path
-
-    # Add path to import ShardedEdenDataset from bionemo-evo2
-    evo2_path = Path(__file__).parent.parent.parent.parent / "sub-packages" / "bionemo-evo2" / "src"
-    if str(evo2_path) not in sys.path:
-        sys.path.insert(0, str(evo2_path))
-
-    try:
-        from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataset
-    except ImportError as e:
-        raise ImportError(
-            f"Could not import ShardedEdenDataset. Make sure bionemo-evo2 is available. Error: {e}"
-        ) from e
+    # Import standalone version (no NeMo/Megatron dependencies)
+    from sharded_eden_standalone import ShardedEdenDatasetStandalone
 
     # Load HuggingFace tokenizer
     logger.info(f"Loading tokenizer from {tokenizer_name_or_path}")
@@ -743,14 +731,14 @@ def create_sharded_eden_dataloader(
     # Create adapter for ShardedEdenDataset
     tokenizer_adapter = HuggingFaceTokenizerAdapter(hf_tokenizer)
 
-    # Create ShardedEdenDataset
-    logger.info("Creating ShardedEdenDataset:")
+    # Create ShardedEdenDataset (standalone version, no NeMo/Megatron)
+    logger.info("Creating ShardedEdenDatasetStandalone (no NeMo/Megatron dependencies):")
     logger.info(f"  sequence_db_dir: {sequence_db_dir}")
     logger.info(f"  window_db_path: {window_db_path}")
     logger.info(f"  seq_length: {seq_length}, stride: {stride}")
     logger.info(f"  shuffle: {shuffle}, rc_aug: {rc_aug}")
 
-    eden_dataset = ShardedEdenDataset(
+    eden_dataset = ShardedEdenDatasetStandalone(
         tokenizer=tokenizer_adapter,
         sequence_db_dir=sequence_db_dir,
         window_db_path=window_db_path,
