@@ -38,7 +38,6 @@ from megatron.bridge.utils.common_utils import get_rank_safe
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
 from bionemo.evo2.models.evo2_provider import HYENA_MODEL_OPTIONS, hyena_forward_step
-from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond_with_embeddings
 from bionemo.evo2.recipes.evo2 import evo2_1b_pretrain_config as pretrain_config
 
 
@@ -759,6 +758,9 @@ def train(args: argparse.Namespace) -> None:
         recipe_kwargs["dir"] = args.result_dir
     recipe_kwargs["name"] = args.experiment_name
 
+    if args.no_weight_decay_embeddings:
+        recipe_kwargs["no_weight_decay_embeddings"] = True
+
     # 2. Generate Base Configuration
     cfg: ConfigContainer = pretrain_config(**recipe_kwargs)
 
@@ -828,9 +830,6 @@ def train(args: argparse.Namespace) -> None:
     else:
         if args.activation_checkpoint_recompute_num_layers is not None:
             cfg.model.recompute_num_layers = args.activation_checkpoint_recompute_num_layers
-
-    if args.no_weight_decay_embeddings:
-        cfg.scheduler.no_weight_decay_cond_type = hyena_no_weight_decay_cond_with_embeddings
     # Optimizer
     if args.wd is not None:
         cfg.optimizer.weight_decay = args.wd

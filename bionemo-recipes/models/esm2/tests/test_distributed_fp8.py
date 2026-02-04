@@ -38,10 +38,12 @@ requires_multi_gpu = pytest.mark.skipif(
     "strategy", ["ddp", "fsdp2", pytest.param("mfsdp", marks=pytest.mark.xfail(reason="BIONEMO-2999"))]
 )
 @requires_fp8
-def test_single_process_attaches_correct_fp8_recipe(strategy):
+def test_single_process_attaches_correct_fp8_recipe(strategy, unused_tcp_port):
     cmd = [
         "torchrun",
         "--nproc_per_node=1",
+        "--rdzv-backend=c10d",
+        f"--rdzv-endpoint=localhost:{unused_tcp_port}",
         os.path.relpath(__file__),
         "--strategy",
         strategy,
@@ -66,10 +68,12 @@ def test_single_process_attaches_correct_fp8_recipe(strategy):
 )
 @requires_fp8
 @requires_multi_gpu
-def test_multi_process_fp8_recipes_are_synced(strategy):
+def test_multi_process_fp8_recipes_are_synced(strategy, unused_tcp_port):
     cmd = [
         "torchrun",
         "--nproc_per_node=2",
+        "--rdzv-backend=c10d",
+        f"--rdzv-endpoint=localhost:{unused_tcp_port}",
         os.path.relpath(__file__),
         "--strategy",
         strategy,
@@ -207,11 +211,14 @@ if __name__ == "__main__":
 
         outputs.loss.backward()
 
-    fp8_extra_states = {key: val for key, val in model.state_dict().items() if key.endswith("_extra_state")}
-
-    # For some reason, this one doesn't get an fp8 recipe? It's the only te.LayerNorm.
-    key = filter(lambda x: x.endswith("encoder.emb_layer_norm_after._extra_state"), fp8_extra_states.keys())
-    fp8_extra_states.pop(next(key))
+    # Access FP8 extra states directly from modules instead of state_dict()
+    # since state_dict() now filters them out for HuggingFace compatibility
+    fp8_extra_states = {}
+    for name, module in model.named_modules():
+        if hasattr(module, "_extra_state") and callable(module._extra_state):
+            extra_state = module._extra_state()
+            if extra_state is not None and len(extra_state) > 0:
+                fp8_extra_states[f"{name}._extra_state"] = extra_state
 
     # lm_head.dense and lm_head.decoder are BF16, not FP8, so exclude them from FP8 checks
     fp8_extra_states = {key: val for key, val in fp8_extra_states.items() if "lm_head." not in key}

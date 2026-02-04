@@ -56,7 +56,12 @@ class SimpleFastaDataset(torch.utils.data.Dataset):
     def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         """Get an item from the dataset."""
         sequence = self.fasta[self.seqids[idx]].sequence().upper()
-        tokenized_seq = self.tokenizer.text_to_ids(sequence)
+        if hasattr(self.tokenizer, "tokenize"):
+            # Handle the new Megatron-Bridge style tokenizer.
+            tokenized_seq = self.tokenizer.tokenize(sequence)
+        else:
+            # Handle the legacy NeMo2 style tokenizer.
+            tokenized_seq = self.tokenizer.text_to_ids(sequence)
         if self.prepend_bos:  # in pretraining we use EOS to start new sequences.
             tokens: list[int] = [self.tokenizer.eod, *tokenized_seq]
         else:

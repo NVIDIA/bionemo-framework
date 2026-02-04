@@ -25,7 +25,11 @@ from typing import Callable, Iterable, Literal, Optional, Type
 import torch
 from megatron.bridge.models.model_provider import ModelProviderMixin
 from megatron.bridge.models.transformer_config import TransformerConfig
-from megatron.bridge.training.config import ConfigContainer
+from megatron.bridge.training.config import (
+    ConfigContainer,
+    OptimizerConfigOverrideProvider,
+    OptimizerConfigOverrideProviderContext,
+)
 from megatron.bridge.training.gpt_step import get_batch_from_iterator
 from megatron.bridge.training.losses import masked_next_token_loss
 from megatron.bridge.training.state import GlobalState
@@ -34,22 +38,19 @@ from megatron.bridge.training.utils.pg_utils import get_pg_collection
 from megatron.bridge.utils.vocab_utils import calculate_padded_vocab_size
 from megatron.core import parallel_state
 from megatron.core.inference.contexts import StaticInferenceContext
+from megatron.core.optimizer import (
+    ParamGroupOverride,
+    ParamKey,
+    ParamPredicate,
+)
 from megatron.core.pipeline_parallel.utils import is_pp_first_stage, is_pp_last_stage
 from megatron.core.transformer.enums import AttnBackend
 from megatron.core.utils import get_batch_on_this_cp_rank, get_model_config
 
 from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig as _HyenaConfigForFlops
-
-# from nemo.collections.llm.gpt.model.base import GPTModel, gpt_data_step  # FIXME do megatron bridge thing instead of this
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import get_hyena_stack_spec
 from bionemo.evo2.models.megatron.hyena.hyena_model import HyenaModel as MCoreHyenaModel
 from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
-
-
-# from nemo.lightning import get_vocab_size, io, teardown
-# from nemo.lightning.base import NEMO_MODELS_CACHE
-# from nemo.lightning.io.state import TransformFns
-# from nemo.utils import logging
 
 
 def get_vocab_size(*args, **kwargs):
@@ -60,7 +61,47 @@ def gpt_data_step(*args, **kwargs):
     raise NotImplementedError("FIXME gpt_data_step is not implemented Find it in megatron bridge")
 
 
-# FIXME convert the nemo style configs to megatron bridge style configs
+@dataclass
+class HyenaOptimizerConfigOverrideProvider(OptimizerConfigOverrideProvider):
+    """Hyena-specific optimizer config override provider."""
+
+    no_weight_decay_embeddings: bool = False
+
+    def build_config_overrides(
+        self, context: OptimizerConfigOverrideProviderContext
+    ) -> dict[ParamKey, ParamGroupOverride] | None:
+        """Build config overrides for weight decay based on scheduler configuration.
+
+        This function creates parameter-specific overrides for weight decay behavior.
+        By default, weight decay is skipped for bias parameters and 1D parameters.
+        For Qwen3-Next models, weight decay is applied to q_layernorm and k_layernorm.
+        """
+        optimizer_config = context.optimizer_config
+        config_overrides: dict[ParamKey, ParamGroupOverride] = {}
+        param_length_1_match = ParamPredicate(name="param_len_1", fn=lambda param: len(param.shape) == 1)
+        name_tuple: tuple[str, ...] = (
+            "*.bias",
+            "*.filter.p",
+            "*.filter.R",
+            "*.filter.gamma",
+            "*.short_conv.short_conv_weight",
+        )
+        if self.no_weight_decay_embeddings:
+            name_tuple += ("*embedding*",)
+        param_wd_mult_key = ParamKey(
+            name=name_tuple,  # type: ignore
+            predicate=param_length_1_match,
+        )
+
+        config_overrides[param_wd_mult_key] = ParamGroupOverride(wd_mult=0.0)  # type: ignore
+
+        if optimizer_config.decoupled_lr is not None:
+            decoupled_lr_config: ParamGroupOverride = {"max_lr": optimizer_config.decoupled_lr}
+            decoupled_param_key = ParamKey(attr="is_embedding_or_output_parameter")
+            if optimizer_config.decoupled_min_lr is not None:
+                decoupled_lr_config["min_lr"] = optimizer_config.decoupled_min_lr
+            config_overrides[decoupled_param_key] = decoupled_lr_config
+        return config_overrides
 
 
 class HyenaInferenceContext(StaticInferenceContext):
@@ -73,103 +114,6 @@ class HyenaInferenceContext(StaticInferenceContext):
             # Remove all of the state that we add in hyena.py
             if "filter_state_dict" in key:
                 delattr(self, key)
-
-
-# FIXME convert this to the megatron bridge style config for inference.
-# class HyenaModel(GPTModel):
-#     """This is a wrapper around the MCoreHyenaModel to allow for inference.
-
-#     Our model follows the same API as the GPTModel, but the megatron model class is different so we need to handle the inference wrapper slightly differently.
-#     """
-
-#     def get_inference_wrapper(
-#         self, params_dtype, inference_batch_times_seqlen_threshold, inference_max_seq_length=None
-#     ) -> torch.Tensor:
-#         """Gets the inference wrapper for the Hyena model.
-
-#         Args:
-#             params_dtype: The data type for model parameters
-#             inference_batch_times_seqlen_threshold: Threshold for batch size * sequence length during inference
-#             inference_max_seq_length: Maximum sequence length for inference
-
-#         Returns:
-#             GPTInferenceWrapper: The inference wrapper for the model
-
-#         Raises:
-#             ValueError: If MCoreHyenaModel instance not found or vocab size cannot be determined
-#         """
-#         # This is to get the MCore model required in GPTInferenceWrapper.
-#         mcore_model = self.module
-#         while mcore_model:
-#             if type(mcore_model) is MCoreHyenaModel:
-#                 break
-#             mcore_model = getattr(mcore_model, "module", None)
-#         if mcore_model is None or type(mcore_model) is not MCoreHyenaModel:
-#             raise ValueError("Exact MCoreHyenaModel instance not found in the model structure.")
-
-#         vocab_size = None
-#         if self.tokenizer is not None:
-#             vocab_size = self.tokenizer.vocab_size
-#         elif hasattr(self.config, "vocab_size"):
-#             vocab_size = self.config.vocab_size
-#         else:
-#             raise ValueError(
-#                 "Unable to find vocab size."
-#                 " Either pass in a tokenizer with vocab size, or set vocab size in the model config"
-#             )
-
-#         inference_wrapper_config = InferenceWrapperConfig(
-#             hidden_size=mcore_model.config.hidden_size,
-#             params_dtype=params_dtype,
-#             inference_batch_times_seqlen_threshold=inference_batch_times_seqlen_threshold,
-#             padded_vocab_size=vocab_size,
-#             inference_max_seq_length=inference_max_seq_length,
-#             inference_max_requests=1,
-#         )
-
-#         inference_context = HyenaInferenceContext.from_config(inference_wrapper_config)
-#         model_inference_wrapper = GPTInferenceWrapper(mcore_model, inference_wrapper_config, inference_context)
-#         return model_inference_wrapper
-
-#     def forward(
-#         self,
-#         input_ids: torch.Tensor,
-#         position_ids: torch.Tensor,
-#         attention_mask: Optional[torch.Tensor] = None,
-#         labels: Optional[torch.Tensor] = None,
-#         decoder_input: Optional[torch.Tensor] = None,
-#         loss_mask: Optional[torch.Tensor] = None,
-#         inference_context=None,
-#         packed_seq_params=None,
-#     ) -> torch.Tensor:
-#         """Forward pass of the Hyena model.
-
-#         Args:
-#             input_ids: Input token IDs
-#             position_ids: Position IDs for input tokens
-#             attention_mask: Optional attention mask
-#             labels: Optional labels for loss computation
-#             decoder_input: Optional decoder input
-#             loss_mask: Optional loss mask
-#             inference_context: Optional inference parameters
-#             packed_seq_params: Optional parameters for packed sequences
-
-
-#         Returns:
-#             torch.Tensor: Output tensor from the model
-#         """
-#         extra_kwargs = {"packed_seq_params": packed_seq_params} if packed_seq_params is not None else {}
-#         output_tensor = self.module(
-#             input_ids,
-#             position_ids,
-#             attention_mask,
-#             decoder_input=decoder_input,
-#             labels=labels,
-#             inference_context=inference_context,
-#             loss_mask=loss_mask,
-#             **extra_kwargs,
-#         )
-#         return output_tensor
 
 
 def get_batch(
@@ -329,7 +273,6 @@ def _create_loss_function(loss_mask: torch.Tensor, check_for_nan_in_loss: bool, 
     )
 
 
-# FIXME make sure these conform to megatron/megatron bridge style.
 @dataclass
 class HyenaModelProvider(TransformerConfig, ModelProviderMixin[MCoreHyenaModel]):
     """Configuration dataclass for Hyena.

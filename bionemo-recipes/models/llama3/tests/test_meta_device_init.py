@@ -199,10 +199,12 @@ def test_meta_fp8_init(fp8_recipe):
 
 
 @pytest.mark.parametrize("num_gpus", [1, pytest.param(2, marks=requires_multi_gpu)])
-def test_meta_device_init_after_fully_shard(num_gpus: int):
+def test_meta_device_init_after_fully_shard(num_gpus: int, unused_tcp_port):
     cmd = [
         "torchrun",
         f"--nproc_per_node={num_gpus}",
+        "--rdzv-backend=c10d",
+        f"--rdzv-endpoint=localhost:{unused_tcp_port}",
         os.path.relpath(__file__),
     ]
 

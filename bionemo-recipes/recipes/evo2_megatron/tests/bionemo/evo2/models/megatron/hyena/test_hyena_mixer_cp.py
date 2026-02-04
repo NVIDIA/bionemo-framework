@@ -22,8 +22,6 @@ Example usage:
 """
 
 import argparse
-
-# FIXME what's the right way to do logging now?
 import logging
 import os
 import time
@@ -34,8 +32,6 @@ import torch.distributed as dist
 from einops import rearrange
 from megatron.core import parallel_state
 from megatron.core.tensor_parallel.random import model_parallel_cuda_manual_seed
-
-# from nemo.utils import logging
 from torch.distributed.nn.functional import all_gather as functional_all_gather
 from torch.nn.parallel import DistributedDataParallel as DDP  # noqa: N817
 

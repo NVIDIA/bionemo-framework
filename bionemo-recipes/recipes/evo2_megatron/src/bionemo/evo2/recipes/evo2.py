@@ -39,8 +39,8 @@ from bionemo.evo2.data.sharded_eden_dataset_provider import ShardedEdenDatasetPr
 from bionemo.evo2.models.evo2_provider import (
     Hyena1bModelProvider,
     HyenaModelProvider,
+    HyenaOptimizerConfigOverrideProvider,
 )
-from bionemo.evo2.models.megatron.hyena.hyena_utils import hyena_no_weight_decay_cond
 
 
 class Evo2CommonKwargs(TypedDict, total=False):
@@ -87,7 +87,8 @@ class Evo2CommonKwargs(TypedDict, total=False):
     # Precision / overlap configs
     precision_config: MixedPrecisionConfig | str | None
     comm_overlap_config: CommOverlapConfig | None
-    pad_eod_loss_mask: bool = False
+    pad_eod_loss_mask: bool
+    no_weight_decay_embeddings: bool
 
 
 def evo2_1b_pretrain_config(**user_kwargs: Unpack[Evo2CommonKwargs]) -> ConfigContainer:
@@ -107,6 +108,7 @@ def evo2_1b_pretrain_config(**user_kwargs: Unpack[Evo2CommonKwargs]) -> ConfigCo
         "pipeline_model_parallel_size": 1,
         "sequence_parallel": False,
         "precision_config": "bf16_mixed",
+        "no_weight_decay_embeddings": False,
     }
     kwargs: Evo2CommonKwargs = {**recommended, **user_kwargs}
     return _evo2_common(**kwargs)
@@ -155,6 +157,7 @@ def _evo2_common(
     # TODO fp8 etc
     precision_config: MixedPrecisionConfig | str | None = "bf16_mixed",
     comm_overlap_config: CommOverlapConfig | None = None,
+    no_weight_decay_embeddings: bool = False,
     pad_eod_loss_mask: bool = False,
 ) -> ConfigContainer:
     """Create a pre-training configuration for Mamba 2.x models.
@@ -229,7 +232,6 @@ def _evo2_common(
         max_lr=lr,
         min_lr=min_lr,
     )
-    scheduler.no_weight_decay_cond_type = hyena_no_weight_decay_cond
 
     cfg = ConfigContainer(
         model=model_cfg,
@@ -241,6 +243,9 @@ def _evo2_common(
             micro_batch_size=micro_batch_size,
         ),
         optimizer=opt_config,
+        optimizer_config_override_provider=HyenaOptimizerConfigOverrideProvider(
+            no_weight_decay_embeddings=no_weight_decay_embeddings,
+        ),
         scheduler=scheduler,
         ddp=DistributedDataParallelConfig(
             check_for_nan_in_grad=True,
@@ -269,7 +274,9 @@ def _evo2_common(
         ),
         tokenizer=TokenizerConfig(
             tokenizer_type="HuggingFaceTokenizer",
-            tokenizer_model=hf_tokenizer_model_or_path or "EleutherAI/gpt-neox-20b",
+            tokenizer_model=str(hf_tokenizer_model_or_path)
+            if hf_tokenizer_model_or_path is not None
+            else "EleutherAI/gpt-neox-20b",
         ),
         checkpoint=CheckpointConfig(
             save_interval=2000,

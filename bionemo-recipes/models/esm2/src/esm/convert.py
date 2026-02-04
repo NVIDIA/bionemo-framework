@@ -131,7 +131,7 @@ def convert_esm_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
         ],
     )
 
-    output_model.tie_weights()
+    output_model.post_init()
 
     # Note: contact_head parameters are not preserved in TE models
     # They are lost during HF -> TE conversion and cannot be recovered
