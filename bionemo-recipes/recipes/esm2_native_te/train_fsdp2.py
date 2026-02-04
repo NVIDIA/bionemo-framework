@@ -17,6 +17,7 @@ import logging
 import tempfile
 from contextlib import nullcontext
 from pathlib import Path
+from torch.profiler import profile, ProfilerActivity
 
 import hydra
 import nvdlfw_inspect.api as debug_api
@@ -294,8 +295,14 @@ def main(args: DictConfig) -> float | None:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
             
             # Use an outer FP8 recipe.
-            with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
+            with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe if args.fp8_config.enabled else None):
                 outputs = model(**batch)
+            
+            # if step == 5:  # Profile step 5
+            #     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+            #         with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
+            #             outputs = model(**batch)
+            #     logger.info(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
 
             # Backward pass.
             loss = outputs.loss

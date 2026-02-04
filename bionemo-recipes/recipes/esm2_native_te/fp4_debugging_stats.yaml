@@ -10,10 +10,10 @@ example_fp4_tensor_stat_collection:
             tensors_struct:
             - tensor: activation
               stats: [underflows%, mse]
-              freq: 10
+              freq: 100
             - tensor: gradient
               stats: [underflows%, mse]
-              freq: 10
+              freq: 100
 
 example_fp8_tensor_stat_collection:
     enabled: True
@@ -27,7 +27,7 @@ example_fp8_tensor_stat_collection:
             tensors_struct:
             - tensor: activation
               stats: [mxfp8_underflows%, mxfp8_scale_inv_min, mxfp8_scale_inv_max, mxfp8_mse]
-              freq: 10
+              freq: 100
             - tensor: gradient
               stats: [mxfp8_underflows%, mxfp8_scale_inv_min, mxfp8_scale_inv_max, mxfp8_mse]
-              freq: 10
+              freq: 100
