@@ -42,6 +42,7 @@ def create_tokenized_dataset(
     buffer_size: int = 5_000,
     text_column: str = "text",
     tokenize_batch_size: int = 100,
+    shuffle_windows: bool = False,
 ):
     """Create a tokenized dataset with windowing.
 
@@ -54,6 +55,9 @@ def create_tokenized_dataset(
         buffer_size: The buffer size for shuffle.
         text_column: Name of the column containing genomic sequences (default: "text").
         tokenize_batch_size: The batch size for tokenization.
+        shuffle_windows: Whether to shuffle windows after tokenization. This interleaves windows
+            from different sequences for better batch diversity, but requires filling a large
+            buffer and can be slow. Default: False.
 
     Returns:
         Tuple of (tokenized_dataset, tokenizer).
@@ -74,8 +78,6 @@ def create_tokenized_dataset(
         else:
             logger.info(f"Sharding dataset with {dataset.num_shards} shards with dataset.shard")
             dataset = dataset.shard(num_shards=distributed_config.world_size, index=distributed_config.rank)
-
-        # dataset = dataset.shuffle(seed=42, buffer_size=buffer_size)
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
 
@@ -98,8 +100,10 @@ def create_tokenized_dataset(
         batch_size=tokenize_batch_size,
         remove_columns=[text_column],
     )
-    if isinstance(tokenized_dataset, datasets.IterableDataset):
-        # We shuffle after tokenization to make sure we shuffle the sharded input sequences.
+    if shuffle_windows and isinstance(tokenized_dataset, datasets.IterableDataset):
+        # Shuffle after windowing to interleave windows from different sequences for better batch diversity.
+        # Note: This requires filling a buffer of size `buffer_size` before training starts, which can be slow.
+        logger.info(f"Shuffling windows with buffer_size={buffer_size}")
         tokenized_dataset = tokenized_dataset.shuffle(seed=42, buffer_size=buffer_size)
 
     # Even in THD mode, we use a base MLM collator that requires a padding token to be set.
@@ -126,6 +130,7 @@ def create_bshd_dataloader(
     uppercase_labels: bool = False,
     mask_degenerate_bases: bool = False,
     pad_sequences_to_be_divisible_by: int | None = None,
+    shuffle_windows: bool = False,
 ):
     """Create a BSHD dataloader for llama3 pre-training.
 
@@ -146,6 +151,8 @@ def create_bshd_dataloader(
         mask_degenerate_bases: Whether to mask non-ACGT bases (genomic masking). Default: False.
         pad_sequences_to_be_divisible_by: The number to pad sequences to be divisible by, required for FP8 training.
             Default: None.
+        shuffle_windows: Whether to shuffle windows after tokenization. This interleaves windows from different
+            sequences for better batch diversity, but can be slow due to buffer filling. Default: False.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -159,6 +166,7 @@ def create_bshd_dataloader(
         buffer_size=buffer_size,
         text_column=text_column,
         tokenize_batch_size=micro_batch_size * prefetch_factor,
+        shuffle_windows=shuffle_windows,
     )
 
     if isinstance(tokenized_dataset, datasets.IterableDataset):
@@ -226,6 +234,7 @@ def create_thd_dataloader(
     mask_degenerate_bases: bool = False,
     split_samples_in_token_packing: bool = True,
     pad_sequences_to_be_divisible_by: int | None = None,
+    shuffle_windows: bool = False,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
 
@@ -250,6 +259,8 @@ def create_thd_dataloader(
             tokens. Default: True.
         pad_sequences_to_be_divisible_by: If provided, sequences will be padded to be divisible by this value.
             This is useful for context parallelism. Defaults to None.
+        shuffle_windows: Whether to shuffle windows after tokenization. This interleaves windows from different
+            sequences for better batch diversity, but can be slow due to buffer filling. Default: False.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -262,6 +273,7 @@ def create_thd_dataloader(
         stride=stride,
         buffer_size=buffer_size,
         text_column=text_column,
+        shuffle_windows=shuffle_windows,
     )
 
     assert isinstance(tokenized_dataset, datasets.IterableDataset), "THD token packing requires a streaming dataset."

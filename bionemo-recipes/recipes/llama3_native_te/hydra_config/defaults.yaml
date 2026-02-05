@@ -34,10 +34,11 @@ use_sequence_packing: false
 dataset:
   tokenizer_name_or_path: ??? # Set to the path of your tokenizer (e.g.,  meta-llama/Llama-3.1-8B or ./tokenizers/nucleotide_fast_tokenizer)
   micro_batch_size: 8
-  num_workers: 1
+  num_workers: 4
   max_seq_length: 8192 # Window size for genomic sequences
   stride: 200 # Overlap for windowing
-  buffer_size: 500_000 # Shuffle buffer size
+  buffer_size: 500_000 # Shuffle buffer size (only used when shuffle_windows is true)
+  shuffle_windows: false # Shuffle windows after tokenization for better batch diversity (can be slow)
   use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
   pad_sequences_to_be_divisible_by: null
   load_dataset_kwargs:
