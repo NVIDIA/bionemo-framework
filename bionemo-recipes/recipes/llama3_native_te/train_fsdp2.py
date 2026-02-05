@@ -449,9 +449,27 @@ def log_init_stats(
                 f"shape={layer_stats['shape']}"
             )
 
+    # Calculate total parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    # Format as human-readable (e.g., "7.8B", "125M")
+    def format_params(n: int) -> str:
+        if n >= 1e9:
+            return f"{n / 1e9:.2f}B"
+        elif n >= 1e6:
+            return f"{n / 1e6:.2f}M"
+        elif n >= 1e3:
+            return f"{n / 1e3:.2f}K"
+        return str(n)
+
     if dist_config.rank == 0:
         logger.info("=" * 100)
         logger.info(f"[INIT_WEIGHT_STATS] Total parameters logged: {len(stats)}")
+        logger.info(f"[INIT_WEIGHT_STATS] Total model parameters: {total_params:,} ({format_params(total_params)})")
+        logger.info(
+            f"[INIT_WEIGHT_STATS] Trainable parameters: {trainable_params:,} ({format_params(trainable_params)})"
+        )
         logger.info("=" * 100)
 
     return stats

@@ -166,7 +166,25 @@ class InitWeightStatsCallback(Callback):
                     f"shape={layer_stats['shape']}"
                 )
 
+        # Calculate total parameters
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+        # Format as human-readable (e.g., "7.8B", "125M")
+        def format_params(n: int) -> str:
+            if n >= 1e9:
+                return f"{n / 1e9:.2f}B"
+            elif n >= 1e6:
+                return f"{n / 1e6:.2f}M"
+            elif n >= 1e3:
+                return f"{n / 1e3:.2f}K"
+            return str(n)
+
         if rank == 0:
             print("=" * 100)
             print(f"[INIT_WEIGHT_STATS] Total parameters logged: {len(stats)}")
+            print(f"[INIT_WEIGHT_STATS] Total model parameters: {total_params:,} ({format_params(total_params)})")
+            print(
+                f"[INIT_WEIGHT_STATS] Trainable parameters: {trainable_params:,} ({format_params(trainable_params)})"
+            )
             print("=" * 100)
