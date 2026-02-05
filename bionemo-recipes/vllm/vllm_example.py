@@ -13,62 +13,61 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""vLLM ESM2 embedding example with weight name remapping.
+"""vLLM ESM2 embedding example with offline weight conversion.
 
-This script demonstrates how to run ESM2 embeddings with vLLM by monkey-patching
-the weight loading to fix the naming mismatch between the checkpoint and vLLM's
-TransformersForEmbedding wrapper.
+This script demonstrates how to run ESM2 embeddings with vLLM by pre-converting
+the checkpoint weights to fix the naming mismatch.
 
 ## The Problem
 
-vLLM wraps models in adapter classes (e.g., TransformersForEmbedding) which adds
-a "model." prefix to weight names. ESM2 checkpoints have weights like:
-    - esm.embeddings.word_embeddings.weight
-    - esm.encoder.layer.0.attention.self.query.weight
+ESM2 checkpoints are saved from NVEsmForMaskedLM which has `self.esm = NVEsmModel()`.
+So weights have names like: `esm.embeddings.*`, `esm.encoder.*`
 
-But vLLM expects:
-    - model.esm.embeddings.word_embeddings.weight
-    - model.esm.encoder.layer.0.attention.self.query.weight
+But vLLM's AutoModel.from_config() returns NVEsmModel directly, which has:
+`embeddings.*`, `encoder.*` (no `esm.` prefix in the structure).
+
+vLLM then wraps this in TransformersForEmbedding and its generic weight mapper
+prepends `model.`, so it expects: `model.embeddings.*`, `model.encoder.*`
 
 ## The Solution
 
-We monkey-patch vLLM's DefaultModelLoader.get_all_weights to add the "model."
-prefix when loading ESM2 weights. This must be done BEFORE importing vLLM's LLM class.
+We pre-convert the checkpoint by stripping the `esm.` prefix:
+- `esm.embeddings.*` -> `embeddings.*`
+- `esm.encoder.*` -> `encoder.*`
+- `lm_head.*` -> dropped (not needed for embedding)
+
+vLLM's mapper then correctly adds `model.` to get `model.embeddings.*`, etc.
+This script handles the conversion automatically on first run.
 """
 
 import os
+from pathlib import Path
+
+import numpy as np
+import torch
+from convert_esm2_for_vllm import convert_esm2_checkpoint
+from vllm import LLM
 
 
-# =============================================================================
-# MONKEY-PATCH: Fix ESM2 weight naming for vLLM compatibility
-# This MUST be done before importing vLLM's LLM class
-# =============================================================================
-def _apply_esm2_weight_patch():
-    """Patch vLLM's weight loading to add 'model.' prefix for ESM2 models."""
-    from vllm.model_executor.model_loader.default_loader import DefaultModelLoader
-
-    _original_get_all_weights = DefaultModelLoader.get_all_weights
-
-    def _patched_get_all_weights(self, model_config, model):
-        """Wrap get_all_weights to add 'model.' prefix for ESM models."""
-        for name, weight in _original_get_all_weights(self, model_config, model):
-            # ESM2 weights start with "esm." or "lm_head." but vLLM expects "model." prefix
-            if name.startswith("esm.") or name.startswith("lm_head.") or name.startswith("contact_head."):
-                yield f"model.{name}", weight
-            else:
-                yield name, weight
-
-    DefaultModelLoader.get_all_weights = _patched_get_all_weights
-    print("Applied ESM2 weight naming patch for vLLM compatibility")
+# Configuration
+# MODEL_ID = "facebook/esm2_t12_35M_UR50D"
+MODEL_ID = "nvidia/esm2_t6_8M_UR50D"
+CONVERTED_MODEL_DIR = "./esm2_vllm_converted"
 
 
-# Apply the patch before importing LLM
-_apply_esm2_weight_patch()
+def ensure_converted_model(model_id: str, output_dir: str) -> str:
+    """Ensure the converted model exists, converting if necessary."""
+    output_path = Path(output_dir)
+    marker_file = output_path / "vllm_conversion_info.json"
 
-# Now import vLLM components (must be after patch, hence noqa)
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-from vllm import LLM  # noqa: E402
+    if marker_file.exists():
+        print(f"Using existing converted model at: {output_path}")
+        return str(output_path)
+
+    print(f"Converting {model_id} for vLLM compatibility...")
+    hf_token = os.getenv("HF_TOKEN")
+    convert_esm2_checkpoint(model_id, output_dir, hf_token)
+    return str(output_path)
 
 
 if __name__ == "__main__":
@@ -76,12 +75,23 @@ if __name__ == "__main__":
     num_gpus = torch.cuda.device_count()
     print(f"Detected {num_gpus} GPU(s)")
 
-    # Load ESM2 as a pooling/embedding model
+    # Ensure we have a converted checkpoint (strips 'esm.' prefix from weight keys)
+    converted_model_path = ensure_converted_model(MODEL_ID, CONVERTED_MODEL_DIR)
+
+    # Load ESM2 as a pooling/embedding model from converted checkpoint
+    print(f"\nLoading model from: {converted_model_path}")
     model = LLM(
-        model="facebook/esm2_t12_35M_UR50D",
+        model=converted_model_path,
+        tokenizer=converted_model_path,
         runner="pooling",
-        hf_token=os.getenv("HF_TOKEN"),
         trust_remote_code=True,
+        # TransformerEngine layers use pydantic (ArgsKwargs) which torch.compile
+        # cannot trace. Use eager mode to avoid the dynamo error.
+        enforce_eager=True,
+        # vLLM's profiling run packs all tokens into a single batch-1 sequence.
+        # Cap batched tokens to max_position_embeddings (1026) so the rotary
+        # embeddings don't run out of positions.
+        max_num_batched_tokens=1026,
     )
 
     # Example protein sequences
