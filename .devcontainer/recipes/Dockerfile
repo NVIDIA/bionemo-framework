@@ -6,6 +6,11 @@ FROM nvcr.io/nvidia/pytorch:26.01-py3
 #  Remove once bug has been addressed in the nvidia/pytorch container.
 RUN rm -f /usr/local/lib/python*/dist-packages/transformer_engine-*.dist-info/direct_url.json
 
+# lsof needed for Daniel's claude script to work.
+RUN --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    apt-get update && apt-get install -y lsof && rm -rf /var/lib/apt/lists/*
+
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=/workspace/requirements.txt \
     PIP_CONSTRAINT= pip install -r /workspace/requirements.txt
@@ -13,5 +18,5 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/
 USER ubuntu
 RUN curl https://cursor.com/install -fsS | bash  # Install cursor-agent CLI tool
-RUN curl -fsSL https://claude.ai/install.sh | bash  # Install Claude CLI tool
+RUN curl -fsSL https://claude.ai/install.sh | bash -s 2.0.32  # Install Claude CLI tool (pinned to avoid context_management parameter issue)
 RUN uv tool install pre-commit --with pre-commit-uv --force-reinstall
