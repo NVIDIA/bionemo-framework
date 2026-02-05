@@ -58,11 +58,11 @@ use_fp32_master_weights: false
 
 # Override mbs to 1 (base config has mbs=2)
 dataset:
-  micro_batch_size: 1
+  micro_batch_size: 2
   buffer_size: 500_000
 
 # Gradient accumulation = 8 (for GBS = 1 * 8 * 6 * 8 = 384)
-grad_acc_steps: 8
+grad_acc_steps: 4
 
 # Enable validation logging (matches John's val/loss curve)
 validation:
