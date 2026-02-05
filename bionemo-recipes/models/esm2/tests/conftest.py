@@ -15,6 +15,7 @@
 
 import importlib
 import os
+import socket
 
 import pytest
 import transformer_engine.pytorch
@@ -30,6 +31,16 @@ from esm.convert import convert_esm_hf_to_te
 if not os.environ.get("TRITON_LIBCUDA_PATH"):
     # Set the path to CUDA libraries in the NVIDIA PyTorch container
     os.environ["TRITON_LIBCUDA_PATH"] = "/usr/local/cuda/lib64"
+
+
+@pytest.fixture
+def unused_tcp_port():
+    """Find and return an unused TCP port for torchrun rendezvous."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return port
 
 
 @pytest.fixture(autouse=True)

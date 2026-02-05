@@ -332,7 +332,13 @@ class ShardedEdenDataset(Dataset):
         for seq_id in unique_sequence_ids:
             # Extract meaningful part from sequence ID for control tag
             ctrl_name = seq_id.split("__")[0] if "__" in seq_id else seq_id
-            self.ctrl_ids_map[seq_id] = self.tokenizer.text_to_ids(f"<ctrl_{ctrl_name.lower()}>")
+            if hasattr(self.tokenizer, "tokenize"):
+                # Handle the new Megatron-Bridge style tokenizer.
+                ctrl_ids = self.tokenizer.tokenize(f"<ctrl_{ctrl_name.lower()}>")
+            else:
+                # Handle the legacy NeMo2 style tokenizer.
+                ctrl_ids = self.tokenizer.text_to_ids(f"<ctrl_{ctrl_name.lower()}>")
+            self.ctrl_ids_map[seq_id] = ctrl_ids
 
     def __len__(self) -> int:
         """Return the length of the dataset."""
@@ -455,7 +461,12 @@ class ShardedEdenDataset(Dataset):
             seq = self.reverse_complement(seq)
 
         # Tokenize
-        token_ids = header + self.tokenizer.text_to_ids(seq) + footer
+        if hasattr(self.tokenizer, "tokenize"):
+            # Handle the new Megatron-Bridge style tokenizer.
+            token_ids = header + self.tokenizer.tokenize(seq) + footer
+        else:
+            # Handle the legacy NeMo2 style tokenizer.
+            token_ids = header + self.tokenizer.text_to_ids(seq) + footer
 
         # Pad/trim
         if len(token_ids) < self.seq_length:
@@ -516,7 +527,10 @@ class ShardedEdenDataset(Dataset):
         """Get the separator token ID."""
         sep_id = getattr(self.tokenizer, "_sep_id", None)
         if sep_id is None:
-            sep_id = self.tokenizer.text_to_ids("<SEP>")
+            if hasattr(self.tokenizer, "tokenize"):
+                sep_id = self.tokenizer.tokenize("<SEP>")
+            else:
+                sep_id = self.tokenizer.text_to_ids("<SEP>")
             if len(sep_id) == 1:
                 sep_id = sep_id[0]
             else:
@@ -530,7 +544,12 @@ class ShardedEdenDataset(Dataset):
         """Get the padding token ID."""
         pad_id = getattr(self.tokenizer, "pad_id", None)
         if pad_id is None:
-            pad_id = self.tokenizer.text_to_ids("<PAD>")
+            if hasattr(self.tokenizer, "tokenize"):
+                # Handle the new Megatron-Bridge style tokenizer.
+                pad_id = self.tokenizer.tokenize("<PAD>")
+            else:
+                # Handle the legacy NeMo2 style tokenizer.
+                pad_id = self.tokenizer.text_to_ids("<PAD>")
             if len(pad_id) == 1:
                 pad_id = pad_id[0]
             else:

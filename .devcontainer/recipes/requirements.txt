@@ -1,4 +1,4 @@
-accelerate
+accelerate @ git+https://github.com/huggingface/accelerate.git  # Until huggingface/accelerate#3852 is released.
 datasets
 deepspeed
 hydra-core
@@ -12,7 +12,7 @@ torchdata
 torchmetrics
 tqdm
 transformer_engine
-transformers<5.0
+transformers
 typer
 wandb
 zstandard

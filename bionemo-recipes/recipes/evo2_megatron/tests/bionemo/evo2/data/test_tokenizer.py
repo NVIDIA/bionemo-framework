@@ -78,19 +78,19 @@ def test_tokenizer_roundtrip_without_spaces(tokenizer_path: Path) -> None:
     )
     # Test basic DNA sequence
     original = "ATCGATCGATCG"
-    token_ids = tokenizer.text_to_ids(original)
+    token_ids = tokenizer.tokenize(original)
     reconstructed = tokenizer.detokenize(token_ids)
     assert reconstructed == original, f"Expected '{original}', got '{reconstructed}'"
 
     # Test longer sequence with all nucleotides
     original_long = "AAAAACCCCCGGGGGTTTTTATCGATCGNNNNN"
-    token_ids_long = tokenizer.text_to_ids(original_long)
+    token_ids_long = tokenizer.tokenize(original_long)
     reconstructed_long = tokenizer.detokenize(token_ids_long)
     assert reconstructed_long == original_long, f"Expected '{original_long}', got '{reconstructed_long}'"
 
     # Test sequence with special characters (pipe-delimited tags)
     original_tagged = "|info|ATCG|end|"
-    token_ids_tagged = tokenizer.text_to_ids(original_tagged)
+    token_ids_tagged = tokenizer.tokenize(original_tagged)
     reconstructed_tagged = tokenizer.detokenize(token_ids_tagged)
     assert reconstructed_tagged == original_tagged, f"Expected '{original_tagged}', got '{reconstructed_tagged}'"
 

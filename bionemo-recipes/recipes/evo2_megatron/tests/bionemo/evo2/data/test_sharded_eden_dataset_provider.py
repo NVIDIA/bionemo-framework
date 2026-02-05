@@ -198,7 +198,7 @@ def test_sharded_eden_dataset_initialization(sequence_db_dir, window_dbs):
     mock_tokenizer.eos_id = 2
     mock_tokenizer._sep_id = 3
     mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [10, 11, 12]  # Dummy token IDs
+    mock_tokenizer.tokenize.return_value = [10, 11, 12]  # Dummy token IDs
 
     # Create dataset
     dataset = ShardedEdenDataset(
@@ -239,7 +239,7 @@ def test_sharded_eden_datamodule_initialization(sequence_db_dir, window_dbs):
     mock_tokenizer.eos_id = 2
     mock_tokenizer._sep_id = 3
     mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [10, 11, 12]
+    mock_tokenizer.tokenize.return_value = [10, 11, 12]
 
     # Create data module
     data_provider = ShardedEdenDatasetProvider(
@@ -329,7 +329,7 @@ def test_dataset_with_control_tags(sequence_db_dir, window_dbs):
     mock_tokenizer.eos_id = 2
     mock_tokenizer._sep_id = 3
     mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [100, 101]  # Control tag IDs
+    mock_tokenizer.tokenize.return_value = [100, 101]  # Control tag IDs
 
     # Create dataset with control tags
     dataset = ShardedEdenDataset(
@@ -368,7 +368,7 @@ def test_dataset_with_attention_mask(sequence_db_dir, window_dbs):
     mock_tokenizer.eos_id = 2
     mock_tokenizer._sep_id = 3
     mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [10, 11, 12]
+    mock_tokenizer.tokenize.return_value = [10, 11, 12]
 
     # Create dataset with attention mask
     dataset = ShardedEdenDataset(
@@ -406,7 +406,7 @@ def test_dataset_reverse_complement(sequence_db_dir, window_dbs):
     mock_tokenizer.eos_id = 2
     mock_tokenizer._sep_id = 3
     mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [10, 11, 12]
+    mock_tokenizer.tokenize.return_value = [10, 11, 12]
 
     # Create dataset with reverse complement augmentation
     dataset = ShardedEdenDataset(
@@ -443,7 +443,7 @@ def test_dataset_collate_fn(sequence_db_dir, window_dbs):
     mock_tokenizer.eos_id = 2
     mock_tokenizer._sep_id = 3
     mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [10, 11, 12]
+    mock_tokenizer.tokenize.return_value = [10, 11, 12]
 
     # Create dataset
     dataset = ShardedEdenDataset(
@@ -515,7 +515,7 @@ def test_dataset_length_and_iteration(sequence_db_dir, window_dbs):
     mock_tokenizer.eos_id = 2
     mock_tokenizer._sep_id = 3
     mock_tokenizer.pad_id = 0
-    mock_tokenizer.text_to_ids.return_value = [10, 11, 12]
+    mock_tokenizer.tokenize.return_value = [10, 11, 12]
 
     # Create dataset
     dataset = ShardedEdenDataset(

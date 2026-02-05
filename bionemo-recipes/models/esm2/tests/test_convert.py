@@ -38,6 +38,12 @@ def test_convert_te_to_hf_roundtrip():
             torch.testing.assert_close(original_state_dict[key], converted_state_dict[key], atol=1e-5, rtol=1e-5)
 
 
+def test_load_from_converted_checkpoint(te_model_checkpoint):
+    from esm.modeling_esm_te import NVEsmForMaskedLM
+
+    NVEsmForMaskedLM.from_pretrained(te_model_checkpoint)
+
+
 def test_qkv_unpacking():
     """Test that QKV unpacking works correctly."""
     from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf

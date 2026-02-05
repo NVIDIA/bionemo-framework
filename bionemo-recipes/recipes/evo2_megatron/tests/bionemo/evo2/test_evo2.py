@@ -28,9 +28,9 @@ import torch
 from megatron.bridge.training.checkpointing import (
     _load_model_weights_from_checkpoint,
 )
-from megatron.bridge.training.model_load_save import load_model_config
+from megatron.bridge.training.model_load_save import load_model_config, load_tokenizer
 from megatron.bridge.training.tokenizers.config import TokenizerConfig
-from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer, build_tokenizer
+from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
 from megatron.core import dist_checkpointing
 from megatron.core.dist_checkpointing.mapping import ShardedTensor
 from megatron.core.transformer.enums import AttnBackend
@@ -375,8 +375,7 @@ def test_forward_manual(
             partial_seq = seq[:seq_len_cap]
             with torch.no_grad():
                 device = torch.cuda.current_device()
-                # tokens = torch.tensor([tokenizer.tokenize(seq)], device=device)
-                input_ids = torch.tensor(tokenizer.text_to_ids(partial_seq)).int().unsqueeze(0).to(device)
+                input_ids = torch.tensor(tokenizer.tokenize(partial_seq)).int().unsqueeze(0).to(device)
                 attention_mask = None
                 # when labels is None, the model returns logits
                 logits = model(
@@ -463,12 +462,7 @@ def test_forward_ckpt_conversion(
 
         model_config, mtron_args = load_model_config(mbridge_ckpt_path)
         assert mtron_args is None, "mtron_args should be None since this is a Megatron Bridge checkpoint"
-        if flash_decode:
-            model_config.flash_decode = flash_decode
-            model_config.attention_backend = AttnBackend.flash
-        tokenizer = _HuggingFaceTokenizer(mbridge_ckpt_path / "tokenizer")
-        # FIXME replace above with below once bug is fixed https://github.com/NVIDIA-NeMo/Megatron-Bridge/issues/1900
-        # tokenizer = load_tokenizer(mbridge_ckpt_path)
+        tokenizer = load_tokenizer(mbridge_ckpt_path)
         model_config.finalize()  # important to call finalize before providing the model, this does post_init etc.
         raw_megatron_model = model_config.provide(pre_process=True, post_process=True).eval().cuda()
         device = raw_megatron_model.parameters().__next__().device
@@ -490,7 +484,7 @@ def test_forward_ckpt_conversion(
             partial_seq = seq[:seq_len_cap]
             with torch.no_grad():
                 # tokens = torch.tensor([tokenizer.tokenize(seq)], device=device)
-                input_ids = torch.tensor(tokenizer.text_to_ids(partial_seq)).int().unsqueeze(0).to(device)
+                input_ids = torch.tensor(tokenizer.tokenize(partial_seq)).int().unsqueeze(0).to(device)
                 attention_mask = None
                 # when labels is None, the model returns logits
                 logits = model(

@@ -69,7 +69,7 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
     )
 
     # Setup the model
-    config = AutoConfig.from_pretrained("nvidia/esm2_t6_8M_UR50D", trust_remote_code=True, dtype=torch.bfloat16)
+    config = AutoConfig.from_pretrained("example_8m_checkpoint", trust_remote_code=True, dtype=torch.bfloat16)
     model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
@@ -153,7 +153,7 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
     torch.save(batch, f"{step10_path_reference}_batch.pt")
     torch.save(grads, f"{step10_path_reference}_grads.pt")
     # Create fresh model, optimizer, scheduler for the resume test
-    config = AutoConfig.from_pretrained("nvidia/esm2_t6_8M_UR50D", trust_remote_code=True, dtype=torch.bfloat16)
+    config = AutoConfig.from_pretrained("example_8m_checkpoint", trust_remote_code=True, dtype=torch.bfloat16)
     resumed_model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
     try:

@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import socket
 import sys
 from pathlib import Path
 
@@ -23,6 +24,16 @@ from transformer_engine.pytorch import fp8
 
 sys.path.append(Path(__file__).parent.parent.as_posix())
 sys.path.append(Path(__file__).parent.as_posix())
+
+
+@pytest.fixture
+def unused_tcp_port():
+    """Find and return an unused TCP port for torchrun rendezvous."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return port
 
 
 @pytest.fixture(scope="session")

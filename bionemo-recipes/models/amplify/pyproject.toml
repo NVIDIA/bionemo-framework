@@ -18,7 +18,7 @@ dependencies = [
     "pytest",
     "torch==2.6.0a0+ecf3bae40a.nv25.01",
     "transformer_engine[pytorch]",
-    "transformers<5.0",
+    "transformers<5.0",                  # TODO(BIO-143): update AMPLIFY to support Transformers v5
     "xformers",
 ]
 
