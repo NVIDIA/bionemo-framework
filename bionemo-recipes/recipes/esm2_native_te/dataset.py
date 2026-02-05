@@ -56,7 +56,7 @@ def create_tokenized_dataset(
         )
         dataset = dataset.shuffle(seed=42, buffer_size=buffer_size)
 
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name,revision="d81c2e5aec37b5e794d0482e3996fb045a137792")
 
     def tokenize_function(examples):
         """Tokenize the protein sequences."""

@@ -203,6 +203,7 @@ class NVEsmEncoder(nn.Module):
         # Set some layers to BF16. (28-33) (This will be from a config later).
         # TODO: Also make sure this is only for FP4, not FP8
         layers_to_bf16 = set()
+        
         if self.config.bf16_layers is not None:
             layers_to_bf16 = set(self.layers[layer_idx] for layer_idx in self.config.bf16_layers)
 
