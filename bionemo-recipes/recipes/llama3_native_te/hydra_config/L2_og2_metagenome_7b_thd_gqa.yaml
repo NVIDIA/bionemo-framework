@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 7B Llama3 on OpenGenome2 Metagenome - THD FORMAT WITH GQA (num_key_value_heads=8)
+# Same as thd_val_v2 but with Grouped Query Attention enabled
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name L2_og2_metagenome_7b_thd_gqa ...
+
+defaults:
+  - L2_og2_metagenome_7b
+  - _self_
+
+# Override config_kwargs to enable GQA (num_key_value_heads=8 instead of 32)
+config_kwargs:
+  vocab_size: 256
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 8  # GQA: 8 KV heads instead of 32 (MHA)
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: thd
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+
+# ============ UPDATED SETTINGS ============
+# Apply weight decay to embeddings (matches John's Megatron behavior)
+skip_embedding_weight_decay: false
+
+# Use Megatron-style scaled init for proj/fc2
+use_megatron_scaled_init: true
+
+# Disable meta device init
+use_meta_device: false
+
+# No FP32 master weights
+use_fp32_master_weights: false
+# ==========================================
+
+# Override mbs to 1 (base config has mbs=2)
+dataset:
+  micro_batch_size: 1
+  buffer_size: 500_000
+
+# Gradient accumulation = 8 (for GBS = 1 * 8 * 6 * 8 = 384)
+grad_acc_steps: 8
+
+# Enable validation logging (matches John's val/loss curve)
+validation:
+  enabled: true
+  eval_interval: 500
+  num_batches: 40
+  data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
+  micro_batch_size: 8
+  max_seq_length: null
+  stride: null
+
+logger:
+  frequency: 1
+
+wandb:
+  name: og2_7b_thd_gqa
+  project: llama3-metagenome-7b
