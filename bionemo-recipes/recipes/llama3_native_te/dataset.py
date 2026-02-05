@@ -75,7 +75,7 @@ def create_tokenized_dataset(
             logger.info(f"Sharding dataset with {dataset.num_shards} shards with dataset.shard")
             dataset = dataset.shard(num_shards=distributed_config.world_size, index=distributed_config.rank)
 
-        dataset = dataset.shuffle(seed=42, buffer_size=buffer_size)
+        # dataset = dataset.shuffle(seed=42, buffer_size=buffer_size)
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
 
@@ -98,6 +98,9 @@ def create_tokenized_dataset(
         batch_size=tokenize_batch_size,
         remove_columns=[text_column],
     )
+    if isinstance(tokenized_dataset, datasets.IterableDataset):
+        # We shuffle after tokenization to make sure we shuffle the sharded input sequences.
+        tokenized_dataset = tokenized_dataset.shuffle(seed=42, buffer_size=buffer_size)
 
     # Even in THD mode, we use a base MLM collator that requires a padding token to be set.
     if tokenizer.pad_token is None:
