@@ -83,20 +83,35 @@ def launch_single_job(client, cfg: DictConfig):
     full_cfg_json = json.dumps(OmegaConf.to_container(cfg, resolve=True))
     template_type = getattr(cfg, "template_type", "convergence_tests")
 
-    # trigger with logging to kratos, if enabled. Default to True.
-    if getattr(cfg, "log_to_kratos", True):
-        print("Logging to kratos")
+    # Telemetry flags
+    log_to_wandb = getattr(cfg, "log_to_wandb", True)
+    log_to_kratos = getattr(cfg, "log_to_kratos", True)
+
+    print(f"Logging to wandb: {log_to_wandb}")
+    print(f"Logging to kratos: {log_to_kratos}")
+
+    # Render script with kratos telemetry wrapper if enabled
+    if log_to_kratos:
         rendered = render_launcher_string(cfg.script, full_cfg_json, template=template_type)
-    else:  # don't log to kratos
-        print("Not logging to kratos")
+    else:
         rendered = cfg.script
 
     command = ["bash", "-c", rendered]
 
     # env vars
     env_vars = []
+
+    # Env var names to skip based on telemetry flags
+    kratos_env_vars = {"KRATOS_SSA_URL", "KRATOS_SSA_CLIENT_ID", "KRATOS_SSA_SECRET"}
+
     if getattr(cfg, "environment_variables", None):
         for env_var in cfg.environment_variables:
+            # Skip W&B env var if log_to_wandb is disabled
+            if not log_to_wandb and env_var.name == "WANDB_API_KEY":
+                continue
+            # Skip Kratos env vars if log_to_kratos is disabled
+            if not log_to_kratos and env_var.name in kratos_env_vars:
+                continue
             env_vars.append(construct_env_var(env_var))
 
     # mounts
