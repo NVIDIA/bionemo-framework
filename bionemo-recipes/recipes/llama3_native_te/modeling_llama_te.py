@@ -15,6 +15,7 @@
 
 import math
 from collections import OrderedDict
+from contextlib import nullcontext
 from typing import Unpack
 
 import torch
@@ -52,12 +53,15 @@ class NVLlamaConfig(LlamaConfig):
         use_megatron_scaled_init: Whether to use Megatron's scaled initialization
             for residual output layers (attention proj, MLP fc2).
             Scaled init uses std / sqrt(2 * num_layers) for these layers.
+        fp8_first_last_bf16: When True, keeps first and last transformer layers
+            in bf16 for FP8 numerical stability. The lm_head is always kept in bf16.
     """
 
     attn_input_format: str = "thd"
     self_attn_mask_type: str = "padding_causal"
     embedding_init_std: float | None = None  # None means use initializer_range
     use_megatron_scaled_init: bool = False  # Use scaled init for proj/fc2 (std/sqrt(2*n))
+    fp8_first_last_bf16: bool = False  # Keep first/last transformer layers in bf16 for FP8 stability
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -362,23 +366,32 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         with torch.autocast(device_type="cuda", enabled=False):
             te_rope_emb = self.rotary_emb(max_seq_len=self.config.max_position_embeddings)
 
-        for decoder_layer in self.layers[: self.config.num_hidden_layers]:
+        num_layers = self.config.num_hidden_layers
+        for layer_idx, decoder_layer in enumerate(self.layers[:num_layers]):
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            hidden_states = decoder_layer(
-                hidden_states,
-                attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
-                rotary_pos_emb=te_rope_emb,
-                inference_params=past_key_values,
-                cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
-                cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
-                cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
-                cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
-                max_seqlen_q=kwargs.get("max_length_q", None),
-                max_seqlen_kv=kwargs.get("max_length_k", None),
-                pad_between_seqs=kwargs.get("pad_between_seqs", None),
+            # Optionally keep first and last layers in bf16 for FP8 numerical stability
+            use_bf16_for_layer = getattr(self.config, "fp8_first_last_bf16", False) and (
+                layer_idx == 0 or layer_idx == num_layers - 1
             )
+
+            # If fp8_first_last_bf16 is enabled, disable FP8 for first/last layers
+            # This nested fp8_autocast will override the outer one from training script
+            with transformer_engine.pytorch.fp8_autocast(enabled=False) if use_bf16_for_layer else nullcontext():
+                hidden_states = decoder_layer(
+                    hidden_states,
+                    attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
+                    rotary_pos_emb=te_rope_emb,
+                    inference_params=past_key_values,
+                    cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
+                    cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                    cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
+                    cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
+                    max_seqlen_q=kwargs.get("max_length_q", None),
+                    max_seqlen_kv=kwargs.get("max_length_k", None),
+                    pad_between_seqs=kwargs.get("pad_between_seqs", None),
+                )
 
         hidden_states = self.norm(hidden_states)
 

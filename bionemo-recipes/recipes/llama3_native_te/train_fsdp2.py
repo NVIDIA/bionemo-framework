@@ -70,7 +70,6 @@ def run_validation(
     dist_config: DistributedConfig,
     fp8_config: DictConfig,
     fp8_recipe,
-    autocast_ctx,
 ) -> dict:
     """Run validation and compute loss metrics.
 
@@ -82,7 +81,6 @@ def run_validation(
         dist_config: Distributed config for logging.
         fp8_config: FP8 configuration.
         fp8_recipe: FP8 recipe for autocast.
-        autocast_ctx: Autocast context manager.
 
     Returns:
         Dictionary with val_loss and val_ppl.
@@ -108,11 +106,10 @@ def run_validation(
 
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
-        # Forward pass with same precision as training
+        # Forward pass - FP32 compute with FP8 for supported layers
         try:
-            with autocast_ctx:
-                with transformer_engine.pytorch.fp8_autocast(enabled=fp8_config.enabled, fp8_recipe=fp8_recipe):
-                    outputs = model(**batch)
+            with transformer_engine.pytorch.fp8_autocast(enabled=fp8_config.enabled, fp8_recipe=fp8_recipe):
+                outputs = model(**batch)
 
             # Get loss from model output
             loss = outputs.loss
@@ -521,13 +518,13 @@ def main(args: DictConfig) -> float | None:
         model_class = LlamaForCausalLM
 
     # Determine dtype for model initialization
-    # When use_fp32_master_weights=True, we create the model in FP32 and use MixedPrecisionPolicy
-    # to cast to BF16 for forward/backward. This matches Megatron's main_params_dtype=torch.float32
+    # When use_fp32_master_weights=True, we create the model in FP32
+    # When False, we use BF16 (original behavior)
     use_fp32_master_weights = getattr(args, "use_fp32_master_weights", False)
     model_dtype = torch.float32 if use_fp32_master_weights else torch.bfloat16
 
     if use_fp32_master_weights:
-        logger.info("FP32 master weights enabled: model init in FP32, compute in BF16")
+        logger.info("FP32 master weights enabled: model init in FP32")
 
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
     # Convert DictConfig to regular dict to avoid JSON serialization issues in transformers logging
@@ -589,27 +586,23 @@ def main(args: DictConfig) -> float | None:
     )
 
     # Create MixedPrecisionPolicy for FSDP when using FP32 master weights
-    # This casts FP32 master weights to BF16 for forward/backward, then back to FP32 for optimizer
+    # Params cast to BF16 for forward/backward, gradients accumulated in FP32
     mp_policy = None
     if use_fp32_master_weights:
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward compute
             reduce_dtype=torch.float32,  # Accumulate gradients in FP32 for precision
             output_dtype=torch.bfloat16,  # Output activations in BF16
-            cast_forward_inputs=False,  # Let autocast decide op-level dtypes
         )
-        logger.info(
-            "MixedPrecisionPolicy: param_dtype=bf16, reduce_dtype=fp32, output_dtype=bf16, cast_forward_inputs=False"
-        )
+        logger.info("MixedPrecisionPolicy: param_dtype=bf16, reduce_dtype=fp32, output_dtype=bf16")
 
-        # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
-        # Each decoder layer should be individually sharded before sharding the full model.
+    # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
+    # Each decoder layer should be individually sharded before sharding the full model.
+    if mp_policy is not None:
         for layer in model.model.layers:
             fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
         fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
     else:
-        # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
-        # Each decoder layer should be individually sharded before sharding the full model.
         for layer in model.model.layers:
             fully_shard(layer, mesh=device_mesh["dp"])
         fully_shard(model, mesh=device_mesh["dp"])
@@ -779,13 +772,6 @@ def main(args: DictConfig) -> float | None:
     step = start_step
     micro_step = 0  # Gradient accumulation step counter
 
-    # Create autocast context for FP32 master weights (casts compute to BF16).
-    # Allow override via config for debugging (default: enabled when use_fp32_master_weights=True).
-    use_autocast = getattr(args, "use_autocast", use_fp32_master_weights)
-    autocast_ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else nullcontext()
-    if use_fp32_master_weights:
-        logger.info("FP32 master weights: use_autocast=%s", use_autocast)
-
     if train_dataloader is None:
         raise RuntimeError("Expected train_dataloader to be initialized before training.")
 
@@ -797,10 +783,9 @@ def main(args: DictConfig) -> float | None:
 
             micro_step += 1
 
-            # Forward pass with mixed precision.
-            with autocast_ctx:
-                with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
-                    outputs = model(**batch)
+            # Forward pass - FP32 compute with FP8 for supported layers
+            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+                outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
@@ -897,7 +882,6 @@ def main(args: DictConfig) -> float | None:
                             dist_config=dist_config,
                             fp8_config=args.fp8_config,
                             fp8_recipe=fp8_recipe,
-                            autocast_ctx=autocast_ctx,
                         )
                         if dist_config.rank == 0:
                             logger.info(

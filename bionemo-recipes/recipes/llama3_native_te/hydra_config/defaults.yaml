@@ -13,7 +13,8 @@ skip_embedding_weight_decay: false  # Skip weight decay on embedding layers
 # Loss computation
 use_megatron_loss: false  # Use Megatron-style per-token loss reduction (for packed sequences)
 
-config_kwargs: {}
+config_kwargs:
+  fp8_first_last_bf16: false  # Keep first/last transformer layers in bf16 for FP8 stability
 # When spike_no_more_embedding_init is true, embedding_init_std=1.0 is added to config_kwargs automatically
 
 num_train_steps: ???
@@ -61,8 +62,8 @@ fp8_config:
     enabled: false # If this is set to true, fp8_config.enabled must also be set to true.
 
 # FP32 Master Weights
-# When enabled, model is initialized in FP32 and MixedPrecisionPolicy casts to BF16 for compute.
-# This matches Megatron's main_params_dtype=torch.float32 for better numerical stability.
+# When enabled, model is initialized in FP32 with MixedPrecisionPolicy (param_dtype=bf16, reduce_dtype=fp32).
+# FP8 layers use FP8 via TE's fp8_autocast, non-FP8 ops run in BF16.
 use_fp32_master_weights: false
 
 # Optimizer config
