@@ -4,5 +4,5 @@ torch
 torchao!=0.14.0
 tqdm
 transformer_engine[pytorch]
-transformers<5.0
+transformers
 wandb

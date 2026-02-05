@@ -14,7 +14,7 @@
 # limitations under the License.
 
 from collections import OrderedDict
-from typing import Unpack
+from typing import ClassVar, Unpack
 
 import torch
 import torch.nn as nn
@@ -87,6 +87,17 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
             return
 
         super()._init_weights(module)
+
+    def state_dict(self, *args, **kwargs):
+        """Override state_dict to filter out TransformerEngine's _extra_state keys.
+
+        TransformerEngine layers add _extra_state attributes that are not compatible with
+        standard PyTorch/HuggingFace model loading. These are filtered out to ensure
+        checkpoints can be loaded with from_pretrained().
+        """
+        state_dict = super().state_dict(*args, **kwargs)
+        # Filter out _extra_state keys which are TransformerEngine-specific and not loadable
+        return {k: v for k, v in state_dict.items() if not k.endswith("_extra_state")}
 
 
 class NVLlamaModel(NVLlamaPreTrainedModel):
@@ -260,7 +271,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
     """Llama3 model with causal language head."""
 
-    _tied_weights_keys = ("lm_head.weight",)
+    _tied_weights_keys: ClassVar[dict[str, str]] = {"lm_head.weight": "model.embed_tokens.weight"}
 
     def __init__(self, config):
         """Initialize the NVLlamaForCausalLM model."""

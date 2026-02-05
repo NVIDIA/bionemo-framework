@@ -15,9 +15,14 @@
 
 import os
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+# Add parent directory to sys.path so we can import from the model package
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 import torch
@@ -140,11 +145,13 @@ class DistributedConfig:
 
 
 @skip_in_ci
-def test_context_parallel_equivalence_1process(recipe_path: Path):
+def test_context_parallel_equivalence_1process(recipe_path: Path, unused_tcp_port):
     """Test that context parallelism works with 1 process, verifying results match non-distributed run."""
     cmd = [
         "torchrun",
         "--nproc_per_node=1",
+        "--rdzv-backend=c10d",
+        f"--rdzv-endpoint=localhost:{unused_tcp_port}",
         os.path.relpath(__file__),
     ]
     result = subprocess.run(
@@ -164,7 +171,7 @@ def test_context_parallel_equivalence_1process(recipe_path: Path):
 
 @skip_in_ci
 @requires_multi_gpu
-def test_context_parallel_equivalence_2process(recipe_path: Path):
+def test_context_parallel_equivalence_2process(recipe_path: Path, unused_tcp_port):
     """Test context parallel equivalence between 2 processes.
 
     In one instance, we run the model in non-distributed mode and in the other
@@ -176,6 +183,8 @@ def test_context_parallel_equivalence_2process(recipe_path: Path):
     cmd = [
         "torchrun",
         "--nproc_per_node=2",
+        "--rdzv-backend=c10d",
+        f"--rdzv-endpoint=localhost:{unused_tcp_port}",
         os.path.relpath(__file__),
     ]
     result = subprocess.run(
