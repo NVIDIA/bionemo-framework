@@ -19,22 +19,38 @@ container:
 # These keys must be present for the job to authenticate with
 # external services (W&B, Kratos, Lepton) and control runtime caching.
 # HF_HOME is optional but recommended to speed up Hugging Face model loading.
+#
+# For local development, you can disable telemetry and override secrets:
+#   python ci/lepton/core/launch_job.py \
+#     --config-path="../model_convergence/configs" \
+#     --config-name="recipes/esm2_native_te" \
+#     log_to_wandb=false \
+#     log_to_kratos=false
 ############################################################
+
+# Telemetry flags (set to false to skip W&B/Kratos and avoid needing their secrets)
+log_to_wandb: true
+log_to_kratos: true
+
+# Secret name overrides (users can point to their own Lepton secrets)
+wandb_secret: SHARED_WANDB_API_KEY  # pragma: allowlist secret
+hf_token_secret: SHARED_HF_TOKEN  # pragma: allowlist secret
+
 environment_variables:
   - name: WANDB_API_KEY
-    value_from: JWILBER_WANDB_API_KEY
+    value_from: ${wandb_secret}
   - name: KRATOS_SSA_URL
-    value_from: KRATOS_SSA_URL
+    value_from: SHARED_KRATOS_SSA_URL
   - name: KRATOS_SSA_CLIENT_ID
-    value_from: KRATOS_SSA_CLIENT_ID
+    value_from: SHARED_KRATOS_SSA_CLIENT_ID
   - name: KRATOS_SSA_SECRET
-    value_from: KRATOS_SSA_SECRET.jwilber
+    value_from: SHARED_KRATOS_SSA_SECRET  # pragma: allowlist secret
   - name: LEP_LOGIN_CREDENTIALS
-    value_from: LEP_LOGIN_CREDENTIALS
+    value_from: SHARED_LEP_LOGIN_CREDENTIALS
   - name: HF_HOME
     value: /data/esm2/cache
   - name: HF_TOKEN
-    value_from: HUGGING_FACE_HUB_TOKEN.jwilber
+    value_from: ${hf_token_secret}
 
 ############################################################
 # Lepton Cluster Selection & Node Group
