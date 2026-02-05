@@ -13,20 +13,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# 7B Llama3 on OpenGenome2 Metagenome - BSHD FORMAT WITH VALIDATION
-# Extends L2_og2_metagenome_7b_bshd with:
-#   - Periodic validation to track val/loss curve
-#   - Globally all-reduced train/reduced_train_loss (matches John's Megatron logging)
+# 7B Llama3 on OpenGenome2 Metagenome - THD FORMAT WITH VALIDATION V2
+# Updated settings matching recent experiments:
+#   - skip_embedding_weight_decay: false (apply WD to embeddings)
+#   - use_megatron_scaled_init: true (Megatron scaled init for proj/fc2)
+#   - buffer_size: 500,000 (increased shuffle buffer)
+#   - validation num_batches: 40
 #
 # Usage:
-#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name L2_og2_metagenome_7b_bshd_val ...
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name L2_og2_metagenome_7b_thd_val_v2 ...
 
 defaults:
-  - L2_og2_metagenome_7b_bshd
+  - L2_og2_metagenome_7b
   - _self_
 
-# FP32 master weights for numerical stability (matches Megatron's main_params_dtype=torch.float32)
-use_fp32_master_weights: true
+# ============ UPDATED SETTINGS ============
+# Apply weight decay to embeddings (matches John's Megatron behavior)
+skip_embedding_weight_decay: false
+
+# Use Megatron-style scaled init for proj/fc2
+use_megatron_scaled_init: true
+
+# Disable meta device init
+use_meta_device: false
+
+# No FP32 master weights
+use_fp32_master_weights: false
+# ==========================================
+
+# Increased shuffle buffer for better randomization
+# Override mbs to 1 (base config has mbs=2)
+dataset:
+  micro_batch_size: 1
+  buffer_size: 500_000
+
+# Gradient accumulation = 8 (for GBS = 1 * 8 * 6 * 8 = 384)
+grad_acc_steps: 8
 
 # Enable validation logging (matches John's val/loss curve)
 validation:
@@ -34,8 +56,7 @@ validation:
   eval_interval: 500  # Run validation every 500 steps
   num_batches: 40  # Number of batches per rank (matches John's --limit-val-batches 40)
   data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
-  # Use same settings as training (inherits from dataset config)
-  micro_batch_size: 8
+  micro_batch_size: 8  # Explicit val batch size
   max_seq_length: null
   stride: null
 
@@ -43,5 +64,5 @@ logger:
   frequency: 1
 
 wandb:
-  name: og2_7b_bshd_6node_val
+  name: og2_7b_thd_val_v2
   project: llama3-metagenome-7b
