@@ -449,6 +449,7 @@ def test_sanity_ddp_fp8_stats_logging(tmp_path, recipe_path):
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
+                "+dataset.pad_sequences_to_be_divisible_by=16",
                 "fp8_config.enabled=true",
                 "fp8_stats_config.enabled=true",
                 f"fp8_stats_config.fp8_log_dir={fp8_log_dir}",
@@ -490,6 +491,7 @@ def test_sanity_fsdp2_fp8_stats_logging(tmp_path, recipe_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "fp8_config.enabled=true",
+                "+dataset.pad_sequences_to_be_divisible_by=16",
                 "fp8_stats_config.enabled=true",
                 f"fp8_stats_config.fp8_log_dir={fp8_log_dir}",
                 "num_train_steps=4",
