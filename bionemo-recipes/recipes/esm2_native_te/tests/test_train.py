@@ -226,7 +226,7 @@ def test_sanity_fsdp2_fp8_stats_logging(tmp_path, recipe_path):
 
 
 @requires_fp8
-@pytest.mark.xfail(reason="MFSDP doesn't seem to support fp8_model_init (BIONEMO-3012)")
+@pytest.mark.xfail(reason="MFSDP doesn't seem to support quantized_model_init (BIONEMO-3012)")
 def test_sanity_mfsdp_fp8_and_model_init(tmp_path, recipe_path):
     # For MFSDP, we only check that the script can run successfully with FP8, not convergence.
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
@@ -235,7 +235,7 @@ def test_sanity_mfsdp_fp8_and_model_init(tmp_path, recipe_path):
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
                 "fp8_config.enabled=true",
-                "fp8_config.fp8_model_init_kwargs.enabled=true",
+                "fp8_config.quantized_model_init_kwargs.enabled=true",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "num_train_steps=4",
             ],
@@ -254,7 +254,7 @@ def test_sanity_ddp_fp8_and_model_init(tmp_path, recipe_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "fp8_config.enabled=true",
-                "fp8_config.fp8_model_init_kwargs.enabled=true",
+                "fp8_config.quantized_model_init_kwargs.enabled=true",
                 "num_train_steps=4",
             ],
         )
@@ -271,7 +271,7 @@ def test_sanity_convergence_fsdp2_fp8_and_model_init(tmp_path, recipe_path):
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
                 "fp8_config.enabled=true",
-                "fp8_config.fp8_model_init_kwargs.enabled=true",
+                "fp8_config.quantized_model_init_kwargs.enabled=true",
                 f"checkpoint.ckpt_dir={tmp_path}",
             ],
         )

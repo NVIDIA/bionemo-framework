@@ -798,7 +798,7 @@ class BaseModelTest(ABC):
             loss_bf16 = outputs.loss
 
         # Run with FP8
-        with transformer_engine.pytorch.fp8_autocast(fp8_recipe=fp8_recipe):
+        with transformer_engine.pytorch.autocast(recipe=fp8_recipe):
             outputs_fp8 = model(**input_data)
             loss_fp8 = outputs_fp8.loss
 
@@ -822,7 +822,7 @@ class BaseModelTest(ABC):
             msg=lambda x: f"FP8 loss differs too much from BF16 loss: {x}",
         )
 
-    def test_fp8_model_init_forward_and_backward(self, fp8_recipe, input_format):
+    def test_quantized_model_init_forward_and_backward(self, fp8_recipe, input_format):
         """Test that model initialized with FP8 works correctly."""
         if input_format == "thd" and not HAS_DATA_CENTER_GPU:
             pytest.xfail("Padded sequences are not supported on non-datacenter hardware for THD.")
@@ -844,7 +844,7 @@ class BaseModelTest(ABC):
 
         # Forward and backward pass with FP8
         with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            with transformer_engine.pytorch.fp8_autocast(fp8_recipe=fp8_recipe):
+            with transformer_engine.pytorch.autocast(recipe=fp8_recipe):
                 outputs = model(**input_data)
 
         loss = outputs.loss

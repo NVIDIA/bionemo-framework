@@ -451,7 +451,7 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
             **kwargs,
         )
         sequence_output = outputs[0]
-        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+        with transformer_engine.pytorch.autocast(enabled=False):
             prediction_scores = self.lm_head(sequence_output)
 
         # Truncate logits back to original vocab_size if padding was used
@@ -483,7 +483,7 @@ class NVEsmLMHead(nn.Module):
             config (NVEsmConfig): The configuration of the model.
         """
         super().__init__()
-        with transformer_engine.pytorch.fp8_model_init(enabled=False):
+        with transformer_engine.pytorch.quantized_model_init(enabled=False):
             self.dense = transformer_engine.pytorch.Linear(
                 config.hidden_size,
                 config.hidden_size,
@@ -511,7 +511,7 @@ class NVEsmLMHead(nn.Module):
         """
         # Keep the last layers of the network in higher precision to avoid numerical instability.
         # Please see recipes/fp8_analysis/README.md for more details.
-        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+        with transformer_engine.pytorch.autocast(enabled=False):
             x = self.dense(features)
             x = torch.nn.functional.gelu(x)
             x = self.decoder(x)
