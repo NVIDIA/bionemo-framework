@@ -966,7 +966,7 @@ def test_data_collator_for_context_parallel_thd_causal_lm(tokenizer):
     base_collator = DataCollatorWithFlattening(
         collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
         pad_sequences_to_be_divisible_by=divisibility_factor,
-        separator_label=-100,
+        separator_id=-100,
     )
 
     # Create the context parallel collator

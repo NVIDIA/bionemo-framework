@@ -145,7 +145,7 @@ def test_data_collator_with_flattening_with_labels_causal_lm(tokenizer):
     # Use DataCollatorForLanguageModeling with mlm_probability=0.0 to disable masking
     # Note: DataCollatorForLanguageModeling ignores input labels and creates its own
     mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-    collator = DataCollatorWithFlattening(collator=mlm_collator, separator_label=-100)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, separator_id=-100)
 
     # Create test sequences (labels will be created by DataCollatorForLanguageModeling)
     features = [
@@ -244,7 +244,7 @@ def test_data_collator_with_flattening_with_labels_causal_lm_and_padding(tokeniz
     mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
     collator = DataCollatorWithFlattening(
         collator=mlm_collator,
-        separator_label=-100,
+        separator_id=-100,
         pad_sequences_to_be_divisible_by=6,
     )
 
