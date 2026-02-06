@@ -8,7 +8,7 @@ defaults:
 ############################################################
 node_group: yo-bom-lepton-001
 mount_from: node-nfs:fs1
-num_nodes: 1
+num_nodes: 2
 device_type: gpu
 num_devices: 8
 gpu_type: h100-sxm
@@ -29,13 +29,11 @@ variant: train
 
 # Core identifiers for filtering
 framework: native
-precision: bf16
+precision: fp8
 te_enabled: true
-fp8_enabled: false
-fp8_recipe: ""
-fp8_format: ""
-cp_enabled: false
-thd_enabled: false
+fp8_enabled: true
+cp_enabled: true
+thd_enabled: true
 
 # Catchall for additional features/configs
 extras: []
@@ -53,92 +51,38 @@ wandb_init_args:
 
 ############################################################
 # task commands
-# shared across all products (if not explicitly overridden)
-# Matches L2_lingua_1b.yaml defaults
+# Matches the lingua 1B perf test run
 ############################################################
 config: L2_lingua_1b
-task_cmd: train_fsdp2
+task_cmd: train_fsdp2_cp
 
 # Training parameters
 num_train_steps: 10_000
 use_torch_compile: false
 use_meta_device: true
 use_sequence_packing: true
+grad_acc_steps: 4
 
-# Dataset parameters (from L2_lingua_1b)
-micro_batch_size: 4
-max_seq_length: 4096
+# Dataset parameters
+micro_batch_size: 8
 num_workers: 8
-stride: 512
-buffer_size: 50_000
-
-# Optimizer (from L2_lingua_1b)
-lr: 0.003
-weight_decay: 0.033
-
-# LR scheduler
-num_warmup_steps: 1_000
-num_decay_steps: 9_000
+dataset_path: /data/pstjohn/dclm-baseline-1.0-parquet
+pad_sequences_to_be_divisible_by: 32
 
 # Checkpoint controls
-ckpt_dir: ""
-save_final_model: false
-resume_from_checkpoint: false
-save_every_n_steps: 10_000
+ckpt_dir: null
 
 # Context parallelism
-cp_size: 1
+cp_size: 2
+
+# FP8 config
+fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
 
 ############################################################
-# Each product is a different config to run, alongside
-# config-specific arguments. Must have a `wandb_name`.
+# Job info
 ############################################################
-products:
-  # Lingua 1B baseline - FSDP2 with THD (sequence packing)
-  - config: L2_lingua_1b
-    task_cmd: train_fsdp2
-    thd_enabled: true
-    use_sequence_packing: true
-    fp8_enabled: false
-    cp_enabled: false
-    wandb_name: "llama3_lingua_1b__fsdp2__thd__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "llama3-lingua-1b-fsdp2-thd"
-
-  # Lingua 1B - FSDP2 with FP8 + THD
-  - config: L2_lingua_1b
-    task_cmd: train_fsdp2
-    thd_enabled: true
-    use_sequence_packing: true
-    fp8_enabled: true
-    fp8_recipe: transformer_engine.common.recipe.DelayedScaling
-    fp8_format: HYBRID
-    cp_enabled: false
-    wandb_name: "llama3_lingua_1b__fsdp2__thd__fp8__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "llama3-lingua-1b-fsdp2-thd-fp8"
-
-  # Lingua 1B - FSDP2 with Context Parallelism
-  - config: L2_lingua_1b
-    task_cmd: train_fsdp2_cp
-    thd_enabled: false
-    use_sequence_packing: false
-    fp8_enabled: false
-    cp_enabled: true
-    cp_size: 2
-    wandb_name: "llama3_lingua_1b__fsdp2__cp__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "llama3-lingua-1b-fsdp2-cp"
-
-  # Lingua 1B - FSDP2 with Context Parallelism + FP8
-  - config: L2_lingua_1b
-    task_cmd: train_fsdp2_cp
-    thd_enabled: false
-    use_sequence_packing: false
-    fp8_enabled: true
-    fp8_recipe: transformer_engine.common.recipe.DelayedScaling
-    fp8_format: HYBRID
-    cp_enabled: true
-    cp_size: 2
-    wandb_name: "llama3_lingua_1b__fsdp2__cp__fp8__${now:%Y%m%d-%H%M%S}__${gitsha:}"
-    job_name: "llama3-lingua-1b-fsdp2-cp-fp8"
+job_name: "llama3-lingua-1b-fsdp2-cp-fp8"
+wandb_name: "llama3_lingua_1b__fsdp2__cp__fp8__${now:%Y%m%d-%H%M%S}__${gitsha:}"
 
 ############################################################
 # run script
@@ -151,33 +95,24 @@ run_script: |
 
   HYDRA_FULL_ERROR=1 torchrun \
     --nnodes=$NNODES \
-    --nproc_per_node=$(nvidia-smi --query-gpu=gpu_name --format=csv,noheader | wc -l) \
+    --nproc_per_node=8 \
     --node_rank=$NODE_RANK \
     --master_addr=$MASTER_ADDR \
-    --master_port=$MASTER_PORT \
+    --master_port=29400 \
     ${task_cmd}.py \
     --config-name ${config}.yaml \
     +wandb.mode=${wandb_init_args.mode} \
     +wandb.project=${wandb_init_args.project} \
+    +wandb.job_type=${wandb_init_args.job_type} \
     +wandb.name=${wandb_name} \
-    num_train_steps=${num_train_steps} \
-    use_torch_compile=${use_torch_compile} \
-    use_meta_device=${use_meta_device} \
-    use_sequence_packing=${use_sequence_packing} \
-    cp_size=${cp_size} \
-    dataset.micro_batch_size=${micro_batch_size} \
-    dataset.max_seq_length=${max_seq_length} \
+    dataset.load_dataset_kwargs.path=${dataset_path} \
     dataset.num_workers=${num_workers} \
-    dataset.stride=${stride} \
-    dataset.buffer_size=${buffer_size} \
-    adamw_kwargs.lr=${lr} \
-    adamw_kwargs.weight_decay=${weight_decay} \
-    lr_scheduler_kwargs.num_warmup_steps=${num_warmup_steps} \
-    lr_scheduler_kwargs.num_decay_steps=${num_decay_steps} \
+    dataset.micro_batch_size=${micro_batch_size} \
+    dataset.pad_sequences_to_be_divisible_by=${pad_sequences_to_be_divisible_by} \
+    num_train_steps=${num_train_steps} \
+    grad_acc_steps=${grad_acc_steps} \
+    +cp_size=${cp_size} \
     checkpoint.ckpt_dir=${ckpt_dir} \
-    checkpoint.save_final_model=${save_final_model} \
-    checkpoint.resume_from_checkpoint=${resume_from_checkpoint} \
-    checkpoint.save_every_n_steps=${save_every_n_steps} \
     fp8_config.enabled=${fp8_enabled} \
     fp8_config.fp8_recipe=${fp8_recipe} \
-    fp8_config.fp8_format=${fp8_format}
+    hydra.verbose=True
