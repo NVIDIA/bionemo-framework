@@ -1,0 +1,2 @@
+input_fasta_file: data/gnat1.fasta
+output_pdb_file: data/gnat1.pdb

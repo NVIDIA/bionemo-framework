@@ -1,0 +1,2 @@
+input_pdb_file: data/gnat1.pdb
+output_html_file: data/gnat1.html
