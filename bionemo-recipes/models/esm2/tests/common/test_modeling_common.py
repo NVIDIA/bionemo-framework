@@ -18,7 +18,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Literal, Optional, Type
+from typing import Callable, Dict, List, Literal, Type
 
 import pytest
 import torch
@@ -217,8 +217,8 @@ class BaseModelTest(ABC):
     def verify_model_parameters_initialized_correctly(
         self,
         model: PreTrainedModel,
-        atol: Optional[float] = None,
-        rtol: Optional[float] = None,
+        atol: float | None = None,
+        rtol: float | None = None,
         should_be_fp8: bool = False,
     ) -> None:
         """Verify that model parameters are initialized correctly.
