@@ -946,6 +946,45 @@ def test_data_collator_for_context_parallel_thd(tokenizer):
 
     assert len(result) == cp_world_size, f"Expected list of size {cp_world_size}, got {len(result)}"
 
+    # Define the required keys from BatchType. Shift labels wont appear when we are not using a causal language model.
+    required_keys = set(BatchType.__annotations__.keys()) - {"shift_labels"}
+
+    # Assert each shard has all required keys
+    for cp_rank, shard in enumerate(result):
+        assert set(shard.keys()) == required_keys, (
+            f"CP rank {cp_rank}: difference: {set(shard.keys()) - required_keys}"
+        )
+
+
+def test_data_collator_for_context_parallel_thd_causal_lm(tokenizer):
+    """Test that each shard from DataCollatorForContextParallel has all required keys from BatchType."""
+
+    cp_world_size = 2
+    divisibility_factor = 2 * cp_world_size
+
+    # Create the wrapped collator that produces padded THD batches
+    base_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        pad_sequences_to_be_divisible_by=divisibility_factor,
+        separator_label=-100,
+    )
+
+    # Create the context parallel collator
+    cp_collator = DataCollatorForContextParallel(
+        collator=base_collator, cp_world_size=cp_world_size, is_causal_lm=True
+    )
+
+    # Create test sequences
+    features = [
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2]},  # 9 tokens
+    ]
+
+    # Call the collator
+    result = cp_collator(features)
+
+    assert len(result) == cp_world_size, f"Expected list of size {cp_world_size}, got {len(result)}"
+
     # Define the required keys from BatchType
     required_keys = set(BatchType.__annotations__.keys())
 
@@ -954,6 +993,21 @@ def test_data_collator_for_context_parallel_thd(tokenizer):
         assert set(shard.keys()) == required_keys, (
             f"CP rank {cp_rank}: difference: {set(shard.keys()) - required_keys}"
         )
+
+    assert result[0]["labels"] is None
+    assert result[1]["labels"] is None
+
+    expected_rank0_input_ids = torch.tensor([[0, 5, 10, 2, 0, 11, 12, 1, 1, 1]], dtype=torch.int64)
+    torch.testing.assert_close(result[0]["input_ids"], expected_rank0_input_ids)
+
+    expected_rank0_shift_labels = torch.tensor([[5, 6, 2, -100, 11, 12, 13, -100, -100, -100]], dtype=torch.int64)
+    torch.testing.assert_close(result[0]["shift_labels"], expected_rank0_shift_labels)
+
+    expected_rank1_input_ids = torch.tensor([[6, 7, 8, 9, 13, 14, 15, 16, 17, 2]], dtype=torch.int64)
+    torch.testing.assert_close(result[1]["input_ids"], expected_rank1_input_ids)
+
+    expected_rank1_shift_labels = torch.tensor([[7, 8, 9, 10, 14, 15, 16, 17, 2, -100]], dtype=torch.int64)
+    torch.testing.assert_close(result[1]["shift_labels"], expected_rank1_shift_labels)
 
 
 def test_data_collator_for_context_parallel_bshd(tokenizer):

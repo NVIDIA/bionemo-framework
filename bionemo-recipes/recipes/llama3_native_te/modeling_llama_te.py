@@ -299,6 +299,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         past_key_values: tuple[tuple[torch.Tensor, ...], ...] | None = None,
         inputs_embeds: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
+        shift_labels: torch.Tensor | None = None,
         use_cache: bool | None = None,
         cache_position: torch.Tensor | None = None,
         logits_to_keep: int | torch.Tensor = 0,
@@ -313,6 +314,9 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             past_key_values (tuple[tuple[torch.Tensor, ...], ...]): The past key values.
             inputs_embeds (torch.Tensor): The inputs embeds.
             labels (torch.Tensor): The labels.
+            shift_labels (torch.Tensor): Labels that have already been shifted by the dataloader, to be used instead of
+                labels for the loss function. For context parallelism, it is more reliable to shift the labels before
+                splitting the batch into shards.
             use_cache (bool): Whether to use cache.
             cache_position (torch.Tensor): The cache position.
             logits_to_keep (int | torch.Tensor): Whether to keep only the last logits to reduce the memory footprint of
@@ -344,8 +348,10 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
                 logits = self.lm_head(hidden_states[slice_indices, :])
 
         loss = None
-        if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
+        if labels is not None or shift_labels is not None:
+            loss = self.loss_function(
+                logits=logits, labels=labels, shift_labels=shift_labels, vocab_size=self.config.vocab_size, **kwargs
+            )
 
         return CausalLMOutputWithPast(
             loss=loss,

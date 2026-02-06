@@ -123,6 +123,7 @@ def main(args: DictConfig) -> float | None:
             collator=train_dataloader.collate_fn,
             cp_world_size=device_mesh["cp"].size(),
             qkv_format=args.config_kwargs.attn_input_format,
+            is_causal_lm=True,
         )
 
     else:
