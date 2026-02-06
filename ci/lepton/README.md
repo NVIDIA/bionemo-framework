@@ -4,6 +4,24 @@ This directory holds code required for triggering automated partial-convergence/
 
 The dashboards may be viewd at the (internal only) url: [nv/bionemo-dashboards](https://nv/bionemo-dashboards).
 
+They currently run on this schedule:
+
+  ┌─────────────────────┬───────────────────────┐
+  │        Model        │       Schedule        │
+  ├─────────────────────┼───────────────────────┤
+  │ esm2_native_te_650m │ Mon/Wed/Fri (1am PST) │
+  ├─────────────────────┼───────────────────────┤
+  │ esm2_native_te_15b  │ Mon/Wed/Fri (1am PST) │
+  ├─────────────────────┼───────────────────────┤
+  │ llama3_native_te_1b │ Tue/Thu (1am PST)     │
+  ├─────────────────────┼───────────────────────┤
+  │ codonfm_ptl_te      │ Tue/Thu (1am PST)     │
+  └─────────────────────┴───────────────────────┘
+
+with scdl-dataloader running nightly on a cpu runner.
+
+
+
 ## Overview
 
 Currently, there are two ongoing benchmark runs, each triggered nightly:
