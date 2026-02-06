@@ -1105,10 +1105,11 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         if not read_dir.exists():
             raise ValueError(f"Read batches directory does not exist: {read_dir}")
 
-        # Discover all tensor files
-        tensor_files = sorted([f.name for f in read_dir.glob("sample_*.pt")])
+        # Discover all tensor files - files are saved as rank_{dp_rank}_sample_{idx}.pt
+        # Check for per-rank files (rank_*_sample_*.pt pattern)
+        tensor_files = sorted([f.name for f in read_dir.glob("rank_*_sample_*.pt")])
         if len(tensor_files) == 0:
-            raise ValueError(f"No tensor files found in {read_dir}")
+            raise ValueError(f"No tensor files found in {read_dir} (expected rank_*_sample_*.pt pattern)")
 
         # Configure the global read settings
         _batch_read_config["enabled"] = True
