@@ -68,6 +68,163 @@ torch._dynamo.config.suppress_errors = True
 os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
 
 
+# ============================================================================
+# BATCH DUMP/READ UTILITIES
+# For debugging: save exact batches from Megatron training to disk,
+# then read them in either Megatron or HuggingFace for exact data matching.
+# ============================================================================
+
+_batch_dump_counter = [0]  # Use list for mutability in closure
+_batch_dump_config = {"enabled": False, "dir": None, "max_steps": None}
+
+_batch_read_counter = [0]  # Use list for mutability in closure
+_batch_read_config = {"enabled": False, "dir": None, "files": None, "mbs": None}
+
+
+def create_dumping_data_step(original_data_step):
+    """Create a data_step wrapper that dumps batches to disk.
+
+    Args:
+        original_data_step: The original gpt_data_step function to wrap.
+
+    Returns:
+        A wrapped data_step function that also dumps batches.
+    """
+    from megatron.core import parallel_state
+
+    def dumping_data_step(dataloader_iter, use_mtp=False):
+        # Call original data step
+        batch = original_data_step(dataloader_iter, use_mtp=use_mtp)
+
+        # Dump if enabled and within max steps
+        if _batch_dump_config["enabled"]:
+            max_steps = _batch_dump_config["max_steps"]
+            if max_steps is None or _batch_dump_counter[0] < max_steps:
+                dp_rank = parallel_state.get_data_parallel_rank()
+
+                # Only dump from DP rank 0 to avoid duplicates
+                if dp_rank == 0:
+                    dump_dir = Path(_batch_dump_config["dir"])
+                    dump_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Get batch size
+                    tokens = batch.get("tokens")
+                    if tokens is not None:
+                        mbs = tokens.shape[0]
+
+                        # Save each sample individually
+                        for i in range(mbs):
+                            sample_idx = _batch_dump_counter[0] * mbs + i
+                            dump_path = dump_dir / f"sample_{sample_idx:08d}.pt"
+
+                            sample_data = {}
+                            for key in ["tokens", "labels", "loss_mask", "position_ids"]:
+                                if key in batch and batch[key] is not None:
+                                    sample_data[key] = batch[key][i].cpu().clone()
+
+                            torch.save(sample_data, dump_path)
+
+                        # Log progress periodically
+                        if _batch_dump_counter[0] % 100 == 0:
+                            logger.info(f"[DUMP_BATCHES] Step {_batch_dump_counter[0]}: saved {mbs} samples")
+
+                _batch_dump_counter[0] += 1
+
+        return batch
+
+    return dumping_data_step
+
+
+def create_reading_data_step(mbs: int, device: torch.device):
+    """Create a data_step that reads pre-dumped batches from disk instead of dataloader.
+
+    This function is DP-aware: each DP rank reads a disjoint subset of files,
+    matching the behavior of DistributedSampler with shuffle=False.
+
+    Args:
+        mbs: Micro batch size (number of samples to read per call).
+        device: Device to load tensors onto.
+
+    Returns:
+        A data_step function that reads from disk.
+    """
+    from megatron.core import parallel_state
+
+    def reading_data_step(dataloader_iter, use_mtp=False):
+        """Read a batch from pre-dumped tensor files.
+
+        Ignores dataloader_iter and reads directly from disk.
+        Uses DP rank to shard files (like DistributedSampler).
+        """
+        if not _batch_read_config["enabled"]:
+            raise RuntimeError("reading_data_step called but read mode not enabled")
+
+        all_files = _batch_read_config["files"]
+        read_dir = Path(_batch_read_config["dir"])
+
+        # Get DP rank and world size for sharding (like DistributedSampler)
+        dp_rank = parallel_state.get_data_parallel_rank()
+        dp_world_size = parallel_state.get_data_parallel_world_size()
+
+        # Compute which files this DP rank is responsible for
+        # Same logic as DistributedSampler: rank i gets files i, i+world_size, i+2*world_size, ...
+        my_files = all_files[dp_rank::dp_world_size]
+
+        # Calculate which of MY files to read for this batch
+        start_idx = _batch_read_counter[0] * mbs
+        end_idx = start_idx + mbs
+
+        # Check if we've exhausted this rank's files
+        if start_idx >= len(my_files):
+            raise StopIteration(
+                f"DP rank {dp_rank}: Exhausted all {len(my_files)} tensor files at step {_batch_read_counter[0]}"
+            )
+
+        # Clamp end_idx if we're at the end
+        end_idx = min(end_idx, len(my_files))
+
+        # Read and stack samples
+        batch_tokens = []
+        batch_labels = []
+        batch_loss_mask = []
+        batch_position_ids = []
+
+        for i in range(start_idx, end_idx):
+            file_path = read_dir / my_files[i]
+            data = torch.load(file_path, map_location=device)
+
+            batch_tokens.append(data["tokens"])
+            batch_labels.append(data["labels"])
+            if "loss_mask" in data:
+                batch_loss_mask.append(data["loss_mask"])
+            if "position_ids" in data:
+                batch_position_ids.append(data["position_ids"])
+
+        # Stack into batch tensors
+        batch = {
+            "tokens": torch.stack(batch_tokens, dim=0),
+            "labels": torch.stack(batch_labels, dim=0),
+        }
+
+        if batch_loss_mask:
+            batch["loss_mask"] = torch.stack(batch_loss_mask, dim=0)
+        if batch_position_ids:
+            batch["position_ids"] = torch.stack(batch_position_ids, dim=0)
+
+        # Log progress periodically (only from DP rank 0)
+        if dp_rank == 0 and _batch_read_counter[0] % 100 == 0:
+            logger.info(
+                f"[READ_BATCHES] Step {_batch_read_counter[0]}: "
+                f"read local samples {start_idx}-{end_idx - 1} (of {len(my_files)} for this rank)"
+            )
+
+        _batch_read_counter[0] += 1
+
+        return batch
+
+    return reading_data_step
+
+
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     """Parse arguments for Evo2 model training."""
     parser = argparse.ArgumentParser(
@@ -684,6 +841,41 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     recompute_group = parser.add_mutually_exclusive_group(required=False)
     recompute_group.add_argument("--no-activation-checkpointing", action="store_true", default=False)
     recompute_group.add_argument("--selective-activation-checkpointing", action="store_true", default=False)
+
+    # Batch dumping for debugging (save exact batches to disk)
+    parser.add_argument(
+        "--dump-batches",
+        action="store_true",
+        default=False,
+        help="Dump each batch to disk for exact data matching with other frameworks.",
+    )
+    parser.add_argument(
+        "--dump-batches-dir",
+        type=str,
+        default=None,
+        help="Directory to save dumped batches. Required if --dump-batches is set.",
+    )
+    parser.add_argument(
+        "--dump-batches-max-steps",
+        type=int,
+        default=None,
+        help="Maximum number of steps to dump. If None, dump all steps.",
+    )
+
+    # Batch reading for debugging (read exact batches from disk)
+    parser.add_argument(
+        "--read-batches",
+        action="store_true",
+        default=False,
+        help="Read batches from disk instead of using dataloader. For exact data matching.",
+    )
+    parser.add_argument(
+        "--read-batches-dir",
+        type=str,
+        default=None,
+        help="Directory to read batches from. Required if --read-batches is set.",
+    )
+
     return parser.parse_args(args=args)
 
 
@@ -857,6 +1049,64 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         config_modifiers_init.pop("to_upper")  # llama model does not handle custom loss renormalization settings.
         model_config = LLAMA_MODEL_OPTIONS[args.model_size](**config_modifiers_init)
         model = llm.LlamaModel(model_config, tokenizer=data_module.tokenizer)
+
+    # ========================================================================
+    # BATCH DUMPING/READING: Modify data_step_fn for debugging
+    # ========================================================================
+    if args.dump_batches and args.read_batches:
+        raise ValueError("Cannot use --dump-batches and --read-batches simultaneously")
+
+    if args.dump_batches:
+        if args.dump_batches_dir is None:
+            raise ValueError("--dump-batches-dir must be specified when --dump-batches is set")
+
+        from nemo.collections.llm.gpt.model.base import gpt_data_step
+
+        # Configure the global dump settings
+        _batch_dump_config["enabled"] = True
+        _batch_dump_config["dir"] = args.dump_batches_dir
+        _batch_dump_config["max_steps"] = args.dump_batches_max_steps
+
+        # Create wrapped data_step and set it on the model config
+        wrapped_data_step = create_dumping_data_step(gpt_data_step)
+        model_config.data_step_fn = wrapped_data_step
+
+        logger.info(f"[DUMP_BATCHES] Enabled batch dumping to {args.dump_batches_dir}")
+        if args.dump_batches_max_steps:
+            logger.info(f"[DUMP_BATCHES] Will dump up to {args.dump_batches_max_steps} steps")
+
+    # ========================================================================
+    # BATCH READING: Replace data_step_fn to read pre-dumped batches from disk
+    # ========================================================================
+    if args.read_batches:
+        if args.read_batches_dir is None:
+            raise ValueError("--read-batches-dir must be specified when --read-batches is set")
+
+        read_dir = Path(args.read_batches_dir)
+        if not read_dir.exists():
+            raise ValueError(f"Read batches directory does not exist: {read_dir}")
+
+        # Discover all tensor files
+        tensor_files = sorted([f.name for f in read_dir.glob("sample_*.pt")])
+        if len(tensor_files) == 0:
+            raise ValueError(f"No tensor files found in {read_dir}")
+
+        # Configure the global read settings
+        _batch_read_config["enabled"] = True
+        _batch_read_config["dir"] = str(read_dir)
+        _batch_read_config["files"] = tensor_files
+        _batch_read_config["mbs"] = args.micro_batch_size
+
+        # Get device for loading tensors
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # Create reading data_step and set it on the model config
+        reading_data_step = create_reading_data_step(mbs=args.micro_batch_size, device=device)
+        model_config.data_step_fn = reading_data_step
+
+        logger.info(f"[READ_BATCHES] Enabled batch reading from {read_dir}")
+        logger.info(f"[READ_BATCHES] Found {len(tensor_files)} tensor files")
+        logger.info(f"[READ_BATCHES] MBS={args.micro_batch_size}, total samples={len(tensor_files)}")
 
     # Setup callbacks.
     callbacks = [

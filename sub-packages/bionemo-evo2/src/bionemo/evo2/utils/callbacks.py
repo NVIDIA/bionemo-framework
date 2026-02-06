@@ -188,3 +188,38 @@ class InitWeightStatsCallback(Callback):
                 f"[INIT_WEIGHT_STATS] Trainable parameters: {trainable_params:,} ({format_params(trainable_params)})"
             )
             print("=" * 100)
+
+            # Log RoPE configuration
+            print("=" * 100)
+            print("[ROPE DEBUG] RoPE Configuration:")
+            config = getattr(model, "config", None)
+            if config is not None:
+                print(f"[ROPE DEBUG]   rotary_base: {getattr(config, 'rotary_base', 'NOT SET')}")
+                print(f"[ROPE DEBUG]   rotary_percent: {getattr(config, 'rotary_percent', 'NOT SET')}")
+                print(f"[ROPE DEBUG]   seq_length: {getattr(config, 'seq_length', 'NOT SET')}")
+                print(f"[ROPE DEBUG]   scale_factor: {getattr(config, 'scale_factor', 'NOT SET')}")
+                print(f"[ROPE DEBUG]   low_freq_factor: {getattr(config, 'low_freq_factor', 'NOT SET')}")
+                print(f"[ROPE DEBUG]   high_freq_factor: {getattr(config, 'high_freq_factor', 'NOT SET')}")
+                print(f"[ROPE DEBUG]   old_context_len: {getattr(config, 'old_context_len', 'NOT SET')}")
+                print(
+                    f"[ROPE DEBUG]   position_embedding_type: {getattr(config, 'position_embedding_type', 'NOT SET')}"
+                )
+                print(
+                    f"[ROPE DEBUG]   seq_len_interpolation_factor: "
+                    f"{getattr(config, 'seq_len_interpolation_factor', 'NOT SET')}"
+                )
+            else:
+                print("[ROPE DEBUG]   (no config found on model)")
+
+            # Try to find and log inv_freq values
+            for name, param in model.named_parameters():
+                if "inv_freq" in name:
+                    print(f"[ROPE DEBUG]   {name} shape: {list(param.shape)}")
+                    if param.device.type != "meta" and param.numel() > 0:
+                        print(f"[ROPE DEBUG]   {name} first 5: {param[:5].tolist()}")
+            for name, buf in model.named_buffers():
+                if "inv_freq" in name:
+                    print(f"[ROPE DEBUG]   {name} shape: {list(buf.shape)}")
+                    if buf.device.type != "meta" and buf.numel() > 0:
+                        print(f"[ROPE DEBUG]   {name} first 5: {buf[:5].tolist()}")
+            print("=" * 100)

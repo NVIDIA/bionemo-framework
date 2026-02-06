@@ -472,6 +472,35 @@ def log_init_stats(
         )
         logger.info("=" * 100)
 
+        # Log RoPE configuration
+        logger.info("=" * 100)
+        logger.info("[ROPE DEBUG] RoPE Configuration:")
+        config = getattr(model, "config", None)
+        if config is not None:
+            logger.info(f"[ROPE DEBUG]   rope_theta: {getattr(config, 'rope_theta', 'NOT SET')}")
+            logger.info(f"[ROPE DEBUG]   rope_scaling: {getattr(config, 'rope_scaling', 'NOT SET')}")
+            logger.info(f"[ROPE DEBUG]   rope_parameters: {getattr(config, 'rope_parameters', 'NOT SET')}")
+            logger.info(
+                f"[ROPE DEBUG]   max_position_embeddings: {getattr(config, 'max_position_embeddings', 'NOT SET')}"
+            )
+            logger.info(f"[ROPE DEBUG]   hidden_size: {getattr(config, 'hidden_size', 'NOT SET')}")
+            logger.info(f"[ROPE DEBUG]   num_attention_heads: {getattr(config, 'num_attention_heads', 'NOT SET')}")
+            logger.info(f"[ROPE DEBUG]   num_key_value_heads: {getattr(config, 'num_key_value_heads', 'NOT SET')}")
+        else:
+            logger.info("[ROPE DEBUG]   (no config found on model)")
+
+        # Try to find and log inv_freq values
+        for name, buf in model.named_buffers():
+            if "inv_freq" in name:
+                logger.info(f"[ROPE DEBUG]   {name} shape: {list(buf.shape)}")
+                if buf.device.type != "meta" and buf.numel() > 0:
+                    try:
+                        local_buf = _to_local_tensor(buf)
+                        logger.info(f"[ROPE DEBUG]   {name} first 5: {local_buf[:5].tolist()}")
+                    except Exception:
+                        logger.info(f"[ROPE DEBUG]   {name} first 5: (could not extract)")
+        logger.info("=" * 100)
+
     return stats
 
 
