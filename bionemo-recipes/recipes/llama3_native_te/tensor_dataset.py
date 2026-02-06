@@ -107,6 +107,13 @@ class DumpedTensorDataset(Dataset):
         """Return number of samples."""
         return len(self.tensor_files)
 
+    def set_epoch(self, epoch: int):
+        """Set epoch for compatibility with DistributedSampler interface.
+
+        This is a no-op for this dataset since we don't shuffle.
+        """
+        pass  # No-op: we read files in fixed order
+
     def __getitem__(self, idx):
         """Load a tensor file and convert to HuggingFace format."""
         tensor_path = self.tensor_files[idx]
