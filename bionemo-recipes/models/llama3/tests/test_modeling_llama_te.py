@@ -141,14 +141,14 @@ class TestLlama3Model(BaseModelTest):
     # ==================== LLaMA3-Specific Tests ====================
     def test_golden_values(self, input_format):  # pyright: ignore[reportIncompatibleMethodOverride]
         """For llama3, we can test both the dynamic sequence packing and native bshd attention formats."""
-        model_hf = self.get_reference_model()
-        model_te = self.get_converted_te_model(attn_input_format=input_format)
+        model_hf = self.get_reference_model(dtype=torch.bfloat16)
+        model_te = self.get_converted_te_model(attn_input_format=input_format, dtype=torch.bfloat16)
 
         # Prepare input data
         input_data = self.get_test_input_data("bshd")
 
         # Run forward pass
-        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.no_grad():
             te_outputs = model_te(**input_data)
             hf_outputs = model_hf(**input_data)
 
