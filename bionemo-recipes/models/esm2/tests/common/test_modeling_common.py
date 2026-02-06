@@ -13,21 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: Apache-2.0
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 """Common test class for BioNeMo models, following HuggingFace transformers patterns."""
 
 from abc import ABC, abstractmethod
@@ -144,11 +129,11 @@ class BaseModelTest(ABC):
         pass
 
     @abstractmethod
-    def get_upstream_model_revision(self) -> Optional[str]:
+    def get_upstream_model_revision(self) -> str:
         """Return the specific revision/commit hash for the upstream model.
 
         Returns:
-            Revision string or None for latest.
+            Revision string or 'main' for latest.
         """
         pass
 
@@ -320,7 +305,8 @@ class BaseModelTest(ABC):
         """
         config_class = self.get_config_class()
         upstream_id = self.get_upstream_model_id()
-        return config_class.from_pretrained(upstream_id, **kwargs)
+        revision = self.get_upstream_model_revision()
+        return config_class.from_pretrained(upstream_id, revision=revision, **kwargs)
 
     def get_reference_model(
         self,
@@ -430,7 +416,7 @@ class BaseModelTest(ABC):
 
     def test_smoke_forward_pass(self, input_format):
         model_class = self.get_model_class()
-        config = self.create_test_config()
+        config = self.create_test_config(attn_input_format=input_format)
 
         model = model_class(config)
         model.to(torch.bfloat16)
@@ -453,7 +439,7 @@ class BaseModelTest(ABC):
     def test_smoke_backward_pass(self, input_format):
         """Smoke test: backward pass."""
         model_class = self.get_model_class()
-        config = self.create_test_config()
+        config = self.create_test_config(attn_input_format=input_format)
 
         model = model_class(config)
         model.to(torch.bfloat16)
@@ -476,7 +462,7 @@ class BaseModelTest(ABC):
     def test_smoke_model_with_loss(self, input_format):
         """Smoke test: model forward pass with labels produces loss."""
         model_class = self.get_model_class()
-        config = self.create_test_config()
+        config = self.create_test_config(attn_input_format=input_format)
 
         model = model_class(config)
         model.to(torch.bfloat16)
@@ -500,7 +486,7 @@ class BaseModelTest(ABC):
     def test_forward_and_backward(self, input_format):
         """Test that model can perform forward and backward passes."""
         model_class = self.get_model_class()
-        config = self.create_test_config()
+        config = self.create_test_config(attn_input_format=input_format)
 
         model = model_class(config)
         model.to(torch.bfloat16)
@@ -645,6 +631,9 @@ class BaseModelTest(ABC):
         model_hf = self.get_reference_model()
         model_te = self.get_converted_te_model()
 
+        model_hf.eval()
+        model_te.eval()
+
         # Prepare input data
         input_data = self.get_test_input_data("bshd")
 
@@ -687,6 +676,9 @@ class BaseModelTest(ABC):
 
         model_bshd = self.get_converted_te_model(attn_input_format="bshd", dtype=torch.bfloat16)
         model_thd = self.get_converted_te_model(attn_input_format="thd", dtype=torch.bfloat16)
+
+        model_bshd.eval()
+        model_thd.eval()
 
         with torch.inference_mode():
             outputs_bshd = model_bshd(**input_data_bshd)
@@ -751,6 +743,7 @@ class BaseModelTest(ABC):
         tolerances = self.get_tolerances()
 
         model_thd = self.get_converted_te_model(attn_input_format="thd", dtype=torch.bfloat16)
+        model_thd.eval()
 
         with torch.inference_mode():
             outputs_thd = model_thd(**input_data_thd)
@@ -794,6 +787,7 @@ class BaseModelTest(ABC):
 
         model = model_class(config)
         model.to("cuda")
+        model.eval()
 
         # Prepare input data
         input_data = self.get_test_input_data(input_format, pad_to_multiple_of=32)
@@ -841,6 +835,7 @@ class BaseModelTest(ABC):
             model = model_class(config)
 
         model.to("cuda")
+        model.eval()
 
         # Prepare input data
         input_data = self.get_test_input_data(input_format, pad_to_multiple_of=32)
