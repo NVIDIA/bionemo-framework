@@ -84,6 +84,9 @@ _batch_read_config = {"enabled": False, "dir": None, "files": None, "mbs": None}
 def create_dumping_data_step(original_data_step):
     """Create a data_step wrapper that dumps batches to disk.
 
+    Dumps from ALL DP ranks, with filenames: rank_{dp_rank}_sample_{idx}.pt
+    This allows each HF GPU to read the exact data its corresponding Megatron DP rank saw.
+
     Args:
         original_data_step: The original gpt_data_step function to wrap.
 
@@ -92,6 +95,9 @@ def create_dumping_data_step(original_data_step):
     """
     from megatron.core import parallel_state
 
+    # Per-rank counters (each DP rank has its own counter)
+    rank_counters = {}
+
     def dumping_data_step(dataloader_iter, use_mtp=False):
         # Call original data step
         batch = original_data_step(dataloader_iter, use_mtp=use_mtp)
@@ -99,36 +105,44 @@ def create_dumping_data_step(original_data_step):
         # Dump if enabled and within max steps
         if _batch_dump_config["enabled"]:
             max_steps = _batch_dump_config["max_steps"]
-            if max_steps is None or _batch_dump_counter[0] < max_steps:
-                dp_rank = parallel_state.get_data_parallel_rank()
+            dp_rank = parallel_state.get_data_parallel_rank()
 
-                # Only dump from DP rank 0 to avoid duplicates
-                if dp_rank == 0:
-                    dump_dir = Path(_batch_dump_config["dir"])
-                    dump_dir.mkdir(parents=True, exist_ok=True)
+            # Initialize counter for this rank if needed
+            if dp_rank not in rank_counters:
+                rank_counters[dp_rank] = 0
 
-                    # Get batch size
-                    tokens = batch.get("tokens")
-                    if tokens is not None:
-                        mbs = tokens.shape[0]
+            if max_steps is None or rank_counters[dp_rank] < max_steps:
+                dump_dir = Path(_batch_dump_config["dir"])
+                dump_dir.mkdir(parents=True, exist_ok=True)
 
-                        # Save each sample individually
-                        for i in range(mbs):
-                            sample_idx = _batch_dump_counter[0] * mbs + i
-                            dump_path = dump_dir / f"sample_{sample_idx:08d}.pt"
+                # Get batch size
+                tokens = batch.get("tokens")
+                if tokens is not None:
+                    mbs = tokens.shape[0]
 
-                            sample_data = {}
-                            for key in ["tokens", "labels", "loss_mask", "position_ids"]:
-                                if key in batch and batch[key] is not None:
-                                    sample_data[key] = batch[key][i].cpu().clone()
+                    # Save each sample individually with rank info
+                    for i in range(mbs):
+                        sample_idx = rank_counters[dp_rank] * mbs + i
+                        # Filename includes DP rank for per-rank reading
+                        dump_path = dump_dir / f"rank_{dp_rank}_sample_{sample_idx:08d}.pt"
 
-                            torch.save(sample_data, dump_path)
+                        sample_data = {}
+                        for key in ["tokens", "labels", "loss_mask", "position_ids"]:
+                            if key in batch and batch[key] is not None:
+                                sample_data[key] = batch[key][i].cpu().clone()
 
-                        # Log progress periodically
-                        if _batch_dump_counter[0] % 100 == 0:
-                            logger.info(f"[DUMP_BATCHES] Step {_batch_dump_counter[0]}: saved {mbs} samples")
+                        torch.save(sample_data, dump_path)
 
-                _batch_dump_counter[0] += 1
+                    # Log progress periodically (only from DP rank 0)
+                    if dp_rank == 0 and rank_counters[dp_rank] % 100 == 0:
+                        dp_world = parallel_state.get_data_parallel_world_size()
+                        logger.info(
+                            f"[DUMP_BATCHES] Step {rank_counters[dp_rank]}: "
+                            f"saved {mbs} samples per rank (DP={dp_world})"
+                        )
+
+                rank_counters[dp_rank] += 1
+            _batch_dump_counter[0] = rank_counters.get(0, 0)  # Update global counter for max_steps check
 
         return batch
 
@@ -138,8 +152,8 @@ def create_dumping_data_step(original_data_step):
 def create_reading_data_step(mbs: int, device: torch.device):
     """Create a data_step that reads pre-dumped batches from disk instead of dataloader.
 
-    This function is DP-aware: each DP rank reads a disjoint subset of files,
-    matching the behavior of DistributedSampler with shuffle=False.
+    Each DP rank reads its own files: rank_{dp_rank}_sample_*.pt
+    This matches how dumping saves per-rank files.
 
     Args:
         mbs: Micro batch size (number of samples to read per call).
@@ -150,27 +164,32 @@ def create_reading_data_step(mbs: int, device: torch.device):
     """
     from megatron.core import parallel_state
 
+    # Cache per-rank file lists
+    rank_files_cache = {}
+
     def reading_data_step(dataloader_iter, use_mtp=False):
         """Read a batch from pre-dumped tensor files.
 
         Ignores dataloader_iter and reads directly from disk.
-        Uses DP rank to shard files (like DistributedSampler).
+        Each DP rank reads only its own rank_{dp_rank}_sample_*.pt files.
         """
         if not _batch_read_config["enabled"]:
             raise RuntimeError("reading_data_step called but read mode not enabled")
 
-        all_files = _batch_read_config["files"]
         read_dir = Path(_batch_read_config["dir"])
-
-        # Get DP rank and world size for sharding (like DistributedSampler)
         dp_rank = parallel_state.get_data_parallel_rank()
-        dp_world_size = parallel_state.get_data_parallel_world_size()
 
-        # Compute which files this DP rank is responsible for
-        # Same logic as DistributedSampler: rank i gets files i, i+world_size, i+2*world_size, ...
-        my_files = all_files[dp_rank::dp_world_size]
+        # Get this rank's files (cached)
+        if dp_rank not in rank_files_cache:
+            # Find files for this specific DP rank
+            pattern = f"rank_{dp_rank}_sample_*.pt"
+            my_files = sorted(read_dir.glob(pattern))
+            rank_files_cache[dp_rank] = [f.name for f in my_files]
+            logger.info(f"[READ_BATCHES] DP rank {dp_rank}: found {len(rank_files_cache[dp_rank])} files")
 
-        # Calculate which of MY files to read for this batch
+        my_files = rank_files_cache[dp_rank]
+
+        # Calculate which files to read for this batch
         start_idx = _batch_read_counter[0] * mbs
         end_idx = start_idx + mbs
 
