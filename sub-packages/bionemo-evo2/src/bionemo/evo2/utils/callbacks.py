@@ -212,14 +212,53 @@ class InitWeightStatsCallback(Callback):
                 print("[ROPE DEBUG]   (no config found on model)")
 
             # Try to find and log inv_freq values
+            inv_freq_found = False
             for name, param in model.named_parameters():
                 if "inv_freq" in name:
+                    inv_freq_found = True
                     print(f"[ROPE DEBUG]   {name} shape: {list(param.shape)}")
                     if param.device.type != "meta" and param.numel() > 0:
                         print(f"[ROPE DEBUG]   {name} first 5: {param[:5].tolist()}")
             for name, buf in model.named_buffers():
                 if "inv_freq" in name:
+                    inv_freq_found = True
                     print(f"[ROPE DEBUG]   {name} shape: {list(buf.shape)}")
                     if buf.device.type != "meta" and buf.numel() > 0:
                         print(f"[ROPE DEBUG]   {name} first 5: {buf[:5].tolist()}")
+
+            # Also check pl_module directly (in case model is unwrapped differently)
+            for name, param in pl_module.named_parameters():
+                if "inv_freq" in name and not inv_freq_found:
+                    inv_freq_found = True
+                    print(f"[ROPE DEBUG]   {name} shape: {list(param.shape)}")
+                    if param.device.type != "meta" and param.numel() > 0:
+                        print(f"[ROPE DEBUG]   {name} first 5: {param[:5].tolist()}")
+            for name, buf in pl_module.named_buffers():
+                if "inv_freq" in name and not inv_freq_found:
+                    inv_freq_found = True
+                    print(f"[ROPE DEBUG]   {name} shape: {list(buf.shape)}")
+                    if buf.device.type != "meta" and buf.numel() > 0:
+                        print(f"[ROPE DEBUG]   {name} first 5: {buf[:5].tolist()}")
+
+            # Try to access rotary_pos_emb directly on common Megatron structures
+            if not inv_freq_found:
+                for attr_path in ["rotary_pos_emb", "module.rotary_pos_emb", "model.rotary_pos_emb"]:
+                    try:
+                        obj = pl_module
+                        for attr in attr_path.split("."):
+                            obj = getattr(obj, attr, None)
+                            if obj is None:
+                                break
+                        if obj is not None and hasattr(obj, "inv_freq"):
+                            inv_freq = obj.inv_freq
+                            print(f"[ROPE DEBUG]   {attr_path}.inv_freq shape: {list(inv_freq.shape)}")
+                            if inv_freq.device.type != "meta" and inv_freq.numel() > 0:
+                                print(f"[ROPE DEBUG]   {attr_path}.inv_freq first 5: {inv_freq[:5].tolist()}")
+                            inv_freq_found = True
+                            break
+                    except Exception:
+                        pass
+
+            if not inv_freq_found:
+                print("[ROPE DEBUG]   inv_freq: NOT FOUND (may be computed on-the-fly)")
             print("=" * 100)
