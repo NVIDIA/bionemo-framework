@@ -43,14 +43,6 @@ from modeling_llama_te import HFInferenceParams, NVLlamaConfig, NVLlamaForCausal
 from tests.common import BaseModelTest, TestTolerances
 
 
-def get_reference_model_id_and_revision() -> tuple[str, str]:
-    if os.getenv("CI", "false") == "false":
-        # Locally, use a real 1B model for golden value tests.
-        return ("meta-llama/Llama-3.2-1B-Instruct", "9213176")
-    else:
-        return ("tiny-random/llama-3", "a922ba9e")
-
-
 class TestLlama3Model(BaseModelTest):
     """Model tester for LLaMA3.
 
@@ -68,11 +60,11 @@ class TestLlama3Model(BaseModelTest):
     def get_upstream_model_id(self) -> str:
         """Return the upstream HuggingFace model ID."""
         # Use smaller 1B model for testing
-        return get_reference_model_id_and_revision()[0]
+        return "meta-llama/Llama-3.2-1B-Instruct"
 
     def get_upstream_model_revision(self) -> str:
         """Return the specific revision for the upstream model."""
-        return get_reference_model_id_and_revision()[1]
+        return "9213176"
 
     def get_tokenizer(self) -> PreTrainedTokenizer:
         """Return the LLaMA3 tokenizer."""
