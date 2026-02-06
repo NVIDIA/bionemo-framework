@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+
+# Quick test config for tensor dataset reading
+# Uses the 10-step test dump to verify the read path works
+
+defaults:
+  - defaults
+  - _self_
+
+# 7B model config (matching EdenConfig from bionemo-evo2)
+config_name_or_path: meta-llama/Llama-3.1-8B
+config_kwargs:
+  vocab_size: 256  # CRITICAL: Must match nucleotide tokenizer vocab size!
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 32
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: bshd
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+
+# ============ CRITICAL FLAGS TO MATCH JOHN'S RUN ============
+spike_no_more_embedding_init: true
+skip_embedding_weight_decay: false
+use_weight_decay_grouping: true
+use_megatron_scaled_init: true
+use_megatron_loss: false
+use_meta_device: false
+use_fp32_master_weights: false
+# ============================================================
+
+use_sequence_packing: false  # BSHD format
+
+# ============ TENSOR DATASET MODE (TEST) ============
+use_tensor_dataset: true
+tensor_dir: /data/savithas/tensor_dump_test  # 10-step test dump
+# ====================================================
+
+# Gradient accumulation - with only 10 samples per rank, we can only do 1 GA step
+# 8 GPUs × 1 MBS × 1 GA = 8 GBS (limited by test data)
+grad_acc_steps: 1
+
+# Training steps - only 10 samples per rank available
+num_train_steps: 10
+
+wandb:
+  name: og2_7b_tensor_test
+  project: llama3-metagenome-7b
+  mode: disabled  # Disable for quick test
+
+# Dataset config
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 1
+  num_workers: 0  # Simpler for testing
+  prefetch_factor: 2
+  shuffle: false  # CRITICAL: preserve dump order
+  load_dataset_kwargs:
+    path: parquet
+    data_files: "placeholder"  # Not used in tensor mode
+
+# Learning rate matching John's
+optimizer:
+  lr: 3e-05
+  weight_decay: 0.1
+  adam_beta1: 0.9
+  adam_beta2: 0.95
+  adam_eps: 1e-8
+
+lr_scheduler_kwargs:
+  num_warmup_steps: 2500
+  num_decay_steps: 182314
+  min_lr: 6e-07
+
+# Validation disabled for quick test
+validation:
+  enabled: false
+
+# Checkpointing disabled for quick test
+checkpoint:
+  save_every_n_steps: 0
+  save_final_model: false
+  resume_from_checkpoint: false
+  ckpt_dir: /tmp/tensor_test_ckpt
+  async_save: false
+
+# No FP8 for simpler test
+fp8_config:
+  enabled: false
