@@ -25,6 +25,7 @@ import torch
 import transformer_engine.pytorch
 from torch import nn
 from transformer_engine.pytorch import QuantizedTensor
+from transformer_engine.pytorch.quantization import FP8GlobalStateManager
 from transformers import AutoConfig, PretrainedConfig, PreTrainedModel, PreTrainedTokenizer, set_seed
 
 
@@ -411,6 +412,11 @@ class BaseModelTest(ABC):
     @pytest.fixture(autouse=True, scope="function")
     def set_seed(self):
         set_seed(42)
+
+    @pytest.fixture(autouse=True, scope="function")
+    def reset_fp8_context(self):
+        """Make sure we clean up the FP8 context after each test."""
+        FP8GlobalStateManager.reset()
 
     # ==================== Forward and Backward Smoke Tests ====================
 
