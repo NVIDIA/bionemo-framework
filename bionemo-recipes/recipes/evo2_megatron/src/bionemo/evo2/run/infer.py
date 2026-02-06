@@ -277,7 +277,9 @@ def setup_inference_engine(
     model_provider.tensor_model_parallel_size = tensor_parallel_size
     model_provider.pipeline_model_parallel_size = pipeline_model_parallel_size
     model_provider.context_parallel_size = context_parallel_size
-    model_provider.sequence_parallel = tensor_parallel_size > 1
+    # Disable sequence parallelism for inference - Megatron's inference engine
+    # does not support it for non-MoE models.
+    model_provider.sequence_parallel = False
 
     # Enable flash decode for inference
     model_provider.flash_decode = True
@@ -489,6 +491,12 @@ def parse_args() -> argparse.Namespace:
         default=default_prompt,
         help="Prompt text for generation",
     )
+    ap.add_argument(
+        "--prompt-file",
+        type=Path,
+        default=None,
+        help="Read prompt from a text file (overrides --prompt). Useful for long prompts that exceed shell argument limits.",
+    )
     ap.add_argument("--max-new-tokens", type=int, default=100, help="Maximum tokens to generate")
     ap.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature")
     ap.add_argument("--top-k", type=int, default=0, help="Top-k sampling (0 = disabled)")
@@ -607,8 +615,15 @@ def infer(
 def main() -> None:
     """CLI entry point for Evo2 text generation."""
     args = parse_args()
+
+    # Read prompt from file if specified (overrides --prompt)
+    prompt = args.prompt
+    if args.prompt_file is not None:
+        with open(args.prompt_file) as f:
+            prompt = f.read().strip()
+
     infer(
-        prompt=args.prompt,
+        prompt=prompt,
         ckpt_dir=args.ckpt_dir,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
