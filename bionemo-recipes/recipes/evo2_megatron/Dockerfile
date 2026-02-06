@@ -25,6 +25,10 @@ RUN uv venv --system-site-packages --seed $VIRTUAL_ENV
 # accidentally, though your pyproject.toml overrides handle the critical ones.
 RUN pip freeze | grep transformer_engine > pip-constraints.txt
 
+## Trying to workaround CAUSAL_CONV1D build issues
+ENV CAUSAL_CONV1D_FORCE_BUILD=1
+ENV PIP_NO_BINARY=causal-conv1d
+
 # 5. Install package and dependencies
 RUN --mount=type=secret,id=netrc,target=/root/.netrc \
     --mount=type=cache,target=/root/.cache/uv \
