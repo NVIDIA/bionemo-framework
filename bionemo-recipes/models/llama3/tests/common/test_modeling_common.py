@@ -628,8 +628,8 @@ class BaseModelTest(ABC):
 
     def test_golden_values(self):
         """Test that TE model outputs match HF reference model."""
-        model_hf = self.get_reference_model()
-        model_te = self.get_converted_te_model()
+        model_hf = self.get_reference_model(dtype=torch.bfloat16)
+        model_te = self.get_converted_te_model(dtype=torch.bfloat16)
 
         model_hf.eval()
         model_te.eval()
@@ -638,7 +638,7 @@ class BaseModelTest(ABC):
         input_data = self.get_test_input_data("bshd")
 
         # Run forward pass
-        with torch.no_grad(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        with torch.no_grad():
             te_outputs = model_te(**input_data)
             hf_outputs = model_hf(**input_data)
 
