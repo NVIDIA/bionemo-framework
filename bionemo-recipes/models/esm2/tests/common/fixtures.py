@@ -71,7 +71,7 @@ ALL_RECIPES = [
     recipe_module.Float8CurrentScaling(),
     recipe_module.Float8BlockScaling(),
     recipe_module.MXFP8BlockScaling(),
-    # recipe_module.NVFP4BlockScaling(disable_rht=True, disable_stochastic_rounding=True),
+    recipe_module.NVFP4BlockScaling(disable_rht=True, disable_stochastic_rounding=True),
 ]
 
 
@@ -102,8 +102,8 @@ def parametrize_recipes_with_support(recipes):
             pytest.param(
                 recipe,
                 id=recipe.__class__.__name__,
-                marks=pytest.mark.skipif(
-                    not recipe_supported,
+                marks=pytest.mark.xfail(
+                    condition=not recipe_supported,
                     reason=reason,
                 ),
             )
