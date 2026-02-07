@@ -19,6 +19,7 @@ This should eventually get moved to a separate package, or possibly upstreamed i
 """
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
@@ -431,6 +432,9 @@ class ContextParallelDataLoaderWrapper:
         self.cp_tp_group = cp_tp_mesh.get_group()
         self.num_cp_tp_ranks = cp_tp_mesh.size()
         self._iterator = None
+        self._prefetch_thread: threading.Thread | None = None
+        self._prefetch_result: Any = None
+        self._cuda_device: int | None = None
 
         logger.debug(
             "Created ContextParallelDataLoaderWrapper on global rank %s, cp rank %s",
@@ -442,12 +446,43 @@ class ContextParallelDataLoaderWrapper:
         """Make the dataloader iterable."""
         if self.cp_tp_rank == 0:
             self._iterator = iter(self.dataloader)  # < --- collator output.
+        self.close()
+        # Capture CUDA device from main thread; torch.cuda.set_device is per-thread,
+        # so the background thread needs to set it explicitly.
+        self._cuda_device = torch.cuda.current_device() if torch.cuda.is_available() else None
+        self._kick_prefetch()
         return self
 
     def __next__(self):
         """Get the batch from the dataloader for the current CP rank."""
-        batch = self._send_data_to_cp_tp_ranks()
-        return batch
+        self._prefetch_thread.join()
+        result = self._prefetch_result
+        if isinstance(result, StopIteration):
+            self._prefetch_thread = None
+            raise result
+        self._kick_prefetch()
+        return result
+
+    def _kick_prefetch(self):
+        """Start a background thread to prefetch exactly one batch via scatter."""
+        self._prefetch_thread = threading.Thread(target=self._do_one_prefetch, daemon=True)
+        self._prefetch_thread.start()
+
+    def _do_one_prefetch(self):
+        """Fetch one batch in the background. Stores result in _prefetch_result."""
+        if self._cuda_device is not None:
+            torch.cuda.set_device(self._cuda_device)
+        try:
+            self._prefetch_result = self._send_data_to_cp_tp_ranks()
+        except Exception:
+            # Process group may have been destroyed; signal stop.
+            self._prefetch_result = StopIteration()
+
+    def close(self):
+        """Stop the prefetch thread. Must be called before destroy_process_group()."""
+        if self._prefetch_thread is not None:
+            self._prefetch_thread.join(timeout=10)
+            self._prefetch_thread = None
 
     def _send_data_to_cp_tp_ranks(self):
         """Send data to all the CP/TP ranks.

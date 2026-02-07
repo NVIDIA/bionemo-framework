@@ -854,4 +854,5 @@ if __name__ == "__main__":
         assert batch["labels"] is None
         assert batch["shift_labels"].shape[1] == actual_shape
 
+    dataloader.close()
     torch.distributed.destroy_process_group()

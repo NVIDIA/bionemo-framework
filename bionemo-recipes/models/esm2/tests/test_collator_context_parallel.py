@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import copy
+import threading
 from typing import Dict, Iterator, List
 from unittest import mock
 
@@ -398,7 +399,7 @@ def test_dataloader_scatter_nopadding():
         loader_rank1 = ContextParallelDataLoaderWrapper(None, cp_mesh_rank1)
 
         scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
-        current_rank = {"value": None}
+        data_ready = threading.Event()
 
         def fake_scatter(
             *,
@@ -408,9 +409,14 @@ def test_dataloader_scatter_nopadding():
             group_src,
         ):
             if scatter_object_input_list is not None:
+                # Rank 0: store the full payload and return shard 0
                 scatter_payload["data"] = scatter_object_input_list
-            assert "data" in scatter_payload, "Rank 0 payload missing"
-            scatter_object_output_list[0] = scatter_payload["data"][current_rank["value"]]
+                data_ready.set()
+                scatter_object_output_list[0] = scatter_object_input_list[0]
+            else:
+                # Rank 1: wait for rank 0's data, then return shard 1
+                data_ready.wait(timeout=5)
+                scatter_object_output_list[0] = scatter_payload["data"][1]
 
         with (
             mock.patch("esm.collator.torch.distributed.scatter_object_list", side_effect=fake_scatter),
@@ -419,10 +425,7 @@ def test_dataloader_scatter_nopadding():
             iter(loader_rank0)
             iter(loader_rank1)
 
-            current_rank["value"] = 0
             batch_cp0 = next(loader_rank0)
-
-            current_rank["value"] = 1
             batch_cp1 = next(loader_rank1)
 
         return batch_cp0, batch_cp1
@@ -487,7 +490,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
         loader_rank1 = ContextParallelDataLoaderWrapper(None, cp_mesh_rank1)
 
         scatter_payload: Dict[str, List[Dict[str, torch.Tensor]]] = {}
-        current_rank = {"value": None}
+        data_ready = threading.Event()
 
         def fake_scatter(
             *,
@@ -497,9 +500,14 @@ def test_dataloader_scatter_with_pad_between_seqs():
             group_src,
         ):
             if scatter_object_input_list is not None:
+                # Rank 0: store the full payload and return shard 0
                 scatter_payload["data"] = scatter_object_input_list
-            assert "data" in scatter_payload, "Rank 0 payload missing"
-            scatter_object_output_list[0] = scatter_payload["data"][current_rank["value"]]
+                data_ready.set()
+                scatter_object_output_list[0] = scatter_object_input_list[0]
+            else:
+                # Rank 1: wait for rank 0's data, then return shard 1
+                data_ready.wait(timeout=5)
+                scatter_object_output_list[0] = scatter_payload["data"][1]
 
         with (
             mock.patch("esm.collator.torch.distributed.scatter_object_list", side_effect=fake_scatter),
@@ -508,10 +516,7 @@ def test_dataloader_scatter_with_pad_between_seqs():
             iter(loader_rank0)
             iter(loader_rank1)
 
-            current_rank["value"] = 0
             batch_cp0 = next(loader_rank0)
-
-            current_rank["value"] = 1
             batch_cp1 = next(loader_rank1)
 
         return batch_cp0, batch_cp1
