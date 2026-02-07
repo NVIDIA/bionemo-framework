@@ -1,0 +1,118 @@
+# @package _global_
+defaults:
+  - /base
+  - _self_
+
+############################################################
+# lepton job info
+############################################################
+node_group: yo-bom-lepton-001
+mount_from: node-nfs:fs1
+num_nodes: 2
+device_type: gpu
+num_devices: 8
+gpu_type: h100-sxm
+resource_shape: "${device_type}.${num_devices}x${gpu_type}"
+
+############################################################
+# kratos info: where to log data
+############################################################
+kratos_subject: "convergence_tests_v0.0.3"
+
+############################################################
+# recipe identifiers
+# mostly used for logging and observability
+############################################################
+recipe_subdir: llama3_native_te
+model_type: llama3
+variant: train
+
+# Core identifiers for filtering
+framework: native
+precision: fp8
+te_enabled: true
+fp8_enabled: true
+cp_enabled: true
+thd_enabled: true
+
+# Catchall for additional features/configs
+extras: []
+
+############################################################
+# wandb info (total_gpus used for group name)
+############################################################
+total_gpus: ${multiply:${num_devices},${num_nodes}}
+
+wandb_init_args:
+  project: "test_convergence__recipes__${sanitize:${branch}}"
+  group: "${model_type}__${task_cmd}__${total_gpus}gpus__${sanitize:${gpu_type}}"
+  job_type: "${recipe_subdir}"
+  name: null
+
+############################################################
+# task commands
+# Matches the lingua 1B perf test run
+############################################################
+config: L2_lingua_1b
+task_cmd: train_fsdp2_cp
+
+# Training parameters
+num_train_steps: 10_000
+use_torch_compile: false
+use_meta_device: true
+use_sequence_packing: true
+grad_acc_steps: 4
+
+# Dataset parameters
+micro_batch_size: 8
+num_workers: 8
+dataset_path: /data/pstjohn/dclm-baseline-1.0-parquet
+pad_sequences_to_be_divisible_by: 32
+
+# Checkpoint controls
+ckpt_dir: null
+
+# Context parallelism
+cp_size: 2
+
+# FP8 config
+fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+
+############################################################
+# Job info
+############################################################
+job_name: "llama3-lingua-1b-fsdp2-cp-fp8"
+wandb_name: "llama3_lingua_1b__fsdp2__cp__fp8__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+
+############################################################
+# run script
+# This gets called right after `checkout_script` in the base config.
+############################################################
+run_script: |
+  wget -O init.sh https://raw.githubusercontent.com/leptonai/scripts/main/lepton_env_to_pytorch.sh;
+  chmod +x init.sh;
+  source init.sh;
+
+  HYDRA_FULL_ERROR=1 torchrun \
+    --nnodes=$NNODES \
+    --nproc_per_node=8 \
+    --node_rank=$NODE_RANK \
+    --master_addr=$MASTER_ADDR \
+    --master_port=29400 \
+    ${task_cmd}.py \
+    --config-name ${config}.yaml \
+    +wandb.mode=${wandb_init_args.mode} \
+    +wandb.project=${wandb_init_args.project} \
+    +wandb.job_type=${wandb_init_args.job_type} \
+    +wandb.name=${wandb_name} \
+    dataset.load_dataset_kwargs.path=${dataset_path} \
+    dataset.num_workers=${num_workers} \
+    dataset.micro_batch_size=${micro_batch_size} \
+    dataset.pad_sequences_to_be_divisible_by=${pad_sequences_to_be_divisible_by} \
+    num_train_steps=${num_train_steps} \
+    grad_acc_steps=${grad_acc_steps} \
+    +cp_size=${cp_size} \
+    checkpoint.ckpt_dir=${ckpt_dir} \
+    fp8_config.enabled=${fp8_enabled} \
+    fp8_config.fp8_recipe=${fp8_recipe} \
+    hydra.verbose=True
