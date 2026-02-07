@@ -380,7 +380,7 @@ def test_train_fsdp2_fp8_bshd(tmp_path, recipe_path):
     """Test that FSDP2 training works with FP8 enabled."""
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
-            config_name="L0_sanity",
+            config_name="L0_sanity_cp",
             overrides=[
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",

@@ -90,7 +90,9 @@ def get_te_model_checkpoint(tmp_path):
         The path to the saved model checkpoint.
     """
     # Use the 1B model for practical testing (8B model requires too much memory)
-    model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", dtype=torch.bfloat16)
+    model_hf = AutoModelForCausalLM.from_pretrained(
+        "meta-llama/Llama-3.2-1B-Instruct", revision="c731040f", dtype=torch.bfloat16
+    )
     model_te = convert_llama_hf_to_te(model_hf, attn_input_format="bshd", self_attn_mask_type="causal")
     model_te.save_pretrained(tmp_path / "te_model_checkpoint")
     return tmp_path / "te_model_checkpoint"
@@ -208,7 +210,7 @@ if __name__ == "__main__":
         model_ckpt = get_te_model_checkpoint(tmp_path)
 
         # Create tokenizer for English text (use the 1B model tokenizer)
-        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct")
+        tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B-Instruct", revision="c731040f")
         tokenizer.pad_token = tokenizer.eos_token
         input_data_bshd_dp0 = get_dummy_data_bshd_no_padding(tokenizer=tokenizer, seq_length=64)
 

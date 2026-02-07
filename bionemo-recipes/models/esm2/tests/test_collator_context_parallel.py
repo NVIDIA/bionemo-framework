@@ -1047,3 +1047,62 @@ def test_data_collator_for_context_parallel_bshd(tokenizer):
         assert set(shard.keys()) == required_keys, (
             f"CP rank {cp_rank}: expected keys {required_keys}, got {set(shard.keys())}"
         )
+
+
+def test_data_collator_for_context_parallel_with_tp(tokenizer):
+    """Test that DataCollatorForContextParallel duplicates batches for TP ranks when tp_world_size is set."""
+    cp_world_size = 2
+    tp_world_size = 2
+    divisibility_factor = 2 * cp_world_size
+
+    # Create the wrapped collator that produces padded THD batches
+    base_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.15),
+        pad_sequences_to_be_divisible_by=divisibility_factor,
+    )
+
+    # Create the context parallel collator with TP
+    cp_collator = DataCollatorForContextParallel(
+        collator=base_collator, cp_world_size=cp_world_size, tp_world_size=tp_world_size
+    )
+
+    # Create test sequences
+    features = [
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2]},  # 9 tokens
+    ]
+
+    # Call the collator
+    result = cp_collator(features)
+
+    # Assert that the result list has length cp_world_size * tp_world_size
+    expected_length = cp_world_size * tp_world_size
+    assert len(result) == expected_length, f"Expected list of size {expected_length}, got {len(result)}"
+
+    # Assert that batches are duplicated for TP ranks
+    # The structure should be: [cp0_tp0, cp0_tp1, cp1_tp0, cp1_tp1]
+    # So consecutive pairs should be identical for the same CP rank
+    for cp_rank in range(cp_world_size):
+        base_idx = cp_rank * tp_world_size
+        for tp_rank in range(1, tp_world_size):
+            # Compare each TP rank's batch with the first TP rank's batch for this CP rank
+            first_batch = result[base_idx]
+            current_batch = result[base_idx + tp_rank]
+
+            # Check that all keys are the same
+            assert set(first_batch.keys()) == set(current_batch.keys()), (
+                f"CP rank {cp_rank}, TP rank {tp_rank}: keys don't match"
+            )
+
+            # Check that tensor values are identical
+            for key in first_batch.keys():
+                if isinstance(first_batch[key], torch.Tensor):
+                    torch.testing.assert_close(
+                        first_batch[key],
+                        current_batch[key],
+                        msg=f"CP rank {cp_rank}, TP rank {tp_rank}: '{key}' tensors don't match",
+                    )
+                else:
+                    assert first_batch[key] == current_batch[key], (
+                        f"CP rank {cp_rank}, TP rank {tp_rank}: '{key}' values don't match"
+                    )
