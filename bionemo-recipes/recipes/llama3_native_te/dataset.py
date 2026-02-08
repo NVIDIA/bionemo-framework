@@ -14,10 +14,13 @@
 # limitations under the License.
 
 import logging
+import random
+from collections.abc import Iterator
+from typing import Any
 
 import datasets
 import datasets.distributed
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler, IterableDataset
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
 from transformers.data.data_collator import DataCollatorForLanguageModeling
@@ -33,6 +36,120 @@ from genomic_dataset import GenomicDataCollator
 logger = logging.getLogger(__name__)
 
 
+class InterleavedShuffleDataset(IterableDataset):
+    """Shuffle by interleaving data from multiple stream positions.
+
+    This provides pseudo-global shuffling for streaming datasets without requiring
+    a massive buffer. Instead of filling one buffer sequentially, we maintain
+    multiple smaller buffers that pull from different NON-OVERLAPPING regions of
+    the dataset, then sample across all buffers.
+
+    For a dataset with 1M windows (10 chunks x 100k items each, 5k buffer per chunk):
+    - Chunk 0 reads items [0, 100k), buffers 5k at a time
+    - Chunk 1 reads items [100k, 200k), buffers 5k at a time
+    - ...
+    - Chunk 9 reads items [900k, 1M), buffers 5k at a time
+    - Samples are drawn uniformly across all chunk buffers, mixing items from all regions.
+    """
+
+    def __init__(
+        self,
+        dataset: datasets.IterableDataset,
+        num_interleave_chunks: int = 10,
+        chunk_buffer_size: int = 5000,
+        skip_per_chunk: int | None = None,
+        seed: int = 42,
+    ):
+        """Initialize the interleaved shuffle dataset.
+
+        Args:
+            dataset: The underlying HuggingFace IterableDataset.
+            num_interleave_chunks: Number of non-overlapping regions to interleave from.
+            chunk_buffer_size: Buffer size per chunk (total memory = num_chunks x chunk_buffer_size items).
+            skip_per_chunk: Number of items per chunk region. Each chunk reads exactly this many items
+                from its region. If None, defaults to 50000 (total coverage = num_chunks x 50k).
+            seed: Random seed for shuffling. Incremented each epoch for different ordering.
+        """
+        self.dataset = dataset
+        self.num_interleave_chunks = num_interleave_chunks
+        self.chunk_buffer_size = chunk_buffer_size
+        self.skip_per_chunk = skip_per_chunk if skip_per_chunk is not None else 50000
+        self.seed = seed
+        self._epoch = 0
+
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        """Iterate with interleaved shuffling.
+
+        Each chunk reads a non-overlapping region of the dataset using skip/take.
+        Items are sampled uniformly across all chunk buffers for pseudo-global mixing.
+        """
+        # Use different seed each epoch for varied ordering
+        rng = random.Random(self.seed + self._epoch)
+        self._epoch += 1
+
+        # Create iterators for non-overlapping regions using skip + take
+        iterators: list[Iterator] = []
+        exhausted: list[bool] = []
+        for i in range(self.num_interleave_chunks):
+            skip_amount = i * self.skip_per_chunk
+            # Each chunk reads ONLY skip_per_chunk items from its region (no overlap)
+            chunk_iter = iter(self.dataset.skip(skip_amount).take(self.skip_per_chunk))
+            iterators.append(chunk_iter)
+            exhausted.append(False)
+
+        total_coverage = self.num_interleave_chunks * self.skip_per_chunk
+        logger.info(
+            f"InterleavedShuffleDataset: {self.num_interleave_chunks} chunks x "
+            f"{self.skip_per_chunk} items each = {total_coverage} total coverage, "
+            f"{self.chunk_buffer_size} buffer per chunk, epoch={self._epoch - 1}"
+        )
+
+        # Maintain a buffer for each chunk
+        buffers: list[list] = [[] for _ in range(self.num_interleave_chunks)]
+
+        # Initial fill: partially fill each buffer
+        for i in range(self.num_interleave_chunks):
+            self._fill_buffer(i, iterators, buffers, exhausted)
+
+        while True:
+            # Find non-empty buffers
+            non_empty = [i for i in range(self.num_interleave_chunks) if buffers[i]]
+            if not non_empty:
+                break
+
+            # Sample from a random non-empty buffer
+            chunk_idx = rng.choice(non_empty)
+            item_idx = rng.randrange(len(buffers[chunk_idx]))
+            yield buffers[chunk_idx].pop(item_idx)
+
+            # Refill this buffer if it's running low and iterator not exhausted
+            if not exhausted[chunk_idx] and len(buffers[chunk_idx]) < self.chunk_buffer_size // 2:
+                self._fill_buffer(chunk_idx, iterators, buffers, exhausted)
+
+    def _fill_buffer(
+        self,
+        chunk_idx: int,
+        iterators: list[Iterator],
+        buffers: list[list],
+        exhausted: list[bool],
+    ) -> None:
+        """Fill a chunk's buffer up to chunk_buffer_size.
+
+        Args:
+            chunk_idx: Index of the chunk to fill.
+            iterators: List of iterators for each chunk.
+            buffers: List of buffers for each chunk.
+            exhausted: List tracking whether each iterator is exhausted.
+        """
+        while len(buffers[chunk_idx]) < self.chunk_buffer_size:
+            try:
+                item = next(iterators[chunk_idx])
+                buffers[chunk_idx].append(item)
+            except StopIteration:
+                exhausted[chunk_idx] = True
+                break
+
+
 def create_tokenized_dataset(
     distributed_config: DistributedConfig,
     tokenizer_name_or_path: str,
@@ -44,6 +161,9 @@ def create_tokenized_dataset(
     tokenize_batch_size: int = 100,
     shuffle_sequences: bool = True,
     shuffle_windows: bool = False,
+    interleaved_shuffle: bool = False,
+    interleave_chunks: int = 10,
+    interleave_skip: int = 50_000,
 ):
     """Create a tokenized dataset with windowing.
 
@@ -62,6 +182,12 @@ def create_tokenized_dataset(
         shuffle_windows: Whether to shuffle windows after tokenization. This interleaves windows
             from different sequences for better batch diversity, but requires filling a buffer
             and can be slower. Default: False.
+        interleaved_shuffle: Whether to use interleaved shuffling for windows. This provides
+            pseudo-global shuffling by pulling from multiple stream positions simultaneously.
+            More memory-efficient than large buffer_size. Overrides shuffle_windows. Default: False.
+        interleave_chunks: Number of stream positions to interleave from. Default: 10.
+        interleave_skip: Number of windows to skip between chunk starting positions. Default: 50000.
+            With 10 chunks and 50k skip, covers first 500k windows of the dataset.
 
     Returns:
         Tuple of (tokenized_dataset, tokenizer).
@@ -109,11 +235,27 @@ def create_tokenized_dataset(
         batch_size=tokenize_batch_size,
         remove_columns=[text_column],
     )
-    if shuffle_windows and isinstance(tokenized_dataset, datasets.IterableDataset):
-        # Shuffle after windowing to interleave windows from different sequences for better batch diversity.
-        # Note: This requires filling a buffer of size `buffer_size` before training starts, which can be slow.
-        logger.info(f"Shuffling windows with buffer_size={buffer_size}")
-        tokenized_dataset = tokenized_dataset.shuffle(seed=42, buffer_size=buffer_size)
+
+    # Apply window shuffling if enabled
+    if isinstance(tokenized_dataset, datasets.IterableDataset):
+        if interleaved_shuffle:
+            # Interleaved shuffle: pull from multiple stream positions for pseudo-global coverage
+            # This is more memory-efficient than a massive buffer
+            logger.info(
+                f"Using interleaved window shuffle: {interleave_chunks} chunks, "
+                f"{buffer_size // interleave_chunks} buffer per chunk, {interleave_skip} skip between chunks"
+            )
+            tokenized_dataset = InterleavedShuffleDataset(
+                tokenized_dataset,
+                num_interleave_chunks=interleave_chunks,
+                chunk_buffer_size=buffer_size // interleave_chunks,
+                skip_per_chunk=interleave_skip,
+                seed=42,
+            )
+        elif shuffle_windows:
+            # Standard buffer shuffle (limited to buffer_size items mixing)
+            logger.info(f"Shuffling windows with buffer_size={buffer_size}")
+            tokenized_dataset = tokenized_dataset.shuffle(seed=42, buffer_size=buffer_size)
 
     # Even in THD mode, we use a base MLM collator that requires a padding token to be set.
     if tokenizer.pad_token is None:
@@ -141,6 +283,9 @@ def create_bshd_dataloader(
     pad_sequences_to_be_divisible_by: int | None = None,
     shuffle_sequences: bool = True,
     shuffle_windows: bool = False,
+    interleaved_shuffle: bool = False,
+    interleave_chunks: int = 10,
+    interleave_skip: int = 50_000,
 ):
     """Create a BSHD dataloader for llama3 pre-training.
 
@@ -165,6 +310,10 @@ def create_bshd_dataloader(
             but windows from the same sequence remain consecutive. Fast. Default: True.
         shuffle_windows: Whether to shuffle windows after tokenization. Interleaves windows from different
             sequences for better batch diversity, but can be slower. Default: False.
+        interleaved_shuffle: Whether to use interleaved shuffling for pseudo-global window coverage.
+            More memory-efficient than large buffer_size. Overrides shuffle_windows. Default: False.
+        interleave_chunks: Number of stream positions to interleave from. Default: 10.
+        interleave_skip: Windows to skip between chunk starting positions. Default: 50000.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -180,9 +329,12 @@ def create_bshd_dataloader(
         tokenize_batch_size=micro_batch_size * prefetch_factor,
         shuffle_sequences=shuffle_sequences,
         shuffle_windows=shuffle_windows,
+        interleaved_shuffle=interleaved_shuffle,
+        interleave_chunks=interleave_chunks,
+        interleave_skip=interleave_skip,
     )
 
-    if isinstance(tokenized_dataset, datasets.IterableDataset):
+    if isinstance(tokenized_dataset, (datasets.IterableDataset, InterleavedShuffleDataset)):
         sampler = None
     else:
         sampler = DistributedSampler(
@@ -249,6 +401,9 @@ def create_thd_dataloader(
     pad_sequences_to_be_divisible_by: int | None = None,
     shuffle_sequences: bool = True,
     shuffle_windows: bool = False,
+    interleaved_shuffle: bool = False,
+    interleave_chunks: int = 10,
+    interleave_skip: int = 50_000,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
 
@@ -277,6 +432,10 @@ def create_thd_dataloader(
             but windows from the same sequence remain consecutive. Fast. Default: True.
         shuffle_windows: Whether to shuffle windows after tokenization. Interleaves windows from different
             sequences for better batch diversity, but can be slower. Default: False.
+        interleaved_shuffle: Whether to use interleaved shuffling for pseudo-global window coverage.
+            More memory-efficient than large buffer_size. Overrides shuffle_windows. Default: False.
+        interleave_chunks: Number of stream positions to interleave from. Default: 10.
+        interleave_skip: Windows to skip between chunk starting positions. Default: 50000.
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -291,9 +450,14 @@ def create_thd_dataloader(
         text_column=text_column,
         shuffle_sequences=shuffle_sequences,
         shuffle_windows=shuffle_windows,
+        interleaved_shuffle=interleaved_shuffle,
+        interleave_chunks=interleave_chunks,
+        interleave_skip=interleave_skip,
     )
 
-    assert isinstance(tokenized_dataset, datasets.IterableDataset), "THD token packing requires a streaming dataset."
+    assert isinstance(tokenized_dataset, (datasets.IterableDataset, InterleavedShuffleDataset)), (
+        "THD token packing requires a streaming dataset."
+    )
     if token_micro_batch_size is None:
         assert micro_batch_size is not None, "Only one of micro_batch_size or token_micro_batch_size can be provided."
         token_micro_batch_size = micro_batch_size * max_seq_length

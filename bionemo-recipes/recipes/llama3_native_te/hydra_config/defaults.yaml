@@ -37,9 +37,13 @@ dataset:
   num_workers: 4
   max_seq_length: 8192 # Window size for genomic sequences
   stride: 200 # Overlap for windowing
-  buffer_size: 50_000 # Shuffle buffer size for both sequence and window shuffling
+  buffer_size: 50_000 # Shuffle buffer size for sequence/window shuffling
   shuffle_sequences: true # Shuffle raw sequences before windowing (fast, recommended)
-  shuffle_windows: false # Shuffle windows after tokenization for better batch diversity (slower)
+  shuffle_windows: false # Shuffle windows after tokenization (uses buffer_size, can be slow/memory-heavy)
+  # Interleaved shuffle: pseudo-global window coverage without massive memory cost
+  interleaved_shuffle: false # Use interleaved shuffling (overrides shuffle_windows)
+  interleave_chunks: 10 # Number of stream positions to interleave from
+  interleave_skip: 50_000 # Windows to skip between chunk starting positions (10 chunks × 50k = 500k coverage)
   use_stateful_dataloader: false # Until https://github.com/pytorch/pytorch/pull/163102 is resolved with torchdata.
   pad_sequences_to_be_divisible_by: null
   load_dataset_kwargs:
