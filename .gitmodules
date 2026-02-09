@@ -4,3 +4,5 @@
 [submodule "3rdparty/NeMo"]
 	path = 3rdparty/NeMo
 	url = https://github.com/NVIDIA-NeMo/NeMo.git
+[submodule "bionemo-framework"]
+	url = https://github.com/cyan-ding/bionemo-framework
