@@ -279,14 +279,15 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         super().__init__(config)
         self.model = NVLlamaModel(config)
         self.vocab_size = config.vocab_size
-        self.lm_head = transformer_engine.pytorch.Linear(
-            config.hidden_size,
-            config.vocab_size,
-            bias=False,
-            params_dtype=config.dtype,
-            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
-            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
-        )
+        with transformer_engine.pytorch.quantized_model_init(enabled=False):
+            self.lm_head = transformer_engine.pytorch.Linear(
+                config.hidden_size,
+                config.vocab_size,
+                bias=False,
+                params_dtype=config.dtype,
+                device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+                init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
+            )
 
         # Initialize weights and apply final processing
         self.post_init()

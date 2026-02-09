@@ -26,6 +26,7 @@ from typing import Callable, Dict, List, Literal, Type
 
 import pytest
 import torch
+import transformer_engine.pytorch
 import transformers
 from torch import nn
 from transformers import (
@@ -40,7 +41,7 @@ from transformers import (
 from collator import DataCollatorWithFlattening
 from convert import convert_llama_hf_to_te, convert_llama_te_to_hf
 from modeling_llama_te import HFInferenceParams, NVLlamaConfig, NVLlamaForCausalLM
-from tests.common import BaseModelTest, TestTolerances
+from tests.common import HAS_DATA_CENTER_GPU, BaseModelTest, TestTolerances
 
 
 class TestLlama3Model(BaseModelTest):
@@ -161,6 +162,46 @@ class TestLlama3Model(BaseModelTest):
             compare_logits=True,
             compare_hidden_states=False,
         )
+
+    @pytest.mark.parametrize("tie_word_embeddings", [True, False])
+    def test_quantized_model_init_forward_and_backward(self, fp8_recipe, input_format, tie_word_embeddings):  # pyright: ignore[reportIncompatibleMethodOverride]
+        """There was a weird bug in BIO-217 on tied weights with quantized model init, so we test both cases."""
+        if input_format == "thd" and not HAS_DATA_CENTER_GPU:
+            pytest.xfail("Padded sequences are not supported on non-datacenter hardware for THD.")
+
+        model_class = self.get_model_class()
+        config = self.create_test_config(
+            attn_input_format=input_format,
+            self_attn_mask_type="padding_causal",
+            tie_word_embeddings=tie_word_embeddings,
+        )
+
+        # Initialize with FP8
+        with transformer_engine.pytorch.quantized_model_init(recipe=fp8_recipe):
+            model = model_class(config)
+
+        model.to("cuda")
+        model.eval()
+
+        # Prepare input data
+        input_data = self.get_test_input_data(input_format, pad_to_multiple_of=32)
+        if "labels" not in input_data:
+            input_data["labels"] = input_data["input_ids"].clone()
+
+        # Forward and backward pass with FP8
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            with transformer_engine.pytorch.autocast(recipe=fp8_recipe):
+                outputs = model(**input_data)
+
+        loss = outputs.loss
+        assert torch.isfinite(loss)
+
+        loss.backward()
+
+        # Verify gradients exist
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                assert param.grad is not None, f"Parameter {name} has no gradient after FP8 backward pass"
 
 
 # NOTE: Keeping remaining LLaMA-specific tests (inference, generation, etc.) unchanged

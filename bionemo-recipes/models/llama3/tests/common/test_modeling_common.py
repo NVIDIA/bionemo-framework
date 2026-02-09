@@ -15,6 +15,7 @@
 
 """Common test class for BioNeMo models, following HuggingFace transformers patterns."""
 
+import gc
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -410,6 +411,15 @@ class BaseModelTest(ABC):
                 )
 
     @pytest.fixture(autouse=True, scope="function")
+    def clear_gpu_memory(self):
+        """Clear GPU memory before and after each test to prevent OOM from fragmentation."""
+        gc.collect()
+        torch.cuda.empty_cache()
+        yield
+        gc.collect()
+        torch.cuda.empty_cache()
+
+    @pytest.fixture(autouse=True, scope="function")
     def set_seed(self):
         set_seed(42)
 
@@ -611,13 +621,32 @@ class BaseModelTest(ABC):
         type(self)._tmp_dir = tmp_path_factory.mktemp(self.__class__.__name__)
 
     def get_converted_te_model_checkpoint(self) -> Path:
-        """Get the path to the converted TE model checkpoint."""
+        """Get the path to the converted TE model checkpoint.
+
+        This method manages GPU memory carefully to support large models:
+        1. Load and convert the HF model
+        2. Free the HF model before saving
+        3. Move TE model to CPU before saving (save_pretrained clones state dict internally)
+        """
         model_hf = self.get_reference_model()
         convert_fn = self.get_hf_to_te_converter()
         model_te = convert_fn(model_hf)
-        model_te.to("cuda")
-        checkpoint_path = self._tmp_dir / "converted_te_model"
+
+        # Free source model to reduce peak GPU memory
+        del model_hf
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # Move to CPU before saving - save_pretrained internally clones the state dict,
+        # which would double GPU memory usage and OOM for large models.
+        model_te.to("cpu")
+
+        checkpoint_path: Path = self._tmp_dir / "converted_te_model"
         model_te.save_pretrained(checkpoint_path)
+
+        del model_te
+        gc.collect()
+
         return checkpoint_path
 
     def get_converted_te_model(self, **kwargs) -> PreTrainedModel:
@@ -633,25 +662,37 @@ class BaseModelTest(ABC):
     # ==================== Golden Value Tests ====================
 
     def test_golden_values(self):
-        """Test that TE model outputs match HF reference model."""
-        model_hf = self.get_reference_model(dtype=torch.bfloat16)
-        model_te = self.get_converted_te_model(dtype=torch.bfloat16)
+        """Test that TE model outputs match HF reference model.
 
-        model_hf.eval()
-        model_te.eval()
-
-        # Prepare input data
+        Models are run sequentially and freed between runs to support large models
+        that cannot fit two copies on a single GPU simultaneously.
+        """
         input_data = self.get_test_input_data("bshd")
 
-        # Run forward pass
+        # Run HF model first, then free it
+        model_hf = self.get_reference_model(dtype=torch.bfloat16)
+        model_hf.eval()
+        with torch.no_grad():
+            hf_outputs = model_hf(**input_data)
+        hf_loss = hf_outputs.loss.detach().clone()
+        hf_logits = hf_outputs.logits.detach().clone()
+        del model_hf, hf_outputs
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        # Load and run TE model
+        model_te = self.get_converted_te_model(dtype=torch.bfloat16)
+        model_te.eval()
         with torch.no_grad():
             te_outputs = model_te(**input_data)
-            hf_outputs = model_hf(**input_data)
+        del model_te
+        gc.collect()
+        torch.cuda.empty_cache()
 
         # Compare outputs
         self.compare_outputs(
             te_outputs,
-            hf_outputs,
+            type("HFOutputs", (), {"loss": hf_loss, "logits": hf_logits})(),
             input_data,
             compare_loss=True,
             compare_logits=True,
@@ -680,18 +721,23 @@ class BaseModelTest(ABC):
         labels_thd = input_data_thd["labels"].flatten(0)
         torch.testing.assert_close(labels_bshd[labels_thd != -100], labels_thd[labels_thd != -100])
 
+        # Run models sequentially to support large models that cannot fit two copies on GPU
         model_bshd = self.get_converted_te_model(attn_input_format="bshd", dtype=torch.bfloat16)
-        model_thd = self.get_converted_te_model(attn_input_format="thd", dtype=torch.bfloat16)
-
         model_bshd.eval()
-        model_thd.eval()
-
         with torch.inference_mode():
             outputs_bshd = model_bshd(**input_data_bshd)
+        bshd_loss = outputs_bshd.loss.detach().clone()
+        bshd_logits = outputs_bshd.logits[input_data_bshd["attention_mask"].to(bool)].detach().clone()
+        del model_bshd, outputs_bshd
+        gc.collect()
+        torch.cuda.empty_cache()
+
+        model_thd = self.get_converted_te_model(attn_input_format="thd", dtype=torch.bfloat16)
+        model_thd.eval()
+        with torch.inference_mode():
             outputs_thd = model_thd(**input_data_thd)
 
         # Compare logits
-        bshd_logits = outputs_bshd.logits[input_data_bshd["attention_mask"].to(bool)]
         torch.testing.assert_close(
             bshd_logits,
             outputs_thd.logits,
@@ -701,7 +747,7 @@ class BaseModelTest(ABC):
 
         # Compare losses
         torch.testing.assert_close(
-            outputs_bshd.loss,
+            bshd_loss,
             outputs_thd.loss,
             atol=tolerances.golden_value_loss_atol,
             rtol=tolerances.golden_value_loss_rtol,
