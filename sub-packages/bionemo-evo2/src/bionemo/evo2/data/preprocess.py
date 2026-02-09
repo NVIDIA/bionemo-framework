@@ -43,6 +43,7 @@ from bionemo.evo2.utils.config import Evo2PreprocessingConfig, Evo2TaxonomyLinea
 from bionemo.noodles import back_transcribe_sequence, complement_sequence, reverse_sequence, transcribe_sequence
 from bionemo.noodles.nvfaidx import NvFaidx
 
+from alignment_utils import compute_polio_alignment, get_alignment_token
 
 class Evo2Preprocessor:
     """Data preprocessing class for Evo2."""
@@ -265,6 +266,13 @@ class Evo2Preprocessor:
                 if config.nnn_filter and "NNN" in seq.upper():
                     continue
 
+                alignment_token = ""
+                if config.polio_reference_path is not None:
+                    alignment_score = compute_polio_alignment(seq, config.polio_reference_path)
+                    alignment_token = get_alignment_token(alignment_score)
+    
+                if alignment_token:
+                    seq = alignment_token + seq
                 # Construct taxonomy token with random dropout on the lineage categories per sequence.
                 taxonomy_token = self._construct_taxonomy_token(lineage, dropout=config.random_lineage_dropout)
 

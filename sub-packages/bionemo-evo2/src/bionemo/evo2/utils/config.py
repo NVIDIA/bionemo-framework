@@ -99,3 +99,4 @@ class Evo2PreprocessingConfig(BaseModel):
     taxonomy_data: dict[str, Evo2TaxonomyLineage] = {}
     # Periodicity of injecting phylogenetic lineage tags in the sequence prior to tokenization.
     prompt_spacer_length: int = 131072
+    polio_reference_path: None | Path = None

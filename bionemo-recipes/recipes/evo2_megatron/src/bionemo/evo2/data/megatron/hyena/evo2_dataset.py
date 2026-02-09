@@ -35,7 +35,7 @@ class Evo2Dataset(GPTDataset):
         94,   # '^' - 80-95% alignment
         36,   # '$' - 50-70% alignment
         33,   # '!' - <50% alignment
-    ]  
+    ]
     TAG_BOUNDS = 124  # start and end delim: '|'
     TAG_CHARS: ClassVar[set[int]] = {95, 59, 32}  # chars only found in control tags: _, ;, space
     DEFAULT_EOD = 0
