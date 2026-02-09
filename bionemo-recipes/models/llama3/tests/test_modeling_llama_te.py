@@ -13,22 +13,158 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Tests for LLaMA3 model.
+
+This file provides comprehensive tests for the LLaMA3 model including:
+- Common tests from the test library (meta device init, golden values, conversion, FP8)
+- LLaMA-specific tests (inference, generation, THD inputs, etc.)
+"""
+
 import gc
 import os
+from typing import Callable, Dict, List, Literal, Type
 
 import pytest
 import torch
-from transformer_engine.pytorch.attention import InferenceParams
+import transformers
+from torch import nn
 from transformers import (
-    AutoConfig,
     AutoModelForCausalLM,
     AutoTokenizer,
-    DataCollatorWithFlattening,
-    set_seed,
+    DataCollatorForLanguageModeling,
+    PretrainedConfig,
+    PreTrainedModel,
+    PreTrainedTokenizer,
 )
 
-from convert import convert_llama_hf_to_te
+from collator import DataCollatorWithFlattening
+from convert import convert_llama_hf_to_te, convert_llama_te_to_hf
 from modeling_llama_te import HFInferenceParams, NVLlamaConfig, NVLlamaForCausalLM
+from tests.common import BaseModelTest, TestTolerances
+
+
+class TestLlama3Model(BaseModelTest):
+    """Model tester for LLaMA3.
+
+    This class provides LLaMA3-specific configuration for the common test suite.
+    """
+
+    def get_model_class(self) -> Type[PreTrainedModel]:
+        """Return the LLaMA3 TE model class."""
+        return NVLlamaForCausalLM
+
+    def get_config_class(self) -> Type[PretrainedConfig]:
+        """Return the LLaMA3 config class."""
+        return NVLlamaConfig
+
+    def get_upstream_model_id(self) -> str:
+        """Return the upstream HuggingFace model ID."""
+        # Use smaller 1B model for testing
+        return "meta-llama/Llama-3.2-1B-Instruct"
+
+    def get_upstream_model_revision(self) -> str:
+        """Return the specific revision for the upstream model."""
+        return "9213176"
+
+    def get_tokenizer(self) -> PreTrainedTokenizer:
+        """Return the LLaMA3 tokenizer."""
+        tokenizer = AutoTokenizer.from_pretrained(self.get_upstream_model_id())
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        return tokenizer
+
+    def get_upstream_model_class(self) -> Type[PreTrainedModel]:
+        """Return the upstream HuggingFace model class."""
+        return transformers.models.llama.modeling_llama.LlamaForCausalLM
+
+    def create_test_config(self, **kwargs) -> PretrainedConfig:
+        # Limit the number of hidden layers to 2 for faster tests.
+        return super().create_test_config(num_hidden_layers=2, **kwargs)
+
+    def get_layer_path(self, model: PreTrainedModel) -> List[nn.Module]:
+        """Return the list of transformer layers."""
+        return list(model.model.layers)  # type: ignore
+
+    def get_test_input_data(
+        self, format: Literal["bshd", "thd"] = "bshd", pad_to_multiple_of: int | None = None
+    ) -> Dict[str, torch.Tensor]:
+        """Prepare test input data (text sequences)."""
+        tokenizer = self.get_tokenizer()
+        # Use text sequences
+        test_texts = [
+            "Unless required by applicable law or agreed to in writing, software distributed under the License.",
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt.",
+            "The quick brown fox jumps over the lazy dog.",
+        ]
+
+        # Set pad token if not already set
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+
+        data_collator = DataCollatorForLanguageModeling(
+            tokenizer=tokenizer,
+            pad_to_multiple_of=pad_to_multiple_of,
+            mlm=False,
+        )
+
+        if format == "thd":
+            data_collator = DataCollatorWithFlattening(
+                collator=data_collator,
+                pad_sequences_to_be_divisible_by=pad_to_multiple_of,
+                separator_id=-100,
+            )
+
+        # Move to device
+        batch = data_collator([tokenizer(text) for text in test_texts])
+        return {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+
+    def get_hf_to_te_converter(self) -> Callable:
+        """Return the HF to TE conversion function."""
+        return convert_llama_hf_to_te
+
+    def get_te_to_hf_converter(self) -> Callable:
+        """Return the TE to HF conversion function."""
+        return convert_llama_te_to_hf
+
+    def get_tolerances(self) -> TestTolerances:
+        """Return LLaMA3-specific test tolerances."""
+        return TestTolerances(
+            golden_value_loss_atol=5e-3,
+            golden_value_loss_rtol=0.01,
+            golden_value_logits_atol=1.5,
+            golden_value_logits_rtol=0.01,
+            # Higher CP tolerances due to causal LM boundary effects
+            cp_loss_atol=0.5,
+            cp_loss_rtol=0.25,
+        )
+
+    # ==================== LLaMA3-Specific Tests ====================
+    def test_golden_values(self, input_format):  # pyright: ignore[reportIncompatibleMethodOverride]
+        """For llama3, we can test both the dynamic sequence packing and native bshd attention formats."""
+        model_hf = self.get_reference_model(dtype=torch.bfloat16)
+        model_te = self.get_converted_te_model(attn_input_format=input_format, dtype=torch.bfloat16)
+
+        # Prepare input data
+        input_data = self.get_test_input_data("bshd")
+
+        # Run forward pass
+        with torch.no_grad():
+            te_outputs = model_te(**input_data)
+            hf_outputs = model_hf(**input_data)
+
+        # Compare outputs
+        self.compare_outputs(
+            te_outputs,
+            hf_outputs,
+            input_data,
+            compare_loss=True,
+            compare_logits=True,
+            compare_hidden_states=False,
+        )
+
+
+# NOTE: Keeping remaining LLaMA-specific tests (inference, generation, etc.) unchanged
+# These tests are specific to causal LM functionality and don't have ESM2 equivalents
 
 
 @pytest.fixture
@@ -47,182 +183,12 @@ def input_text():
     )
 
 
-@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
-def test_llama_model_forward_pass(input_text, attn_input_format):
-    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8", revision="42d9515")
-    config = NVLlamaConfig.from_pretrained(
-        "nvidia/Llama-3.1-8B-Instruct-FP8",
-        num_hidden_layers=2,
-        attn_input_format=attn_input_format,
-        revision="42d9515",
-    )
-    model = NVLlamaForCausalLM(config)
-
-    inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="right")
-    inputs = {k: v.to("cuda") for k, v in inputs.items()}
-    model.to("cuda")
-    with torch.no_grad():
-        outputs = model(**inputs, output_hidden_states=True)
-
-    assert outputs.logits is not None
-    assert outputs.hidden_states is not None
-    assert len(outputs.hidden_states) == config.num_hidden_layers + 1
-
-
-def test_llama_model_forward_pass_no_attention_mask():
-    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8", revision="42d9515")
-    config = NVLlamaConfig.from_pretrained(
-        "nvidia/Llama-3.1-8B-Instruct-FP8",
-        num_hidden_layers=2,
-        attn_input_format="bshd",
-        self_attn_mask_type="causal",
-        revision="42d9515",
-    )
-    model = NVLlamaForCausalLM(config)
-
-    input_text = ["Hello, world!"]
-    inputs = tokenizer(input_text, return_tensors="pt")
-    inputs = {k: v.to("cuda") for k, v in inputs.items() if k != "attention_mask"}
-    model.to("cuda")
-    with torch.no_grad():
-        outputs = model(**inputs, output_hidden_states=True)
-
-    assert outputs.logits is not None
-    assert outputs.hidden_states is not None
-    assert len(outputs.hidden_states) == config.num_hidden_layers + 1
-
-
-@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
-def test_llama_model_backward_pass(input_text, attn_input_format):
-    if attn_input_format == "thd" and torch.cuda.get_device_capability()[0] == 12:
-        pytest.xfail("BIONEMO-3294: CUDNN backward pass is not supported for THD inputs on SM120.")
-
-    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8", revision="42d9515")
-    config = NVLlamaConfig.from_pretrained(
-        "nvidia/Llama-3.1-8B-Instruct-FP8",
-        num_hidden_layers=2,
-        attn_input_format=attn_input_format,
-        revision="42d9515",
-    )
-    model = NVLlamaForCausalLM(config)
-
-    inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="right")
-    inputs = {k: v.to("cuda") for k, v in inputs.items()}
-    model.to("cuda")
-    outputs = model(**inputs, output_hidden_states=True)
-    outputs.logits.mean().backward()
-
-    for param in model.parameters():
-        assert param.grad is not None
-
-
-def test_llama_model_forward_pass_thd_inputs(input_text):
-    tokenizer = AutoTokenizer.from_pretrained("nvidia/Llama-3.1-8B-Instruct-FP8", revision="42d9515")
-    config = NVLlamaConfig.from_pretrained(
-        "nvidia/Llama-3.1-8B-Instruct-FP8",
-        attn_input_format="thd",
-        num_hidden_layers=2,
-        revision="42d9515",
-    )
-    model = NVLlamaForCausalLM(config)
-
-    inputs = [tokenizer(text) for text in input_text]
-    data_collator = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
-    collated_inputs = data_collator(inputs)
-    collated_inputs = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in collated_inputs.items()}
-    model.to("cuda")
-    with torch.no_grad():
-        outputs = model(**collated_inputs, output_hidden_states=True)
-
-    assert outputs.logits is not None
-    assert outputs.hidden_states is not None
-    assert len(outputs.hidden_states) == config.num_hidden_layers + 1
-
-
-@pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
-@pytest.mark.parametrize(
-    "upstream_model_name", ["meta-llama/Llama-3.2-1B-Instruct", "meta-llama/Llama-3.1-8B-Instruct"]
-)
-@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
-def test_llama_model_golden_values(input_text, upstream_model_name: str, attn_input_format: str):
-    tokenizer = AutoTokenizer.from_pretrained(upstream_model_name)
-    model_hf = AutoModelForCausalLM.from_pretrained(upstream_model_name, dtype=torch.bfloat16)
-
-    model_te = convert_llama_hf_to_te(model_hf, attn_input_format=attn_input_format)
-
-    tokenizer.pad_token = tokenizer.eos_token
-    # TODO: figure out padding_side="left" with TE, make this several tests with different input types.
-    inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="right")
-    inputs = {k: v.to("cuda") for k, v in inputs.items()}
-    labels = inputs["input_ids"].clone()
-    labels[labels == tokenizer.pad_token_id] = -100
-    model_hf.to("cuda")
-    with torch.no_grad():
-        outputs_hf = model_hf(**inputs, labels=labels, output_hidden_states=True)
-
-    del model_hf
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    model_te.to("cuda")
-    with torch.no_grad():
-        outputs_te = model_te(**inputs, labels=labels, output_hidden_states=True)
-
-    torch.testing.assert_close(outputs_te.loss, outputs_hf.loss, atol=5e-3, rtol=2e-3)
-    torch.testing.assert_close(
-        outputs_te.logits[inputs["attention_mask"].to(bool)],
-        outputs_hf.logits[inputs["attention_mask"].to(bool)],
-        atol=1.5,
-        rtol=0.01,
-    )
-
-
-@pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
-def test_llama_model_golden_values_thd_inputs(input_text):
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
-    model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
-    model_te = convert_llama_hf_to_te(model_hf, attn_input_format="thd")
-    model_te_bshd = convert_llama_hf_to_te(model_hf, attn_input_format="bshd")
-    del model_hf
-
-    tokenizer.pad_token = tokenizer.eos_token
-    # TODO: figure out padding_side="left" with TE, make this several tests with different input types.
-    inputs_bshd = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="right")
-    inputs_bshd = {k: v.to("cuda") for k, v in inputs_bshd.items()}
-    labels = inputs_bshd["input_ids"].clone()
-    labels[labels == tokenizer.pad_token_id] = -100
-    model_te_bshd.to("cuda")
-    with torch.no_grad():
-        outputs_bshd = model_te_bshd(**inputs_bshd, labels=labels, output_hidden_states=True)
-
-    del model_te_bshd
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    inputs_thd = [tokenizer(text) for text in input_text]
-    data_collator = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
-    collated_inputs = data_collator(inputs_thd)
-    collated_inputs = {k: v.to("cuda") if isinstance(v, torch.Tensor) else v for k, v in collated_inputs.items()}
-
-    model_te.to("cuda")
-    with torch.no_grad():
-        outputs_thd = model_te(**collated_inputs, output_hidden_states=True)
-
-    torch.testing.assert_close(outputs_thd.loss, outputs_bshd.loss, atol=5e-3, rtol=2e-3)
-    torch.testing.assert_close(
-        outputs_thd.logits,
-        outputs_bshd.logits[inputs_bshd["attention_mask"].to(bool)],
-        atol=1.0,
-        rtol=0.01,
-    )
-
-
 @pytest.mark.skipif(os.getenv("CI", "false") == "true", reason="Skipping test in CI not download llama3 model.")
 def test_llama_model_golden_values_padding_left(input_text):
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
     model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
 
-    model_te = convert_llama_hf_to_te(model_hf)
+    model_te = convert_llama_hf_to_te(model_hf, attn_input_format="thd")
 
     tokenizer.pad_token = tokenizer.eos_token
     inputs = tokenizer(input_text, return_tensors="pt", padding=True, padding_side="left")
@@ -280,7 +246,7 @@ def test_hf_llama_model_generate_bshd():
 def test_te_llama_model_generate_with_cache():
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
     model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
-    model_te = convert_llama_hf_to_te(model_hf, self_attn_mask_type="padding_causal")
+    model_te = convert_llama_hf_to_te(model_hf, attn_input_format="thd", self_attn_mask_type="padding_causal")
 
     prompt = """
    Licensed under the Apache License, Version 2.0 (the "License");
@@ -291,7 +257,7 @@ def test_te_llama_model_generate_with_cache():
     inputs = {k: v.to("cuda") for k, v in inputs.items()}
     model_te.to("cuda")
 
-    past_key_values = InferenceParams(
+    past_key_values = HFInferenceParams(
         max_batch_size=1,
         max_sequence_length=256,
         num_heads_kv=model_te.config.num_key_value_heads,
@@ -315,7 +281,7 @@ def test_te_llama_model_generate_with_cache():
 def test_te_llama_model_generate_with_cache_bshd():
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
     model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
-    model_te = convert_llama_hf_to_te(model_hf)
+    model_te = convert_llama_hf_to_te(model_hf, attn_input_format="thd")
 
     prompt = (
         """
@@ -330,7 +296,7 @@ def test_te_llama_model_generate_with_cache_bshd():
     inputs = {k: v.to("cuda") for k, v in inputs.items()}
     model_te.to("cuda")
 
-    past_key_values = InferenceParams(
+    past_key_values = HFInferenceParams(
         max_batch_size=2,
         max_sequence_length=256,
         num_heads_kv=model_te.config.num_key_value_heads,
@@ -360,7 +326,7 @@ def test_te_llama_model_generate_with_cache_bshd():
 def test_te_llama_model_generate_with_cache_bshd_beam_search():
     tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.1-8B-Instruct")
     model_hf = AutoModelForCausalLM.from_pretrained("meta-llama/Llama-3.1-8B-Instruct", dtype=torch.bfloat16)
-    model_te = convert_llama_hf_to_te(model_hf)
+    model_te = convert_llama_hf_to_te(model_hf, attn_input_format="thd")
 
     prompt = (
         """
@@ -403,68 +369,3 @@ def test_te_llama_model_generate_with_cache_bshd_beam_search():
     generated_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
     assert "http://www.apache.org/licenses/LICENSE-2.0" in generated_text[0]
     assert "et dolore magna aliqua. Ut enim ad minim " in generated_text[1]
-
-
-@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
-def test_loss_with_random_weights_for_input_gene_sequence(recipe_path, attn_input_format: str):
-    set_seed(42)
-    tokenizer = AutoTokenizer.from_pretrained(recipe_path / "nucleotide_fast_tokenizer")
-    input_text = "GCACGGTCTGCACCACCGTCTGCCCGGTCAGCGGCGTTAACCCGCGCTATCCCGGTCCGAAACAGGCCGGGCCGGACGGCGAGCGCCTTCGTCTGAAGGA"
-
-    inputs = tokenizer(input_text, return_tensors="pt")
-    inputs = {k: v.to("cuda") for k, v in inputs.items()}
-    labels = inputs["input_ids"].clone()
-
-    # This unsloth config is identical to the meta-llama/Llama-3.2-1B config, but is available in CI without having to
-    # sign the EULA. Since we don't need any weights here, we can just use this model tag instead.
-    config = AutoConfig.from_pretrained("unsloth/Llama-3.2-1B-Instruct")
-    model_hf = AutoModelForCausalLM.from_config(config)
-
-    model_hf.to("cuda")
-    with torch.no_grad():
-        outputs_hf = model_hf(**inputs, labels=labels, output_hidden_states=True)
-    loss_hf = outputs_hf.loss
-
-    del model_hf
-    gc.collect()
-    torch.cuda.empty_cache()
-
-    config_te = NVLlamaConfig.from_pretrained("unsloth/Llama-3.2-1B-Instruct", attn_input_format=attn_input_format)
-    model_te = NVLlamaForCausalLM(config_te)
-
-    model_te.to("cuda")
-    with torch.no_grad():
-        outputs_te = model_te(**inputs, labels=labels, output_hidden_states=True)
-    loss_te = outputs_te.loss
-
-    torch.testing.assert_close(loss_te, loss_hf, atol=0.5, rtol=0.05)
-
-
-@pytest.mark.parametrize("attn_input_format", ["thd", "bshd"])
-def test_loss_with_random_weights_similar_grad_norms(recipe_path, attn_input_format: str):
-    tokenizer = AutoTokenizer.from_pretrained(recipe_path / "nucleotide_fast_tokenizer")
-    input_text = "GCACGGTCTGCACCACCGTCTGCCCGGTCAGCGGCGTTAACCCGCGCTATCCCGGTCCGAAACAGGCCGGGCCGGACGGCGAGCGCCTTCGTCTGAAGGA"
-
-    inputs = tokenizer(input_text, return_tensors="pt")
-    inputs = {k: v.to("cuda") for k, v in inputs.items()}
-    labels = inputs["input_ids"].clone()
-
-    config = AutoConfig.from_pretrained("unsloth/Llama-3.2-1B-Instruct")
-    model_hf = AutoModelForCausalLM.from_config(config)
-    model_te = convert_llama_hf_to_te(model_hf, attn_input_format=attn_input_format)
-
-    model_hf.to("cuda")
-    model_hf.train()
-    outputs_hf = model_hf(**inputs, labels=labels, output_hidden_states=True)
-    loss_hf = outputs_hf.loss
-    loss_hf.backward()
-    grad_norm_hf = torch.nn.utils.clip_grad_norm_(model_hf.parameters(), max_norm=float("inf"))
-
-    model_te.to("cuda")
-    model_te.train()
-    outputs_te = model_te(**inputs, labels=labels, output_hidden_states=True)
-    loss_te = outputs_te.loss
-    loss_te.backward()
-    grad_norm_te = torch.nn.utils.clip_grad_norm_(model_te.parameters(), max_norm=float("inf"))
-
-    torch.testing.assert_close(grad_norm_te, grad_norm_hf)

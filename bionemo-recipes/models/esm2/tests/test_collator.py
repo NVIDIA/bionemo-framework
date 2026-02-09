@@ -140,6 +140,69 @@ def test_data_collator_with_flattening_with_labels(tokenizer):
         start_idx = end_idx
 
 
+def test_data_collator_with_flattening_with_labels_causal_lm(tokenizer):
+    """Test DataCollatorWithFlattening with input_ids, attention_mask, and labels."""
+    # Use DataCollatorForLanguageModeling with mlm_probability=0.0 to disable masking
+    # Note: DataCollatorForLanguageModeling ignores input labels and creates its own
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    collator = DataCollatorWithFlattening(collator=mlm_collator, separator_id=-100)
+
+    # Create test sequences (labels will be created by DataCollatorForLanguageModeling)
+    features = [
+        {"input_ids": [0, 5, 6, 7, 2]},  # 5 tokens
+        {"input_ids": [0, 8, 9, 10, 11, 2]},  # 6 tokens
+        {"input_ids": [0, 12, 13, 2]},  # 4 tokens
+    ]
+
+    # Calculate expected total tokens
+    total_tokens = sum(len(feature["input_ids"]) for feature in features)
+
+    # Process batch
+    batch = collator(features, return_tensors="pt")
+
+    # Assert total number of tokens is unchanged
+    input_ids_tensor = batch["input_ids"]
+    labels_tensor = batch["labels"]
+    assert input_ids_tensor.numel() == total_tokens, f"Expected {total_tokens} tokens, got {input_ids_tensor.numel()}"
+    assert labels_tensor.numel() == total_tokens, f"Expected {total_tokens} label tokens, got {labels_tensor.numel()}"
+
+    # Assert output shapes are [1, total_tokens]
+    assert input_ids_tensor.shape == (1, total_tokens), (
+        f"Expected input_ids shape (1, {total_tokens}), got {input_ids_tensor.shape}"
+    )
+    assert labels_tensor.shape == (1, total_tokens), (
+        f"Expected labels shape (1, {total_tokens}), got {labels_tensor.shape}"
+    )
+
+    # Assert cu_seqlens_q tensor is created properly
+    expected_cu_seqlens = torch.tensor([0, 5, 11, 15], dtype=torch.int32)
+    torch.testing.assert_close(batch["cu_seq_lens_q"], expected_cu_seqlens)
+    torch.testing.assert_close(batch["cu_seq_lens_k"], expected_cu_seqlens)
+
+    # Assert max_length values are correct
+    assert batch["max_length_q"] == 6, f"Expected max_length_q=6, got {batch['max_length_q']}"
+    assert batch["max_length_k"] == 6, f"Expected max_length_k=6, got {batch['max_length_k']}"
+
+    # Assert flattened input_ids match concatenated original sequences
+    expected_input_ids = torch.tensor([[0, 5, 6, 7, 2, 0, 8, 9, 10, 11, 2, 0, 12, 13, 2]], dtype=torch.int64)
+    torch.testing.assert_close(input_ids_tensor, expected_input_ids)
+
+    # Assert that sequence boundaries are properly maintained
+    # by checking that token positions match expected values
+    seq_lens = [5, 6, 4]  # lengths of the three sequences
+    start_idx = 0
+    for i, seq_len in enumerate(seq_lens):
+        end_idx = start_idx + seq_len
+        # Check that the sequence in the flattened tensor matches original
+        original_seq = torch.tensor(features[i]["input_ids"], dtype=torch.int64)
+        flattened_seq = input_ids_tensor[0, start_idx:end_idx]
+        torch.testing.assert_close(flattened_seq, original_seq)
+        start_idx = end_idx
+
+    expected_labels = torch.tensor([[0, 5, 6, 7, 2, -100, 8, 9, 10, 11, 2, -100, 12, 13, 2]], dtype=torch.int64)
+    torch.testing.assert_close(labels_tensor, expected_labels)
+
+
 def test_data_collator_pads_to_multiple_of(tokenizer):
     """Test DataCollatorWithFlattening with input_ids and attention_mask."""
     # Use DataCollatorForLanguageModeling with mlm_probability=0.0 to disable masking
@@ -172,6 +235,39 @@ def test_data_collator_pads_to_multiple_of(tokenizer):
 
     expected_position_ids = torch.tensor([[0, 1, 2, 3, 4, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 0]], dtype=torch.int64)
     torch.testing.assert_close(batch["position_ids"], expected_position_ids)
+
+
+def test_data_collator_with_flattening_with_labels_causal_lm_and_padding(tokenizer):
+    """Test DataCollatorWithFlattening with input_ids, attention_mask, and labels."""
+    # Use DataCollatorForLanguageModeling with mlm_probability=0.0 to disable masking
+    # Note: DataCollatorForLanguageModeling ignores input labels and creates its own
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+    collator = DataCollatorWithFlattening(
+        collator=mlm_collator,
+        separator_id=-100,
+        pad_sequences_to_be_divisible_by=6,
+    )
+
+    # Create test sequences (labels will be created by DataCollatorForLanguageModeling)
+    features = [
+        {"input_ids": [0, 5, 6, 7, 2]},  # 5 tokens
+        {"input_ids": [0, 8, 9, 10, 11, 2]},  # 6 tokens
+        {"input_ids": [0, 12, 13, 2]},  # 4 tokens
+    ]
+
+    # Process batch
+    batch = collator(features, return_tensors="pt")
+
+    expected_labels = torch.tensor(
+        [[0, 5, 6, 7, 2, -100, -100, 8, 9, 10, 11, 2, -100, 12, 13, 2, -100, -100]], dtype=torch.int64
+    )
+    torch.testing.assert_close(batch["labels"], expected_labels)
+
+    pad = tokenizer.pad_token_id
+    expected_input_ids = torch.tensor(
+        [[0, 5, 6, 7, 2, pad, 0, 8, 9, 10, 11, 2, 0, 12, 13, 2, pad, pad]], dtype=torch.int64
+    )
+    torch.testing.assert_close(batch["input_ids"], expected_input_ids)
 
 
 def test_mlm_data_collator_with_flattening_basic(tokenizer):
@@ -387,6 +483,7 @@ def test_mlm_data_collator_with_flattening_pad_sequences_to_be_divisible_by(toke
     )
     assert (batch["input_ids"][:, -1] == tokenizer.pad_token_id).all()
     assert (batch["labels"][:, -1] == -100).all()
+    assert batch["pad_between_seqs"] is True
 
 
 def test_token_packing_dataset():

@@ -204,6 +204,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             # attention backend, but it should be faster for the flash attention backend.
             assert attention_mask is not None, "Attention mask is required when packing BSHD inputs."
             batch_size = hidden_states.size(0)
+            padded_seq_len = input_ids.size(1)
             hidden_states, indices, cu_seqlens, max_seqlen, _ = _unpad_input(hidden_states, attention_mask)
             kwargs["cu_seq_lens_q"] = kwargs["cu_seq_lens_k"] = cu_seqlens
             kwargs["max_length_q"] = kwargs["max_length_k"] = max_seqlen
@@ -259,7 +260,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         if should_pack_inputs:
             # If we've converted BSHD to THD for our TE layers, we need to convert back to BSHD for the output.
-            hidden_states = _pad_input(hidden_states, indices, batch_size, max_seqlen)
+            hidden_states = _pad_input(hidden_states, indices, batch_size, padded_seq_len)
 
         return BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
@@ -298,6 +299,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         past_key_values: tuple[tuple[torch.Tensor, ...], ...] | None = None,
         inputs_embeds: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
+        shift_labels: torch.Tensor | None = None,
         use_cache: bool | None = None,
         cache_position: torch.Tensor | None = None,
         logits_to_keep: int | torch.Tensor = 0,
@@ -312,6 +314,9 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             past_key_values (tuple[tuple[torch.Tensor, ...], ...]): The past key values.
             inputs_embeds (torch.Tensor): The inputs embeds.
             labels (torch.Tensor): The labels.
+            shift_labels (torch.Tensor): Labels that have already been shifted by the dataloader, to be used instead of
+                labels for the loss function. For context parallelism, it is more reliable to shift the labels before
+                splitting the batch into shards.
             use_cache (bool): Whether to use cache.
             cache_position (torch.Tensor): The cache position.
             logits_to_keep (int | torch.Tensor): Whether to keep only the last logits to reduce the memory footprint of
@@ -336,15 +341,17 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
 
-        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+        with transformer_engine.pytorch.autocast(enabled=False):
             if hidden_states.ndim == 3:
                 logits = self.lm_head(hidden_states[:, slice_indices, :])
             else:  # With THD inputs, batch and sequence dimensions are collapsed in the first dimension.
                 logits = self.lm_head(hidden_states[slice_indices, :])
 
         loss = None
-        if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
+        if labels is not None or shift_labels is not None:
+            loss = self.loss_function(
+                logits=logits, labels=labels, shift_labels=shift_labels, vocab_size=self.config.vocab_size, **kwargs
+            )
 
         return CausalLMOutputWithPast(
             loss=loss,

@@ -721,6 +721,7 @@ def test_cp_dataloader(tokenizer_path):
         train_dataloader.collate_fn = DataCollatorForContextParallel(
             collator=train_dataloader.collate_fn,
             cp_world_size=cp_mesh.size(),
+            is_causal_lm=True,
         )
     else:
         train_dataloader = None
@@ -742,6 +743,7 @@ def test_cp_dataloader(tokenizer_path):
             "cu_seq_lens_q_padded",
             "cu_seq_lens_k_padded",
             "pad_between_seqs",
+            "shift_labels",
         }
 
     torch.distributed.destroy_process_group()
@@ -817,6 +819,7 @@ if __name__ == "__main__":
         train_dataloader.collate_fn = DataCollatorForContextParallel(
             collator=train_dataloader.collate_fn,
             cp_world_size=cp_mesh.size(),
+            is_causal_lm=True,
         )
     else:
         train_dataloader = None
@@ -848,6 +851,7 @@ if __name__ == "__main__":
         assert actual_shape <= expected_tokens_per_rank + 100, (
             f"Expected at most {expected_tokens_per_rank + 100} tokens, got {actual_shape}"
         )
-        assert batch["labels"].shape[1] == actual_shape
+        assert batch["labels"] is None
+        assert batch["shift_labels"].shape[1] == actual_shape
 
     torch.distributed.destroy_process_group()

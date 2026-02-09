@@ -69,14 +69,18 @@ def validate_resource_shape(node_group: str, resource_shape: str) -> None:
         known_groups = ", ".join(sorted(resource_shapes_by_node_group.keys()))
         raise SystemExit(f"Unknown node group '{node_group}'.\nKnown node groups: {known_groups}")
 
-    # Extract GPU type from resource shape (e.g., "gpu.2xh100-sxm" -> "h100-sxm")
+    # Extract GPU type from resource shape
+    # Formats: "gpu.h100-sxm" (single), "gpu.2xh100-sxm" (multi)
     try:
-        # Handle format like "gpu.2xh100-sxm" or "gpu.8xh200"
-        gpu_part = resource_shape.split(".", 1)[1]  # Get "2xh100-sxm"
-        gpu_type = gpu_part.split("x", 1)[1]  # Get "h100-sxm"
+        gpu_part = resource_shape.split(".", 1)[1]  # Get "h100-sxm" or "2xh100-sxm"
+        # Check if format is "NxGPU_TYPE" (multi-GPU) or just "GPU_TYPE" (single GPU)
+        if gpu_part[0].isdigit() and "x" in gpu_part:
+            gpu_type = gpu_part.split("x", 1)[1]  # Get "h100-sxm" from "2xh100-sxm"
+        else:
+            gpu_type = gpu_part  # Single GPU: "h100-sxm"
     except (IndexError, ValueError):
         raise SystemExit(
-            f"Invalid resource shape format: {resource_shape}. Expected format: gpu.NxGPU_TYPE or cpu.SIZE"
+            f"Invalid resource shape format: {resource_shape}. Expected format: gpu.GPU_TYPE or gpu.NxGPU_TYPE"
         )
 
     available_gpu_types = resource_shapes_by_node_group[node_group]

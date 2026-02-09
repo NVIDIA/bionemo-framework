@@ -1,0 +1,110 @@
+# @package _global_
+# Debug config for testing local development setup.
+# Usage:
+#   python ci/lepton/core/launch_job.py \
+#     --config-path="../model_convergence/configs" \
+#     --config-name="recipes/debug" \
+#     hf_token_secret=YOUR_HF_TOKEN_SECRET_NAME
+defaults:
+  - /base
+  - _self_
+
+############################################################
+# Disable telemetry by default for local testing
+############################################################
+log_to_wandb: false
+log_to_kratos: false
+
+############################################################
+# lepton job info - minimal single GPU setup
+############################################################
+node_group: yo-bom-lepton-001
+mount_from: node-nfs:fs1
+num_nodes: 1
+device_type: gpu
+num_devices: 1
+gpu_type: h100-sxm
+resource_shape: gpu.h100-sxm  # Single GPU: gpu.h100-sxm, Multi: gpu.{2,4,8}xh100-sxm
+
+############################################################
+# recipe identifiers
+############################################################
+recipe_subdir: esm2_native_te
+model_type: esm2
+variant: train
+
+framework: native
+precision: bf16
+te_enabled: true
+fp8_enabled: false
+extras: []
+
+############################################################
+# wandb info (disabled by default, but configured if enabled)
+############################################################
+total_gpus: ${multiply:${num_devices},${num_nodes}}
+
+wandb_init_args:
+  project: "debug__${sanitize:${branch}}"
+  group: "debug"
+  job_type: "${recipe_subdir}"
+  name: null
+  mode: "offline"
+
+############################################################
+# task commands - minimal training run
+############################################################
+model_tag: nvidia/esm2_t33_650M_UR50D
+task_cmd: train_fsdp2
+config: L1_650M
+num_train_steps: 10
+micro_batch_size: 4
+load_dataset_kwargs_path: nvidia/esm2_uniref_pretraining_data
+load_dataset_kwargs_streaming: true
+load_dataset_kwargs_revision: 4ac1d2973567e46b8ca95901f4b4793a21305995  # pragma: allowlist secret
+num_workers: 1
+
+num_warmup_steps: 2
+ckpt_dir: ""
+save_checkpoints: false
+save_final_model: false
+resume_from_checkpoint: false
+use_distributed_checkpoint_fsdp2: false
+
+parallelism_strategy: fsdp2
+thd_enabled: false
+
+############################################################
+# job name
+############################################################
+job_name: "debug-esm2-650m"
+wandb_name: "debug__${now:%Y%m%d-%H%M%S}"
+
+############################################################
+# run script
+############################################################
+run_script: |
+  HYDRA_FULL_ERROR=1 torchrun \
+    --standalone \
+    --nproc_per_node=1 \
+    ${task_cmd}.py \
+    --config-name ${config}.yaml \
+    wandb_init_args.mode=${wandb_init_args.mode} \
+    wandb_init_args.project=${wandb_init_args.project} \
+    +wandb_init_args.group=${wandb_init_args.group} \
+    +wandb_init_args.job_type=${wandb_init_args.job_type} \
+    wandb_init_args.name=${wandb_name} \
+    num_train_steps=${num_train_steps} \
+    dataset.micro_batch_size=${micro_batch_size} \
+    use_sequence_packing=${thd_enabled} \
+    dataset.load_dataset_kwargs.path=${load_dataset_kwargs_path} \
+    dataset.load_dataset_kwargs.streaming=${load_dataset_kwargs_streaming} \
+    +dataset.load_dataset_kwargs.revision=${load_dataset_kwargs_revision} \
+    dataset.num_workers=${num_workers} \
+    lr_scheduler_kwargs.num_warmup_steps=${num_warmup_steps} \
+    checkpoint.ckpt_dir=${ckpt_dir} \
+    checkpoint.save_final_model=${save_final_model} \
+    checkpoint.resume_from_checkpoint=${resume_from_checkpoint} \
+    +checkpoint.save_checkpoints=${save_checkpoints} \
+    +checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2} \
+    fp8_config.enabled=${fp8_enabled}

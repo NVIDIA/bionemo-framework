@@ -42,8 +42,8 @@ To run the container, run:
 docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bionemo esm2_native_te /bin/bash
 ```
 
-Alternatively, the dependencies can be installed manually in an environment with CUDA support. See
-[Dockerfile.cuda](Dockerfile.cuda) for the process of installing dependencies in a fresh python environment (for e.g.,
+Alternatively, the dependencies can be installed manually in an environment with CUDA support. Refer to
+[Dockerfile.cuda](Dockerfile.cuda) for the process of installing dependencies in a fresh python environment (for example,
 CUDA 13.0):
 
 ```bash
@@ -89,18 +89,18 @@ To run single-process training on one GPU, run:
 python train_ddp.py  # or train_fsdp2.py / train_mfsdp.py
 ```
 
-To run multi-process training locally on 2+ GPUs, run (e.g. 2 GPUs):
+To run multi-process training locally on 2+ GPUs, run:
 
 ```bash
 torchrun --nproc_per_node=2 train_fsdp2.py  # or train_mfsdp.py / train_ddp.py
 ```
 
-Multi-Node training is supported with all three strategies, see [`slurm.sh`](slurm.sh) for an example SLURM script.
+Multi-Node training is supported with all three strategies, refer to [`slurm.sh`](slurm.sh) for an example SLURM script.
 
 ### FP8 Training
 
 To run training with FP8, enable it by overriding the `fp8_config.enabled=true` configuration parameter. Additional FP8
-configuration parameters, including switching to `MXFP8BlockScaling`, can be set via the hydra configuration.
+configuration parameters, including switching to `MXFP8BlockScaling`, can be set using the hydra configuration.
 
 ```bash
 python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true
@@ -129,8 +129,8 @@ experiments caused a ~29% decrease in throughput (executed on a single RTX 5090)
 
 ### Sequence Packing (THD input format)
 
-Sequence packing is handled via a padding-free collator (in `collator.py`) that provides input arguments (e.g.
-`cu_seq_lens_q`) needed for padding-free attention. To enable sequence packing, set `use_sequence_packing=true`
+Sequence packing is handled using a padding-free collator (in `collator.py`) that provides input arguments, such as
+`cu_seq_lens_q`), needed for padding-free attention. To enable sequence packing, set `use_sequence_packing=true`
 in the hydra configuration.
 
 ```bash
@@ -152,11 +152,11 @@ python train_fsdp2.py --config-name L0_sanity \
 
 We provide a training script [train_ddp_cp](./esm2_native_te/train_ddp_cp.py) and a sample config [L0_sanity_cp](./hydra_config/L0_sanity_cp.yaml) that uses context parallelism.
 
-In the config the argument `--cp_size` allows the user to set the size of the context parallel distributed group. When paired with Distributed Data Parallelism (DDP), the number of context parallel groups will be determined by `world_size//cp_size`.
+In the config, the argument `--cp_size` allows the user to set the size of the context parallel distributed group. When paired with Distributed Data Parallelism (DDP), the number of context parallel groups will be determined by `world_size//cp_size`.
 
-Thus, for example, if a user has 8 processes and sets `cp_size=2` they will have `2` CP groups and `4` DDP groups. During dataloading we make no assumptions about the data pipeline being deterministic or not. DDP groups will provide unique data while CP groups will contain replicates of that data.
+Thus, if a user has 8 processes and sets `cp_size=2` they will have `2` CP groups and `4` DDP groups. During dataloading we make no assumptions about the data pipeline being deterministic or not. DDP groups will provide unique data while CP groups will contain replicates of that data.
 
-For example, let's say that we have 2 DDP groups and 2 CP groups. Each DDP group will have a unique dataloader DP0 for DDP group 0
+For example, if we have 2 DDP groups and 2 CP groups. Each DDP group will have a unique dataloader DP0 for DDP group 0
 and DP1 for DDP group 1. CP works by running something called ring attention, which expects tokens to live on each device in a particular layout. For this CP implementation we use something called [Dual Chunk Swapping](https://github.com/NVIDIA/TransformerEngine/blob/1df4a69f761672f633d40ea3605327087d1ea737/transformer_engine/pytorch/attention/dot_product_attention/context_parallel.py#L3714-L3770). If DP0 outputs sequence `1 2 3 4 5 6 7 8` and DP1 outputs `9 10 11 12 13 14 15 16` then when we run through the `CPAwareDataloader` defined in [datasets](./dataset.py), the dataloader will create CP shards from that DP group as follows:
 
 ```
@@ -165,9 +165,9 @@ and DP1 for DDP group 1. CP works by running something called ring attention, wh
   CP1 | 3,4,5,6 | 11, 12, 13, 14|
 ```
 
-You may notice these shards and wonder why they are the way they are. We did. The reason is that CP groups are sharded using slices. The full input sequence (such as `1 2 3 4 5 6 7`) is sliced into `2 * cp_size` groups. Then CP0 takes the first and last slice, while CP1 takes the middle slices, of each sequence.
+You may notice these shards and wonder why they are the way they are. The reason is that CP groups are sharded using slices. The full input sequence (such as `1 2 3 4 5 6 7`) is sliced into `2 * cp_size` groups. Then CP0 takes the first and last slice, while CP1 takes the middle slices, of each sequence.
 
-In this example we only show one sequence but its important to note that slicing takes place on every sequence, so if a second sequence is also available, that will be sliced in the same manner. CP0 will take the first and last slice of every sequence, while CP1 will take the middle slices of each sequence.
+In this example, we only show one sequence but its important to note that slicing takes place on every sequence, so if a second sequence is also available, that will be sliced in the same manner. CP0 will take the first and last slice of every sequence, while CP1 will take the middle slices of each sequence.
 
 ### Comparing Against the HF Transformers Reference Implementation
 
@@ -182,7 +182,7 @@ python train_fsdp2.py --config-name L0_sanity model_tag=facebook/esm2_t6_8M_UR50
 
 An example pre-training dataset for ESM-2 is available in the
 [`nvidia/esm2_uniref_pretraining_data`](https://huggingface.co/datasets/nvidia/esm2_uniref_pretraining_data) Hugging
-Face dataset. This dataset can be [streamed](https://huggingface.co/docs/datasets/en/stream) from the Hugging Face Hub via
+Face dataset. This dataset can be [streamed](https://huggingface.co/docs/datasets/en/stream) from the Hugging Face Hub by using the following.
 
 ```python
 >>> from datasets import load_dataset
@@ -193,7 +193,7 @@ Face dataset. This dataset can be [streamed](https://huggingface.co/docs/dataset
  'ur90_id': 'UniRef90_UPI002FBE17D9'}
 ```
 
-For large-scale training, the dataset should be downloaded locally via the [huggingface
+For large-scale training, the dataset should be downloaded locally with the [huggingface
 CLI](https://huggingface.co/docs/huggingface_hub/guides/download#download-from-the-cli), with appropriate values set for
 `HF_HOME` and `HF_TOKEN` environment variables. Use `uv tool install huggingface_hub` to install the CLI if not already
 installed.
@@ -282,13 +282,13 @@ output = model(**inputs)
 
 🚧 Under development
 
-## See Also
+## Reference
 
 - [ESM-2 Training with Accelerate](../esm2_accelerate_te/README.md)
 
 ## Developer Guide
 
-### Running tests
+### Running Tests
 
 To run tests locally, run `recipes_local_test.py` from the repository root with the recipe directory as an argument.
 
@@ -300,7 +300,7 @@ Tests should be kept relatively fast, using the smallest model and number of tra
 feature. Hardware requirements beyond those used in CI (e.g., a single L4) should be annotated with
 pytest.mark.requires, e.g. `requires_fp8` and `requires_multi_gpu`.
 
-### Development container
+### Development Container
 
 To use the provided devcontainer, use "Dev Containers: Reopen in Container" from the VSCode menu, and choose the
 "BioNeMo Recipes Dev Container" option. To run the tests inside the container, run `pytest -v .` in the recipe
@@ -311,7 +311,7 @@ directory.
 [Hydra](https://hydra.cc/) is a powerful configuration management library for Python. This recipe uses Hydra to manage
 training configurations, allowing for easy modification of training hyper-parameters and model settings.
 
-Configuration parameters can be overridden from the command line, e.g.
+Configuration parameters can be overridden from the command line. For example,
 `python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true`.
 
 For verbose logging, use the hydra command line override `hydra.verbose=true`, see

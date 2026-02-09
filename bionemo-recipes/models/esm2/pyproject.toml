@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "esm"
 version = "0.1.0"
 description = "ESM TE Model"
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 dependencies = [
     "accelerate",
     "datasets",
@@ -28,3 +28,7 @@ package-dir = { "" = "src" }
 
 [tool.pytest.ini_options]
 addopts = ["--color=yes", "--strict-markers", "--tb=short", "-v"]
+pythonpath = ["tests"]
+
+[tool.ruff]
+extend = "../.ruff.toml"

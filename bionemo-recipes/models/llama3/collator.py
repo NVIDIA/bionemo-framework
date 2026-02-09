@@ -56,6 +56,7 @@ class DataCollatorWithFlattening:
         return_position_ids (bool): Whether to return position ids (default False).
         pad_to_multiple_of (int, optional): If set, pads the total sequence length to be divisible by this number.
         pad_sequences_to_be_divisible_by (int, optional): If set, each individual sequence is padded to this value.
+        separator_id (int, optional): A label to insert between sequences, typically should be -100 for causal LM.
 
     Example:
         >>> from transformers import AutoTokenizer, DataCollatorForLanguageModeling
@@ -87,6 +88,7 @@ class DataCollatorWithFlattening:
     return_position_ids: bool = False
     pad_to_multiple_of: int | None = None
     pad_sequences_to_be_divisible_by: int | None = None
+    separator_id: int | None = None
 
     def __post_init__(self):
         """Ensure padding options are not used together."""
@@ -162,6 +164,9 @@ class DataCollatorWithFlattening:
         masked_input_ids = bshd_batch["input_ids"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
         masked_labels = bshd_batch["labels"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
 
+        if self.separator_id is not None:
+            masked_labels[:, packed_batch["cu_seq_lens_q"][1:-1]] = self.separator_id
+
         # Update the packed batch with the masked input_ids and labels.
         packed_batch["input_ids"] = masked_input_ids
         packed_batch["labels"] = masked_labels
@@ -213,6 +218,7 @@ class DataCollatorWithFlattening:
         batch["labels"] = labels_padded.unsqueeze(0)
         batch["cu_seq_lens_q_padded"] = cu_seqlens_padded.to(torch.int32)
         batch["cu_seq_lens_k_padded"] = cu_seqlens_padded.to(torch.int32)
+        batch["pad_between_seqs"] = True
         return batch
 
 
@@ -289,6 +295,12 @@ class DataCollatorForContextParallel:
     collator: DataCollator
     cp_world_size: int
     qkv_format: str = "thd"
+    is_causal_lm: bool = False
+    """Whether the collator is for a causal language model.
+
+    If True, the labels will be shifted before being split into CP shards, and will be returned in the `shift_labels`
+    field.
+    """
 
     def __call__(self, features) -> list[dict[str, Any]]:
         """Process batches of data and create shards for each context parallelism rank.
@@ -300,6 +312,10 @@ class DataCollatorForContextParallel:
             A list of dictionaries, each containing a shard of the batch for a given context parallelism rank.
         """
         batch = self.collator(features)
+
+        if self.is_causal_lm:
+            labels = torch.nn.functional.pad(batch["labels"], (0, 1), value=-100)
+            batch["labels"] = labels[..., 1:].contiguous()
 
         combined_batch = []
         for cp_rank in range(self.cp_world_size):
@@ -313,12 +329,15 @@ class DataCollatorForContextParallel:
             )
             batch_shard = dict(batch)
             batch_shard["input_ids"] = input_ids_sharded
-            batch_shard["labels"] = labels_sharded
+            if self.is_causal_lm:
+                batch_shard["shift_labels"] = labels_sharded
+                batch_shard["labels"] = None
+            else:
+                batch_shard["labels"] = labels_sharded
             # Now determine the max length of the sequence.
             if self.qkv_format == "thd":
                 seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
                 max_length = seqlens_q.max().item()
-                batch_shard["pad_between_seqs"] = True
             elif self.qkv_format == "bshd":
                 max_length = batch["input_ids"].shape[1]
                 # For BSHD context parallelism, we can't handle padding, so we remove the attention mask.
@@ -767,7 +786,8 @@ class BatchType(TypedDict):
     """The fields in the batch dictionary fo THD context parallel."""
 
     input_ids: torch.Tensor
-    labels: torch.Tensor
+    labels: torch.Tensor | None
+    shift_labels: torch.Tensor | None
     cu_seq_lens_q: torch.Tensor
     cu_seq_lens_k: torch.Tensor
     cu_seq_lens_q_padded: torch.Tensor

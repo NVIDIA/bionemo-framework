@@ -206,7 +206,7 @@ if __name__ == "__main__":
         input_data = {k: v.to(torch.cuda.current_device()) for k, v in input_data.items()}
 
         with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-            with transformer_engine.pytorch.fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
+            with transformer_engine.pytorch.autocast(enabled=True, recipe=fp8_recipe):
                 outputs = model(**input_data)
 
         outputs.loss.backward()

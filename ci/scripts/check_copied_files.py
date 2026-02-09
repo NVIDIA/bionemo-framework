@@ -53,6 +53,10 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     "bionemo-recipes/recipes/esm2_native_te/fp8_debugging.py": [
         "bionemo-recipes/recipes/llama3_native_te/fp8_debugging.py",
     ],
+    # Common test library - synced between models
+    "bionemo-recipes/models/esm2/tests/common": [
+        "bionemo-recipes/models/llama3/tests/common",
+    ],
 }
 
 
@@ -99,6 +103,9 @@ def main():
             else:
                 if source_path.is_dir():
                     for file in source_path.glob("*"):
+                        # Skip directories when checking - they're copied recursively with copytree
+                        if file.is_dir():
+                            continue
                         with open(file, "rb") as f1, open(destination_path / file.name, "rb") as f2:
                             if f1.read() != f2.read():
                                 raise ValueError(

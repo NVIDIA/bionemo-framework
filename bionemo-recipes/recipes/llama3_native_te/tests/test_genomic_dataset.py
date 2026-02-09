@@ -76,7 +76,7 @@ def test_collator_uppercases(tokenizer):
 def test_collator_uppercases_sequence_packing(tokenizer):
     """Test that collator uppercases labels while keeping inputs mixed case."""
     base_mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
-    base = DataCollatorWithFlattening(collator=base_mlm_collator)
+    base = DataCollatorWithFlattening(collator=base_mlm_collator, separator_id=-100)
     collator = GenomicDataCollator(
         base_collator=base,
         uppercase_labels=True,

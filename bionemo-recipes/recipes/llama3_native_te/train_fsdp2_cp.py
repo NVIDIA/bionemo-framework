@@ -71,11 +71,13 @@ def main(args: DictConfig) -> float | None:
     config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
-    # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
+    # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
     # versions of weights are kept.
     with (
         torch.device("meta") if args.use_meta_device else nullcontext(),
-        transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs),
+        transformer_engine.pytorch.quantized_model_init(
+            recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
+        ),
     ):
         model = NVLlamaForCausalLM(config)
 
@@ -123,6 +125,7 @@ def main(args: DictConfig) -> float | None:
             collator=train_dataloader.collate_fn,
             cp_world_size=device_mesh["cp"].size(),
             qkv_format=args.config_kwargs.attn_input_format,
+            is_causal_lm=True,
         )
 
     else:
@@ -166,7 +169,7 @@ def main(args: DictConfig) -> float | None:
             micro_step += 1
 
             # Forward pass with mixed precision.
-            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+            with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
                 outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
