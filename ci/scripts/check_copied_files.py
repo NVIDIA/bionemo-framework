@@ -37,12 +37,14 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     ],
     "bionemo-recipes/models/esm2/src/esm/collator.py": [
         "bionemo-recipes/models/llama3/collator.py",
+        "bionemo-recipes/models/mixtral/collator.py",
         "bionemo-recipes/recipes/esm2_native_te/collator.py",
         "bionemo-recipes/recipes/llama3_native_te/collator.py",
     ],
     "bionemo-recipes/models/esm2/src/esm/state.py": [
         "bionemo-recipes/models/amplify/src/amplify/state.py",
         "bionemo-recipes/models/llama3/state.py",
+        "bionemo-recipes/models/mixtral/state.py",
     ],
     "bionemo-recipes/models/llama3/modeling_llama_te.py": [
         "bionemo-recipes/recipes/llama3_native_te/modeling_llama_te.py",
@@ -56,6 +58,7 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     # Common test library - synced between models
     "bionemo-recipes/models/esm2/tests/common": [
         "bionemo-recipes/models/llama3/tests/common",
+        "bionemo-recipes/models/mixtral/tests/common",
     ],
 }
 
