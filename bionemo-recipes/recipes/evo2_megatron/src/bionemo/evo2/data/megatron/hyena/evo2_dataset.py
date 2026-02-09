@@ -27,7 +27,15 @@ from bionemo.evo2.models.megatron.hyena.hyena_utils import make_upper_case
 class Evo2Dataset(GPTDataset):
     """Dataset for training Evo2."""
 
-    CONTROL_TAGS: ClassVar[list[int]] = [64, 35]  # '@' tag for splice splits/windows, '#' for contig splits
+    CONTROL_TAGS: ClassVar[list[int]] = [
+        64,   # '@' - splice splits/windows
+        35,   # '#' - contig splits (also 70-80% alignment)
+        43,   # '+' - poliovirus indicator
+        126,  # '~' - 95-100% alignment
+        94,   # '^' - 80-95% alignment
+        36,   # '$' - 50-70% alignment
+        33,   # '!' - <50% alignment
+    ]  
     TAG_BOUNDS = 124  # start and end delim: '|'
     TAG_CHARS: ClassVar[set[int]] = {95, 59, 32}  # chars only found in control tags: _, ;, space
     DEFAULT_EOD = 0
