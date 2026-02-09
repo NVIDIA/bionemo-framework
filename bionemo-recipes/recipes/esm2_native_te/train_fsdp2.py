@@ -24,7 +24,7 @@ import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import fully_shard
+from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
 from transformers import AutoConfig, AutoModelForMaskedLM
@@ -75,7 +75,9 @@ def main(args: DictConfig) -> float | None:
     )
 
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
+    config = AutoConfig.from_pretrained(
+        args.model_tag, trust_remote_code=True, dtype=torch.float32 if args.use_fp32_master_weights else torch.bfloat16
+    )
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -96,9 +98,19 @@ def main(args: DictConfig) -> float | None:
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
 
-    for layer in transformer_stack:
-        fully_shard(layer, mesh=device_mesh["dp"])
-    fully_shard(model, mesh=device_mesh["dp"])
+    mp_policy = MixedPrecisionPolicy(
+        param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward
+        reduce_dtype=torch.float32,  # Gradient reductions in FP32
+        output_dtype=torch.bfloat16,  # Forward output dtype
+    )
+    if args.use_fp32_master_weights:
+        for layer in transformer_stack:
+            fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
+        fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
+    else:
+        for layer in transformer_stack:
+            fully_shard(layer, mesh=device_mesh["dp"])
+        fully_shard(model, mesh=device_mesh["dp"])
 
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     # Note, this should happen before we create the optimizer.

@@ -80,3 +80,5 @@ fp8_stats_config:
   enabled: false
   fp8_stats_file: ./fp8_debugging_stats.yaml
   fp8_log_dir: ./log_fp8_stats
+
+use_fp32_master_weights: false
