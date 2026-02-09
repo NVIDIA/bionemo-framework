@@ -1,0 +1,41 @@
+- datapaths: ["/home/ubuntu/cyan/denny/unprocessed/initial_refseq.fna"]
+  output_dir: "/home/ubuntu/cyan/denny/preprocessed/"
+  output_prefix: ncbi_viruses_homo_sapiens_uint8
+  train_split: 0.9
+  valid_split: 0.05
+  test_split: 0.05
+  overwrite: True
+  embed_reverse_complement: true
+  random_reverse_complement: 0.0
+  random_lineage_dropout: 0.0
+  include_sequence_id: false
+  transcribe: "back_transcribe"
+  force_uppercase: false
+  indexed_dataset_dtype: "uint8"
+  tokenizer_type: "Byte-Level"
+  vocab_file: null
+  vocab_size: null
+  merges_file: null
+  tokenizer_model_name: null
+  pretrained_tokenizer_model: null
+  special_tokens: null
+  fast_hf_tokenizer: true
+  append_eod: true
+  enforce_sample_length: null
+  ftfy: false
+  workers: 1
+  preproc_concurrency: 100000
+  chunksize: 25
+  drop_empty_sequences: true
+  nnn_filter: false  # If you split your fasta on NNN (in human these are contigs), then you should set this to true.
+  seed: 12342  # Not relevant because we are not using random reverse complement or lineage dropout.
+  taxonomy_data:
+      "NC_001366.1":
+        domain: "Riboviria"
+        phylum: "Orthornavirae"
+        clazz: "Pisuviricota"
+        order: "Pisoniviricetes"
+        family: "Picornavirales"
+        genus: "Picornaviridae"
+        species: null
+  polio_reference_path: "/home/ubuntu/cyan/denny/unprocessed/polio.fasta"

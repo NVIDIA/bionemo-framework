@@ -21,9 +21,14 @@ def compute_polio_alignment(sequence: str, polio_ref_path: str) -> float:
     matrix = align.SubstitutionMatrix.std_nucleotide_matrix()
     alignment = align.align_optimal(seq1, seq2, matrix)[0]
 
+    # Get gapped sequences from alignment
+    gapped_seqs = alignment.get_gapped_sequences()
+    seq1_aligned = gapped_seqs[0]
+    seq2_aligned = gapped_seqs[1]
+
     # Calculate identity percentage
-    matches = sum(a == b for a, b in zip(alignment[0], alignment[1]) if a != '-' and b != '-')
-    total = sum(1 for a, b in zip(alignment[0], alignment[1]) if a != '-' or b != '-')
+    matches = sum(a == b for a, b in zip(seq1_aligned, seq2_aligned) if a != '-' and b != '-')
+    total = sum(1 for a, b in zip(seq1_aligned, seq2_aligned) if a != '-' or b != '-')
     
     return (matches / total) * 100 if total > 0 else 0.0
 

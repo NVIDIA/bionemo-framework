@@ -1,0 +1,12 @@
+# Build dependencies required when using --no-build-isolation
+# Install these before running: uv sync --no-build-isolation
+#
+# These packages must be available in the environment when building:
+# - megatron-core (needs pybind11)
+# - nemo-run (needs hatchling and hatch-vcs)
+# - nemo-toolkit (needs setuptools)
+
+pybind11
+hatchling
+hatch-vcs
+setuptools>=61.0

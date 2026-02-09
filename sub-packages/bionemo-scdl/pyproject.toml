@@ -26,9 +26,8 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    'pytest>=8.4.1',
+    'pytest==8.3.5',
     'nest-asyncio>=1.6.0',
-    'ngcsdk>=4.3.0'
 ]
 
 [project.scripts]

@@ -8,7 +8,7 @@ name = "bionemo-meta"
 readme = "README.md"
 description = "BioNeMo meta-package."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = ["Private :: Do Not Upload", "Programming Language :: Python :: 3.10"]
 license = { file = "LICENSE/license.txt" }
 version = "2.0.0"
@@ -24,15 +24,16 @@ dependencies = [
     'bionemo-testing',
     'bionemo-webdatamodule',
     # external
+    "biotite>=1.6.0",
+    "megatron>=0.5.1",
     'nemo_run',
-    'torch==2.3.*',
     # internal code
-    "infra-bionemo",
 ]
 
 [project.optional-dependencies]
 build = ['flash-attn', 'pip']
-
+[tool.setuptools]
+packages = []
 [tool.uv.workspace]
 members = ["3rdparty/*", "internal/infra-bionemo/", "sub-packages/bionemo-*/"]
 
@@ -44,6 +45,7 @@ nemo_toolkit = { workspace = true }
 megatron-core = { workspace = true }
 # in sub-packages/
 bionemo-core = { workspace = true }
+bionemo-evo2 = { workspace = true }
 bionemo-example_model = { workspace = true }
 bionemo-llm = { workspace = true }
 bionemo-moco = { workspace = true }
@@ -66,6 +68,20 @@ dev-dependencies = [
 ]
 no-build-isolation-package = ["flash-attn"]
 cache-keys = [{ git = { commit = true } }]
+override-dependencies = [
+    "megatron-core[lts]",
+    "nvidia-resiliency-ext<0.5.0",
+    "pyzmq>=25.0.0",
+]
+
+# Build dependencies needed when using --no-build-isolation
+# These must be installed before uv sync can build the packages
+# See requirements-build.txt for a complete list
+# Install with: uv pip install -r requirements-build.txt
+[tool.uv.extra-build-dependencies]
+megatron-core = ["pybind11"]
+nemo-run = ["hatchling", "hatch-vcs"]
+nemo-toolkit = ["setuptools>=61.0"]
 
 [tool.black]
 line-length = 119
