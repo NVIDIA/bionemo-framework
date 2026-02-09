@@ -42,6 +42,7 @@ def create_tokenized_dataset(
     max_seq_length: int = 1024,
     buffer_size: int = 10_000,
     use_lazy_tokenization: bool = True,
+    tokenizer_revision: str | None = None,
 ):
     """Create a tokenized dataset."""
     logger.info(f"Loading dataset with kwargs: {load_dataset_kwargs}")
@@ -56,7 +57,7 @@ def create_tokenized_dataset(
         )
         dataset = dataset.shuffle(seed=42, buffer_size=buffer_size)
 
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, revision="d81c2e5aec37b5e794d0482e3996fb045a137792")
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, revision=tokenizer_revision if tokenizer_revision else None)
 
     def tokenize_function(examples):
         """Tokenize the protein sequences."""
@@ -167,6 +168,7 @@ def create_thd_dataloader(
     use_stateful_dataloader: bool = False,
     mlm_probability: float = 0.15,
     pad_sequences_to_be_divisible_by: int | None = None,
+    tokenizer_revision: str | None = None,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
 
@@ -186,7 +188,7 @@ def create_thd_dataloader(
         mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
         pad_sequences_to_be_divisible_by: If provided, sequences will be padded to be divisible by this value.
             This is useful for context parallelism. Defaults to None.
-
+        tokenizer_revision: The revision of the tokenizer to use. Defaults to None.
     Returns:
         A dataloader that can be used for training.
     """
@@ -196,6 +198,7 @@ def create_thd_dataloader(
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=max_seq_length,
         buffer_size=buffer_size,
+        tokenizer_revision=tokenizer_revision,
     )
 
     assert isinstance(tokenized_dataset, datasets.IterableDataset), "THD token packing requires a streaming dataset."

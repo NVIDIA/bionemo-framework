@@ -192,7 +192,7 @@ def main(args: DictConfig) -> float | None:
             fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
         )
 
-    config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.float32)
+    config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.float32 if args.use_fp32_master_weights else torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -216,10 +216,14 @@ def main(args: DictConfig) -> float | None:
     reduce_dtype=torch.float32,   # Gradient reductions in FP32
     output_dtype=torch.bfloat16,   # Forward output dtype
     )
-    for layer in transformer_stack:
-        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
-    fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
-
+    if args.use_fp32_master_weights:
+        for layer in transformer_stack:
+            fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
+        fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
+    else:
+        for layer in transformer_stack:
+            fully_shard(layer, mesh=device_mesh["dp"])
+        fully_shard(model, mesh=device_mesh["dp"])
     # Create a layer map for the transformer stack.
     layer_number_quantized_recipe_map = {}
     fp8_layers_set = set(fp8_layers) if fp8_layers else set()

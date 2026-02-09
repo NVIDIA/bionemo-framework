@@ -8,6 +8,7 @@ num_train_steps: 500
 
 dataset:
   micro_batch_size: 12
+  tokenizer_revision: "f29e20d2b10d0aba2036831df65cdca1befe926f"
 
 # WandB config
 wandb_init_args:

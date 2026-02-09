@@ -8,7 +8,7 @@ num_train_steps: 200
 
 dataset:
   micro_batch_size: 4
-
+  tokenizer_revision: "d81c2e5aec37b5e794d0482e3996fb045a137792"
 # WandB config
 wandb_init_args:
   name: "esm2_t33_650M_UR50D"

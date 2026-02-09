@@ -216,6 +216,7 @@ class NVEsmEncoder(nn.Module):
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)
             
+            import pdb; pdb.set_trace()
             # If BF16 desired --> use autocast(false) so it goes to BF16.
             # If FP8 desired --> use nullcontext so it uses upper context manager to FP8.
             # If FP4 desired --> use autocast(true, recipe=fp4_recipe) so it uses FP4.
