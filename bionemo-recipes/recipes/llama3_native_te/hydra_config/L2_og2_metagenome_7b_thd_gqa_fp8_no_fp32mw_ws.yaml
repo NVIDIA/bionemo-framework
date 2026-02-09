@@ -67,11 +67,12 @@ dataset:
 # Gradient accumulation = 8 (for GBS = 1 * 8 * 6 * 8 = 384)
 grad_acc_steps: 8
 
-# FP8 configuration - enabled with first/last in BF16
+# FP8 configuration - Float8BlockScaling with E4M3 format
+# Supports first_last_layers_bf16 (unlike DelayedScaling which forbids it)
 fp8_config:
   enabled: true
-  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
-  fp8_format: "HYBRID"
+  fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+  fp8_format: E4M3
   fp8_recipe_kwargs: {}
   fp8_model_init_kwargs:
     enabled: false
