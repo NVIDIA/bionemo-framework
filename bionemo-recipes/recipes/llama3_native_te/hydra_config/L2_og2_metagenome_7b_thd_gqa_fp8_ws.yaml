@@ -57,9 +57,10 @@ use_meta_device: false
 use_fp32_master_weights: true
 # ==========================================
 
-# Override mbs with window shuffling
+# Override mbs with dual shuffling (sequence + window)
 dataset:
   micro_batch_size: 1
+  shuffle_sequences: true
   shuffle_windows: true
   buffer_size: 50_000
   num_workers: 4
