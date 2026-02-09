@@ -51,10 +51,11 @@ Example usage:
     ```
 """
 
-from .test_modeling_common import BaseModelTest, TestTolerances
+from .test_modeling_common import HAS_DATA_CENTER_GPU, BaseModelTest, TestTolerances
 
 
 __all__ = [
+    "HAS_DATA_CENTER_GPU",
     "BaseModelTest",
     "TestTolerances",
 ]
