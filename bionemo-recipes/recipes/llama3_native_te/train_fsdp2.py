@@ -739,6 +739,11 @@ def main(args: DictConfig) -> float | None:
             # Don't use stateful dataloader for validation
             val_dataset_kwargs["use_stateful_dataloader"] = False
 
+            # Force num_workers=0 for validation to avoid OOM kills.
+            # Validation data is typically a single .jsonl.gz (1 shard), so multiple
+            # workers fight over it and get killed by the OS OOM killer.
+            val_dataset_kwargs["num_workers"] = 0
+
             # Optionally override validation batch size
             if hasattr(val_config, "micro_batch_size") and val_config.micro_batch_size is not None:
                 val_dataset_kwargs["micro_batch_size"] = val_config.micro_batch_size
