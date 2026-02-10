@@ -79,14 +79,14 @@ use_fp32_master_weights: true
 # Dataset config (tokenizer + seq params only — data comes from SQLite)
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
-  micro_batch_size: 8    # Match John's --micro-batch-size 8
+  micro_batch_size: 1   # Match John's --micro-batch-size 8
   num_workers: 1         # Match John's --workers 1
   max_seq_length: 8192   # Match John's --seq-length 8192
   mask_degenerate_bases: true
   uppercase_labels: false
 
 # Gradient accumulation = 4 (for GBS = 8 * 4 * 6_nodes * 8_gpus = 1536)
-grad_acc_steps: 4
+grad_acc_steps: 8
 
 # Training setup
 num_train_steps: 182314
