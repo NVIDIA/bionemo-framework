@@ -91,6 +91,16 @@ quant_stats_config:
   quant_stats_file: ./fp8_debugging_stats.yaml
   quant_log_dir: ./log_quant_stats
 
+# Nsight Systems profiling config.
+# To use, wrap your launch command with:
+#   nsys profile -s none -t cuda,nvtx -o <output_report> --force-overwrite true \
+#     --capture-range=cudaProfilerApi --capture-range-end=stop <your torchrun command>
+nsys_profiling:
+  enabled: false
+  start_step: 5    # Step at which to start CUDA profiler capture
+  end_step: 8      # Step at which to stop CUDA profiler capture
+  ranks: [0]       # Which ranks to profile (list of ints)
+
 # Note: The layers are going to come in 1 indexed and we convert them to be 0 indexed at runtime.
 fp8_layers: null
 fp4_layers: null

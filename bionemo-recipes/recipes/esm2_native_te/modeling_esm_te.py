@@ -27,6 +27,7 @@ from typing import Literal, Optional, Unpack
 # TODO: put import guard around transformer_engine here, with an informative error message around
 # installation and the nvidia docker container.
 import torch
+import torch.cuda.nvtx as nvtx
 import transformer_engine.pytorch
 from torch import nn
 from torch.nn import CrossEntropyLoss
@@ -216,7 +217,6 @@ class NVEsmEncoder(nn.Module):
             if kwargs.get("output_hidden_states", False):
                 all_hidden_states = (*all_hidden_states, hidden_states)
             
-            import pdb; pdb.set_trace()
             # If BF16 desired --> use autocast(false) so it goes to BF16.
             # If FP8 desired --> use nullcontext so it uses upper context manager to FP8.
             # If FP4 desired --> use autocast(true, recipe=fp4_recipe) so it uses FP4.
@@ -228,6 +228,7 @@ class NVEsmEncoder(nn.Module):
                 fp_context = transformer_engine.pytorch.autocast(enabled=False)
             # TODO(@jomitchell): Double check that this works, make a funciton for it then unit test it.
 
+            nvtx.range_push(f"encoder_layer_{layer_number}")
             with fp_context:
                 hidden_states = layer_module(
                     hidden_states,
@@ -241,8 +242,11 @@ class NVEsmEncoder(nn.Module):
                     max_seqlen_kv=kwargs.get("max_length_k", None),
                     pad_between_seqs=kwargs.get("pad_between_seqs", None),
                 )
+            nvtx.range_pop()  # encoder_layer_N
 
+        nvtx.range_push("emb_layer_norm_after")
         hidden_states = self.emb_layer_norm_after(hidden_states)
+        nvtx.range_pop()  # emb_layer_norm_after
 
         if kwargs.get("output_hidden_states", False):
             all_hidden_states = (*all_hidden_states, hidden_states)

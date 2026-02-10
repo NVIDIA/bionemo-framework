@@ -22,6 +22,7 @@ from torch.profiler import profile, ProfilerActivity
 import hydra
 import nvdlfw_inspect.api as debug_api
 import torch
+import torch.cuda.nvtx as nvtx
 import transformer_engine
 import transformer_engine.pytorch
 import yaml
@@ -292,37 +293,60 @@ def main(args: DictConfig) -> float | None:
 
     perf_logger = PerfLogger(dist_config, args)
 
+    # Nsight Systems profiling setup.
+    nsys_enabled = args.nsys_profiling.enabled
+    nsys_start_step = args.nsys_profiling.start_step if nsys_enabled else -1
+    nsys_end_step = args.nsys_profiling.end_step if nsys_enabled else -1
+    nsys_ranks = set(OmegaConf.to_container(args.nsys_profiling.ranks, resolve=True)) if nsys_enabled else set()
+    nsys_profiling_active = False
+
+    if nsys_enabled and dist_config.rank in nsys_ranks:
+        logger.info(
+            f"Nsight profiling enabled for rank {dist_config.rank}: "
+            f"will capture steps [{nsys_start_step}, {nsys_end_step})"
+        )
+
     # Training loop
     step = start_step
     while step < args.num_train_steps:
         for batch in train_dataloader:
+            # --- Nsys: start profiler at the configured step ---
+            if nsys_enabled and step == nsys_start_step and dist_config.rank in nsys_ranks:
+                logger.info(f"[Rank {dist_config.rank}] Starting nsys capture at step {step}")
+                torch.cuda.cudart().cudaProfilerStart()
+                nsys_profiling_active = True
+
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
             
-            # Use an outer FP8 recipe.
+            # --- Forward pass ---
+            nvtx.range_push(f"step_{step}")
+            nvtx.range_push("forward")
             with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe if args.fp8_config.enabled else None):
                 outputs = model(**batch)
-            
-            # if step == 5:  # Profile step 5
-            #     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-            #         with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
-            #             outputs = model(**batch)
-            #     logger.info(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
+            nvtx.range_pop()  # forward
 
-            # Backward pass.
+            # --- Backward pass ---
+            nvtx.range_push("backward")
             loss = outputs.loss
             loss.backward()
+            nvtx.range_pop()  # backward
 
-            # Compute and clip gradient norms.
+            # --- Grad clip ---
+            nvtx.range_push("clip_grad_norm")
             total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+            nvtx.range_pop()  # clip_grad_norm
 
-            # Step optimizer.
+            # --- Optimizer step ---
+            nvtx.range_push("optimizer_step")
             optimizer.step()
             scheduler.step()
+            nvtx.range_pop()  # optimizer_step
 
             if args.quant_stats_config.enabled:
                 debug_api.step()
 
             optimizer.zero_grad()
+            nvtx.range_pop()  # step_N
 
             perf_logger.log_step(
                 step=step,
@@ -345,6 +369,12 @@ def main(args: DictConfig) -> float | None:
                     max_checkpoints=args.checkpoint.max_checkpoints,
                 )
 
+            # --- Nsys: stop profiler at the configured step ---
+            if nsys_profiling_active and step >= nsys_end_step:
+                logger.info(f"[Rank {dist_config.rank}] Stopping nsys capture at step {step}")
+                torch.cuda.cudart().cudaProfilerStop()
+                nsys_profiling_active = False
+
             step += 1
             if step >= args.num_train_steps:
                 break
@@ -360,6 +390,12 @@ def main(args: DictConfig) -> float | None:
             save_directory=ckpt_path / "final_model",
             dist_config=dist_config,
         )
+
+    # Ensure nsys profiler is stopped if training ended before end_step.
+    if nsys_profiling_active:
+        logger.info(f"[Rank {dist_config.rank}] Stopping nsys capture at end of training (step {step})")
+        torch.cuda.cudart().cudaProfilerStop()
+        nsys_profiling_active = False
 
     # Clean up distributed training
     perf_logger.finish()
