@@ -1,0 +1,115 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 7B Llama3 on OpenGenome2 Metagenome - THD + GQA + FP8 + ShardedEden data
+#
+# Uses John's pre-computed SQLite window databases for data loading instead of
+# HuggingFace streaming.  This gives true global shuffling of all windows and
+# reads from the same data files as John's Megatron Evo2 training.
+#
+# Usage (6 nodes × 8 GPUs):
+#   torchrun --nproc_per_node=8 train_fsdp2.py \
+#       --config-name L2_og2_metagenome_7b_thd_gqa_fp8_sharded_eden \
+#       sharded_eden.sequence_db_dir=/data/bcr_eden/OG2_database_splits \
+#       sharded_eden.train_window_db=/data/bcr_eden/OG2_database_splits/og2__train__short.sqlite \
+#       sharded_eden.val_window_db=/data/bcr_eden/OG2_database_splits/og2__validation__short.sqlite \
+#       checkpoint.ckpt_dir=/data/results/sharded_eden_7b
+
+defaults:
+  - L2_og2_metagenome_7b
+  - _self_
+
+# ---- Data source: ShardedEden (John's SQLite files) ----
+use_sharded_eden: true
+
+sharded_eden:
+  sequence_db_dir: ???  # e.g. /data/bcr_eden/OG2_database_splits
+  train_window_db: ???  # e.g. /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite
+  val_window_db: null   # e.g. /data/bcr_eden/OG2_database_splits/og2__validation__short.sqlite
+  test_window_db: null  # e.g. /data/bcr_eden/OG2_database_splits/og2__test__short.sqlite
+  stride: 7992          # Must match the window DB metadata
+  rc_aug: false
+
+# Override config_kwargs to enable GQA and FP8 first/last
+config_kwargs:
+  vocab_size: 256
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 8  # GQA: 8 KV heads instead of 32 (MHA)
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: thd
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+  fp8_first_last_bf16: true  # Keep first/last transformer layers in BF16 for stability
+
+# ============ MATCHING JOHN'S SETTINGS ============
+# Apply weight decay to embeddings (matches John's Megatron behavior)
+skip_embedding_weight_decay: false
+
+# Use Megatron-style scaled init for proj/fc2
+use_megatron_scaled_init: true
+
+# Disable meta device init
+use_meta_device: false
+
+# FP32 master weights enabled
+use_fp32_master_weights: true
+# ===================================================
+
+# Dataset config (tokenizer + seq params only — data comes from SQLite)
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 8    # Match John's --micro-batch-size 8
+  num_workers: 1         # Match John's --workers 1
+  max_seq_length: 8192   # Match John's --seq-length 8192
+  mask_degenerate_bases: true
+  uppercase_labels: false
+
+# Gradient accumulation = 4 (for GBS = 8 * 4 * 6_nodes * 8_gpus = 1536)
+grad_acc_steps: 4
+
+# Training setup
+num_train_steps: 182314
+
+# FP8 configuration - Float8BlockScaling with E4M3 format
+fp8_config:
+  enabled: true
+  fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+  fp8_format: E4M3
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
+
+# Enable validation from ShardedEden val_window_db
+validation:
+  enabled: true
+  eval_interval: 1250  # Match John's --val-check-interval
+  num_batches: 40      # Match John's --limit-val-batches
+  data_path: null      # Not used — validation reads from sharded_eden.val_window_db
+
+logger:
+  frequency: 1
+
+wandb:
+  name: og2_7b_thd_gqa_fp8_sharded_eden
+  project: llama3-metagenome-7b

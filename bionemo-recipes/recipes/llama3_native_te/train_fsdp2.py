@@ -55,6 +55,7 @@ from fp8_debugging import initialize_fp8_debugging
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
 from scheduler import get_cosine_annealing_schedule_with_warmup
+from sharded_eden_dataset import create_sharded_eden_bshd_dataloader, create_sharded_eden_thd_dataloader
 
 
 logger = logging.getLogger(__name__)
@@ -596,8 +597,8 @@ def main(args: DictConfig) -> float | None:
         )
         logger.info("MixedPrecisionPolicy: param_dtype=bf16, reduce_dtype=fp32, output_dtype=bf16")
 
-    # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
-    # Each decoder layer should be individually sharded before sharding the full model.
+        # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
+        # Each decoder layer should be individually sharded before sharding the full model.
     if mp_policy is not None:
         for layer in model.model.layers:
             fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
@@ -683,7 +684,32 @@ def main(args: DictConfig) -> float | None:
 
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    if args.use_sequence_packing:
+    # ---- dataloader creation ------------------------------------------------
+    use_sharded_eden = getattr(args, "use_sharded_eden", False)
+    if use_sharded_eden:
+        eden_cfg = args.sharded_eden
+        eden_kwargs = {
+            "sequence_db_dir": eden_cfg.sequence_db_dir,
+            "window_db_path": eden_cfg.train_window_db,
+            "tokenizer_name_or_path": args.dataset.tokenizer_name_or_path,
+            "seq_length": args.dataset.max_seq_length,
+            "stride": eden_cfg.stride,
+            "micro_batch_size": args.dataset.micro_batch_size,
+            "num_workers": args.dataset.num_workers,
+            "seed": seed,
+            "rc_aug": getattr(eden_cfg, "rc_aug", False),
+            "uppercase_labels": getattr(args.dataset, "uppercase_labels", False),
+            "mask_degenerate_bases": getattr(args.dataset, "mask_degenerate_bases", False),
+            "pad_sequences_to_be_divisible_by": getattr(args.dataset, "pad_sequences_to_be_divisible_by", None),
+        }
+        if args.use_sequence_packing:
+            eden_kwargs["token_micro_batch_size"] = args.dataset.micro_batch_size * args.dataset.max_seq_length
+            eden_kwargs.pop("micro_batch_size")
+            train_dataloader, dataset_or_sampler = create_sharded_eden_thd_dataloader(dist_config, **eden_kwargs)
+        else:
+            train_dataloader, dataset_or_sampler = create_sharded_eden_bshd_dataloader(dist_config, **eden_kwargs)
+        logger.info("Using ShardedEden data from %s", eden_cfg.sequence_db_dir)
+    elif args.use_sequence_packing:
         train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
     else:
         train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
@@ -719,40 +745,73 @@ def main(args: DictConfig) -> float | None:
     val_dataloader = None
 
     if val_enabled:
-        val_data_path = getattr(val_config, "data_path", None)
-        if val_data_path:
-            logger.info(f"Setting up validation dataloader from {val_data_path}")
+        # When using sharded Eden data, prefer the val_window_db if available
+        eden_val_db = getattr(eden_cfg, "val_window_db", None) if use_sharded_eden else None
 
-            # Create validation dataloader config - copy training config and override data path
-            val_dataset_kwargs = OmegaConf.to_container(args.dataset, resolve=True)
-
-            # Override load_dataset_kwargs for validation data
-            val_dataset_kwargs["load_dataset_kwargs"] = {
-                "path": "json",
-                "data_files": val_data_path,
-                "split": "train",
-                "streaming": True,
+        if use_sharded_eden and eden_val_db:
+            logger.info(f"Setting up validation dataloader from ShardedEden: {eden_val_db}")
+            val_mbs = getattr(val_config, "micro_batch_size", None) or args.dataset.micro_batch_size
+            val_eden_kwargs = {
+                "sequence_db_dir": eden_cfg.sequence_db_dir,
+                "window_db_path": eden_val_db,
+                "tokenizer_name_or_path": args.dataset.tokenizer_name_or_path,
+                "seq_length": args.dataset.max_seq_length,
+                "stride": eden_cfg.stride,
+                "micro_batch_size": val_mbs,
+                "num_workers": args.dataset.num_workers,
+                "seed": seed,
+                "rc_aug": False,  # No augmentation for validation
+                "uppercase_labels": getattr(args.dataset, "uppercase_labels", False),
+                "mask_degenerate_bases": getattr(args.dataset, "mask_degenerate_bases", False),
+                "pad_sequences_to_be_divisible_by": getattr(args.dataset, "pad_sequences_to_be_divisible_by", None),
             }
-
-            # Don't use stateful dataloader for validation
-            val_dataset_kwargs["use_stateful_dataloader"] = False
-
-            # Optionally override validation batch size
-            if hasattr(val_config, "micro_batch_size") and val_config.micro_batch_size is not None:
-                val_dataset_kwargs["micro_batch_size"] = val_config.micro_batch_size
-
-            # Use same data format as training
             if args.use_sequence_packing:
-                val_dataloader, _ = create_thd_dataloader(dist_config, **val_dataset_kwargs)
+                val_eden_kwargs["token_micro_batch_size"] = (
+                    val_eden_kwargs.pop("micro_batch_size") * args.dataset.max_seq_length
+                )
+                val_dataloader, _ = create_sharded_eden_thd_dataloader(dist_config, **val_eden_kwargs)
             else:
-                val_dataloader, _ = create_bshd_dataloader(dist_config, **val_dataset_kwargs)
+                val_dataloader, _ = create_sharded_eden_bshd_dataloader(dist_config, **val_eden_kwargs)
 
             logger.info(
-                f"Validation enabled: every {val_config.eval_interval} steps, {val_config.num_batches} batches"
+                f"Validation enabled (ShardedEden): every {val_config.eval_interval} steps, "
+                f"{val_config.num_batches} batches"
             )
         else:
-            logger.warning("Validation enabled but no data_path specified, skipping validation")
-            val_enabled = False
+            val_data_path = getattr(val_config, "data_path", None)
+            if val_data_path:
+                logger.info(f"Setting up validation dataloader from {val_data_path}")
+
+                # Create validation dataloader config - copy training config and override data path
+                val_dataset_kwargs = OmegaConf.to_container(args.dataset, resolve=True)
+
+                # Override load_dataset_kwargs for validation data
+                val_dataset_kwargs["load_dataset_kwargs"] = {
+                    "path": "json",
+                    "data_files": val_data_path,
+                    "split": "train",
+                    "streaming": True,
+                }
+
+                # Don't use stateful dataloader for validation
+                val_dataset_kwargs["use_stateful_dataloader"] = False
+
+                # Optionally override validation batch size
+                if hasattr(val_config, "micro_batch_size") and val_config.micro_batch_size is not None:
+                    val_dataset_kwargs["micro_batch_size"] = val_config.micro_batch_size
+
+                # Use same data format as training
+                if args.use_sequence_packing:
+                    val_dataloader, _ = create_thd_dataloader(dist_config, **val_dataset_kwargs)
+                else:
+                    val_dataloader, _ = create_bshd_dataloader(dist_config, **val_dataset_kwargs)
+
+                logger.info(
+                    f"Validation enabled: every {val_config.eval_interval} steps, {val_config.num_batches} batches"
+                )
+            else:
+                logger.warning("Validation enabled but no data_path or val_window_db specified, skipping validation")
+                val_enabled = False
 
     gc.collect()
     torch.cuda.empty_cache()
