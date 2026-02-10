@@ -107,9 +107,12 @@ def run_validation(
 
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
-        # Forward pass - FP32 compute with FP8 for supported layers
+        # Forward pass - FP8 DISABLED during validation.
+        # NeMo's _contextual_fp8_autocast disables FP8 when model.training=False
+        # because TE's FP8 state tracking (amax history, scaling factors) doesn't
+        # handle eval/no_grad mode properly, especially with FSDP2.
         try:
-            with transformer_engine.pytorch.fp8_autocast(enabled=fp8_config.enabled, fp8_recipe=fp8_recipe):
+            with transformer_engine.pytorch.fp8_autocast(enabled=False):
                 outputs = model(**batch)
 
             # Get loss from model output
