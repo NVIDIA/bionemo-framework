@@ -99,18 +99,15 @@ def main(args: DictConfig) -> float | None:
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
 
     mp_policy = MixedPrecisionPolicy(
-        param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward
-        reduce_dtype=torch.float32,  # Gradient reductions in FP32
-        output_dtype=torch.bfloat16,  # Forward output dtype
+        param_dtype=torch.bfloat16
+        if args.use_fp32_master_weights
+        else None,  # Cast params to BF16 for forward/backward
+        reduce_dtype=torch.float32 if args.use_fp32_master_weights else None,  # Gradient reductions in FP32
+        output_dtype=torch.bfloat16 if args.use_fp32_master_weights else None,  # Forward output dtype
     )
-    if args.use_fp32_master_weights:
-        for layer in transformer_stack:
-            fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
-        fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
-    else:
-        for layer in transformer_stack:
-            fully_shard(layer, mesh=device_mesh["dp"])
-        fully_shard(model, mesh=device_mesh["dp"])
+    for layer in transformer_stack:
+        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
+    fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
 
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     # Note, this should happen before we create the optimizer.
