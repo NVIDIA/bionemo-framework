@@ -17,7 +17,7 @@
 #
 # Same data as John's Megatron run (SQLite window databases).
 # FP32 master weights to avoid BF16 precision wall at loss ~1.05.
-# FP8 disabled — BF16 forward with FP32 weight storage.
+# FP8 + FP32 master weights — matches John's Megatron precision hierarchy.
 #
 # Usage (6 nodes × 8 GPUs):
 #   torchrun --nproc_per_node=8 train_fsdp2.py \
@@ -69,9 +69,14 @@ skip_embedding_weight_decay: false
 # Disable meta device (required for FP32 init)
 use_meta_device: false
 
-# FP8 disabled — pure BF16 forward with FP32 weight storage
+# FP8 enabled — matches John's --fp8 flag
 fp8_config:
-  enabled: false
+  enabled: true
+  fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+  fp8_format: E4M3
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
 # ======================================
 
 # Dataset config
@@ -97,5 +102,5 @@ logger:
   frequency: 1
 
 wandb:
-  name: og2_7b_sharded_eden_fp32mw
+  name: og2_7b_sharded_eden_fp8_fp32mw
   project: llama3-metagenome-7b
