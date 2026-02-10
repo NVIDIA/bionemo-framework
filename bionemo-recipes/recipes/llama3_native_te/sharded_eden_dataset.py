@@ -499,7 +499,7 @@ def create_sharded_eden_bshd_dataloader(
     seq_length: int = 8192,
     stride: int = 7992,
     micro_batch_size: int = 8,
-    num_workers: int = 4,
+    num_workers: int = 1,
     prefetch_factor: int = 4,
     seed: int = 42,
     rc_aug: bool = False,
@@ -520,6 +520,7 @@ def create_sharded_eden_bshd_dataloader(
         stride=stride,
         rc_aug=rc_aug,
     )
+    breakpoint()
 
     sampler = DistributedSampler(
         dataset,

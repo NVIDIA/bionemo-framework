@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 7B Llama3 on OpenGenome2 Metagenome - ShardedEden + FP32 Master Weights
+#
+# Same data as John's Megatron run (SQLite window databases).
+# FP32 master weights to avoid BF16 precision wall at loss ~1.05.
+# FP8 disabled — BF16 forward with FP32 weight storage.
+#
+# Usage (6 nodes × 8 GPUs):
+#   torchrun --nproc_per_node=8 train_fsdp2.py \
+#       --config-name L2_og2_metagenome_7b_thd_gqa_sharded_eden_fp32mw \
+#       checkpoint.ckpt_dir=/data/results/sharded_eden_fp32mw
+
+defaults:
+  - L2_og2_metagenome_7b
+  - _self_
+
+# ---- Data source: ShardedEden (John's SQLite files) ----
+use_sharded_eden: true
+
+sharded_eden:
+  sequence_db_dir: /data/bcr_eden/OG2_database_splits/
+  train_window_db: /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite
+  val_window_db: /data/bcr_eden/OG2_database_splits/og2__validation__short.sqlite
+  test_window_db: /data/bcr_eden/OG2_database_splits/og2__test__short.sqlite
+  stride: 7992
+  rc_aug: false
+
+# GQA architecture
+config_kwargs:
+  vocab_size: 256
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 8  # GQA: 8 KV heads
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: thd
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+
+# ============ KEY SETTINGS ============
+# FP32 master weights — prevents BF16 precision wall at loss ~1.05
+use_fp32_master_weights: true
+
+# Megatron-style init
+use_megatron_scaled_init: true
+skip_embedding_weight_decay: false
+
+# Disable meta device (required for FP32 init)
+use_meta_device: false
+
+# FP8 disabled — pure BF16 forward with FP32 weight storage
+fp8_config:
+  enabled: false
+# ======================================
+
+# Dataset config
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 1
+  num_workers: 1
+  max_seq_length: 8192
+  mask_degenerate_bases: true
+  uppercase_labels: false
+
+grad_acc_steps: 8
+num_train_steps: 182314
+
+# Validation from ShardedEden
+validation:
+  enabled: true
+  eval_interval: 1250
+  num_batches: 40
+  data_path: null
+
+logger:
+  frequency: 1
+
+wandb:
+  name: og2_7b_sharded_eden_fp32mw
+  project: llama3-metagenome-7b
