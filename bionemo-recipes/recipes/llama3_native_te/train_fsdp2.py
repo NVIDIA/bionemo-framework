@@ -77,7 +77,6 @@ def run_validation(
     dist_config: DistributedConfig,
     fp8_config: DictConfig,
     fp8_recipe,
-    autocast_ctx,
 ) -> dict:
     """Run validation and compute loss metrics.
 
@@ -89,7 +88,6 @@ def run_validation(
         dist_config: Distributed config for logging.
         fp8_config: FP8 configuration.
         fp8_recipe: FP8 recipe for autocast.
-        autocast_ctx: Autocast context manager.
 
     Returns:
         Dictionary with val_loss and val_ppl.
@@ -115,11 +113,10 @@ def run_validation(
 
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
-        # Forward pass with same precision as training
+        # Forward pass - FP32 compute with FP8 for supported layers
         try:
-            with autocast_ctx:
-                with transformer_engine.pytorch.fp8_autocast(enabled=fp8_config.enabled, fp8_recipe=fp8_recipe):
-                    outputs = model(**batch)
+            with transformer_engine.pytorch.fp8_autocast(enabled=fp8_config.enabled, fp8_recipe=fp8_recipe):
+                outputs = model(**batch)
 
             # Get loss from model output
             loss = outputs.loss
@@ -700,8 +697,6 @@ def main(args: DictConfig) -> float | None:
     # Create dataloader based on config
     use_tensor_dataset = getattr(args, "use_tensor_dataset", False)
     tensor_dir = getattr(args, "tensor_dir", None)
-    log_sequences = getattr(args, "log_sequences", False)
-    sequence_log_dir = getattr(args, "sequence_log_dir", None)
     use_sharded_eden = getattr(args, "use_sharded_eden", False)
 
     if use_sharded_eden:
@@ -735,8 +730,6 @@ def main(args: DictConfig) -> float | None:
             micro_batch_size=args.dataset.micro_batch_size,
             grad_acc_steps=args.grad_acc_steps,
             num_workers=args.dataset.get("num_workers", 0),
-            log_sequences=log_sequences,
-            log_dir=sequence_log_dir,
         )
     elif args.use_sequence_packing:
         train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
@@ -834,40 +827,9 @@ def main(args: DictConfig) -> float | None:
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
     micro_step = 0  # Gradient accumulation step counter
-    global_micro_step = 0  # Total micro-steps across all optimizer steps
-
-    # Create autocast context for FP32 master weights (casts compute to BF16).
-    # Allow override via config for debugging (default: enabled when use_fp32_master_weights=True).
-    use_autocast = getattr(args, "use_autocast", use_fp32_master_weights)
-    autocast_ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else nullcontext()
-    if use_fp32_master_weights:
-        logger.info("FP32 master weights: use_autocast=%s", use_autocast)
 
     if train_dataloader is None:
         raise RuntimeError("Expected train_dataloader to be initialized before training.")
-
-    # Setup sequence logging if enabled (for debugging data ordering)
-    seq_log_writer = None
-    seq_log_file = None
-    if log_sequences and sequence_log_dir:
-        import csv
-
-        log_dir = Path(sequence_log_dir)
-        log_dir.mkdir(parents=True, exist_ok=True)
-        seq_log_path = log_dir / f"training_sequences_rank{dist_config.rank}.csv"
-        seq_log_file = open(seq_log_path, "w", newline="")
-        seq_log_writer = csv.writer(seq_log_file)
-        seq_log_writer.writerow(
-            [
-                "optimizer_step",
-                "micro_step",
-                "global_micro_step",
-                "batch_idx",
-                "first_10_tokens",
-                "loss",
-            ]
-        )
-        logger.info(f"Sequence logging enabled: {seq_log_path}")
 
     logged_dtypes = False
     logged_first_loss = False
@@ -876,38 +838,14 @@ def main(args: DictConfig) -> float | None:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
             micro_step += 1
-            global_micro_step += 1
 
-            # Forward pass with mixed precision.
-            with autocast_ctx:
-                with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
-                    outputs = model(**batch)
+            # Forward pass - FP32 compute with FP8 for supported layers
+            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+                outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
             loss.backward()
-
-            # Log sequence tokens if enabled (for debugging data ordering)
-            if seq_log_writer is not None:
-                input_ids = batch.get("input_ids", batch.get("tokens"))
-                if input_ids is not None:
-                    # Log first sample in batch
-                    first_10 = (
-                        input_ids[0, :10].cpu().tolist() if input_ids.dim() > 1 else input_ids[:10].cpu().tolist()
-                    )
-                    seq_log_writer.writerow(
-                        [
-                            step,
-                            micro_step,
-                            global_micro_step,
-                            0,  # batch_idx (first sample)
-                            first_10,
-                            outputs.loss.item(),
-                        ]
-                    )
-                    # Flush periodically
-                    if global_micro_step % 100 == 0:
-                        seq_log_file.flush()
 
             # Log the first loss to verify initialization is producing reasonable outputs
             if not logged_first_loss and dist_config.rank == 0:
@@ -1000,7 +938,6 @@ def main(args: DictConfig) -> float | None:
                             dist_config=dist_config,
                             fp8_config=args.fp8_config,
                             fp8_recipe=fp8_recipe,
-                            autocast_ctx=autocast_ctx,
                         )
                         if dist_config.rank == 0:
                             logger.info(
