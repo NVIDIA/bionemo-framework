@@ -47,6 +47,7 @@ from fp8_debugging import initialize_fp8_debugging
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
 from scheduler import get_cosine_annealing_schedule_with_warmup
+from sharded_eden_dataset import create_sharded_eden_bshd_dataloader, create_sharded_eden_thd_dataloader
 
 
 logger = logging.getLogger(__name__)
@@ -251,7 +252,32 @@ def main(args: DictConfig) -> float | None:
         device_mesh=device_mesh["dp"],
     )
 
-    if args.use_sequence_packing:
+    # ---- dataloader creation ------------------------------------------------
+    use_sharded_eden = getattr(args, "use_sharded_eden", False)
+    if use_sharded_eden:
+        eden_cfg = args.sharded_eden
+        eden_kwargs = {
+            "sequence_db_dir": eden_cfg.sequence_db_dir,
+            "window_db_path": eden_cfg.train_window_db,
+            "tokenizer_name_or_path": args.dataset.tokenizer_name_or_path,
+            "seq_length": args.dataset.max_seq_length,
+            "stride": eden_cfg.stride,
+            "micro_batch_size": args.dataset.micro_batch_size,
+            "num_workers": args.dataset.num_workers,
+            "seed": seed,
+            "rc_aug": getattr(eden_cfg, "rc_aug", False),
+            "uppercase_labels": getattr(args.dataset, "uppercase_labels", False),
+            "mask_degenerate_bases": getattr(args.dataset, "mask_degenerate_bases", False),
+            "pad_sequences_to_be_divisible_by": getattr(args.dataset, "pad_sequences_to_be_divisible_by", None),
+        }
+        if args.use_sequence_packing:
+            eden_kwargs["token_micro_batch_size"] = args.dataset.micro_batch_size * args.dataset.max_seq_length
+            eden_kwargs.pop("micro_batch_size")
+            train_dataloader, dataset_or_sampler = create_sharded_eden_thd_dataloader(dist_config, **eden_kwargs)
+        else:
+            train_dataloader, dataset_or_sampler = create_sharded_eden_bshd_dataloader(dist_config, **eden_kwargs)
+        logger.info("Using ShardedEden data from %s", eden_cfg.sequence_db_dir)
+    elif args.use_sequence_packing:
         train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
     else:
         train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)

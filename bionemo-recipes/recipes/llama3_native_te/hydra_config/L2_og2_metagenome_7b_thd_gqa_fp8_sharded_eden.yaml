@@ -19,12 +19,12 @@
 # HuggingFace streaming.  This gives true global shuffling of all windows and
 # reads from the same data files as John's Megatron Evo2 training.
 #
+# Data lives at /data/bcr_eden/OG2_database_splits/ on Lepton.
+# Per-sample sequence DBs are in the opengenome2-metagenome/ subdirectory.
+#
 # Usage (6 nodes × 8 GPUs):
 #   torchrun --nproc_per_node=8 train_fsdp2.py \
 #       --config-name L2_og2_metagenome_7b_thd_gqa_fp8_sharded_eden \
-#       sharded_eden.sequence_db_dir=/data/bcr_eden/OG2_database_splits \
-#       sharded_eden.train_window_db=/data/bcr_eden/OG2_database_splits/og2__train__short.sqlite \
-#       sharded_eden.val_window_db=/data/bcr_eden/OG2_database_splits/og2__validation__short.sqlite \
 #       checkpoint.ckpt_dir=/data/results/sharded_eden_7b
 
 defaults:
@@ -35,10 +35,10 @@ defaults:
 use_sharded_eden: true
 
 sharded_eden:
-  sequence_db_dir: ???  # e.g. /data/bcr_eden/OG2_database_splits
-  train_window_db: ???  # e.g. /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite
-  val_window_db: null   # e.g. /data/bcr_eden/OG2_database_splits/og2__validation__short.sqlite
-  test_window_db: null  # e.g. /data/bcr_eden/OG2_database_splits/og2__test__short.sqlite
+  sequence_db_dir: /data/bcr_eden/OG2_database_splits/opengenome2-metagenome
+  train_window_db: /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite
+  val_window_db: /data/bcr_eden/OG2_database_splits/og2__validation__short.sqlite
+  test_window_db: /data/bcr_eden/OG2_database_splits/og2__test__short.sqlite
   stride: 7992          # Must match the window DB metadata
   rc_aug: false
 

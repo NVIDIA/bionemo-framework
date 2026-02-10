@@ -31,6 +31,12 @@ use_torch_compile: false
 
 use_sequence_packing: false
 
+# ---- Data source selection ----
+# Set use_sharded_eden to true to use pre-computed SQLite window databases
+# (same data format as John's Evo2 training).  When false, the standard
+# HuggingFace streaming dataset is used.
+use_sharded_eden: false
+
 dataset:
   tokenizer_name_or_path: ??? # Set to the path of your tokenizer (e.g.,  meta-llama/Llama-3.1-8B or ./tokenizers/nucleotide_fast_tokenizer)
   micro_batch_size: 8
@@ -50,6 +56,15 @@ dataset:
     path: ???
     split: "train"
     streaming: True
+
+# ---- Sharded Eden data config (used only when use_sharded_eden=true) ----
+sharded_eden:
+  sequence_db_dir: null  # Directory containing per-sample SQLite databases
+  train_window_db: null  # Path to the pre-computed training window database
+  val_window_db: null    # Path to the pre-computed validation window database
+  test_window_db: null   # Path to the pre-computed test window database
+  stride: 7992           # Window stride in bases (must match window DB metadata)
+  rc_aug: false          # Whether to apply reverse complement augmentation
 
 # WandB config
 wandb:
