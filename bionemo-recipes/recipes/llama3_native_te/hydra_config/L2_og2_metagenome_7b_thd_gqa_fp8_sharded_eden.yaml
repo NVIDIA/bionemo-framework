@@ -106,7 +106,7 @@ fp8_config:
 # Enable validation from ShardedEden val_window_db
 validation:
   enabled: true
-  eval_interval: 1250  # Match John's --val-check-interval
+  eval_interval: 500
   num_batches: 40      # Match John's --limit-val-batches
   data_path: null      # Not used — validation reads from sharded_eden.val_window_db
 
