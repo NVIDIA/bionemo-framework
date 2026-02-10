@@ -60,6 +60,7 @@ config_kwargs:
     low_freq_factor: 1
     high_freq_factor: 4
     original_max_position_embeddings: 8192
+  fp8_first_last_bf16: true  # Keep first/last transformer layers in BF16 for stability
 
 # BSHD doesn't support sequence packing
 use_sequence_packing: false
@@ -93,9 +94,14 @@ grad_acc_steps: 8
 # Training setup
 num_train_steps: 182314
 
-# FP8 disabled for this run
+# FP8 Block Scaling with first/last layers in BF16
 fp8_config:
-  enabled: false
+  enabled: true
+  fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+  fp8_format: E4M3
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
 
 # Enable validation from ShardedEden val_window_db
 validation:
