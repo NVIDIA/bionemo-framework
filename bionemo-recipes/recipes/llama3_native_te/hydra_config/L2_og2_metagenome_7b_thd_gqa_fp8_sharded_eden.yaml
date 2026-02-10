@@ -52,7 +52,7 @@ config_kwargs:
   num_key_value_heads: 8  # GQA: 8 KV heads instead of 32 (MHA)
   max_position_embeddings: 8192
   initializer_range: 0.02
-  attn_input_format: thd
+  attn_input_format: bshd
   rope_theta: 500000
   rope_scaling:
     type: "llama3"
@@ -60,6 +60,9 @@ config_kwargs:
     low_freq_factor: 1
     high_freq_factor: 4
     original_max_position_embeddings: 8192
+
+# BSHD doesn't support sequence packing
+use_sequence_packing: false
 
 # ============ MATCHING JOHN'S SETTINGS ============
 # Apply weight decay to embeddings (matches John's Megatron behavior)
