@@ -49,13 +49,19 @@ from checkpoint import (
     save_final_model_fsdp2,
     should_save_checkpoint,
 )
-from dataset import create_bshd_dataloader, create_thd_dataloader
+from dataset import create_bshd_dataloader, create_sharded_eden_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from fp8_debugging import initialize_fp8_debugging
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
 from scheduler import get_cosine_annealing_schedule_with_warmup
-from sharded_eden_dataset import create_sharded_eden_bshd_dataloader, create_sharded_eden_thd_dataloader
+
+
+# Lazy import for tensor_dataset (optional, only needed for tensor dataset mode)
+try:
+    from tensor_dataset import create_tensor_dataloader
+except ImportError:
+    create_tensor_dataloader = None  # Not available, tensor dataset mode disabled
 
 
 logger = logging.getLogger(__name__)
@@ -71,6 +77,7 @@ def run_validation(
     dist_config: DistributedConfig,
     fp8_config: DictConfig,
     fp8_recipe,
+    autocast_ctx,
 ) -> dict:
     """Run validation and compute loss metrics.
 
@@ -82,6 +89,7 @@ def run_validation(
         dist_config: Distributed config for logging.
         fp8_config: FP8 configuration.
         fp8_recipe: FP8 recipe for autocast.
+        autocast_ctx: Autocast context manager.
 
     Returns:
         Dictionary with val_loss and val_ppl.
@@ -107,13 +115,11 @@ def run_validation(
 
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
-        # Forward pass - FP8 DISABLED during validation.
-        # NeMo's _contextual_fp8_autocast disables FP8 when model.training=False
-        # because TE's FP8 state tracking (amax history, scaling factors) doesn't
-        # handle eval/no_grad mode properly, especially with FSDP2.
+        # Forward pass with same precision as training
         try:
-            with transformer_engine.pytorch.fp8_autocast(enabled=False):
-                outputs = model(**batch)
+            with autocast_ctx:
+                with transformer_engine.pytorch.fp8_autocast(enabled=fp8_config.enabled, fp8_recipe=fp8_recipe):
+                    outputs = model(**batch)
 
             # Get loss from model output
             loss = outputs.loss
@@ -522,13 +528,13 @@ def main(args: DictConfig) -> float | None:
         model_class = LlamaForCausalLM
 
     # Determine dtype for model initialization
-    # When use_fp32_master_weights=True, we create the model in FP32
-    # When False, we use BF16 (original behavior)
+    # When use_fp32_master_weights=True, we create the model in FP32 and use MixedPrecisionPolicy
+    # to cast to BF16 for forward/backward. This matches Megatron's main_params_dtype=torch.float32
     use_fp32_master_weights = getattr(args, "use_fp32_master_weights", False)
     model_dtype = torch.float32 if use_fp32_master_weights else torch.bfloat16
 
     if use_fp32_master_weights:
-        logger.info("FP32 master weights enabled: model init in FP32")
+        logger.info("FP32 master weights enabled: model init in FP32, compute in BF16")
 
     # Create an empty Llama3 model with a causal language model head, e.g. "meta-llama/Meta-Llama-3-8B".
     # Convert DictConfig to regular dict to avoid JSON serialization issues in transformers logging
@@ -590,23 +596,27 @@ def main(args: DictConfig) -> float | None:
     )
 
     # Create MixedPrecisionPolicy for FSDP when using FP32 master weights
-    # Params cast to BF16 for forward/backward, gradients accumulated in FP32
+    # This casts FP32 master weights to BF16 for forward/backward, then back to FP32 for optimizer
     mp_policy = None
     if use_fp32_master_weights:
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward compute
             reduce_dtype=torch.float32,  # Accumulate gradients in FP32 for precision
             output_dtype=torch.bfloat16,  # Output activations in BF16
+            cast_forward_inputs=False,  # Let autocast decide op-level dtypes
         )
-        logger.info("MixedPrecisionPolicy: param_dtype=bf16, reduce_dtype=fp32, output_dtype=bf16")
+        logger.info(
+            "MixedPrecisionPolicy: param_dtype=bf16, reduce_dtype=fp32, output_dtype=bf16, cast_forward_inputs=False"
+        )
 
         # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
         # Each decoder layer should be individually sharded before sharding the full model.
-    if mp_policy is not None:
         for layer in model.model.layers:
             fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
         fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
     else:
+        # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
+        # Each decoder layer should be individually sharded before sharding the full model.
         for layer in model.model.layers:
             fully_shard(layer, mesh=device_mesh["dp"])
         fully_shard(model, mesh=device_mesh["dp"])
@@ -687,31 +697,47 @@ def main(args: DictConfig) -> float | None:
 
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
-    # ---- dataloader creation ------------------------------------------------
+    # Create dataloader based on config
+    use_tensor_dataset = getattr(args, "use_tensor_dataset", False)
+    tensor_dir = getattr(args, "tensor_dir", None)
+    log_sequences = getattr(args, "log_sequences", False)
+    sequence_log_dir = getattr(args, "sequence_log_dir", None)
     use_sharded_eden = getattr(args, "use_sharded_eden", False)
+
     if use_sharded_eden:
-        eden_cfg = args.sharded_eden
-        eden_kwargs = {
-            "sequence_db_dir": eden_cfg.sequence_db_dir,
-            "window_db_path": eden_cfg.train_window_db,
-            "tokenizer_name_or_path": args.dataset.tokenizer_name_or_path,
-            "seq_length": args.dataset.max_seq_length,
-            "stride": eden_cfg.stride,
-            "micro_batch_size": args.dataset.micro_batch_size,
-            "num_workers": args.dataset.num_workers,
-            "seed": seed,
-            "rc_aug": getattr(eden_cfg, "rc_aug", False),
-            "uppercase_labels": getattr(args.dataset, "uppercase_labels", False),
-            "mask_degenerate_bases": getattr(args.dataset, "mask_degenerate_bases", False),
-            "pad_sequences_to_be_divisible_by": getattr(args.dataset, "pad_sequences_to_be_divisible_by", None),
-        }
-        if args.use_sequence_packing:
-            eden_kwargs["token_micro_batch_size"] = args.dataset.micro_batch_size * args.dataset.max_seq_length
-            eden_kwargs.pop("micro_batch_size")
-            train_dataloader, dataset_or_sampler = create_sharded_eden_thd_dataloader(dist_config, **eden_kwargs)
-        else:
-            train_dataloader, dataset_or_sampler = create_sharded_eden_bshd_dataloader(dist_config, **eden_kwargs)
-        logger.info("Using ShardedEden data from %s", eden_cfg.sequence_db_dir)
+        # Use ShardedEdenDataset directly from SQLite (no parquet dumping needed)
+        sharded_eden_config = getattr(args, "sharded_eden", {})
+        logger.info("Using ShardedEdenDataset directly from SQLite")
+        train_dataloader, dataset_or_sampler = create_sharded_eden_dataloader(
+            distributed_config=dist_config,
+            tokenizer_name_or_path=sharded_eden_config.get(
+                "tokenizer_name_or_path", args.dataset.get("tokenizer_name_or_path")
+            ),
+            sequence_db_dir=sharded_eden_config.get("sequence_db_dir"),
+            window_db_path=sharded_eden_config.get("window_db_path"),
+            micro_batch_size=sharded_eden_config.get("micro_batch_size", args.dataset.get("micro_batch_size", 1)),
+            seq_length=sharded_eden_config.get("seq_length", 8192),
+            stride=sharded_eden_config.get("stride", 7992),
+            num_workers=sharded_eden_config.get("num_workers", 4),
+            shuffle=sharded_eden_config.get("shuffle", True),
+            seed=sharded_eden_config.get("seed", args.seed),
+            rc_aug=sharded_eden_config.get("rc_aug", False),
+            log_windows=sharded_eden_config.get("log_windows", False),
+            log_dir=sharded_eden_config.get("log_dir"),
+        )
+    elif use_tensor_dataset:
+        if tensor_dir is None:
+            raise ValueError("tensor_dir must be specified when use_tensor_dataset=True")
+        logger.info(f"Using pre-dumped tensor dataset from {tensor_dir}")
+        train_dataloader, dataset_or_sampler = create_tensor_dataloader(
+            distributed_config=dist_config,
+            tensor_dir=tensor_dir,
+            micro_batch_size=args.dataset.micro_batch_size,
+            grad_acc_steps=args.grad_acc_steps,
+            num_workers=args.dataset.get("num_workers", 0),
+            log_sequences=log_sequences,
+            log_dir=sequence_log_dir,
+        )
     elif args.use_sequence_packing:
         train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
     else:
@@ -748,73 +774,48 @@ def main(args: DictConfig) -> float | None:
     val_dataloader = None
 
     if val_enabled:
-        # When using sharded Eden data, prefer the val_window_db if available
-        eden_val_db = getattr(eden_cfg, "val_window_db", None) if use_sharded_eden else None
+        val_data_path = getattr(val_config, "data_path", None)
+        if val_data_path:
+            logger.info(f"Setting up validation dataloader from {val_data_path}")
 
-        if use_sharded_eden and eden_val_db:
-            logger.info(f"Setting up validation dataloader from ShardedEden: {eden_val_db}")
-            val_mbs = getattr(val_config, "micro_batch_size", None) or args.dataset.micro_batch_size
-            val_eden_kwargs = {
-                "sequence_db_dir": eden_cfg.sequence_db_dir,
-                "window_db_path": eden_val_db,
-                "tokenizer_name_or_path": args.dataset.tokenizer_name_or_path,
-                "seq_length": args.dataset.max_seq_length,
-                "stride": eden_cfg.stride,
-                "micro_batch_size": val_mbs,
-                "num_workers": args.dataset.num_workers,
-                "seed": seed,
-                "rc_aug": False,  # No augmentation for validation
-                "uppercase_labels": getattr(args.dataset, "uppercase_labels", False),
-                "mask_degenerate_bases": getattr(args.dataset, "mask_degenerate_bases", False),
-                "pad_sequences_to_be_divisible_by": getattr(args.dataset, "pad_sequences_to_be_divisible_by", None),
+            # Create validation dataloader config - copy training config and override data path
+            val_dataset_kwargs = OmegaConf.to_container(args.dataset, resolve=True)
+
+            # Override load_dataset_kwargs for validation data
+            val_dataset_kwargs["load_dataset_kwargs"] = {
+                "path": "json",
+                "data_files": val_data_path,
+                "split": "train",
+                "streaming": True,
             }
+
+            # Don't use stateful dataloader for validation
+            val_dataset_kwargs["use_stateful_dataloader"] = False
+
+            # Validation data needs tokenization (even if training data is pre-tokenized)
+            val_dataset_kwargs["skip_tokenization"] = False
+
+            # Force num_workers=0 for validation to avoid OOM kills.
+            # Validation data is typically a single .jsonl.gz (1 shard), so multiple
+            # workers fight over it and get killed by the OS OOM killer.
+            val_dataset_kwargs["num_workers"] = 0
+
+            # Optionally override validation batch size
+            if hasattr(val_config, "micro_batch_size") and val_config.micro_batch_size is not None:
+                val_dataset_kwargs["micro_batch_size"] = val_config.micro_batch_size
+
+            # Use same data format as training
             if args.use_sequence_packing:
-                val_eden_kwargs["token_micro_batch_size"] = (
-                    val_eden_kwargs.pop("micro_batch_size") * args.dataset.max_seq_length
-                )
-                val_dataloader, _ = create_sharded_eden_thd_dataloader(dist_config, **val_eden_kwargs)
+                val_dataloader, _ = create_thd_dataloader(dist_config, **val_dataset_kwargs)
             else:
-                val_dataloader, _ = create_sharded_eden_bshd_dataloader(dist_config, **val_eden_kwargs)
+                val_dataloader, _ = create_bshd_dataloader(dist_config, **val_dataset_kwargs)
 
             logger.info(
-                f"Validation enabled (ShardedEden): every {val_config.eval_interval} steps, "
-                f"{val_config.num_batches} batches"
+                f"Validation enabled: every {val_config.eval_interval} steps, {val_config.num_batches} batches"
             )
         else:
-            val_data_path = getattr(val_config, "data_path", None)
-            if val_data_path:
-                logger.info(f"Setting up validation dataloader from {val_data_path}")
-
-                # Create validation dataloader config - copy training config and override data path
-                val_dataset_kwargs = OmegaConf.to_container(args.dataset, resolve=True)
-
-                # Override load_dataset_kwargs for validation data
-                val_dataset_kwargs["load_dataset_kwargs"] = {
-                    "path": "json",
-                    "data_files": val_data_path,
-                    "split": "train",
-                    "streaming": True,
-                }
-
-                # Don't use stateful dataloader for validation
-                val_dataset_kwargs["use_stateful_dataloader"] = False
-
-                # Optionally override validation batch size
-                if hasattr(val_config, "micro_batch_size") and val_config.micro_batch_size is not None:
-                    val_dataset_kwargs["micro_batch_size"] = val_config.micro_batch_size
-
-                # Use same data format as training
-                if args.use_sequence_packing:
-                    val_dataloader, _ = create_thd_dataloader(dist_config, **val_dataset_kwargs)
-                else:
-                    val_dataloader, _ = create_bshd_dataloader(dist_config, **val_dataset_kwargs)
-
-                logger.info(
-                    f"Validation enabled: every {val_config.eval_interval} steps, {val_config.num_batches} batches"
-                )
-            else:
-                logger.warning("Validation enabled but no data_path or val_window_db specified, skipping validation")
-                val_enabled = False
+            logger.warning("Validation enabled but no data_path specified, skipping validation")
+            val_enabled = False
 
     gc.collect()
     torch.cuda.empty_cache()
@@ -833,9 +834,40 @@ def main(args: DictConfig) -> float | None:
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
     micro_step = 0  # Gradient accumulation step counter
+    global_micro_step = 0  # Total micro-steps across all optimizer steps
+
+    # Create autocast context for FP32 master weights (casts compute to BF16).
+    # Allow override via config for debugging (default: enabled when use_fp32_master_weights=True).
+    use_autocast = getattr(args, "use_autocast", use_fp32_master_weights)
+    autocast_ctx = torch.autocast("cuda", dtype=torch.bfloat16) if use_autocast else nullcontext()
+    if use_fp32_master_weights:
+        logger.info("FP32 master weights: use_autocast=%s", use_autocast)
 
     if train_dataloader is None:
         raise RuntimeError("Expected train_dataloader to be initialized before training.")
+
+    # Setup sequence logging if enabled (for debugging data ordering)
+    seq_log_writer = None
+    seq_log_file = None
+    if log_sequences and sequence_log_dir:
+        import csv
+
+        log_dir = Path(sequence_log_dir)
+        log_dir.mkdir(parents=True, exist_ok=True)
+        seq_log_path = log_dir / f"training_sequences_rank{dist_config.rank}.csv"
+        seq_log_file = open(seq_log_path, "w", newline="")
+        seq_log_writer = csv.writer(seq_log_file)
+        seq_log_writer.writerow(
+            [
+                "optimizer_step",
+                "micro_step",
+                "global_micro_step",
+                "batch_idx",
+                "first_10_tokens",
+                "loss",
+            ]
+        )
+        logger.info(f"Sequence logging enabled: {seq_log_path}")
 
     logged_dtypes = False
     logged_first_loss = False
@@ -844,14 +876,38 @@ def main(args: DictConfig) -> float | None:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
             micro_step += 1
+            global_micro_step += 1
 
-            # Forward pass - FP32 compute with FP8 for supported layers
-            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
-                outputs = model(**batch)
+            # Forward pass with mixed precision.
+            with autocast_ctx:
+                with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+                    outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
             loss.backward()
+
+            # Log sequence tokens if enabled (for debugging data ordering)
+            if seq_log_writer is not None:
+                input_ids = batch.get("input_ids", batch.get("tokens"))
+                if input_ids is not None:
+                    # Log first sample in batch
+                    first_10 = (
+                        input_ids[0, :10].cpu().tolist() if input_ids.dim() > 1 else input_ids[:10].cpu().tolist()
+                    )
+                    seq_log_writer.writerow(
+                        [
+                            step,
+                            micro_step,
+                            global_micro_step,
+                            0,  # batch_idx (first sample)
+                            first_10,
+                            outputs.loss.item(),
+                        ]
+                    )
+                    # Flush periodically
+                    if global_micro_step % 100 == 0:
+                        seq_log_file.flush()
 
             # Log the first loss to verify initialization is producing reasonable outputs
             if not logged_first_loss and dist_config.rank == 0:
@@ -944,6 +1000,7 @@ def main(args: DictConfig) -> float | None:
                             dist_config=dist_config,
                             fp8_config=args.fp8_config,
                             fp8_recipe=fp8_recipe,
+                            autocast_ctx=autocast_ctx,
                         )
                         if dist_config.rank == 0:
                             logger.info(
