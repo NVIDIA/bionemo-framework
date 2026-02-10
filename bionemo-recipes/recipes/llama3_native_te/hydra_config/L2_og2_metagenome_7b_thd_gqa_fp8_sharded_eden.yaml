@@ -35,7 +35,7 @@ defaults:
 use_sharded_eden: true
 
 sharded_eden:
-  sequence_db_dir: /data/bcr_eden/OG2_database_splits/opengenome2-metagenome
+  sequence_db_dir: /data/bcr_eden/OG2_database_splits/
   train_window_db: /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite
   val_window_db: /data/bcr_eden/OG2_database_splits/og2__validation__short.sqlite
   test_window_db: /data/bcr_eden/OG2_database_splits/og2__test__short.sqlite
