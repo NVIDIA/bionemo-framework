@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-@hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
+@hydra.main(config_path="hydra_config", config_name="L2_sanity_nd", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train Llama3 with TE layers using FSDP2 with Context Parallelism.
 
@@ -73,8 +73,8 @@ def main(args: DictConfig) -> float | None:
 
     device_mesh = init_device_mesh(
         "cuda",
-        mesh_shape=(dist_config.world_size // args.cp_size, args.cp_size),
-        mesh_dim_names=("dp", "cp"),
+        mesh_shape=(dist_config.world_size // (args.cp_size * args.tp_size), args.cp_size, args.tp_size),
+        mesh_dim_names=("dp", "cp", "tp"),
     )
     logger.info("Created device mesh: %s", device_mesh)
 
@@ -85,6 +85,22 @@ def main(args: DictConfig) -> float | None:
 
     # --- Model Initialization ---
     config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
+    
+    # Identify DeviceMesh that are propagated to `set_device_mesh` in TransformerEngine modules.
+    # These will convert TransformerEngine parameters into DTensors. Alternatively, users can
+    # manually call the conversion using `TransformerEngineModule.set_device_mesh(...)`` before
+    # `reset_parameters` (which triggers quantization) if the module supports DTensor parameters.
+    if config.tensor_parallel:
+        config.tp_mesh = device_mesh["tp"]
+    if (
+        args.fp8_config.quantized_model_init_kwargs.enabled
+        and isinstance(fp8_recipe, transformer_engine.common.recipe.Float8CurrentScaling)
+    ):
+        # When using per-tensor FP8 recipes for quantized parameters, TransformerEngine
+        # requires a weight sharding mesh for absmax reduction across distributed weights.
+        # If not provided, will default to DTensor.device_mesh.get_group(), which is not
+        # appropriate if HSDP (DP-Replicate x DP-Shard) is used.
+        config.weight_mesh = device_mesh["dp", "cp", "tp"]._flatten("weight_mesh")
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16
@@ -100,6 +116,8 @@ def main(args: DictConfig) -> float | None:
     logger.info("Initialized Model:\n%s", model)
 
     # --- Distributed Wrapping (FSDP2 + CP) ---
+
+    # Create a flattened mesh for FSDP2-CP sharding. This will shard the model across both the DP and CP ranks.
     cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
 
     # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
@@ -108,7 +126,7 @@ def main(args: DictConfig) -> float | None:
         fully_shard(layer, mesh=cp_dp_mesh)
     fully_shard(model, mesh=cp_dp_mesh)
 
-    # Attach the CP group to the model.
+    # Attach the CP ProcessGroup to the TransformerEngine model.
     for layer in model.model.layers:
         layer.set_context_parallel_group(
             device_mesh["cp"].get_group(),
@@ -137,9 +155,12 @@ def main(args: DictConfig) -> float | None:
         logger.info("pad_sequences_to_be_divisible_by is not provided, using cp_mesh.size() * 2")
         OmegaConf.update(args, "dataset.pad_sequences_to_be_divisible_by", device_mesh["cp"].size() * 2)
 
-    # We only create the dataloader on rank 0, which is responsible for loading data for all CP (and eventually TP)
-    # ranks. This ensures that the data remains synchronized, even if we're using a non-deterministic data pipeline.
-    if device_mesh["cp"].get_local_rank() == 0:
+    # We only create the dataloader on rank 0, which is responsible for loading data for all CP (and TP) ranks.
+    # This ensures that the data remains synchronized, even if we're using a non-deterministic data pipeline.
+    cp_tp_mesh = device_mesh["cp", "tp"]._flatten(mesh_dim_name="cp_tp")
+    if cp_tp_mesh.get_local_rank() == 0:
+        # We only create the dataloader on CP-TP Rank 0 and pass it to a ContextParallelDataLoaderWrapper
+        # that will shard, replicate, and distribute the data across the flattened CP and TP group.
         if args.use_sequence_packing:
             train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
         else:
@@ -156,8 +177,8 @@ def main(args: DictConfig) -> float | None:
         train_dataloader = None
         dataset_or_sampler = None
 
-    # On all ranks, we create a ContextParallelDataLoaderWrapper that broadcasts the data from cp rank 0.
-    train_dataloader = ContextParallelDataLoaderWrapper(train_dataloader, device_mesh["cp"])
+    # Deliver CP-sharded replicates to a flattened CP-TP mesh.
+    train_dataloader = ContextParallelDataLoaderWrapper(train_dataloader, cp_tp_mesh)
 
     # --- Checkpoint Resume ---
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
@@ -170,7 +191,6 @@ def main(args: DictConfig) -> float | None:
             ckpt_path=ckpt_path,
             dist_config=dist_config,
             dataloader=train_dataloader,
-            process_group=cp_dp_mesh.get_group(),
         )
         logger.info("Checkpoint loaded, resuming from step %s, epoch %s", start_step, epoch)
     else:
@@ -226,6 +246,13 @@ def main(args: DictConfig) -> float | None:
                 )
 
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
+                    if args.checkpoint.async_save and args.fp8_config.quantized_model_init_kwargs.enabled:
+                        logger.info(
+                            "Asynchronous checkpointing is not supported with TransformerEngine "
+                            "quantized parameters and FSDP2. Using synchronous checkpointing "
+                            "(checkpoint.async_save=false)..."
+                        )
+                        OmegaConf.update(args, "checkpoint.async_save", False)
                     save_checkpoint_fsdp2(
                         model=model,
                         optimizer=optimizer,
@@ -235,7 +262,6 @@ def main(args: DictConfig) -> float | None:
                         epoch=epoch,
                         dist_config=dist_config,
                         dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                        process_group=cp_dp_mesh.get_group(),
                         max_checkpoints=args.checkpoint.max_checkpoints,
                         async_save=args.checkpoint.async_save,
                     )
