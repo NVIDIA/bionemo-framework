@@ -68,10 +68,11 @@ def run_validation(
     num_batches: int,
     device: torch.device,
     dist_config: DistributedConfig,
-    fp8_config: DictConfig,
-    fp8_recipe,
 ) -> dict:
     """Run validation and compute loss metrics.
+
+    FP8 is disabled during validation to match NeMo's behavior — TE's FP8 state tracking
+    (amax history, scaling factors) does not handle eval/no_grad mode properly with FSDP2.
 
     Args:
         model: The model to evaluate.
@@ -79,8 +80,6 @@ def run_validation(
         num_batches: Number of batches to evaluate.
         device: Device to run on.
         dist_config: Distributed config for logging.
-        fp8_config: FP8 configuration.
-        fp8_recipe: FP8 recipe for autocast.
 
     Returns:
         Dictionary with val_loss and val_ppl.
@@ -106,9 +105,12 @@ def run_validation(
 
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
-        # Forward pass - FP32 compute with FP8 for supported layers
+        # Forward pass - disable FP8 during validation (matches NeMo's behavior)
+        # NeMo's _contextual_fp8_autocast disables FP8 when model.training=False
+        # because TE's FP8 state tracking (amax history, scaling factors) may not
+        # handle eval/no_grad mode properly, especially with FSDP2.
         try:
-            with transformer_engine.pytorch.fp8_autocast(enabled=fp8_config.enabled, fp8_recipe=fp8_recipe):
+            with transformer_engine.pytorch.fp8_autocast(enabled=False):
                 outputs = model(**batch)
 
             # Get loss from model output
@@ -880,8 +882,6 @@ def main(args: DictConfig) -> float | None:
                             num_batches=val_config.num_batches,
                             device=device,
                             dist_config=dist_config,
-                            fp8_config=args.fp8_config,
-                            fp8_recipe=fp8_recipe,
                         )
                         if dist_config.rank == 0:
                             logger.info(
