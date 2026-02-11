@@ -99,6 +99,8 @@ class ShardedEdenDataset(Dataset):
         split: str = "train",
         log_windows: bool = False,
         log_dir: str | None = None,
+        pad_sequences_to_be_divisible_by: int | None = None,
+        pad_in_getitem: bool = True,
     ) -> None:
         """Initialize the ShardedEdenDataset."""
         super().__init__()
@@ -113,6 +115,7 @@ class ShardedEdenDataset(Dataset):
         self.log_windows = log_windows
         # Remember desired log directory for lazy init in worker processes
         self._log_dir = log_dir
+        self.pad_in_getitem = pad_in_getitem  # If False, return variable-length sequences for THD packing
 
         # --- tokenizer (HF instead of NeMo) --------------------------------
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
@@ -361,20 +364,36 @@ class ShardedEdenDataset(Dataset):
         if self.rc_aug and np.random.default_rng().random() > 0.5:
             seq = self.reverse_complement(seq)
 
-        # Step 6: Tokenize with HF tokenizer
+        # Step 6: Tokenize (matching John's approach)
         # John's code: token_ids = header + self.tokenizer.text_to_ids(seq) + footer
         # We use the HF tokenizer which adds BOS/EOS via its post-processor.
         encoding = self.tokenizer(
             seq,
             add_special_tokens=True,
-            truncation=True,
-            max_length=self.seq_length,
-            return_attention_mask=True,
+            truncation=False,  # We'll handle truncation/padding manually like John
+            return_attention_mask=False,  # We'll create attention_mask manually
         )
+        token_ids = encoding["input_ids"]
+        original_len = len(token_ids)
+
+        # Step 7: Pad/trim to seq_length (matching John's approach for BHSD)
+        # For THD format, we skip padding here and let the collator handle it
+        if self.pad_in_getitem:
+            if original_len < self.seq_length:
+                token_ids = token_ids + [self._pad_id] * (self.seq_length - original_len)
+                attention_mask = [1] * original_len + [0] * (self.seq_length - original_len)
+            else:
+                token_ids = token_ids[: self.seq_length]
+                attention_mask = [1] * self.seq_length
+        else:
+            # For THD: trim if too long, but don't pad (let collator handle packing)
+            if original_len > self.seq_length:
+                token_ids = token_ids[: self.seq_length]
+            attention_mask = [1] * len(token_ids)
 
         return {
-            "input_ids": encoding["input_ids"],
-            "attention_mask": encoding["attention_mask"],
+            "input_ids": token_ids,
+            "attention_mask": attention_mask,
         }
 
     # ------------------------------------------------------------------
@@ -519,6 +538,7 @@ def create_sharded_eden_bshd_dataloader(
         seq_length=seq_length,
         stride=stride,
         rc_aug=rc_aug,
+        pad_in_getitem=True,  # BHSD format: pad to seq_length in __getitem__
     )
 
     sampler = DistributedSampler(
@@ -618,6 +638,7 @@ def create_sharded_eden_thd_dataloader(
         seq_length=seq_length,
         stride=stride,
         rc_aug=rc_aug,
+        pad_in_getitem=False,  # THD format: don't pad, let collator handle packing
     )
 
     sampler = DistributedSampler(
