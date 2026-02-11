@@ -17,6 +17,7 @@ import logging
 
 import datasets
 import datasets.distributed
+import torch
 from torch.utils.data import DataLoader, DistributedSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 from transformers import AutoTokenizer
@@ -306,3 +307,75 @@ def create_thd_dataloader(
     )
 
     return train_dataloader, tokenized_dataset
+
+
+class MockTokenDataset(torch.utils.data.Dataset):
+    """Dataset that generates random token sequences for benchmarking.
+
+    All sequences have the same fixed length, so no padding is needed.
+
+    Args:
+        vocab_size: Vocabulary size for random token generation.
+        seq_length: Length of each generated sequence.
+        num_samples: Total number of samples in the dataset.
+    """
+
+    def __init__(self, vocab_size: int, seq_length: int, num_samples: int):
+        """Initialize the mock dataset."""
+        self.vocab_size = vocab_size
+        self.seq_length = seq_length
+        self.num_samples = num_samples
+
+    def __len__(self):
+        """Return the number of samples."""
+        return self.num_samples
+
+    def __getitem__(self, idx):
+        """Return a random token sequence."""
+        input_ids = torch.randint(0, self.vocab_size, (self.seq_length,))
+        return {"input_ids": input_ids}
+
+
+def _mock_collator(features: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+    """Collator for MockTokenDataset that stacks fixed-length sequences into a batch."""
+    input_ids = torch.stack([f["input_ids"] for f in features])
+    return {"input_ids": input_ids, "labels": input_ids.clone(), "attention_mask": torch.ones_like(input_ids)}
+
+
+def create_mock_dataloader(
+    distributed_config: DistributedConfig,
+    micro_batch_size: int,
+    max_seq_length: int,
+    vocab_size: int = 128256,
+    num_samples: int = 100_000,
+    **kwargs,
+):
+    """Create a mock dataloader with random tokens for benchmarking.
+
+    Args:
+        distributed_config: The distributed configuration.
+        micro_batch_size: The batch size per device.
+        max_seq_length: The sequence length of each generated sample.
+        vocab_size: Vocabulary size for random token generation. Defaults to Llama 3 vocab size.
+        num_samples: Total number of samples in the dataset.
+        **kwargs: Ignored extra arguments for compatibility with other dataloader configs.
+
+    Returns:
+        A tuple of (dataloader, sampler).
+    """
+    dataset = MockTokenDataset(vocab_size, max_seq_length, num_samples)
+    sampler = DistributedSampler(
+        dataset,
+        rank=distributed_config.rank,
+        num_replicas=distributed_config.world_size,
+        seed=42,
+    )
+    train_dataloader = DataLoader(
+        dataset,
+        batch_size=micro_batch_size,
+        sampler=sampler,
+        collate_fn=_mock_collator,
+        num_workers=0,
+        pin_memory=True,
+    )
+    return train_dataloader, sampler

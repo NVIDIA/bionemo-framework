@@ -13,6 +13,7 @@ use_meta_device: true
 use_torch_compile: false
 
 use_sequence_packing: false
+use_mock_dataset: false
 
 dataset:
   tokenizer_name_or_path: ??? # Set to the path of your tokenizer (e.g.,  meta-llama/Llama-3.1-8B or ./tokenizers/nucleotide_fast_tokenizer)
@@ -77,8 +78,5 @@ fp8_stats_config:
 
 profiler:
   enabled: false
-  schedule:
-    wait: 10
-    warmup: 10
-    active: 3
-    repeat: 1
+  start_step: 10
+  end_step: 15
