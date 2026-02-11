@@ -520,7 +520,6 @@ def create_sharded_eden_bshd_dataloader(
         stride=stride,
         rc_aug=rc_aug,
     )
-    breakpoint()
 
     sampler = DistributedSampler(
         dataset,
