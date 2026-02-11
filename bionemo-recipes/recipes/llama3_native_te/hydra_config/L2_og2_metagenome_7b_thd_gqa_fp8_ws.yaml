@@ -60,7 +60,7 @@ use_fp32_master_weights: true
 # Override mbs with dual shuffling (sequence + window)
 dataset:
   micro_batch_size: 1
-  shuffle_sequences: true
+  shuffle_sequences: false
   shuffle_windows: true
   buffer_size: 50_000
   num_workers: 4
@@ -80,7 +80,7 @@ fp8_config:
 
 # Enable validation logging
 validation:
-  enabled: true
+  enabled: false
   eval_interval: 500
   num_batches: 40
   data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
