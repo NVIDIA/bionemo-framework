@@ -63,7 +63,7 @@ dataset:
   shuffle_sequences: false
   shuffle_windows: true
   buffer_size: 50_000
-  num_workers: 4
+  num_workers: 0
 
 # Gradient accumulation = 8 (for GBS = 1 * 8 * 6 * 8 = 384)
 grad_acc_steps: 8
