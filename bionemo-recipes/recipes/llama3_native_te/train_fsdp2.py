@@ -715,7 +715,9 @@ def main(args: DictConfig) -> float | None:
             "rc_aug": getattr(eden_cfg, "rc_aug", False),
             "uppercase_labels": getattr(args.dataset, "uppercase_labels", False),
             "mask_degenerate_bases": getattr(args.dataset, "mask_degenerate_bases", False),
-            "pad_sequences_to_be_divisible_by": getattr(args.dataset, "pad_sequences_to_be_divisible_by", None),
+            "pad_sequences_to_be_divisible_by": getattr(
+                args.dataset, "pad_sequences_to_be_divisible_by", 8 if args.fp8_config.enabled else None
+            ),
         }
         if args.use_sequence_packing:
             eden_kwargs["token_micro_batch_size"] = args.dataset.micro_batch_size * args.dataset.max_seq_length
