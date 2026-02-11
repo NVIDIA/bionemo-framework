@@ -62,7 +62,7 @@ dataset:
   micro_batch_size: 1
   shuffle_sequences: false
   shuffle_windows: true
-  buffer_size: 50_000
+  buffer_size: 25_000
   num_workers: 0
 
 # Gradient accumulation = 8 (for GBS = 1 * 8 * 6 * 8 = 384)
