@@ -49,12 +49,13 @@ from checkpoint import (
     save_final_model_fsdp2,
     should_save_checkpoint,
 )
-from dataset import create_bshd_dataloader, create_sharded_eden_dataloader, create_thd_dataloader
+from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from fp8_debugging import initialize_fp8_debugging
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
 from scheduler import get_cosine_annealing_schedule_with_warmup
+from sharded_eden_dataset import create_sharded_eden_bshd_dataloader, create_sharded_eden_thd_dataloader
 
 
 # Lazy import for tensor_dataset (optional, only needed for tensor dataset mode)
@@ -701,25 +702,28 @@ def main(args: DictConfig) -> float | None:
 
     if use_sharded_eden:
         # Use ShardedEdenDataset directly from SQLite (no parquet dumping needed)
-        sharded_eden_config = getattr(args, "sharded_eden", {})
-        logger.info("Using ShardedEdenDataset directly from SQLite")
-        train_dataloader, dataset_or_sampler = create_sharded_eden_dataloader(
-            distributed_config=dist_config,
-            tokenizer_name_or_path=sharded_eden_config.get(
-                "tokenizer_name_or_path", args.dataset.get("tokenizer_name_or_path")
-            ),
-            sequence_db_dir=sharded_eden_config.get("sequence_db_dir"),
-            window_db_path=sharded_eden_config.get("window_db_path"),
-            micro_batch_size=sharded_eden_config.get("micro_batch_size", args.dataset.get("micro_batch_size", 1)),
-            seq_length=sharded_eden_config.get("seq_length", 8192),
-            stride=sharded_eden_config.get("stride", 7992),
-            num_workers=sharded_eden_config.get("num_workers", 4),
-            shuffle=sharded_eden_config.get("shuffle", True),
-            seed=sharded_eden_config.get("seed", args.seed),
-            rc_aug=sharded_eden_config.get("rc_aug", False),
-            log_windows=sharded_eden_config.get("log_windows", False),
-            log_dir=sharded_eden_config.get("log_dir"),
-        )
+        eden_cfg = args.sharded_eden
+        eden_kwargs = {
+            "sequence_db_dir": eden_cfg.sequence_db_dir,
+            "window_db_path": eden_cfg.train_window_db,
+            "tokenizer_name_or_path": args.dataset.tokenizer_name_or_path,
+            "seq_length": args.dataset.max_seq_length,
+            "stride": eden_cfg.stride,
+            "micro_batch_size": args.dataset.micro_batch_size,
+            "num_workers": args.dataset.num_workers,
+            "seed": seed,
+            "rc_aug": getattr(eden_cfg, "rc_aug", False),
+            "uppercase_labels": getattr(args.dataset, "uppercase_labels", False),
+            "mask_degenerate_bases": getattr(args.dataset, "mask_degenerate_bases", False),
+            "pad_sequences_to_be_divisible_by": getattr(args.dataset, "pad_sequences_to_be_divisible_by", None),
+        }
+        if args.use_sequence_packing:
+            eden_kwargs["token_micro_batch_size"] = args.dataset.micro_batch_size * args.dataset.max_seq_length
+            eden_kwargs.pop("micro_batch_size")
+            train_dataloader, dataset_or_sampler = create_sharded_eden_thd_dataloader(dist_config, **eden_kwargs)
+        else:
+            train_dataloader, dataset_or_sampler = create_sharded_eden_bshd_dataloader(dist_config, **eden_kwargs)
+        logger.info("Using ShardedEden data from %s", eden_cfg.sequence_db_dir)
     elif use_tensor_dataset:
         if tensor_dir is None:
             raise ValueError("tensor_dir must be specified when use_tensor_dataset=True")
