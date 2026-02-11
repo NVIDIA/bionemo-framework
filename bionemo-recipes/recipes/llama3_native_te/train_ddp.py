@@ -150,7 +150,7 @@ def main(args: DictConfig) -> float | None:
                 loss.backward()
 
                 # Log microbatch step data for accumulation metrics
-                perf_logger.log_micro_step(batch=batch, outputs=outputs)
+                perf_logger.log_micro_step(step=step, batch=batch, outputs=outputs)
 
             # Gradient accumulation - only step optimizer after accumulating gradients
             if micro_step % args.grad_acc_steps == 0:

@@ -210,6 +210,66 @@ These examples show how to save and resume your dataloader by passing the datalo
 and `load_checkpoint_*` functions using the `StatefulDataLoader` class from `torchdata`. See `checkpoint.py` for
 implementation details.
 
+## Performance Profiling with NVIDIA Nsight Systems
+
+This recipe includes built-in support for profiling with NVIDIA Nsight Systems, which provides detailed performance
+traces including CUDA kernels, CPU activities, memory operations, and NVTX ranges. The profiler allows you to specify
+the exact training step range to profile.
+
+### Basic Usage (Single GPU)
+
+To profile a training run on a single GPU:
+
+```bash
+nsys profile \
+  -o nsight_trace \
+  --trace=cuda,nvtx,osrt,cudnn,cublas \
+  --pytorch=autograd-nvtx \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end=stop \
+  python train_fsdp2.py \
+    profiler.enabled=true \
+    profiler.start_step=10 \
+    profiler.end_step=15
+```
+
+**Profiler Configuration Parameters:**
+
+- `profiler.enabled`: Enable/disable profiling (default: false)
+- `profiler.start_step`: Training step at which to start profiling (default: 10)
+- `profiler.end_step`: Training step at which to end profiling (default: 15)
+
+**Nsight Systems Flags:**
+
+- `--pytorch=autograd-nvtx`: Adds NVTX markers for PyTorch autograd operations (forward/backward passes, optimizer steps). This helps visualize the training loop structure and identify bottlenecks in the computation graph.
+- `--pytorch-backtrace=cuda`: Captures Python backtraces for CUDA kernel launches, helping identify which Python code triggered each kernel. This is invaluable for debugging performance issues and understanding which operations are expensive.
+- `--python-sampling=true` (optional): Periodically samples Python call stacks to identify CPU-side bottlenecks. Useful when investigating data loading, preprocessing, or Python overhead. Adds ~5-15% overhead, so only use when needed.
+
+**Note**: The PyTorch-specific flags (`--pytorch=autograd-nvtx` and `--pytorch-backtrace=cuda`) add minimal overhead but provide significantly more detailed insights into PyTorch operations, making them highly recommended for training workload profiling. Use `--python-sampling=true` only when investigating CPU/Python performance.
+
+The profiler will start capturing performance data at `start_step` and stop at `end_step`. It's recommended to start profiling after a few steps to allow training to stabilize.
+
+### Multi-GPU Profiling
+
+For distributed training, **profiling is only performed on global rank 0** to minimize overhead and avoid redundant data
+collection. Other ranks will skip profiling automatically.
+
+#### Multi-GPU on Single Node
+
+```bash
+nsys profile \
+  -o nsight_trace_rank0 \
+  --trace=cuda,nvtx,osrt,cudnn,cublas \
+  --pytorch=autograd-nvtx \
+  --pytorch-backtrace=cuda \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end=stop \
+  torchrun --nproc_per_node=2 train_fsdp2.py \
+    profiler.enabled=true
+```
+
+For more information on Nsight Systems, see the [official documentation](https://docs.nvidia.com/nsight-systems/).
+
 ## Running Inference with the Trained Model
 
 Models can be loaded from the final checkpoint directory using the `AutoModelForCausalLM` method (or

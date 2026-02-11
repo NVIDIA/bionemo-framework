@@ -19,6 +19,7 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import nvtx
 import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
@@ -114,7 +115,9 @@ def main(args: DictConfig) -> float | None:
 
     # Create the context-aware dataloader. We only create the dataloader on rank 0 and wrap it in a
     # ContextParallelDataLoaderWrapper that will shard and distribute the data across the context parallelism group.
-    args.dataset.setdefault("pad_sequences_to_be_divisible_by", device_mesh["cp"].size() * 2)
+    if args.dataset.get("pad_sequences_to_be_divisible_by", None) is None:
+        logger.info("pad_sequences_to_be_divisible_by is not provided, using cp_mesh.size() * 2")
+        OmegaConf.update(args, "dataset.pad_sequences_to_be_divisible_by", device_mesh["cp"].size() * 2)
     if device_mesh["cp"].get_local_rank() == 0:
         if args.use_sequence_packing:
             train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
@@ -169,22 +172,25 @@ def main(args: DictConfig) -> float | None:
             micro_step += 1
 
             # Forward pass with mixed precision.
-            with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
-                outputs = model(**batch)
+            with nvtx.annotate("Forward pass", color="green"):
+                with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
+                    outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
-            loss.backward()
+
+            with nvtx.annotate("Backward pass", color="red"):
+                loss.backward()
 
             # Log microbatch step data for accumulation metrics
-            perf_logger.log_micro_step(batch=batch, outputs=outputs)
+            perf_logger.log_micro_step(step=step, batch=batch, outputs=outputs)
 
             # Gradient accumulation - only step optimizer after accumulating gradients
             if micro_step % args.grad_acc_steps == 0:
                 micro_step = 0
 
                 # Compute and clip gradient norms.
-                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
                 # Step optimizer.
                 optimizer.step()
@@ -212,9 +218,9 @@ def main(args: DictConfig) -> float | None:
                         async_save=args.checkpoint.async_save,
                     )
 
-            step += 1
-            if step >= args.num_train_steps:
-                break
+                step += 1
+                if step >= args.num_train_steps:
+                    break
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1

@@ -202,6 +202,7 @@ def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
     # Phase 1: Train for 10 steps with 2 processes
     cmd_phase1 = [
         "torchrun",
+        "--standalone",
         "--nproc_per_node=2",
         str(train_script),
         f"checkpoint.ckpt_dir={temp_dir}",
@@ -265,6 +266,7 @@ def test_checkpoint_save_and_load_two_processes_ddp(recipe_path, tmp_path):
     # Phase 2: Resume training with 2 processes
     cmd_phase2 = [
         "torchrun",
+        "--standalone",
         "--nproc_per_node=2",
         str(train_script),
         f"checkpoint.ckpt_dir={temp_dir}",
@@ -461,6 +463,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
     # Phase 1: Train for 10 steps with 2 processes
     cmd_phase1 = [
         "torchrun",
+        "--standalone",
         "--nproc_per_node=2",
         str(train_script),
         f"checkpoint.ckpt_dir={temp_dir}",
@@ -506,6 +509,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2(recipe_path, tmp_path):
     # Phase 2: Resume training with 2 processes
     cmd_phase2 = [
         "torchrun",
+        "--standalone",
         "--nproc_per_node=2",
         str(train_script),
         f"checkpoint.ckpt_dir={temp_dir}",
@@ -679,6 +683,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2_with_context_parallelism(r
     # Phase 1: Train for 10 steps with 2 processes
     cmd_phase1 = [
         "torchrun",
+        "--standalone",
         "--nproc_per_node=2",
         str(train_script),
         f"checkpoint.ckpt_dir={temp_dir}",
@@ -726,6 +731,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2_with_context_parallelism(r
     # Phase 2: Resume training with 2 processes
     cmd_phase2 = [
         "torchrun",
+        "--standalone",
         "--nproc_per_node=2",
         str(train_script),
         f"checkpoint.ckpt_dir={temp_dir}",
@@ -950,6 +956,7 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
     # Phase 1: Train for 10 steps with 2 GPUs
     cmd_phase1 = [
         "torchrun",
+        "--standalone",
         "--nproc_per_node=2",
         str(train_script),
         f"checkpoint.ckpt_dir={temp_dir}",
@@ -974,6 +981,7 @@ def test_scheduler_resume_two_gpu(recipe_path, tmp_path):
     # Phase 2: Resume training with 2 GPUs
     cmd_phase2 = [
         "torchrun",
+        "--standalone",
         "--nproc_per_node=2",
         str(train_script),
         f"checkpoint.ckpt_dir={temp_dir}",

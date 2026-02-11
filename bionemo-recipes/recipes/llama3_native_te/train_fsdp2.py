@@ -174,14 +174,14 @@ def main(args: DictConfig) -> float | None:
             loss.backward()
 
             # Log microbatch step data for accumulation metrics
-            perf_logger.log_micro_step(batch=batch, outputs=outputs)
+            perf_logger.log_micro_step(step=step, batch=batch, outputs=outputs)
 
             # Gradient accumulation - only step optimizer after accumulating gradients
             if micro_step % args.grad_acc_steps == 0:
                 micro_step = 0
 
                 # Compute and clip gradient norms.
-                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
                 # Step optimizer.
                 optimizer.step()

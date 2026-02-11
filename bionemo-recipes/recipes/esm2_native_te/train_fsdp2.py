@@ -170,7 +170,7 @@ def main(args: DictConfig) -> float | None:
             loss.backward()
 
             # Compute and clip gradient norms.
-            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
             # Step optimizer.
             optimizer.step()

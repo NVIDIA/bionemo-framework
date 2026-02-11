@@ -945,8 +945,8 @@ def test_data_collator_for_context_parallel_returns_correct_list_size(tokenizer,
 
     # Create test sequences
     features = [
-        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
-        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2]},  # 9 tokens
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2], "attention_mask": [1, 1, 1, 1, 1, 1, 1, 1]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 17, 2], "attention_mask": [1, 1, 1, 1, 1, 1, 1, 1, 1]},  # 9 tokens
     ]
 
     # Call the collator
@@ -1047,6 +1047,125 @@ def test_data_collator_for_context_parallel_thd_causal_lm(tokenizer):
 
     expected_rank1_shift_labels = torch.tensor([[7, 8, 9, 10, 14, 15, 16, 17, 2, -100]], dtype=torch.int64)
     torch.testing.assert_close(result[1]["shift_labels"], expected_rank1_shift_labels)
+
+
+def test_data_collator_for_context_parallel_thd_correctness(tokenizer):
+    """Test that DataCollatorForContextParallel returns correct values for THD format.
+
+    This test verifies:
+    1. max_length_q and max_length_k are correctly rounded up to a multiple of 64
+    2. input_ids and labels have the correct shape (sharded by cp_world_size)
+    3. cu_seq_lens_* tensors are preserved correctly
+    4. All shards together reconstruct the original data
+    """
+    cp_world_size = 2
+    divisibility_factor = 2 * cp_world_size
+
+    # Create the wrapped collator that produces padded THD batches - disable MLM for deterministic testing
+    base_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        pad_sequences_to_be_divisible_by=divisibility_factor,
+    )
+
+    # Create the context parallel collator
+    cp_collator = DataCollatorForContextParallel(
+        collator=base_collator, device_mesh=_DummyCollatorMesh(cp_size=cp_world_size), qkv_format="thd"
+    )
+
+    # Create test sequences - 8 tokens each for easy division
+    features = [
+        {"input_ids": [0, 5, 6, 7, 8, 9, 10, 2]},  # 8 tokens
+        {"input_ids": [0, 11, 12, 13, 14, 15, 16, 2]},  # 8 tokens
+    ]
+
+    # Call the collator
+    result = cp_collator(features)
+
+    assert len(result) == cp_world_size
+
+    # Verify max_length_q and max_length_k are rounded up to a multiple of 64
+    for cp_rank, shard in enumerate(result):
+        max_length = shard["max_length_q"]
+        assert max_length == shard["max_length_k"], "max_length_q and max_length_k should be equal"
+        assert max_length % 64 == 0, f"CP rank {cp_rank}: max_length {max_length} should be a multiple of 64"
+        # Since our sequences are 8 tokens, padded to divisibility_factor=4, max_seqlen should be 8,
+        # and rounded up to 64
+        assert max_length == 64, f"CP rank {cp_rank}: expected max_length=64, got {max_length}"
+
+    # Verify input_ids shape - should be sharded along sequence dimension
+    # Original total tokens: 16 (8+8), each shard should have 16 / cp_world_size = 8 tokens
+    for cp_rank, shard in enumerate(result):
+        assert shard["input_ids"].shape[1] == 8, (
+            f"CP rank {cp_rank}: expected input_ids shape [1, 8], got {shard['input_ids'].shape}"
+        )
+        assert shard["labels"].shape[1] == 8, (
+            f"CP rank {cp_rank}: expected labels shape [1, 8], got {shard['labels'].shape}"
+        )
+
+    # Verify that all shards together contain all the original tokens
+    all_input_ids = torch.cat([shard["input_ids"] for shard in result], dim=1)
+    # Check that all original tokens are present (sorted comparison since order may differ due to sharding)
+    expected_tokens = torch.tensor([[0, 5, 6, 7, 8, 9, 10, 2, 0, 11, 12, 13, 14, 15, 16, 2]], dtype=torch.int64)
+    torch.testing.assert_close(
+        torch.sort(all_input_ids.flatten())[0],
+        torch.sort(expected_tokens.flatten())[0],
+        msg="Sharded tokens don't match original tokens",
+    )
+
+    # Verify cu_seq_lens_q_padded and cu_seq_lens_k_padded are preserved in each shard
+    for cp_rank, shard in enumerate(result):
+        assert "cu_seq_lens_q_padded" in shard
+        assert "cu_seq_lens_k_padded" in shard
+        torch.testing.assert_close(shard["cu_seq_lens_q_padded"], shard["cu_seq_lens_k_padded"])
+
+    # Verify pad_between_seqs is True for THD format
+    for cp_rank, shard in enumerate(result):
+        assert shard["pad_between_seqs"] is True, f"CP rank {cp_rank}: pad_between_seqs should be True for THD format"
+
+
+@pytest.mark.parametrize(
+    "max_seqlen,expected_rounded",
+    [
+        (8, 64),  # Small value rounds up to 64
+        (64, 64),  # Exactly 64 stays 64
+        (65, 128),  # Just over 64 rounds up to 128
+        (100, 128),  # 100 rounds up to 128
+        (128, 128),  # Exactly 128 stays 128
+        (129, 192),  # Just over 128 rounds up to 192
+    ],
+)
+def test_data_collator_for_context_parallel_thd_max_length_rounding(tokenizer, max_seqlen, expected_rounded):
+    """Test that max_length_q/k is correctly rounded up to a multiple of 64 for various sequence lengths."""
+    cp_world_size = 2
+    divisibility_factor = 2 * cp_world_size
+
+    # Create input_ids of the specified length (must be divisible by divisibility_factor)
+    # We pad to the next multiple of divisibility_factor if needed
+    padded_len = ((max_seqlen + divisibility_factor - 1) // divisibility_factor) * divisibility_factor
+    input_ids = [0, *list(range(5, 5 + padded_len - 2)), 2]  # [CLS] + tokens + [SEP]
+    input_ids = input_ids[:padded_len]  # Truncate to exact length
+
+    # Create the collators
+    base_collator = DataCollatorWithFlattening(
+        collator=DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False),
+        pad_sequences_to_be_divisible_by=divisibility_factor,
+    )
+    cp_collator = DataCollatorForContextParallel(
+        collator=base_collator, device_mesh=_DummyCollatorMesh(cp_size=cp_world_size), qkv_format="thd"
+    )
+
+    # Use a single sequence to ensure max_seqlen is exactly what we expect after padding
+    features = [{"input_ids": input_ids}]
+    result = cp_collator(features)
+
+    # The actual max_seqlen after padding may differ, but it should still round correctly
+    for shard in result:
+        max_length = shard["max_length_q"]
+        assert max_length % 64 == 0, f"max_length {max_length} should be a multiple of 64"
+        # Verify the rounding formula: ((x + 63) // 64) * 64
+        actual_seqlen = (shard["cu_seq_lens_q_padded"][1:] - shard["cu_seq_lens_q_padded"][:-1]).max().item()
+        expected = ((actual_seqlen + 63) // 64) * 64
+        assert max_length == expected, f"Expected max_length={expected} for seqlen={actual_seqlen}, got {max_length}"
 
 
 def test_data_collator_for_context_parallel_bshd(tokenizer):

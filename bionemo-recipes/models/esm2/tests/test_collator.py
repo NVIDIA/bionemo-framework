@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 from unittest.mock import MagicMock
 
 import pytest
@@ -795,3 +796,215 @@ def test_token_packing_dataset_with_split_samples_multiple_fields():
         assert "labels" in sample
         assert len(sample["input_ids"]) == len(sample["attention_mask"])
         assert len(sample["input_ids"]) == len(sample["labels"])
+
+
+def test_token_packing_dataset_pad_sequences_to_be_divisible_by_warning(caplog):
+    """Test that a warning is issued when max_tokens_per_batch is not divisible by pad_sequences_to_be_divisible_by."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": torch.arange(10)}
+
+    with caplog.at_level(logging.WARNING):
+        TokenPackingDataset(
+            MockDataset(),
+            max_tokens_per_batch=100,
+            pad_sequences_to_be_divisible_by=7,
+        )
+
+    assert "not divisible" in caplog.text
+
+
+def test_token_packing_dataset_pad_sequences_to_be_divisible_by_no_warning(caplog):
+    """Test that no warning is issued when max_tokens_per_batch is divisible by pad_sequences_to_be_divisible_by."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": torch.arange(10)}
+
+    with caplog.at_level(logging.WARNING):
+        TokenPackingDataset(
+            MockDataset(),
+            max_tokens_per_batch=100,
+            pad_sequences_to_be_divisible_by=4,
+        )
+
+    assert "not divisible" not in caplog.text
+
+
+def test_token_packing_dataset_with_padding_accounts_for_padded_lengths():
+    """Test that TokenPackingDataset accounts for padded lengths when pad_sequences_to_be_divisible_by is set."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": list(range(5))}  # padded to 8
+            yield {"input_ids": list(range(3))}  # padded to 4
+            yield {"input_ids": list(range(7))}  # padded to 8
+            yield {"input_ids": list(range(6))}  # padded to 8
+
+    # Without padding: 5+3+7 = 15 <= 20, 5+3+7+6 = 21 > 20
+    # With padding (P=4): padded(5)=8, padded(3)=4, 8+4=12, +padded(7)=8 -> 20 == max
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(
+        dataset,
+        max_tokens_per_batch=20,
+        pad_sequences_to_be_divisible_by=4,
+        drop_last=False,
+    )
+    batches = list(token_packing_dataset)
+
+    # First batch: [5, 3, 7] -> padded: 8+4+8 = 20 == max
+    assert len(batches) == 2
+    assert len(batches[0]) == 3
+    assert [len(s["input_ids"]) for s in batches[0]] == [5, 3, 7]
+    # Second batch: [6] -> padded: 8
+    assert len(batches[1]) == 1
+    assert [len(s["input_ids"]) for s in batches[1]] == [6]
+
+
+def test_token_packing_dataset_with_padding_and_split_samples():
+    """Test TokenPackingDataset with split_samples=True and pad_sequences_to_be_divisible_by."""
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": list(range(5))}  # padded to 8
+            yield {"input_ids": list(range(3))}  # padded to 4
+            yield {"input_ids": list(range(15))}  # padded to 16, exceeds remaining (24-12=12)
+
+    # P=4, max=24
+    # Batch 1: padded(5)=8, padded(3)=4 -> 12 so far. Next: padded(15)=16 -> 12+16=28 > 24
+    # tokens_available = 24 - 12 = 12. Split at 12: first_part=12 tokens, remaining=3 tokens
+    # Batch 1: [5, 3, 12] -> padded: 8 + 4 + 12 = 24 == max
+    # Batch 2: [3] -> padded: 4
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(
+        dataset,
+        max_tokens_per_batch=24,
+        split_samples=True,
+        pad_sequences_to_be_divisible_by=4,
+        drop_last=False,
+    )
+    batches = list(token_packing_dataset)
+
+    assert len(batches) == 2
+    assert [len(s["input_ids"]) for s in batches[0]] == [5, 3, 12]
+    assert [len(s["input_ids"]) for s in batches[1]] == [3]
+
+
+def test_token_packing_dataset_with_padding_split_fills_exactly_max(tokenizer):
+    """Test that split_samples + pad_sequences_to_be_divisible_by produces batches that collate to exactly max_tokens."""
+    pad_divisor = 4
+    max_tokens = 24
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            # Generate many sequences of varying lengths
+            for length in [7, 5, 10, 3, 6, 9, 11, 4, 8, 13, 2, 14, 7, 5, 10]:
+                yield {"input_ids": list(range(length))}
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(
+        dataset,
+        max_tokens_per_batch=max_tokens,
+        split_samples=True,
+        pad_sequences_to_be_divisible_by=pad_divisor,
+        drop_last=True,
+    )
+
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.0)
+    collator = DataCollatorWithFlattening(
+        collator=mlm_collator,
+        pad_sequences_to_be_divisible_by=pad_divisor,
+    )
+
+    batches = list(token_packing_dataset)
+    assert len(batches) > 0, "Should produce at least one batch"
+
+    for i, batch_samples in enumerate(batches):
+        collated = collator(batch_samples)
+        total_tokens = collated["input_ids"].numel()
+        assert total_tokens == max_tokens, (
+            f"Batch {i}: expected exactly {max_tokens} tokens after collation, got {total_tokens}. "
+            f"Sample lengths: {[len(s['input_ids']) for s in batch_samples]}"
+        )
+
+
+def test_token_packing_dataset_with_padding_split_random_sequences(tokenizer):
+    """Test with random sequence lengths that split_samples + padding always produces exact-sized batches."""
+    pad_divisor = 8
+    max_tokens = 64
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            torch.manual_seed(42)
+            for _ in range(100):
+                length = torch.randint(1, 30, (1,)).item()
+                yield {"input_ids": list(range(length))}
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(
+        dataset,
+        max_tokens_per_batch=max_tokens,
+        split_samples=True,
+        pad_sequences_to_be_divisible_by=pad_divisor,
+        drop_last=True,
+    )
+
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.0)
+    collator = DataCollatorWithFlattening(
+        collator=mlm_collator,
+        pad_sequences_to_be_divisible_by=pad_divisor,
+    )
+
+    batches = list(token_packing_dataset)
+    assert len(batches) > 0, "Should produce at least one batch"
+
+    for i, batch_samples in enumerate(batches):
+        collated = collator(batch_samples)
+        total_tokens = collated["input_ids"].numel()
+        assert total_tokens == max_tokens, (
+            f"Batch {i}: expected exactly {max_tokens} tokens after collation, got {total_tokens}. "
+            f"Sample lengths: {[len(s['input_ids']) for s in batch_samples]}"
+        )
+
+
+def test_token_packing_dataset_with_padding_split_drop_last_false(tokenizer):
+    """Test that with drop_last=False, all batches except the last have exactly max_tokens."""
+    pad_divisor = 4
+    max_tokens = 16
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            for length in [5, 7, 3, 9, 6, 4]:
+                yield {"input_ids": list(range(length))}
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(
+        dataset,
+        max_tokens_per_batch=max_tokens,
+        split_samples=True,
+        pad_sequences_to_be_divisible_by=pad_divisor,
+        drop_last=False,
+    )
+
+    mlm_collator = DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm_probability=0.0)
+    collator = DataCollatorWithFlattening(
+        collator=mlm_collator,
+        pad_sequences_to_be_divisible_by=pad_divisor,
+    )
+
+    batches = list(token_packing_dataset)
+    assert len(batches) >= 2, "Should produce at least two batches"
+
+    # All batches except the last must be exactly max_tokens
+    for i, batch_samples in enumerate(batches[:-1]):
+        collated = collator(batch_samples)
+        total_tokens = collated["input_ids"].numel()
+        assert total_tokens == max_tokens, (
+            f"Batch {i}: expected exactly {max_tokens} tokens after collation, got {total_tokens}. "
+            f"Sample lengths: {[len(s['input_ids']) for s in batch_samples]}"
+        )
+
+    # Last batch can be <= max_tokens
+    last_collated = collator(batches[-1])
+    assert last_collated["input_ids"].numel() <= max_tokens

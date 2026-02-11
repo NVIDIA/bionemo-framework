@@ -15,6 +15,7 @@
 
 import gc
 import random
+import subprocess
 
 import pytest
 import torch
@@ -504,3 +505,75 @@ def test_sanity_fsdp2_fp8_stats_logging(tmp_path, recipe_path):
     assert fp8_log_dir.exists()
     assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs" / "nvdlfw_inspect_globalrank-0.log").exists()
     assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs" / "nvdlfw_inspect_globalrank-0.log").exists()
+
+
+def run_train_cmd(cmd, recipe_path):
+    """Run a training command and check for errors.
+
+    Args:
+        cmd: List of command arguments to run
+        recipe_path: Path to the recipe directory (working directory for command)
+
+    Raises:
+        pytest.fail: If command returns non-zero exit code
+    """
+    result = subprocess.run(
+        cmd,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=240,  # 4 minutes timeout
+        cwd=str(recipe_path),
+    )
+
+    if result.returncode != 0:
+        print(f"STDOUT:\n{result.stdout}")
+        print(f"STDERR:\n{result.stderr}")
+        pytest.fail(f"Command:\n{' '.join(cmd)}\nfailed with exit code {result.returncode}")
+
+
+nsys_available = subprocess.run(["which", "nsys"], check=False, capture_output=True).returncode == 0
+
+
+@pytest.mark.skipif(not nsys_available, reason="nsys not available in environment")
+def test_nsight_profiler_trace_generation(tmp_path, recipe_path):
+    """Test that Nsight profiler is configured correctly and generates trace metadata.
+
+    This test validates:
+    - The profiler can be enabled through configuration
+    - The profiler runs without errors during training
+    - Training under nsys produces .nsys-rep trace files
+    - The profiler correctly detects whether it's running under nsys
+    """
+    nsys_output_path = tmp_path / "nsys_profile"
+
+    run_train_cmd(
+        [
+            "nsys",
+            "profile",
+            "-o",
+            str(nsys_output_path),
+            "--trace=cuda,nvtx",
+            "--pytorch=autograd-nvtx",
+            "--python-sampling=true",
+            "--capture-range=cudaProfilerApi",
+            "--capture-range-end=stop",
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=1",
+            "train_ddp.py",
+            "--config-name",
+            "L0_sanity",
+            "num_train_steps=4",
+            "profiler.enabled=true",
+            "profiler.start_step=1",
+            "profiler.end_step=3",
+            f"checkpoint.ckpt_dir={tmp_path}",
+        ],
+        recipe_path,
+    )
+
+    # Verify nsys trace file was created
+    nsys_files = list(tmp_path.glob("nsys_profile*.nsys-rep"))
+    assert len(nsys_files) > 0, f"No .nsys-rep files found in {tmp_path}"
