@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import inspect
+
 import torch
 from transformers import MixtralConfig, MixtralForCausalLM
 
@@ -133,7 +135,7 @@ def convert_mixtral_te_to_hf(model_te: NVMixtralForCausalLM, **config_kwargs) ->
         The Hugging Face Mixtral model.
     """
     te_config_dict = model_te.config.to_dict()
-    valid_keys = set(MixtralConfig.__init__.__code__.co_varnames)
+    valid_keys = set(inspect.signature(MixtralConfig.__init__).parameters)
     filtered_config = {k: v for k, v in te_config_dict.items() if k in valid_keys}
     hf_config = MixtralConfig(**filtered_config, **config_kwargs)
 

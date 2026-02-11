@@ -4,7 +4,7 @@ Shared test infrastructure for BioNeMo models. One base class, **BaseModelTest**
 
 ## Structure
 
-```
+```text
 tests/common/
 ├── __init__.py             # Public API exports
 ├── test_modeling_common.py # BaseModelTest, TestTolerances

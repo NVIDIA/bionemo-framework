@@ -154,8 +154,11 @@ class DataCollatorWithFlattening:
             sequence processing capabilities. When pad_to_multiple_of is used, an additional
             mock sequence is appended to reach the desired total length.
         """
+        if return_tensors is not None and return_tensors != "pt":
+            raise NotImplementedError(f"Only return_tensors='pt' is supported, got '{return_tensors}'")
+
         # Perform the masking with the BSHD collator.
-        bshd_batch = self.collator(features)
+        bshd_batch = self.collator(features, return_tensors=return_tensors)
 
         # Create the flattened batch to get the cu_seq_lens_q and cu_seq_lens_k values.
         packed_batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
@@ -247,29 +250,68 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         samples = []
         current_length = 0
         for sample in iter(self.dataset):
-            current_length += len(sample["input_ids"])
+            sample_length = len(sample["input_ids"])
+            current_length += sample_length
+
             if current_length == self.max_tokens_per_batch:
                 yield [*samples, sample]
                 samples = []
                 current_length = 0
 
             elif current_length > self.max_tokens_per_batch:
+                tokens_available = self.max_tokens_per_batch - (current_length - sample_length)
+
+                if tokens_available <= 0:
+                    # Current batch is already full (or over); yield it first, then handle this sample.
+                    if samples:
+                        yield samples
+                    samples = []
+                    current_length = sample_length
+                    tokens_available = self.max_tokens_per_batch
+
+                    # Now handle the incoming sample with a fresh batch.
+                    if sample_length == self.max_tokens_per_batch:
+                        yield [sample]
+                        samples = []
+                        current_length = 0
+                        continue
+                    elif sample_length < self.max_tokens_per_batch:
+                        samples = [sample]
+                        continue
+                    # sample_length > max_tokens_per_batch: fall through to split logic below
+
                 if not self.split_samples:
-                    # If we are not splitting samples, we can just yield the current batch (before this sample) and
-                    # start a new one.
-                    yield samples
-                    samples = [sample]
-
+                    # Yield the current batch (before this sample) and start a new one with this sample.
+                    if samples:
+                        yield samples
+                    # The sample itself may exceed max_tokens_per_batch; yield it as its own batch.
+                    if sample_length > self.max_tokens_per_batch:
+                        yield [sample]
+                        samples = []
+                        current_length = 0
+                    else:
+                        samples = [sample]
+                        current_length = sample_length
                 else:
-                    # Calculate how many tokens are already in the batch
-                    tokens_in_batch = current_length - len(sample["input_ids"])
-                    # Calculate how many tokens we can fit from this sample
-                    tokens_available = self.max_tokens_per_batch - tokens_in_batch
-                    first_part, remaining_part = _split_sample_by_num_tokens(sample, tokens_available)
-                    yield [*samples, first_part]
-                    samples = [remaining_part]
+                    # Split mode: fill the current batch, then split remaining into chunks.
+                    if tokens_available > 0 and tokens_available < sample_length:
+                        first_part, remaining = _split_sample_by_num_tokens(sample, tokens_available)
+                        yield [*samples, first_part]
+                    else:
+                        # tokens_available >= sample_length shouldn't happen here, but guard anyway
+                        if samples:
+                            yield samples
+                        remaining = sample
 
-                current_length = len(samples[0]["input_ids"])
+                    # Now split the remaining part into chunks of max_tokens_per_batch.
+                    while len(remaining["input_ids"]) > self.max_tokens_per_batch:
+                        chunk, remaining = _split_sample_by_num_tokens(remaining, self.max_tokens_per_batch)
+                        yield [chunk]
+
+                    samples = [remaining]
+                    current_length = len(remaining["input_ids"])
+                    continue
+
             else:
                 samples.append(sample)
 
@@ -345,7 +387,8 @@ class DataCollatorForContextParallel:
             else:
                 raise ValueError(f"Unsupported qvk_format: {self.qkv_format}!")
 
-            batch_shard["max_length_k"] = batch_shard["max_length_q"] = max_length * round(max_length / 64)
+            padded_max = ((max_length + 63) // 64) * 64
+            batch_shard["max_length_k"] = batch_shard["max_length_q"] = padded_max
             combined_batch.append(batch_shard)
 
         return combined_batch

@@ -67,8 +67,8 @@ def apply_transforms(
     source: Union[nn.Module, _ModelState],
     target: TargetModuleT,
     mapping: Dict[str, str],
-    transforms: Optional[List[Callable[[TransformCTX], TransformCTX]]] = [],
-    state_dict_ignored_entries: List = [],
+    transforms: Optional[List[Callable[[TransformCTX], TransformCTX]]] = None,
+    state_dict_ignored_entries: Optional[List] = None,
     cast_dtype: Optional[torch.dtype] = None,
 ) -> TargetModuleT:
     """Transform the state dictionary of a source module to match the structure of a target module's state dictionary.
@@ -126,6 +126,11 @@ def apply_transforms(
         This function is particularly useful when adapting models from different frameworks or
         when consolidating models with different architectural changes.
     """
+    if transforms is None:
+        transforms = []
+    if state_dict_ignored_entries is None:
+        state_dict_ignored_entries = []
+
     # Track dtypes to make sure they weren't modified during conversion.
     target_orig_dtypes = extract_dtypes(target.named_parameters())
 
@@ -318,7 +323,7 @@ class StateDictTransform(Generic[F]):
                     try:
                         source_match = source_matches[target_index]
                     except IndexError as e:
-                        logger.error(f"Enountered IndexError during transform.\n{source_matches=}\n{target_matches=}")
+                        logger.error(f"Encountered IndexError during transform.\n{source_matches=}\n{target_matches=}")
                         raise e
                     if accepts_var_args:
                         source_values = [source_dict[k] for k in source_match]

@@ -31,9 +31,12 @@ from transformer_engine.pytorch.quantization import FP8GlobalStateManager
 from transformers import AutoConfig, PretrainedConfig, PreTrainedModel, PreTrainedTokenizer, set_seed
 
 
-HAS_DATA_CENTER_GPU = any(
-    gpu_name in torch.cuda.get_device_name(0).upper() for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
-)
+try:
+    HAS_DATA_CENTER_GPU = torch.cuda.is_available() and any(
+        gpu_name in torch.cuda.get_device_name(0).upper() for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
+    )
+except (RuntimeError, AssertionError):
+    HAS_DATA_CENTER_GPU = False
 
 
 @dataclass
@@ -343,13 +346,14 @@ class BaseModelTest(ABC):
         model.to("cuda")
         return model
 
-    def get_reference_model_no_weights(self) -> PreTrainedModel:
+    def get_reference_model_no_weights(self, **kwargs) -> PreTrainedModel:
         """Load the reference HuggingFace model with random weights."""
         return self.get_upstream_model_class()(
             AutoConfig.from_pretrained(
                 self.get_upstream_model_id(),
                 dtype=torch.float32,
                 revision=self.get_upstream_model_revision(),
+                **kwargs,
             )
         )
 

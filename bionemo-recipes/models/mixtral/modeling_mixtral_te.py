@@ -450,6 +450,11 @@ class NVMixtralForCausalLM(NVMixtralPreTrainedModel, __import__("transformers").
         )
 
 
+# Required for torch.compile'd functions below (_pad_input, _unpad_input) that use
+# data-dependent scalar values (e.g., max_seqlen_in_batch.item()). Without this,
+# torch._dynamo will raise a GuardOnDataDependentSymNode error during tracing.
+# This must be set at module level because torch.compile traces lazily on first call,
+# so a scoped setting would not be active at trace time.
 torch._dynamo.config.capture_scalar_outputs = True
 
 

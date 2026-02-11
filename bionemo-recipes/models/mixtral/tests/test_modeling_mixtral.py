@@ -90,6 +90,10 @@ class TestMixtralModel(BaseModelTest):
             pytest.skip("Skipping Mixtral reference model test in CI, requires Mini-Mixtral download ~25GB")
         return super().get_reference_model(dtype=dtype, attn_implementation=attn_implementation)
 
+    def get_reference_model_no_weights(self, **kwargs) -> PreTrainedModel:
+        # Limit the number of hidden layers to 2 for faster tests.
+        return super().get_reference_model_no_weights(num_hidden_layers=2, **kwargs)
+
     def get_test_input_data(
         self, format: Literal["bshd", "thd"] = "bshd", pad_to_multiple_of: int | None = None
     ) -> Dict[str, torch.Tensor]:

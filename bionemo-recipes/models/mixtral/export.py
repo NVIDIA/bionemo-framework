@@ -19,7 +19,7 @@ import json
 import shutil
 from pathlib import Path
 
-from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 import convert
 from modeling_mixtral_te import AUTO_MAP
@@ -32,8 +32,7 @@ def export_hf_checkpoint(tag: str, export_path: Path):
         tag: The tag of the checkpoint to export.
         export_path: The parent path to export the checkpoint to.
     """
-    model_hf = AutoConfig.from_pretrained(tag)
-    model_hf = AutoModelForCausalLM.from_config(model_hf)
+    model_hf = AutoModelForCausalLM.from_pretrained(tag)
 
     model_te = convert.convert_mixtral_hf_to_te(model_hf)
     model_te.save_pretrained(export_path)
@@ -50,7 +49,7 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     with open(export_path / "config.json", "w") as f:
         json.dump(config, f, indent=2, sort_keys=True)
 
-    shutil.copy("modeling_mixtral_te.py", export_path / "modeling_mixtral_te.py")
+    shutil.copy(Path(__file__).parent / "modeling_mixtral_te.py", export_path / "modeling_mixtral_te.py")
 
 
 if __name__ == "__main__":
