@@ -63,6 +63,7 @@ config_kwargs:
   fp8_first_last_bf16: true  # Keep first/last transformer layers in BF16 for stability
   num_layers_at_start_in_bf16: 2  # Number of layers at start to keep in BF16
   num_layers_at_end_in_bf16: 2    # Number of layers at end to keep in BF16
+  loss_dtype_fp32: true  # Cast loss to FP32 for numerical stability (matches Megatron, recommended for FP8 block scaling)
 
 # THD with sequence packing
 use_sequence_packing: true
