@@ -57,12 +57,12 @@ def use_te_debug(monkeypatch):
     importlib.reload(transformer_engine.pytorch)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def tokenizer():
     return AutoTokenizer.from_pretrained("esm_fast_tokenizer")
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def test_proteins():
     return [
         "MLSATEKLSDYISSLFASVSIINSISTEDLFFLKLTCQTFSKDSEEYKAAYRILRGVQRGKVQIIEEALVS",
@@ -83,12 +83,12 @@ def test_proteins():
     ]
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def tokenized_proteins(tokenizer, test_proteins):
     return [tokenizer(p, truncation=True, max_length=1024) for p in test_proteins]
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def input_data(tokenizer, tokenized_proteins):
     """BSHD mock input data for forward pass tests."""
 
@@ -102,7 +102,7 @@ def input_data(tokenizer, tokenized_proteins):
     return data_collator(tokenized_proteins)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def te_model_checkpoint(tmp_path):
     from convert import convert_esm_hf_to_te
 
