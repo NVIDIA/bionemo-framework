@@ -39,8 +39,8 @@ from transformers import (
 )
 from transformers.models.esm.modeling_esm import EsmForMaskedLM
 
-from esm.collator import DataCollatorWithFlattening
-from esm.convert import (
+from collator import DataCollatorWithFlattening
+from convert import (
     _pack_qkv_bias,
     _pack_qkv_weight,
     _pad_bias,
@@ -49,7 +49,7 @@ from esm.convert import (
     convert_esm_te_to_hf,
     mapping,
 )
-from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
+from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 from tests.common import BaseModelTest, TestTolerances
 
 
