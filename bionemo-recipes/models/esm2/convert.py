@@ -18,8 +18,8 @@ from accelerate import init_empty_weights
 from torch import nn
 from transformers import EsmConfig, EsmForMaskedLM
 
-import esm.state as io
-from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
+import state as io
+from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
 
 mapping = {

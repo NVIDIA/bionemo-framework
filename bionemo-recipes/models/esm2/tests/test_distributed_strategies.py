@@ -103,7 +103,12 @@ def test_ddp_vs_fsdp_multi_gpu(strategy, backend, unused_tcp_port):
 if __name__ == "__main__":
     import argparse
     import enum
+    import sys
     from dataclasses import dataclass, field
+    from pathlib import Path
+
+    # Ensure the model directory is on sys.path for bare module imports.
+    sys.path.insert(0, Path(__file__).resolve().parent.parent.as_posix())
 
     import torch.distributed as dist
     import transformer_engine.pytorch
@@ -180,7 +185,7 @@ if __name__ == "__main__":
 
         if use_te:
             # Import local model classes to avoid using outdated code from HF Hub
-            from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
+            from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
             config = NVEsmConfig.from_pretrained(
                 "facebook/esm2_t6_8M_UR50D",

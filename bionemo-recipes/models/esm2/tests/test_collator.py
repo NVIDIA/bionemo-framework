@@ -20,7 +20,7 @@ import pytest
 import torch
 from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import (
+from collator import (
     DataCollatorWithFlattening,
     TokenPackingDataset,
     _split_sample_by_num_tokens,

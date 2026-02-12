@@ -19,7 +19,7 @@ import peft
 import pytest
 import torch
 
-from esm.modeling_esm_te import NVEsmForMaskedLM
+from modeling_esm_te import NVEsmForMaskedLM
 
 
 def test_create_peft_model(te_model_checkpoint):

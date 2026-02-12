@@ -23,7 +23,7 @@ import torch
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import (
+from collator import (
     BatchType,
     ContextParallelDataLoaderWrapper,
     DataCollatorForContextParallel,
@@ -419,8 +419,8 @@ def test_dataloader_scatter_nopadding():
                 scatter_object_output_list[0] = scatter_payload["data"][1]
 
         with (
-            mock.patch("esm.collator.torch.distributed.scatter_object_list", side_effect=fake_scatter),
-            mock.patch("esm.collator.torch.distributed.barrier", return_value=None),
+            mock.patch("collator.torch.distributed.scatter_object_list", side_effect=fake_scatter),
+            mock.patch("collator.torch.distributed.barrier", return_value=None),
         ):
             iter(loader_rank0)
             iter(loader_rank1)
@@ -510,8 +510,8 @@ def test_dataloader_scatter_with_pad_between_seqs():
                 scatter_object_output_list[0] = scatter_payload["data"][1]
 
         with (
-            mock.patch("esm.collator.torch.distributed.scatter_object_list", side_effect=fake_scatter),
-            mock.patch("esm.collator.torch.distributed.barrier", return_value=None),
+            mock.patch("collator.torch.distributed.scatter_object_list", side_effect=fake_scatter),
+            mock.patch("collator.torch.distributed.barrier", return_value=None),
         ):
             iter(loader_rank0)
             iter(loader_rank1)
