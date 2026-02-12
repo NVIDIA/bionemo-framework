@@ -25,11 +25,10 @@ from transformer_engine.common import recipe as recipe_module
 from transformer_engine.pytorch import fp8
 from transformers import AutoModelForMaskedLM, AutoTokenizer, DataCollatorForLanguageModeling
 
-from esm.convert import convert_esm_hf_to_te
-
 
 sys.path.append(Path(__file__).parent.parent.as_posix())
 sys.path.append(Path(__file__).parent.as_posix())
+
 
 pytest_plugins = ["tests.common.fixtures"]
 
@@ -58,12 +57,12 @@ def use_te_debug(monkeypatch):
     importlib.reload(transformer_engine.pytorch)
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def tokenizer():
     return AutoTokenizer.from_pretrained("esm_fast_tokenizer")
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def test_proteins():
     return [
         "MLSATEKLSDYISSLFASVSIINSISTEDLFFLKLTCQTFSKDSEEYKAAYRILRGVQRGKVQIIEEALVS",
@@ -84,12 +83,12 @@ def test_proteins():
     ]
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def tokenized_proteins(tokenizer, test_proteins):
     return [tokenizer(p, truncation=True, max_length=1024) for p in test_proteins]
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def input_data(tokenizer, tokenized_proteins):
     """BSHD mock input data for forward pass tests."""
 
@@ -103,8 +102,10 @@ def input_data(tokenizer, tokenized_proteins):
     return data_collator(tokenized_proteins)
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def te_model_checkpoint(tmp_path):
+    from convert import convert_esm_hf_to_te
+
     model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     model_te = convert_esm_hf_to_te(model_hf)
     model_te.save_pretrained(tmp_path / "te_model_checkpoint")

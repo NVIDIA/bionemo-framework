@@ -16,7 +16,7 @@
 import pytest
 from transformers import AutoModel, AutoModelForMaskedLM, AutoModelForTokenClassification, AutoTokenizer
 
-from esm.export import export_hf_checkpoint
+from export import export_hf_checkpoint
 
 
 @pytest.fixture

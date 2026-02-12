@@ -30,7 +30,14 @@ Test configurations:
 
 import os
 import subprocess
+import sys
 from dataclasses import dataclass, field
+from pathlib import Path
+
+
+# When launched via torchrun, conftest.py sys.path setup doesn't run.
+# Ensure the model directory (parent of tests/) is on sys.path for bare module imports.
+sys.path.insert(0, Path(__file__).resolve().parent.parent.as_posix())
 
 import pytest
 import torch
@@ -38,7 +45,7 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoTokenizer, DataCollatorForLanguageModeling
 
-from esm.collator import (
+from collator import (
     ContextParallelDataLoaderWrapper,
     DataCollatorForContextParallel,
     DataCollatorWithFlattening,
