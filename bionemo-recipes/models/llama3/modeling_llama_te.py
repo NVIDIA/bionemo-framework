@@ -57,6 +57,8 @@ class NVLlamaConfig(LlamaConfig):
             in bf16 for FP8 numerical stability. The lm_head is always kept in bf16.
         num_layers_at_start_in_bf16: Number of layers at the start to keep in BF16.
         num_layers_at_end_in_bf16: Number of layers at the end to keep in BF16.
+        loss_dtype_fp32: When True, casts loss to FP32 for better numerical stability.
+            Matches Megatron's behavior. Default is False (loss stays in BF16).
     """
 
     attn_input_format: str = "thd"
@@ -66,6 +68,7 @@ class NVLlamaConfig(LlamaConfig):
     fp8_first_last_bf16: bool = False  # Keep first/last transformer layers in bf16 for FP8 stability
     num_layers_at_start_in_bf16: int = 1  # Number of layers at start to keep in BF16
     num_layers_at_end_in_bf16: int = 1  # Number of layers at end to keep in BF16
+    loss_dtype_fp32: bool = False  # Cast loss to FP32 for numerical stability (matches Megatron)
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -494,6 +497,9 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         loss = None
         if labels is not None:
             loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
+            # Optionally cast loss to FP32 for better numerical stability (matches Megatron behavior)
+            if getattr(self.config, "loss_dtype_fp32", False) and loss.dtype != torch.float32:
+                loss = loss.float()
 
         return CausalLMOutputWithPast(
             loss=loss,
