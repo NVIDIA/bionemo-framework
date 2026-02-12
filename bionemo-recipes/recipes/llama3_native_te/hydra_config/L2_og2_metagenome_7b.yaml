@@ -84,7 +84,8 @@ dataset:
   mask_degenerate_bases: true  # Genomic data needs masking
   uppercase_labels: false
   load_dataset_kwargs:
-    path: "/data/opengenome2/json/pretraining_or_both_phases/metagenomes"
+    path: "json"
+    data_files: "/data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_train_*.jsonl.gz"
     split: "train"
     streaming: True
 
