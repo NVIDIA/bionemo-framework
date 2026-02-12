@@ -496,10 +496,24 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
 
         loss = None
         if labels is not None:
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
-            # Optionally cast loss to FP32 for better numerical stability (matches Megatron behavior)
-            if getattr(self.config, "loss_dtype_fp32", False) and loss.dtype != torch.float32:
-                loss = loss.float()
+            # Optionally cast to FP32 before reduction for better numerical stability (matches Megatron behavior)
+            if getattr(self.config, "loss_dtype_fp32", False):
+                # Compute per-token losses, cast to FP32, then reduce (matches Megatron's approach)
+                # This avoids precision loss during accumulation for long sequences
+                logits_flat = logits.view(-1, logits.size(-1))
+                labels_flat = labels.view(-1)
+                per_token_loss = torch.nn.functional.cross_entropy(
+                    logits_flat.float(), labels_flat, reduction="none", ignore_index=-100
+                )
+                # Mask out ignored tokens and compute mean in FP32
+                valid_mask = labels_flat != -100
+                if valid_mask.any():
+                    loss = per_token_loss[valid_mask].mean()
+                else:
+                    loss = torch.tensor(0.0, dtype=torch.float32, device=logits.device)
+            else:
+                # Standard loss computation (reduction happens in logits dtype)
+                loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
 
         return CausalLMOutputWithPast(
             loss=loss,
