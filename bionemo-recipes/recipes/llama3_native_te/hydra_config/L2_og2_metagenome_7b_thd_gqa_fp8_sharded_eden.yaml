@@ -61,6 +61,9 @@ config_kwargs:
     high_freq_factor: 4
     original_max_position_embeddings: 8192
   fp8_first_last_bf16: true  # Keep first/last transformer layers in BF16 for stability
+  # num_layers_at_start_in_bf16: 1  # Number of layers at start to keep in BF16 (default: 1)
+  # num_layers_at_end_in_bf16: 1  # Number of layers at end to keep in BF16 (default: 1)
+  # Example: Set to 2 or 3 for better convergence stability with block scaling
 
 # BSHD doesn't support sequence packing
 use_sequence_packing: false

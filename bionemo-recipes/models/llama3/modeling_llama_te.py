@@ -53,8 +53,10 @@ class NVLlamaConfig(LlamaConfig):
         use_megatron_scaled_init: Whether to use Megatron's scaled initialization
             for residual output layers (attention proj, MLP fc2).
             Scaled init uses std / sqrt(2 * num_layers) for these layers.
-        fp8_first_last_bf16: When True, keeps first and last transformer layers
+        fp8_first_last_bf16: When True, keeps first and last N transformer layers
             in bf16 for FP8 numerical stability. The lm_head is always kept in bf16.
+        num_layers_at_start_in_bf16: Number of layers at the start to keep in BF16.
+        num_layers_at_end_in_bf16: Number of layers at the end to keep in BF16.
     """
 
     attn_input_format: str = "thd"
@@ -62,6 +64,8 @@ class NVLlamaConfig(LlamaConfig):
     embedding_init_std: float | None = None  # None means use initializer_range
     use_megatron_scaled_init: bool = False  # Use scaled init for proj/fc2 (std/sqrt(2*n))
     fp8_first_last_bf16: bool = False  # Keep first/last transformer layers in bf16 for FP8 stability
+    num_layers_at_start_in_bf16: int = 1  # Number of layers at start to keep in BF16
+    num_layers_at_end_in_bf16: int = 1  # Number of layers at end to keep in BF16
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -371,9 +375,11 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            # Optionally keep first and last layers in bf16 for FP8 numerical stability
+            # Optionally keep first and last N layers in bf16 for FP8 numerical stability
+            num_start_bf16 = getattr(self.config, "num_layers_at_start_in_bf16", 1)
+            num_end_bf16 = getattr(self.config, "num_layers_at_end_in_bf16", 1)
             use_bf16_for_layer = getattr(self.config, "fp8_first_last_bf16", False) and (
-                layer_idx == 0 or layer_idx == num_layers - 1
+                layer_idx < num_start_bf16 or layer_idx >= num_layers - num_end_bf16
             )
 
             # If fp8_first_last_bf16 is enabled, disable FP8 for first/last layers

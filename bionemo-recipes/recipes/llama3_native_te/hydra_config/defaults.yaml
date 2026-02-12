@@ -15,6 +15,8 @@ use_megatron_loss: false  # Use Megatron-style per-token loss reduction (for pac
 
 config_kwargs:
   fp8_first_last_bf16: false  # Keep first/last transformer layers in bf16 for FP8 stability
+  num_layers_at_start_in_bf16: 1  # Number of layers at start to keep in BF16 (only used when fp8_first_last_bf16=true)
+  num_layers_at_end_in_bf16: 1  # Number of layers at end to keep in BF16 (only used when fp8_first_last_bf16=true)
 # When spike_no_more_embedding_init is true, embedding_init_std=1.0 is added to config_kwargs automatically
 
 num_train_steps: ???
