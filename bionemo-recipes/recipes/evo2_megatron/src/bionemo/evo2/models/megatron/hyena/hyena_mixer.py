@@ -288,15 +288,16 @@ class HyenaMixer(MegatronModule):
         Returns:
             Tuple of (output tensor, bias)
         """
-        # CP control
-        if _hyena_use_cp:
+        # CP control: disable CP during inference because the inference path
+        # does not split sequences across CP ranks (the full sequence is on each rank).
+        # The AllToAll operations in Hyena operators assume sequence-split input which
+        # only happens during training.
+        if inference_context is not None:
+            _proj_use_cp = False
+        elif _hyena_use_cp:
             cp_group = self.pg_collection.cp
             cp_size = cp_group.size()
-        else:
-            cp_group = None
-            cp_size = 1
-        if cp_group is not None and cp_size > 1:
-            _proj_use_cp = True
+            _proj_use_cp = cp_group is not None and cp_size > 1
         else:
             _proj_use_cp = False
 
