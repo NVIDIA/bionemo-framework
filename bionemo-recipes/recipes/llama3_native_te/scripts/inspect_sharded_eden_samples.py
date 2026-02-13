@@ -91,31 +91,32 @@ def decode_tokens(tokenizer, token_ids: list[int], max_tokens: int = 50) -> str:
     return decoded
 
 
-def inspect_raw_sequence_from_db(sequence_db_dir: str, sequence_id: str, start_pos: int, length: int):
-    """Inspect raw sequence directly from the database."""
-    import sqlite3
-
+def inspect_raw_sequence_from_db(dataset, sequence_id: str, start_pos: int, length: int):
+    """Inspect raw sequence directly from the database using dataset's connections."""
     from sharded_eden_dataset import SEQUENCE_COLUMN_NAME, SEQUENCE_ID_COLUMN_NAME, extract_sample_id
 
     try:
-        sample_id = extract_sample_id(sequence_id)
-        # Try to find the database file
-        # The structure is: sequence_db_dir/sample_id/glm_dataset_<sample_id>.sqlite
-        db_path = Path(sequence_db_dir) / sample_id / f"glm_dataset_{sample_id}.sqlite"
-        if not db_path.exists():
-            # Try alternative structure: sequence_db_dir/opengenome2-metagenome/sample_id/glm_dataset_<sample_id>.sqlite
-            db_path = Path(sequence_db_dir) / "opengenome2-metagenome" / sample_id / f"glm_dataset_{sample_id}.sqlite"
+        # Use the dataset's existing database connections (more reliable)
+        if len(dataset.db_connections) == 1:
+            conn = next(iter(dataset.db_connections.values()))
+            cursor = conn.cursor()
+        else:
+            # Try to extract sample_id, but handle different formats gracefully
+            try:
+                sample_id = extract_sample_id(sequence_id)
+                conn = dataset._get_db_connection(sample_id)
+            except (ValueError, IndexError, AttributeError):
+                # If extract_sample_id fails, try using the first connection
+                if len(dataset.db_connections) > 0:
+                    conn = next(iter(dataset.db_connections.values()))
+                else:
+                    return None, "No database connections available"
+            cursor = conn.cursor()
 
-        if not db_path.exists():
-            return None, f"Database not found at {db_path}"
-
-        conn = sqlite3.connect(str(db_path))
-        cursor = conn.cursor()
         result = cursor.execute(
             f"SELECT substr({SEQUENCE_COLUMN_NAME}, ?, ?) FROM sequences WHERE {SEQUENCE_ID_COLUMN_NAME} = ?",
             (start_pos + 1, length, sequence_id),
         ).fetchone()
-        conn.close()
 
         if result and result[0]:
             return result[0].upper(), None
@@ -190,7 +191,7 @@ def inspect_samples(
 
             # Get raw sequence from database
             eff_len = seq_length - 2  # BOS + EOS
-            raw_seq, error = inspect_raw_sequence_from_db(sequence_db_dir, sequence_id, start_pos, eff_len)
+            raw_seq, error = inspect_raw_sequence_from_db(dataset, sequence_id, start_pos, eff_len)
             if raw_seq:
                 print(f"Raw sequence from DB (first 200 chars): {raw_seq[:200]}...")
                 print(f"Raw sequence length: {len(raw_seq)}")
@@ -246,20 +247,32 @@ def inspect_samples(
 
         if "input_ids" in batch:
             input_ids = batch["input_ids"]
-            print(f"Input IDs shape: {input_ids.shape}")
-            print(f"Input IDs dtype: {input_ids.dtype}")
+            # Handle both list and tensor cases
+            if isinstance(input_ids, list):
+                print(f"Input IDs type: list, length: {len(input_ids)}")
+                print(f"First sample length: {len(input_ids[0]) if input_ids else 0}")
+                first_sample_tokens = input_ids[0] if input_ids else []
+            else:
+                print(f"Input IDs shape: {input_ids.shape}")
+                print(f"Input IDs dtype: {input_ids.dtype}")
+                first_sample_tokens = input_ids[0].tolist()
 
             # Show first sample in batch
             print("\nFirst sample in batch:")
-            first_sample_tokens = input_ids[0].tolist()
             print(f"  Token IDs (first 30): {first_sample_tokens[:30]}...")
             decoded = dataset.tokenizer.decode(first_sample_tokens)
             print(f"  Decoded (first 200 chars): {decoded[:200]}...")
 
         if "attention_mask" in batch:
             attention_mask = batch["attention_mask"]
-            print(f"Attention mask shape: {attention_mask.shape}")
-            print(f"Attention mask sum (non-padded tokens): {attention_mask.sum(dim=1).tolist()}")
+            # Handle both list and tensor cases
+            if isinstance(attention_mask, list):
+                print(f"Attention mask type: list, length: {len(attention_mask)}")
+                if attention_mask:
+                    print(f"First sample mask sum: {sum(attention_mask[0])}")
+            else:
+                print(f"Attention mask shape: {attention_mask.shape}")
+                print(f"Attention mask sum (non-padded tokens): {attention_mask.sum(dim=1).tolist()}")
 
         batch_count += 1
 
