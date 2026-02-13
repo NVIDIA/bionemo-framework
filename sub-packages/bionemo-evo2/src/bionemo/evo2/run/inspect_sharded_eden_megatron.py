@@ -40,6 +40,7 @@ from nemo.collections.nlp.modules.common.tokenizer_utils import get_nmt_tokenize
 from torch.utils.data import DataLoader
 
 from bionemo.evo2.data.sharded_eden_dataloader import ShardedEdenDataset
+from bionemo.evo2.run.utils import patch_eden_tokenizer
 
 
 def print_separator(title: str = ""):
@@ -105,10 +106,13 @@ def inspect_samples(
         merges_file=merges_file,
     )
 
+    # Patch tokenizer for Eden compatibility (sets _sep_id, etc.)
+    patch_eden_tokenizer(tokenizer)
+
     print("\nTokenizer special tokens:")
     print(f"  BOS ID: {tokenizer.bos_id}")
     print(f"  EOS ID: {tokenizer.eos_id}")
-    print(f"  SEP ID: {tokenizer._sep_id}")
+    print(f"  SEP ID: {getattr(tokenizer, '_sep_id', getattr(tokenizer, 'sep_id', None))}")
     print(f"  PAD ID: {tokenizer.pad_id}")
 
     # Create dataset
@@ -202,7 +206,7 @@ def inspect_samples(
         # Identify special tokens
         bos_id = tokenizer.bos_id
         eos_id = tokenizer.eos_id
-        sep_id = tokenizer._sep_id
+        sep_id = getattr(tokenizer, "_sep_id", getattr(tokenizer, "sep_id", None))
         pad_id = tokenizer.pad_id
 
         print(f"\nSpecial token IDs - BOS: {bos_id}, EOS: {eos_id}, SEP: {sep_id}, PAD: {pad_id}")
@@ -275,7 +279,7 @@ def inspect_samples(
 
             # Find special token positions
             bos_id = tokenizer.bos_id
-            sep_id = tokenizer._sep_id
+            sep_id = getattr(tokenizer, "_sep_id", getattr(tokenizer, "sep_id", None))
             eos_id = tokenizer.eos_id
 
             bos_pos = [i for i, t in enumerate(first_sample_tokens) if t == bos_id]
