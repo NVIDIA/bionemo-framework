@@ -1,0 +1,125 @@
+# Config for 7B Llama3 on OpenGenome2 Metagenome using MAPPED (non-streaming) dataset
+# This config uses upfront windowing/tokenization with caching for true global shuffling
+#
+# Key differences from streaming approach:
+#   - streaming=False: loads entire dataset into memory as Arrow
+#   - Windowing done upfront and cached to disk
+#   - DistributedSampler provides true global shuffling
+#   - Supports num_workers=8 efficiently
+#
+# IMPORTANT: Run cache_dataset.py first to create the cache:
+#   python cache_dataset.py \
+#       --output-dir /data/opengenome2/cache/og2_metagenome_windowed_8192_7992 \
+#       --tokenizer ./tokenizers/nucleotide_fast_tokenizer \
+#       --data-path /data/opengenome2/json/pretraining_or_both_phases/metagenomes \
+#       --max-seq-length 8192 \
+#       --stride 7992 \
+#       --num-proc 8
+
+defaults:
+  - defaults
+  - _self_
+
+# 7B model config (matching EdenConfig from bionemo-evo2)
+config_name_or_path: meta-llama/Llama-3.1-8B
+config_kwargs:
+  vocab_size: 256  # CRITICAL: Must match nucleotide tokenizer vocab size!
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 32  # MHA (not GQA)
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: bshd  # BSHD format
+  rope_parameters:
+    rope_type: "llama3"
+    rope_theta: 500000
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+
+# ============ CRITICAL FLAGS ============
+spike_no_more_embedding_init: true
+skip_embedding_weight_decay: false
+use_weight_decay_grouping: true
+use_megatron_scaled_init: true
+# ========================================
+
+# NO sequence packing - BSHD format
+use_sequence_packing: false
+
+# Gradient accumulation
+grad_acc_steps: 4
+
+# Training setup
+num_train_steps: 182314
+
+wandb:
+  name: og2_7b_bshd_mapped_6node
+  project: llama3-metagenome-7b
+
+# Dataset config - MAPPED approach with caching
+# This uses the mapped_dataset.py module instead of streaming dataset.py
+dataset:
+  # Mode selector: "mapped" uses create_mapped_bshd_dataloader from mapped_dataset.py
+  mode: mapped
+
+  # Cache directory - REQUIRED for mapped mode
+  # Run cache_dataset.py first to create this cache!
+  cache_dir: /data/opengenome2/cache/og2_metagenome_windowed_8192_7992
+
+  # Tokenizer
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+
+  # Training parameters
+  micro_batch_size: 8  # Match John's --micro-batch-size 8
+  num_workers: 8  # Can use more workers with mapped dataset!
+  prefetch_factor: 4
+
+  # Sequence parameters (must match cache creation)
+  max_seq_length: 8192
+  stride: 7992
+
+  # Genomic masking
+  mask_degenerate_bases: true
+  uppercase_labels: false
+
+  # Load dataset kwargs (used if cache doesn't exist)
+  # Only rank 0 will use these to create the cache
+  load_dataset_kwargs:
+    path: "/data/opengenome2/json/pretraining_or_both_phases/metagenomes"
+    split: "train"
+    streaming: false  # MUST be false for mapped dataset
+
+  # Text column in the parquet data
+  text_column: text
+
+  # Force recreate cache (useful for debugging)
+  force_recreate: false
+
+# Optimizer (matching John's settings)
+adamw_kwargs:
+  lr: 3e-05
+  fused: true
+  betas: [0.9, 0.95]
+  eps: 1e-8
+  weight_decay: 0.1
+
+# Learning rate scheduler
+lr_scheduler_kwargs:
+  num_warmup_steps: 2500
+  num_decay_steps: 179814
+  min_lr_ratio: 0.02
+
+# Checkpoint config
+checkpoint:
+  ckpt_dir: null
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 5_000
+  async_save: true
+
+profiler:
+  enabled: false
