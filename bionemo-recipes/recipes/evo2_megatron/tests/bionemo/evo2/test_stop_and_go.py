@@ -62,16 +62,22 @@ PRETEST_ENV = copy.deepcopy(os.environ)
             1,
             False,
             "bf16_with_nvfp4_mixed",
-            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
-        ),  # XFAIL other than blackwell+
+            marks=(
+                pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
+                pytest.mark.xfail(reason="NVFP4: TE checkpoint/backward issues; known on non-Blackwell", strict=False),
+            ),
+        ),
         pytest.param(
             1,
             1,
             1,
             False,
             "bf16_with_mxfp8_mixed",
-            marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
-        ),  # XFAIL other than blackwell+
+            marks=(
+                pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI"),
+                pytest.mark.xfail(reason="MXFP8: TE checkpoint/backward issues; known on non-Blackwell", strict=False),
+            ),
+        ),
         pytest.param(
             1, 1, 2, True, "bf16_mixed", marks=pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
         ),
