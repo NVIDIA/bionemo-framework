@@ -68,6 +68,9 @@ def setup_logging(log_file: str | None = None):
     handlers = [logging.StreamHandler(sys.stdout)]
 
     if log_file:
+        # Create parent directory if it doesn't exist
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
         # Also log to file
         file_handler = logging.FileHandler(log_file, mode="w")
         handlers.append(file_handler)
