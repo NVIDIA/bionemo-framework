@@ -60,12 +60,28 @@ import datasets
 from mapped_dataset import create_windowed_mapped_dataset
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
 logger = logging.getLogger(__name__)
+
+
+def setup_logging(log_file: str | None = None):
+    """Setup logging to both console and optionally a file."""
+    handlers = [logging.StreamHandler(sys.stdout)]
+
+    if log_file:
+        # Also log to file
+        file_handler = logging.FileHandler(log_file, mode="w")
+        handlers.append(file_handler)
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        handlers=handlers,
+    )
+
+    # Also set HuggingFace datasets logging level
+    import datasets
+
+    datasets.logging.set_verbosity_info()
 
 
 def validate_cache(cache_dir: str) -> bool:
@@ -188,8 +204,17 @@ Examples:
         action="store_true",
         help="Load dataset and show statistics without saving.",
     )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help="Path to log file. If provided, logs will be written to both console and file.",
+    )
 
     args = parser.parse_args()
+
+    # Setup logging (must be done before any logging calls)
+    setup_logging(args.log_file)
 
     output_path = Path(args.output_dir)
 
