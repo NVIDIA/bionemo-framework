@@ -36,6 +36,7 @@ import argparse
 import sys
 from pathlib import Path
 
+import torch
 from torch.utils.data import DataLoader
 
 
@@ -166,6 +167,12 @@ def inspect_samples(
     )
 
     print_separator("Inspecting Individual Samples")
+    print(
+        "NOTE: The llama3_native_te ShardedEdenDataset does NOT use control tags or SEP tokens.\n"
+        "It's a simplified port that only uses BOS/EOS (unlike the original Megatron version\n"
+        "which uses: [BOS] + [CTRL_IDS] + [SEP] + [DNA_SEQ] + [EOS]).\n"
+        "Format here: [BOS] + [DNA_SEQ] + [EOS] + [PAD...]\n"
+    )
     # Inspect individual samples
     for i in range(min(num_samples, len(dataset))):
         print(f"\n--- Sample {i} ---")
@@ -236,6 +243,13 @@ def inspect_samples(
         )
 
     print_separator("Inspecting Batches")
+    print(
+        "NOTE: The llama3_native_te ShardedEdenDataset does NOT use control tags or SEP tokens.\n"
+        "It's a simplified port that only uses BOS/EOS (unlike the original Megatron version\n"
+        "which uses: [BOS] + [CTRL_IDS] + [SEP] + [DNA_SEQ] + [EOS]).\n"
+        "Format here: [BOS] + [DNA_SEQ] + [EOS] + [PAD...]\n"
+    )
+
     # Inspect batches
     batch_count = 0
     for batch_idx, batch in enumerate(dataloader):
@@ -250,18 +264,36 @@ def inspect_samples(
             # Handle both list and tensor cases
             if isinstance(input_ids, list):
                 print(f"Input IDs type: list, length: {len(input_ids)}")
-                print(f"First sample length: {len(input_ids[0]) if input_ids else 0}")
-                first_sample_tokens = input_ids[0] if input_ids else []
-            else:
+                # Check if it's a list of lists/tensors or a flat list
+                if input_ids and isinstance(input_ids[0], (list, torch.Tensor)):
+                    print(f"  This is a list of {len(input_ids)} samples")
+                    print(
+                        f"  First sample type: {type(input_ids[0])}, length: {len(input_ids[0]) if hasattr(input_ids[0], '__len__') else 'N/A'}"
+                    )
+                    # Convert first sample to list if it's a tensor
+                    if isinstance(input_ids[0], torch.Tensor):
+                        first_sample_tokens = input_ids[0].tolist()
+                    else:
+                        first_sample_tokens = input_ids[0]
+                else:
+                    # It's a flat list (shouldn't happen with batching, but handle it)
+                    print(f"  Flat list of length {len(input_ids)}")
+                    first_sample_tokens = input_ids[:100]  # Just show first 100
+            elif isinstance(input_ids, torch.Tensor):
                 print(f"Input IDs shape: {input_ids.shape}")
                 print(f"Input IDs dtype: {input_ids.dtype}")
                 first_sample_tokens = input_ids[0].tolist()
+            else:
+                print(f"Input IDs type: {type(input_ids)}")
+                first_sample_tokens = []
 
             # Show first sample in batch
-            print("\nFirst sample in batch:")
-            print(f"  Token IDs (first 30): {first_sample_tokens[:30]}...")
-            decoded = dataset.tokenizer.decode(first_sample_tokens)
-            print(f"  Decoded (first 200 chars): {decoded[:200]}...")
+            if first_sample_tokens:
+                print("\nFirst sample in batch:")
+                print(f"  Token IDs (first 30): {first_sample_tokens[:30]}...")
+                print(f"  Total tokens: {len(first_sample_tokens)}")
+                decoded = dataset.tokenizer.decode(first_sample_tokens)
+                print(f"  Decoded (first 200 chars): {decoded[:200]}...")
 
         if "attention_mask" in batch:
             attention_mask = batch["attention_mask"]
@@ -269,8 +301,15 @@ def inspect_samples(
             if isinstance(attention_mask, list):
                 print(f"Attention mask type: list, length: {len(attention_mask)}")
                 if attention_mask:
-                    print(f"First sample mask sum: {sum(attention_mask[0])}")
-            else:
+                    if isinstance(attention_mask[0], (list, torch.Tensor)):
+                        print(f"  This is a list of {len(attention_mask)} samples")
+                        if isinstance(attention_mask[0], torch.Tensor):
+                            print(f"  First sample mask sum: {attention_mask[0].sum().item()}")
+                        else:
+                            print(f"  First sample mask sum: {sum(attention_mask[0])}")
+                    else:
+                        print(f"  Flat list, sum: {sum(attention_mask)}")
+            elif isinstance(attention_mask, torch.Tensor):
                 print(f"Attention mask shape: {attention_mask.shape}")
                 print(f"Attention mask sum (non-padded tokens): {attention_mask.sum(dim=1).tolist()}")
 
