@@ -57,8 +57,6 @@ class NVLlamaConfig(LlamaConfig):
             in bf16 for FP8 numerical stability. The lm_head is always kept in bf16.
         num_layers_at_start_in_bf16: Number of layers at the start to keep in BF16.
         num_layers_at_end_in_bf16: Number of layers at the end to keep in BF16.
-        loss_dtype_fp32: When True, casts loss to FP32 for better numerical stability.
-            Matches Megatron's behavior. Default is False (loss stays in BF16).
     """
 
     attn_input_format: str = "thd"
@@ -68,7 +66,6 @@ class NVLlamaConfig(LlamaConfig):
     fp8_first_last_bf16: bool = False  # Keep first/last transformer layers in bf16 for FP8 stability
     num_layers_at_start_in_bf16: int = 1  # Number of layers at start to keep in BF16
     num_layers_at_end_in_bf16: int = 1  # Number of layers at end to keep in BF16
-    loss_dtype_fp32: bool = False  # Cast loss to FP32 for numerical stability (matches Megatron)
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -496,24 +493,8 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
 
         loss = None
         if labels is not None:
-            # Optionally cast to FP32 before reduction for better numerical stability (matches Megatron behavior)
-            if getattr(self.config, "loss_dtype_fp32", False):
-                # Compute per-token losses, cast to FP32, then reduce (matches Megatron's approach)
-                # This avoids precision loss during accumulation for long sequences
-                logits_flat = logits.view(-1, logits.size(-1))
-                labels_flat = labels.view(-1)
-                per_token_loss = torch.nn.functional.cross_entropy(
-                    logits_flat.float(), labels_flat, reduction="none", ignore_index=-100
-                )
-                # Mask out ignored tokens and compute mean in FP32
-                valid_mask = labels_flat != -100
-                if valid_mask.any():
-                    loss = per_token_loss[valid_mask].mean()
-                else:
-                    loss = torch.tensor(0.0, dtype=torch.float32, device=logits.device)
-            else:
-                # Standard loss computation (reduction happens in logits dtype)
-                loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
+            # Note: self.loss_function (ForCausalLMLoss) already casts logits to FP32 internally
+            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
 
         return CausalLMOutputWithPast(
             loss=loss,
