@@ -99,12 +99,12 @@ def inspect_samples(
     print(f"Use Control Tags: {use_control_tags}")
 
     # Create tokenizer (same as in train.py)
-    tokenizer = get_nmt_tokenizer(
-        "megatron",
-        "GPT2BPETokenizer",
-        vocab_file=vocab_file,
-        merges_file=merges_file,
-    )
+    # The training script uses byte-level tokenizer by default
+    if vocab_file is not None or merges_file is not None:
+        print("WARNING: vocab_file/merges_file provided, but training script uses byte-level tokenizer.")
+        print("Using byte-level tokenizer to match training configuration...")
+
+    tokenizer = get_nmt_tokenizer("byte-level")
 
     # Patch tokenizer for Eden compatibility (sets _sep_id, etc.)
     patch_eden_tokenizer(tokenizer)
@@ -345,13 +345,13 @@ def main():
         "--vocab-file",
         type=str,
         default=None,
-        help="Path to vocabulary file (required for GPT2BPETokenizer)",
+        help="Path to vocabulary file (not used - training script uses byte-level tokenizer)",
     )
     parser.add_argument(
         "--merges-file",
         type=str,
         default=None,
-        help="Path to merges file (required for GPT2BPETokenizer)",
+        help="Path to merges file (not used - training script uses byte-level tokenizer)",
     )
     parser.add_argument(
         "--num-samples",
