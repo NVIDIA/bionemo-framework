@@ -155,17 +155,29 @@ def launch_single_job(client, cfg: DictConfig):
     git_sync_script = ""
     if git_branch:
         git_sync_script = f"""
-# Git sync to specified branch
-echo "=========================================="
-echo "Syncing to branch: {git_branch}"
-echo "=========================================="
-cd {repo_root}
-git fetch origin
-git checkout {git_branch}
-git pull origin {git_branch}
-echo "Git sync complete!"
-echo "Current commit: $(git rev-parse HEAD)"
-echo "=========================================="
+# Git sync to specified branch (only on master node to avoid race conditions)
+if [ "$NODE_RANK" = "0" ]; then
+  echo "=========================================="
+  echo "[Rank 0] Syncing to branch: {git_branch}"
+  echo "=========================================="
+  cd {repo_root}
+  # Remove any stale lock files from previous failed git operations
+  find .git -name "*.lock" -delete 2>/dev/null || true
+  git fetch origin
+  git checkout {git_branch}
+  git pull origin {git_branch}
+  echo "Git sync complete!"
+  echo "Current commit: $(git rev-parse HEAD)"
+  # Create a marker file to signal other nodes
+  echo "$(git rev-parse HEAD)" > /tmp/git_sync_complete_marker
+  echo "=========================================="
+else
+  echo "[Rank $NODE_RANK] Waiting for rank 0 to complete git sync..."
+  # Wait for rank 0 to finish (check for marker or just wait a bit)
+  sleep 30
+  cd {repo_root}
+  echo "[Rank $NODE_RANK] Current commit: $(git rev-parse HEAD)"
+fi
 """
 
     training_script = f"""#!/bin/bash
