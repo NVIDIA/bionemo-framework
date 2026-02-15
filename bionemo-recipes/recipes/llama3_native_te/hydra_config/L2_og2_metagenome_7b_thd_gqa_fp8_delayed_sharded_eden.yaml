@@ -1,0 +1,130 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 7B Llama3 on OpenGenome2 Metagenome - JOHN'S EXACT FP8 SETTINGS (DelayedScaling)
+#
+# Replicates John's Megatron Evo2 FP8 recipe as closely as possible:
+#   - DelayedScaling with HYBRID format (E4M3 forward, E5M2 backward)
+#   - amax_history_len=16, amax_compute_algo="max"
+#   - ALL transformer layers in FP8 (no first/last skip)
+#   - lm_head always in BF16 (handled by NVLlamaForCausalLM.forward)
+#   - FP32 master weights (Megatron's distributed optimizer holds FP32 copies)
+#
+# John's Megatron flags:
+#   --fp8 (implies --fp8-recipe delayed, fp8="hybrid", amax_history=16, amax_algo="max")
+#   --no-fp32-residual-connection
+#   bf16=True in OptimizerConfig (FP32 master weights via distributed optimizer)
+#
+# Usage (6 nodes × 8 GPUs):
+#   torchrun --nproc_per_node=8 train_fsdp2.py \
+#       --config-name L2_og2_metagenome_7b_thd_gqa_fp8_delayed_sharded_eden \
+#       checkpoint.ckpt_dir=/data/results/fp8_delayed_sharded_eden
+
+defaults:
+  - L2_og2_metagenome_7b
+  - _self_
+
+# ---- Data source: ShardedEden (John's SQLite files) ----
+use_sharded_eden: true
+
+sharded_eden:
+  sequence_db_dir: /data/bcr_eden/OG2_database_splits/
+  train_window_db: /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite
+  val_window_db: /data/bcr_eden/OG2_database_splits/og2__validation__short.sqlite
+  test_window_db: /data/bcr_eden/OG2_database_splits/og2__test__short.sqlite
+  stride: 7992
+  rc_aug: false
+
+# GQA architecture (matching all other 7B configs)
+config_kwargs:
+  vocab_size: 256
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 8  # GQA: 8 KV heads
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: thd
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+  # KEY: NO first/last layer skip - all transformer layers in FP8 (matching John's setup)
+  fp8_first_last_bf16: false
+
+# THD with sequence packing
+use_sequence_packing: true
+
+# ============ MATCHING JOHN'S SETTINGS ============
+skip_embedding_weight_decay: false
+use_megatron_scaled_init: true
+use_meta_device: false
+
+# FP32 master weights (Megatron's distributed optimizer holds FP32 copies with bf16=True)
+use_fp32_master_weights: true
+# ===================================================
+
+# Dataset config
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 1
+  num_workers: 1
+  max_seq_length: 8192
+  mask_degenerate_bases: true
+  uppercase_labels: false
+
+grad_acc_steps: 8
+num_train_steps: 182314
+
+# ============ JOHN'S EXACT FP8 RECIPE ============
+# DelayedScaling with HYBRID format — this is what --fp8 gives you in Megatron
+#
+# From John's train.py:
+#   fp8="hybrid"                    → Format.HYBRID (E4M3 fwd, E5M2 bwd)
+#   fp8_amax_history_len=16         → 16-step history window
+#   fp8_amax_compute_algo="max"     → take max of history for scaling
+#   fp8_recipe="delayed"            → DelayedScaling class
+#
+# From Megatron's TEDelayedScaling:
+#   margin=0 (default)
+#   override_linear_precision=(False, False, False) when fp8_wgrad=True
+fp8_config:
+  enabled: true
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: HYBRID
+  fp8_recipe_kwargs:
+    amax_history_len: 16
+    amax_compute_algo: "max"
+  fp8_model_init_kwargs:
+    enabled: false
+# ==================================================
+
+# Validation from ShardedEden
+validation:
+  enabled: true
+  eval_interval: 500
+  num_batches: 40
+  data_path: null
+
+logger:
+  frequency: 1
+
+wandb:
+  name: og2_7b_fp8_delayed_sharded_eden
+  project: llama3-metagenome-7b
