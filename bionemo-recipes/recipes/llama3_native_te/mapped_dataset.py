@@ -50,7 +50,7 @@ def create_windowed_mapped_dataset(
     max_seq_length: int = 8192,
     stride: int = 7992,
     text_column: str = "text",
-    tokenize_batch_size: int = 1000,
+    tokenize_batch_size: int = 100,  # Keep small! return_overflowing_tokens expands each sequence
     num_proc: int | None = None,
 ) -> tuple[datasets.Dataset, PreTrainedTokenizerBase]:
     """Create a windowed mapped dataset with all tokenization done upfront.

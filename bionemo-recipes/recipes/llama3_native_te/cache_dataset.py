@@ -183,8 +183,9 @@ Examples:
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=1000,
-        help="Batch size for tokenization map operation (default: 1000).",
+        default=100,
+        help="Batch size for tokenization map operation (default: 100). "
+        "Keep small since return_overflowing_tokens can expand each input significantly.",
     )
     parser.add_argument(
         "--num-proc",
@@ -252,7 +253,10 @@ Examples:
         logger.warning(
             f"Using {args.num_proc} processes for tokenization. "
             "Memory usage will increase proportionally. "
-            "If you encounter OOM, reduce --num-proc or --batch-size."
+            "If you encounter OOM or subprocess deaths, try:\n"
+            "  1. Reduce --num-proc (try 2-4 instead of 8)\n"
+            "  2. Reduce --batch-size (try 50 instead of 100)\n"
+            "  3. Use --num-proc 1 (single-process, slower but safer)"
         )
 
     logger.info("=" * 60)
@@ -274,7 +278,7 @@ Examples:
     start_time = time.time()
 
     logger.info("Creating windowed dataset...")
-    dataset, tokenizer = create_windowed_mapped_dataset(
+    dataset, _tokenizer = create_windowed_mapped_dataset(
         tokenizer_name_or_path=args.tokenizer,
         load_dataset_kwargs=load_dataset_kwargs,
         max_seq_length=args.max_seq_length,
