@@ -33,6 +33,17 @@ defaults:
   - L2_og2_metagenome_7b
   - _self_
 
+# ---- Data source: ShardedEden (John's SQLite files) ----
+use_sharded_eden: true
+
+sharded_eden:
+  sequence_db_dir: /data/bcr_eden/OG2_database_splits/
+  train_window_db: /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite
+  val_window_db: /data/bcr_eden/OG2_database_splits/og2__validation__short.sqlite
+  test_window_db: /data/bcr_eden/OG2_database_splits/og2__test__short.sqlite
+  stride: 7992
+  rc_aug: false
+
 # Override config_kwargs to enable GQA (matching FP8 configs)
 config_kwargs:
   vocab_size: 256
@@ -72,10 +83,14 @@ use_meta_device: false
 use_fp32_master_weights: true
 # ================================================
 
-# Override mbs — match the FP8 config
+# Dataset config for ShardedEden
 dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1
-  buffer_size: 500_000
+  num_workers: 1
+  max_seq_length: 8192
+  mask_degenerate_bases: true
+  uppercase_labels: false
 
 # Gradient accumulation = 8 (for GBS = 1 * 8 * 6 * 8 = 384)
 grad_acc_steps: 8
@@ -89,15 +104,12 @@ fp8_config:
   fp8_model_init_kwargs:
     enabled: false
 
-# Enable validation logging
+# Validation from ShardedEden (reads from sharded_eden.val_window_db)
 validation:
   enabled: true
   eval_interval: 500
   num_batches: 40
-  data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
-  micro_batch_size: 8
-  max_seq_length: null
-  stride: null
+  data_path: null
 
 logger:
   frequency: 1
