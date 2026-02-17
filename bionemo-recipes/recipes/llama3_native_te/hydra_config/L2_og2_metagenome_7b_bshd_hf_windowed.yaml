@@ -1,0 +1,46 @@
+# OG2 Metagenome 7B training with HF Windowed Dataset (BSHD layout)
+# Uses pre-computed window mappings + on-the-fly tokenization from HF Arrow cache
+# True global shuffling via DistributedSampler
+defaults:
+  - defaults
+
+use_te: true
+config_name_or_path: meta-llama/Llama-3.1-8B
+
+# Data source selection - use HF windowed dataset
+use_hf_windowed: true
+use_sequence_packing: false  # BSHD layout (THD not supported with HF windowed)
+
+# HF Windowed config
+hf_windowed:
+  raw_dataset_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes
+  mappings_path: /data/opengenome2/cache/metagenome_window_mappings.npy
+  window_size: 8190   # Characters to extract per window
+  stride: 7992        # Stride between windows (200 char overlap)
+
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 8
+  num_workers: 8
+  max_seq_length: 8192  # Target token length after tokenization
+  uppercase_labels: false
+  mask_degenerate_bases: false
+  # load_dataset_kwargs not needed - HF windowed uses hf_windowed config instead
+
+num_train_steps: 500000
+grad_acc_steps: 1
+
+wandb:
+  name: og2_metagenome_7b_bshd_hf_windowed
+  project: opengenome2
+
+checkpoint:
+  ckpt_dir: /data/opengenome2/checkpoints/og2_metagenome_7b_bshd_hf_windowed
+  save_every_n_steps: 500
+  max_checkpoints: 5
+
+fp8_config:
+  enabled: false
+
+logger:
+  frequency: 100

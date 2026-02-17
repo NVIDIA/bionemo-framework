@@ -52,6 +52,7 @@ from checkpoint import (
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from fp8_debugging import initialize_fp8_debugging
+from hf_windowed_dataset import create_hf_windowed_dataloader
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
 from scheduler import get_cosine_annealing_schedule_with_warmup
@@ -700,6 +701,8 @@ def main(args: DictConfig) -> float | None:
     tensor_dir = getattr(args, "tensor_dir", None)
     use_sharded_eden = getattr(args, "use_sharded_eden", False)
 
+    use_hf_windowed = getattr(args, "use_hf_windowed", False)
+
     if use_sharded_eden:
         # Use ShardedEdenDataset directly from SQLite (no parquet dumping needed)
         eden_cfg = args.sharded_eden
@@ -726,6 +729,33 @@ def main(args: DictConfig) -> float | None:
         else:
             train_dataloader, dataset_or_sampler = create_sharded_eden_bshd_dataloader(dist_config, **eden_kwargs)
         logger.info("Using ShardedEden data from %s", eden_cfg.sequence_db_dir)
+    elif use_hf_windowed:
+        # Use HF windowed dataset with pre-computed mappings + on-the-fly tokenization
+        hf_cfg = args.hf_windowed
+        if hf_cfg.raw_dataset_path is None or hf_cfg.mappings_path is None:
+            raise ValueError("hf_windowed.raw_dataset_path and hf_windowed.mappings_path must be set")
+        if args.use_sequence_packing:
+            raise ValueError("use_hf_windowed does not support use_sequence_packing (THD). Use BSHD layout.")
+        train_dataloader, dataset_or_sampler = create_hf_windowed_dataloader(
+            distributed_config=dist_config,
+            raw_dataset_path=hf_cfg.raw_dataset_path,
+            mappings_path=hf_cfg.mappings_path,
+            tokenizer_name_or_path=args.dataset.tokenizer_name_or_path,
+            micro_batch_size=args.dataset.micro_batch_size,
+            num_workers=args.dataset.num_workers,
+            window_size=hf_cfg.window_size,
+            seq_length=args.dataset.max_seq_length,
+            seed=seed,
+            uppercase_labels=getattr(args.dataset, "uppercase_labels", False),
+            mask_degenerate_bases=getattr(args.dataset, "mask_degenerate_bases", False),
+            pad_sequences_to_be_divisible_by=getattr(
+                args.dataset, "pad_sequences_to_be_divisible_by", 8 if args.fp8_config.enabled else None
+            ),
+            split="train",
+        )
+        logger.info(
+            "Using HF windowed dataset from %s with mappings %s", hf_cfg.raw_dataset_path, hf_cfg.mappings_path
+        )
     elif use_tensor_dataset:
         if tensor_dir is None:
             raise ValueError("tensor_dir must be specified when use_tensor_dataset=True")

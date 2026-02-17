@@ -39,6 +39,11 @@ use_sequence_packing: false
 # HuggingFace streaming dataset is used.
 use_sharded_eden: false
 
+# Set use_hf_windowed to true to use the HF windowed dataset approach
+# (pre-computed mappings + on-the-fly tokenization from HF Arrow cache).
+# This provides true global shuffling via DistributedSampler.
+use_hf_windowed: false
+
 dataset:
   tokenizer_name_or_path: ??? # Set to the path of your tokenizer (e.g.,  meta-llama/Llama-3.1-8B or ./tokenizers/nucleotide_fast_tokenizer)
   micro_batch_size: 8
@@ -67,6 +72,15 @@ sharded_eden:
   test_window_db: null   # Path to the pre-computed test window database
   stride: 7992           # Window stride in bases (must match window DB metadata)
   rc_aug: false          # Whether to apply reverse complement augmentation
+
+# ---- HF Windowed data config (used only when use_hf_windowed=true) ----
+# This approach uses pre-computed window mappings + HF Arrow cache for efficient
+# mapped dataset access with true global shuffling via DistributedSampler.
+hf_windowed:
+  raw_dataset_path: null  # Path to parquet directory (uses HF Arrow cache)
+  mappings_path: null     # Path to pre-computed window mappings .npy file
+  window_size: 8190       # Size of text window to extract (chars)
+  stride: 7992            # Window stride in chars (overlap = window_size - stride)
 
 # WandB config
 wandb:
