@@ -20,8 +20,8 @@ hf_windowed:
 
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
-  micro_batch_size: 8
-  num_workers: 8
+  micro_batch_size: 1
+  num_workers: 1
   max_seq_length: 8192  # Target token length after tokenization
   uppercase_labels: false
   mask_degenerate_bases: false
@@ -32,7 +32,7 @@ dataset:
     streaming: false
 
 num_train_steps: 500000
-grad_acc_steps: 1
+grad_acc_steps: 8
 
 wandb:
   name: og2_metagenome_7b_bshd_hf_windowed
