@@ -27,8 +27,10 @@ in test_evo2.py which has working test_forward_manual and test_forward_ckpt_conv
 """
 
 import copy
+import csv
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 import torch
@@ -318,6 +320,123 @@ def run_infer_subprocess(
     return output_file.read_text()
 
 
+def mid_point_split(*, seq, num_tokens: int | None = None, fraction: float = 0.5):
+    """Split a sequence at a midpoint for prompt/target evaluation."""
+    mid_point = int(fraction * len(seq))
+    prompt = seq[:mid_point]
+    if num_tokens is not None:
+        target = seq[mid_point : mid_point + num_tokens]
+    else:
+        target = seq[mid_point:]
+    return prompt, target
+
+
+def calculate_sequence_identity(seq1: str, seq2: str) -> float | None:
+    """Calculate sequence identity between two sequences through direct comparison."""
+    if not seq1 or not seq2:
+        return None
+    min_length = min(len(seq1), len(seq2))
+    matches = sum(a == b for a, b in zip(seq1[:min_length], seq2[:min_length]))
+    return (matches / min_length) * 100
+
+
+def _recipe_root() -> Path:
+    """Return the recipe root directory (evo2_megatron/)."""
+    return Path(__file__).resolve().parent.parent.parent.parent.parent
+
+
+def _infer_script_path() -> Path:
+    """Return the path to the source infer.py script.
+
+    Uses the source version directly (rather than the installed module via ``-m``)
+    so that local fixes to infer.py are picked up without reinstalling the package.
+    """
+    return _recipe_root() / "src" / "bionemo" / "evo2" / "run" / "infer.py"
+
+
+def run_infer_subprocess_parallel(
+    mbridge_checkpoint_path,
+    prompt_file: Path,
+    output_file: Path,
+    max_new_tokens: int = 500,
+    temperature: float = 1.0,
+    top_k: int = 1,
+    seed: int = 42,
+    tensor_parallel_size: int = 1,
+    context_parallel_size: int = 1,
+):
+    """Helper to run inference as a subprocess with model parallelism.
+
+    Runs the source infer.py script directly (not the installed module) so that
+    local fixes are picked up without reinstalling the package.
+
+    Args:
+        mbridge_checkpoint_path: Path to the MBridge checkpoint.
+        prompt_file: Path to a text file containing the prompt.
+        output_file: Path to write output.
+        max_new_tokens: Maximum number of tokens to generate.
+        temperature: Sampling temperature.
+        top_k: Top-k sampling parameter (1 for greedy).
+        seed: Random seed for reproducibility.
+        tensor_parallel_size: Tensor parallelism degree.
+        context_parallel_size: Context parallelism degree.
+
+    Returns:
+        The generated text from the output file.
+    """
+    nproc_per_node = tensor_parallel_size * context_parallel_size
+    open_port = find_free_network_port()
+
+    cmd = [
+        "torchrun",
+        "--nproc_per_node",
+        str(nproc_per_node),
+        "--nnodes",
+        "1",
+        "--master_port",
+        str(open_port),
+        str(_infer_script_path()),
+        "--ckpt-dir",
+        str(mbridge_checkpoint_path),
+        "--prompt-file",
+        str(prompt_file),
+        "--max-new-tokens",
+        str(max_new_tokens),
+        "--output-file",
+        str(output_file),
+        "--temperature",
+        str(temperature),
+        "--top-k",
+        str(top_k),
+        "--seed",
+        str(seed),
+        "--tensor-parallel-size",
+        str(tensor_parallel_size),
+        "--context-parallel-size",
+        str(context_parallel_size),
+    ]
+
+    env = copy.deepcopy(PRETEST_ENV)
+    # Prepend the source src/ directory to PYTHONPATH so that local model code
+    # (hyena_mixer.py, hyena_utils.py, etc.) is used instead of the installed package.
+    src_dir = str(_recipe_root() / "src")
+    env["PYTHONPATH"] = src_dir + os.pathsep + env.get("PYTHONPATH", "")
+
+    result = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=900,  # 15 minutes for parallel configs
+        env=env,
+    )
+
+    assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    assert output_file.exists(), "Output file was not created"
+
+    return output_file.read_text()
+
+
 def test_identical_prompts_should_be_identical(mbridge_checkpoint_path, tmp_path):
     """Test that identical prompts produce identical sequences.
 
@@ -396,6 +515,175 @@ def test_different_prompts_produce_different_outputs(mbridge_checkpoint_path, tm
         f"Different prompts produced identical outputs:\n"
         f"Prompt 1 output: {generated_1}\n"
         f"Prompt 2 output: {generated_2}"
+    )
+
+
+@pytest.fixture
+def dna_sequences():
+    """Load DNA sequences from prompts.csv test data."""
+    prompts_csv = Path(__file__).resolve().parent.parent / "data" / "prompts.csv"
+    with prompts_csv.open(newline="") as f:
+        reader = csv.DictReader(f)
+        return [row["Sequence"] for row in reader]
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize(
+    "tp, cp",
+    [
+        # The 1b model only supports TP=1 through infer.py due to divisibility constraints
+        # (15 attention heads and 128-width HyenaMixer). TP>1 requires the 7b model.
+        pytest.param(1, 1, id="tp=1,cp=1"),
+        pytest.param(
+            1,
+            2,
+            id="tp=1,cp=2",
+            marks=pytest.mark.xfail(reason="CP>1 is known broken for inference", strict=False),
+        ),
+    ],
+)
+def test_parallel_inference_accuracy(mbridge_checkpoint_path, tmp_path, dna_sequences, tp, cp):
+    """Test that parallel inference produces accurate generation results.
+
+    Loads real DNA sequences, splits them in half, generates 500 tokens from the first half,
+    and compares the generated tokens against the known second half using sequence identity.
+    This mirrors the pattern in test_batch_generate_mbridge in test_evo2.py but exercises
+    the subprocess-based infer.py CLI with parallelism.
+    """
+    num_gpus_required = tp * cp
+    if torch.cuda.device_count() < num_gpus_required:
+        pytest.skip(f"Not enough GPUs: need {num_gpus_required}, have {torch.cuda.device_count()}")
+
+    num_tokens = 500
+    # Expected sequence identity percentages for the 1b-8k-bf16 checkpoint (from test_evo2.py)
+    expected_matchpercents = [96.8, 29.7, 76.6, 71.6]
+
+    match_percents = []
+    for i, seq in enumerate(dna_sequences):
+        prompt, target = mid_point_split(seq=seq, num_tokens=num_tokens, fraction=0.5)
+
+        prompt_file = tmp_path / f"prompt_seq{i}.txt"
+        output_file = tmp_path / f"output_seq{i}.txt"
+        prompt_file.write_text(prompt)
+
+        generated_text = run_infer_subprocess_parallel(
+            mbridge_checkpoint_path,
+            prompt_file=prompt_file,
+            output_file=output_file,
+            max_new_tokens=num_tokens,
+            temperature=1.0,
+            top_k=1,  # Greedy decoding
+            seed=42,
+            tensor_parallel_size=tp,
+            context_parallel_size=cp,
+        )
+
+        identity = calculate_sequence_identity(target, generated_text)
+        match_percents.append(identity)
+
+    matchperc_print = [f"{mp:.2f}%" for mp in match_percents]
+    matchperc_print_expected = [f"{ep:.2f}%" for ep in expected_matchpercents]
+
+    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    )
+
+
+@pytest.fixture(scope="module")
+def mbridge_checkpoint_7b_1m_path(tmp_path_factory) -> Path:
+    """Create or load a MBridge checkpoint for 7b-1m model testing."""
+    from bionemo.core.data.load import load
+    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
+    from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
+
+    try:
+        nemo2_checkpoint_path = load("evo2/7b-1m:1.0")
+    except ValueError as e:
+        if e.args[0].endswith("does not have an NGC URL."):
+            pytest.skip(
+                "Please re-run test with `BIONEMO_DATA_SOURCE=pbss py.test ...`, "
+                "one or more files are missing from ngc."
+            )
+        else:
+            raise e
+
+    tmp_dir = tmp_path_factory.mktemp("mbridge_ckpt_7b")
+    mbridge_ckpt_dir = run_nemo2_to_mbridge(
+        nemo2_ckpt_dir=nemo2_checkpoint_path,
+        tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+        mbridge_ckpt_dir=tmp_dir / "mbridge_checkpoint",
+        model_size="7b_arc_longcontext",
+        seq_length=8192,
+        mixed_precision_recipe="bf16_mixed",
+        vortex_style_fp8=False,
+    )
+    return mbridge_ckpt_dir / "iter_0000001"
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(900)
+@pytest.mark.parametrize(
+    "tp, cp",
+    [
+        # The 7b model has 32 attention heads, supporting TP=1, 2, 4, 8
+        pytest.param(1, 1, id="tp=1,cp=1"),
+        pytest.param(2, 1, id="tp=2,cp=1"),
+        pytest.param(4, 1, id="tp=4,cp=1"),
+        pytest.param(8, 1, id="tp=8,cp=1"),
+        pytest.param(
+            1,
+            2,
+            id="tp=1,cp=2",
+            marks=pytest.mark.xfail(reason="CP>1 is known broken for inference", strict=False),
+        ),
+    ],
+)
+def test_parallel_inference_accuracy_7b(mbridge_checkpoint_7b_1m_path, tmp_path, dna_sequences, tp, cp):
+    """Test that parallel inference with the 7b model produces accurate generation results.
+
+    Uses the 7b-1m checkpoint which supports TP>1 (32 attention heads), enabling
+    proper tensor parallel accuracy testing that the 1b model cannot support.
+    """
+    num_gpus_required = tp * cp
+    if torch.cuda.device_count() < num_gpus_required:
+        pytest.skip(f"Not enough GPUs: need {num_gpus_required}, have {torch.cuda.device_count()}")
+
+    num_tokens = 500
+    # Expected sequence identity percentages for the 7b model (from test_evo2.py)
+    expected_matchpercents = [97.60, 89.63, 80.03, 84.57]
+
+    match_percents = []
+    for i, seq in enumerate(dna_sequences):
+        prompt, target = mid_point_split(seq=seq, num_tokens=num_tokens, fraction=0.5)
+
+        prompt_file = tmp_path / f"prompt_seq{i}.txt"
+        output_file = tmp_path / f"output_seq{i}.txt"
+        prompt_file.write_text(prompt)
+
+        generated_text = run_infer_subprocess_parallel(
+            mbridge_checkpoint_7b_1m_path,
+            prompt_file=prompt_file,
+            output_file=output_file,
+            max_new_tokens=num_tokens,
+            temperature=1.0,
+            top_k=1,  # Greedy decoding
+            seed=42,
+            tensor_parallel_size=tp,
+            context_parallel_size=cp,
+        )
+
+        identity = calculate_sequence_identity(target, generated_text)
+        print("Target:", target)
+        print("Generated text:", generated_text)
+        print("Identity:", identity)
+        match_percents.append(identity)
+
+    matchperc_print = [f"{mp:.2f}%" for mp in match_percents]
+    matchperc_print_expected = [f"{ep:.2f}%" for ep in expected_matchpercents]
+
+    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
 
 
