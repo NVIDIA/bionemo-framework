@@ -48,11 +48,30 @@ for the list of dependencies.
 ### Performance Benchmarks
 
 <p align="center">
+  <img src="../../../docs/docs/assets/images/recipes/70b-cp-benchmarks.png" alt="Llama 3 Context Parallelism Benchmarks" width="100%" />
+</p>
+
+Scaling Llama 3 70B with Context Parallelism (CP) on 32x NVIDIA GB300 GPUs (NVL32) with synthetic data of increasing
+sequence length. MFU was calculated using a 2.5 PFLOPS/GPU maximum theoretical bf16 throughput, with model FLOPS
+calculated with the formula
+
+```python
+def compute_model_pflops(seq_len, global_batch_size, step_time_s):
+    B, S, H, L, V = global_batch_size, seq_len, HIDDEN_DIM, N_LAYERS, VOCAB_SIZE
+    model_flops = (
+        (24 * B * S * H * H + 4 * B * S * S * H) * (3 * L) + (6 * B * S * H * V)
+    ) / step_time_s
+    return model_flops / 1e15
+```
+
+### Convergence Benchmarks
+
+<p align="center">
   <img src="../../../docs/docs/assets/images/recipes/lingua-1b-loss-curve.png" alt="Llama 3 Lingua 1B Loss Curve" width="49%" />
   <img src="../../../docs/docs/assets/images/recipes/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
 </p>
 
-We compared the performance and convergence of this Llama3 recipe (with FSDP2) against NeMo 2.0
+We compared the convergence of this Llama3 recipe (with FSDP2) against NeMo 2.0
 (https://github.com/NVIDIA-NeMo/NeMo) and the [facebookresearch/lingua](https://github.com/facebookresearch/lingua)
 implementation on the DCLM Baseline 1.0 dataset. See [Training on Natural Language Data (Lingua
 Reproduction)](#lingua-reproduction) for more details. The figure above shows similar loss convergence and step time to
