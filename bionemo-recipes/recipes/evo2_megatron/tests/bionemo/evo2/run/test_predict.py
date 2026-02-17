@@ -297,9 +297,7 @@ def baseline_predictions_7b_1m_results(
         ),  # Cover case where FP8 was not supported with TP=2
         pytest.param(1, 1, 1, 2, False, "epoch", id="ddp=1,cp=1,pp=1,tp=2,fp8=False,wi=epoch"),
         pytest.param(1, 1, 1, 8, False, "epoch", id="ddp=1,cp=1,pp=1,tp=8,fp8=False,wi=epoch"),
-        pytest.param(
-            1, 1, 1, 8, True, "epoch", id="ddp=1,cp=1,pp=1,tp=8,fp8=True,wi=epoch"
-        ),  # Cover TP=8 with FP8
+        pytest.param(1, 1, 1, 8, True, "epoch", id="ddp=1,cp=1,pp=1,tp=8,fp8=True,wi=epoch"),  # Cover TP=8 with FP8
     ],
 )
 @pytest.mark.slow
@@ -418,7 +416,7 @@ def test_predict_evo2_equivalent_with_log_probs(
             #  This should be investigated. TP=2 on some GPUs needs even more tolerance.
             rel = 2e-3
         elif fp8:
-            # FP8 + TP can have ~1–2% log-prob drift vs baseline; use 2% relative tolerance.
+            # FP8 + TP can have 1 to 2% log-prob drift vs baseline; use 2% relative tolerance.
             rel = 2e-2
         else:
             rel = 1e-6

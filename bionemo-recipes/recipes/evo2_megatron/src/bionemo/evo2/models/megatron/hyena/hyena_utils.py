@@ -1152,9 +1152,7 @@ class ParallelHyenaOperator(nn.Module):
                         x1=x1, x2=x2, v=v, h=h, bias=conv_bias, inference_context=inference_context
                     )
                 elif self.operator_type == "hyena":
-                    z = self.forward_long(
-                        x1=x1, x2=x2, v=v, h=h, bias=conv_bias, inference_context=inference_context
-                    )
+                    z = self.forward_long(x1=x1, x2=x2, v=v, h=h, bias=conv_bias, inference_context=inference_context)
                 else:
                     raise ValueError(f"Unsupported operator_type for inference: {self.operator_type}")
 
