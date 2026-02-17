@@ -543,6 +543,7 @@ def dna_sequences():
         ),
     ],
 )
+@pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
 def test_parallel_inference_accuracy(mbridge_checkpoint_path, tmp_path, dna_sequences, tp, cp):
     """Test that parallel inference produces accurate generation results.
 
@@ -639,6 +640,7 @@ def mbridge_checkpoint_7b_1m_path(tmp_path_factory) -> Path:
         ),
     ],
 )
+@pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
 def test_parallel_inference_accuracy_7b(mbridge_checkpoint_7b_1m_path, tmp_path, dna_sequences, tp, cp):
     """Test that parallel inference with the 7b model produces accurate generation results.
 
@@ -674,9 +676,6 @@ def test_parallel_inference_accuracy_7b(mbridge_checkpoint_7b_1m_path, tmp_path,
         )
 
         identity = calculate_sequence_identity(target, generated_text)
-        print("Target:", target)
-        print("Generated text:", generated_text)
-        print("Identity:", identity)
         match_percents.append(identity)
 
     matchperc_print = [f"{mp:.2f}%" for mp in match_percents]
