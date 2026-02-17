@@ -53,9 +53,9 @@ from typing import Any
 
 import datasets
 import numpy as np
-import torch
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
+from transformers.data.data_collator import DataCollatorForLanguageModeling
 
 from distributed_config import DistributedConfig
 from genomic_dataset import GenomicDataCollator
@@ -106,9 +106,11 @@ class HFWindowedDataset(Dataset):
         self.pad_to_seq_length = pad_to_seq_length
 
         # Token IDs for padding
-        self._pad_id = tokenizer.pad_token_id
-        if self._pad_id is None:
-            self._pad_id = tokenizer.eos_token_id
+        pad_id = tokenizer.pad_token_id
+        if pad_id is None:
+            pad_id = tokenizer.eos_token_id
+        assert isinstance(pad_id, int), f"Expected pad_token_id to be int, got {type(pad_id)}"
+        self._pad_id: int = pad_id
 
         logger.info(
             f"HFWindowedDataset initialized: {len(self.mappings):,} windows, {len(self.raw_dataset):,} sequences"
@@ -118,14 +120,15 @@ class HFWindowedDataset(Dataset):
         """Return the number of windows."""
         return len(self.mappings)
 
-    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
+    def __getitem__(self, idx: int) -> dict[str, list[int]]:
         """Get a single window.
 
         Args:
             idx: Window index.
 
         Returns:
-            Dict with input_ids, attention_mask, and labels as tensors.
+            Dict with input_ids and attention_mask as Python lists.
+            Labels are created by the DataCollatorForLanguageModeling.
         """
         # 1. Look up mapping
         seq_idx, start_pos = self.mappings[idx]
@@ -136,41 +139,38 @@ class HFWindowedDataset(Dataset):
         # 3. Slice the window
         window_text = raw_text[start_pos : start_pos + self.window_size]
 
-        # 4. Tokenize on-the-fly
+        # 4. Tokenize on-the-fly (matching ShardedEden's approach)
         encoding = self.tokenizer(
             window_text,
             add_special_tokens=True,
-            truncation=True,
-            max_length=self.seq_length,
-            return_attention_mask=False,  # We'll create it ourselves for consistency
+            truncation=False,  # We handle truncation manually like ShardedEden
+            return_attention_mask=False,  # We create attention_mask manually
         )
 
-        input_ids = encoding["input_ids"]
-        original_len = len(input_ids)
+        # encoding["input_ids"] is list[int] but pyright doesn't know that
+        token_ids: list[int] = encoding["input_ids"]  # type: ignore[assignment]
+        original_len = len(token_ids)
 
-        # 5. Pad to seq_length if requested
+        # 5. Pad/trim to seq_length (matching ShardedEden's BSHD approach)
         if self.pad_to_seq_length:
             if original_len < self.seq_length:
-                padding_length = self.seq_length - original_len
-                input_ids = input_ids + [self._pad_id] * padding_length
-                attention_mask = [1] * original_len + [0] * padding_length
+                pad_id = int(self._pad_id)  # Ensure it's an int
+                pad_tokens: list[int] = [pad_id] * (self.seq_length - original_len)
+                token_ids = token_ids + pad_tokens
+                attention_mask = [1] * original_len + [0] * (self.seq_length - original_len)
             else:
-                input_ids = input_ids[: self.seq_length]
+                token_ids = token_ids[: self.seq_length]
                 attention_mask = [1] * self.seq_length
         else:
-            attention_mask = [1] * len(input_ids)
+            if original_len > self.seq_length:
+                token_ids = token_ids[: self.seq_length]
+            attention_mask = [1] * len(token_ids)
 
-        # 6. Create labels (same as input_ids, with padding masked to -100)
-        labels = input_ids.copy()
-        for i in range(len(labels)):
-            if attention_mask[i] == 0:
-                labels[i] = -100  # Ignore padding in loss
-
-        # 7. Convert to tensors - this ensures collator doesn't modify our padding
+        # 6. Return Python lists (NOT tensors) - collator handles label creation
+        # This matches ShardedEden's output format exactly
         return {
-            "input_ids": torch.tensor(input_ids, dtype=torch.long),
-            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
-            "labels": torch.tensor(labels, dtype=torch.long),
+            "input_ids": token_ids,
+            "attention_mask": attention_mask,
         }
 
     def __repr__(self) -> str:
@@ -231,14 +231,14 @@ def load_mappings(mappings_path: str) -> tuple[np.ndarray, dict]:
     Returns:
         Tuple of (mappings array, metadata dict).
     """
-    mappings_path = Path(mappings_path)
+    mappings_path_obj = Path(mappings_path)
 
     # Load mappings
-    mappings = np.load(mappings_path)
+    mappings = np.load(mappings_path_obj)
     logger.info(f"Loaded mappings: {mappings.shape[0]:,} windows, {mappings.nbytes / 1e9:.2f} GB")
 
     # Load metadata if available
-    metadata_path = mappings_path.with_suffix(".json")
+    metadata_path = mappings_path_obj.with_suffix(".json")
     if metadata_path.exists():
         with open(metadata_path) as f:
             metadata = json.load(f)
@@ -333,21 +333,21 @@ def create_hf_windowed_dataloader(
         seed=seed,
     )
 
-    # Simple collator that just stacks tensors - HFWindowedDataset already returns
-    # properly padded tensors with labels, so we don't use DataCollatorForLanguageModeling
-    # which would strip and re-pad our sequences incorrectly.
-    def simple_collate(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
-        """Stack pre-padded tensors into a batch."""
-        return {
-            "input_ids": torch.stack([x["input_ids"] for x in batch]),
-            "attention_mask": torch.stack([x["attention_mask"] for x in batch]),
-            "labels": torch.stack([x["labels"] for x in batch]),
-        }
+    # Use DataCollatorForLanguageModeling to create labels (matches ShardedEden pattern)
+    # This collator:
+    # 1. Pads sequences to same length within batch
+    # 2. Creates labels by copying input_ids
+    # 3. Converts Python lists to tensors
+    base_collator = DataCollatorForLanguageModeling(
+        tokenizer=tokenizer,
+        mlm=False,  # Causal language modeling (not masked LM)
+        pad_to_multiple_of=pad_sequences_to_be_divisible_by,
+    )
 
-    # Wrap with genomic collator if needed
+    # Wrap with genomic collator if needed (same pattern as ShardedEden)
     if uppercase_labels or mask_degenerate_bases:
         data_collator: Any = GenomicDataCollator(
-            base_collator=simple_collate,
+            base_collator=base_collator,
             uppercase_labels=uppercase_labels,
             mask_degenerate_bases=mask_degenerate_bases,
         )
@@ -355,8 +355,8 @@ def create_hf_windowed_dataloader(
             f"Using GenomicDataCollator (uppercase={uppercase_labels}, mask_degenerate={mask_degenerate_bases})"
         )
     else:
-        data_collator = simple_collate
-        logger.info("Using simple tensor stacking collator (pre-padded sequences)")
+        data_collator = base_collator
+        logger.info("Using DataCollatorForLanguageModeling (standard CLM collator)")
 
     # Create dataloader
     dataloader: DataLoader[Any] = DataLoader(
