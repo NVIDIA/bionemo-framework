@@ -189,9 +189,9 @@ def load_raw_dataset(
     """
     path_obj = Path(path)
 
-    # Check if it's an HF cache directory (has dataset_info.json or state.json)
-    if (path_obj / "dataset_info.json").exists() or (path_obj / "state.json").exists():
-        logger.info(f"Loading from HF cache: {path}")
+    # Check if it's a proper HF saved dataset (must have state.json)
+    if (path_obj / "state.json").exists():
+        logger.info(f"Loading from HF saved dataset: {path}")
         dataset = datasets.load_from_disk(path)
         if isinstance(dataset, datasets.DatasetDict):
             if split and split in dataset:
@@ -203,12 +203,14 @@ def load_raw_dataset(
                 return dataset[first_split]
         return dataset  # type: ignore[return-value]
 
-    # Otherwise treat as parquet directory
+    # Otherwise load from parquet directory (uses HF's internal Arrow cache)
     logger.info(f"Loading from parquet: {path}")
     if split is None:
         split = "train"
+    # This will automatically use the HF cache if available (~800GB Arrow files)
     dataset = datasets.load_dataset(path, split=split, streaming=False)
     assert isinstance(dataset, datasets.Dataset)
+    logger.info(f"Loaded dataset: {len(dataset):,} sequences")
     return dataset
 
 
