@@ -53,9 +53,9 @@ from typing import Any
 
 import datasets
 import numpy as np
+import torch
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from transformers import AutoTokenizer, PreTrainedTokenizerBase
-from transformers.data.data_collator import DataCollatorForLanguageModeling
 
 from distributed_config import DistributedConfig
 from genomic_dataset import GenomicDataCollator
@@ -118,14 +118,14 @@ class HFWindowedDataset(Dataset):
         """Return the number of windows."""
         return len(self.mappings)
 
-    def __getitem__(self, idx: int) -> dict[str, list[int]]:
+    def __getitem__(self, idx: int) -> dict[str, torch.Tensor]:
         """Get a single window.
 
         Args:
             idx: Window index.
 
         Returns:
-            Dict with input_ids and attention_mask.
+            Dict with input_ids, attention_mask, and labels as tensors.
         """
         # 1. Look up mapping
         seq_idx, start_pos = self.mappings[idx]
@@ -160,9 +160,17 @@ class HFWindowedDataset(Dataset):
         else:
             attention_mask = [1] * len(input_ids)
 
+        # 6. Create labels (same as input_ids, with padding masked to -100)
+        labels = input_ids.copy()
+        for i in range(len(labels)):
+            if attention_mask[i] == 0:
+                labels[i] = -100  # Ignore padding in loss
+
+        # 7. Convert to tensors - this ensures collator doesn't modify our padding
         return {
-            "input_ids": input_ids,
-            "attention_mask": attention_mask,
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+            "labels": torch.tensor(labels, dtype=torch.long),
         }
 
     def __repr__(self) -> str:
@@ -325,17 +333,21 @@ def create_hf_windowed_dataloader(
         seed=seed,
     )
 
-    # Create collator
-    base_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer,
-        mlm=False,
-        pad_to_multiple_of=pad_sequences_to_be_divisible_by,
-    )
+    # Simple collator that just stacks tensors - HFWindowedDataset already returns
+    # properly padded tensors with labels, so we don't use DataCollatorForLanguageModeling
+    # which would strip and re-pad our sequences incorrectly.
+    def simple_collate(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+        """Stack pre-padded tensors into a batch."""
+        return {
+            "input_ids": torch.stack([x["input_ids"] for x in batch]),
+            "attention_mask": torch.stack([x["attention_mask"] for x in batch]),
+            "labels": torch.stack([x["labels"] for x in batch]),
+        }
 
     # Wrap with genomic collator if needed
     if uppercase_labels or mask_degenerate_bases:
         data_collator: Any = GenomicDataCollator(
-            base_collator=base_collator,
+            base_collator=simple_collate,
             uppercase_labels=uppercase_labels,
             mask_degenerate_bases=mask_degenerate_bases,
         )
@@ -343,8 +355,8 @@ def create_hf_windowed_dataloader(
             f"Using GenomicDataCollator (uppercase={uppercase_labels}, mask_degenerate={mask_degenerate_bases})"
         )
     else:
-        data_collator = base_collator
-        logger.info("Using standard DataCollatorForLanguageModeling")
+        data_collator = simple_collate
+        logger.info("Using simple tensor stacking collator (pre-padded sequences)")
 
     # Create dataloader
     dataloader: DataLoader[Any] = DataLoader(
