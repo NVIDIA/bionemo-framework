@@ -1,0 +1,125 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 7B Llama3 on OpenGenome2 Metagenome - BSHD + GQA + BF16 + ShardedEden
+#
+# This is the BSHD version of L2_og2_metagenome_7b_thd_gqa_bf16_sanity.yaml.
+# Uses BSHD format (no sequence packing) instead of THD with ShardedEden data.
+#
+# Purpose: Test BF16 compute with BSHD attention format using ShardedEden data.
+#
+# Configuration:
+#   - FP32 master weights (model init in FP32, optimizer states in FP32)
+#   - BF16 compute via FSDP2 MixedPrecisionPolicy (param_dtype=bf16, reduce_dtype=fp32)
+#   - NO FP8 at all (fp8_config.enabled=false)
+#   - BSHD format (no sequence packing)
+#   - GQA: 8 KV heads instead of 32
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py \
+#       --config-name L2_og2_metagenome_7b_bshd_gqa_bf16_sharded_eden \
+#       checkpoint.ckpt_dir=/data/results/bshd_gqa_bf16_sharded_eden
+
+defaults:
+  - L2_og2_metagenome_7b
+  - _self_
+
+# ---- Data source: ShardedEden (John's SQLite files) ----
+use_sharded_eden: true
+
+sharded_eden:
+  sequence_db_dir: /data/bcr_eden/OG2_database_splits/
+  train_window_db: /data/bcr_eden/OG2_database_splits/og2__train__short.sqlite
+  val_window_db: /data/bcr_eden/OG2_database_splits/og2__validation__short.sqlite
+  test_window_db: /data/bcr_eden/OG2_database_splits/og2__test__short.sqlite
+  stride: 7992
+  rc_aug: false
+
+# Override config_kwargs to enable GQA and use BSHD format
+config_kwargs:
+  vocab_size: 256
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 8  # GQA: 8 KV heads instead of 32 (MHA)
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: bshd  # BSHD format (no sequence packing)
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+  # NO fp8_first_last_bf16 needed — FP8 is completely disabled
+  fp8_first_last_bf16: false
+
+# BSHD does NOT use sequence packing
+use_sequence_packing: false
+
+# ============ BF16 SANITY CHECK SETTINGS ============
+# Match all non-FP8 settings from the FP8 run exactly
+
+# Apply weight decay to embeddings (matches FP8 configs)
+skip_embedding_weight_decay: false
+
+# Use Megatron-style scaled init for proj/fc2
+use_megatron_scaled_init: true
+
+# Disable meta device init
+use_meta_device: false
+
+# FP32 master weights enabled — this is the key feature we're testing
+# Model created in FP32, FSDP2 MixedPrecisionPolicy casts to BF16 for forward/backward
+# Optimizer (AdamW) states stay in FP32 for precision
+use_fp32_master_weights: true
+# ====================================================
+
+# Dataset config for ShardedEden
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 1
+  num_workers: 1
+  max_seq_length: 8192
+  mask_degenerate_bases: true
+  uppercase_labels: false
+
+# Gradient accumulation = 8 (for GBS = 1 * 8 * 6 * 8 = 384)
+grad_acc_steps: 8
+
+# FP8 COMPLETELY DISABLED — pure BF16 compute
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
+
+# Validation from ShardedEden (reads from sharded_eden.val_window_db)
+validation:
+  enabled: false
+  eval_interval: 500
+  num_batches: 40
+  data_path: null
+
+logger:
+  frequency: 1
+
+wandb:
+  name: og2_7b_bshd_gqa_bf16_fp32mw_sharded_eden
+  project: llama3-metagenome-7b
