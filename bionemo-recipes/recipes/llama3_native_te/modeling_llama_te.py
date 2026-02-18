@@ -62,7 +62,7 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
 
-        # The esm.embeddings layer is the only non-TE layer in this model we need to deal with. We use
+        # The embed_tokens layer is the only non-TE layer in this model we need to deal with. We use
         # `model._init_weights` rather than `reset_parameters` to ensure we honor the original config standard
         # deviation.
         self.model.embed_tokens.to_empty(device="cuda")
@@ -363,9 +363,10 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         )
 
 
-class NVLlamaForSequenceClassification(  # noqa: D101
+class NVLlamaForSequenceClassification(
     transformers.modeling_layers.GenericForSequenceClassification, NVLlamaPreTrainedModel
-): ...
+):
+    """Llama3 model with sequence classification head."""
 
 
 class NVLlamaForQuestionAnswering(transformers.modeling_layers.GenericForQuestionAnswering, NVLlamaPreTrainedModel):
@@ -374,9 +375,10 @@ class NVLlamaForQuestionAnswering(transformers.modeling_layers.GenericForQuestio
     base_model_prefix = "transformer"  # For BC, where `transformer` was used instead of `model`
 
 
-class NVLlamaForTokenClassification(  # noqa: D101
+class NVLlamaForTokenClassification(
     transformers.modeling_layers.GenericForTokenClassification, NVLlamaPreTrainedModel
-): ...
+):
+    """Llama3 model with token classification head."""
 
 
 torch._dynamo.config.capture_scalar_outputs = True

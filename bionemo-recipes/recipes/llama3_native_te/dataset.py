@@ -239,7 +239,6 @@ def create_thd_dataloader(
         prefetch_factor: The prefetch factor to use for the dataloader.
         max_seq_length: The maximum length of sequences (window size).
         stride: The stride for windowing (overlap = stride tokens).
-        seed: The seed to use for the distributed sampler and data collator.
         buffer_size: The buffer size for shuffle.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         text_column: Name of the column containing genomic sequences (default: "text").

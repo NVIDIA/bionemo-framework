@@ -75,6 +75,19 @@ fp8_stats_config:
   fp8_stats_file: ./fp8_debugging_stats.yaml
   fp8_log_dir: ./log_fp8_stats
 
+# mFSDP config
+fully_shard_kwargs:
+  zero_dp_strategy: "optim_grads_params"
+  calculate_per_token_loss: false
+  init_model_with_meta_device: ${use_meta_device}
+  check_for_nan_in_grad: true
+  grad_reduce_in_fp32: false
+  preserve_fp32_weights: true
+  overlap_grad_reduce: true
+  overlap_param_gather: true
+  sync_model_each_microbatch: true
+  average_in_collective: false
+
 profiler:
   enabled: false
   start_step: 10

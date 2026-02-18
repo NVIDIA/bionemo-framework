@@ -16,9 +16,9 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 ## Supported Models and Training Features
 
-| Model                                    | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP8 with THD Input Format | MXFP8<sup>[2]</sup> | Context Parallelism |
-| ---------------------------------------- | ---- | ----------------- | ---------------- | ------------------------- | ------------------- | ------------------- |
-| [Llama 3](../../models/llama3/README.md) | ✅   | ✅                | ✅               | 🚧                        | 🚧                  | 🚧                  |
+| Model                                    | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP8 with THD Input Format | MXFP8<sup>[2]</sup> | Context Parallelism | Tensor Parallelism |
+| ---------------------------------------- | ---- | ----------------- | ---------------- | ------------------------- | ------------------- | ------------------- | ------------------ |
+| [Llama 3](../../models/llama3/README.md) | ✅   | ✅                | ✅               | ✅                        | ✅                  | ✅                  | 🚧                 |
 
 ✅: Supported <br/>
 🚧: Under development <br/>
@@ -42,7 +42,8 @@ To run the container, run:
 docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bionemo llama3_native_te /bin/bash
 ```
 
-Alternatively, the dependencies can be installed manually in an environment with CUDA support. See `requirements.txt` for the list of dependencies.
+Alternatively, the dependencies can be installed manually in an environment with CUDA support. See `requirements.txt`
+for the list of dependencies.
 
 ### Performance Benchmarks
 
@@ -70,10 +71,12 @@ Training was performed with BF16 precision.
 
 ### Distributed Training
 
-This recipe supports distributed training using DDP and FSDP2, shown in two separate training entrypoints:
+This recipe supports distributed training using DDP, FSDP2, FSDP2 with Context Parallelism, and Megatron-FSDP with Context Parallelism, shown in four separate training entrypoints:
 
 - [Distributed Data Parallel (DDP)](https://docs.pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html), shown in `train_ddp.py`
 - [Fully Sharded Data Parallel 2 (FSDP2)](https://docs.pytorch.org/docs/stable/distributed.fsdp.fully_shard.html), shown in `train_fsdp2.py`
+- FSDP2 with Context Parallelism, shown in `train_fsdp2_cp.py`
+- Megatron-FSDP with Context Parallelism, shown in `train_mfsdp_cp.py`
 
 ## Commands to Launch Training
 
@@ -91,6 +94,21 @@ torchrun --nproc_per_node=2 train_fsdp2.py  # or train_ddp.py
 
 Multi-Node training is supported with both strategies.
 
+A convergence test configuration (`L0_convergence`) is also available, which uses a tiny Llama model
+to verify that the training loop can overfit on a small dataset:
+
+```bash
+python train_fsdp2.py --config-name L0_convergence
+```
+
+Gradient accumulation is supported with both strategies. To enable gradient accumulation, set `grad_acc_steps` to the
+number of steps to accumulate gradients before updating the model parameters. This is useful to scale the effective
+batch size while running on a smaller number of GPUs.
+
+```bash
+python train_fsdp2.py --config-name L0_sanity grad_acc_steps=2
+```
+
 ### FP8 Training
 
 To run training with FP8, enable it by overriding the `fp8_config.enabled=true` configuration parameter. Additional FP8
@@ -106,15 +124,15 @@ We also provide a mechanism to receive tensor data related to FP8 layers during 
 
 To enable this please select the following config options.
 
-```python
+```bash
 python train_fsdp2.py \
-fp8_stats_config.enabled=True # whether to log stats or not
-fp8_stats_config.fp8_log_dir=./logs/fp8_stats_logs_dummy # where to store the logs
-fp8_stats_config.fp8_stats_file=./fp8_debugging_stats.yaml # specifies what stats you want to run. Currently this is saved in this yaml file.
-fp8_config.enabled=True # set this to use FP8 otherwise stats logging wont work
+  fp8_stats_config.enabled=True \
+  fp8_stats_config.fp8_log_dir=./logs/fp8_stats_logs_dummy \
+  fp8_stats_config.fp8_stats_file=./fp8_debugging_stats.yaml \
+  fp8_config.enabled=True
 ```
 
-Note: This feature is available for the `train_ddp` and the `train_fsdp2` scripts. It is not yet available for `train_mfsdp`.
+Note: This feature is available for the `train_ddp` and the `train_fsdp2` scripts.
 
 The config file structure [fp8_debugging_stats.yaml](fp8_debugging_stats.yaml) is explained in the [NVIDIA Transformer Engine config file documentation](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/debug/2_config_file_structure.html) in more detail. Below we will cover some very basic elements of the file structure.
 
@@ -140,6 +158,30 @@ collator will automatically pad packed sequences to the maximum number of tokens
 python train_fsdp2.py --config-name L0_sanity \
   fp8_config.enabled=true \
   use_sequence_packing=true
+```
+
+### Context Parallel Training
+
+Context parallelism splits each sequence across multiple GPUs along the sequence dimension, enabling training with very
+long sequences. Use `train_fsdp2_cp.py` with the `L0_sanity_cp` configuration and set `cp_size` to the number of context
+parallelism ranks. Works with both BSHD (no padding) and THD (padding) input formats. Only TE models are supported.
+
+```bash
+torchrun --nproc_per_node=4 train_fsdp2_cp.py --config-name L0_sanity_cp cp_size=2
+```
+
+### Megatron-FSDP with Context Parallelism
+
+Megatron-FSDP (`train_mfsdp_cp.py`) provides an alternative FSDP implementation from the `megatron-fsdp` package with
+context parallelism support. It creates a 3D device mesh `(dp, cp, tp)` where `tp` is a dummy dimension of size 1. Only
+TE models are supported. Note that `torch.compile` is not supported with Megatron-FSDP.
+
+```bash
+# Single GPU (cp_size=1)
+python train_mfsdp_cp.py --config-name L0_sanity_cp cp_size=1
+
+# Multi-GPU with context parallelism
+torchrun --nproc_per_node=4 train_mfsdp_cp.py --config-name L0_sanity_cp cp_size=2
 ```
 
 ## Downloading Pre-Training Data For Offline Training

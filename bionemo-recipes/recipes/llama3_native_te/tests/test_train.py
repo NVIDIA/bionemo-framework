@@ -25,6 +25,7 @@ from transformer_engine.pytorch.fp8 import check_fp8_support
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
 from train_fsdp2_cp import main as main_fsdp2_cp
+from train_mfsdp_cp import main as main_mfsdp_cp
 
 
 # TODO(@jomitchell): Delete once https://nvbugspro.nvidia.com/bug/5458694 is fixed.
@@ -420,7 +421,7 @@ def test_train_fsdp2_fp8_thd(tmp_path, recipe_path):
 
 @requires_datacenter_hardware
 def test_sanity_fsdp2_cp(tmp_path, recipe_path):
-    # Run the training script with Hydra configuration overrides
+    """Test FSDP2 with context parallelism training on a single GPU (cp_size=1)."""
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity_cp",
@@ -437,6 +438,49 @@ def test_sanity_fsdp2_cp(tmp_path, recipe_path):
     torch.cuda.empty_cache()
 
     assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
+
+
+def test_sanity_convergence_mfsdp_cp_bshd(tmp_path, recipe_path):
+    """Test Megatron-FSDP with context parallelism training on a single GPU (cp_size=1) using BSHD format."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity_cp",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "config_kwargs.attn_input_format=bshd",
+                "config_kwargs.self_attn_mask_type=causal",
+            ],
+        )
+
+    final_loss = main_mfsdp_cp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+@requires_datacenter_hardware
+def test_sanity_convergence_mfsdp_cp_thd(tmp_path, recipe_path):
+    """Test Megatron-FSDP with context parallelism training on a single GPU (cp_size=1) using THD format."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity_cp",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "config_kwargs.attn_input_format=thd",
+                "config_kwargs.self_attn_mask_type=padding_causal",
+            ],
+        )
+
+    final_loss = main_mfsdp_cp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
 
 
 @requires_fp8

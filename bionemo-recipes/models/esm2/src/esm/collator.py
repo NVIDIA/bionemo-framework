@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data collator for THD input format tests.
+"""Data collators for sequence packing and context parallel training.
 
 This should eventually get moved to a separate package, or possibly upstreamed into `transformers`.
 """
@@ -674,6 +674,16 @@ def _split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tupl
 
 
 def _pt_flatten_collate(features: list[dict[str, list[int]]], return_position_ids: bool = False):
+    """Flatten a list of tokenized samples into a single packed batch with cumulative sequence lengths.
+
+    Args:
+        features: List of tokenized samples, each containing at least ``input_ids``.
+        return_position_ids: Whether to return position ids for each token.
+
+    Returns:
+        A dictionary with packed ``input_ids``, ``cu_seq_lens_q``/``cu_seq_lens_k``, and
+        ``max_length_q``/``max_length_k``.
+    """
     is_labels_provided = "labels" in features[0]
     sample_lengths = [len(sample["input_ids"]) for sample in features]
 
@@ -920,7 +930,7 @@ def _split_batch_by_cp_rank(
 
 
 class BatchType(TypedDict):
-    """The fields in the batch dictionary fo THD context parallel."""
+    """The fields in the batch dictionary for THD context parallel."""
 
     input_ids: torch.Tensor
     labels: torch.Tensor | None

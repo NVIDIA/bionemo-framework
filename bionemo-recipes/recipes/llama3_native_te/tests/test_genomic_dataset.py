@@ -29,7 +29,7 @@ def tokenizer(tokenizer_path):
     return AutoTokenizer.from_pretrained(tokenizer_path)
 
 
-# Tests for GenomicDataCollatorForCLM
+# Tests for GenomicDataCollator
 def test_collator_basic(tokenizer):
     """Test basic collator functionality."""
     base = DataCollatorForLanguageModeling(tokenizer, mlm=False)

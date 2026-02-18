@@ -17,13 +17,12 @@
 
 Core functions for genomic data preprocessing during training:
 - make_upper_case: Convert lowercase tokens to uppercase
-- Evo2MaskingConstants: Standard DNA tokens and control characters
 
 Adapted from NeMo's Evo2 implementation.
 """
 
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any
 
 import torch
 
@@ -45,16 +44,6 @@ def _make_upper_case(tokens, lowercase_start=97, lowercase_end=122, case_diff=32
     lowercase_mask = (tokens >= lowercase_start) & (tokens <= lowercase_end)
     uppercase_tensor = torch.where(lowercase_mask, tokens - case_diff, tokens)
     return uppercase_tensor, lowercase_mask
-
-
-class Evo2MaskingConstants:
-    """Constants used in Evo2 genomic sequence masking."""
-
-    # Standard DNA tokens: A, C, G, T (both uppercase and lowercase)
-    DNA_TOKENS: ClassVar[list[int]] = [65, 67, 71, 84, 97, 99, 103, 116]
-
-    # Control characters used in data formatting
-    CONTROL_TAGS: ClassVar[list[int]] = [64, 35]  # '@', '#'
 
 
 @dataclass

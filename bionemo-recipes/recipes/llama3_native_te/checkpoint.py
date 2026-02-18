@@ -40,6 +40,10 @@ from distributed_config import DistributedConfig
 
 
 logger = logging.getLogger(__name__)
+
+# Tracks in-flight async checkpoint futures keyed by strategy name (e.g. "fsdp2").
+# Each entry holds the Future returned by dcp_async_save so we can await it before starting
+# the next async save or before shutting down.
 _ckpt_futures: dict = {}
 
 
@@ -380,6 +384,147 @@ def save_final_model_fsdp2(
 
 
 # ============================================================================
+# mFSDP Checkpointing
+# ============================================================================
+
+
+def load_checkpoint_mfsdp(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    ckpt_path: str | os.PathLike,
+    dist_config: DistributedConfig,
+    dataloader: StatefulDataLoader | None = None,
+) -> CheckpointOutput:
+    """Load mFSDP distributed checkpoint.
+
+    Args:
+        model: The model to load.
+        optimizer: The optimizer to load.
+        scheduler: The LR scheduler to load.
+        ckpt_path: The directory containing checkpoints.
+        dist_config: The distributed configuration.
+        dataloader: The dataloader to load.
+
+    Returns:
+        Tuple of (model, optimizer, scheduler, dataloader, step, epoch).
+    """
+    checkpoint_path, step = get_latest_checkpoint(ckpt_path)
+    if not checkpoint_path:
+        logger.info("No mFSDP checkpoint found, starting from scratch")
+        return CheckpointOutput(model, optimizer, scheduler, dataloader, 0, 0)
+
+    ckpt_state_dict = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "metadata": {
+            "step": step,  # Initialize with current step from filename
+            "epoch": 0,  # Initialize with default epoch
+        },
+    }
+    torch.distributed.checkpoint.load(state_dict=ckpt_state_dict, checkpoint_id=checkpoint_path)
+
+    model.load_state_dict(ckpt_state_dict["model"], strict=False)
+    optimizer.load_state_dict(ckpt_state_dict["optimizer"])
+    scheduler.load_state_dict(ckpt_state_dict["scheduler"])
+    dataloader = load_dataloader(dataloader, checkpoint_path, dist_config)
+
+    step = ckpt_state_dict["metadata"]["step"]
+    epoch = ckpt_state_dict["metadata"]["epoch"]
+
+    # Ensure all ranks have completed loading before proceeding
+    torch.distributed.barrier()
+
+    logger.info(f"Loaded mFSDP checkpoint from step {step}")
+
+    # Increment the step by one to avoid re-running the previous step.
+    return CheckpointOutput(model, optimizer, scheduler, dataloader, step + 1, epoch)
+
+
+def save_checkpoint_mfsdp(
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
+    ckpt_path: str | os.PathLike,
+    step: int,
+    epoch: int,
+    dist_config: DistributedConfig,
+    dataloader: StatefulDataLoader | None = None,
+    max_checkpoints: int | None = None,
+) -> None:
+    """Save mFSDP distributed checkpoint.
+
+    Args:
+        model: The model to save.
+        optimizer: The optimizer to save.
+        scheduler: The LR scheduler to save.
+        ckpt_path: The directory to save the checkpoint.
+        step: The step number to save the checkpoint.
+        epoch: The epoch number to save the checkpoint.
+        dist_config: The distributed configuration.
+        dataloader: The dataloader to save.
+        max_checkpoints: The maximum number of checkpoints to keep.
+    """
+    ckpt_path = Path(ckpt_path)
+    checkpoint_path = ckpt_path / f"step_{step}"
+    checkpoint_path.mkdir(parents=True, exist_ok=True)
+
+    # Save dataloader state, if provided.
+    save_dataloader(dataloader, checkpoint_path, dist_config)
+
+    # Save model, optimizer, scheduler state, and metadata
+    state_dict = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "scheduler": scheduler.state_dict(),
+        "metadata": {
+            "step": step,
+            "epoch": epoch,
+        },
+    }
+
+    torch.distributed.checkpoint.save(state_dict, checkpoint_id=checkpoint_path)
+
+    if dist_config.is_main_process():
+        logger.info(f"Saved mFSDP checkpoint to {checkpoint_path}")
+
+    if max_checkpoints is not None and dist_config.is_main_process():
+        prune_checkpoints(ckpt_path, max_checkpoints)
+
+
+def save_final_model_mfsdp(
+    model: torch.nn.Module,
+    save_directory: str | os.PathLike,
+    dist_config: DistributedConfig,
+) -> None:
+    """Save final model for mFSDP - requires parameter gathering on all ranks."""
+    from megatron_fsdp.uneven_dtensor import gather_uneven_dtensor_to_full_tensor
+
+    if dist_config.is_main_process():
+        logger.info("Starting mFSDP parameter gathering...")
+
+    # Parameter gathering must happen on ALL processes
+    unsharded_state_dict = {
+        # Gather all parameters to CPU, and remove the "module." prefix from the Megatron-FSDP class wrapper.
+        k.removeprefix("module."): gather_uneven_dtensor_to_full_tensor(
+            v, target_device=torch.device("cpu")
+        ).to_local()
+        if isinstance(v, torch.distributed.tensor.DTensor)
+        else v
+        for k, v in model.state_dict().items()
+    }
+
+    # Only main process saves the model
+    if not dist_config.is_main_process():
+        return
+
+    os.makedirs(save_directory, exist_ok=True)
+    model.module.save_pretrained(save_directory, state_dict=unsharded_state_dict, safe_serialization=True)
+    logger.info(f"Saved final mFSDP model to {save_directory}")
+
+
+# ============================================================================
 # Dataloader Checkpointing
 # ============================================================================
 
@@ -439,7 +584,7 @@ def load_dataloader(
         )
         return dataloader
 
-    dataloader_state = torch.load(dataloader_path)
+    dataloader_state = torch.load(dataloader_path, weights_only=True)
 
     if (
         dataloader.num_workers != dataloader_state["num_workers"]
