@@ -160,7 +160,7 @@ if __name__ == "__main__":
     model = NVEsmForMaskedLM(config)
 
     if args.strategy is Strategy.FSDP2:
-        for layer in model.esm.encoder.layers:
+        for layer in model.model.encoder.layers:
             fully_shard(layer, mesh=device_mesh["dp"])
         fully_shard(model, mesh=device_mesh["dp"])
         model.to(device)

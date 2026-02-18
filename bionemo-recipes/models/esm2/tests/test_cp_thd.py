@@ -194,8 +194,8 @@ if __name__ == "__main__":
 
         # Sample gradients from a few layers for comparison
         sample_layers = [
-            model.esm.encoder.layers[0].self_attention.core_attention,
-            model.esm.encoder.layers[0].self_attention.layernorm_qkv,
+            model.model.encoder.layers[0].self_attention.core_attention,
+            model.model.encoder.layers[0].self_attention.layernorm_qkv,
         ]
 
         # Now grab the gradients from the sample layers
@@ -247,7 +247,7 @@ if __name__ == "__main__":
         cp_world_size = torch.distributed.get_world_size(group=cp_group)
 
         # Set up context parallelism for each layer
-        for i, transformer_layer in enumerate(model.module.esm.encoder.layers):
+        for i, transformer_layer in enumerate(model.module.model.encoder.layers):
             transformer_layer.set_context_parallel_group(
                 cp_group, torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()), torch.cuda.Stream()
             )
@@ -338,8 +338,8 @@ if __name__ == "__main__":
         # Capture gradients from the same layers in the CP model
         # Note: DDP wraps the model with 'module.' prefix
         sample_layers_cp = [
-            model.module.esm.encoder.layers[0].self_attention.core_attention,
-            model.module.esm.encoder.layers[0].self_attention.layernorm_qkv,
+            model.module.model.encoder.layers[0].self_attention.core_attention,
+            model.module.model.encoder.layers[0].self_attention.layernorm_qkv,
         ]
 
         gradients_cp = {}

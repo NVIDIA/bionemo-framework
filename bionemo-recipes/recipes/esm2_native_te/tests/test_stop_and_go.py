@@ -75,7 +75,7 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
     # avoid errors with unused parameters.
     try:
-        del model.esm.contact_head
+        del model.model.contact_head
     except AttributeError:
         pass
 
@@ -157,7 +157,7 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
     resumed_model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
 
     try:
-        del resumed_model.esm.contact_head
+        del resumed_model.model.contact_head
     except AttributeError:
         pass
 

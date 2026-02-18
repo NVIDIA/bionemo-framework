@@ -70,7 +70,6 @@ class NVEsmConfig(EsmConfig):
         max_seq_length: Optional[int] = None,
         padded_vocab_size: Optional[int] = 64,
         attn_mask_type: str = "padding",
-        add_pooling_layer: bool = True,
         **kwargs,
     ):
         """Initialize the NVEsmConfig with additional TE-related config options.
@@ -101,9 +100,6 @@ class NVEsmConfig(EsmConfig):
             padded_vocab_size: The padded vocabulary size to support FP8. If not provided, defaults
                 to vocab_size. Must be greater than or equal to vocab_size.
             attn_mask_type: The type of attention mask to use.
-            add_pooling_layer: Whether the base model should include a pooling layer. Set to
-                ``False`` for exported checkpoints that are saved from ``NVEsmForMaskedLM``
-                (which does not use a pooler).  This avoids missing-weight errors in vLLM.
             **kwargs: Additional config options to pass to EsmConfig.
         """
         super().__init__(**kwargs)
@@ -115,7 +111,6 @@ class NVEsmConfig(EsmConfig):
         self.micro_batch_size = micro_batch_size
         self.max_seq_length = max_seq_length
         self.attn_mask_type = attn_mask_type
-        self.add_pooling_layer = add_pooling_layer
 
         # Set padded_vocab_size with default fallback to vocab_size
         self.padded_vocab_size = padded_vocab_size if padded_vocab_size is not None else self.vocab_size
@@ -236,7 +231,7 @@ class NVEsmPreTrainedModel(EsmPreTrainedModel):
     """An abstract class to handle weights initialization and pretrained model loading."""
 
     config_class = NVEsmConfig
-    base_model_prefix = "model"
+    base_model_prefix = "esm"
     supports_gradient_checkpointing = False
     accepts_loss_kwargs = False
     _no_split_modules = (
@@ -252,11 +247,11 @@ class NVEsmPreTrainedModel(EsmPreTrainedModel):
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
 
-        # The embeddings layer is the only non-TE layer in this model we need to deal with. We use
+        # The esm.embeddings layer is the only non-TE layer in this model we need to deal with. We use
         # `model._init_weights` rather than `reset_parameters` to ensure we honor the original config standard
-        # deviation.  self.base_model resolves to self.model for wrapper classes or self for NVEsmModel.
-        self.base_model.embeddings.word_embeddings.to_empty(device="cuda")
-        self.base_model.embeddings.apply(self._init_weights)
+        # deviation.
+        self.esm.embeddings.word_embeddings.to_empty(device="cuda")
+        self.esm.embeddings.apply(self._init_weights)
 
         # Meta-device init seems to break weight tying, so we re-tie the weights here.
         self.tie_weights()
@@ -281,16 +276,14 @@ class NVEsmPreTrainedModel(EsmPreTrainedModel):
         super()._init_weights(module)
 
     def state_dict(self, *args, **kwargs):
-        """Override state_dict to filter out non-loadable keys.
+        """Override state_dict to filter out TransformerEngine's _extra_state keys.
 
-        Filters out:
-        - ``_extra_state`` keys: TransformerEngine-specific, not loadable by HuggingFace v5.
-        - ``.inv_freq`` buffers: Computed at init time by RotaryPositionEmbedding, not needed
-          in the checkpoint and not loadable by vLLM's AutoWeightsLoader (which only iterates
-          over ``named_parameters``, not ``named_buffers``).
+        TransformerEngine layers add _extra_state attributes that are not compatible with HuggingFace v5 model loading.
+        These are filtered out to ensure checkpoints can be loaded with from_pretrained().
         """
         state_dict = super().state_dict(*args, **kwargs)
-        return {k: v for k, v in state_dict.items() if not k.endswith("_extra_state") and not k.endswith(".inv_freq")}
+        # Filter out _extra_state keys which are TransformerEngine-specific and not loadable
+        return {k: v for k, v in state_dict.items() if not k.endswith("_extra_state")}
 
 
 class NVEsmModel(NVEsmPreTrainedModel):
@@ -299,19 +292,15 @@ class NVEsmModel(NVEsmPreTrainedModel):
     This model uses NVDIA's TransformerEngine to optimize attention layer training and inference.
     """
 
-    def __init__(self, config: NVEsmConfig, add_pooling_layer: Optional[bool] = None):
+    def __init__(self, config: NVEsmConfig, add_pooling_layer: bool = True):
         """Initialize a NVEsmModel.
 
         Args:
             config (NVEsmConfig): The configuration of the model.
-            add_pooling_layer (bool): Whether to add a pooling layer.  If ``None``,
-                reads ``config.add_pooling_layer`` (defaults to ``True``).
+            add_pooling_layer (bool): Whether to add a pooling layer.
         """
         super().__init__(config)
         self.config = config
-
-        if add_pooling_layer is None:
-            add_pooling_layer = getattr(config, "add_pooling_layer", True)
 
         # Ensure pad_token_id is set properly, defaulting to 0 if not specified
         if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
@@ -402,9 +391,7 @@ class NVEsmModel(NVEsmPreTrainedModel):
 class NVEsmForMaskedLM(NVEsmPreTrainedModel):
     """NVEsmForMaskedLM is a TransformerEngine-optimized ESM model for masked language modeling."""
 
-    _tied_weights_keys: ClassVar[dict[str, str]] = {
-        "lm_head.decoder.weight": "model.embeddings.word_embeddings.weight"
-    }
+    _tied_weights_keys: ClassVar[dict[str, str]] = {"lm_head.decoder.weight": "esm.embeddings.word_embeddings.weight"}
 
     def __init__(self, config: NVEsmConfig):
         """Initialize a NVEsmForMaskedLM.
@@ -420,7 +407,7 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
                 "bi-directional self-attention."
             )
 
-        self.model = NVEsmModel(config, add_pooling_layer=False)
+        self.esm = NVEsmModel(config, add_pooling_layer=False)
         self.lm_head = NVEsmLMHead(config)
 
         self.post_init()
@@ -455,7 +442,7 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
         Returns:
             MaskedLMOutput: The output of the model.
         """
-        outputs = self.model(
+        outputs = self.esm(
             input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
@@ -640,7 +627,7 @@ class NVEsmForTokenClassification(NVEsmPreTrainedModel):
         super().__init__(config)
         self.num_labels = config.num_labels
 
-        self.model = NVEsmModel(config, add_pooling_layer=False)
+        self.esm = NVEsmModel(config, add_pooling_layer=False)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = transformer_engine.pytorch.Linear(
             config.hidden_size,
@@ -666,7 +653,7 @@ class NVEsmForTokenClassification(NVEsmPreTrainedModel):
         labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
             Labels for computing the token classification loss. Indices should be in `[0, ..., config.num_labels - 1]`.
         """
-        outputs = self.model(
+        outputs = self.esm(
             input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,

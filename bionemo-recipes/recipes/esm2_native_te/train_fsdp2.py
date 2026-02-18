@@ -96,7 +96,9 @@ def main(args: DictConfig) -> float | None:
     logger.info("Initialized Model:\n%s", model)
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
-    transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
+    transformer_stack = (
+        model.model.encoder.layers if hasattr(model.model.encoder, "layers") else model.model.encoder.layer
+    )
 
     mp_policy = MixedPrecisionPolicy(
         param_dtype=torch.bfloat16

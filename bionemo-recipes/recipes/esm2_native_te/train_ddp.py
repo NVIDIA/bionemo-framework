@@ -85,7 +85,7 @@ def main(args: DictConfig) -> float | None:
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
     # avoid errors with unused parameters.
     try:
-        del model.esm.contact_head
+        del model.model.contact_head
     except AttributeError:
         pass
 

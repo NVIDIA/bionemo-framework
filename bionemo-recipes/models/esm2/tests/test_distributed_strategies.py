@@ -188,7 +188,7 @@ if __name__ == "__main__":
                 revision="c731040f",
             )
             model = NVEsmForMaskedLM(config)
-            transformer_layers = model.esm.encoder.layers
+            transformer_layers = model.model.encoder.layers
         else:
             model = AutoModelForMaskedLM.from_pretrained(
                 "facebook/esm2_t6_8M_UR50D",

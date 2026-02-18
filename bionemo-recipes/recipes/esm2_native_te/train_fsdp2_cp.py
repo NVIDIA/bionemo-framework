@@ -113,7 +113,9 @@ def main(args: DictConfig) -> float | None:
     logger.info("Initialized Model:\n%s", model)
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
-    transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
+    transformer_stack = (
+        model.model.encoder.layers if hasattr(model.model.encoder, "layers") else model.model.encoder.layer
+    )
     # Fully shard takes in a DeviceMesh object, which is a 2D mesh of dimensions (CP_dimension, DP_dimension).
     # FSDP2 will shard the model across the DP (dim=1) dimension and then duplicate across the CP (dim=0) dimension.
     for layer in transformer_stack:

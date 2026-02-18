@@ -1,0 +1,5 @@
+{
+  "original_model": "nvidia/esm2_t6_8M_UR50D",
+  "conversion": "strip_esm_prefix",
+  "description": "Stripped 'esm.' prefix from weight keys for vLLM compatibility (lm_head.* dropped)"
+}
