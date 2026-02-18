@@ -55,7 +55,6 @@ from bionemo.evo2.models.peft import Evo2LoRA
 from bionemo.evo2.run.utils import infer_model_type, patch_eden_tokenizer
 from bionemo.evo2.utils.callbacks import GarbageCollectAtInferenceTime, _FirstBatchCudaSync
 from bionemo.evo2.utils.config import hyena_no_weight_decay_cond_with_embeddings
-from bionemo.evo2.utils.logging.callbacks import TEVCallback
 from bionemo.llm.utils.datamodule_utils import infer_global_batch_size
 from bionemo.llm.utils.logger_utils import WandbConfig, setup_nemo_lightning_logger
 
@@ -461,6 +460,13 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Log training parameters shapes and dtypes for debugging.",
     )
+    parser.add_argument("--fsdp", action="store_true", default=False, help="Use FSDP for training.")
+    parser.add_argument(
+        "--nccl-ub",
+        action="store_true",
+        default=False,
+        help="Enable the experimental NCCL userbuffer for communication overlap.",
+    )
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate.")
     parser.add_argument("--min-lr", type=float, default=3e-5, help="Min learning rate in cosine annealing.")
     parser.add_argument("--warmup-steps", type=int, default=2500, help="Number of warmup steps in cosine annealing")
@@ -532,6 +538,15 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=0.1,
         help="Loss weight for the Mamba model for lowercase bases, if you are using a Mamba model. "
         "Default is 0.1 like the Evo2 paper. Set to 1.0 to disable differential loss weighting.",
+    )
+    parser.add_argument(
+        "--mid-level-dataset-surplus",
+        type=float,
+        default=0.005,
+        help="The sample surplus to build for the mid-level datasets(s). Defaults arbitrarily to 0.005. "
+        "This value is irrelevant for single source data blends. This value may need to be increased "
+        "if the top level dataset oversamples the mid level dataset(s). This value may be set to 0.0 "
+        "in future if the top level dataset is constrained to not oversample the mid level datasets(s).",
     )
     # rank as list of integers
     parser.add_argument(
@@ -679,7 +694,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
     tokenizer = get_nmt_tokenizer(
         "byte-level",
     )
-
+    if args.fsdp:
+        logger.info("Using FSDP for training. Setting checkpoint format to fsdp_dtensor.")
+        args.ckpt_format = "fsdp_dtensor"
     # Infer global batch size.
     global_batch_size = args.global_batch_size
     if global_batch_size is None:
@@ -756,6 +773,9 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             num_workers=args.workers,
             tokenizer=tokenizer,
             eod_mask_loss=args.eod_pad_in_loss_mask,
+            build_kwargs={
+                "mid_level_dataset_surplus": args.mid_level_dataset_surplus,
+            },
         )
     if args.no_activation_checkpointing:
         activation_checkpointing_args = {
@@ -789,6 +809,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         "fp32_residual_connection": not args.no_fp32_residual_connection,
         **activation_checkpointing_args,
     }
+    if args.fsdp:
+        config_modifiers_init["init_model_with_meta_device"] = True
     if args.add_bias_output:
         config_modifiers_init["add_bias_output"] = args.add_bias_output
     if args.spike_no_more_embedding_init:
@@ -850,7 +872,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         RichModelSummary(max_depth=4),
         LearningRateMonitor(),
         TimingCallback(),
-        TEVCallback(),
+        # TEVCallback(),
     ]
 
     callbacks.append(_FirstBatchCudaSync())
@@ -895,6 +917,14 @@ def train(args: argparse.Namespace) -> nl.Trainer:
             tp_comm_overlap_cfg = userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192
         else:
             tp_comm_overlap_cfg = userbuffers_bf16_h100_h8192_tp4_mbs1_seqlen8192
+
+        if args.fsdp:
+            extra_comm_olap_kwargs = {
+                "overlap_param_gather": True,
+                "overlap_grad_reduce": True,
+            }
+        else:
+            extra_comm_olap_kwargs = {}
         callbacks.append(
             MegatronCommOverlapCallback(
                 tp_comm_overlap=model_config.tp_comm_overlap,
@@ -903,6 +933,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
                 wgrad_deferral_limit=22,  # default from NeMo
                 overlap_param_gather_with_optimizer_step=False,  # Currently disabled due to an issue with checkpointing.
                 align_param_gather=args.align_param_gather,
+                **extra_comm_olap_kwargs,
             )
         )
 
@@ -949,6 +980,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         f"-OGR{args.overlap_grad_reduce}-OPG{args.overlap_param_gather}"
         f"-TVL{args.use_targeted_variance_loss}"
         f"-NODES{args.num_nodes}-FP8{args.fp8}"
+        f"-FSDP{args.fsdp}"
     )
     if model_type == "mamba":
         # Include this setting for mamba models.
@@ -1029,6 +1061,24 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         )
     else:
         auto_resume = None
+    if args.fsdp:
+        logger.info("Using FSDP for training. Setting overlap_grad_reduce and overlap_param_gather to True.")
+        args.overlap_grad_reduce = True
+        args.overlap_param_gather = True
+        ddp_kwargs = {
+            "use_megatron_fsdp": True,
+            "data_parallel_sharding_strategy": "optim_grads_params",
+            # "fsdp_double_buffer": args.nccl_ub,  # needs to be True when using NCCL userbuffer
+            "preserve_fp32_weights": True,
+        }
+        strategy_kwargs = {
+            "fsdp": "megatron",
+            "lazy_init": True,
+        }
+
+    else:
+        ddp_kwargs = {}
+        strategy_kwargs = {}
 
     ddp: DistributedDataParallelConfig = DistributedDataParallelConfig(
         check_for_nan_in_grad=not args.no_check_for_nan_in_grad,
@@ -1037,6 +1087,8 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         grad_reduce_in_fp32=args.grad_reduce_in_fp32,
         align_param_gather=args.align_param_gather,
         average_in_collective=average_in_collective,
+        nccl_ub=args.nccl_ub,
+        **ddp_kwargs,
     )
     # Initialize Megatron Strategy and Trainer.
     strategy = nl.MegatronStrategy(
@@ -1051,7 +1103,7 @@ def train(args: argparse.Namespace) -> nl.Trainer:
         ckpt_async_save=args.ckpt_async_save,
         save_ckpt_format=args.ckpt_format,
         ckpt_load_strictness="log_all",  # or rebasing to https://github.com/NVIDIA/NeMo/pull/11988/files#diff-7667eae242a8ef776bff78cd08e79bc81df4896a450f0a781f6ed317a3dfb7ffR139
-        fp8_recipe=None,
+        **strategy_kwargs,
     )
     trainer = nl.Trainer(
         devices=args.devices,
