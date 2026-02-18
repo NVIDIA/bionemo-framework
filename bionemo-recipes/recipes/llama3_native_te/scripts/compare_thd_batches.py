@@ -28,10 +28,13 @@ Usage (from the llama3_native_te directory):
 """
 
 import argparse
+import json
 import sys
+from datetime import datetime
+from pathlib import Path
 
 
-def describe_batch(batch: dict, label: str) -> dict:
+def describe_batch(batch: dict, label: str, out) -> dict:
     """Print and return key statistics for a single THD batch."""
     input_ids = batch["input_ids"]
     total_tokens = input_ids.numel()
@@ -72,17 +75,27 @@ def describe_batch(batch: dict, label: str) -> dict:
         "labels_real": num_label_real,
         "labels_ignored": num_label_ignore,
         "input_ids_shape": list(input_ids.shape),
+        "per_seq_lengths": seq_lens if seq_lens and len(seq_lens) <= 20 else [],
     }
 
-    print(f"\n{'=' * 60}")
-    print(f"  {label}")
-    print(f"{'=' * 60}")
+    _write(out, f"\n{'=' * 60}")
+    _write(out, f"  {label}")
+    _write(out, f"{'=' * 60}")
     for k, v in stats.items():
-        print(f"  {k:25s}: {v}")
-    if seq_lens and len(seq_lens) <= 20:
-        print(f"  {'per-seq lengths':25s}: {seq_lens}")
+        if k == "per_seq_lengths":
+            if v:
+                _write(out, f"  {'per-seq lengths':25s}: {v}")
+        else:
+            _write(out, f"  {k:25s}: {v}")
 
     return stats
+
+
+def _write(out, line: str):
+    """Write a line to both stdout and the output file."""
+    print(line)
+    if out is not None:
+        out.write(line + "\n")
 
 
 def create_hf_streaming_thd_dataloader(tokenizer_path, hf_data_path, seq_length, token_mbs, num_workers):
@@ -138,17 +151,49 @@ def main():
     parser.add_argument("--micro-batch-size", type=int, default=1, help="Equivalent MBS for token budget")
     parser.add_argument("--num-batches", type=int, default=5, help="Number of batches to inspect")
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader workers (0 = main process)")
+    parser.add_argument(
+        "--output",
+        type=str,
+        default=None,
+        help="Output file path (default: compare_thd_batches_<timestamp>.txt)",
+    )
     args = parser.parse_args()
 
+    # Set up output file
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = Path(f"compare_thd_batches_{timestamp}.txt")
+
+    out = open(output_path, "w")
+
     token_mbs = args.micro_batch_size * args.seq_length
-    print(f"\nToken budget per batch: {token_mbs} (mbs={args.micro_batch_size} x seq={args.seq_length})")
-    print(f"Inspecting {args.num_batches} batches from each dataloader\n")
+    _write(out, f"\nToken budget per batch: {token_mbs} (mbs={args.micro_batch_size} x seq={args.seq_length})")
+    _write(out, f"Inspecting {args.num_batches} batches from each dataloader")
+
+    # Write config to file for reproducibility
+    config = {
+        "tokenizer": args.tokenizer,
+        "hf_data_path": args.hf_data_path,
+        "eden_sequence_db_dir": args.eden_sequence_db_dir,
+        "eden_window_db": args.eden_window_db,
+        "seq_length": args.seq_length,
+        "micro_batch_size": args.micro_batch_size,
+        "token_micro_batch_size": token_mbs,
+        "num_batches": args.num_batches,
+        "num_workers": args.num_workers,
+        "timestamp": datetime.now().isoformat(),
+    }
+    _write(out, f"\nConfig: {json.dumps(config, indent=2)}\n")
+
+    all_results = {"config": config, "hf_batches": [], "eden_batches": []}
 
     # ---- HF Streaming THD ----
     if args.hf_data_path:
-        print("\n" + "#" * 60)
-        print("# HF STREAMING THD DATALOADER")
-        print("#" * 60)
+        _write(out, "\n" + "#" * 60)
+        _write(out, "# HF STREAMING THD DATALOADER")
+        _write(out, "#" * 60)
         hf_dl = create_hf_streaming_thd_dataloader(
             args.tokenizer, args.hf_data_path, args.seq_length, token_mbs, args.num_workers
         )
@@ -156,17 +201,18 @@ def main():
         for i, batch in enumerate(hf_dl):
             if i >= args.num_batches:
                 break
-            stats = describe_batch(batch, f"HF Streaming THD - Batch {i}")
+            stats = describe_batch(batch, f"HF Streaming THD - Batch {i}", out)
             hf_stats.append(stats)
+            all_results["hf_batches"].append(stats)
     else:
-        print("\nSkipping HF streaming (--hf-data-path not provided)")
+        _write(out, "\nSkipping HF streaming (--hf-data-path not provided)")
         hf_stats = []
 
     # ---- ShardedEden THD ----
     if args.eden_sequence_db_dir and args.eden_window_db:
-        print("\n" + "#" * 60)
-        print("# SHARDED EDEN THD DATALOADER")
-        print("#" * 60)
+        _write(out, "\n" + "#" * 60)
+        _write(out, "# SHARDED EDEN THD DATALOADER")
+        _write(out, "#" * 60)
         eden_dl = create_eden_thd_dataloader(
             args.tokenizer,
             args.eden_sequence_db_dir,
@@ -179,20 +225,21 @@ def main():
         for i, batch in enumerate(eden_dl):
             if i >= args.num_batches:
                 break
-            stats = describe_batch(batch, f"ShardedEden THD - Batch {i}")
+            stats = describe_batch(batch, f"ShardedEden THD - Batch {i}", out)
             eden_stats.append(stats)
+            all_results["eden_batches"].append(stats)
     else:
-        print("\nSkipping ShardedEden (--eden-sequence-db-dir / --eden-window-db not provided)")
+        _write(out, "\nSkipping ShardedEden (--eden-sequence-db-dir / --eden-window-db not provided)")
         eden_stats = []
 
     # ---- Summary comparison ----
     if hf_stats and eden_stats:
-        print("\n" + "#" * 60)
-        print("# SIDE-BY-SIDE SUMMARY")
-        print("#" * 60)
+        _write(out, "\n" + "#" * 60)
+        _write(out, "# SIDE-BY-SIDE SUMMARY")
+        _write(out, "#" * 60)
         header = f"{'Metric':30s} | {'HF Streaming':>15s} | {'ShardedEden':>15s} | {'Match?':>6s}"
-        print(header)
-        print("-" * len(header))
+        _write(out, header)
+        _write(out, "-" * len(header))
 
         for key in [
             "total_tokens",
@@ -207,15 +254,24 @@ def main():
             hf_avg = sum(hf_vals) / len(hf_vals)
             eden_avg = sum(eden_vals) / len(eden_vals)
             match = "YES" if abs(hf_avg - eden_avg) < 1 else "no"
-            print(f"  {key:28s} | {hf_avg:15.1f} | {eden_avg:15.1f} | {match:>6s}")
+            _write(out, f"  {key:28s} | {hf_avg:15.1f} | {eden_avg:15.1f} | {match:>6s}")
 
-        print()
-        print("Key things to check:")
-        print("  1. total_tokens should equal token_micro_batch_size for both (with split_samples=True)")
-        print("  2. unpadded_tokens should equal total_tokens for both (THD = no padding)")
-        print("  3. padding_tokens should be 0 for both")
-        print("  4. num_sequences will differ (different data, different window lengths)")
-        print("  5. input_ids shape should be [1, token_micro_batch_size] for both")
+        _write(out, "")
+        _write(out, "Key things to check:")
+        _write(out, "  1. total_tokens should equal token_micro_batch_size for both (with split_samples=True)")
+        _write(out, "  2. unpadded_tokens should equal total_tokens for both (THD = no padding)")
+        _write(out, "  3. padding_tokens should be 0 for both")
+        _write(out, "  4. num_sequences will differ (different data, different window lengths)")
+        _write(out, "  5. input_ids shape should be [1, token_micro_batch_size] for both")
+
+    # Write JSON results alongside the text output
+    json_path = output_path.with_suffix(".json")
+    with open(json_path, "w") as jf:
+        json.dump(all_results, jf, indent=2)
+
+    out.close()
+    print(f"\n>>> Results written to: {output_path}")
+    print(f">>> JSON results written to: {json_path}")
 
 
 if __name__ == "__main__":
