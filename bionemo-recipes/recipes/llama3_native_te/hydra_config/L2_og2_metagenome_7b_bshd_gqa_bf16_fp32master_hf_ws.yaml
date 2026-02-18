@@ -1,0 +1,93 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 7B Llama3 on OpenGenome2 Metagenome - BSHD + BF16 with HuggingFace Streaming + Window Shuffle
+#
+# This is the BSHD version of L2_og2_metagenome_7b_thd_gqa_bf16_fp32master_hf_ws.yaml.
+# Uses BSHD format (no sequence packing) instead of THD.
+# Pure BF16 compute (no FP8) with FP32 master weights.
+# Uses HuggingFace streaming dataset with 50k buffer window shuffling.
+# Window shuffle ONLY - no sequence shuffling.
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py \
+#       --config-name L2_og2_metagenome_7b_bshd_gqa_bf16_fp32master_hf_ws \
+#       checkpoint.ckpt_dir=/data/results/bshd_gqa_bf16_fp32master_hf_ws
+
+defaults:
+  - L2_og2_metagenome_7b
+  - _self_
+
+# Override config_kwargs to enable GQA and use BSHD format
+config_kwargs:
+  vocab_size: 256
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 8  # GQA: 8 KV heads instead of 32 (MHA)
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: bshd  # BSHD format (no sequence packing)
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+
+# BSHD does NOT use sequence packing
+use_sequence_packing: false
+
+# ============ KEY SETTINGS ============
+# Apply weight decay to embeddings (matches John's Megatron behavior)
+skip_embedding_weight_decay: false
+
+# Use Megatron-style scaled init for proj/fc2
+use_megatron_scaled_init: true
+
+# Disable meta device init
+use_meta_device: false
+
+# FP32 master weights for stability
+use_fp32_master_weights: true
+# ======================================
+
+# Override dataset settings with window shuffling ONLY (no sequence shuffle)
+dataset:
+  micro_batch_size: 1
+  shuffle_windows: true
+  shuffle_sequences: false  # Disable sequence shuffle - window shuffle only
+  buffer_size: 50000  # 50k buffer for window shuffling
+  num_workers: 1
+
+# Gradient accumulation = 8 (for GBS = 1 * 8 * 6 * 8 = 384)
+grad_acc_steps: 8
+
+# FP8 DISABLED - pure BF16 compute
+fp8_config:
+  enabled: false
+
+# Validation disabled
+validation:
+  enabled: false
+
+logger:
+  frequency: 1
+
+wandb:
+  name: og2_7b_bshd_gqa_bf16_fp32master_hf_ws
+  project: llama3-metagenome-7b
