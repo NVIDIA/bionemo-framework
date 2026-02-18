@@ -968,6 +968,100 @@ def test_token_packing_dataset_with_padding_split_random_sequences(tokenizer):
         )
 
 
+def test_token_packing_dataset_padding_split_remaining_capacity_below_divisor():
+    """Test that split mode handles remaining capacity below pad_sequences_to_be_divisible_by.
+
+    When the remaining batch capacity (after rounding down to the pad divisor) is 0,
+    the current batch must be yielded and the sample starts a new batch. Without this
+    guard, _split_sample_by_num_tokens would be called with tokens_available=0 and crash.
+
+    max=12, pad=8, split=True:
+    - s1: raw=5, padded=8. current=8 < 12. Append.
+    - s2: raw=3, padded=8. current=8+8=16 > 12.
+      tokens_in_batch=8, tokens_available=12-8=4, rounded to (4//8)*8=0 → yield [s1], fresh batch.
+    - s3: raw=4, padded=8. current=8+8=16 > 12. Same: yield [s2], fresh batch.
+    """
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": list(range(5))}  # padded to 8
+            yield {"input_ids": list(range(3))}  # padded to 8
+            yield {"input_ids": list(range(4))}  # padded to 8
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(
+        dataset,
+        max_tokens_per_batch=12,
+        pad_sequences_to_be_divisible_by=8,
+        split_samples=True,
+        drop_last=False,
+    )
+    batches = list(token_packing_dataset)
+
+    # Each sample pads to 8; only one fits per batch (8 < 12, but 8+8=16 > 12,
+    # and remaining capacity 4 rounds down to 0 with pad=8).
+    assert len(batches) == 3
+    assert [len(s["input_ids"]) for s in batches[0]] == [5]
+    assert [len(s["input_ids"]) for s in batches[1]] == [3]
+    assert [len(s["input_ids"]) for s in batches[2]] == [4]
+
+
+def test_token_packing_dataset_padding_no_split_yields_before_overflow():
+    """Test that non-split mode correctly yields the batch before a padded sample overflows.
+
+    max=12, pad=8, split=False:
+    - s1: raw=5, padded=8. current=8 < 12. Append.
+    - s2: raw=3, padded=8. current=8+8=16 > 12. Yield [s1], start fresh with s2.
+    - s3: raw=4, padded=8. current=8+8=16 > 12. Yield [s2], start fresh with s3.
+    """
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": list(range(5))}  # padded to 8
+            yield {"input_ids": list(range(3))}  # padded to 8
+            yield {"input_ids": list(range(4))}  # padded to 8
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(
+        dataset,
+        max_tokens_per_batch=12,
+        pad_sequences_to_be_divisible_by=8,
+        split_samples=False,
+        drop_last=False,
+    )
+    batches = list(token_packing_dataset)
+
+    # Each sample pads to 8, only one fits per batch (8 < 12, but 8+8=16 > 12)
+    assert len(batches) == 3
+    assert [len(s["input_ids"]) for s in batches[0]] == [5]
+    assert [len(s["input_ids"]) for s in batches[1]] == [3]
+    assert [len(s["input_ids"]) for s in batches[2]] == [4]
+
+
+def test_token_packing_dataset_oversized_sample_raises():
+    """Test that a sample exceeding max_tokens_per_batch raises a ValueError.
+
+    Users should set truncation or a maximum length in their tokenizer/dataset to ensure
+    all samples fit within max_tokens_per_batch.
+    """
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": list(range(5))}  # fits
+            yield {"input_ids": list(range(25))}  # exceeds max of 10
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(
+        dataset,
+        max_tokens_per_batch=10,
+        split_samples=False,
+        drop_last=False,
+    )
+
+    with pytest.raises(ValueError, match="Sample length.*exceeds max_tokens_per_batch"):
+        list(token_packing_dataset)
+
+
 def test_token_packing_dataset_with_padding_split_drop_last_false(tokenizer):
     """Test that with drop_last=False, all batches except the last have exactly max_tokens."""
     pad_divisor = 4
