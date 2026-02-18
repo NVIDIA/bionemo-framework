@@ -584,8 +584,8 @@ def _build_model_config(config_name_or_path: str) -> NVLlamaConfig:
         num_key_value_heads=8,  # GQA
         max_position_embeddings=8192,
         initializer_range=0.02,
-        attn_input_format="thd",  # Matches training; model auto-converts BSHD inputs
-        self_attn_mask_type="padding_causal",
+        attn_input_format="bshd",  # Use BSHD for eval — avoids THD unpad/repad bug with short seqs
+        self_attn_mask_type="causal",  # Causal masking; right-padded tokens don't affect real tokens
         rope_theta=500000,
         rope_scaling={
             "type": "llama3",
