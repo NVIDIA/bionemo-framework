@@ -1,0 +1,6 @@
+esm @ git+https://github.com/evolutionaryscale/esm.git
+transformer_engine
+transformers
+torch
+accelerate
+pytest
