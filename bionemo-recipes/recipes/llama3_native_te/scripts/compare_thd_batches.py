@@ -101,7 +101,7 @@ def create_hf_streaming_thd_dataloader(tokenizer_path, hf_data_path, seq_length,
         token_micro_batch_size=token_mbs,
         num_workers=num_workers,
         max_seq_length=seq_length,
-        stride=seq_length - 200,  # Default stride
+        stride=200,  # HF stride = overlap in tokens; 200 overlap → step of 7992 (matches Eden)
     )
     return dl
 
