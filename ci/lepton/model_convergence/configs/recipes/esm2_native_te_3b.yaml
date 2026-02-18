@@ -91,6 +91,26 @@ products:
     thd_enabled: false
     wandb_name: "${config}__${now:%Y%m%d-%H%M%S}__${gitsha:}"
     job_name: "${sanitize:${recipe_subdir}-${config}}-fsdp2"
+  # TE bshd perf, FSDP2, FP8
+  - config: L1_3B
+    task_cmd: train_fsdp2
+    parallelism_strategy: fsdp2
+    thd_enabled: false
+    fp8_enabled: true
+    fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+    fp8_format: E4M3
+    wandb_name: "${config}__fsdp2__fp8__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "${sanitize:${recipe_subdir}-${config}}-fsdp2-fp8"
+  # TE thd perf, FSDP2, FP8
+  - config: L1_3B
+    task_cmd: train_fsdp2
+    parallelism_strategy: fsdp2
+    thd_enabled: true
+    fp8_enabled: true
+    fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+    fp8_format: E4M3
+    wandb_name: "${config}__fsdp2__thd__fp8__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "${sanitize:${recipe_subdir}-${config}}-fsdp2-thd-fp8"
   - config: L1_3B
     task_cmd: train_mfsdp
     parallelism_strategy: mfsdp
@@ -139,4 +159,6 @@ run_script: |
     checkpoint.resume_from_checkpoint=${resume_from_checkpoint} \
     +checkpoint.save_checkpoints=${save_checkpoints} \
     +checkpoint.use_distributed_checkpoint_fsdp2=${use_distributed_checkpoint_fsdp2} \
-    fp8_config.enabled=${fp8_enabled}
+    fp8_config.enabled=${fp8_enabled} \
+    fp8_config.fp8_recipe=${fp8_recipe} \
+    fp8_config.fp8_format=${fp8_format}
