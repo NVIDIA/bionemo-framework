@@ -1058,7 +1058,32 @@ def test_token_packing_dataset_oversized_sample_raises():
         drop_last=False,
     )
 
-    with pytest.raises(ValueError, match="Sample length.*exceeds max_tokens_per_batch"):
+    with pytest.raises(ValueError, match="Padded sample length.*exceeds max_tokens_per_batch"):
+        list(token_packing_dataset)
+
+
+def test_token_packing_dataset_oversized_padded_sample_raises():
+    """Test that a sample whose padded length exceeds max_tokens_per_batch raises ValueError.
+
+    Regression test: with pad_sequences_to_be_divisible_by, a sample with raw length 9
+    pads to 12, which exceeds max_tokens_per_batch=10. The validation must use the
+    padded length, not the raw length.
+    """
+
+    class MockDataset(torch.utils.data.IterableDataset):
+        def __iter__(self):
+            yield {"input_ids": list(range(9))}  # raw=9 fits in 10, but padded to 12 > 10
+
+    dataset = MockDataset()
+    token_packing_dataset = TokenPackingDataset(
+        dataset,
+        max_tokens_per_batch=10,
+        split_samples=False,
+        drop_last=False,
+        pad_sequences_to_be_divisible_by=4,
+    )
+
+    with pytest.raises(ValueError, match="Padded sample length.*12.*exceeds max_tokens_per_batch.*10"):
         list(token_packing_dataset)
 
 

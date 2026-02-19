@@ -283,14 +283,15 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         current_length = 0
         for sample in iter(self.dataset):
             sample_length = len(sample["input_ids"])
-            if sample_length > self.max_tokens_per_batch:
+            padded_len = self._padded_len(sample_length)
+            if padded_len > self.max_tokens_per_batch:
                 raise ValueError(
-                    f"TokenPackingDataset: Sample length ({sample_length}) exceeds max_tokens_per_batch "
+                    f"TokenPackingDataset: Padded sample length ({padded_len}) exceeds max_tokens_per_batch "
                     f"({self.max_tokens_per_batch}). Set truncation or a maximum length in your tokenizer or dataset to"
-                    "ensure all samples fit within max_tokens_per_batch."
+                    " ensure all samples fit within max_tokens_per_batch."
                 )
 
-            current_length += self._padded_len(sample_length)
+            current_length += padded_len
             if current_length == self.max_tokens_per_batch:
                 yield [*samples, sample]
                 samples = []
@@ -302,10 +303,10 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
                     if samples:
                         yield samples
                     samples = [sample]
-                    current_length = self._padded_len(sample_length)
+                    current_length = padded_len
                 else:
                     # Calculate how many padded tokens are already in the batch.
-                    tokens_in_batch = current_length - self._padded_len(sample_length)
+                    tokens_in_batch = current_length - padded_len
                     # Calculate how many tokens we can fit from this sample, ensuring the
                     # padded length doesn't exceed the remaining capacity.
                     tokens_available = self.max_tokens_per_batch - tokens_in_batch
@@ -318,7 +319,7 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
                         if samples:
                             yield samples
                         samples = [sample]
-                        current_length = self._padded_len(sample_length)
+                        current_length = padded_len
                     else:
                         first_part, remaining_part = _split_sample_by_num_tokens(sample, tokens_available)
                         yield [*samples, first_part]

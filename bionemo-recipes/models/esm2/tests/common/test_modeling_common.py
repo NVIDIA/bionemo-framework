@@ -346,13 +346,17 @@ class BaseModelTest(ABC):
         model.to("cuda")
         return model
 
-    def get_reference_model_no_weights(self, **kwargs) -> PreTrainedModel:
+    def get_reference_model_no_weights(
+        self, dtype: torch.dtype = torch.float32, revision: str | None = None, **kwargs
+    ) -> PreTrainedModel:
         """Load the reference HuggingFace model with random weights."""
+        if revision is None:
+            revision = self.get_upstream_model_revision()
         return self.get_upstream_model_class()(
             AutoConfig.from_pretrained(
                 self.get_upstream_model_id(),
-                dtype=torch.float32,
-                revision=self.get_upstream_model_revision(),
+                dtype=dtype,
+                revision=revision,
                 **kwargs,
             )
         )
