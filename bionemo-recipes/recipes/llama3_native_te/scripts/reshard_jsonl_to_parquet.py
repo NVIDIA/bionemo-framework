@@ -34,18 +34,25 @@ the full distribution.
 
 Input format
 ============
-OpenGenome2 metagenome JSONL files live at::
+Accepts three input formats (auto-detected by file extension):
 
-    /data/opengenome2/json/pretraining_or_both_phases/metagenomes/
+1. **Arrow IPC (.arrow)** — Fastest.  Use the HuggingFace cache directory
+   where data is already decompressed::
 
-Each ``.jsonl.gz`` (or ``.jsonl``) file contains one JSON object per line
-with schema::
+       ~/.cache/huggingface/datasets/arcinstitute___opengenome2/
+         json--pretraining_or_both_phases--metagenomes/<hash>/train/
 
-    {"text": "ATCGATCG...", "record": "chr1:100-200"}   # some files
-    {"text": "ATCGATCG..."}                               # other files
+   Find it with: ``find ~/.cache/huggingface/datasets -name "*.arrow" -path "*metagenom*"``
 
-Only the ``text`` column is required.  The ``record`` column (metadata) is
-inconsistent across shards and is preserved if present but not required.
+2. **Parquet (.parquet)** — Fast.  If you already have Parquet files.
+
+3. **JSONL (.jsonl.gz / .jsonl)** — Slowest (requires gzip decompression
+   + JSON parsing).  Original OpenGenome2 files live at::
+
+       /data/opengenome2/json/pretraining_or_both_phases/metagenomes/
+
+Each file must have a ``text`` column with the genomic sequence.
+The ``record`` column (metadata, inconsistent across shards) is dropped.
 
 Output format
 =============
@@ -54,15 +61,16 @@ The ``record`` column is dropped for schema consistency across all shards.
 
 Usage
 =====
-Basic (on a machine with enough RAM for the full dataset)::
+Fastest: read from HuggingFace Arrow cache (skip decompression)::
 
     python scripts/reshard_jsonl_to_parquet.py \
-        --input-dir /data/opengenome2/json/pretraining_or_both_phases/metagenomes \
+        --input-dir ~/.cache/huggingface/datasets/arcinstitute___opengenome2/.../train \
         --output-dir /data/opengenome2/parquet/metagenomes_resharded \
         --num-shards 480 \
-        --seed 42
+        --seed 42 \
+        --chunk-size 10
 
-Chunked mode (for limited-RAM machines — processes files in chunks)::
+From original JSONL.gz files (slower, needs decompression)::
 
     python scripts/reshard_jsonl_to_parquet.py \
         --input-dir /data/opengenome2/json/pretraining_or_both_phases/metagenomes \
@@ -121,15 +129,24 @@ logger = logging.getLogger(__name__)
 
 
 def discover_input_files(input_dir: str, split: str = "train") -> list[Path]:
-    """Find all JSONL/JSONL.gz files for the given split in input_dir.
+    """Find all input files (Arrow, Parquet, or JSONL) in input_dir.
 
-    Looks for files matching common OpenGenome2 naming patterns:
-    - data_metagenomics_train_chunk*.jsonl.gz
-    - data_metagenomics_train_chunk*.jsonl
-    - *.jsonl.gz / *.jsonl (fallback)
+    Searches for files in this priority order:
+    1. Arrow IPC files (.arrow) — fastest, from HuggingFace cache
+    2. Parquet files (.parquet)
+    3. JSONL files (.jsonl.gz, .jsonl) — slowest, requires decompression
+
+    For Arrow files from the HF cache, the directory is typically::
+
+        ~/.cache/huggingface/datasets/arcinstitute___opengenome2/
+          json--pretraining_or_both_phases--metagenomes/<hash>/train/
+
+    You can find it with::
+
+        find ~/.cache/huggingface/datasets -name "*.arrow" -path "*metagenom*"
 
     Args:
-        input_dir: Directory containing the JSONL files.
+        input_dir: Directory containing the input files.
         split: Data split to look for ("train", "valid", "test").
 
     Returns:
@@ -139,7 +156,19 @@ def discover_input_files(input_dir: str, split: str = "train") -> list[Path]:
     if not input_path.exists():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
 
-    # Try split-specific patterns first
+    # Priority 1: Arrow IPC files (from HF cache — fastest)
+    files = sorted(input_path.glob("*.arrow"))
+    if files:
+        logger.info(f"Found {len(files)} Arrow files (fastest path — reading from HF cache)")
+        return files
+
+    # Priority 2: Parquet files
+    files = sorted(input_path.glob("*.parquet"))
+    if files:
+        logger.info(f"Found {len(files)} Parquet files")
+        return files
+
+    # Priority 3: JSONL files (split-specific patterns, then fallback)
     patterns = [
         f"data_metagenomics_{split}_chunk*.jsonl.gz",
         f"data_metagenomics_{split}_chunk*.jsonl",
@@ -147,27 +176,31 @@ def discover_input_files(input_dir: str, split: str = "train") -> list[Path]:
         f"*_{split}_*.jsonl",
     ]
 
-    files = []
     for pattern in patterns:
         files = sorted(input_path.glob(pattern))
         if files:
-            break
+            return files
 
     # Fallback: all jsonl files
-    if not files:
-        files = sorted(input_path.glob("*.jsonl.gz")) + sorted(input_path.glob("*.jsonl"))
+    files = sorted(input_path.glob("*.jsonl.gz")) + sorted(input_path.glob("*.jsonl"))
 
     if not files:
-        raise FileNotFoundError(f"No JSONL files found in {input_dir} for split '{split}'")
+        raise FileNotFoundError(
+            f"No input files found in {input_dir}. Supported formats: .arrow (HF cache), .parquet, .jsonl.gz, .jsonl"
+        )
 
     return files
 
 
-def read_jsonl_file_polars(filepath: Path, text_column: str = "text"):
-    """Read a single JSONL(.gz) file using Polars and extract the text column.
+def read_file_polars(filepath: Path, text_column: str = "text"):
+    """Read a single data file using Polars and extract the text column.
+
+    Supports Arrow IPC (.arrow), Parquet (.parquet), and JSONL (.jsonl/.jsonl.gz).
+    Arrow is the fastest since it's already in columnar binary format (no
+    decompression or parsing needed).
 
     Args:
-        filepath: Path to the JSONL or JSONL.gz file.
+        filepath: Path to the input file.
         text_column: Name of the column containing the genomic sequence.
 
     Returns:
@@ -175,10 +208,16 @@ def read_jsonl_file_polars(filepath: Path, text_column: str = "text"):
     """
     import polars as pl
 
+    suffix = filepath.suffix.lower()
     logger.info(f"  Reading {filepath.name} ...")
 
-    # Polars handles .gz decompression automatically
-    df = pl.read_ndjson(filepath)
+    if suffix == ".arrow":
+        df = pl.read_ipc(filepath)
+    elif suffix == ".parquet":
+        df = pl.read_parquet(filepath)
+    else:
+        # .jsonl or .jsonl.gz — Polars handles .gz decompression automatically
+        df = pl.read_ndjson(filepath)
 
     if text_column not in df.columns:
         raise ValueError(f"Column '{text_column}' not found in {filepath}. Columns: {df.columns}")
@@ -220,7 +259,7 @@ def reshard_all_at_once(
 
     dfs = []
     for f in input_files:
-        df = read_jsonl_file_polars(f, text_column)
+        df = read_file_polars(f, text_column)
         dfs.append(df)
         logger.info(f"    → {len(df):,} sequences")
 
@@ -325,7 +364,7 @@ def reshard_chunked(
             count = pl.scan_ndjson(f).select(pl.len()).collect().item()
         except Exception:
             # Fallback: read and count
-            df = read_jsonl_file_polars(f, text_column)
+            df = read_file_polars(f, text_column)
             count = len(df)
             del df
 
@@ -376,7 +415,7 @@ def reshard_chunked(
         logger.info(f"  Processing chunk {chunk_label}...")
 
         for f in chunk_files:
-            df = read_jsonl_file_polars(f, text_column)
+            df = read_file_polars(f, text_column)
             n = len(df)
 
             # Get shard assignments for this file's rows
@@ -483,9 +522,7 @@ def dry_run(input_files: list[Path], num_shards: int, world_size: int) -> None:
 
     # Try to count one file for estimation
     try:
-        import polars as pl
-
-        sample_df = pl.read_ndjson(input_files[0])
+        sample_df = read_file_polars(input_files[0])
         rows_in_first = len(sample_df)
         estimated_total = rows_in_first * len(input_files)
         est_per_shard = estimated_total // num_shards
