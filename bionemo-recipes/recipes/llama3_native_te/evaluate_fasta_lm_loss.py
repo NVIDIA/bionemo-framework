@@ -255,8 +255,8 @@ def find_checkpoint_path(checkpoint_dir: str, step: int | None = None) -> tuple[
 # ---------------------------------------------------------------------------
 
 
-def _build_model_config(config_name_or_path: str) -> NVLlamaConfig:
-    """Build the 7B GQA config that matches both training setups."""
+def _build_model_config(config_name_or_path: str, num_kv_heads: int = 8) -> NVLlamaConfig:
+    """Build the 7B config. Use num_kv_heads=8 for GQA, 32 for MHA (older models)."""
     return NVLlamaConfig.from_pretrained(
         config_name_or_path,
         dtype=torch.float32,
@@ -265,7 +265,7 @@ def _build_model_config(config_name_or_path: str) -> NVLlamaConfig:
         hidden_size=4096,
         intermediate_size=14336,
         num_attention_heads=32,
-        num_key_value_heads=8,
+        num_key_value_heads=num_kv_heads,
         max_position_embeddings=8192,
         initializer_range=0.02,
         attn_input_format="bshd",
@@ -439,6 +439,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--tokenizer", type=str, default="./tokenizers/nucleotide_fast_tokenizer")
     p.add_argument("--micro-batch-size", type=int, default=1, help="Batch size per GPU.")
     p.add_argument("--max-seq-length", type=int, default=8192)
+    p.add_argument(
+        "--num-kv-heads",
+        type=int,
+        default=8,
+        help="Number of key-value heads. 8 = GQA (default), 32 = MHA (older models).",
+    )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument(
         "--mask-degenerate-bases",
@@ -495,7 +501,7 @@ def main() -> None:
 
     # ── model ─────────────────────────────────────────────────────────────
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
-    config = _build_model_config(args.config_name_or_path)
+    config = _build_model_config(args.config_name_or_path, num_kv_heads=args.num_kv_heads)
     model = load_model_from_checkpoint(ckpt_path, ckpt_type, config, dist_config, device_mesh)
 
     # ── dataset / dataloader ──────────────────────────────────────────────
