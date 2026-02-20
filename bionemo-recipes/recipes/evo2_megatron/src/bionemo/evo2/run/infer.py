@@ -242,7 +242,7 @@ def setup_inference_engine(
         max_seq_length: Maximum sequence length for generation.
         max_batch_size: Maximum batch size for inference.
         tensor_parallel_size: Tensor parallelism degree.
-        pipeline_model_parallel_size: Pipeline parallelism degree (must be 1).
+        pipeline_model_parallel_size: Pipeline parallelism degree.
         context_parallel_size: Context parallelism degree.
         mixed_precision_recipe: Override mixed precision recipe.
         random_seed: Random seed for reproducibility.
@@ -254,9 +254,6 @@ def setup_inference_engine(
         >>> components = setup_inference_engine(Path("/path/to/checkpoint"), max_batch_size=4)
         >>> results = generate(components, prompts=["ATCG", "GCTA"], max_new_tokens=100)
     """
-    if pipeline_model_parallel_size != 1:
-        raise ValueError("Pipeline parallelism > 1 is not supported for inference.")
-
     # -------------------------------------------------------------------------
     # Step 1: Load configuration from checkpoint
     # -------------------------------------------------------------------------
@@ -334,7 +331,7 @@ def setup_inference_engine(
     logger.info("Creating model...")
     model_provider.finalize()
 
-    raw_model = model_provider.provide(pre_process=True, post_process=True).eval().cuda()
+    raw_model = model_provider.provide().eval().cuda()
 
     logger.info(f"Loading weights from: {resolved_ckpt_dir}")
     _load_model_weights_from_checkpoint(
@@ -505,7 +502,7 @@ def parse_args() -> argparse.Namespace:
 
     # Parallelism arguments
     ap.add_argument("--tensor-parallel-size", type=int, default=1, help="Tensor parallelism")
-    ap.add_argument("--pipeline-model-parallel-size", type=int, choices=[1], default=1, help="Pipeline parallelism")
+    ap.add_argument("--pipeline-model-parallel-size", type=int, default=1, help="Pipeline parallelism")
     ap.add_argument("--context-parallel-size", type=int, default=1, help="Context parallelism")
 
     # Output arguments
@@ -550,7 +547,7 @@ def infer(
         top_p: Nucleus sampling parameter (0 = disabled).
         seed: Random seed for reproducibility.
         tensor_parallel_size: Tensor parallelism degree.
-        pipeline_model_parallel_size: Pipeline parallelism degree (must be 1).
+        pipeline_model_parallel_size: Pipeline parallelism degree.
         context_parallel_size: Context parallelism degree.
         output_file: Optional path to save generated text.
         mixed_precision_recipe: Override mixed precision recipe.
