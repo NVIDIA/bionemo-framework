@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# 7B Llama3 on OpenGenome2 - NEW DATASET (Parquet)
+# 7B Llama3 on OpenGenome2 - NEW DATASET (Parquet), BSHD + GQA
 #
 # Inherits all settings from the BSHD + BF16 + FP32 master weights + HF window shuffle config.
 # Overrides dataset to use parquet files at /data/opengenome2/parquet instead of
