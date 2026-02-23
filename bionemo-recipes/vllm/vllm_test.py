@@ -55,6 +55,7 @@ if __name__ == "__main__":
         model=MODEL_ID,
         runner="pooling",
         trust_remote_code=True,
+        dtype="float32",
         # TransformerEngine layers use pydantic (ArgsKwargs) which torch.compile
         # cannot trace. Use eager mode to avoid the dynamo error.
         enforce_eager=True,
