@@ -19,7 +19,7 @@ def main():
 
     monitor.stop_monitoring()
 
-    monitor.write_events_to_file()
+    monitor._write_events_to_file()
 
 
 if __name__ == "__main__":
