@@ -15,6 +15,7 @@
 
 """Common test class for BioNeMo models, following HuggingFace transformers patterns."""
 
+import fnmatch
 import gc
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -30,9 +31,12 @@ from transformer_engine.pytorch.quantization import FP8GlobalStateManager
 from transformers import AutoConfig, PretrainedConfig, PreTrainedModel, PreTrainedTokenizer, set_seed
 
 
-HAS_DATA_CENTER_GPU = any(
-    gpu_name in torch.cuda.get_device_name(0).upper() for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
-)
+try:
+    HAS_DATA_CENTER_GPU = torch.cuda.is_available() and any(
+        gpu_name in torch.cuda.get_device_name(0).upper() for gpu_name in ["H100", "H200", "B100", "B200", "B300"]
+    )
+except (RuntimeError, AssertionError):
+    HAS_DATA_CENTER_GPU = False
 
 
 @dataclass
@@ -283,7 +287,9 @@ class BaseModelTest(ABC):
                 if should_be_fp8:
                     if f"{name}.weight" in set(model._tied_weights_keys):
                         continue  # Skip tied weights
-                    elif hasattr(model, "_do_not_quantize") and name in model._do_not_quantize:
+                    elif hasattr(model, "_do_not_quantize") and any(
+                        fnmatch.fnmatch(name, pattern) for pattern in model._do_not_quantize
+                    ):
                         continue  # Skip weights that should be kept in bf16
                     assert isinstance(module.weight, QuantizedTensor), f"Module {name} weight is not a Float8Tensor"
 
@@ -340,13 +346,18 @@ class BaseModelTest(ABC):
         model.to("cuda")
         return model
 
-    def get_reference_model_no_weights(self) -> PreTrainedModel:
+    def get_reference_model_no_weights(
+        self, dtype: torch.dtype = torch.float32, revision: str | None = None, **kwargs
+    ) -> PreTrainedModel:
         """Load the reference HuggingFace model with random weights."""
+        if revision is None:
+            revision = self.get_upstream_model_revision()
         return self.get_upstream_model_class()(
             AutoConfig.from_pretrained(
                 self.get_upstream_model_id(),
-                dtype=torch.float32,
-                revision=self.get_upstream_model_revision(),
+                dtype=dtype,
+                revision=revision,
+                **kwargs,
             )
         )
 

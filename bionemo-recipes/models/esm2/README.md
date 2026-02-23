@@ -80,7 +80,7 @@ Hugging Face Transformers format for sharing and deployment. The workflow involv
 ```python
 from transformers import AutoModelForMaskedLM
 
-from esm.convert import convert_esm_hf_to_te
+from convert import convert_esm_hf_to_te
 
 hf_model = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D")
 te_model = convert_esm_hf_to_te(hf_model)
@@ -92,8 +92,8 @@ This loads the pre-trained ESM2 model that will serve as our reference for compa
 ### Converting from TE back to HF Transformers
 
 ```python
-from esm.convert import convert_esm_te_to_hf
-from esm.modeling_esm_te import NVEsmForMaskedLM
+from convert import convert_esm_te_to_hf
+from modeling_esm_te import NVEsmForMaskedLM
 
 te_model = NVEsmForMaskedLM.from_pretrained("/path/to/te_checkpoint")
 hf_model = convert_esm_te_to_hf(te_model)
@@ -130,8 +130,8 @@ To run tests locally, run `recipes_local_test.py` from the repository root with 
 ### Development container
 
 To use the provided devcontainer, use "Dev Containers: Reopen in Container" from the VSCode menu, and choose the
-"BioNeMo Recipes Dev Container" option. To run the tests inside the container, first install the model package in
-editable mode with `pip install -e .`, then run `pytest -v .` in the model directory.
+"BioNeMo Recipes Dev Container" option. To run the tests inside the container, first install the dependencies with
+`pip install -r requirements.txt`, then run `pytest -v .` in the model directory.
 
 ### Deploying converted checkpoints to HuggingFace Hub
 

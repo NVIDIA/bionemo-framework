@@ -35,7 +35,7 @@ from torch.distributed.tensor import DTensor
 from transformer_engine.pytorch.tensor import QuantizedTensor
 from transformers import AutoConfig, set_seed
 
-from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM, NVEsmForTokenClassification
+from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM, NVEsmForTokenClassification
 
 
 requires_multi_gpu = pytest.mark.skipif(

@@ -66,27 +66,27 @@ jobs:
           # Get all recipe and model directories
           ALL_DIRS=$(ls -d bionemo-recipes/models/*/ bionemo-recipes/recipes/*/ 2>/dev/null | jq -R -s -c 'split("\n")[:-1] | map(rtrimstr("/"))')
 
-          # Determine which directories to run: all for schedule, filtered for other events
-          if [[ "$EVENT_NAME" == "schedule" ]]; then
-            DIRS=$(echo "$ALL_DIRS")
-          else
-            # Check if "ciflow:all-recipes" label is present
-            HAS_INCLUDE_ALL_LABEL=false
-            if [[ "$PR_INFO" != "null" && "$PR_INFO" != "" ]]; then
-              if echo "$PR_INFO" | jq -e '.labels[]? | select(.name == "ciflow:all-recipes")' > /dev/null 2>&1; then
-                HAS_INCLUDE_ALL_LABEL=true
-                echo "Found 'ciflow:all-recipes' label - running all directories"
-              fi
-            fi
+          # Helper to check for a PR label
+          has_label() {
+            [[ "$PR_INFO" != "null" && "$PR_INFO" != "" ]] && \
+              echo "$PR_INFO" | jq -e ".labels[]? | select(.name == \"$1\")" > /dev/null 2>&1
+          }
 
-            if [[ "$HAS_INCLUDE_ALL_LABEL" == "true" ]]; then
-              DIRS=$(echo "$ALL_DIRS")
-            else
-              # Filter directories to only those that have changed files
-              DIRS=$(echo "$ALL_DIRS" | jq -c --argjson changed "$CHANGED_FILES" '
-                map(select(. as $dir | $changed | index($dir) != null))
-              ')
-            fi
+          # Determine which directories to run
+          if [[ "$EVENT_NAME" == "schedule" ]]; then
+            echo "Scheduled run - running all directories"
+            DIRS="$ALL_DIRS"
+          elif has_label "ciflow:skip"; then
+            echo "Found 'ciflow:skip' label - skipping all recipe tests"
+            DIRS="[]"
+          elif has_label "ciflow:all-recipes"; then
+            echo "Found 'ciflow:all-recipes' label - running all directories"
+            DIRS="$ALL_DIRS"
+          else
+            # Filter directories to only those that have changed files
+            DIRS=$(echo "$ALL_DIRS" | jq -c --argjson changed "$CHANGED_FILES" '
+              map(select(. as $dir | $changed | index($dir) != null))
+            ')
           fi
 
           # Assign Docker images to the selected directories

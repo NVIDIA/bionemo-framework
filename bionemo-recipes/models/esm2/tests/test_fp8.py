@@ -21,8 +21,8 @@ from torch.distributed.checkpoint.state_dict import get_model_state_dict
 from transformer_engine.common import recipe as recipe_module
 from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import DataCollatorWithFlattening
-from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
+from collator import DataCollatorWithFlattening
+from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
 
 try:

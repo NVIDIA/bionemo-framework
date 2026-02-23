@@ -22,8 +22,8 @@ from transformer_engine.pytorch.attention.dot_product_attention import _attentio
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 from transformers import DataCollatorForLanguageModeling
 
-from esm.collator import DataCollatorWithFlattening
-from esm.modeling_esm_te import NVEsmConfig, NVEsmEmbeddings, NVEsmForMaskedLM
+from collator import DataCollatorWithFlattening
+from modeling_esm_te import NVEsmConfig, NVEsmEmbeddings, NVEsmForMaskedLM
 
 
 compute_capability = torch.cuda.get_device_capability()

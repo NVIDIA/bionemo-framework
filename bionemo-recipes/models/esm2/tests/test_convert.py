@@ -20,7 +20,7 @@ from transformers import AutoModelForMaskedLM
 
 def test_convert_te_to_hf_roundtrip():
     """Test that converting HF -> TE -> HF produces the same model."""
-    from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf
+    from convert import convert_esm_hf_to_te, convert_esm_te_to_hf
 
     model_hf_original = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
 
@@ -39,14 +39,14 @@ def test_convert_te_to_hf_roundtrip():
 
 
 def test_load_from_converted_checkpoint(te_model_checkpoint):
-    from esm.modeling_esm_te import NVEsmForMaskedLM
+    from modeling_esm_te import NVEsmForMaskedLM
 
     NVEsmForMaskedLM.from_pretrained(te_model_checkpoint)
 
 
 def test_qkv_unpacking():
     """Test that QKV unpacking works correctly."""
-    from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf
+    from convert import convert_esm_hf_to_te, convert_esm_te_to_hf
 
     model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     model_te = convert_esm_hf_to_te(model_hf)
@@ -68,7 +68,7 @@ def test_qkv_unpacking():
 
 def test_config_conversion():
     """Test that config conversion works correctly."""
-    from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf
+    from convert import convert_esm_hf_to_te, convert_esm_te_to_hf
 
     model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     model_te = convert_esm_hf_to_te(model_hf)
@@ -101,7 +101,7 @@ def test_config_conversion():
 
 def test_padding_unpadding_operations():
     """Test that padding and unpadding operations work correctly for embeddings and decoder weights."""
-    from esm.convert import convert_esm_hf_to_te, convert_esm_te_to_hf
+    from convert import convert_esm_hf_to_te, convert_esm_te_to_hf
 
     model_hf = AutoModelForMaskedLM.from_pretrained("facebook/esm2_t6_8M_UR50D", revision="c731040f")
     model_te = convert_esm_hf_to_te(model_hf)
@@ -147,8 +147,8 @@ def test_weight_initialization_matches_hf():
     from transformers import AutoConfig, set_seed
     from transformers.models.esm.modeling_esm import EsmForMaskedLM
 
-    from esm.convert import convert_esm_hf_to_te
-    from esm.modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
+    from convert import convert_esm_hf_to_te
+    from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
     set_seed(42)
 

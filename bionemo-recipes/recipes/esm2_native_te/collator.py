@@ -156,8 +156,11 @@ class DataCollatorWithFlattening:
             sequence processing capabilities. When pad_to_multiple_of is used, an additional
             mock sequence is appended to reach the desired total length.
         """
+        if return_tensors is not None and return_tensors != "pt":
+            raise NotImplementedError(f"Only return_tensors='pt' is supported, got '{return_tensors}'")
+
         # Perform the masking with the BSHD collator.
-        bshd_batch = self.collator(features)
+        bshd_batch = self.collator(features, return_tensors=return_tensors)
 
         # Create the flattened batch to get the cu_seq_lens_q and cu_seq_lens_k values.
         packed_batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
@@ -279,7 +282,16 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         samples = []
         current_length = 0
         for sample in iter(self.dataset):
-            current_length += self._padded_len(len(sample["input_ids"]))
+            sample_length = len(sample["input_ids"])
+            padded_len = self._padded_len(sample_length)
+            if padded_len > self.max_tokens_per_batch:
+                raise ValueError(
+                    f"TokenPackingDataset: Padded sample length ({padded_len}) exceeds max_tokens_per_batch "
+                    f"({self.max_tokens_per_batch}). Set truncation or a maximum length in your tokenizer or dataset to"
+                    " ensure all samples fit within max_tokens_per_batch."
+                )
+
+            current_length += padded_len
             if current_length == self.max_tokens_per_batch:
                 yield [*samples, sample]
                 samples = []
@@ -287,25 +299,32 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
 
             elif current_length > self.max_tokens_per_batch:
                 if not self.split_samples:
-                    # If we are not splitting samples, we can just yield the current batch (before this sample) and
-                    # start a new one.
-                    yield samples
+                    # Yield the current batch (before this sample) and start a new one with this sample.
+                    if samples:
+                        yield samples
                     samples = [sample]
-
+                    current_length = padded_len
                 else:
-                    # Calculate how many padded tokens are already in the batch
-                    tokens_in_batch = current_length - self._padded_len(len(sample["input_ids"]))
+                    # Calculate how many padded tokens are already in the batch.
+                    tokens_in_batch = current_length - padded_len
                     # Calculate how many tokens we can fit from this sample, ensuring the
                     # padded length doesn't exceed the remaining capacity.
                     tokens_available = self.max_tokens_per_batch - tokens_in_batch
                     if self.pad_sequences_to_be_divisible_by is not None:
                         d = self.pad_sequences_to_be_divisible_by
                         tokens_available = (tokens_available // d) * d
-                    first_part, remaining_part = _split_sample_by_num_tokens(sample, tokens_available)
-                    yield [*samples, first_part]
-                    samples = [remaining_part]
-
-                current_length = self._padded_len(len(samples[0]["input_ids"]))
+                    if tokens_available <= 0:
+                        # Remaining capacity is less than pad_sequences_to_be_divisible_by;
+                        # can't fit any tokens from this sample. Yield current batch and start fresh.
+                        if samples:
+                            yield samples
+                        samples = [sample]
+                        current_length = padded_len
+                    else:
+                        first_part, remaining_part = _split_sample_by_num_tokens(sample, tokens_available)
+                        yield [*samples, first_part]
+                        samples = [remaining_part]
+                        current_length = self._padded_len(len(samples[0]["input_ids"]))
             else:
                 samples.append(sample)
 
