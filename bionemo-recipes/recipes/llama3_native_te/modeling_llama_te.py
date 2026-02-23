@@ -215,9 +215,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             hidden_states = hidden_states.squeeze(0)
 
         if self.config.attn_input_format == "bshd" and attention_mask is not None and attention_mask.dim() == 2:
-            # If we're using padded BSHD inputs, we need to convert the 2-dimensional mask to a 4-dimensional mask in
-            # the expected boolean format for TE.
-            attention_mask = attention_mask[:, None, None, :] < -1
+            # Convert HF mask (1=attend, 0=pad) to TE boolean mask (True=masked, False=attend)
+            attention_mask = ~attention_mask[:, None, None, :].bool()
 
         if isinstance(past_key_values, InferenceParams):  # InferenceParams is TE's way of managing kv-caching.
             # In generation mode, we set the length to 1 for each batch index. Otherwise, we use the attention mask to

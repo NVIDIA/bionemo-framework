@@ -19,58 +19,49 @@ from typing import ClassVar, Unpack
 import torch
 import torch.nn as nn
 import transformer_engine.pytorch
-import transformers
 from transformer_engine.pytorch.attention import InferenceParams
 from transformer_engine.pytorch.attention.inference import PagedKVCacheManager
 from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
-from transformers import LlamaConfig, PreTrainedModel
+from transformers import MixtralConfig, PreTrainedModel
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 from transformers.utils.generic import TransformersKwargs
 
 
 AUTO_MAP = {
-    "AutoConfig": "modeling_llama_te.NVLlamaConfig",
-    "AutoModel": "modeling_llama_te.NVLlamaModel",
-    "AutoModelForCausalLM": "modeling_llama_te.NVLlamaForCausalLM",
-    "AutoModelForSequenceClassification": "modeling_llama_te.NVLlamaForSequenceClassification",
-    "AutoModelForQuestionAnswering": "modeling_llama_te.NVLlamaForQuestionAnswering",
-    "AutoModelForTokenClassification": "modeling_llama_te.NVLlamaForTokenClassification",
+    "AutoConfig": "modeling_mixtral_te.NVMixtralConfig",
+    "AutoModel": "modeling_mixtral_te.NVMixtralModel",
+    "AutoModelForCausalLM": "modeling_mixtral_te.NVMixtralForCausalLM",
 }
 
 
-class NVLlamaConfig(LlamaConfig):
-    """NVLlama configuration."""
+class NVMixtralConfig(MixtralConfig):
+    """NVMixtral configuration."""
 
     attn_input_format: str = "thd"
     self_attn_mask_type: str = "padding_causal"
 
 
-class NVLlamaPreTrainedModel(PreTrainedModel):
-    """Base class for NVLlama models."""
+class NVMixtralPreTrainedModel(PreTrainedModel):
+    """Base class for NVMixtral models."""
 
-    config_class = NVLlamaConfig
+    config_class = NVMixtralConfig
     base_model_prefix = "model"
-    _no_split_modules = ("TransformerLayer",)
+    _no_split_modules = ("NVMixtralDecoderLayer",)
     _skip_keys_device_placement = ("past_key_values",)
+    _do_not_quantize = ("lm_head", "model.layers.*.mlp.gate")  # Flag for testing that these layers are not quantized.
 
     def init_empty_weights(self):
         """Handles moving the model from the meta device to the cuda device and initializing the weights."""
-        # For TE layers, calling `reset_parameters` is sufficient to move them to the cuda device and apply the weight
-        # initialization we passed them during module creation.
         for module in self.modules():
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
 
-        # The embed_tokens layer is the only non-TE layer in this model we need to deal with. We use
-        # `model._init_weights` rather than `reset_parameters` to ensure we honor the original config standard
-        # deviation.
         self.model.embed_tokens.to_empty(device="cuda")
         self.model.embed_tokens.apply(self._init_weights)
 
         self.model.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=self.model.config).inv_freq.to("cuda")
 
-        # Meta-device init seems to break weight tying, so we re-tie the weights here.
         self.tie_weights()
 
     def _init_weights(self, module):
@@ -80,31 +71,211 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
         `init_method` parameters and the `reset_parameters` method.
         """
         if module.__module__.startswith("transformer_engine.pytorch"):
-            # Notably, we need to avoid calling this method for TE modules, since the default _init_weights will assume
-            # any class with `LayerNorm` in the name should have weights initialized to 1.0; breaking `LayerNormLinear`
-            # and `LayerNormMLP` modules that use `weight` for the linear layer and `layer_norm_weight` for the layer
-            # norm.
             return
 
         super()._init_weights(module)
 
     def state_dict(self, *args, **kwargs):
-        """Override state_dict to filter out TransformerEngine's _extra_state keys.
-
-        TransformerEngine layers add _extra_state attributes that are not compatible with
-        standard PyTorch/HuggingFace model loading. These are filtered out to ensure
-        checkpoints can be loaded with from_pretrained().
-        """
+        """Override state_dict to filter out TransformerEngine's _extra_state keys."""
         state_dict = super().state_dict(*args, **kwargs)
-        # Filter out _extra_state keys which are TransformerEngine-specific and not loadable
         return {k: v for k, v in state_dict.items() if not k.endswith("_extra_state")}
 
 
-class NVLlamaModel(NVLlamaPreTrainedModel):
-    """Llama3 model implemented in Transformer Engine."""
+class NVMixtralSparseMoeBlock(nn.Module):
+    """Mixture of Experts block using TransformerEngine GroupedLinear."""
 
-    def __init__(self, config: LlamaConfig):
-        """Initialize the NVLlama model."""
+    def __init__(self, config: MixtralConfig):
+        """Initialize the sparse MoE block."""
+        super().__init__()
+        self.hidden_size = config.hidden_size
+        self.intermediate_size = config.intermediate_size
+        self.num_experts = config.num_local_experts
+        self.top_k = config.num_experts_per_tok
+        self.jitter_noise = config.router_jitter_noise
+
+        device = "meta" if torch.get_default_device() == torch.device("meta") else "cuda"
+
+        def _init_method(x):
+            torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
+
+        with transformer_engine.pytorch.quantized_model_init(enabled=False):
+            self.gate = transformer_engine.pytorch.Linear(
+                self.hidden_size,
+                self.num_experts,
+                bias=False,
+                device=device,
+                params_dtype=config.dtype,
+                init_method=_init_method,
+            )
+
+        # Expert FFNs using TE GroupedLinear for efficient parallel processing
+        self.experts_gate_up = transformer_engine.pytorch.GroupedLinear(
+            num_gemms=self.num_experts,
+            in_features=self.hidden_size,
+            out_features=2 * self.intermediate_size,
+            bias=False,
+            params_dtype=config.dtype,
+            device=device,
+            init_method=_init_method,
+        )
+        self.experts_down = transformer_engine.pytorch.GroupedLinear(
+            num_gemms=self.num_experts,
+            in_features=self.intermediate_size,
+            out_features=self.hidden_size,
+            bias=False,
+            params_dtype=config.dtype,
+            device=device,
+            init_method=_init_method,
+        )
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        """Forward pass for the MoE block.
+
+        Args:
+            hidden_states: Input tensor of shape [B, S, H] (bshd) or [T, H] (thd).
+
+        Returns:
+            Output tensor of the same shape as the input.
+        """
+        original_shape = hidden_states.shape
+
+        # Apply multiplicative jitter noise to hidden states during training to encourage load balancing
+        if self.training and self.jitter_noise > 0:
+            hidden_states = hidden_states * torch.empty_like(hidden_states).uniform_(
+                1.0 - self.jitter_noise, 1.0 + self.jitter_noise
+            )
+
+        # Flatten to [N, H] for routing
+        if hidden_states.dim() == 3:
+            hidden_states = hidden_states.reshape(-1, self.hidden_size)
+
+        # Router: compute expert assignments
+        with transformer_engine.pytorch.autocast(enabled=False):
+            # Keep the router logits in bf16 during FP8 training
+            router_logits = self.gate(hidden_states)  # [N, num_experts]
+
+        routing_weights = torch.nn.functional.softmax(router_logits, dim=-1, dtype=torch.float32)
+        routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)  # [N, top_k]
+        # Normalize routing weights
+        routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
+
+        # Permute tokens by expert using TE moe_permute
+        permuted_hidden, row_id_map = transformer_engine.pytorch.moe_permute(
+            hidden_states, selected_experts, map_type="index"
+        )
+
+        # Compute m_splits: number of tokens per expert
+        # selected_experts is [N, top_k], flatten and count per expert
+        flat_experts = selected_experts.reshape(-1)
+        m_splits = torch.histc(flat_experts.float(), bins=self.num_experts, min=0, max=self.num_experts - 1)
+        m_splits = m_splits.int().tolist()
+
+        # Expert computation: gate_up projection
+        gate_up_output = self.experts_gate_up(permuted_hidden, m_splits=m_splits)  # [total_tokens, 2*ffn]
+
+        # Split into gate and up, apply SwiGLU activation
+        gate_output, up_output = gate_up_output.chunk(2, dim=-1)
+        intermediate = torch.nn.functional.silu(gate_output) * up_output
+
+        # Down projection
+        expert_output = self.experts_down(intermediate, m_splits=m_splits)  # [total_tokens, H]
+
+        # Unpermute and combine with routing weights
+        output = transformer_engine.pytorch.moe_unpermute(
+            expert_output,
+            row_id_map,
+            merging_probs=routing_weights.to(expert_output.dtype),
+            map_type="index",
+        )
+
+        # Reshape back to original shape
+        output = output.reshape(original_shape)
+        return output
+
+
+class NVMixtralDecoderLayer(nn.Module):
+    """Mixtral decoder layer using TE attention and MoE MLP."""
+
+    def __init__(self, config: MixtralConfig, layer_idx: int):
+        """Initialize the decoder layer."""
+        super().__init__()
+        self.hidden_size = config.hidden_size
+
+        device = "meta" if torch.get_default_device() == torch.device("meta") else "cuda"
+
+        def _init_method(x):
+            torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
+
+        self.self_attention = transformer_engine.pytorch.MultiheadAttention(
+            hidden_size=config.hidden_size,
+            num_attention_heads=config.num_attention_heads,
+            num_gqa_groups=config.num_key_value_heads,
+            bias=False,
+            layernorm_epsilon=config.rms_norm_eps,
+            attention_dropout=0,
+            fuse_qkv_params=True,
+            qkv_weight_interleaved=True,
+            normalization="RMSNorm",
+            input_layernorm=True,
+            qkv_format=config.attn_input_format,
+            attn_mask_type=config.self_attn_mask_type,
+            layer_number=layer_idx + 1,
+            params_dtype=config.dtype,
+            device=device,
+            init_method=_init_method,
+            output_layer_init_method=_init_method,
+        )
+
+        self.post_attention_layernorm = transformer_engine.pytorch.RMSNorm(
+            config.hidden_size,
+            eps=config.rms_norm_eps,
+            dtype=config.dtype,
+            device=device,
+        )
+
+        self.mlp = NVMixtralSparseMoeBlock(config)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: torch.Tensor | None = None,
+        rotary_pos_emb: torch.Tensor | None = None,
+        inference_params: InferenceParams | None = None,
+        **kwargs,
+    ) -> torch.Tensor:
+        """Forward pass for the decoder layer."""
+        # Self attention with fused input layernorm
+        attn_output = self.self_attention(
+            hidden_states,
+            attention_mask=attention_mask,
+            rotary_pos_emb=rotary_pos_emb,
+            inference_params=inference_params,
+            cu_seqlens_q=kwargs.get("cu_seqlens_q", None),
+            cu_seqlens_kv=kwargs.get("cu_seqlens_kv", None),
+            cu_seqlens_q_padded=kwargs.get("cu_seqlens_q_padded", None),
+            cu_seqlens_kv_padded=kwargs.get("cu_seqlens_kv_padded", None),
+            max_seqlen_q=kwargs.get("max_seqlen_q", None),
+            max_seqlen_kv=kwargs.get("max_seqlen_kv", None),
+            pad_between_seqs=kwargs.get("pad_between_seqs", None),
+        )
+
+        # Residual connection
+        hidden_states = hidden_states + attn_output
+
+        # Post-attention layernorm + MoE MLP + residual
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        hidden_states = residual + hidden_states
+
+        return hidden_states
+
+
+class NVMixtralModel(NVMixtralPreTrainedModel):
+    """Mixtral model implemented in Transformer Engine."""
+
+    def __init__(self, config: MixtralConfig):
+        """Initialize the NVMixtral model."""
         super().__init__(config)
         self.config = config
         self.padding_idx = config.pad_token_id
@@ -112,35 +283,10 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx, dtype=config.dtype)
 
-        def _init_method(x):
-            torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
-
         self.layers = nn.ModuleList(
-            [
-                transformer_engine.pytorch.TransformerLayer(
-                    hidden_size=config.hidden_size,
-                    ffn_hidden_size=config.intermediate_size,
-                    num_attention_heads=config.num_attention_heads,
-                    bias=False,
-                    layernorm_epsilon=config.rms_norm_eps,
-                    hidden_dropout=0,
-                    attention_dropout=0,
-                    fuse_qkv_params=True,
-                    qkv_weight_interleaved=True,
-                    normalization="RMSNorm",
-                    activation="swiglu",
-                    attn_input_format=config.attn_input_format,
-                    self_attn_mask_type=config.self_attn_mask_type,
-                    num_gqa_groups=config.num_key_value_heads,
-                    layer_number=layer_idx + 1,
-                    params_dtype=config.dtype,
-                    device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
-                    init_method=_init_method,
-                    output_layer_init_method=_init_method,
-                )
-                for layer_idx in range(config.num_hidden_layers)
-            ]
+            [NVMixtralDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
+
         self.norm = transformer_engine.pytorch.RMSNorm(
             config.hidden_size,
             eps=config.rms_norm_eps,
@@ -148,14 +294,11 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
         )
 
-        # We use TE's RotaryPositionEmbedding, but we ensure that we use the same inv_freq as the original
-        # LlamaRotaryEmbedding.
         self.rotary_emb = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
         self.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=config).inv_freq
 
         self.gradient_checkpointing = False
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -168,20 +311,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         use_cache: bool | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> BaseModelOutputWithPast:
-        """Forward pass for the NVLlama model.
-
-        Args:
-            input_ids (torch.Tensor): The input ids.
-            attention_mask (torch.Tensor): The attention mask.
-            position_ids (torch.Tensor): The position ids.
-            past_key_values (tuple[tuple[torch.Tensor, ...], ...]): The past key values.
-            inputs_embeds (torch.Tensor): The inputs embeds.
-            use_cache (bool): Whether to use cache.
-            **kwargs: Additional keyword arguments.
-
-        Returns:
-            BaseModelOutputWithPast: The output of the model.
-        """
+        """Forward pass for the NVMixtral model."""
         all_hidden_states = []
         output_hidden_states = kwargs.get("output_hidden_states", False)
 
@@ -193,15 +323,11 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         hidden_states = inputs_embeds
 
-        # TE-specific input handling.
+        # TE-specific input handling
         has_thd_input = [x in kwargs for x in ["cu_seq_lens_q", "cu_seq_lens_k", "max_length_q", "max_length_k"]]
         should_pack_inputs = not any(has_thd_input) and self.config.attn_input_format == "thd"
 
         if should_pack_inputs:
-            # Left-side padding is not supported in TE layers, so to make huggingface-style generation work with TE we
-            # dynamically convert to THD-style inputs in our forward pass, and then convert back to BSHD for the output.
-            # This lets the entire transformer stack run in THD mode. This might be slower for BSHD + padding with fused
-            # attention backend, but it should be faster for the flash attention backend.
             assert attention_mask is not None, "Attention mask is required when packing BSHD inputs."
             batch_size = hidden_states.size(0)
             padded_seq_len = input_ids.size(1)
@@ -210,17 +336,13 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             kwargs["max_length_q"] = kwargs["max_length_k"] = max_seqlen
 
         if self.config.attn_input_format == "thd" and hidden_states.dim() == 3 and hidden_states.size(0) == 1:
-            # For THD, the embedding output is a 3-dimensional tensor with shape [1, total_tokens, hidden_size], but TE
-            # expects a 2-dimensional tensor with shape [total_tokens, hidden_size].
             hidden_states = hidden_states.squeeze(0)
 
         if self.config.attn_input_format == "bshd" and attention_mask is not None and attention_mask.dim() == 2:
             # Convert HF mask (1=attend, 0=pad) to TE boolean mask (True=masked, False=attend)
             attention_mask = ~attention_mask[:, None, None, :].bool()
 
-        if isinstance(past_key_values, InferenceParams):  # InferenceParams is TE's way of managing kv-caching.
-            # In generation mode, we set the length to 1 for each batch index. Otherwise, we use the attention mask to
-            # compute the lengths of each sequence in the batch.
+        if isinstance(past_key_values, InferenceParams):
             lengths = (
                 attention_mask.sum(dim=1).tolist()
                 if attention_mask.shape == input_ids.shape
@@ -228,7 +350,6 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             )
             past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths)))
 
-        # Ensure that rotary embeddings are computed with at a higher precision
         with torch.autocast(device_type="cuda", enabled=False):
             te_rope_emb = self.rotary_emb(max_seq_len=self.config.max_position_embeddings)
 
@@ -252,13 +373,10 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         hidden_states = self.norm(hidden_states)
 
-        # add hidden states from the last decoder layer. Note that these will be in THD format; we could possibly pad
-        # these with the same _pad_input call as below if we wanted them returned in BSHD format.
         if output_hidden_states:
             all_hidden_states = (*all_hidden_states, hidden_states)
 
         if should_pack_inputs:
-            # If we've converted BSHD to THD for our TE layers, we need to convert back to BSHD for the output.
             hidden_states = _pad_input(hidden_states, indices, batch_size, padded_seq_len)
 
         return BaseModelOutputWithPast(
@@ -268,16 +386,17 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         )
 
 
-class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
-    """Llama3 model with causal language head."""
+class NVMixtralForCausalLM(NVMixtralPreTrainedModel, __import__("transformers").GenerationMixin):
+    """Mixtral model with causal language head."""
 
-    _tied_weights_keys: ClassVar[dict[str, str]] = {"lm_head.weight": "model.embed_tokens.weight"}
+    _tied_weights_keys: ClassVar[list[str]] = []
 
     def __init__(self, config):
-        """Initialize the NVLlamaForCausalLM model."""
+        """Initialize the NVMixtralForCausalLM model."""
         super().__init__(config)
-        self.model = NVLlamaModel(config)
+        self.model = NVMixtralModel(config)
         self.vocab_size = config.vocab_size
+
         with transformer_engine.pytorch.quantized_model_init(enabled=False):
             self.lm_head = transformer_engine.pytorch.Linear(
                 config.hidden_size,
@@ -288,7 +407,6 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
                 init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
             )
 
-        # Initialize weights and apply final processing
         self.post_init()
 
     def forward(
@@ -305,27 +423,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         logits_to_keep: int | torch.Tensor = 0,
         **kwargs: Unpack[TransformersKwargs],
     ) -> CausalLMOutputWithPast:
-        """Forward pass for the NVLlamaForCausalLM model.
-
-        Args:
-            input_ids (torch.Tensor): The input ids.
-            attention_mask (torch.Tensor): The attention mask.
-            position_ids (torch.Tensor): The position ids.
-            past_key_values (tuple[tuple[torch.Tensor, ...], ...]): The past key values.
-            inputs_embeds (torch.Tensor): The inputs embeds.
-            labels (torch.Tensor): The labels.
-            shift_labels (torch.Tensor): Labels that have already been shifted by the dataloader, to be used instead of
-                labels for the loss function. For context parallelism, it is more reliable to shift the labels before
-                splitting the batch into shards.
-            use_cache (bool): Whether to use cache.
-            cache_position (torch.Tensor): The cache position.
-            logits_to_keep (int | torch.Tensor): Whether to keep only the last logits to reduce the memory footprint of
-                the model during generation.
-            **kwargs: Additional keyword arguments.
-
-        Returns:
-            CausalLMOutputWithPast: The output of the model.
-        """
+        """Forward pass for the NVMixtralForCausalLM model."""
         outputs: BaseModelOutputWithPast = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -338,13 +436,12 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
-        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
 
         with transformer_engine.pytorch.autocast(enabled=False):
             if hidden_states.ndim == 3:
                 logits = self.lm_head(hidden_states[:, slice_indices, :])
-            else:  # With THD inputs, batch and sequence dimensions are collapsed in the first dimension.
+            else:
                 logits = self.lm_head(hidden_states[slice_indices, :])
 
         loss = None
@@ -362,24 +459,11 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         )
 
 
-class NVLlamaForSequenceClassification(
-    transformers.modeling_layers.GenericForSequenceClassification, NVLlamaPreTrainedModel
-):
-    """Llama3 model with sequence classification head."""
-
-
-class NVLlamaForQuestionAnswering(transformers.modeling_layers.GenericForQuestionAnswering, NVLlamaPreTrainedModel):
-    """Llama3 model with question answering head."""
-
-    base_model_prefix = "transformer"  # For BC, where `transformer` was used instead of `model`
-
-
-class NVLlamaForTokenClassification(
-    transformers.modeling_layers.GenericForTokenClassification, NVLlamaPreTrainedModel
-):
-    """Llama3 model with token classification head."""
-
-
+# Required for torch.compile'd functions below (_pad_input, _unpad_input) that use
+# data-dependent scalar values (e.g., max_seqlen_in_batch.item()). Without this,
+# torch._dynamo will raise a GuardOnDataDependentSymNode error during tracing.
+# This must be set at module level because torch.compile traces lazily on first call,
+# so a scoped setting would not be active at trace time.
 torch._dynamo.config.capture_scalar_outputs = True
 
 
@@ -388,15 +472,6 @@ def _pad_input(hidden_states, indices, batch, seqlen):
     """Convert a THD tensor to a BSHD equivalent tensor.
 
     Adapted from huggingface/transformers/modeling_flash_attention_utils.py
-
-    Arguments:
-        hidden_states: (total_nnz, ...), where total_nnz = number of tokens in selected in attention_mask.
-        indices: (total_nnz), the indices that represent the non-masked tokens of the original padded input sequence.
-        batch: int, batch size for the padded sequence.
-        seqlen: int, maximum sequence length for the padded sequence.
-
-    Return:
-        hidden_states: (batch, seqlen, ...)
     """
     dim = hidden_states.shape[1:]
     output = torch.zeros((batch * seqlen), *dim, device=hidden_states.device, dtype=hidden_states.dtype)
@@ -409,29 +484,17 @@ def _unpad_input(hidden_states, attention_mask, unused_mask=None):
     """Convert a BSHD tensor to a THD equivalent tensor.
 
     Adapted from huggingface/transformers/modeling_flash_attention_utils.py
-
-    Arguments:
-        hidden_states: (batch, seqlen, ...)
-        attention_mask: (batch, seqlen), bool / int, 1 means valid and 0 means not valid.
-        unused_mask: (batch, seqlen), bool / int, 1 means the element is allocated but unused.
-
-    Return:
-        hidden_states: (total_nnz, ...), where total_nnz = number of tokens selected in attention_mask + unused_mask.
-        indices: (total_nnz), the indices of masked tokens from the flattened input sequence.
-        cu_seqlens: (batch + 1), the cumulative sequence lengths, used to index into hidden_states.
-        max_seqlen_in_batch: int
-        seqused: (batch), returns the number of tokens selected in attention_mask + unused_mask.
     """
     batch_size = hidden_states.size(0)
     seq_length = hidden_states.size(1)
 
-    if attention_mask.shape[1] != seq_length:  # Likely in generation mode with kv-caching
+    if attention_mask.shape[1] != seq_length:
         return (
-            hidden_states.squeeze(1),  # hidden_states
-            torch.arange(batch_size, dtype=torch.int64, device=hidden_states.device),  # indices
-            torch.arange(batch_size + 1, dtype=torch.int32, device=hidden_states.device),  # cu_seqlens
-            1,  # max_seqlen
-            1,  # seqused
+            hidden_states.squeeze(1),
+            torch.arange(batch_size, dtype=torch.int64, device=hidden_states.device),
+            torch.arange(batch_size + 1, dtype=torch.int32, device=hidden_states.device),
+            1,
+            1,
         )
 
     all_masks = (attention_mask + unused_mask) if unused_mask is not None else attention_mask
