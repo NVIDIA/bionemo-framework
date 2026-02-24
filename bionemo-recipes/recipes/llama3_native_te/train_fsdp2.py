@@ -51,7 +51,7 @@ from checkpoint import (
     should_save_checkpoint,
 )
 from dataloader_diagnostics import DataloaderDiagnostics
-from dataset import create_bshd_dataloader, create_thd_dataloader
+from dataset import DiagnosticStreamingWrapper, create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from fp8_debugging import initialize_fp8_debugging
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
@@ -832,6 +832,7 @@ def main(args: DictConfig) -> float | None:
 
     # Setup batch-level diagnostics
     batch_diag = None
+    streaming_diag = None
     if enable_diagnostics:
         diag_tag = (
             "eden_thd"
@@ -846,6 +847,10 @@ def main(args: DictConfig) -> float | None:
             log_every_n_steps=100,
             enabled=True,
         )
+        # Extract streaming diagnostics from DiagnosticStreamingWrapper if present
+        if isinstance(dataset_or_sampler, DiagnosticStreamingWrapper):
+            streaming_diag = dataset_or_sampler.diag
+            logger.info("[DIAGNOSTICS] Found StreamingDatasetDiagnostics, will log shard summaries")
 
     gc.collect()
     torch.cuda.empty_cache()
@@ -879,6 +884,8 @@ def main(args: DictConfig) -> float | None:
                 batch_diag.log_batch(step, batch)
                 if step % 500 == 0 and micro_step == 0:
                     batch_diag.log_summary(step)
+                    if streaming_diag is not None:
+                        streaming_diag.log_shard_summary(step)
 
             micro_step += 1
 
@@ -1024,6 +1031,9 @@ def main(args: DictConfig) -> float | None:
     if batch_diag is not None:
         batch_diag.log_summary(step)
         batch_diag.close()
+    if streaming_diag is not None:
+        streaming_diag.log_shard_summary(step)
+        streaming_diag.close()
 
     # Clean up distributed training
     perf_logger.finish()
