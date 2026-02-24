@@ -50,7 +50,18 @@ def main():
     parser.add_argument("--text-column", type=str, default="text")
     args = parser.parse_args()
 
-    import polars as pl
+    try:
+        import polars as pl
+
+        def read_parquet(f, col):
+            return pl.read_parquet(f, columns=[col])[col].str.len_chars().to_list()
+
+    except ImportError:
+        import pyarrow.parquet as pq
+
+        def read_parquet(f, col):
+            table = pq.read_table(f, columns=[col])
+            return [len(s.as_py()) for s in table.column(col)]
 
     shard_files = sorted(Path(args.input_dir).glob("*.parquet"))
     if not shard_files:
@@ -70,9 +81,8 @@ def main():
     all_windows_per_seq = []
 
     for i, f in enumerate(shard_files):
-        df = pl.read_parquet(f, columns=[args.text_column])
-        n_seqs = len(df)
-        lengths = df[args.text_column].str.len_chars().to_list()
+        lengths = read_parquet(f, args.text_column)
+        n_seqs = len(lengths)
         windows = [compute_num_windows(seq_len, args.window_size, args.stride) for seq_len in lengths]
         total_windows = sum(windows)
 
