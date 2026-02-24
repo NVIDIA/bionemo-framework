@@ -43,6 +43,10 @@ diagnostics_log_dir: /data/results/diagnostics/eden
 # Short run — just enough steps to capture meaningful patterns
 num_train_steps: 2000
 
+# Validation disabled for diagnostic runs
+validation:
+  enabled: false
+
 # Log every step for fine-grained analysis
 logger:
   frequency: 1

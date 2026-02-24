@@ -110,13 +110,9 @@ diagnostics_log_dir: /data/results/diagnostics/hf_window_shuffle
 # Short run — match Eden diagnostic run
 num_train_steps: 2000
 
-# Validation — use same val data if available
+# Validation disabled for diagnostic runs
 validation:
-  enabled: true
-  eval_interval: 500
-  num_batches: 40
-  data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
-  micro_batch_size: 8
+  enabled: false
 
 logger:
   frequency: 1
