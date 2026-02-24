@@ -94,15 +94,28 @@ def main():
         all_seq_lengths.extend(lengths)
         all_windows_per_seq.extend(windows)
 
+        # THD estimate: how many packed 8192-token steps does this shard represent?
+        thd_steps_this_shard = shard_chars / 8192
+
         if i < 10 or (i + 1) == len(shard_files):
             print(
                 f"  {f.name}: {n_seqs:,} seqs, {total_windows:,} windows, "
                 f"total chars: {shard_chars:,}, "
+                f"THD steps: {thd_steps_this_shard:,.0f}, "
                 f"avg seq len: {np.mean(lengths):,.0f}, "
                 f"median seq len: {np.median(lengths):,.0f}"
             )
         elif i == 10:
             print(f"  ... ({len(shard_files) - 10} more shards) ...")
+        elif (i + 1) % 50 == 0:
+            running_chars = sum(all_shard_total_chars)
+            running_windows = sum(all_shard_windows)
+            running_thd_steps = running_chars / 8192
+            print(
+                f"  [{i + 1}/{len(shard_files)}] "
+                f"{running_chars:,} chars, {running_windows:,} windows, "
+                f"{running_thd_steps:,.0f} THD micro-steps so far"
+            )
 
     print(f"\n{'=' * 80}")
     print(f"SUMMARY ({len(shard_files)} shards)")
@@ -158,24 +171,48 @@ def main():
 
     avg_window_tokens = min(seq_lengths.mean(), 8192)
 
-    print(f"\n  Avg window length: ~{avg_window_tokens:,.0f} tokens")
-    print(f"  Windows per micro-step (token packing): ~{8192 / avg_window_tokens:.1f}")
-    print(f"  Windows per optimizer step per rank: ~{8192 / avg_window_tokens * 8:.0f}")
+    # THD (token packing) estimates — based on characters consumed
+    thd_micro_steps_total = total_chars / 8192
+    thd_micro_steps_per_rank = thd_micro_steps_total / 48
+    thd_optimizer_steps_per_epoch = thd_micro_steps_per_rank / 8  # grad_acc=8
+
+    print("\n  THD (token packing) estimates:")
+    print(f"    Total chars: {total_chars:,}")
+    print(f"    Total THD micro-steps (all ranks): {thd_micro_steps_total:,.0f}")
+    print(f"    THD micro-steps per rank: {thd_micro_steps_per_rank:,.0f}")
+    print(f"    Optimizer steps per epoch (grad_acc=8): {thd_optimizer_steps_per_epoch:,.0f}")
+    print(f"    Epochs in 180k steps: {180000 / thd_optimizer_steps_per_epoch:.1f}")
+    print("    (Compare to Peter's estimate: 1,161 steps per epoch)")
+
+    # Per-shard THD estimates
+    avg_chars_per_shard = total_chars / len(shard_files)
+    thd_micro_steps_per_shard = avg_chars_per_shard / 8192
+    print(f"\n    Chars per shard: {avg_chars_per_shard:,.0f}")
+    print(f"    THD micro-steps per shard: {thd_micro_steps_per_shard:,.0f}")
+    print(f"    THD optimizer steps per shard (grad_acc=8): {thd_micro_steps_per_shard / 8:,.0f}")
+
+    # Window-based estimates (for reference)
+    print("\n  Window-based estimates (for reference):")
+    print(f"    Total windows: {total_windows:,}")
+    print(f"    Avg window length: ~{avg_window_tokens:,.0f} tokens")
+    print(f"    Windows per micro-step (token packing): ~{8192 / avg_window_tokens:.1f}")
+    print(f"    Windows per optimizer step per rank: ~{8192 / avg_window_tokens * 8:.0f}")
 
     per_rank_windows = total_windows / 48
-    windows_per_step = 8192 / avg_window_tokens * 8
-    steps_per_epoch = per_rank_windows / windows_per_step
-
-    print("\n  With 48 ranks:")
     print(f"    Windows per rank: {per_rank_windows:,.0f}")
-    print(f"    Steps per epoch: {steps_per_epoch:,.0f}")
-    print(f"    Epochs in 180k steps: {180000 / steps_per_epoch:.1f}")
 
+    # Buffer estimates
     buffer_size = 50000
-    buffer_turnover = buffer_size / windows_per_step
-    print("\n  With 50k buffer:")
+    buffer_chars = buffer_size * avg_window_tokens
+    per_rank_chars = total_chars / 48
+    print("\n  Buffer estimates (50k window buffer):")
+    print(f"    Buffer windows: {buffer_size:,}")
+    print(f"    Buffer chars: ~{buffer_chars:,.0f}")
+    print(f"    Per-rank total chars: {per_rank_chars:,.0f}")
+    print(f"    Buffer as % of per-rank chars: {100 * buffer_chars / per_rank_chars:.2f}%")
     print(f"    Buffer as % of per-rank windows: {100 * buffer_size / per_rank_windows:.2f}%")
-    print(f"    Buffer turnover: every {buffer_turnover:,.0f} steps")
+    thd_buffer_turnover = buffer_size / (8192 / avg_window_tokens * 8)
+    print(f"    Buffer turnover: every {thd_buffer_turnover:,.0f} optimizer steps")
 
 
 if __name__ == "__main__":
