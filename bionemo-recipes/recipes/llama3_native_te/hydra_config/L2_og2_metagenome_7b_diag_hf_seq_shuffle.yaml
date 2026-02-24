@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# DIAGNOSTIC RUN: HF Sequence Shuffle (NO window shuffle) + BF16/FP32 master weights + NO FP8
+#
+# Purpose: Understand why sequence shuffle doesn't overfit as badly as window shuffle
+# but has higher training loss than Eden.
+#
+# How sequence shuffle works:
+#   1. Raw sequences are shuffled in a 50k-sequence buffer before windowing
+#   2. Each sequence is tokenized into overlapping windows (stride=7992, len=8192)
+#      → overlap between consecutive windows is only 200bp (2.4%), NOT 97.5%
+#   3. Windows stream out IN ORDER within each sequence (no post-windowing shuffle)
+#
+# Expected diagnostic signatures:
+#   - LOW batch_token_overlap (consecutive windows from the same sequence have
+#     only 200bp/8192bp = 2.4% token overlap, and different starting positions)
+#   - LOW seq_fingerprint_overlap (first-64-token fingerprints differ because
+#     consecutive windows start 7992bp apart in the source sequence)
+#   - consecutive_same_source_rate will also be low since window_token_hash
+#     (first 64 tokens) differs between consecutive windows of the same sequence
+#   - The key signal is NOT token-level overlap but BIOLOGICAL correlation:
+#     consecutive windows from the same sequence cover adjacent genomic regions,
+#     so they share similar GC content, repeat structure, and k-mer distributions
+#     even though the raw tokens differ
+#
+# Why less overfitting than window shuffle:
+#   - The sequence order IS randomized globally (50k-sequence buffer), so the model
+#     sees diverse biological samples across the stream
+#   - Window shuffle's problem is that buffer only mixes windows from nearby shards
+#     (same biological samples), causing SAMPLE-level correlation across many batches.
+#     Sequence shuffle at least randomizes which samples are seen.
+#
+# Why higher training loss than Eden:
+#   - Eden's DistributedSampler interleaves windows from ALL sequences randomly,
+#     so every batch samples from maximally diverse genomic regions. Here,
+#     consecutive batches pull windows from the same sequence's genomic region,
+#     reducing effective training signal per step (biologically correlated,
+#     even if token content differs).
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py \
+#       --config-name L2_og2_metagenome_7b_diag_hf_seq_shuffle \
+#       checkpoint.ckpt_dir=/data/results/diag_hf_seq_shuffle
+
+defaults:
+  - L2_og2_metagenome_7b_diag_hf_window_shuffle
+  - _self_
+
+# OVERRIDE: sequence shuffle only — disable window shuffle
+dataset:
+  shuffle_sequences: true
+  shuffle_windows: false
+  buffer_size: 50000
+  num_workers: 4
+
+diagnostics_log_dir: /data/results/diagnostics/hf_seq_shuffle
+
+wandb:
+  name: og2_7b_diag_hf_seq_shuffle

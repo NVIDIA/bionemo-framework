@@ -200,6 +200,76 @@ class TestStreamingDatasetDiagnostics:
         lines = csv_file.read_text().strip().split("\n")
         assert len(lines) >= 2  # header + data
 
+    def test_detects_same_source_sequence_runs(self, tmp_path):
+        """Test that overlap/prefix hash matching detects same-source-sequence window runs.
+
+        With stride=7992 and window=8192, consecutive windows from the same genomic sequence
+        share 200bp: window N's last 200 tokens == window N+1's first 200 tokens.
+        We simulate this by setting overlap_hash of window N == prefix_hash of window N+1.
+        """
+        diag = StreamingDatasetDiagnostics(
+            rank=0,
+            log_dir=str(tmp_path),
+            tag="same_source",
+            enabled=True,
+        )
+
+        # Simulate 3 windows from sequence A (overlap_hash of N matches prefix_hash of N+1)
+        diag.log_window(
+            shard_idx=0,
+            seq_len_tokens=8192,
+            window_token_hash="a_w0",
+            overlap_hash="overlap_a0",
+            prefix_hash="prefix_a0",
+        )
+        diag.log_window(
+            shard_idx=0,
+            seq_len_tokens=8192,
+            window_token_hash="a_w1",
+            overlap_hash="overlap_a1",
+            prefix_hash="overlap_a0",  # matches prev overlap
+        )
+        diag.log_window(
+            shard_idx=0,
+            seq_len_tokens=8192,
+            window_token_hash="a_w2",
+            overlap_hash="overlap_a2",
+            prefix_hash="overlap_a1",  # matches prev overlap
+        )
+
+        # Simulate 2 windows from sequence B (different prefix, breaks the run)
+        diag.log_window(
+            shard_idx=1,
+            seq_len_tokens=8192,
+            window_token_hash="b_w0",
+            overlap_hash="overlap_b0",
+            prefix_hash="prefix_b0",  # no match
+        )
+        diag.log_window(
+            shard_idx=1,
+            seq_len_tokens=8192,
+            window_token_hash="b_w1",
+            overlap_hash="overlap_b1",
+            prefix_hash="overlap_b0",  # matches prev overlap
+        )
+
+        diag.log_shard_summary(5)
+        diag.close()
+
+        # Read summary
+        summary_file = tmp_path / "shard_summary_same_source_rank0.jsonl"
+        assert summary_file.exists()
+        summary = json.loads(summary_file.read_text().strip())
+
+        # 3 same-source pairs: (a_w0→a_w1), (a_w1→a_w2), (b_w0→b_w1)
+        assert summary["consecutive_same_source_count"] == 3
+        # Rate: 3 same-source pairs out of 4 total adjacent pairs
+        assert abs(summary["consecutive_same_source_rate"] - 3 / 4) < 0.01
+
+        # Run stats: run of 3 (seq A) and run of 2 (seq B)
+        assert summary["same_source_run_stats"]["max_run_length"] == 3
+        assert summary["same_source_run_stats"]["num_runs"] == 2
+
 
 class TestEdenDatasetDiagnostics:
     """Tests for the EdenDatasetDiagnostics class."""

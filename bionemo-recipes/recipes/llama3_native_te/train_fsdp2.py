@@ -34,6 +34,7 @@ except ImportError:
     HAS_NVDLFW_INSPECT = False
 import transformer_engine
 import transformer_engine.pytorch
+import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
@@ -953,6 +954,12 @@ def main(args: DictConfig) -> float | None:
                     grad_norm=total_norm,
                     lr=optimizer.param_groups[0]["lr"],
                 )
+
+                # Log diagnostic metrics to wandb (overlaid with loss curves)
+                if batch_diag is not None:
+                    diag_metrics = batch_diag.get_wandb_metrics()
+                    if diag_metrics and dist_config.is_main_process():
+                        wandb.log(diag_metrics, step=step)
 
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                     save_checkpoint_fsdp2(

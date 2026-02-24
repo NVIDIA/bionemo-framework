@@ -54,6 +54,9 @@ class DiagnosticStreamingWrapper(IterableDataset):
         self._position_counter = 0
 
     def __iter__(self) -> Iterator[dict[str, Any]]:  # noqa: D105
+        import array
+        import hashlib as _hl
+
         for item in self.dataset:
             # Extract shard info if available from HF streaming internals
             shard_idx = None
@@ -63,23 +66,34 @@ class DiagnosticStreamingWrapper(IterableDataset):
             input_ids = item.get("input_ids", [])
             seq_len = len(input_ids)
 
-            # Hash the first 64 tokens to fingerprint the source sequence.
-            # Windows from the same source sequence share the same first ~stride tokens
-            # due to overlapping windowing, so we hash just the first 64 to detect this.
-            # We use the raw byte representation of the integer list, not bytes() which
-            # requires values in [0, 256).
+            # Two hashes for different diagnostic purposes:
+            #
+            # 1. window_token_hash: hash of the first 64 tokens. Unique per window
+            #    position since consecutive windows start stride=7992 tokens apart.
+            #    Useful for detecting exact window duplicates across epochs.
+            #
+            # 2. overlap_hash: hash of the LAST 200 tokens (the overlap region).
+            #    With stride=7992 and window=8192, consecutive windows from the same
+            #    source sequence share their last 200 tokens with the NEXT window's
+            #    first 200 tokens. So if window N's overlap_hash matches window N+1's
+            #    prefix_hash, they come from the same source sequence.
+            #    We track this via a prefix_hash (first 200 tokens) to match against
+            #    the previous window's overlap_hash.
             window_hash = None
+            overlap_hash = None
+            prefix_hash = None
             if seq_len >= 64:
-                import array
-                import hashlib as _hl
-
-                # array.array('l', ...) gives a stable byte representation of the int list
                 window_hash = _hl.md5(array.array("l", input_ids[:64]).tobytes()).hexdigest()[:8]
+            if seq_len >= 200:
+                overlap_hash = _hl.md5(array.array("l", input_ids[-200:]).tobytes()).hexdigest()[:8]
+                prefix_hash = _hl.md5(array.array("l", input_ids[:200]).tobytes()).hexdigest()[:8]
 
             self.diag.log_window(
                 shard_idx=shard_idx,
                 seq_len_tokens=seq_len,
                 window_token_hash=window_hash,
+                overlap_hash=overlap_hash,
+                prefix_hash=prefix_hash,
             )
             yield item
 

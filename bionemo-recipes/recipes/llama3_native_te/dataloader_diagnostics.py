@@ -363,6 +363,43 @@ class DataloaderDiagnostics:
             f"token_overlap={tok_mean:.4f} fingerprint_overlap={fp_mean:.4f}"
         )
 
+    def get_wandb_metrics(self) -> dict[str, float]:
+        """Return the latest diagnostic metrics as a dict suitable for wandb.log().
+
+        Call this after log_batch() to get per-step overlap metrics that can be
+        overlaid with loss curves in wandb for direct correlation analysis.
+
+        Returns:
+            Dictionary with keys like "diag/batch_token_overlap", "diag/seq_fingerprint_overlap",
+            etc. Returns empty dict if diagnostics are disabled.
+        """
+        if not self.enabled:
+            return {}
+
+        metrics: dict[str, float] = {}
+
+        # Latest batch-to-batch overlaps
+        if self._batch_overlaps:
+            metrics["diag/batch_token_overlap"] = self._batch_overlaps[-1]
+        if self._fingerprint_overlaps:
+            metrics["diag/seq_fingerprint_overlap"] = self._fingerprint_overlaps[-1]
+
+        # Rolling averages (smoother signal for wandb charts)
+        if len(self._batch_overlaps) >= 10:
+            recent = list(self._batch_overlaps)[-100:]
+            metrics["diag/batch_token_overlap_avg100"] = sum(recent) / len(recent)
+        if len(self._fingerprint_overlaps) >= 10:
+            recent = list(self._fingerprint_overlaps)[-100:]
+            metrics["diag/seq_fingerprint_overlap_avg100"] = sum(recent) / len(recent)
+
+        # Cumulative diversity
+        if self._all_batch_hashes:
+            total = sum(self._all_batch_hashes.values())
+            unique = len(self._all_batch_hashes)
+            metrics["diag/batch_diversity"] = unique / max(total, 1)
+
+        return metrics
+
     def close(self) -> None:
         """Flush and close all log files."""
         if not self.enabled:
@@ -408,10 +445,19 @@ class StreamingDatasetDiagnostics:
         self._windows_per_sequence: defaultdict[str, int] = defaultdict(int)
 
         # --- Consecutive window similarity ---
-        # Track how similar consecutive yielded windows are by hashing their content.
-        # Adjacent windows from the same source sequence will have overlapping tokens.
+        # Track same-source-sequence runs using overlap/prefix hash matching.
+        # With stride=7992 and window=8192, consecutive windows from the same source
+        # sequence share 200bp: window N's last 200 tokens == window N+1's first 200 tokens.
+        # We detect this by comparing the previous window's overlap_hash (last 200 tokens)
+        # against the current window's prefix_hash (first 200 tokens).
+        self._prev_overlap_hash: str | None = None
+        self._consec_same_source = 0  # Count of consecutive same-source-sequence pairs
+        self._same_source_run_lengths: list[int] = []  # Length of each same-source run
+        self._current_run_length = 1
+
+        # Legacy: also track first-64-token hash matches (detects exact window duplicates)
         self._prev_window_hash: str | None = None
-        self._consec_same_hash = 0  # Count of consecutive windows with same content hash
+        self._consec_same_hash = 0
 
         # --- CSV for per-window tracking (sampled) ---
         window_csv_path = self.log_dir / f"window_order_{tag}_rank{rank}.csv"
@@ -424,6 +470,7 @@ class StreamingDatasetDiagnostics:
                 "window_in_seq_idx",
                 "seq_len_tokens",
                 "window_token_hash",
+                "same_source_as_prev",
             ]
         )
         self._yield_count = 0
@@ -434,6 +481,8 @@ class StreamingDatasetDiagnostics:
         window_in_seq_idx: int | None = None,
         seq_len_tokens: int | None = None,
         window_token_hash: str | None = None,
+        overlap_hash: str | None = None,
+        prefix_hash: str | None = None,
     ) -> None:
         """Log a single window yield from the streaming dataset.
 
@@ -441,8 +490,13 @@ class StreamingDatasetDiagnostics:
             shard_idx: Which shard this window came from (if known).
             window_in_seq_idx: Position of this window within its source sequence.
             seq_len_tokens: Number of tokens in this window.
-            window_token_hash: Hash of the first N tokens, used to detect consecutive
-                windows from the same source sequence.
+            window_token_hash: Hash of the first 64 tokens. Unique per window position
+                since consecutive windows start stride=7992 tokens apart.
+            overlap_hash: Hash of the last 200 tokens of this window. With stride=7992
+                and window=8192, this region overlaps with the NEXT window's first 200
+                tokens if they come from the same source sequence.
+            prefix_hash: Hash of the first 200 tokens of this window. Compared against
+                the PREVIOUS window's overlap_hash to detect same-source-sequence runs.
         """
         if not self.enabled:
             return
@@ -452,7 +506,23 @@ class StreamingDatasetDiagnostics:
         if shard_idx is not None:
             self._shard_access_counts[shard_idx] += 1
 
-        # Track consecutive same-hash windows (same source sequence)
+        # Detect same-source-sequence runs via overlap/prefix hash matching.
+        # If the previous window's last-200-token hash matches this window's
+        # first-200-token hash, these windows come from the same source sequence.
+        same_source = False
+        if self._prev_overlap_hash is not None and prefix_hash is not None:
+            same_source = self._prev_overlap_hash == prefix_hash
+        self._prev_overlap_hash = overlap_hash
+
+        if same_source:
+            self._consec_same_source += 1
+            self._current_run_length += 1
+        else:
+            if self._current_run_length > 1:
+                self._same_source_run_lengths.append(self._current_run_length)
+            self._current_run_length = 1
+
+        # Legacy: track exact window hash duplicates
         if window_token_hash is not None and window_token_hash == self._prev_window_hash:
             self._consec_same_hash += 1
         self._prev_window_hash = window_token_hash
@@ -466,6 +536,7 @@ class StreamingDatasetDiagnostics:
                     window_in_seq_idx if window_in_seq_idx is not None else "",
                     seq_len_tokens if seq_len_tokens is not None else "",
                     window_token_hash if window_token_hash is not None else "",
+                    "1" if same_source else "0",
                 ]
             )
             self._window_file.flush()
@@ -488,11 +559,32 @@ class StreamingDatasetDiagnostics:
         expected_per_shard = total_accesses / num_shards_accessed
         uniformity = 1.0 - (counts_arr.std() / max(expected_per_shard, 1))
 
-        # Consecutive same-source rate: what fraction of adjacent windows came from the
-        # same source sequence? This is the concrete measure of "local mixing" — if the
-        # buffer is too small, adjacent windows in the stream come from the same sequence,
-        # and the model sees correlated data in consecutive steps.
-        consec_same_rate = self._consec_same_hash / max(self._yield_count - 1, 1)
+        # Same-source-sequence rate: what fraction of adjacent window pairs came from
+        # the same parent genomic sequence? Detected via overlap/prefix hash matching
+        # (previous window's last-200-token hash == current window's first-200-token hash).
+        # High values mean the model sees correlated genomic regions in consecutive steps.
+        consec_same_source_rate = self._consec_same_source / max(self._yield_count - 1, 1)
+
+        # Same-source run length stats: how many consecutive windows from the same sequence?
+        # For sequence shuffle (no window shuffle), this equals the number of windows per
+        # sequence. For window shuffle, the buffer breaks up these runs.
+        # Finalize current run if > 1
+        run_lengths = list(self._same_source_run_lengths)
+        if self._current_run_length > 1:
+            run_lengths.append(self._current_run_length)
+
+        run_stats = {}
+        if run_lengths:
+            rl = np.array(run_lengths, dtype=np.float64)
+            run_stats = {
+                "mean_run_length": float(rl.mean()),
+                "max_run_length": int(rl.max()),
+                "median_run_length": float(np.median(rl)),
+                "num_runs": len(run_lengths),
+            }
+
+        # Legacy: exact window hash duplicate rate
+        consec_same_hash_rate = self._consec_same_hash / max(self._yield_count - 1, 1)
 
         summary = {
             "step": step,
@@ -504,16 +596,25 @@ class StreamingDatasetDiagnostics:
             "shard_access_min": int(counts_arr.min()),
             "shard_access_max": int(counts_arr.max()),
             "shard_access_std": float(counts_arr.std()),
-            "consecutive_same_source_count": self._consec_same_hash,
-            "consecutive_same_source_rate": consec_same_rate,
+            "consecutive_same_source_count": self._consec_same_source,
+            "consecutive_same_source_rate": consec_same_source_rate,
+            "same_source_run_stats": run_stats,
+            "consecutive_same_hash_count": self._consec_same_hash,
+            "consecutive_same_hash_rate": consec_same_hash_rate,
             "top_shards": self._shard_access_counts.most_common(10),
         }
 
         logger.info(
             f"[SHARD_DIAG:{self.tag}] step={step} shards={num_shards_accessed} "
-            f"uniformity={uniformity:.4f} consec_same_source={consec_same_rate:.4f} "
-            f"yields={self._yield_count}"
+            f"uniformity={uniformity:.4f} same_source_rate={consec_same_source_rate:.4f} "
+            f"same_hash_rate={consec_same_hash_rate:.4f} yields={self._yield_count}"
         )
+        if run_stats:
+            logger.info(
+                f"[SHARD_DIAG:{self.tag}] same-source runs: "
+                f"mean={run_stats['mean_run_length']:.1f} max={run_stats['max_run_length']} "
+                f"median={run_stats['median_run_length']:.1f} count={run_stats['num_runs']}"
+            )
 
         # Write to shared summary file
         summary_path = self.log_dir / f"shard_summary_{self.tag}_rank{self.rank}.jsonl"
