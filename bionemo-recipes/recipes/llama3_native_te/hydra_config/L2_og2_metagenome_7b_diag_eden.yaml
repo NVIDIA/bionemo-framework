@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# DIAGNOSTIC RUN: Eden (ShardedEden) + BF16/FP32 master weights + NO FP8
+#
+# Purpose: Collect dataloader diagnostics from the Eden dataset to compare
+# against the HF window-shuffle dataset. Uses identical model/optimizer/scheduler
+# settings as the bf16_sanity config.
+#
+# Key comparison axes vs. the HF window-shuffle diagnostic run:
+#   - Data ordering: Eden uses DistributedSampler (true random access every epoch)
+#     vs. HF sequential streaming + buffer shuffle (limited mixing radius)
+#   - Window composition: Eden reads from pre-computed SQLite window indices
+#     vs. HF computes windows on-the-fly during tokenization
+#   - Shard coverage: Eden sees all windows uniformly via sampler
+#     vs. HF streams through shards sequentially
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py \
+#       --config-name L2_og2_metagenome_7b_diag_eden \
+#       checkpoint.ckpt_dir=/data/results/diag_eden
+
+defaults:
+  - L2_og2_metagenome_7b_thd_gqa_bf16_sanity
+  - _self_
+
+# Enable diagnostics
+enable_dataloader_diagnostics: true
+diagnostics_log_dir: /data/results/diagnostics/eden
+
+# Short run — just enough steps to capture meaningful patterns
+num_train_steps: 2000
+
+# Log every step for fine-grained analysis
+logger:
+  frequency: 1
+
+wandb:
+  name: og2_7b_diag_eden
+  project: llama3-metagenome-7b-diagnostics

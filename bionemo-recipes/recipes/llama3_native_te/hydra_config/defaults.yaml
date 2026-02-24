@@ -122,6 +122,11 @@ validation:
   num_batches: 10  # Number of validation batches to evaluate
   data_path: null  # Path to validation data
 
+# Dataloader diagnostics for comparing Eden vs. HF streaming datasets.
+# When enabled, logs batch composition, shuffle quality, and window ordering.
+enable_dataloader_diagnostics: false
+diagnostics_log_dir: null  # null = uses cwd/dataloader_diagnostics/
+
 fp8_stats_config:
   enabled: false
   fp8_stats_file: ./fp8_debugging_stats.yaml

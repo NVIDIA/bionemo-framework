@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# DIAGNOSTIC RUN: HF Window Shuffle — 1 worker, 50k buffer
+#
+# This is the config that shows the most overfitting.
+# Theory: 1 worker streams through all 594 shards sequentially, with a 50k
+# window buffer. The buffer can only mix windows that are within ~50k positions
+# of each other in the stream. Since shards are read sequentially, this means
+# the buffer mostly contains windows from nearby shards (the same biological
+# samples), causing high correlation between adjacent batches.
+
+defaults:
+  - L2_og2_metagenome_7b_diag_hf_window_shuffle
+  - _self_
+
+dataset:
+  num_workers: 1
+  buffer_size: 50000
+
+diagnostics_log_dir: /data/results/diagnostics/hf_ws_w1_b50k
+
+wandb:
+  name: og2_7b_diag_hf_ws_w1_b50k

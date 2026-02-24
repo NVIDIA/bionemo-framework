@@ -1,0 +1,126 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# DIAGNOSTIC RUN: HF Window Shuffle + BF16/FP32 master weights + NO FP8
+#
+# Purpose: Collect dataloader diagnostics from the HF streaming dataset with
+# window shuffling. Uses FP32 master weights to match the Eden diagnostic run
+# (eliminating precision as a variable — we want to isolate the data ordering).
+#
+# Differences from the window shuffle production config:
+#   - FP32 master weights ENABLED (was false in shuffle_windows config)
+#   - FP8 DISABLED (was enabled via defaults in shuffle_windows config)
+#   - Diagnostics enabled
+#   - Uses reshuffled parquet shards (594 shards, globally shuffled sequences)
+#
+# Key comparison axes vs. the Eden diagnostic run:
+#   - Data ordering: HF streams through 594 parquet shards sequentially,
+#     then applies buffer shuffle (buffer_size=50k windows)
+#   - Window composition: windows computed on-the-fly during tokenization
+#   - Shard coverage: each rank gets ~12 shards (594/48), streams them
+#     sequentially within each epoch
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py \
+#       --config-name L2_og2_metagenome_7b_diag_hf_window_shuffle \
+#       checkpoint.ckpt_dir=/data/results/diag_hf_ws
+
+defaults:
+  - L2_og2_metagenome_7b
+  - _self_
+
+# GQA architecture (match Eden diagnostic run)
+config_kwargs:
+  vocab_size: 256
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 8
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: thd
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+  fp8_first_last_bf16: false
+
+# ============ MATCH EDEN DIAGNOSTIC RUN SETTINGS ============
+# FP32 master weights — CRITICAL: match Eden run to isolate data ordering
+use_fp32_master_weights: true
+
+# Megatron-style init (match Eden)
+use_megatron_scaled_init: true
+skip_embedding_weight_decay: false
+
+# Disable meta device (required for FP32 init)
+use_meta_device: false
+
+# FP8 DISABLED — pure BF16 compute (match Eden diagnostic run)
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  fp8_model_init_kwargs:
+    enabled: false
+# =============================================================
+
+# Dataset: HF streaming with window shuffling
+# Use the reshuffled 594-shard parquet dataset
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 1
+  num_workers: 4
+  max_seq_length: 8192
+  stride: 7992  # Match Eden stride
+  buffer_size: 50000
+  shuffle_sequences: true
+  shuffle_windows: true
+  mask_degenerate_bases: true
+  uppercase_labels: false
+  load_dataset_kwargs:
+    path: "parquet"
+    data_files: "/data/opengenome2/json/pretraining_or_both_phases/parquet/*.parquet"
+    split: "train"
+    streaming: true
+
+grad_acc_steps: 8
+
+# Enable diagnostics
+enable_dataloader_diagnostics: true
+diagnostics_log_dir: /data/results/diagnostics/hf_window_shuffle
+
+# Short run — match Eden diagnostic run
+num_train_steps: 2000
+
+# Validation — use same val data if available
+validation:
+  enabled: true
+  eval_interval: 500
+  num_batches: 40
+  data_path: /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_valid_chunk1.jsonl.gz
+  micro_batch_size: 8
+
+logger:
+  frequency: 1
+
+wandb:
+  name: og2_7b_diag_hf_window_shuffle
+  project: llama3-metagenome-7b-diagnostics

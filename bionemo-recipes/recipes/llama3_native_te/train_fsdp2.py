@@ -49,6 +49,7 @@ from checkpoint import (
     save_final_model_fsdp2,
     should_save_checkpoint,
 )
+from dataloader_diagnostics import DataloaderDiagnostics
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from fp8_debugging import initialize_fp8_debugging
@@ -700,6 +701,12 @@ def main(args: DictConfig) -> float | None:
     tensor_dir = getattr(args, "tensor_dir", None)
     use_sharded_eden = getattr(args, "use_sharded_eden", False)
 
+    # Diagnostics config
+    enable_diagnostics = getattr(args, "enable_dataloader_diagnostics", False)
+    diagnostics_log_dir = getattr(args, "diagnostics_log_dir", None)
+    if enable_diagnostics and dist_config.rank == 0:
+        logger.info(f"[DIAGNOSTICS] Dataloader diagnostics enabled, log_dir={diagnostics_log_dir}")
+
     if use_sharded_eden:
         # Use ShardedEdenDataset directly from SQLite (no parquet dumping needed)
         eden_cfg = args.sharded_eden
@@ -718,6 +725,8 @@ def main(args: DictConfig) -> float | None:
             "pad_sequences_to_be_divisible_by": getattr(
                 args.dataset, "pad_sequences_to_be_divisible_by", 8 if args.fp8_config.enabled else None
             ),
+            "enable_diagnostics": enable_diagnostics,
+            "diagnostics_log_dir": diagnostics_log_dir,
         }
         if args.use_sequence_packing:
             eden_kwargs["token_micro_batch_size"] = args.dataset.micro_batch_size * args.dataset.max_seq_length
@@ -738,9 +747,13 @@ def main(args: DictConfig) -> float | None:
             num_workers=args.dataset.get("num_workers", 0),
         )
     elif args.use_sequence_packing:
-        train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
+        train_dataloader, dataset_or_sampler = create_thd_dataloader(
+            dist_config, enable_diagnostics=enable_diagnostics, diagnostics_log_dir=diagnostics_log_dir, **args.dataset
+        )
     else:
-        train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
+        train_dataloader, dataset_or_sampler = create_bshd_dataloader(
+            dist_config, enable_diagnostics=enable_diagnostics, diagnostics_log_dir=diagnostics_log_dir, **args.dataset
+        )
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
@@ -816,6 +829,23 @@ def main(args: DictConfig) -> float | None:
             logger.warning("Validation enabled but no data_path specified, skipping validation")
             val_enabled = False
 
+    # Setup batch-level diagnostics
+    batch_diag = None
+    if enable_diagnostics:
+        diag_tag = (
+            "eden_thd"
+            if use_sharded_eden and args.use_sequence_packing
+            else ("eden_bshd" if use_sharded_eden else ("hf_thd" if args.use_sequence_packing else "hf_bshd"))
+        )
+        batch_diag = DataloaderDiagnostics(
+            rank=dist_config.rank,
+            world_size=dist_config.world_size,
+            log_dir=diagnostics_log_dir,
+            tag=diag_tag,
+            log_every_n_steps=100,
+            enabled=True,
+        )
+
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -842,6 +872,12 @@ def main(args: DictConfig) -> float | None:
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
+
+            # Batch-level diagnostics
+            if batch_diag is not None:
+                batch_diag.log_batch(step, batch)
+                if step % 500 == 0 and micro_step == 0:
+                    batch_diag.log_summary(step)
 
             micro_step += 1
 
@@ -976,6 +1012,11 @@ def main(args: DictConfig) -> float | None:
     # Make sure we don't have any outstanding checkpoint save futures.
     if args.checkpoint.async_save and "fsdp2" in _ckpt_futures and _ckpt_futures["fsdp2"] is not None:
         _ckpt_futures["fsdp2"].result()
+
+    # Clean up diagnostics
+    if batch_diag is not None:
+        batch_diag.log_summary(step)
+        batch_diag.close()
 
     # Clean up distributed training
     perf_logger.finish()

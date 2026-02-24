@@ -29,11 +29,77 @@ from collator import (
     DataCollatorWithFlattening,
     TokenPackingDataset,
 )
+from dataloader_diagnostics import StreamingDatasetDiagnostics
 from distributed_config import DistributedConfig
 from genomic_dataset import GenomicDataCollator
 
 
 logger = logging.getLogger(__name__)
+
+
+class DiagnosticStreamingWrapper(IterableDataset):
+    """Wraps an HF IterableDataset to log window-level diagnostics.
+
+    Intercepts each yielded item and logs shard info, sequence lengths,
+    and ordering information to a StreamingDatasetDiagnostics instance.
+    """
+
+    def __init__(  # noqa: D107
+        self,
+        dataset: datasets.IterableDataset | IterableDataset,
+        diag: StreamingDatasetDiagnostics,
+    ) -> None:
+        self.dataset = dataset
+        self.diag = diag
+        self._position_counter = 0
+
+    def __iter__(self) -> Iterator[dict[str, Any]]:  # noqa: D105
+        for item in self.dataset:
+            # Extract shard info if available from HF streaming internals
+            shard_idx = None
+            if hasattr(item, "_shard_idx"):
+                shard_idx = item._shard_idx
+
+            input_ids = item.get("input_ids", [])
+            seq_len = len(input_ids)
+
+            # Hash the first 64 tokens to fingerprint the source sequence.
+            # Windows from the same source sequence share the same first ~stride tokens
+            # due to overlapping windowing, so we hash just the first 64 to detect this.
+            # We use the raw byte representation of the integer list, not bytes() which
+            # requires values in [0, 256).
+            window_hash = None
+            if seq_len >= 64:
+                import array
+                import hashlib as _hl
+
+                # array.array('l', ...) gives a stable byte representation of the int list
+                window_hash = _hl.md5(array.array("l", input_ids[:64]).tobytes()).hexdigest()[:8]
+
+            self.diag.log_window(
+                shard_idx=shard_idx,
+                seq_len_tokens=seq_len,
+                window_token_hash=window_hash,
+            )
+            yield item
+
+    def set_epoch(self, epoch: int) -> None:
+        """Forward epoch to the underlying dataset."""
+        if hasattr(self.dataset, "set_epoch"):
+            self.dataset.set_epoch(epoch)
+
+    def shuffle(self, *args, **kwargs):
+        """Pass through shuffle to underlying dataset."""
+        if hasattr(self.dataset, "shuffle"):
+            self.dataset = self.dataset.shuffle(*args, **kwargs)
+        return self
+
+    @property
+    def num_shards(self):
+        """Return the number of shards in the underlying dataset."""
+        if hasattr(self.dataset, "num_shards"):
+            return self.dataset.num_shards
+        return 1
 
 
 class InterleavedShuffleDataset(IterableDataset):
@@ -164,6 +230,8 @@ def create_tokenized_dataset(
     interleaved_shuffle: bool = False,
     interleave_chunks: int = 10,
     interleave_skip: int = 50_000,
+    enable_diagnostics: bool = False,
+    diagnostics_log_dir: str | None = None,
 ):
     """Create a tokenized dataset with windowing.
 
@@ -188,6 +256,8 @@ def create_tokenized_dataset(
         interleave_chunks: Number of stream positions to interleave from. Default: 10.
         interleave_skip: Number of windows to skip between chunk starting positions. Default: 50000.
             With 10 chunks and 50k skip, covers first 500k windows of the dataset.
+        enable_diagnostics: Whether to enable diagnostic logging for debugging. Default: False.
+        diagnostics_log_dir: Directory to write diagnostic logs. Default: None (uses cwd).
 
     Returns:
         Tuple of (tokenized_dataset, tokenizer).
@@ -257,6 +327,17 @@ def create_tokenized_dataset(
             logger.info(f"Shuffling windows with buffer_size={buffer_size}")
             tokenized_dataset = tokenized_dataset.shuffle(seed=42, buffer_size=buffer_size)
 
+    # Wrap with diagnostics if enabled
+    if enable_diagnostics and isinstance(tokenized_dataset, (datasets.IterableDataset, InterleavedShuffleDataset)):
+        streaming_diag = StreamingDatasetDiagnostics(
+            rank=distributed_config.rank,
+            log_dir=diagnostics_log_dir,
+            tag="hf_streaming",
+            enabled=True,
+        )
+        tokenized_dataset = DiagnosticStreamingWrapper(tokenized_dataset, streaming_diag)
+        logger.info("[DIAGNOSTICS] Wrapped streaming dataset with diagnostic logger")
+
     # Even in THD mode, we use a base MLM collator that requires a padding token to be set.
     if tokenizer.pad_token is None:
         logger.warning(f"Tokenizer does not have a padding token. Setting it to the EOS token: {tokenizer.eos_token}")
@@ -286,6 +367,8 @@ def create_bshd_dataloader(
     interleaved_shuffle: bool = False,
     interleave_chunks: int = 10,
     interleave_skip: int = 50_000,
+    enable_diagnostics: bool = False,
+    diagnostics_log_dir: str | None = None,
 ):
     """Create a BSHD dataloader for llama3 pre-training.
 
@@ -314,6 +397,8 @@ def create_bshd_dataloader(
             More memory-efficient than large buffer_size. Overrides shuffle_windows. Default: False.
         interleave_chunks: Number of stream positions to interleave from. Default: 10.
         interleave_skip: Windows to skip between chunk starting positions. Default: 50000.
+        enable_diagnostics: Whether to enable diagnostic logging for debugging. Default: False.
+        diagnostics_log_dir: Directory to write diagnostic logs. Default: None (uses cwd).
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -332,9 +417,13 @@ def create_bshd_dataloader(
         interleaved_shuffle=interleaved_shuffle,
         interleave_chunks=interleave_chunks,
         interleave_skip=interleave_skip,
+        enable_diagnostics=enable_diagnostics,
+        diagnostics_log_dir=diagnostics_log_dir,
     )
 
-    if isinstance(tokenized_dataset, (datasets.IterableDataset, InterleavedShuffleDataset)):
+    if isinstance(
+        tokenized_dataset, (datasets.IterableDataset, InterleavedShuffleDataset, DiagnosticStreamingWrapper)
+    ):
         sampler = None
     else:
         sampler = DistributedSampler(
@@ -404,6 +493,8 @@ def create_thd_dataloader(
     interleaved_shuffle: bool = False,
     interleave_chunks: int = 10,
     interleave_skip: int = 50_000,
+    enable_diagnostics: bool = False,
+    diagnostics_log_dir: str | None = None,
 ):
     """Create a dataloader that packs up to the maximum number of tokens per batch.
 
@@ -436,6 +527,8 @@ def create_thd_dataloader(
             More memory-efficient than large buffer_size. Overrides shuffle_windows. Default: False.
         interleave_chunks: Number of stream positions to interleave from. Default: 10.
         interleave_skip: Windows to skip between chunk starting positions. Default: 50000.
+        enable_diagnostics: Whether to enable diagnostic logging for debugging. Default: False.
+        diagnostics_log_dir: Directory to write diagnostic logs. Default: None (uses cwd).
 
     Returns:
         A tuple of (dataloader, dataset_or_sampler).
@@ -453,11 +546,13 @@ def create_thd_dataloader(
         interleaved_shuffle=interleaved_shuffle,
         interleave_chunks=interleave_chunks,
         interleave_skip=interleave_skip,
+        enable_diagnostics=enable_diagnostics,
+        diagnostics_log_dir=diagnostics_log_dir,
     )
 
-    assert isinstance(tokenized_dataset, (datasets.IterableDataset, InterleavedShuffleDataset)), (
-        "THD token packing requires a streaming dataset."
-    )
+    assert isinstance(
+        tokenized_dataset, (datasets.IterableDataset, InterleavedShuffleDataset, DiagnosticStreamingWrapper)
+    ), "THD token packing requires a streaming dataset."
     if token_micro_batch_size is None:
         assert micro_batch_size is not None, "Only one of micro_batch_size or token_micro_batch_size can be provided."
         token_micro_batch_size = micro_batch_size * max_seq_length
