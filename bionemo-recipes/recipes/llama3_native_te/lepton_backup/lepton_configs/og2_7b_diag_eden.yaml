@@ -10,7 +10,7 @@ resource_shape: "gpu.8xh100-sxm"
 
 num_nodes: 6
 gpus_per_node: 8
-num_train_steps: 5000
+num_train_steps: 10000
 micro_batch_size: 1
 grad_acc_steps: 8
 
@@ -57,6 +57,7 @@ logger_frequency: 1
 checkpoint_dir: "/data/savithas/checkpoints/og2-7b-diag-eden"  # pragma: allowlist secret
 save_every_n_steps: 5000
 async_save: false
+resume_from_checkpoint: true
 
 # WandB
 wandb_project: "llama3-metagenome-7b"
