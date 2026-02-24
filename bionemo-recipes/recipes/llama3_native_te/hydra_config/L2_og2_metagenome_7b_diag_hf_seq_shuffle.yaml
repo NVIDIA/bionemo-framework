@@ -64,9 +64,10 @@ dataset:
   shuffle_sequences: true
   shuffle_windows: false
   buffer_size: 50000
-  num_workers: 4
+  num_workers: 1
 
 diagnostics_log_dir: /data/results/diagnostics/hf_seq_shuffle
 
 wandb:
   name: og2_7b_diag_hf_seq_shuffle
+  project: llama3-metagenome-7b

@@ -123,4 +123,4 @@ logger:
 
 wandb:
   name: og2_7b_diag_hf_window_shuffle
-  project: llama3-metagenome-7b-diagnostics
+  project: llama3-metagenome-7b

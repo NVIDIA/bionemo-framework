@@ -49,4 +49,4 @@ logger:
 
 wandb:
   name: og2_7b_diag_eden
-  project: llama3-metagenome-7b-diagnostics
+  project: llama3-metagenome-7b
