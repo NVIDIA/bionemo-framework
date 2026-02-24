@@ -40,8 +40,8 @@ defaults:
 enable_dataloader_diagnostics: true
 diagnostics_log_dir: /data/results/diagnostics/eden
 
-# Short run — just enough steps to capture meaningful patterns
-num_train_steps: 2000
+# Run past warmup (2500 steps) to capture loss divergence patterns
+num_train_steps: 5000
 
 # Validation disabled for diagnostic runs
 validation:
