@@ -845,6 +845,7 @@ def main(args: DictConfig) -> float | None:
             log_dir=diagnostics_log_dir,
             tag=diag_tag,
             log_every_n_steps=100,
+            grad_acc_steps=args.grad_acc_steps,
             enabled=True,
         )
         # Extract streaming diagnostics from DiagnosticStreamingWrapper if present

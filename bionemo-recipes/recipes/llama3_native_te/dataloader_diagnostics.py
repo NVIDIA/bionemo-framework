@@ -55,6 +55,17 @@ class DataloaderDiagnostics:
     to identify why one dataloader overfits while another doesn't.
     """
 
+    # Lookup table: ASCII token ID → base index (0=A, 1=C, 2=G, 3=T, -1=other)
+    _TOKEN_TO_BASE = np.full(256, -1, dtype=np.int8)
+    _TOKEN_TO_BASE[65] = 0  # A
+    _TOKEN_TO_BASE[97] = 0  # a
+    _TOKEN_TO_BASE[67] = 1  # C
+    _TOKEN_TO_BASE[99] = 1  # c
+    _TOKEN_TO_BASE[71] = 2  # G
+    _TOKEN_TO_BASE[103] = 2  # g
+    _TOKEN_TO_BASE[84] = 3  # T
+    _TOKEN_TO_BASE[116] = 3  # t
+
     def __init__(  # noqa: D107
         self,
         rank: int,
@@ -63,12 +74,14 @@ class DataloaderDiagnostics:
         tag: str = "default",
         log_every_n_steps: int = 100,
         rolling_window: int = 1000,
+        grad_acc_steps: int = 8,
         enabled: bool = True,
     ) -> None:
         self.rank = rank
         self.world_size = world_size
         self.tag = tag
         self.log_every_n_steps = log_every_n_steps
+        self.grad_acc_steps = grad_acc_steps
         self.enabled = enabled and (rank == 0)  # Only log on rank 0
 
         if not self.enabled:
@@ -95,47 +108,50 @@ class DataloaderDiagnostics:
                 "max_seq_len",
                 "std_seq_len",
                 "batch_hash",
-                "unique_token_ids_ratio",
                 "gc_content",
                 "n_content",
-                "uppercase_ratio",
-                "batch_token_overlap",
-                "seq_fingerprint_overlap",
+                "kmer4_entropy",
+                "kmer4_cosine_prev",
+                "grad_acc_pairwise_sim",
             ]
         )
 
         # --- Rolling window tracking ---
         self._rolling_window = rolling_window
         self._recent_batch_hashes: deque[str] = deque(maxlen=rolling_window)
-        self._recent_token_hashes: deque[str] = deque(maxlen=rolling_window)
 
-        # --- Batch-to-batch similarity tracking ---
-        # Tracks how much token content overlaps between consecutive batches.
-        # High overlap = windows from the same source sequences appearing in adjacent batches
-        # (the actual signal for poor shuffling, measured directly on the data).
-        self._prev_batch_token_set: set[int] | None = None
-        self._batch_overlaps: deque[float] = deque(maxlen=rolling_window)
+        # --- 4-mer frequency profile (256 dimensions for ACGT alphabet) ---
+        # The 4-mer profile captures species-level signature, GC content, repeat
+        # structure, and biological similarity in a single 256-dim vector.
+        # Cosine similarity of these vectors between consecutive batches is the
+        # primary measure of batch-to-batch autocorrelation.
+        self._prev_kmer_profile: np.ndarray | None = None
+        self._kmer_cosine_history: deque[float] = deque(maxlen=rolling_window)
+        self._latest_kmer_cosine: float = 0.0
 
-        # --- Nucleotide frequency similarity ---
-        # Much more informative than Jaccard of unique token IDs (which is only ~5 values
-        # for genomic data). Compares the actual A/C/G/T PROPORTIONS between consecutive
-        # batches using cosine similarity. If both batches come from the same genomic region
-        # (same organism, similar GC content), cosine ≈ 1.0. If from different regions, lower.
-        self._prev_nuc_freq: np.ndarray | None = None  # [A_frac, C_frac, G_frac, T_frac]
-        self._nuc_freq_cosine: deque[float] = deque(maxlen=rolling_window)
+        # --- Grad accumulation window tracking ---
+        # Stores k-mer profiles for the last grad_acc_steps microbatches.
+        # Mean pairwise cosine within this window = effective sample size proxy.
+        # If the 8 samples in a grad_acc window are highly correlated, gradient
+        # accumulation is amplifying redundancy rather than reducing variance.
+        self._grad_acc_kmer_profiles: list[np.ndarray] = []
+        self._latest_grad_acc_sim: float = 0.0
+        self._grad_acc_sim_history: deque[float] = deque(maxlen=rolling_window)
+
+        # --- k-mer entropy (species diversity proxy) ---
+        # Shannon entropy of the 4-mer distribution. Higher = more diverse content.
+        # Different species have different k-mer profiles, so low entropy = samples
+        # from one organism, high entropy = samples from many organisms.
+        self._kmer_entropy_history: deque[float] = deque(maxlen=rolling_window)
+        self._latest_kmer_entropy: float = 0.0
 
         # --- GC content tracking ---
-        # GC content is the most direct measure of what genomic region we're in.
-        # Low rolling std = stuck on same region. High rolling std = diverse sampling.
         self._gc_content_history: deque[float] = deque(maxlen=rolling_window)
         self._n_content_history: deque[float] = deque(maxlen=rolling_window)
         self._latest_gc_content: float = 0.0
         self._latest_n_content: float = 0.0
 
-        # --- Per-sequence fingerprinting ---
-        # A "sequence fingerprint" is the hash of the first 64 tokens of each sequence in the batch.
-        # Consecutive batches sharing fingerprints means windows from the same source sequence
-        # are appearing in adjacent batches (the root cause of correlation/overfitting).
+        # --- Per-sequence fingerprinting (legacy) ---
         self._prev_batch_fingerprints: set[str] = set()
         self._fingerprint_overlaps: deque[float] = deque(maxlen=rolling_window)
 
@@ -151,6 +167,94 @@ class DataloaderDiagnostics:
         self._summary_file = open(self._summary_path, "w")
 
         logger.info(f"[DIAGNOSTICS] Initialized: tag={tag}, log_dir={self.log_dir}, rolling_window={rolling_window}")
+
+    def _compute_kmer_profile(self, flat_tokens: np.ndarray) -> tuple[np.ndarray, float, float]:
+        """Compute 4-mer frequency vector and GC/N content from flat token array.
+
+        Uses vectorized numpy operations for efficiency (~0.5ms for 8192 tokens).
+
+        Args:
+            flat_tokens: 1D numpy array of token IDs (ASCII values).
+
+        Returns:
+            Tuple of (kmer_counts[256], gc_content, n_content).
+        """
+        # Map ASCII token IDs to base indices (0=A, 1=C, 2=G, 3=T, -1=other)
+        # Clip to 0-255 range to handle any out-of-range token IDs
+        clipped = np.clip(flat_tokens, 0, 255).astype(np.int32)
+        bases = self._TOKEN_TO_BASE[clipped]
+
+        # GC content from base counts
+        base_counts = np.bincount(bases[bases >= 0], minlength=4)
+        a_count, c_count, g_count, t_count = (
+            int(base_counts[0]),
+            int(base_counts[1]),
+            int(base_counts[2]),
+            int(base_counts[3]),
+        )
+        n_count = int(np.sum(clipped == 78)) + int(np.sum(clipped == 110))  # N, n
+        dna_total = a_count + c_count + g_count + t_count + n_count
+        gc_content = (c_count + g_count) / max(dna_total, 1)
+        n_content = n_count / max(dna_total, 1)
+
+        # Compute 4-mer indices using vectorized operations
+        # kmer_idx = b[i]*64 + b[i+1]*16 + b[i+2]*4 + b[i+3]
+        # Cast to int32 first: bases is int8, and 3*64=192 overflows int8 range (-128..127)
+        kmer_counts = np.zeros(256, dtype=np.float64)
+        if len(bases) >= 4:
+            b0 = bases[:-3].astype(np.int32)
+            b1 = bases[1:-2].astype(np.int32)
+            b2 = bases[2:-1].astype(np.int32)
+            b3 = bases[3:].astype(np.int32)
+            all_valid = (b0 >= 0) & (b1 >= 0) & (b2 >= 0) & (b3 >= 0)
+            kmer_idx = b0 * 64 + b1 * 16 + b2 * 4 + b3
+            valid_kmers = kmer_idx[all_valid]
+            if len(valid_kmers) > 0:
+                kmer_counts = np.bincount(valid_kmers, minlength=256).astype(np.float64)
+
+        return kmer_counts, gc_content, n_content
+
+    @staticmethod
+    def _shannon_entropy(counts: np.ndarray) -> float:
+        """Compute Shannon entropy of a count distribution.
+
+        Args:
+            counts: Array of counts (not necessarily normalized).
+
+        Returns:
+            Entropy in bits. Max for 256 bins = log2(256) = 8.0.
+        """
+        total = counts.sum()
+        if total == 0:
+            return 0.0
+        probs = counts / total
+        probs = probs[probs > 0]  # Avoid log(0)
+        return float(-np.sum(probs * np.log2(probs)))
+
+    @staticmethod
+    def _mean_pairwise_cosine(profiles: list[np.ndarray]) -> float:
+        """Compute mean pairwise cosine similarity among a list of unit vectors.
+
+        Args:
+            profiles: List of L2-normalized vectors.
+
+        Returns:
+            Mean cosine similarity across all pairs. Range [0, 1] for non-negative vectors.
+        """
+        n = len(profiles)
+        if n < 2:
+            return 0.0
+        # Stack into matrix and compute cosine via dot products
+        mat = np.stack(profiles)  # (n, 256)
+        gram = mat @ mat.T  # (n, n) cosine similarity matrix (vectors are normalized)
+        # Mean of upper triangle (excluding diagonal)
+        total = 0.0
+        count = 0
+        for i in range(n):
+            for j in range(i + 1, n):
+                total += gram[i, j]
+                count += 1
+        return total / max(count, 1)
 
     def log_batch(self, step: int, batch: dict[str, Any]) -> None:
         """Log diagnostics for a single batch."""
@@ -223,70 +327,52 @@ class DataloaderDiagnostics:
         self._all_batch_hashes[batch_hash] += 1
         self._recent_batch_hashes.append(batch_hash)
 
-        # --- Token composition ---
-        unique_ratio = len(set(flat.tolist())) / max(total_tokens, 1)
-
-        # Token histogram (sample to avoid memory blowup)
+        # --- Token histogram (sample to avoid memory blowup) ---
         if self._total_batches % 10 == 0:
             for tok in flat[:1000]:
                 self._token_histogram[int(tok)] += 1
 
-        # --- Genomic composition (ASCII-based) ---
-        # A=65, C=67, G=71, T=84, N=78, a=97, c=99, g=103, t=116, n=110
-        a_chars = {65, 97}  # A, a
-        c_chars = {67, 99}  # C, c
-        g_chars = {71, 103}  # G, g
-        t_chars = {84, 116}  # T, t
-        n_chars = {78, 110}  # N, n
-        upper_chars = set(range(65, 91))  # A-Z
+        # --- 4-mer frequency profile + genomic composition ---
+        # Compute the 256-dim 4-mer frequency vector from nucleotide tokens.
+        # This is the core representation for all diversity metrics.
+        kmer_profile, gc_content, n_content = self._compute_kmer_profile(flat)
 
-        a_count = sum(1 for t in flat if int(t) in a_chars)
-        c_count = sum(1 for t in flat if int(t) in c_chars)
-        g_count = sum(1 for t in flat if int(t) in g_chars)
-        t_count = sum(1 for t in flat if int(t) in t_chars)
-        gc_count = c_count + g_count
-        n_count = sum(1 for t in flat if int(t) in n_chars)
-        upper_count = sum(1 for t in flat if int(t) in upper_chars)
-
-        dna_total = a_count + c_count + g_count + t_count + n_count
-        gc_content = gc_count / max(dna_total, 1)
-        n_content = n_count / max(dna_total, 1)
-        uppercase_ratio = upper_count / max(total_tokens, 1)
-
-        # Store for wandb logging
+        # Store GC/N content
         self._latest_gc_content = gc_content
         self._latest_n_content = n_content
         self._gc_content_history.append(gc_content)
         self._n_content_history.append(n_content)
 
-        # --- Nucleotide frequency cosine similarity ---
-        # Compare the A/C/G/T PROPORTIONS between consecutive batches.
-        # This is far more informative than Jaccard of unique token IDs (which is
-        # always ~5 values for genomic data and tells you almost nothing).
-        # High cosine = same genomic region (same organism, similar base composition).
-        # Low cosine = different regions (diverse sampling).
-        nuc_freq = np.array([a_count, c_count, g_count, t_count], dtype=np.float64)
-        nuc_norm = np.linalg.norm(nuc_freq)
-        if nuc_norm > 0:
-            nuc_freq_normed = nuc_freq / nuc_norm
-        else:
-            nuc_freq_normed = nuc_freq
+        # --- k-mer entropy (species diversity proxy) ---
+        # Shannon entropy of the 4-mer distribution.
+        # High entropy = diverse sequence content (many species/regions).
+        # Low entropy = repetitive or single-species content.
+        kmer_entropy = self._shannon_entropy(kmer_profile)
+        self._latest_kmer_entropy = kmer_entropy
+        self._kmer_entropy_history.append(kmer_entropy)
 
-        nuc_cosine = 0.0
-        if self._prev_nuc_freq is not None:
-            nuc_cosine = float(np.dot(nuc_freq_normed, self._prev_nuc_freq))
-        self._prev_nuc_freq = nuc_freq_normed
-        self._nuc_freq_cosine.append(nuc_cosine)
+        # --- Batch-to-batch 4-mer cosine similarity (autocorrelation) ---
+        # Cosine of 256-dim k-mer vectors between consecutive microbatches.
+        # This is the KEY metric: high cosine = model seeing same genomic region.
+        kmer_cosine = 0.0
+        kmer_norm = np.linalg.norm(kmer_profile)
+        kmer_normed = kmer_profile / max(kmer_norm, 1e-12)
+        if self._prev_kmer_profile is not None:
+            kmer_cosine = float(np.dot(kmer_normed, self._prev_kmer_profile))
+        self._prev_kmer_profile = kmer_normed
+        self._latest_kmer_cosine = kmer_cosine
+        self._kmer_cosine_history.append(kmer_cosine)
 
-        # --- Batch-to-batch token overlap (legacy, kept for CSV backward compatibility) ---
-        current_token_set = set(flat[:2000].tolist())
-        batch_overlap = 0.0
-        if self._prev_batch_token_set is not None and len(current_token_set) > 0:
-            intersection = len(current_token_set & self._prev_batch_token_set)
-            union = len(current_token_set | self._prev_batch_token_set)
-            batch_overlap = intersection / max(union, 1)
-        self._prev_batch_token_set = current_token_set
-        self._batch_overlaps.append(batch_overlap)
+        # --- Grad accumulation window similarity (ESS proxy) ---
+        # Store k-mer profiles for the current grad_acc window.
+        # Every grad_acc_steps microbatches, compute mean pairwise cosine.
+        # If the 8 samples in a grad_acc window are highly similar,
+        # gradient accumulation is amplifying redundancy.
+        self._grad_acc_kmer_profiles.append(kmer_normed)
+        if len(self._grad_acc_kmer_profiles) >= self.grad_acc_steps:
+            self._latest_grad_acc_sim = self._mean_pairwise_cosine(self._grad_acc_kmer_profiles)
+            self._grad_acc_sim_history.append(self._latest_grad_acc_sim)
+            self._grad_acc_kmer_profiles = []
 
         # --- Per-sequence fingerprinting ---
         # Hash the first 64 tokens of each sequence to detect same-source windows.
@@ -327,12 +413,11 @@ class DataloaderDiagnostics:
                     max_seq_len,
                     f"{std_seq_len:.1f}",
                     batch_hash,
-                    f"{unique_ratio:.4f}",
                     f"{gc_content:.4f}",
                     f"{n_content:.6f}",
-                    f"{uppercase_ratio:.4f}",
-                    f"{batch_overlap:.4f}",
-                    f"{fingerprint_overlap:.4f}",
+                    f"{kmer_entropy:.4f}",
+                    f"{kmer_cosine:.6f}",
+                    f"{self._latest_grad_acc_sim:.6f}",
                 ]
             )
             self._batch_file.flush()
@@ -349,7 +434,6 @@ class DataloaderDiagnostics:
 
         # Duplicate batches overall
         total_duplicates = sum(1 for v in self._all_batch_hashes.values() if v > 1)
-        most_repeated = self._all_batch_hashes.most_common(5)
 
         # Sequence length distribution
         if self._seq_len_histogram:
@@ -366,19 +450,28 @@ class DataloaderDiagnostics:
         else:
             seq_len_stats = {}
 
-        # Batch-to-batch overlap stats
-        overlap_stats = {}
-        if self._batch_overlaps:
-            ov = np.array(list(self._batch_overlaps))
-            overlap_stats["token_overlap_mean"] = float(ov.mean())
-            overlap_stats["token_overlap_p50"] = float(np.percentile(ov, 50))
-            overlap_stats["token_overlap_p90"] = float(np.percentile(ov, 90))
-            overlap_stats["token_overlap_max"] = float(ov.max())
-        if self._fingerprint_overlaps:
-            fp = np.array(list(self._fingerprint_overlaps))
-            overlap_stats["fingerprint_overlap_mean"] = float(fp.mean())
-            overlap_stats["fingerprint_overlap_p90"] = float(np.percentile(fp, 90))
-            overlap_stats["fingerprint_overlap_max"] = float(fp.max())
+        # 4-mer cosine similarity stats (autocorrelation)
+        kmer_cosine_stats = {}
+        if self._kmer_cosine_history:
+            kc = np.array(list(self._kmer_cosine_history))
+            kmer_cosine_stats["mean"] = float(kc.mean())
+            kmer_cosine_stats["std"] = float(kc.std())
+            kmer_cosine_stats["p50"] = float(np.percentile(kc, 50))
+            kmer_cosine_stats["min"] = float(kc.min())
+
+        # k-mer entropy stats (species diversity proxy)
+        kmer_entropy_stats = {}
+        if self._kmer_entropy_history:
+            ke = np.array(list(self._kmer_entropy_history))
+            kmer_entropy_stats["mean"] = float(ke.mean())
+            kmer_entropy_stats["std"] = float(ke.std())
+
+        # Grad acc pairwise similarity stats (ESS proxy)
+        grad_acc_stats = {}
+        if self._grad_acc_sim_history:
+            ga = np.array(list(self._grad_acc_sim_history))
+            grad_acc_stats["mean"] = float(ga.mean())
+            grad_acc_stats["std"] = float(ga.std())
 
         # GC content stats
         gc_stats = {}
@@ -386,19 +479,6 @@ class DataloaderDiagnostics:
             gc_arr = np.array(list(self._gc_content_history))
             gc_stats["gc_mean"] = float(gc_arr.mean())
             gc_stats["gc_std"] = float(gc_arr.std())
-            gc_stats["gc_min"] = float(gc_arr.min())
-            gc_stats["gc_max"] = float(gc_arr.max())
-        if self._n_content_history:
-            n_arr = np.array(list(self._n_content_history))
-            gc_stats["n_content_mean"] = float(n_arr.mean())
-
-        # Nucleotide frequency cosine similarity stats
-        nuc_cosine_stats = {}
-        if self._nuc_freq_cosine:
-            nc = np.array(list(self._nuc_freq_cosine))
-            nuc_cosine_stats["nuc_cosine_mean"] = float(nc.mean())
-            nuc_cosine_stats["nuc_cosine_std"] = float(nc.std())
-            nuc_cosine_stats["nuc_cosine_min"] = float(nc.min())
 
         summary = {
             "step": step,
@@ -406,28 +486,24 @@ class DataloaderDiagnostics:
             "total_batches": self._total_batches,
             "total_tokens_seen": self._total_tokens_seen,
             "rolling_batch_diversity": batch_diversity,
-            "rolling_window_size": recent_total,
             "total_unique_batches": len(self._all_batch_hashes),
             "total_duplicate_batches": total_duplicates,
-            "most_repeated_batches": most_repeated,
             "seq_len_stats": seq_len_stats,
-            "unique_token_ids": len(self._token_histogram),
-            "batch_overlap_stats": overlap_stats,
+            "kmer_cosine_stats": kmer_cosine_stats,
+            "kmer_entropy_stats": kmer_entropy_stats,
+            "grad_acc_pairwise_sim_stats": grad_acc_stats,
             "gc_stats": gc_stats,
-            "nuc_cosine_stats": nuc_cosine_stats,
         }
 
-        # Write to JSONL
         self._summary_file.write(json.dumps(summary) + "\n")
         self._summary_file.flush()
 
-        gc_std = gc_stats.get("gc_std", 0)
-        nuc_cos = nuc_cosine_stats.get("nuc_cosine_mean", 0)
         logger.info(
             f"[DIAG:{self.tag}] step={step} batches={self._total_batches} "
-            f"tokens={self._total_tokens_seen:,} batch_diversity={batch_diversity:.4f} "
-            f"gc_mean={gc_stats.get('gc_mean', 0):.4f} gc_std={gc_std:.4f} "
-            f"nuc_cosine_mean={nuc_cos:.6f}"
+            f"kmer_cosine={kmer_cosine_stats.get('mean', 0):.6f} "
+            f"kmer_entropy={kmer_entropy_stats.get('mean', 0):.4f} "
+            f"grad_acc_sim={grad_acc_stats.get('mean', 0):.6f} "
+            f"gc_mean={gc_stats.get('gc_mean', 0):.4f} gc_std={gc_stats.get('gc_std', 0):.4f}"
         )
 
     def get_wandb_metrics(self) -> dict[str, float]:
@@ -437,13 +513,14 @@ class DataloaderDiagnostics:
         overlaid with loss curves in wandb for direct correlation analysis.
 
         Key metrics for comparing dataloaders:
-          - diag/gc_content: GC% of current batch (direct measure of genomic region)
-          - diag/gc_content_std100: Rolling std of GC% over 100 batches
-              → Low std = stuck on same organism/region (HF WS problem)
-              → High std = diverse sampling (Eden behavior)
-          - diag/nuc_freq_cosine: Cosine similarity of A/C/G/T frequency vectors
-              between consecutive batches. High = similar composition = same region.
-          - diag/n_content: Fraction of N (degenerate) bases in batch
+          - diag/kmer4_cosine_prev: 4-mer cosine similarity between consecutive batches.
+              HIGH = same genomic region (poor shuffling). This is the KEY autocorrelation metric.
+          - diag/kmer4_entropy: Shannon entropy of 4-mer distribution (species diversity proxy).
+              LOW = single species/region, HIGH = diverse content.
+          - diag/grad_acc_pairwise_sim: Mean pairwise 4-mer cosine within a grad_acc window.
+              HIGH = redundant gradient accumulation (ESS proxy).
+          - diag/gc_content: GC% of current batch.
+          - diag/gc_content_std100: Rolling std of GC% over 100 batches.
 
         Returns:
             Dictionary of metric name -> value. Empty dict if diagnostics disabled.
@@ -453,30 +530,34 @@ class DataloaderDiagnostics:
 
         metrics: dict[str, float] = {}
 
-        # --- GC content (most informative single metric) ---
+        # --- 4-mer cosine similarity (autocorrelation — most important metric) ---
+        metrics["diag/kmer4_cosine_prev"] = self._latest_kmer_cosine
+        if len(self._kmer_cosine_history) >= 10:
+            recent_kc = np.array(list(self._kmer_cosine_history)[-100:])
+            metrics["diag/kmer4_cosine_avg100"] = float(recent_kc.mean())
+            metrics["diag/kmer4_cosine_std100"] = float(recent_kc.std())
+
+        # --- k-mer entropy (species diversity proxy) ---
+        metrics["diag/kmer4_entropy"] = self._latest_kmer_entropy
+        if len(self._kmer_entropy_history) >= 10:
+            recent_ke = np.array(list(self._kmer_entropy_history)[-100:])
+            metrics["diag/kmer4_entropy_avg100"] = float(recent_ke.mean())
+
+        # --- Grad accumulation window pairwise similarity (ESS proxy) ---
+        metrics["diag/grad_acc_pairwise_sim"] = self._latest_grad_acc_sim
+        if len(self._grad_acc_sim_history) >= 10:
+            recent_ga = np.array(list(self._grad_acc_sim_history)[-100:])
+            metrics["diag/grad_acc_sim_avg100"] = float(recent_ga.mean())
+
+        # --- GC content ---
         metrics["diag/gc_content"] = self._latest_gc_content
         metrics["diag/n_content"] = self._latest_n_content
-
-        # Rolling GC std: measures data diversity over recent batches.
-        # This is the KEY metric: if std is low, the model is seeing the same
-        # genomic region for many consecutive steps (poor shuffling → overfitting).
         if len(self._gc_content_history) >= 10:
             recent_gc = np.array(list(self._gc_content_history)[-100:])
             metrics["diag/gc_content_std100"] = float(recent_gc.std())
             metrics["diag/gc_content_mean100"] = float(recent_gc.mean())
 
-        # --- Nucleotide frequency cosine similarity ---
-        # Compares actual A/C/G/T proportions between consecutive batches.
-        # Much more informative than Jaccard of unique token IDs.
-        if self._nuc_freq_cosine:
-            metrics["diag/nuc_freq_cosine"] = self._nuc_freq_cosine[-1]
-        if len(self._nuc_freq_cosine) >= 10:
-            recent = list(self._nuc_freq_cosine)[-100:]
-            metrics["diag/nuc_freq_cosine_avg100"] = sum(recent) / len(recent)
-
-        # --- Legacy metrics (kept for backward compatibility) ---
-        if self._batch_overlaps:
-            metrics["diag/batch_token_overlap"] = self._batch_overlaps[-1]
+        # --- Sequence fingerprint overlap (legacy) ---
         if self._fingerprint_overlaps:
             metrics["diag/seq_fingerprint_overlap"] = self._fingerprint_overlaps[-1]
 
