@@ -363,6 +363,7 @@ def run_infer_subprocess_parallel(
     top_k: int = 1,
     seed: int = 42,
     tensor_parallel_size: int = 1,
+    pipeline_model_parallel_size: int = 1,
     context_parallel_size: int = 1,
 ):
     """Helper to run inference as a subprocess with model parallelism.
@@ -379,12 +380,13 @@ def run_infer_subprocess_parallel(
         top_k: Top-k sampling parameter (1 for greedy).
         seed: Random seed for reproducibility.
         tensor_parallel_size: Tensor parallelism degree.
+        pipeline_model_parallel_size: Pipeline parallelism degree.
         context_parallel_size: Context parallelism degree.
 
     Returns:
         The generated text from the output file.
     """
-    nproc_per_node = tensor_parallel_size * context_parallel_size
+    nproc_per_node = tensor_parallel_size * pipeline_model_parallel_size * context_parallel_size
     open_port = find_free_network_port()
 
     cmd = [
@@ -412,6 +414,8 @@ def run_infer_subprocess_parallel(
         str(seed),
         "--tensor-parallel-size",
         str(tensor_parallel_size),
+        "--pipeline-model-parallel-size",
+        str(pipeline_model_parallel_size),
         "--context-parallel-size",
         str(context_parallel_size),
     ]
@@ -625,29 +629,39 @@ def mbridge_checkpoint_7b_1m_path(tmp_path_factory) -> Path:
 @pytest.mark.slow
 @pytest.mark.timeout(900)
 @pytest.mark.parametrize(
-    "tp, cp",
+    "tp, pp, cp",
     [
         # The 7b model has 32 attention heads, supporting TP=1, 2, 4, 8
-        pytest.param(1, 1, id="tp=1,cp=1"),
-        pytest.param(2, 1, id="tp=2,cp=1"),
-        pytest.param(4, 1, id="tp=4,cp=1"),
-        pytest.param(8, 1, id="tp=8,cp=1"),
+        # TP-only configs
+        pytest.param(1, 1, 1, id="tp=1,pp=1,cp=1"),
+        pytest.param(2, 1, 1, id="tp=2,pp=1,cp=1"),
+        pytest.param(4, 1, 1, id="tp=4,pp=1,cp=1"),
+        pytest.param(8, 1, 1, id="tp=8,pp=1,cp=1"),
+        # PP-only configs
+        pytest.param(1, 2, 1, id="tp=1,pp=2,cp=1"),
+        pytest.param(1, 4, 1, id="tp=1,pp=4,cp=1"),
+        pytest.param(1, 8, 1, id="tp=1,pp=8,cp=1"),
+        # Combined TP+PP configs
+        pytest.param(2, 2, 1, id="tp=2,pp=2,cp=1"),
+        pytest.param(4, 2, 1, id="tp=4,pp=2,cp=1"),
+        # CP>1 configs (known broken)
         pytest.param(
             1,
+            1,
             2,
-            id="tp=1,cp=2",
+            id="tp=1,pp=1,cp=2",
             marks=pytest.mark.xfail(reason="CP>1 is known broken for inference", strict=False),
         ),
     ],
 )
 @pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
-def test_parallel_inference_accuracy_7b(mbridge_checkpoint_7b_1m_path, tmp_path, dna_sequences, tp, cp):
+def test_parallel_inference_accuracy_7b(mbridge_checkpoint_7b_1m_path, tmp_path, dna_sequences, tp, pp, cp):
     """Test that parallel inference with the 7b model produces accurate generation results.
 
-    Uses the 7b-1m checkpoint which supports TP>1 (32 attention heads), enabling
-    proper tensor parallel accuracy testing that the 1b model cannot support.
+    Uses the 7b-1m checkpoint which supports TP>1 (32 attention heads) and PP>1,
+    enabling proper tensor and pipeline parallel accuracy testing.
     """
-    num_gpus_required = tp * cp
+    num_gpus_required = tp * pp * cp
     if torch.cuda.device_count() < num_gpus_required:
         pytest.skip(f"Not enough GPUs: need {num_gpus_required}, have {torch.cuda.device_count()}")
 
@@ -672,6 +686,7 @@ def test_parallel_inference_accuracy_7b(mbridge_checkpoint_7b_1m_path, tmp_path,
             top_k=1,  # Greedy decoding
             seed=42,
             tensor_parallel_size=tp,
+            pipeline_model_parallel_size=pp,
             context_parallel_size=cp,
         )
 
