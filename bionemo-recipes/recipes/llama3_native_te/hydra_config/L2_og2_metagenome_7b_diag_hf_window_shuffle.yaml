@@ -96,8 +96,7 @@ dataset:
   mask_degenerate_bases: true
   uppercase_labels: false
   load_dataset_kwargs:
-    path: "parquet"
-    data_files: "/data/opengenome2/json/pretraining_or_both_phases/parquet/*.parquet"
+    path: "/data/opengenome2/parquet"
     split: "train"
     streaming: true
 
