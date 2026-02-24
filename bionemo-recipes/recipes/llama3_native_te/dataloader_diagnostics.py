@@ -76,6 +76,7 @@ class DataloaderDiagnostics:
         rolling_window: int = 1000,
         grad_acc_steps: int = 8,
         enabled: bool = True,
+        resume: bool = False,
     ) -> None:
         self.rank = rank
         self.world_size = world_size
@@ -91,30 +92,34 @@ class DataloaderDiagnostics:
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # --- Per-batch CSV log ---
+        # On resume, append to existing CSV to preserve pre-resume data
         batch_csv_path = self.log_dir / f"batch_stats_{tag}_rank{rank}.csv"
-        self._batch_file = open(batch_csv_path, "w", newline="")
+        file_exists = batch_csv_path.exists() and batch_csv_path.stat().st_size > 0
+        mode = "a" if (resume and file_exists) else "w"
+        self._batch_file = open(batch_csv_path, mode, newline="")
         self._batch_writer = csv.writer(self._batch_file)
-        self._batch_writer.writerow(
-            [
-                "step",
-                "timestamp",
-                "num_sequences",
-                "total_tokens",
-                "valid_tokens",
-                "masked_tokens",
-                "pad_tokens",
-                "mean_seq_len",
-                "min_seq_len",
-                "max_seq_len",
-                "std_seq_len",
-                "batch_hash",
-                "gc_content",
-                "n_content",
-                "kmer4_entropy",
-                "kmer4_cosine_prev",
-                "grad_acc_pairwise_sim",
-            ]
-        )
+        if mode == "w":
+            self._batch_writer.writerow(
+                [
+                    "step",
+                    "timestamp",
+                    "num_sequences",
+                    "total_tokens",
+                    "valid_tokens",
+                    "masked_tokens",
+                    "pad_tokens",
+                    "mean_seq_len",
+                    "min_seq_len",
+                    "max_seq_len",
+                    "std_seq_len",
+                    "batch_hash",
+                    "gc_content",
+                    "n_content",
+                    "kmer4_entropy",
+                    "kmer4_cosine_prev",
+                    "grad_acc_pairwise_sim",
+                ]
+            )
 
         # --- Rolling window tracking ---
         self._rolling_window = rolling_window
@@ -164,7 +169,8 @@ class DataloaderDiagnostics:
 
         # --- Summary JSON log ---
         self._summary_path = self.log_dir / f"summary_{tag}_rank{rank}.jsonl"
-        self._summary_file = open(self._summary_path, "w")
+        summary_mode = "a" if resume else "w"
+        self._summary_file = open(self._summary_path, summary_mode)
 
         logger.info(f"[DIAGNOSTICS] Initialized: tag={tag}, log_dir={self.log_dir}, rolling_window={rolling_window}")
 
@@ -597,6 +603,7 @@ class StreamingDatasetDiagnostics:
         log_dir: str | None = None,
         tag: str = "hf_streaming",
         enabled: bool = True,
+        resume: bool = False,
     ) -> None:
         self.rank = rank
         self.tag = tag
@@ -630,18 +637,21 @@ class StreamingDatasetDiagnostics:
 
         # --- CSV for per-window tracking (sampled) ---
         window_csv_path = self.log_dir / f"window_order_{tag}_rank{rank}.csv"
-        self._window_file = open(window_csv_path, "w", newline="")
+        file_exists = window_csv_path.exists() and window_csv_path.stat().st_size > 0
+        mode = "a" if (resume and file_exists) else "w"
+        self._window_file = open(window_csv_path, mode, newline="")
         self._window_writer = csv.writer(self._window_file)
-        self._window_writer.writerow(
-            [
-                "yield_idx",
-                "shard_idx",
-                "window_in_seq_idx",
-                "seq_len_tokens",
-                "window_token_hash",
-                "same_source_as_prev",
-            ]
-        )
+        if mode == "w":
+            self._window_writer.writerow(
+                [
+                    "yield_idx",
+                    "shard_idx",
+                    "window_in_seq_idx",
+                    "seq_len_tokens",
+                    "window_token_hash",
+                    "same_source_as_prev",
+                ]
+            )
         self._yield_count = 0
 
     def log_window(

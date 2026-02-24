@@ -847,6 +847,7 @@ def main(args: DictConfig) -> float | None:
             log_every_n_steps=100,
             grad_acc_steps=args.grad_acc_steps,
             enabled=True,
+            resume=start_step > 0,
         )
         # Extract streaming diagnostics from DiagnosticStreamingWrapper if present
         if isinstance(dataset_or_sampler, DiagnosticStreamingWrapper):

@@ -14,8 +14,10 @@
 # limitations under the License.
 
 import logging
+import os
 import random
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import datasets
@@ -343,11 +345,15 @@ def create_tokenized_dataset(
 
     # Wrap with diagnostics if enabled
     if enable_diagnostics and isinstance(tokenized_dataset, (datasets.IterableDataset, InterleavedShuffleDataset)):
+        # Auto-detect resume: if the CSV already exists, we're resuming
+        _diag_dir = Path(diagnostics_log_dir) if diagnostics_log_dir else Path(os.getcwd()) / "dataloader_diagnostics"
+        _csv_exists = (_diag_dir / f"window_order_hf_streaming_rank{distributed_config.rank}.csv").exists()
         streaming_diag = StreamingDatasetDiagnostics(
             rank=distributed_config.rank,
             log_dir=diagnostics_log_dir,
             tag="hf_streaming",
             enabled=True,
+            resume=_csv_exists,
         )
         tokenized_dataset = DiagnosticStreamingWrapper(tokenized_dataset, streaming_diag)
         logger.info("[DIAGNOSTICS] Wrapped streaming dataset with diagnostic logger")

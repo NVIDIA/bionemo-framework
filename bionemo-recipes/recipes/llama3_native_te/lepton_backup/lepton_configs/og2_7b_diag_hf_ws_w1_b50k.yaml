@@ -11,7 +11,7 @@ resource_shape: "gpu.8xh100-sxm"
 
 num_nodes: 6
 gpus_per_node: 8
-num_train_steps: 10000
+num_train_steps: 50000
 micro_batch_size: 1
 grad_acc_steps: 8
 
