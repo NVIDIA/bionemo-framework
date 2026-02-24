@@ -48,7 +48,7 @@ for the list of dependencies.
 ### Performance Benchmarks
 
 <p align="center">
-  <img src="../../../docs/docs/assets/images/recipes/70b-cp-benchmarks.png" alt="Llama 3 Context Parallelism Benchmarks" width="100%" />
+  <img src="../../../docs/docs/assets/images/recipes/70b-cp-benchmarks-increasing-ctx.png" alt="Llama 3 Context Parallelism Benchmarks" width="100%" />
 </p>
 
 Scaling Llama 3 70B with Context Parallelism (CP) on 32x NVIDIA GB300 GPUs (NVL32) with synthetic data of increasing
@@ -63,6 +63,13 @@ def compute_model_pflops(seq_len, global_batch_size, step_time_s):
     ) / step_time_s
     return model_flops / 1e15
 ```
+
+Performing the same experiment with a fixed context length of 8192 (increasing micro batch size to hold the global batch
+size constant) more clearly shows the overhead introduced by context parallelism communication.
+
+<p align="center">
+  <img src="../../../docs/docs/assets/images/recipes/70b-cp-benchmarks-flat-ctx.png" alt="Llama 3 Context Parallelism Benchmarks" width="100%" />
+</p>
 
 ### Convergence Benchmarks
 
