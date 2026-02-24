@@ -77,23 +77,27 @@ def main():
 
     all_shard_seqs = []
     all_shard_windows = []
+    all_shard_total_chars = []
     all_seq_lengths = []
     all_windows_per_seq = []
 
     for i, f in enumerate(shard_files):
         lengths = read_parquet(f, args.text_column)
         n_seqs = len(lengths)
+        shard_chars = sum(lengths)
         windows = [compute_num_windows(seq_len, args.window_size, args.stride) for seq_len in lengths]
         total_windows = sum(windows)
 
         all_shard_seqs.append(n_seqs)
         all_shard_windows.append(total_windows)
+        all_shard_total_chars.append(shard_chars)
         all_seq_lengths.extend(lengths)
         all_windows_per_seq.extend(windows)
 
         if i < 10 or (i + 1) == len(shard_files):
             print(
                 f"  {f.name}: {n_seqs:,} seqs, {total_windows:,} windows, "
+                f"total chars: {shard_chars:,}, "
                 f"avg seq len: {np.mean(lengths):,.0f}, "
                 f"median seq len: {np.median(lengths):,.0f}"
             )
@@ -106,6 +110,7 @@ def main():
 
     total_seqs = sum(all_shard_seqs)
     total_windows = sum(all_shard_windows)
+    total_chars = sum(all_shard_total_chars)
     seq_lengths = np.array(all_seq_lengths)
     windows_per_seq = np.array(all_windows_per_seq)
 
@@ -113,6 +118,9 @@ def main():
     print(f"  Total: {total_seqs:,}")
     print(f"  Per shard: {total_seqs // len(shard_files):,} avg")
     print(f"  Min shard: {min(all_shard_seqs):,}, Max shard: {max(all_shard_seqs):,}")
+
+    print(f"\nTotal characters: {total_chars:,}")
+    print("  (Compare to Peter's 3,652,742,371)")
 
     print("\nSequence lengths:")
     print(f"  Mean:   {seq_lengths.mean():,.0f} chars")
