@@ -116,6 +116,22 @@ class DataloaderDiagnostics:
         self._prev_batch_token_set: set[int] | None = None
         self._batch_overlaps: deque[float] = deque(maxlen=rolling_window)
 
+        # --- Nucleotide frequency similarity ---
+        # Much more informative than Jaccard of unique token IDs (which is only ~5 values
+        # for genomic data). Compares the actual A/C/G/T PROPORTIONS between consecutive
+        # batches using cosine similarity. If both batches come from the same genomic region
+        # (same organism, similar GC content), cosine ≈ 1.0. If from different regions, lower.
+        self._prev_nuc_freq: np.ndarray | None = None  # [A_frac, C_frac, G_frac, T_frac]
+        self._nuc_freq_cosine: deque[float] = deque(maxlen=rolling_window)
+
+        # --- GC content tracking ---
+        # GC content is the most direct measure of what genomic region we're in.
+        # Low rolling std = stuck on same region. High rolling std = diverse sampling.
+        self._gc_content_history: deque[float] = deque(maxlen=rolling_window)
+        self._n_content_history: deque[float] = deque(maxlen=rolling_window)
+        self._latest_gc_content: float = 0.0
+        self._latest_n_content: float = 0.0
+
         # --- Per-sequence fingerprinting ---
         # A "sequence fingerprint" is the hash of the first 64 tokens of each sequence in the batch.
         # Consecutive batches sharing fingerprints means windows from the same source sequence
@@ -217,24 +233,53 @@ class DataloaderDiagnostics:
 
         # --- Genomic composition (ASCII-based) ---
         # A=65, C=67, G=71, T=84, N=78, a=97, c=99, g=103, t=116, n=110
-        gc_chars = {67, 71, 99, 103}  # C, G, c, g
+        a_chars = {65, 97}  # A, a
+        c_chars = {67, 99}  # C, c
+        g_chars = {71, 103}  # G, g
+        t_chars = {84, 116}  # T, t
         n_chars = {78, 110}  # N, n
         upper_chars = set(range(65, 91))  # A-Z
 
-        gc_count = sum(1 for t in flat if int(t) in gc_chars)
+        a_count = sum(1 for t in flat if int(t) in a_chars)
+        c_count = sum(1 for t in flat if int(t) in c_chars)
+        g_count = sum(1 for t in flat if int(t) in g_chars)
+        t_count = sum(1 for t in flat if int(t) in t_chars)
+        gc_count = c_count + g_count
         n_count = sum(1 for t in flat if int(t) in n_chars)
         upper_count = sum(1 for t in flat if int(t) in upper_chars)
 
-        dna_total = sum(1 for t in flat if int(t) in {65, 67, 71, 84, 97, 99, 103, 116, 78, 110})
+        dna_total = a_count + c_count + g_count + t_count + n_count
         gc_content = gc_count / max(dna_total, 1)
         n_content = n_count / max(dna_total, 1)
         uppercase_ratio = upper_count / max(total_tokens, 1)
 
-        # --- Batch-to-batch token overlap ---
-        # Measure the Jaccard similarity of unique token positions between consecutive batches.
-        # We use set(token_id * 10000 + position_in_seq % 10000) to fingerprint content.
-        # High overlap = the model is seeing nearly identical data in adjacent steps.
-        current_token_set = set(flat[:2000].tolist())  # Sample first 2000 tokens for efficiency
+        # Store for wandb logging
+        self._latest_gc_content = gc_content
+        self._latest_n_content = n_content
+        self._gc_content_history.append(gc_content)
+        self._n_content_history.append(n_content)
+
+        # --- Nucleotide frequency cosine similarity ---
+        # Compare the A/C/G/T PROPORTIONS between consecutive batches.
+        # This is far more informative than Jaccard of unique token IDs (which is
+        # always ~5 values for genomic data and tells you almost nothing).
+        # High cosine = same genomic region (same organism, similar base composition).
+        # Low cosine = different regions (diverse sampling).
+        nuc_freq = np.array([a_count, c_count, g_count, t_count], dtype=np.float64)
+        nuc_norm = np.linalg.norm(nuc_freq)
+        if nuc_norm > 0:
+            nuc_freq_normed = nuc_freq / nuc_norm
+        else:
+            nuc_freq_normed = nuc_freq
+
+        nuc_cosine = 0.0
+        if self._prev_nuc_freq is not None:
+            nuc_cosine = float(np.dot(nuc_freq_normed, self._prev_nuc_freq))
+        self._prev_nuc_freq = nuc_freq_normed
+        self._nuc_freq_cosine.append(nuc_cosine)
+
+        # --- Batch-to-batch token overlap (legacy, kept for CSV backward compatibility) ---
+        current_token_set = set(flat[:2000].tolist())
         batch_overlap = 0.0
         if self._prev_batch_token_set is not None and len(current_token_set) > 0:
             intersection = len(current_token_set & self._prev_batch_token_set)
@@ -335,6 +380,26 @@ class DataloaderDiagnostics:
             overlap_stats["fingerprint_overlap_p90"] = float(np.percentile(fp, 90))
             overlap_stats["fingerprint_overlap_max"] = float(fp.max())
 
+        # GC content stats
+        gc_stats = {}
+        if self._gc_content_history:
+            gc_arr = np.array(list(self._gc_content_history))
+            gc_stats["gc_mean"] = float(gc_arr.mean())
+            gc_stats["gc_std"] = float(gc_arr.std())
+            gc_stats["gc_min"] = float(gc_arr.min())
+            gc_stats["gc_max"] = float(gc_arr.max())
+        if self._n_content_history:
+            n_arr = np.array(list(self._n_content_history))
+            gc_stats["n_content_mean"] = float(n_arr.mean())
+
+        # Nucleotide frequency cosine similarity stats
+        nuc_cosine_stats = {}
+        if self._nuc_freq_cosine:
+            nc = np.array(list(self._nuc_freq_cosine))
+            nuc_cosine_stats["nuc_cosine_mean"] = float(nc.mean())
+            nuc_cosine_stats["nuc_cosine_std"] = float(nc.std())
+            nuc_cosine_stats["nuc_cosine_min"] = float(nc.min())
+
         summary = {
             "step": step,
             "tag": self.tag,
@@ -348,49 +413,72 @@ class DataloaderDiagnostics:
             "seq_len_stats": seq_len_stats,
             "unique_token_ids": len(self._token_histogram),
             "batch_overlap_stats": overlap_stats,
+            "gc_stats": gc_stats,
+            "nuc_cosine_stats": nuc_cosine_stats,
         }
 
         # Write to JSONL
         self._summary_file.write(json.dumps(summary) + "\n")
         self._summary_file.flush()
 
-        fp_mean = overlap_stats.get("fingerprint_overlap_mean", 0)
-        tok_mean = overlap_stats.get("token_overlap_mean", 0)
+        gc_std = gc_stats.get("gc_std", 0)
+        nuc_cos = nuc_cosine_stats.get("nuc_cosine_mean", 0)
         logger.info(
             f"[DIAG:{self.tag}] step={step} batches={self._total_batches} "
             f"tokens={self._total_tokens_seen:,} batch_diversity={batch_diversity:.4f} "
-            f"duplicates={total_duplicates} seq_len_mean={seq_len_stats.get('mean', 0):.1f} "
-            f"token_overlap={tok_mean:.4f} fingerprint_overlap={fp_mean:.4f}"
+            f"gc_mean={gc_stats.get('gc_mean', 0):.4f} gc_std={gc_std:.4f} "
+            f"nuc_cosine_mean={nuc_cos:.6f}"
         )
 
     def get_wandb_metrics(self) -> dict[str, float]:
         """Return the latest diagnostic metrics as a dict suitable for wandb.log().
 
-        Call this after log_batch() to get per-step overlap metrics that can be
+        Call this after log_batch() to get per-step metrics that can be
         overlaid with loss curves in wandb for direct correlation analysis.
 
+        Key metrics for comparing dataloaders:
+          - diag/gc_content: GC% of current batch (direct measure of genomic region)
+          - diag/gc_content_std100: Rolling std of GC% over 100 batches
+              → Low std = stuck on same organism/region (HF WS problem)
+              → High std = diverse sampling (Eden behavior)
+          - diag/nuc_freq_cosine: Cosine similarity of A/C/G/T frequency vectors
+              between consecutive batches. High = similar composition = same region.
+          - diag/n_content: Fraction of N (degenerate) bases in batch
+
         Returns:
-            Dictionary with keys like "diag/batch_token_overlap", "diag/seq_fingerprint_overlap",
-            etc. Returns empty dict if diagnostics are disabled.
+            Dictionary of metric name -> value. Empty dict if diagnostics disabled.
         """
         if not self.enabled:
             return {}
 
         metrics: dict[str, float] = {}
 
-        # Latest batch-to-batch overlaps
+        # --- GC content (most informative single metric) ---
+        metrics["diag/gc_content"] = self._latest_gc_content
+        metrics["diag/n_content"] = self._latest_n_content
+
+        # Rolling GC std: measures data diversity over recent batches.
+        # This is the KEY metric: if std is low, the model is seeing the same
+        # genomic region for many consecutive steps (poor shuffling → overfitting).
+        if len(self._gc_content_history) >= 10:
+            recent_gc = np.array(list(self._gc_content_history)[-100:])
+            metrics["diag/gc_content_std100"] = float(recent_gc.std())
+            metrics["diag/gc_content_mean100"] = float(recent_gc.mean())
+
+        # --- Nucleotide frequency cosine similarity ---
+        # Compares actual A/C/G/T proportions between consecutive batches.
+        # Much more informative than Jaccard of unique token IDs.
+        if self._nuc_freq_cosine:
+            metrics["diag/nuc_freq_cosine"] = self._nuc_freq_cosine[-1]
+        if len(self._nuc_freq_cosine) >= 10:
+            recent = list(self._nuc_freq_cosine)[-100:]
+            metrics["diag/nuc_freq_cosine_avg100"] = sum(recent) / len(recent)
+
+        # --- Legacy metrics (kept for backward compatibility) ---
         if self._batch_overlaps:
             metrics["diag/batch_token_overlap"] = self._batch_overlaps[-1]
         if self._fingerprint_overlaps:
             metrics["diag/seq_fingerprint_overlap"] = self._fingerprint_overlaps[-1]
-
-        # Rolling averages (smoother signal for wandb charts)
-        if len(self._batch_overlaps) >= 10:
-            recent = list(self._batch_overlaps)[-100:]
-            metrics["diag/batch_token_overlap_avg100"] = sum(recent) / len(recent)
-        if len(self._fingerprint_overlaps) >= 10:
-            recent = list(self._fingerprint_overlaps)[-100:]
-            metrics["diag/seq_fingerprint_overlap_avg100"] = sum(recent) / len(recent)
 
         # Cumulative diversity
         if self._all_batch_hashes:
