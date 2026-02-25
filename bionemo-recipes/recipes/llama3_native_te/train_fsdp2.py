@@ -160,7 +160,7 @@ def main(args: DictConfig) -> float | None:
         start_step = 0
         epoch = 0
 
-    perf_logger = PerfLogger(dist_config, args)
+    perf_logger = PerfLogger(dist_config, args, start_step=start_step)
 
     gc.collect()
     torch.cuda.empty_cache()

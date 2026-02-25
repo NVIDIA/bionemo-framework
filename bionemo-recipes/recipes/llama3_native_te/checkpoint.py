@@ -117,8 +117,20 @@ def load_checkpoint_ddp(
     ckpt_path: str | os.PathLike,
     dist_config: DistributedConfig,
     dataloader: StatefulDataLoader | None = None,
+    weights_only: bool = True,
 ) -> CheckpointOutput:
-    """Load DDP checkpoint."""
+    """Load DDP checkpoint.
+
+    Args:
+        model: The model to load.
+        optimizer: The optimizer to load.
+        scheduler: The LR scheduler to load.
+        ckpt_path: The path to the checkpoint.
+        dist_config: The distributed configuration.
+        dataloader: The dataloader to load.
+        weights_only: Whether to load the checkpoint weights only. We have to set this to True when loading FP8
+            checkpoints.
+    """
     checkpoint_path, _ = get_latest_checkpoint(ckpt_path)
 
     if not checkpoint_path:
@@ -128,7 +140,7 @@ def load_checkpoint_ddp(
     checkpoint = torch.load(
         checkpoint_path / "checkpoint.pt",
         map_location=f"cuda:{dist_config.local_rank}",
-        weights_only=True,
+        weights_only=weights_only,
     )
 
     model.load_state_dict(checkpoint["model"])
@@ -223,6 +235,7 @@ class AppState(Stateful):
     def state_dict(self):
         """Get the state dict for the model, optimizer, scheduler, and step."""
         model_state_dict, optimizer_state_dict = get_state_dict(self.model, self.optimizer)
+        model_state_dict = {k: v for k, v in model_state_dict.items() if not k.endswith("_extra_state")}
         return {
             "model": model_state_dict,
             "optim": optimizer_state_dict,
@@ -238,6 +251,7 @@ class AppState(Stateful):
             self.optimizer,
             model_state_dict=state_dict["model"],
             optim_state_dict=state_dict["optim"],
+            options=StateDictOptions(strict=False),
         )
         self.scheduler.load_state_dict(state_dict["scheduler"])
         self.step = state_dict["step"]

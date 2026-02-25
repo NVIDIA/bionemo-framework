@@ -80,23 +80,42 @@ def _build_and_shard_model(tester, config, recipe, device, device_mesh):
     return model
 
 
+def _forward(model, input_data, recipe):
+    """Run a forward pass and return the model outputs."""
+    if recipe is not None:
+        # torch.autocast is needed when model was built with quantized_model_init
+        # (weights are FP8, non-quantized ops need bf16 casting)
+        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+            with transformer_engine.pytorch.autocast(recipe=recipe):
+                return model(**input_data)
+    else:
+        return model(**input_data)
+
+
+def _train_one_step(model, input_data, recipe, lr=1e-4):
+    """Run a single training step (forward + backward + optimizer step) and return detached logits."""
+    model.train()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    optimizer.zero_grad()
+
+    outputs = _forward(model, input_data, recipe)
+    loss = outputs.logits.sum()
+    loss.backward()
+    optimizer.step()
+
+    return outputs.logits.detach().clone()
+
+
 def _run_eval_forward(model, input_data, recipe):
     """Run an eval forward pass and return detached logits."""
     model.eval()
     with torch.no_grad():
-        if recipe is not None:
-            # torch.autocast is needed when model was built with quantized_model_init
-            # (weights are FP8, non-quantized ops need bf16 casting)
-            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                with transformer_engine.pytorch.autocast(recipe=recipe):
-                    outputs = model(**input_data)
-        else:
-            outputs = model(**input_data)
+        outputs = _forward(model, input_data, recipe)
     return outputs.logits.detach().clone()
 
 
 def run_dcp_output_parity(tester, fp8_recipe_name=None, seed=42):
-    """Core DCP round-trip test: build → forward → save → rebuild → load → forward → compare."""
+    """Core DCP round-trip test: build → train → save → rebuild → load → eval → compare."""
     from tests.common.fixtures import recipe_from_name
 
     rank = dist.get_rank()
@@ -117,9 +136,10 @@ def run_dcp_output_parity(tester, fp8_recipe_name=None, seed=42):
     # Prepare input data
     input_data = tester.get_test_input_data("bshd", pad_to_multiple_of=32)
 
-    # --- Model A: build, shard, forward ---
+    # --- Model A: build, shard, train one step, then eval ---
     set_seed(seed)
     model_a = _build_and_shard_model(tester, config, recipe, device, device_mesh)
+    _train_one_step(model_a, input_data, recipe)
     logits_a = _run_eval_forward(model_a, input_data, recipe)
 
     # --- DCP Save ---
@@ -143,7 +163,7 @@ def run_dcp_output_parity(tester, fp8_recipe_name=None, seed=42):
     del model_a, state_dict_a
     torch.cuda.empty_cache()
 
-    # --- Model B: build fresh, shard, load, forward ---
+    # --- Model B: build fresh, shard, load, eval ---
     set_seed(seed)
     model_b = _build_and_shard_model(tester, config, recipe, device, device_mesh)
 
