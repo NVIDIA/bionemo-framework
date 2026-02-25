@@ -492,7 +492,7 @@ _FP8_QUANTIZED_OVERRIDES = [
 ]
 
 
-def test_checkpoint_save_and_load_single_process_ddp_fp8_quantized(recipe_path, tmp_path):
+def test_checkpoint_save_and_load_single_process_ddp_fp8_quantized(recipe_path, tmp_path, fp_recipe):
     """Test checkpoint save/resume for DDP with FP8 quantized model init."""
     _run_single_process_checkpoint_test(
         recipe_path,
@@ -500,12 +500,12 @@ def test_checkpoint_save_and_load_single_process_ddp_fp8_quantized(recipe_path, 
         main_ddp,
         ckpt_subdir_name="train_ddp",
         config_name="L0_sanity_cp",
-        extra_overrides=_FP8_QUANTIZED_OVERRIDES,
+        extra_overrides=[*_FP8_QUANTIZED_OVERRIDES, *fp_recipe],
         is_ddp=True,
     )
 
 
-def test_checkpoint_save_and_load_single_process_fsdp2_fp8_quantized(recipe_path, tmp_path):
+def test_checkpoint_save_and_load_single_process_fsdp2_fp8_quantized(recipe_path, tmp_path, fp_recipe):
     """Test checkpoint save/resume for FSDP2 with FP8 quantized model init."""
     _run_single_process_checkpoint_test(
         recipe_path,
@@ -513,12 +513,12 @@ def test_checkpoint_save_and_load_single_process_fsdp2_fp8_quantized(recipe_path
         main_fsdp2,
         ckpt_subdir_name="train_fsdp2",
         config_name="L0_sanity_cp",
-        extra_overrides=_FP8_QUANTIZED_OVERRIDES,
+        extra_overrides=[*_FP8_QUANTIZED_OVERRIDES, *fp_recipe],
         is_ddp=False,
     )
 
 
-def test_checkpoint_save_and_load_single_process_fsdp2_cp_fp8_quantized(recipe_path, tmp_path):
+def test_checkpoint_save_and_load_single_process_fsdp2_cp_fp8_quantized(recipe_path, tmp_path, fp_recipe):
     """Test checkpoint save/resume for FSDP2 with context parallelism and FP8 quantized model init."""
     _run_single_process_checkpoint_test(
         recipe_path,
@@ -526,12 +526,12 @@ def test_checkpoint_save_and_load_single_process_fsdp2_cp_fp8_quantized(recipe_p
         main_fsdp2_cp,
         ckpt_subdir_name="train_fsdp2",
         config_name="L0_sanity_cp",
-        extra_overrides=_FP8_QUANTIZED_OVERRIDES,
+        extra_overrides=[*_FP8_QUANTIZED_OVERRIDES, *fp_recipe],
         is_ddp=False,
     )
 
 
-def test_checkpoint_save_and_load_single_process_fsdp2_cp_fp8_quantized_async(recipe_path, tmp_path):
+def test_checkpoint_save_and_load_single_process_fsdp2_cp_fp8_quantized_async(recipe_path, tmp_path, fp_recipe):
     """Test checkpoint save/resume for FSDP2+CP with FP8 quantized model init and async save.
 
     This reproduces the corys_config scenario where async_save=true (the default)
@@ -545,6 +545,7 @@ def test_checkpoint_save_and_load_single_process_fsdp2_cp_fp8_quantized_async(re
         config_name="L0_sanity_cp",
         extra_overrides=[
             *_FP8_QUANTIZED_OVERRIDES,
+            *fp_recipe,
             "checkpoint.async_save=true",
         ],
         is_ddp=False,
