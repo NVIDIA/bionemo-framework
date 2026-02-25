@@ -1003,14 +1003,14 @@ class BaseModelTest(ABC):
 
         return os.path.abspath(inspect.getfile(type(self))), type(self).__name__
 
-    def _run_dcp_worker(self, unused_tcp_port, fp8_recipe_name=None):
+    def _run_dcp_worker(self, unused_tcp_port, fp8_recipe_name=None, nproc_per_node=2):
         """Launch the DCP worker script via torchrun and assert it succeeds."""
         tester_file, class_name = self._get_tester_file_and_class()
         worker_script = self._get_dcp_worker_script_path()
 
         cmd = [
             "torchrun",
-            "--nproc_per_node=2",
+            f"--nproc_per_node={nproc_per_node}",
             "--rdzv-backend=c10d",
             f"--rdzv-endpoint=localhost:{unused_tcp_port}",
             worker_script,
@@ -1035,6 +1035,16 @@ class BaseModelTest(ABC):
             print(f"STDOUT:\n{result.stdout}")
             print(f"STDERR:\n{result.stderr}")
             pytest.fail(f"DCP worker failed with exit code {result.returncode}")
+
+    def test_dcp_output_parity_single_gpu(self, unused_tcp_port):
+        """Test FSDP2 + DCP save/load round-trip on a single GPU."""
+        self._run_dcp_worker(unused_tcp_port, nproc_per_node=1)
+
+    def test_dcp_output_parity_fp8_init_single_gpu(self, fp8_recipe, unused_tcp_port):
+        """Test FSDP2 + DCP save/load with FP8 quantized_model_init on a single GPU."""
+        from .fixtures import recipe_to_name
+
+        self._run_dcp_worker(unused_tcp_port, fp8_recipe_name=recipe_to_name(fp8_recipe), nproc_per_node=1)
 
     @_requires_multi_gpu
     def test_dcp_output_parity(self, unused_tcp_port):

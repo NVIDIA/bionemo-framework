@@ -85,8 +85,11 @@ def _run_eval_forward(model, input_data, recipe):
     model.eval()
     with torch.no_grad():
         if recipe is not None:
-            with transformer_engine.pytorch.autocast(recipe=recipe):
-                outputs = model(**input_data)
+            # torch.autocast is needed when model was built with quantized_model_init
+            # (weights are FP8, non-quantized ops need bf16 casting)
+            with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                with transformer_engine.pytorch.autocast(recipe=recipe):
+                    outputs = model(**input_data)
         else:
             outputs = model(**input_data)
     return outputs.logits.detach().clone()
