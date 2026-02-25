@@ -70,7 +70,7 @@ class NVEsmConfig(EsmConfig):
         max_seq_length: Optional[int] = None,
         padded_vocab_size: Optional[int] = 64,
         attn_mask_type: str = "padding",
-        add_pooling_layer: bool = True,
+        add_pooling_layer: bool = False,
         **kwargs,
     ):
         """Initialize the NVEsmConfig with additional TE-related config options.
@@ -101,9 +101,9 @@ class NVEsmConfig(EsmConfig):
             padded_vocab_size: The padded vocabulary size to support FP8. If not provided, defaults
                 to vocab_size. Must be greater than or equal to vocab_size.
             attn_mask_type: The type of attention mask to use.
-            add_pooling_layer: Whether the base model should include a pooling layer. Set to
-                ``False`` for exported checkpoints that are saved from ``NVEsmForMaskedLM``
-                (which does not use a pooler).  This avoids missing-weight errors in vLLM.
+            add_pooling_layer: Whether the base model should include a pooling layer.
+                Defaults to ``False`` because exported checkpoints do not contain pooler
+                weights. Set to ``True`` only if you have a checkpoint with pooler weights.
             **kwargs: Additional config options to pass to EsmConfig.
         """
         super().__init__(**kwargs)
@@ -405,6 +405,7 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
     _tied_weights_keys: ClassVar[dict[str, str]] = {
         "lm_head.decoder.weight": "model.embeddings.word_embeddings.weight"
     }
+    _do_not_quantize = ("lm_head.dense", "lm_head.decoder")
 
     def __init__(self, config: NVEsmConfig):
         """Initialize a NVEsmForMaskedLM.
@@ -463,7 +464,8 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
             **kwargs,
         )
         sequence_output = outputs[0]
-        prediction_scores = self.lm_head(sequence_output)
+        with transformer_engine.pytorch.autocast(enabled=False):
+            prediction_scores = self.lm_head(sequence_output)
 
         # Truncate logits back to original vocab_size if padding was used
         if self.config.padded_vocab_size != self.config.vocab_size:
@@ -494,15 +496,15 @@ class NVEsmLMHead(nn.Module):
             config (NVEsmConfig): The configuration of the model.
         """
         super().__init__()
-        self.dense = transformer_engine.pytorch.Linear(
-            config.hidden_size,
-            config.hidden_size,
-            params_dtype=config.dtype,
-            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
-            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
-        )
+        with transformer_engine.pytorch.quantized_model_init(enabled=False):
+            self.dense = transformer_engine.pytorch.Linear(
+                config.hidden_size,
+                config.hidden_size,
+                params_dtype=config.dtype,
+                device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+                init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
+            )
 
-        with transformer_engine.pytorch.fp8_model_init(enabled=False):
             self.decoder = transformer_engine.pytorch.LayerNormLinear(
                 config.hidden_size,
                 config.padded_vocab_size if config.padded_vocab_size is not None else config.vocab_size,
@@ -522,7 +524,7 @@ class NVEsmLMHead(nn.Module):
         """
         # Keep the last layers of the network in higher precision to avoid numerical instability.
         # Please see recipes/fp8_analysis/README.md for more details.
-        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+        with transformer_engine.pytorch.autocast(enabled=False):
             x = self.dense(features)
             x = torch.nn.functional.gelu(x)
             x = self.decoder(x)
@@ -617,7 +619,11 @@ class NVEsmEmbeddings(nn.Module):
                 ).sum(1)
                 mask_ratio_observed = n_masked_per_seq.float() / src_lengths
                 scale_factor = (1 - mask_ratio_train) / (1 - mask_ratio_observed)
-                reshaped_scale_factor = torch.repeat_interleave(scale_factor, src_lengths, dim=0)
+                if "cu_seq_lens_q_padded" in kwargs:
+                    src_lengths_padded = torch.diff(kwargs["cu_seq_lens_q_padded"])
+                else:
+                    src_lengths_padded = src_lengths
+                reshaped_scale_factor = torch.repeat_interleave(scale_factor, src_lengths_padded, dim=0)
                 embeddings = (embeddings * reshaped_scale_factor.unsqueeze(-1)).to(embeddings.dtype)
 
         if self.layer_norm is not None:

@@ -72,11 +72,9 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     model_hf = AutoModel.from_pretrained(f"facebook/{tag}")
     model_hf_masked_lm.esm.pooler = model_hf.pooler
 
-    # Export with padded_vocab_size=None (defaults to vocab_size) so that the checkpoint
-    # stores embeddings/decoder at the real vocab_size without zero-padding.  Padding is
-    # only needed at runtime for FP8 training efficiency; users who train with FP8 pass
-    # padded_vocab_size explicitly.  Keeping vocab_size-sized weights in the checkpoint
-    # avoids shape-mismatch assertions in vLLM's VocabParallelEmbedding.
+    # Export without vocab padding so the checkpoint stores embeddings at the real
+    # vocab_size.  This avoids shape-mismatch errors in vLLM's VocabParallelEmbedding,
+    # which expects vocab_size-shaped weights.
     model_te = convert_esm_hf_to_te(model_hf_masked_lm, padded_vocab_size=None)
     model_te.save_pretrained(export_path / tag)
 
@@ -88,12 +86,6 @@ def export_hf_checkpoint(tag: str, export_path: Path):
         config = json.load(f)
 
     config["auto_map"] = AUTO_MAP
-
-    # Disable pooler in the exported checkpoint.  NVEsmForMaskedLM saves with
-    # add_pooling_layer=False, so pooler weights are absent.  Setting this to false
-    # prevents vLLM from creating a pooler module and then erroring on missing weights.
-    # (HuggingFace tolerates missing keys via strict=False, but vLLM does not.)
-    config["add_pooling_layer"] = False
 
     with open(export_path / tag / "config.json", "w") as f:
         json.dump(config, f, indent=2, sort_keys=True)
