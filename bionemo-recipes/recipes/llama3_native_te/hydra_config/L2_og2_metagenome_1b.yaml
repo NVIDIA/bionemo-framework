@@ -68,7 +68,7 @@ dataset:
   micro_batch_size: 4  # MBS=4 for GBS=384 (matching John's run)
   num_workers: 2  # Hyena used workers=8
   max_seq_length: 8192
-  stride: 7992
+  stride: 200  # Step size for HF windowing (Eden uses stride=7992 as step size)
   buffer_size: 50_000
   use_stateful_dataloader: false
   mask_degenerate_bases: true

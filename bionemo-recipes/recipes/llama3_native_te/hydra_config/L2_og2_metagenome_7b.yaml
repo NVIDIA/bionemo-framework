@@ -78,7 +78,7 @@ dataset:
   micro_batch_size: 2
   num_workers: 1  # John used workers=1
   max_seq_length: 8192  # Match John's seq_length
-  stride: 7992  # Match John's stride (almost full overlap)
+  stride: 200  # Step size for HF windowing (Eden uses stride=7992 as step size)
   buffer_size: 50_000
   use_stateful_dataloader: false
   mask_degenerate_bases: true  # Genomic data needs masking
