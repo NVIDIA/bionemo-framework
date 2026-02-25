@@ -6,6 +6,12 @@ FROM nvcr.io/nvidia/pytorch:26.01-py3
 #  Remove once bug has been addressed in the nvidia/pytorch container.
 RUN rm -f /usr/local/lib/python*/dist-packages/transformer_engine-*.dist-info/direct_url.json
 
+RUN --mount=type=cache,target=/var/cache/apt \
+    --mount=type=cache,target=/var/lib/apt \
+    apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y tmux && \
+    rm -rf /var/lib/apt/lists/*
+
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=/workspace/requirements.txt \
     PIP_CONSTRAINT= pip install -r /workspace/requirements.txt
