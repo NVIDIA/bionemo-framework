@@ -60,6 +60,31 @@ inputs = tokenizer(gfp_P42212, return_tensors="pt")
 output = model(**inputs)
 ```
 
+### Running inference with vLLM
+
+The exported TE checkpoints on HuggingFace Hub are directly compatible with
+[vLLM](https://github.com/vllm-project/vllm) (>= 0.14) as pooling/embedding models.
+No conversion scripts or weight renaming are needed:
+
+```python
+from vllm import LLM
+
+model = LLM(
+    model="nvidia/esm2_t6_8M_UR50D",
+    runner="pooling",
+    trust_remote_code=True,
+    enforce_eager=True,
+    max_num_batched_tokens=1026,
+)
+
+prompts = ["MSKGEELFTGVVPILVELDGDVNGHKFSVSGEGEGDATYGKLTLK"]
+outputs = model.embed(prompts)
+print(outputs[0].outputs.embedding[:5])
+```
+
+See [tests/test_vllm.py](tests/test_vllm.py) for a full golden-value validation across
+vLLM, native HuggingFace, and the nvidia Hub reference model.
+
 ## Recipe Links
 
 Training recipes are available in the `bionemo-recipes/recipes/` directory:

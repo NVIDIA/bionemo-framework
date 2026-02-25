@@ -81,7 +81,7 @@ class TestESM2Model(BaseModelTest):
 
     def get_layer_path(self, model: PreTrainedModel) -> List[nn.Module]:
         """Return the list of transformer layers."""
-        return list(model.esm.encoder.layers)  # type: ignore
+        return list(model.model.encoder.layers)  # type: ignore
 
     def get_reference_model_no_weights(self) -> PreTrainedModel:
         """For checkpoint conversion tests to pass, we need to remove the unused contact head."""
@@ -195,7 +195,7 @@ class TestESM2Model(BaseModelTest):
 
         # Check packed QKV weights
         for i in range(model_hf.config.num_hidden_layers):
-            k = f"esm.encoder.layers.{i}.self_attention.layernorm_qkv.weight"
+            k = f"model.encoder.layers.{i}.self_attention.layernorm_qkv.weight"
             v = [
                 f"esm.encoder.layer.{i}.attention.self.query.weight",
                 f"esm.encoder.layer.{i}.attention.self.key.weight",
@@ -217,7 +217,7 @@ class TestESM2Model(BaseModelTest):
 
         # Check packed QKV biases
         for i in range(model_hf.config.num_hidden_layers):
-            k = f"esm.encoder.layers.{i}.self_attention.layernorm_qkv.bias"
+            k = f"model.encoder.layers.{i}.self_attention.layernorm_qkv.bias"
             v = [
                 f"esm.encoder.layer.{i}.attention.self.query.bias",
                 f"esm.encoder.layer.{i}.attention.self.key.bias",
@@ -243,7 +243,7 @@ class TestESM2Model(BaseModelTest):
 
         torch.testing.assert_close(
             _pad_weights(ctx_mock, model_hf.state_dict()["esm.embeddings.word_embeddings.weight"]),
-            model_te.state_dict()["esm.embeddings.word_embeddings.weight"],
+            model_te.state_dict()["model.embeddings.word_embeddings.weight"],
         )
         torch.testing.assert_close(
             _pad_weights(ctx_mock, model_hf.state_dict()["lm_head.decoder.weight"]),
@@ -254,7 +254,7 @@ class TestESM2Model(BaseModelTest):
             model_te.state_dict()["lm_head.decoder.bias"],
         )
 
-        te_state_dict_keys.remove("esm.embeddings.word_embeddings.weight")
+        te_state_dict_keys.remove("model.embeddings.word_embeddings.weight")
         te_state_dict_keys.remove("lm_head.decoder.weight")
         te_state_dict_keys.remove("lm_head.decoder.bias")
 
@@ -267,6 +267,6 @@ class TestESM2Model(BaseModelTest):
         )
 
         assert (
-            model_te.state_dict()["esm.embeddings.word_embeddings.weight"].data_ptr()
+            model_te.state_dict()["model.embeddings.word_embeddings.weight"].data_ptr()
             == model_te.state_dict()["lm_head.decoder.weight"].data_ptr()
         )

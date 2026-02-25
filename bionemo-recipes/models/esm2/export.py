@@ -71,7 +71,11 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     model_hf_masked_lm = AutoModelForMaskedLM.from_pretrained(f"facebook/{tag}")
     model_hf = AutoModel.from_pretrained(f"facebook/{tag}")
     model_hf_masked_lm.esm.pooler = model_hf.pooler
-    model_te = convert_esm_hf_to_te(model_hf_masked_lm)
+
+    # Export without vocab padding so the checkpoint stores embeddings at the real
+    # vocab_size.  This avoids shape-mismatch errors in vLLM's VocabParallelEmbedding,
+    # which expects vocab_size-shaped weights.
+    model_te = convert_esm_hf_to_te(model_hf_masked_lm, padded_vocab_size=None)
     model_te.save_pretrained(export_path / tag)
 
     tokenizer = AutoTokenizer.from_pretrained("esm_fast_tokenizer")  # Use our PreTrainedTokenizerFast implementation.

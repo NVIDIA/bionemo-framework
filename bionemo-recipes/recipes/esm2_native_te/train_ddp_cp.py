@@ -111,8 +111,9 @@ def main(args: DictConfig) -> float | None:
         process_group=group_fsdp_cp,
     )
 
+    base = model.module.model if hasattr(model.module, "model") else model.module.esm
     if args.cp_size > 1:
-        for i, transformer_layer in enumerate(model.module.esm.encoder.layers):
+        for i, transformer_layer in enumerate(base.encoder.layers):
             logger.debug(f"Rank {dist_config.rank}: Setting CP group for layer {i}")
             transformer_layer.set_context_parallel_group(
                 device_mesh["cp"].get_group(),
