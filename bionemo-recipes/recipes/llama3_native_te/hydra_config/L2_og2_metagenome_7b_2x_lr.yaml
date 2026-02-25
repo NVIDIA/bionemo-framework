@@ -54,7 +54,7 @@ dataset:
   micro_batch_size: 2
   num_workers: 1
   max_seq_length: 8192
-  stride: 7992
+  stride: 200  # Step size for HF windowing (Eden uses stride=7992 as step size)
   buffer_size: 50_000
   use_lazy_tokenization: true
   use_stateful_dataloader: false
