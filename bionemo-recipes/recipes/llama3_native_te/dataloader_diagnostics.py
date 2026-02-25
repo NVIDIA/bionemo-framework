@@ -160,6 +160,25 @@ class DataloaderDiagnostics:
         self._prev_batch_fingerprints: set[str] = set()
         self._fingerprint_overlaps: deque[float] = deque(maxlen=rolling_window)
 
+        # --- Window duplicate detection ---
+        # Hash the FULL token content of each individual window/sequence in every batch.
+        # Tracks all hashes seen across the entire training run.
+        # If the HF shuffle buffer has a bug that yields the same window more than once,
+        # this will catch it.
+        self._window_hash_to_steps: dict[str, list[int]] = {}  # hash -> list of steps where seen
+        self._total_windows_seen: int = 0
+        self._total_duplicate_windows: int = 0
+        self._latest_batch_dup_rate: float = 0.0
+        self._dup_rate_history: deque[float] = deque(maxlen=rolling_window)
+
+        # CSV for duplicate events (only written when duplicates are found)
+        dup_csv_path = self.log_dir / f"window_duplicates_{tag}_rank{rank}.csv"
+        dup_mode = "a" if (resume and dup_csv_path.exists()) else "w"
+        self._dup_file = open(dup_csv_path, dup_mode, newline="")
+        self._dup_writer = csv.writer(self._dup_file)
+        if dup_mode == "w":
+            self._dup_writer.writerow(["step", "window_hash", "prev_steps", "distance", "window_len"])
+
         # --- Cumulative tracking ---
         self._total_batches = 0
         self._total_tokens_seen = 0
@@ -403,6 +422,54 @@ class DataloaderDiagnostics:
         self._prev_batch_fingerprints = current_fingerprints
         self._fingerprint_overlaps.append(fingerprint_overlap)
 
+        # --- Window duplicate detection ---
+        # Hash the FULL token content of each individual window/sequence.
+        # This detects if the shuffle buffer yields the same window more than once.
+        batch_dups = 0
+        batch_windows = 0
+        if input_ids_np.ndim == 2:
+            for row in input_ids_np:
+                wh = hashlib.md5(row.tobytes()).hexdigest()[:16]
+                batch_windows += 1
+                if wh in self._window_hash_to_steps:
+                    batch_dups += 1
+                    self._total_duplicate_windows += 1
+                    prev_steps = self._window_hash_to_steps[wh]
+                    distance = step - prev_steps[-1]
+                    self._dup_writer.writerow([step, wh, str(prev_steps[-3:]), distance, len(row)])
+                    self._window_hash_to_steps[wh].append(step)
+                else:
+                    self._window_hash_to_steps[wh] = [step]
+        elif cu_seq_lens is not None:
+            cu_np = (
+                cu_seq_lens.detach().cpu().numpy() if isinstance(cu_seq_lens, torch.Tensor) else np.array(cu_seq_lens)
+            )
+            for i in range(len(cu_np) - 1):
+                start, end = int(cu_np[i]), int(cu_np[i + 1])
+                window_tokens = flat[start:end]
+                wh = hashlib.md5(window_tokens.tobytes()).hexdigest()[:16]
+                batch_windows += 1
+                if wh in self._window_hash_to_steps:
+                    batch_dups += 1
+                    self._total_duplicate_windows += 1
+                    prev_steps = self._window_hash_to_steps[wh]
+                    distance = step - prev_steps[-1]
+                    self._dup_writer.writerow([step, wh, str(prev_steps[-3:]), distance, len(window_tokens)])
+                    self._window_hash_to_steps[wh].append(step)
+                else:
+                    self._window_hash_to_steps[wh] = [step]
+
+        self._total_windows_seen += batch_windows
+        dup_rate = batch_dups / max(batch_windows, 1)
+        self._latest_batch_dup_rate = dup_rate
+        self._dup_rate_history.append(dup_rate)
+        if batch_dups > 0:
+            self._dup_file.flush()
+            logger.warning(
+                f"[DUPLICATE] step={step} found {batch_dups}/{batch_windows} duplicate windows! "
+                f"Total duplicates so far: {self._total_duplicate_windows}/{self._total_windows_seen}"
+            )
+
         # --- Write batch CSV ---
         if step % self.log_every_n_steps == 0 or self._total_batches <= 20:
             self._batch_writer.writerow(
@@ -486,6 +553,14 @@ class DataloaderDiagnostics:
             gc_stats["gc_mean"] = float(gc_arr.mean())
             gc_stats["gc_std"] = float(gc_arr.std())
 
+        # Window duplicate stats
+        dup_stats = {
+            "total_windows_seen": self._total_windows_seen,
+            "unique_windows": len(self._window_hash_to_steps),
+            "total_duplicate_windows": self._total_duplicate_windows,
+            "duplicate_rate": self._total_duplicate_windows / max(self._total_windows_seen, 1),
+        }
+
         summary = {
             "step": step,
             "tag": self.tag,
@@ -499,6 +574,7 @@ class DataloaderDiagnostics:
             "kmer_entropy_stats": kmer_entropy_stats,
             "grad_acc_pairwise_sim_stats": grad_acc_stats,
             "gc_stats": gc_stats,
+            "window_duplicate_stats": dup_stats,
         }
 
         self._summary_file.write(json.dumps(summary) + "\n")
@@ -509,7 +585,8 @@ class DataloaderDiagnostics:
             f"kmer_cosine={kmer_cosine_stats.get('mean', 0):.6f} "
             f"kmer_entropy={kmer_entropy_stats.get('mean', 0):.4f} "
             f"grad_acc_sim={grad_acc_stats.get('mean', 0):.6f} "
-            f"gc_mean={gc_stats.get('gc_mean', 0):.4f} gc_std={gc_stats.get('gc_std', 0):.4f}"
+            f"gc_mean={gc_stats.get('gc_mean', 0):.4f} gc_std={gc_stats.get('gc_std', 0):.4f} "
+            f"dup_windows={self._total_duplicate_windows}/{self._total_windows_seen}"
         )
 
     def get_wandb_metrics(self) -> dict[str, float]:
@@ -563,6 +640,12 @@ class DataloaderDiagnostics:
             metrics["diag/gc_content_std100"] = float(recent_gc.std())
             metrics["diag/gc_content_mean100"] = float(recent_gc.mean())
 
+        # --- Window duplicate detection ---
+        metrics["diag/window_dup_rate"] = self._latest_batch_dup_rate
+        if self._total_windows_seen > 0:
+            metrics["diag/window_dup_cumulative"] = self._total_duplicate_windows / self._total_windows_seen
+        metrics["diag/unique_windows_seen"] = float(len(self._window_hash_to_steps))
+
         # --- Sequence fingerprint overlap (legacy) ---
         if self._fingerprint_overlaps:
             metrics["diag/seq_fingerprint_overlap"] = self._fingerprint_overlaps[-1]
@@ -579,12 +662,25 @@ class DataloaderDiagnostics:
         """Flush and close all log files."""
         if not self.enabled:
             return
+
+        # Log final duplicate summary
+        logger.info(
+            f"[DIAGNOSTICS] Final duplicate stats for tag={self.tag}: "
+            f"{self._total_duplicate_windows}/{self._total_windows_seen} duplicate windows "
+            f"({self._total_duplicate_windows / max(self._total_windows_seen, 1):.6f} rate), "
+            f"{len(self._window_hash_to_steps)} unique windows"
+        )
+
         try:
             self._batch_file.close()
         except Exception:
             pass
         try:
             self._summary_file.close()
+        except Exception:
+            pass
+        try:
+            self._dup_file.close()
         except Exception:
             pass
         logger.info(f"[DIAGNOSTICS] Closed logs for tag={self.tag}")
