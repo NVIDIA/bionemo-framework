@@ -34,7 +34,9 @@ from torch.distributed.checkpoint.state_dict_loader import load as dcp_load
 from torch.distributed.checkpoint.state_dict_saver import async_save as dcp_async_save
 from torch.distributed.checkpoint.state_dict_saver import save as dcp_save
 from torch.distributed.checkpoint.stateful import Stateful
+from torch.distributed.tensor import DTensor
 from torchdata.stateful_dataloader import StatefulDataLoader
+from transformer_engine.pytorch.tensor.float8_tensor import Float8Tensor
 
 from distributed_config import DistributedConfig
 
@@ -337,6 +339,13 @@ def save_checkpoint_fsdp2(
     ckpt_path = Path(ckpt_path)
     checkpoint_path = ckpt_path / f"step_{step}"
     checkpoint_path.mkdir(parents=True, exist_ok=True)
+
+    model_params = (p.to_local() if isinstance(p, DTensor) else p for p in model.parameters())
+    if async_save and any((isinstance(p, Float8Tensor) for p in model_params)):
+        logger.warning(
+            "Async checkpointing is not supported for FP8 models, falling back to synchronous checkpointing."
+        )
+        async_save = False
 
     if dataloader is not None:
         save_dataloader(

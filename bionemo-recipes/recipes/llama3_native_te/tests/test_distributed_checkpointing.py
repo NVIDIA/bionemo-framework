@@ -531,7 +531,6 @@ def test_checkpoint_save_and_load_single_process_fsdp2_cp_fp8_quantized(recipe_p
     )
 
 
-@pytest.mark.xfail()
 def test_checkpoint_save_and_load_single_process_fsdp2_cp_fp8_quantized_async(recipe_path, tmp_path):
     """Test checkpoint save/resume for FSDP2+CP with FP8 quantized model init and async save.
 
