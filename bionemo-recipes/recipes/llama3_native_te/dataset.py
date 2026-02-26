@@ -236,8 +236,8 @@ def create_tokenized_dataset(
     distributed_config: DistributedConfig,
     tokenizer_name_or_path: str,
     load_dataset_kwargs: dict,
-    max_seq_length: int = 8192,
-    stride: int = 200,
+    max_seq_length: int | None = 8192,
+    stride: int | None = 200,
     buffer_size: int = 50_000,
     text_column: str = "text",
     tokenize_batch_size: int = 100,
@@ -249,14 +249,24 @@ def create_tokenized_dataset(
     enable_diagnostics: bool = False,
     diagnostics_log_dir: str | None = None,
 ):
-    """Create a tokenized dataset with windowing.
+    """Create a tokenized dataset, optionally with windowing.
+
+    When ``max_seq_length`` and ``stride`` are both provided, long sequences are chunked into
+    overlapping windows of ``max_seq_length`` tokens with ``stride`` overlap using the tokenizer's
+    ``return_overflowing_tokens`` mechanism.
+
+    When ``max_seq_length`` is ``None`` (and ``stride`` is ``None``), sequences are assumed to be
+    pre-chunked (e.g. from a globally-shuffled shard dataset) and are tokenized directly with
+    BOS/EOS tokens added.  No windowing or truncation is applied.
 
     Args:
         distributed_config: The distributed configuration.
         tokenizer_name_or_path: Name or path to the nucleotide tokenizer directory.
         load_dataset_kwargs: Keyword arguments to pass to `load_dataset`.
-        max_seq_length: The maximum length of sequences (window size).
-        stride: The stride for windowing (overlap = stride tokens).
+        max_seq_length: The maximum length of sequences (window size). Set to None to disable
+            windowing for pre-chunked datasets.
+        stride: The stride for windowing (overlap = stride tokens). Set to None when
+            max_seq_length is None.
         buffer_size: The buffer size for shuffle operations.
         text_column: Name of the column containing genomic sequences (default: "text").
         tokenize_batch_size: The batch size for tokenization.
@@ -278,6 +288,8 @@ def create_tokenized_dataset(
     Returns:
         Tuple of (tokenized_dataset, tokenizer).
     """
+    use_windowing = max_seq_length is not None and stride is not None
+
     logger.info(f"Loading dataset with kwargs: {load_dataset_kwargs}")
     dataset = datasets.load_dataset(**load_dataset_kwargs)
 
@@ -297,26 +309,43 @@ def create_tokenized_dataset(
 
         # Pre-windowing shuffle: randomizes sequence order (fast, since sequences are larger items)
         if shuffle_sequences:
-            logger.info(f"Shuffling sequences before windowing with buffer_size={buffer_size}")
+            logger.info(f"Shuffling sequences with buffer_size={buffer_size}")
             dataset = dataset.shuffle(seed=42, buffer_size=buffer_size)
 
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
 
-    def tokenize_with_windowing(examples):
-        """Tokenize nucleotide sequences with windowing (one-to-many mapping)."""
-        # Tokenize with windowing using return_overflowing_tokens
-        result = tokenizer(
-            examples[text_column],
-            max_length=max_seq_length,
-            stride=stride,
-            truncation=True,
-            return_overflowing_tokens=True,
-            add_special_tokens=True,
-        )
-        return result
+    if use_windowing:
+
+        def tokenize_with_windowing(examples):
+            """Tokenize nucleotide sequences with windowing (one-to-many mapping)."""
+            result = tokenizer(
+                examples[text_column],
+                max_length=max_seq_length,
+                stride=stride,
+                truncation=True,
+                return_overflowing_tokens=True,
+                add_special_tokens=True,
+            )
+            return result
+
+        tokenize_fn = tokenize_with_windowing
+        logger.info(f"Using windowed tokenization: max_seq_length={max_seq_length}, stride={stride}")
+    else:
+
+        def tokenize_direct(examples):
+            """Tokenize pre-chunked sequences directly, adding only BOS/EOS tokens."""
+            result = tokenizer(
+                examples[text_column],
+                add_special_tokens=True,
+                truncation=False,
+            )
+            return result
+
+        tokenize_fn = tokenize_direct
+        logger.info("Using direct tokenization (pre-chunked dataset, no windowing)")
 
     tokenized_dataset = dataset.select_columns(text_column).map(
-        tokenize_with_windowing,
+        tokenize_fn,
         batched=True,
         batch_size=tokenize_batch_size,
         remove_columns=[text_column],
@@ -373,8 +402,8 @@ def create_bshd_dataloader(
     micro_batch_size: int,
     num_workers: int = 1,
     prefetch_factor: int = 4,
-    max_seq_length: int = 8192,
-    stride: int = 200,
+    max_seq_length: int | None = 8192,
+    stride: int | None = 200,
     seed: int = 42,
     buffer_size: int = 50_000,
     use_stateful_dataloader: bool = False,
@@ -499,8 +528,8 @@ def create_thd_dataloader(
     token_micro_batch_size: int | None = None,
     num_workers: int = 1,
     prefetch_factor: int = 4,
-    max_seq_length: int = 8192,
-    stride: int = 200,
+    max_seq_length: int | None = 8192,
+    stride: int | None = 200,
     buffer_size: int = 50_000,
     use_stateful_dataloader: bool = False,
     text_column: str = "text",
@@ -575,10 +604,13 @@ def create_thd_dataloader(
     ), "THD token packing requires a streaming dataset."
     if token_micro_batch_size is None:
         assert micro_batch_size is not None, "Only one of micro_batch_size or token_micro_batch_size can be provided."
+        assert max_seq_length is not None, (
+            "max_seq_length must be set when using micro_batch_size (needed to compute token_micro_batch_size). "
+            "Use token_micro_batch_size directly for pre-chunked datasets."
+        )
         token_micro_batch_size = micro_batch_size * max_seq_length
     else:
         assert micro_batch_size is None, "Only one of micro_batch_size or token_micro_batch_size can be provided."
-        assert token_micro_batch_size >= max_seq_length, "token_micro_batch_size must be greater than max_seq_length."
 
     # Create base MLM collator and wrap with flattening collator
     data_collator = DataCollatorWithFlattening(
