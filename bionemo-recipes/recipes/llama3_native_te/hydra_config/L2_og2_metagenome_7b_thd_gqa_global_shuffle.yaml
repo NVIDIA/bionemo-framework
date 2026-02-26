@@ -100,6 +100,10 @@ num_train_steps: 182314
 validation:
   enabled: false
 
+# Dataloader diagnostics
+enable_dataloader_diagnostics: true
+diagnostics_log_dir: /data/results/diagnostics/global_shuffle
+
 logger:
   frequency: 1
 
