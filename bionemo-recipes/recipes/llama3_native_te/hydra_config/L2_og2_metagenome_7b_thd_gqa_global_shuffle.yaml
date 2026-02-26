@@ -76,12 +76,13 @@ fp8_config:
 
 # Dataset: pre-chunked globally shuffled shards
 # Each row = 8190 bases -> 8192 tokens with BOS/EOS
-# No windowing (max_seq_length=null, stride=null)
+# No windowing: stride=null disables windowing even though max_seq_length is set.
+# max_seq_length=8192 is still needed for THD token_micro_batch_size calculation.
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1
   num_workers: 8
-  max_seq_length: null
+  max_seq_length: 8192
   stride: null
   buffer_size: 10_000
   shuffle_sequences: true
