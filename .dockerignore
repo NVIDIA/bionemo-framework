@@ -1,5 +1,22 @@
 # -- Docker-specific ignores --
 
+# Git directory (huge, not needed in container)
+.git/
+
+# Checkpoints and model files
+checkpoints/
+*.ckpt
+*.pt
+*.safetensors
+*.sqsh
+
+# Wandb logs
+**/wandb/
+
+# Outputs and temp files
+**/outputs/
+**/__pycache__/
+
 # bionemo related
 results/
 

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.4
-FROM nvcr.io/nvidia/pytorch:25.12-py3
+FROM nvcr.io/nvidia/pytorch:26.01-py3
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     --mount=type=bind,source=requirements.txt,target=/requirements.txt \

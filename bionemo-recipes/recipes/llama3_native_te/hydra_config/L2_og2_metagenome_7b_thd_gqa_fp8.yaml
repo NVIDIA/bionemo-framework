@@ -72,7 +72,7 @@ fp8_config:
   fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
   fp8_format: E4M3
   fp8_recipe_kwargs: {}
-  fp8_model_init_kwargs:
+  quantized_model_init_kwargs:
     enabled: false
 
 # Enable validation logging

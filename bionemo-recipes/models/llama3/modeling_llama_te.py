@@ -16,7 +16,7 @@
 import math
 from collections import OrderedDict
 from contextlib import nullcontext
-from typing import Unpack
+from typing import ClassVar, Unpack
 
 import torch
 import torch.nn as nn
@@ -76,6 +76,17 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
     _no_split_modules = ("TransformerLayer",)
     _skip_keys_device_placement = ("past_key_values",)
 
+    def state_dict(self, *args, **kwargs):
+        """Override state_dict to filter out TransformerEngine's _extra_state keys.
+
+        TransformerEngine layers add _extra_state attributes that are not compatible with
+        standard PyTorch/HuggingFace model loading. These are filtered out to ensure
+        checkpoints can be loaded with from_pretrained().
+        """
+        state_dict = super().state_dict(*args, **kwargs)
+        # Filter out _extra_state keys which are TransformerEngine-specific and not loadable
+        return {k: v for k, v in state_dict.items() if not k.endswith("_extra_state")}
+
     def init_empty_weights(self):
         """Handles moving the model from the meta device to the cuda device and initializing the weights."""
         # For TE layers, calling `reset_parameters` is sufficient to move them to the cuda device and apply the weight
@@ -84,7 +95,7 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
 
-        # The esm.embeddings layer is the only non-TE layer in this model we need to deal with. We use
+        # The embed_tokens layer is the only non-TE layer in this model we need to deal with. We use
         # `model._init_weights` rather than `reset_parameters` to ensure we honor the original config standard
         # deviation.
         self.model.embed_tokens.to_empty(device="cuda")
@@ -342,6 +353,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             # attention backend, but it should be faster for the flash attention backend.
             assert attention_mask is not None, "Attention mask is required when packing BSHD inputs."
             batch_size = hidden_states.size(0)
+            padded_seq_len = input_ids.size(1)
             hidden_states, indices, cu_seqlens, max_seqlen, _ = _unpad_input(hidden_states, attention_mask)
             kwargs["cu_seq_lens_q"] = kwargs["cu_seq_lens_k"] = cu_seqlens
             kwargs["max_length_q"] = kwargs["max_length_k"] = max_seqlen
@@ -354,7 +366,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         if self.config.attn_input_format == "bshd" and attention_mask is not None and attention_mask.dim() == 2:
             # If we're using padded BSHD inputs, we need to convert the 2-dimensional mask to a 4-dimensional mask in
             # the expected boolean format for TE.
-            attention_mask = attention_mask[:, None, None, :] < -1
+            attention_mask = ~attention_mask[:, None, None, :].bool()
 
         if isinstance(past_key_values, InferenceParams):  # InferenceParams is TE's way of managing kv-caching.
             # In generation mode, we set the length to 1 for each batch index. Otherwise, we use the attention mask to
@@ -383,8 +395,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             )
 
             # If fp8_first_last_bf16 is enabled, disable FP8 for first/last layers
-            # This nested fp8_autocast will override the outer one from training script
-            with transformer_engine.pytorch.fp8_autocast(enabled=False) if use_bf16_for_layer else nullcontext():
+            # This nested autocast will override the outer one from training script
+            with transformer_engine.pytorch.autocast(enabled=False) if use_bf16_for_layer else nullcontext():
                 hidden_states = decoder_layer(
                     hidden_states,
                     attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
@@ -408,7 +420,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         if should_pack_inputs:
             # If we've converted BSHD to THD for our TE layers, we need to convert back to BSHD for the output.
-            hidden_states = _pad_input(hidden_states, indices, batch_size, max_seqlen)
+            hidden_states = _pad_input(hidden_states, indices, batch_size, padded_seq_len)
 
         return BaseModelOutputWithPast(
             last_hidden_state=hidden_states,
@@ -420,21 +432,22 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
     """Llama3 model with causal language head."""
 
-    _tied_weights_keys = ("lm_head.weight",)
+    _tied_weights_keys: ClassVar[dict[str, str]] = {"lm_head.weight": "model.embed_tokens.weight"}
 
     def __init__(self, config):
         """Initialize the NVLlamaForCausalLM model."""
         super().__init__(config)
         self.model = NVLlamaModel(config)
         self.vocab_size = config.vocab_size
-        self.lm_head = transformer_engine.pytorch.Linear(
-            config.hidden_size,
-            config.vocab_size,
-            bias=False,
-            params_dtype=config.dtype,
-            device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
-            init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
-        )
+        with transformer_engine.pytorch.quantized_model_init(enabled=False):
+            self.lm_head = transformer_engine.pytorch.Linear(
+                config.hidden_size,
+                config.vocab_size,
+                bias=False,
+                params_dtype=config.dtype,
+                device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+                init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
+            )
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -447,6 +460,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         past_key_values: tuple[tuple[torch.Tensor, ...], ...] | None = None,
         inputs_embeds: torch.Tensor | None = None,
         labels: torch.Tensor | None = None,
+        shift_labels: torch.Tensor | None = None,
         use_cache: bool | None = None,
         cache_position: torch.Tensor | None = None,
         logits_to_keep: int | torch.Tensor = 0,
@@ -461,6 +475,9 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             past_key_values (tuple[tuple[torch.Tensor, ...], ...]): The past key values.
             inputs_embeds (torch.Tensor): The inputs embeds.
             labels (torch.Tensor): The labels.
+            shift_labels (torch.Tensor): Labels that have already been shifted by the dataloader, to be used instead of
+                labels for the loss function. For context parallelism, it is more reliable to shift the labels before
+                splitting the batch into shards.
             use_cache (bool): Whether to use cache.
             cache_position (torch.Tensor): The cache position.
             logits_to_keep (int | torch.Tensor): Whether to keep only the last logits to reduce the memory footprint of
@@ -485,16 +502,17 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
 
-        with transformer_engine.pytorch.fp8_autocast(enabled=False):
+        with transformer_engine.pytorch.autocast(enabled=False):
             if hidden_states.ndim == 3:
                 logits = self.lm_head(hidden_states[:, slice_indices, :])
             else:  # With THD inputs, batch and sequence dimensions are collapsed in the first dimension.
                 logits = self.lm_head(hidden_states[slice_indices, :])
 
         loss = None
-        if labels is not None:
-            # Note: self.loss_function (ForCausalLMLoss) already casts logits to FP32 internally
-            loss = self.loss_function(logits=logits, labels=labels, vocab_size=self.config.vocab_size, **kwargs)
+        if labels is not None or shift_labels is not None:
+            loss = self.loss_function(
+                logits=logits, labels=labels, shift_labels=shift_labels, vocab_size=self.config.vocab_size, **kwargs
+            )
 
         return CausalLMOutputWithPast(
             loss=loss,
@@ -505,9 +523,10 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         )
 
 
-class NVLlamaForSequenceClassification(  # noqa: D101
+class NVLlamaForSequenceClassification(
     transformers.modeling_layers.GenericForSequenceClassification, NVLlamaPreTrainedModel
-): ...
+):
+    """Llama3 model with sequence classification head."""
 
 
 class NVLlamaForQuestionAnswering(transformers.modeling_layers.GenericForQuestionAnswering, NVLlamaPreTrainedModel):
@@ -516,9 +535,10 @@ class NVLlamaForQuestionAnswering(transformers.modeling_layers.GenericForQuestio
     base_model_prefix = "transformer"  # For BC, where `transformer` was used instead of `model`
 
 
-class NVLlamaForTokenClassification(  # noqa: D101
+class NVLlamaForTokenClassification(
     transformers.modeling_layers.GenericForTokenClassification, NVLlamaPreTrainedModel
-): ...
+):
+    """Llama3 model with token classification head."""
 
 
 torch._dynamo.config.capture_scalar_outputs = True

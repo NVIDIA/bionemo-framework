@@ -57,15 +57,12 @@ use_meta_device: false
 use_fp32_master_weights: false
 # ==========================================
 
-# Override dataset settings with interleaved shuffling
+# Override dataset settings with window shuffling
 dataset:
   micro_batch_size: 1
   shuffle_sequences: true       # Shuffle raw sequences before windowing
-  shuffle_windows: false        # Disabled - interleaved_shuffle overrides this
-  interleaved_shuffle: true     # Pseudo-global window shuffle from multiple stream positions
-  interleave_chunks: 10         # Pull from 10 different regions simultaneously
-  interleave_skip: 50_000       # 50k items per region (total coverage = 500k)
-  buffer_size: 50_000           # Total buffer = 50k (5k per chunk)
+  shuffle_windows: true         # Shuffle windows after tokenization
+  buffer_size: 50_000           # Shuffle buffer size
   num_workers: 4
 
 # Gradient accumulation = 8 (for GBS = 1 * 8 * 6 * 8 = 384)

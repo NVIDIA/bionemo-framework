@@ -194,14 +194,16 @@ def main(args: DictConfig) -> float | None:
     logger.info("=" * 80)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
-    # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
-    # versions of weights are kept.
+    # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16
+    # and fp8 versions of weights are kept.
     #
     # If use_meta_device is True, we create the model on meta device first, then materialize weights.
     # This is mainly for memory efficiency during large model initialization.
     with (
         torch.device("meta") if getattr(args, "use_meta_device", False) else nullcontext(),
-        transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs),
+        transformer_engine.pytorch.quantized_model_init(
+            recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
+        ),
     ):
         model = model_class(config)
 
@@ -290,7 +292,7 @@ def main(args: DictConfig) -> float | None:
             # Use no_sync to prevent gradient synchronization until the last microbatch
             with model.no_sync() if micro_step % args.grad_acc_steps != 0 else nullcontext():
                 # Forward pass with mixed precision.
-                with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+                with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
                     outputs = model(**batch)
 
                 # Backward pass - scale loss by grad_acc_steps for proper gradient averaging

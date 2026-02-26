@@ -106,11 +106,10 @@ def run_validation(
         batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
         # Forward pass - disable FP8 during validation (matches NeMo's behavior)
-        # NeMo's _contextual_fp8_autocast disables FP8 when model.training=False
-        # because TE's FP8 state tracking (amax history, scaling factors) may not
-        # handle eval/no_grad mode properly, especially with FSDP2.
+        # NeMo disables FP8 when model.training=False because TE's FP8 state tracking
+        # (amax history, scaling factors) may not handle eval/no_grad mode properly with FSDP2.
         try:
-            with transformer_engine.pytorch.fp8_autocast(enabled=False):
+            with transformer_engine.pytorch.autocast(enabled=False):
                 outputs = model(**batch)
 
             # Get loss from model output
@@ -567,11 +566,13 @@ def main(args: DictConfig) -> float | None:
     logger.info("=" * 80)
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
-    # `fp8_config.fp8_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
-    # versions of weights are kept.
+    # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16
+    # and fp8 versions of weights are kept.
     with (
         torch.device("meta") if args.use_meta_device else nullcontext(),
-        transformer_engine.pytorch.fp8_model_init(recipe=fp8_recipe, **args.fp8_config.fp8_model_init_kwargs),
+        transformer_engine.pytorch.quantized_model_init(
+            recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
+        ),
     ):
         model = model_class(config)
 
@@ -790,8 +791,8 @@ def main(args: DictConfig) -> float | None:
 
             micro_step += 1
 
-            # Forward pass - FP32 compute with FP8 for supported layers
-            with transformer_engine.pytorch.fp8_autocast(enabled=args.fp8_config.enabled, fp8_recipe=fp8_recipe):
+            # Forward pass with mixed precision.
+            with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
                 outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging

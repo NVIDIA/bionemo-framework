@@ -97,12 +97,13 @@ class PerfLogger:
         # Whether to step debug_api.step() after each step
         self.fp8_stats_enabled = args.fp8_stats_config.enabled
 
-    def log_micro_step(self, batch: dict[str, torch.Tensor], outputs: CausalLMOutputWithPast):
+    def log_micro_step(self, batch: dict[str, torch.Tensor], outputs: CausalLMOutputWithPast, step: int = 0):
         """Store data on micro step for gradient accumulation metrics.
 
         Args:
             batch: The batch of data for the micro step.
             outputs: The outputs of the micro step.
+            step: The current training step (for compatibility with CP training script).
         """
         self.grad_acc_step_count += 1
         self.num_tokens += batch["input_ids"].numel()

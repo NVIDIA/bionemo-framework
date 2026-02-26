@@ -13,16 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Data collator for THD input format tests.
+"""Data collators for sequence packing and context parallel training.
 
 This should eventually get moved to a separate package, or possibly upstreamed into `transformers`.
 """
 
 import logging
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
 import datasets
+import nvtx
 import torch
 from transformer_engine.pytorch.attention.dot_product_attention.context_parallel import pad_thd_sequences_for_cp
 from transformers import DataCollator, DataCollatorForLanguageModeling
@@ -56,6 +58,7 @@ class DataCollatorWithFlattening:
         return_position_ids (bool): Whether to return position ids (default False).
         pad_to_multiple_of (int, optional): If set, pads the total sequence length to be divisible by this number.
         pad_sequences_to_be_divisible_by (int, optional): If set, each individual sequence is padded to this value.
+        separator_id (int, optional): A label to insert between sequences, typically should be -100 for causal LM.
 
     Example:
         >>> from transformers import AutoTokenizer, DataCollatorForLanguageModeling
@@ -87,6 +90,7 @@ class DataCollatorWithFlattening:
     return_position_ids: bool = False
     pad_to_multiple_of: int | None = None
     pad_sequences_to_be_divisible_by: int | None = None
+    separator_id: int | None = None
 
     def __post_init__(self):
         """Ensure padding options are not used together."""
@@ -152,8 +156,11 @@ class DataCollatorWithFlattening:
             sequence processing capabilities. When pad_to_multiple_of is used, an additional
             mock sequence is appended to reach the desired total length.
         """
+        if return_tensors is not None and return_tensors != "pt":
+            raise NotImplementedError(f"Only return_tensors='pt' is supported, got '{return_tensors}'")
+
         # Perform the masking with the BSHD collator.
-        bshd_batch = self.collator(features)
+        bshd_batch = self.collator(features, return_tensors=return_tensors)
 
         # Create the flattened batch to get the cu_seq_lens_q and cu_seq_lens_k values.
         packed_batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
@@ -161,6 +168,9 @@ class DataCollatorWithFlattening:
         # Get the masked input_ids and labels from the BSHD batch.
         masked_input_ids = bshd_batch["input_ids"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
         masked_labels = bshd_batch["labels"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
+
+        if self.separator_id is not None:
+            masked_labels[:, packed_batch["cu_seq_lens_q"][1:-1]] = self.separator_id
 
         # Update the packed batch with the masked input_ids and labels.
         packed_batch["input_ids"] = masked_input_ids
@@ -213,6 +223,7 @@ class DataCollatorWithFlattening:
         batch["labels"] = labels_padded.unsqueeze(0)
         batch["cu_seq_lens_q_padded"] = cu_seqlens_padded.to(torch.int32)
         batch["cu_seq_lens_k_padded"] = cu_seqlens_padded.to(torch.int32)
+        batch["pad_between_seqs"] = True
         return batch
 
 
@@ -228,6 +239,33 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
     """Whether to drop the last batch if it's less than max_length."""
     split_samples: bool = False
     """Whether to split samples to ensure batches have exactly max_tokens_per_batch tokens."""
+    pad_sequences_to_be_divisible_by: int | None = None
+    """If set, account for per-sequence padding when accumulating batches.
+
+    Each sequence's contribution to the batch length is rounded up to the nearest multiple of this value,
+    matching the padding behavior of DataCollatorWithFlattening with the same parameter. When used with
+    split_samples=True, the split point is chosen so that the first part (after padding) exactly fills
+    the remaining batch capacity.
+    """
+
+    def __post_init__(self):
+        """Validate padding configuration."""
+        if (
+            self.pad_sequences_to_be_divisible_by is not None
+            and self.max_tokens_per_batch % self.pad_sequences_to_be_divisible_by != 0
+        ):
+            logger.warning(
+                "max_tokens_per_batch (%d) is not divisible by pad_sequences_to_be_divisible_by (%d). "
+                "Batches may not fill to exactly max_tokens_per_batch when split_samples=True.",
+                self.max_tokens_per_batch,
+                self.pad_sequences_to_be_divisible_by,
+            )
+
+    def _padded_len(self, length: int) -> int:
+        """Return the padded length of a sequence, rounding up to the nearest multiple of pad_sequences_to_be_divisible_by."""
+        if self.pad_sequences_to_be_divisible_by is None:
+            return length
+        return -(-length // self.pad_sequences_to_be_divisible_by) * self.pad_sequences_to_be_divisible_by
 
     def __iter__(self):
         """Yield batches of samples, each with a variable number of tokens up to the maximum length.
@@ -235,13 +273,25 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         When split_samples=True, ensures each batch has exactly max_tokens_per_batch by splitting
         the final sample if needed. The remaining tokens from the split sample start the next batch.
 
+        When pad_sequences_to_be_divisible_by is set, each sequence's padded length is used when
+        accumulating batch sizes, so the total padded length of the batch matches max_tokens_per_batch.
+
         Returns:
             A generator of batches of samples, each with a variable number of tokens up to the maximum length.
         """
         samples = []
         current_length = 0
         for sample in iter(self.dataset):
-            current_length += len(sample["input_ids"])
+            sample_length = len(sample["input_ids"])
+            padded_len = self._padded_len(sample_length)
+            if padded_len > self.max_tokens_per_batch:
+                raise ValueError(
+                    f"TokenPackingDataset: Padded sample length ({padded_len}) exceeds max_tokens_per_batch "
+                    f"({self.max_tokens_per_batch}). Set truncation or a maximum length in your tokenizer or dataset to"
+                    " ensure all samples fit within max_tokens_per_batch."
+                )
+
+            current_length += padded_len
             if current_length == self.max_tokens_per_batch:
                 yield [*samples, sample]
                 samples = []
@@ -249,21 +299,32 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
 
             elif current_length > self.max_tokens_per_batch:
                 if not self.split_samples:
-                    # If we are not splitting samples, we can just yield the current batch (before this sample) and
-                    # start a new one.
-                    yield samples
+                    # Yield the current batch (before this sample) and start a new one with this sample.
+                    if samples:
+                        yield samples
                     samples = [sample]
-
+                    current_length = padded_len
                 else:
-                    # Calculate how many tokens are already in the batch
-                    tokens_in_batch = current_length - len(sample["input_ids"])
-                    # Calculate how many tokens we can fit from this sample
+                    # Calculate how many padded tokens are already in the batch.
+                    tokens_in_batch = current_length - padded_len
+                    # Calculate how many tokens we can fit from this sample, ensuring the
+                    # padded length doesn't exceed the remaining capacity.
                     tokens_available = self.max_tokens_per_batch - tokens_in_batch
-                    first_part, remaining_part = _split_sample_by_num_tokens(sample, tokens_available)
-                    yield [*samples, first_part]
-                    samples = [remaining_part]
-
-                current_length = len(samples[0]["input_ids"])
+                    if self.pad_sequences_to_be_divisible_by is not None:
+                        d = self.pad_sequences_to_be_divisible_by
+                        tokens_available = (tokens_available // d) * d
+                    if tokens_available <= 0:
+                        # Remaining capacity is less than pad_sequences_to_be_divisible_by;
+                        # can't fit any tokens from this sample. Yield current batch and start fresh.
+                        if samples:
+                            yield samples
+                        samples = [sample]
+                        current_length = padded_len
+                    else:
+                        first_part, remaining_part = _split_sample_by_num_tokens(sample, tokens_available)
+                        yield [*samples, first_part]
+                        samples = [remaining_part]
+                        current_length = self._padded_len(len(samples[0]["input_ids"]))
             else:
                 samples.append(sample)
 
@@ -284,11 +345,53 @@ class DataCollatorForContextParallel:
 
     The shards are then typically sent to the ContextParallelDataLoaderWrapper which will scatter them to the
     appropriate GPUs.
+
+    Note:
+        When used with the ContextParallelDataLoaderWrapper and both context parallelism and tensor parallelism are
+        used, the collator inspects the ordering of the mesh dimensions to determine the layout of the flattened batch.
+
+        If "cp" comes before "tp" in the mesh dimension names (CP row-major), the flattened batch will be:
+        [(cp0, tp0), (cp0, tp1), ..., (cp1, tp0), (cp1, tp1), ...]
+
+        If "tp" comes before "cp" (TP row-major), the flattened batch will be:
+        [(tp0, cp0), (tp0, cp1), ..., (tp1, cp0), (tp1, cp1), ...]
+
+    Args:
+        collator: The collator to use for the batch.
+        device_mesh: The device mesh with named dimensions. Must contain either a "cp" dimension for context parallelism
+            and/or a "tp" dimension for tensor parallelism.
+        qkv_format: The format of the query-key-value (QKV) tensor.
+        is_causal_lm: Whether the collator is for a causal language model. If True, the labels will be shifted before
+            being split into CP shards, and will be returned in the `shift_labels` field.
+
     """
 
     collator: DataCollator
-    cp_world_size: int
+    device_mesh: torch.distributed.device_mesh.DeviceMesh
     qkv_format: str = "thd"
+    is_causal_lm: bool = False
+
+    # Derived fields, initialized in __post_init__.
+    cp_world_size: int = field(init=False)
+    tp_world_size: int | None = field(init=False)
+    _is_cp_row_major: bool = field(init=False)
+
+    def __post_init__(self):
+        """Initialize the cp_world_size, tp_world_size, and _is_cp_row_major fields based on the device mesh."""
+        dim_names = self.device_mesh.mesh_dim_names
+        if dim_names is None:
+            raise ValueError("device_mesh must have mesh_dim_names")
+
+        self.cp_world_size = self.device_mesh.size(dim_names.index("cp")) if "cp" in dim_names else 1
+        self.tp_world_size = self.device_mesh.size(dim_names.index("tp")) if "tp" in dim_names else None
+
+        # Determine whether CP is the row (outer) dimension of the 2D mesh.
+        # When flattened, the row-major dimension's index changes slowest.
+        # If "cp" comes before "tp" in mesh_dim_names, CP is the row dimension.
+        if "cp" in dim_names and "tp" in dim_names:
+            self._is_cp_row_major = dim_names.index("cp") < dim_names.index("tp")
+        else:
+            self._is_cp_row_major = True
 
     def __call__(self, features) -> list[dict[str, Any]]:
         """Process batches of data and create shards for each context parallelism rank.
@@ -300,6 +403,13 @@ class DataCollatorForContextParallel:
             A list of dictionaries, each containing a shard of the batch for a given context parallelism rank.
         """
         batch = self.collator(features)
+
+        # Remove the attention mask from the batch, it's not valid for CP.
+        batch.pop("attention_mask", None)
+
+        if self.is_causal_lm:
+            labels = torch.nn.functional.pad(batch["labels"], (0, 1), value=-100)
+            batch["labels"] = labels[..., 1:].contiguous()
 
         combined_batch = []
         for cp_rank in range(self.cp_world_size):
@@ -313,75 +423,133 @@ class DataCollatorForContextParallel:
             )
             batch_shard = dict(batch)
             batch_shard["input_ids"] = input_ids_sharded
-            batch_shard["labels"] = labels_sharded
+            if self.is_causal_lm:
+                batch_shard["shift_labels"] = labels_sharded
+                batch_shard["labels"] = None
+            else:
+                batch_shard["labels"] = labels_sharded
             # Now determine the max length of the sequence.
             if self.qkv_format == "thd":
                 seqlens_q = batch_shard["cu_seq_lens_q_padded"][1:] - batch_shard["cu_seq_lens_q_padded"][:-1]
                 max_length = seqlens_q.max().item()
-                batch_shard["pad_between_seqs"] = True
             elif self.qkv_format == "bshd":
                 max_length = batch["input_ids"].shape[1]
-                # For BSHD context parallelism, we can't handle padding, so we remove the attention mask.
-                del batch_shard["attention_mask"]
             else:
                 raise ValueError(f"Unsupported qvk_format: {self.qkv_format}!")
 
-            batch_shard["max_length_k"] = batch_shard["max_length_q"] = max_length * round(max_length / 64)
+            batch_shard["max_length_k"] = batch_shard["max_length_q"] = ((max_length + 63) // 64) * 64
             combined_batch.append(batch_shard)
+
+        if self.tp_world_size is not None:
+            # Replicate each CP shard for TP ranks. The ordering depends on which dimension forms the rows in the
+            # flattened mesh.
+            if self._is_cp_row_major:
+                # Flattened mesh: [(cp0,tp0), (cp0,tp1), (cp1,tp0), (cp1,tp1)]
+                # Output: [cp0, cp0, cp1, cp1]
+                combined_batch = [batch for batch in combined_batch for _ in range(self.tp_world_size)]
+            else:
+                # Flattened mesh: [(tp0,cp0), (tp0,cp1), (tp1,cp0), (tp1,cp1)]
+                # Output: [cp0, cp1, cp0, cp1]
+                combined_batch = [
+                    combined_batch[cp_rank] for _ in range(self.tp_world_size) for cp_rank in range(self.cp_world_size)
+                ]
 
         return combined_batch
 
 
 class ContextParallelDataLoaderWrapper:
-    """A dataloader that is aware of context parallelism."""
+    """A dataloader that is aware of context and tensor parallelism."""
 
     def __init__(
         self,
         dataloader: torch.utils.data.DataLoader | None,
-        cp_mesh: torch.distributed.device_mesh.DeviceMesh,
+        cp_tp_mesh: torch.distributed.device_mesh.DeviceMesh,
     ):
-        """A dataloader wrapper that distributes the data across the context parallelism group.
+        """A dataloader wrapper that distributes the data across the context and tensor parallelism groups.
 
-        This class will get the batch from the dataloader on CP rank 0, and then determine the shards for all the
-        different CP group members. Then it will scatter the shards to the different CP group members. The shards are
-        then returned to the caller for the current CP rank.
+        This class materializes a single dataloader for each data parallel mesh rank, and splits / replicates the data
+        from this dataloader across the context and tensor parallelism groups.
 
         Args:
             dataloader: The dataloader to use.
-            cp_mesh: The context parallel mesh.
-            cp_rank: The rank of the current context parallel process.
+            cp_tp_mesh: The context parallel mesh, or a flattened, combined context parallel and tensor parallel mesh.
+                If a flattened mesh is provided, the cp / tp dimensions should be in the order they appeared in the
+                mesh_dim_names as passed to DataCollatorForContextParallel.
         """
-        if cp_mesh.get_local_rank() == 0:
+        if cp_tp_mesh.get_local_rank() == 0:
             assert dataloader is not None, "dataloader must be provided on rank 0"
             self.dataloader = dataloader
 
         else:
             assert dataloader is None, "Dataloader on non-rank 0 will not be used"
 
-        self.cp_rank = cp_mesh.get_local_rank()
-        self.cp_group = cp_mesh.get_group()
-        self.num_cp_ranks = cp_mesh.size()
+        self.cp_tp_rank = cp_tp_mesh.get_local_rank()
+        self.cp_tp_group = cp_tp_mesh.get_group()
+        self.num_cp_tp_ranks = cp_tp_mesh.size()
         self._iterator = None
+        self._prefetch_thread: threading.Thread | None = None
+        self._prefetch_result: Any = None
+        self._cuda_device: int | None = None
 
         logger.debug(
             "Created ContextParallelDataLoaderWrapper on global rank %s, cp rank %s",
             torch.distributed.get_rank() if torch.distributed.is_initialized() else "<not initialized>",
-            self.cp_rank,
+            self.cp_tp_rank,
         )
 
     def __iter__(self):
         """Make the dataloader iterable."""
-        if self.cp_rank == 0:
+        if self.cp_tp_rank == 0:
             self._iterator = iter(self.dataloader)  # < --- collator output.
+        self.close()
+        # Capture CUDA device from main thread; torch.cuda.set_device is per-thread,
+        # so the background thread needs to set it explicitly.
+        self._cuda_device = torch.cuda.current_device() if torch.cuda.is_available() else None
+        self._kick_prefetch()
         return self
 
+    @nvtx.annotate("ContextParallelDataLoaderWrapper __next__", color="blue")
     def __next__(self):
         """Get the batch from the dataloader for the current CP rank."""
-        batch = self._send_data_to_cp_ranks()
-        return batch
+        if self._prefetch_thread is not None:
+            self._prefetch_thread.join()
+        result = self._prefetch_result
+        if isinstance(result, Exception):
+            self._prefetch_thread = None
+            raise result
+        self._kick_prefetch()
+        return result
 
-    def _send_data_to_cp_ranks(self):
-        """Send data to all the CP ranks.
+    def _kick_prefetch(self):
+        """Start a background thread to prefetch exactly one batch via scatter."""
+        self._prefetch_thread = threading.Thread(target=self._do_one_prefetch, daemon=True)
+        self._prefetch_thread.start()
+
+    def _do_one_prefetch(self):
+        """Fetch one batch in the background.
+
+        This function calls the _send_data_to_cp_tp_ranks function to materialize the next batches for all ranks in the
+        given CP/TP group, and uses torch.distributed.scatter_object_list to scatter these batches to their
+        corresponding ranks. The result is stored in _prefetch_result, and returned when __next__ is called.
+        """
+        if self._cuda_device is not None:
+            torch.cuda.set_device(self._cuda_device)
+        try:
+            self._prefetch_result = self._send_data_to_cp_tp_ranks()
+        except StopIteration as e:
+            self._prefetch_result = e
+        except Exception as e:
+            self._prefetch_result = e
+
+    def close(self):
+        """Stop the prefetch thread. Must be called before destroy_process_group()."""
+        if self._prefetch_thread is not None:
+            self._prefetch_thread.join(timeout=10)
+            self._prefetch_thread = None
+
+    @nvtx.annotate("ContextParallelDataLoaderWrapper _send_data_to_cp_tp_ranks", color="green")
+    def _send_data_to_cp_tp_ranks(self):
+        """Send data to all the CP/TP ranks.
 
         This function will get the batch from the dataloader on CP rank 0, and then determine
         the shards for all the different CP group members.
@@ -390,25 +558,31 @@ class ContextParallelDataLoaderWrapper:
         The shards are then combined into a single batch and returned to the caller
         for the current CP rank.
 
+        If tensor parallelism is also being used, the combined batch will look like:
+        combined_batch = [<cp0_shard>, <cp0_shard>, ..., <cp1_shard>, <cp1_shard>, ...]
+        where there are cp_world_size shards, and each shard is replicated tp_world_size times. The ordering of the
+        shards depends on which dimension forms the rows in the flattened mesh.
+
         Scalability:
-            Rank 0's work grows linearly with CP size, but the other ranks do not need to store all the shards so they do not
-            grow linearly with CP size.
+            Rank 0's work grows linearly with CP size, but the other ranks do not need to store all the shards so they
+            do not grow linearly with CP size.
 
         Args:
             None
 
         Returns:
-            batch: The batch for the current CP rank.
+            batch: The batch for the current CP/TP rank.
 
         """
         try:
-            combined_batch = next(self._iterator) if self.cp_rank == 0 else None
+            with nvtx.annotate("ContextParallelDataLoaderWrapper next batch", color="green"):
+                combined_batch = next(self._iterator) if self.cp_tp_rank == 0 else None
         except StopIteration as ex:
             # If we encounter a StopIteration in the dataloader, we want to raise this error on all the CP ranks, so
             # that the dataloader can be restarted.
-            combined_batch = [ex] * self.num_cp_ranks
+            combined_batch = [ex] * self.num_cp_tp_ranks
 
-        batch_on_this_rank = _scatter_batch_to_cp_ranks(combined_batch, self.cp_group)
+        batch_on_this_rank = _scatter_batch_to_cp_tp_ranks(combined_batch, self.cp_tp_group)
 
         if isinstance(batch_on_this_rank, StopIteration):
             raise batch_on_this_rank
@@ -417,7 +591,7 @@ class ContextParallelDataLoaderWrapper:
 
     def state_dict(self):
         """Get the state dict by delegating to the dataloader."""
-        if self.cp_rank != 0:
+        if self.cp_tp_rank != 0:
             return {}
         elif hasattr(self.dataloader, "state_dict"):
             return {"dataloader": self.dataloader.state_dict()}
@@ -430,7 +604,7 @@ class ContextParallelDataLoaderWrapper:
 
     def load_state_dict(self, state_dict):
         """Load the state dict by delegating to the dataloader."""
-        if self.cp_rank != 0:
+        if self.cp_tp_rank != 0:
             return
         elif hasattr(self.dataloader, "load_state_dict"):
             self.dataloader.load_state_dict(state_dict["dataloader"])
@@ -444,7 +618,7 @@ class ContextParallelDataLoaderWrapper:
     @property
     def num_workers(self):
         """Get the number of workers of the dataloader."""
-        if self.cp_rank != 0:
+        if self.cp_tp_rank != 0:
             return 0
         else:
             return self.dataloader.num_workers
@@ -519,6 +693,16 @@ def _split_sample_by_num_tokens(sample: dict[str, Any], num_tokens: int) -> tupl
 
 
 def _pt_flatten_collate(features: list[dict[str, list[int]]], return_position_ids: bool = False):
+    """Flatten a list of tokenized samples into a single packed batch with cumulative sequence lengths.
+
+    Args:
+        features: List of tokenized samples, each containing at least ``input_ids``.
+        return_position_ids: Whether to return position ids for each token.
+
+    Returns:
+        A dictionary with packed ``input_ids``, ``cu_seq_lens_q``/``cu_seq_lens_k``, and
+        ``max_length_q``/``max_length_k``.
+    """
     is_labels_provided = "labels" in features[0]
     sample_lengths = [len(sample["input_ids"]) for sample in features]
 
@@ -605,6 +789,7 @@ def _pt_pad_to_multiple_of(batch: dict[str, Any], pad_to_multiple_of: int, token
 
 # TODO(@jomitchell): Once this gets merged: https://github.com/NVIDIA/TransformerEngine/pull/2387
 # we can replace this with the one in TransformerEngine.
+@nvtx.annotate("collator._split_batch_by_cp_rank", color="green")
 def _split_batch_by_cp_rank(
     cu_seqlens_padded: torch.Tensor | None,
     input_ids_padded: torch.Tensor,
@@ -764,10 +949,11 @@ def _split_batch_by_cp_rank(
 
 
 class BatchType(TypedDict):
-    """The fields in the batch dictionary fo THD context parallel."""
+    """The fields in the batch dictionary for THD context parallel."""
 
     input_ids: torch.Tensor
-    labels: torch.Tensor
+    labels: torch.Tensor | None
+    shift_labels: torch.Tensor | None
     cu_seq_lens_q: torch.Tensor
     cu_seq_lens_k: torch.Tensor
     cu_seq_lens_q_padded: torch.Tensor
@@ -777,16 +963,26 @@ class BatchType(TypedDict):
     pad_between_seqs: bool
 
 
-def _scatter_batch_to_cp_ranks(
-    batch: list[BatchType] | list[StopIteration], cp_group: torch.distributed.ProcessGroup | None = None
+@nvtx.annotate("collator._scatter_batch_to_cp_tp_ranks", color="green")
+def _scatter_batch_to_cp_tp_ranks(
+    all_batches: list[BatchType] | list[StopIteration], cp_tp_group: torch.distributed.ProcessGroup | None = None
 ) -> BatchType | StopIteration:
-    """Scatter a batch to all the CP ranks."""
+    """Scatter a batch to all the CP ranks.
+
+    Args:
+        all_batches (list[BatchType] | list[StopIteration]): A list of already-sharded batches to scatter to the CP/TP
+            ranks.
+        cp_tp_group (torch.distributed.ProcessGroup | None): The process group to scatter the batches to.
+
+    Returns:
+        BatchType | StopIteration: The batch on this rank.
+    """
     scatter_object_output_list = [None]
     # Note: This does not provide an async_op handle. Thus its blocking.
     torch.distributed.scatter_object_list(
         scatter_object_output_list=scatter_object_output_list,
-        scatter_object_input_list=batch,
-        group=cp_group,
+        scatter_object_input_list=all_batches,
+        group=cp_tp_group,
         group_src=0,
     )
     return scatter_object_output_list[0]
