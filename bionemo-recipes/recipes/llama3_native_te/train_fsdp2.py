@@ -531,18 +531,6 @@ def main(args: DictConfig) -> float | None:
     # Convert DictConfig to regular dict to avoid JSON serialization issues in transformers logging
     config_kwargs = OmegaConf.to_container(args.config_kwargs, resolve=True) if args.config_kwargs else {}
 
-    # Normalize rope_scaling: transformers >=5.0 expects "rope_type" instead of "type"
-    if "rope_scaling" in config_kwargs and isinstance(config_kwargs["rope_scaling"], dict):
-        rs = config_kwargs["rope_scaling"]
-        if "type" in rs and "rope_type" not in rs:
-            rs["rope_type"] = rs.pop("type")
-
-    # Save rope_scaling and rope_theta to apply after config creation.
-    # Transformers >=5.0 nullifies rope_theta during config processing when rope_scaling is present, which breaks
-    # LlamaRotaryEmbedding initialization. We save both values and restore them after from_pretrained().
-    custom_rope_scaling = config_kwargs.pop("rope_scaling", None)
-    custom_rope_theta = config_kwargs.get("rope_theta", None)
-
     # Handle Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
     # When enabled, embeddings are initialized with std=1.0 instead of 0.02 to prevent loss spikes.
     if getattr(args, "spike_no_more_embedding_init", False):
@@ -557,14 +545,6 @@ def main(args: DictConfig) -> float | None:
         logger.info("Megatron scaled init enabled: proj/fc2 use std/sqrt(2*num_layers)")
 
     config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
-
-    # Restore rope_theta and rope_scaling after config creation (transformers >=5.0 workaround)
-    # Use getattr() because transformers >=5.0 raises AttributeError for missing config attributes
-    if custom_rope_theta is not None and getattr(config, "rope_theta", None) is None:
-        config.rope_theta = float(custom_rope_theta)
-        logger.info(f"Restored rope_theta={config.rope_theta} (was None after from_pretrained)")
-    if custom_rope_scaling is not None:
-        config.rope_scaling = custom_rope_scaling
 
     # Compute expected std values for verification
     std = getattr(config, "initializer_range", 0.02)

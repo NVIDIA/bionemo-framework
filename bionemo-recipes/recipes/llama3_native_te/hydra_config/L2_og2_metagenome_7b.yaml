@@ -26,13 +26,12 @@ config_kwargs:
   max_position_embeddings: 8192
   initializer_range: 0.02  # init_method_std from Eden
   attn_input_format: thd  # THD format for sequence packing
-  # OLD-STYLE RoPE config for transformers <5.0
   rope_theta: 500000  # rotary_base from Eden
   rope_scaling:
-    type: "llama3"
-    factor: 1
-    low_freq_factor: 1
-    high_freq_factor: 4
+    rope_type: "llama3"
+    factor: 1.0
+    low_freq_factor: 1.0
+    high_freq_factor: 4.0
     original_max_position_embeddings: 8192
 
 # ============ CRITICAL FLAGS TO MATCH JOHN'S RUN ============
