@@ -104,6 +104,11 @@ def main(args: DictConfig) -> float | None:
         if "type" in rs and "rope_type" not in rs:
             rs["rope_type"] = rs.pop("type")
 
+    # Pop rope_scaling from config_kwargs to apply after config creation.
+    # Passing rope_scaling as a kwarg to from_pretrained() in transformers >=5.0 can cause rope_theta to be set to
+    # None, which breaks LlamaRotaryEmbedding initialization.
+    custom_rope_scaling = config_kwargs.pop("rope_scaling", None)
+
     # Handle Spike-No-More embedding initialization
     if getattr(args, "spike_no_more_embedding_init", False):
         config_kwargs["embedding_init_std"] = 1.0
@@ -116,6 +121,10 @@ def main(args: DictConfig) -> float | None:
         logger.info("Megatron scaled init enabled: proj/fc2 use std/sqrt(2*num_layers)")
 
     config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
+
+    # Apply custom rope_scaling after config creation to avoid transformers >=5.0 nullifying rope_theta
+    if custom_rope_scaling is not None:
+        config.rope_scaling = custom_rope_scaling
 
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16
