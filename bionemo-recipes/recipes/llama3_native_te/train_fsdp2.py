@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import gc
 import logging
 import math
@@ -479,6 +480,65 @@ def get_parameter_groups_with_weight_decay(
     ]
 
 
+def _inspect_batch(batch: dict, step: int, micro_step: int, tokenizer_vocab_size: int) -> None:
+    """Print detailed batch diagnostics on rank 0 for data quality verification.
+
+    Logs tensor shapes, dtypes, value ranges, BOS/EOS token presence, padding stats,
+    and a decoded token snippet. Only call this on rank 0.
+    """
+    logger.info("=" * 70)
+    logger.info(f"[BATCH_INSPECT] step={step}, micro_step={micro_step}")
+    logger.info("-" * 70)
+
+    for key, val in sorted(batch.items()):
+        if isinstance(val, torch.Tensor):
+            logger.info(f"  {key}: shape={tuple(val.shape)}, dtype={val.dtype}, device={val.device}")
+            if val.numel() > 0:
+                logger.info(f"    min={val.min().item()}, max={val.max().item()}")
+        else:
+            logger.info(f"  {key}: type={type(val).__name__}, value={val}")
+
+    input_ids = batch.get("input_ids")
+    if input_ids is not None and input_ids.numel() > 0:
+        # Flatten for THD (1D packed) or index first sequence for BSHD (2D)
+        if input_ids.dim() == 1:
+            ids = input_ids
+            logger.info(f"  [THD packed] total tokens in batch: {ids.shape[0]}")
+        else:
+            ids = input_ids[0]
+            logger.info(f"  [BSHD] sequences in batch: {input_ids.shape[0]}, seq_len: {input_ids.shape[1]}")
+
+        logger.info(f"  first 20 token IDs: {ids[:20].tolist()}")
+        logger.info(f"  last  10 token IDs: {ids[-10:].tolist()}")
+
+        # Check token range is within vocab
+        out_of_range = (ids < 0) | (ids >= tokenizer_vocab_size)
+        if out_of_range.any():
+            logger.warning(f"  ⚠ {out_of_range.sum().item()} tokens outside vocab range [0, {tokenizer_vocab_size})")
+        else:
+            logger.info(f"  ✓ all tokens in valid range [0, {tokenizer_vocab_size})")
+
+    labels = batch.get("labels")
+    if labels is not None and labels.numel() > 0:
+        masked = (labels == -100).sum().item()
+        total = labels.numel()
+        logger.info(f"  labels: {masked}/{total} masked (-100), {total - masked} valid loss tokens")
+
+    attn_mask = batch.get("attention_mask")
+    if attn_mask is not None and attn_mask.numel() > 0:
+        padded = (attn_mask == 0).sum().item()
+        total = attn_mask.numel()
+        logger.info(f"  attention_mask: {padded}/{total} padded (0), {total - padded} attended (1)")
+
+    # Log cu_seqlens if present (THD packing metadata)
+    for cu_key in ("cu_seqlens_q", "cu_seqlens_kv"):
+        cu = batch.get(cu_key)
+        if cu is not None:
+            logger.info(f"  {cu_key}: {cu.tolist()[:10]}{'...' if len(cu) > 10 else ''} (len={len(cu)})")
+
+    logger.info("=" * 70)
+
+
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train Llama3 with TE layers using FSDP2.
@@ -783,11 +843,45 @@ def main(args: DictConfig) -> float | None:
     if train_dataloader is None:
         raise RuntimeError("Expected train_dataloader to be initialized before training.")
 
+    # Debug: batch inspection config
+    debug_cfg = getattr(args, "debug", None)
+    inspect_batches = getattr(debug_cfg, "inspect_batches", False) if debug_cfg else False
+    inspect_num_steps = getattr(debug_cfg, "inspect_num_steps", 3) if debug_cfg else 3
+    bypass_dataloader = getattr(debug_cfg, "bypass_dataloader", False) if debug_cfg else False
+
+    # Debug: dataloader bypass — pull one real batch, then reuse it for every step.
+    # This isolates compute time from dataloader time. If step_time is similar with and without
+    # this flag, the training is NOT dataloader-bound. If step_time is much faster with this flag,
+    # then the dataloader is the bottleneck.
+    cached_batch = None
+    if bypass_dataloader:
+        logger.info("[DEBUG] bypass_dataloader=true: pulling a single batch to reuse for all steps")
+        raw_batch = next(iter(train_dataloader))
+        cached_batch = {
+            k: v.clone().to(device) if isinstance(v, torch.Tensor) else copy.deepcopy(v) for k, v in raw_batch.items()
+        }
+        batch_desc = {
+            k: tuple(v.shape) if isinstance(v, torch.Tensor) else type(v).__name__ for k, v in cached_batch.items()
+        }
+        logger.info(f"[DEBUG] Cached batch: {batch_desc}")
+        logger.info(
+            "[DEBUG] All steps will reuse this batch — loss/grad values are meaningless, only step_time matters"
+        )
+
     logged_dtypes = False
     logged_first_loss = False
     while step < args.num_train_steps:
         for batch in train_dataloader:
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
+            # If bypassing the dataloader, ignore the real batch and use the cached one.
+            # We clone tensors each iteration to prevent any in-place modification issues.
+            if bypass_dataloader and cached_batch is not None:
+                batch = {k: v.clone() if isinstance(v, torch.Tensor) else v for k, v in cached_batch.items()}  # noqa: PLW2901
+            else:
+                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
+
+            # Debug: inspect batch contents on rank 0 for the first N steps
+            if inspect_batches and step < inspect_num_steps and micro_step == 0 and dist_config.rank == 0:
+                _inspect_batch(batch, step=step, micro_step=micro_step, tokenizer_vocab_size=config.vocab_size)
 
             micro_step += 1
 

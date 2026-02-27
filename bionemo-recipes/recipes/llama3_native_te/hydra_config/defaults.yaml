@@ -112,3 +112,9 @@ profiler:
   enabled: false
   start_step: 10
   end_step: 15
+
+# Debug flags for performance diagnosis
+debug:
+  inspect_batches: false  # Print detailed batch info (shapes, tokens, BOS/EOS) for first N steps on rank 0
+  inspect_num_steps: 3  # Number of steps to inspect when inspect_batches=true
+  bypass_dataloader: false  # Reuse a single batch for all steps (eliminates dataloader overhead for perf testing)
