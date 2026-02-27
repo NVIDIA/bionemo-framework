@@ -34,7 +34,9 @@ from torch.distributed.checkpoint.state_dict_loader import load as dcp_load
 from torch.distributed.checkpoint.state_dict_saver import async_save as dcp_async_save
 from torch.distributed.checkpoint.state_dict_saver import save as dcp_save
 from torch.distributed.checkpoint.stateful import Stateful
+from torch.distributed.tensor import DTensor
 from torchdata.stateful_dataloader import StatefulDataLoader
+from transformer_engine.pytorch.tensor.float8_tensor import Float8Tensor
 
 from distributed_config import DistributedConfig
 
@@ -115,8 +117,20 @@ def load_checkpoint_ddp(
     ckpt_path: str | os.PathLike,
     dist_config: DistributedConfig,
     dataloader: StatefulDataLoader | None = None,
+    weights_only: bool = True,
 ) -> CheckpointOutput:
-    """Load DDP checkpoint."""
+    """Load DDP checkpoint.
+
+    Args:
+        model: The model to load.
+        optimizer: The optimizer to load.
+        scheduler: The LR scheduler to load.
+        ckpt_path: The path to the checkpoint.
+        dist_config: The distributed configuration.
+        dataloader: The dataloader to load.
+        weights_only: Whether to load the checkpoint weights only. We have to set this to True when loading FP8
+            checkpoints.
+    """
     checkpoint_path, _ = get_latest_checkpoint(ckpt_path)
 
     if not checkpoint_path:
@@ -126,7 +140,7 @@ def load_checkpoint_ddp(
     checkpoint = torch.load(
         checkpoint_path / "checkpoint.pt",
         map_location=f"cuda:{dist_config.local_rank}",
-        weights_only=True,
+        weights_only=weights_only,
     )
 
     model.load_state_dict(checkpoint["model"])
@@ -221,6 +235,7 @@ class AppState(Stateful):
     def state_dict(self):
         """Get the state dict for the model, optimizer, scheduler, and step."""
         model_state_dict, optimizer_state_dict = get_state_dict(self.model, self.optimizer)
+        model_state_dict = {k: v for k, v in model_state_dict.items() if not k.endswith("_extra_state")}
         return {
             "model": model_state_dict,
             "optim": optimizer_state_dict,
@@ -236,6 +251,7 @@ class AppState(Stateful):
             self.optimizer,
             model_state_dict=state_dict["model"],
             optim_state_dict=state_dict["optim"],
+            options=StateDictOptions(strict=False),
         )
         self.scheduler.load_state_dict(state_dict["scheduler"])
         self.step = state_dict["step"]
@@ -321,6 +337,13 @@ def save_checkpoint_fsdp2(
     ckpt_path = Path(ckpt_path)
     checkpoint_path = ckpt_path / f"step_{step}"
     checkpoint_path.mkdir(parents=True, exist_ok=True)
+
+    model_params = (p.to_local() if isinstance(p, DTensor) else p for p in model.parameters())
+    if async_save and any((isinstance(p, Float8Tensor) for p in model_params)):
+        logger.warning(
+            "Async checkpointing is not supported for FP8 models, falling back to synchronous checkpointing."
+        )
+        async_save = False
 
     if dataloader is not None:
         save_dataloader(

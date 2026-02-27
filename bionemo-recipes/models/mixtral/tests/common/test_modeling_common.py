@@ -17,6 +17,8 @@
 
 import fnmatch
 import gc
+import os
+import subprocess
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +39,12 @@ try:
     )
 except (RuntimeError, AssertionError):
     HAS_DATA_CENTER_GPU = False
+
+
+_requires_multi_gpu = pytest.mark.skipif(
+    not torch.cuda.is_available() or torch.cuda.device_count() < 2,
+    reason="Test requires at least 2 GPUs",
+)
 
 
 @dataclass
@@ -64,6 +72,10 @@ class TestTolerances:
     fp8_loss_rtol: float = 0.05
     fp8_logits_atol: float = 5.0
     fp8_logits_rtol: float = 0.1
+
+    # DCP (distributed checkpoint) round-trip tolerances
+    dcp_logits_atol: float = 0.0
+    dcp_logits_rtol: float = 0.0
 
     # Meta device initialization tolerances
     init_mean_atol: float = 1e-3
@@ -979,4 +991,69 @@ class BaseModelTest(ABC):
         model.init_empty_weights()
         self.verify_model_parameters_initialized_correctly(model, should_be_fp8=True)
 
-    # TODO: add multi-GPU tests, e.g., meta-device init after fully_shard, cp tests, etc.
+    # ==================== Distributed Checkpoint (DCP) Tests ====================
+
+    def _get_dcp_worker_script_path(self) -> str:
+        """Return the absolute path to the run_distributed_dcp.py worker script."""
+        return str(Path(__file__).resolve().parent / "run_distributed_dcp.py")
+
+    def _get_tester_file_and_class(self):
+        """Return (file_path, class_name) for dynamic loading in the worker subprocess."""
+        import inspect
+
+        return os.path.abspath(inspect.getfile(type(self))), type(self).__name__
+
+    def _run_dcp_worker(self, unused_tcp_port, fp8_recipe_name=None, nproc_per_node=2):
+        """Launch the DCP worker script via torchrun and assert it succeeds."""
+        tester_file, class_name = self._get_tester_file_and_class()
+        worker_script = self._get_dcp_worker_script_path()
+
+        cmd = [
+            "torchrun",
+            f"--nproc_per_node={nproc_per_node}",
+            "--rdzv-backend=c10d",
+            f"--rdzv-endpoint=localhost:{unused_tcp_port}",
+            worker_script,
+            "--tester-file",
+            tester_file,
+            "--tester-class",
+            class_name,
+        ]
+
+        if fp8_recipe_name is not None:
+            cmd.extend(["--fp8-recipe", fp8_recipe_name])
+
+        result = subprocess.run(
+            cmd,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=300,
+        )
+        if result.returncode != 0:
+            print(f"STDOUT:\n{result.stdout}")
+            print(f"STDERR:\n{result.stderr}")
+            pytest.fail(f"DCP worker failed with exit code {result.returncode}")
+
+    def test_dcp_output_parity_single_gpu(self, unused_tcp_port):
+        """Test FSDP2 + DCP save/load round-trip on a single GPU."""
+        self._run_dcp_worker(unused_tcp_port, nproc_per_node=1)
+
+    def test_dcp_output_parity_fp8_init_single_gpu(self, fp8_recipe, unused_tcp_port):
+        """Test FSDP2 + DCP save/load with FP8 quantized_model_init on a single GPU."""
+        from .fixtures import recipe_to_name
+
+        self._run_dcp_worker(unused_tcp_port, fp8_recipe_name=recipe_to_name(fp8_recipe), nproc_per_node=1)
+
+    @_requires_multi_gpu
+    def test_dcp_output_parity(self, unused_tcp_port):
+        """Test that a model sharded with FSDP2 produces identical outputs after DCP save/load."""
+        self._run_dcp_worker(unused_tcp_port)
+
+    @_requires_multi_gpu
+    def test_dcp_output_parity_fp8_init(self, fp8_recipe, unused_tcp_port):
+        """Test DCP save/load with FP8 quantized_model_init."""
+        from .fixtures import recipe_to_name
+
+        self._run_dcp_worker(unused_tcp_port, fp8_recipe_name=recipe_to_name(fp8_recipe))

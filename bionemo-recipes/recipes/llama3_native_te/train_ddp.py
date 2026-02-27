@@ -137,6 +137,7 @@ def main(args: DictConfig) -> float | None:
             ckpt_path=ckpt_path,
             dist_config=dist_config,
             dataloader=train_dataloader,
+            weights_only=not args.fp8_config.quantized_model_init_kwargs.enabled,
         )
         logger.info("Checkpoint loaded, resuming from step %s, epoch %s", start_step, epoch)
     else:
@@ -144,7 +145,7 @@ def main(args: DictConfig) -> float | None:
         start_step = 0
         epoch = 0
 
-    perf_logger = PerfLogger(dist_config, args)
+    perf_logger = PerfLogger(dist_config, args, start_step=start_step)
 
     gc.collect()
     torch.cuda.empty_cache()

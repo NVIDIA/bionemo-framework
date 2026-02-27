@@ -71,7 +71,7 @@ def _create_perf_logger(logging_frequency, mock_wandb, mock_tqdm):
     """Create a PerfLogger with the given logging_frequency."""
     dist_config = DistributedConfig()
     args = _make_args(logging_frequency=logging_frequency)
-    return PerfLogger(dist_config, args)
+    return PerfLogger(dist_config, args, start_step=0)
 
 
 def _run_steps(perf_logger, losses, grad_acc_steps=1):
