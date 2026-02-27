@@ -31,6 +31,18 @@ from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 from transformers.utils.generic import TransformersKwargs
 
 
+def _ensure_rope_theta(config):
+    """Ensure config.rope_theta is set for LlamaRotaryEmbedding compatibility.
+
+    Transformers >=5.0 may nullify rope_theta during config processing when rope_scaling is present.
+    This function restores a sensible default (500000.0 for Llama-3) to prevent TypeError in
+    LlamaRotaryEmbedding initialization.
+    """
+    if getattr(config, "rope_theta", None) is None:
+        config.rope_theta = 500000.0
+    return config
+
+
 AUTO_MAP = {
     "AutoConfig": "modeling_llama_te.NVLlamaConfig",
     "AutoModel": "modeling_llama_te.NVLlamaModel",
@@ -101,7 +113,9 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
         self.model.embed_tokens.to_empty(device="cuda")
         self.model.embed_tokens.apply(self._init_weights)
 
-        self.model.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=self.model.config).inv_freq.to("cuda")
+        self.model.rotary_emb.inv_freq = LlamaRotaryEmbedding(
+            config=_ensure_rope_theta(self.model.config)
+        ).inv_freq.to("cuda")
 
         # TE's reset_parameters() doesn't use output_layer_init_method for proj/fc2.
         # If use_megatron_scaled_init is enabled, we need to manually apply scaled init.
@@ -217,7 +231,9 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
                     proj.bias.data.zero_()
 
         if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
-            module.inv_freq = LlamaRotaryEmbedding(config=self.config).inv_freq.to(module.inv_freq.device)
+            module.inv_freq = LlamaRotaryEmbedding(config=_ensure_rope_theta(self.config)).inv_freq.to(
+                module.inv_freq.device
+            )
 
 
 class NVLlamaModel(NVLlamaPreTrainedModel):
@@ -283,7 +299,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         # We use TE's RotaryPositionEmbedding, but we ensure that we use the same inv_freq as the original
         # LlamaRotaryEmbedding.
         self.rotary_emb = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
-        hf_rope = LlamaRotaryEmbedding(config=config)
+        hf_rope = LlamaRotaryEmbedding(config=_ensure_rope_theta(config))
         self.rotary_emb.inv_freq = hf_rope.inv_freq
 
         # DEBUG: Print RoPE configuration

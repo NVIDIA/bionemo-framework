@@ -537,10 +537,11 @@ def main(args: DictConfig) -> float | None:
         if "type" in rs and "rope_type" not in rs:
             rs["rope_type"] = rs.pop("type")
 
-    # Pop rope_scaling from config_kwargs to apply after config creation.
-    # Passing rope_scaling as a kwarg to from_pretrained() in transformers >=5.0 can cause rope_theta to be set to
-    # None, which breaks LlamaRotaryEmbedding initialization.
+    # Save rope_scaling and rope_theta to apply after config creation.
+    # Transformers >=5.0 nullifies rope_theta during config processing when rope_scaling is present, which breaks
+    # LlamaRotaryEmbedding initialization. We save both values and restore them after from_pretrained().
     custom_rope_scaling = config_kwargs.pop("rope_scaling", None)
+    custom_rope_theta = config_kwargs.get("rope_theta", None)
 
     # Handle Spike-No-More embedding initialization (https://arxiv.org/abs/2312.16903)
     # When enabled, embeddings are initialized with std=1.0 instead of 0.02 to prevent loss spikes.
@@ -557,7 +558,10 @@ def main(args: DictConfig) -> float | None:
 
     config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
 
-    # Apply custom rope_scaling after config creation to avoid transformers >=5.0 nullifying rope_theta
+    # Restore rope_theta and rope_scaling after config creation (transformers >=5.0 workaround)
+    if custom_rope_theta is not None and config.rope_theta is None:
+        config.rope_theta = float(custom_rope_theta)
+        logger.info(f"Restored rope_theta={config.rope_theta} (was None after from_pretrained)")
     if custom_rope_scaling is not None:
         config.rope_scaling = custom_rope_scaling
 
