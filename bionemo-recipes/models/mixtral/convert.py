@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Conversion utilities between HuggingFace Mixtral and TransformerEngine formats."""
+
 import inspect
 
 import torch
@@ -62,8 +64,20 @@ def _split_experts_down(down_proj: torch.Tensor):
 def _make_merge_experts_fn(num_experts: int):
     """Create a merge function with the correct number of named parameters.
 
-    The state.py transform system maps function parameter names to source keys, so we need a function
-    with exactly `num_experts` named parameters (weight0, weight1, ...).
+    The state.py transform system maps function parameter names to source dict keys by inspecting
+    the function signature. When ``source_key`` is a tuple, it pairs each tuple element with the
+    corresponding named parameter via ``{param: source_key[i]}``. This means ``*args`` style
+    parameters do not work -- the system cannot map positional varargs to specific source keys.
+
+    Since the number of experts is dynamic (varies per model config), we use ``exec()`` to generate
+    a function with exactly ``num_experts`` named parameters (weight0, weight1, ..., weightN-1).
+
+    Args:
+        num_experts: The number of expert weight parameters the generated function will accept.
+
+    Returns:
+        A callable ``(weight0, weight1, ..., weight{N-1}) -> torch.Tensor`` that stacks the
+        per-expert weight tensors into a single tensor of shape ``[num_experts, ...]``.
     """
     param_names = [f"weight{i}" for i in range(num_experts)]
     code = f"def merge_experts({', '.join(param_names)}):\n    return torch.stack([{', '.join(param_names)}])"
