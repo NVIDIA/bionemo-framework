@@ -559,7 +559,8 @@ def main(args: DictConfig) -> float | None:
     config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
 
     # Restore rope_theta and rope_scaling after config creation (transformers >=5.0 workaround)
-    if custom_rope_theta is not None and config.rope_theta is None:
+    # Use getattr() because transformers >=5.0 raises AttributeError for missing config attributes
+    if custom_rope_theta is not None and getattr(config, "rope_theta", None) is None:
         config.rope_theta = float(custom_rope_theta)
         logger.info(f"Restored rope_theta={config.rope_theta} (was None after from_pretrained)")
     if custom_rope_scaling is not None:
