@@ -1,0 +1,96 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# 7B Llama3 on OpenGenome2 Metagenome - GLOBALLY SHUFFLED PRE-CHUNKED SHARDS
+#
+# Uses pre-windowed parquet shards from /data/opengenome2/parquet_split/
+# Each shard row is exactly 8190 bases -> tokenized to 8192 tokens (BOS + 8190 + EOS).
+# Standard windowed tokenization; since each sequence is exactly one window,
+# stride is irrelevant (only 1 window per sequence).
+#
+# THD format + BF16 + FP32 master weights (no FP8).
+# GBS = 1 * 8 * 6 * 8 = 384
+
+defaults:
+  - L2_og2_metagenome_7b
+  - _self_
+
+# GQA architecture
+config_kwargs:
+  vocab_size: 256
+  num_hidden_layers: 32
+  hidden_size: 4096
+  intermediate_size: 14336
+  num_attention_heads: 32
+  num_key_value_heads: 8  # GQA: 8 KV heads
+  max_position_embeddings: 8192
+  initializer_range: 0.02
+  attn_input_format: thd
+  rope_theta: 500000
+  rope_scaling:
+    type: "llama3"
+    factor: 1
+    low_freq_factor: 1
+    high_freq_factor: 4
+    original_max_position_embeddings: 8192
+
+# FP32 master weights
+use_fp32_master_weights: true
+
+# Megatron-style init
+use_megatron_scaled_init: true
+skip_embedding_weight_decay: false
+
+# Disable meta device (required for FP32 init)
+use_meta_device: false
+
+# No FP8
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  quantized_model_init_kwargs:
+    enabled: false
+
+# Dataset: pre-chunked globally shuffled shards
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 1
+  num_workers: 8
+  max_seq_length: 8192
+  stride: 200
+  buffer_size: 10_000
+  shuffle_sequences: true
+  shuffle_windows: false
+  mask_degenerate_bases: true
+  uppercase_labels: false
+  load_dataset_kwargs:
+    path: "/data/opengenome2/parquet_split"
+    split: "train"
+    streaming: true
+
+grad_acc_steps: 8
+num_train_steps: 182314
+
+validation:
+  enabled: false
+
+logger:
+  frequency: 10
+
+wandb:
+  name: og2_7b_global_shuffle_retest
+  project: llama3-metagenome-7b
