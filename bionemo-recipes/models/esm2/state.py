@@ -13,7 +13,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""State dict conversion utilities adapted from nemo.lightning.io.state."""
+"""State dict conversion utilities adapted from nemo.lightning.io.state.
+
+This module provides the transform system used by convert.py to map state dicts between model formats:
+
+- ``mapping``: A dict of simple key renames (source_key -> target_key). Each source key is copied directly
+  to the corresponding target key with no modification to the tensor values.
+
+- ``transforms``: A list of ``StateDictTransform`` objects for multi-key merges and splits. These handle
+  cases where multiple source keys must be combined into one target key (e.g., merging Q/K/V into fused QKV),
+  or one source key must be split into multiple target keys.
+
+  Important: When ``source_key`` is a tuple (many-to-one merge), the transform function's parameter names
+  are used to map each source key to a function argument. This means ``*args`` style parameters do not work;
+  each parameter must be explicitly named (e.g., ``def fn(q, k, v)`` not ``def fn(*args)``).
+"""
 
 import inspect
 import logging

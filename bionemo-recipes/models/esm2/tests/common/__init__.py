@@ -18,8 +18,7 @@
 This package provides reusable test infrastructure following HuggingFace
 transformers patterns, including:
 
-- BioNeMoModelTester: Abstract base class for model-specific test configuration
-- BioNeMoModelTest: Base test class with all common test methods
+- BaseModelTest: Base test class with all common test methods
 - TestTolerances: Dataclass for model-specific numerical tolerances
 - Distributed testing utilities for multi-GPU tests
 - Shared fixtures for common test requirements
@@ -27,9 +26,9 @@ transformers patterns, including:
 Example usage:
 
     ```python
-    from tests.common import BioNeMoModelTester, BioNeMoModelTest, TestTolerances
+    from tests.common import BaseModelTest, TestTolerances
 
-    class ESM2ModelTester(BioNeMoModelTester):
+    class ESM2ModelTester(BaseModelTest):
         def get_model_class(self):
             return NVEsmForMaskedLM
         # ... implement other abstract methods

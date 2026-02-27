@@ -13,12 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Conversion utilities between HuggingFace ESM2 and TransformerEngine formats."""
+
+import inspect
+
 import torch
 from accelerate import init_empty_weights
 from torch import nn
 from transformers import EsmConfig, EsmForMaskedLM
 
-import state as io
+import state
 from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
 
@@ -60,7 +64,7 @@ def convert_esm_hf_to_te(model_hf: nn.Module, **config_kwargs) -> nn.Module:
     with init_empty_weights():
         model_te = NVEsmForMaskedLM(te_config)
 
-    output_model = io.apply_transforms(
+    output_model = state.apply_transforms(
         model_hf,
         model_te,
         mapping,
@@ -91,26 +95,11 @@ def convert_esm_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
     Returns:
         nn.Module: The Hugging Face model in original Facebook ESM-2 format hosted on Hugging Face.
     """
-    # Convert TE config to HF config
-    hf_config_dict = model_te.config.to_dict()
-
-    # Remove TE-specific config options
-    te_specific_keys = [
-        "qkv_weight_interleaved",
-        "encoder_activation",
-        "attn_input_format",
-        "fuse_qkv_params",
-        "micro_batch_size",
-        "max_seq_length",
-        "model_type",
-        "auto_map",
-    ]
-    for key in te_specific_keys:
-        hf_config_dict.pop(key, None)
-
-    hf_config_dict["model_type"] = "esm"
-
-    hf_config = EsmConfig(**hf_config_dict, **config_kwargs)
+    # Convert TE config to HF config, filtering out TE-specific keys
+    te_config_dict = model_te.config.to_dict()
+    valid_keys = set(inspect.signature(EsmConfig.__init__).parameters)
+    filtered_config = {k: v for k, v in te_config_dict.items() if k in valid_keys}
+    hf_config = EsmConfig(**filtered_config, **config_kwargs)
 
     with init_empty_weights():
         model_hf = EsmForMaskedLM(hf_config)
@@ -119,7 +108,7 @@ def convert_esm_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
         if hasattr(model_hf.esm, "contact_head"):
             delattr(model_hf.esm, "contact_head")
 
-    output_model = io.apply_transforms(
+    output_model = state.apply_transforms(
         model_te,
         model_hf,
         reverse_mapping,
@@ -140,7 +129,7 @@ def convert_esm_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
     return output_model
 
 
-@io.state_transform(
+@state.state_transform(
     source_key=(
         "esm.encoder.layer.*.attention.self.query.weight",
         "esm.encoder.layer.*.attention.self.key.weight",
@@ -148,8 +137,8 @@ def convert_esm_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
     ),
     target_key="esm.encoder.layers.*.self_attention.layernorm_qkv.weight",
 )
-def _pack_qkv_weight(ctx: io.TransformCTX, query, key, value):
-    """Pad the embedding layer to the new input dimension."""
+def _pack_qkv_weight(ctx: state.TransformCTX, query, key, value):
+    """Pack separate Q, K, V weight tensors into a single interleaved QKV weight tensor."""
     concat_weights = torch.cat((query, key, value), dim=0)
     input_shape = concat_weights.size()
     num_heads = ctx.target.config.num_attention_heads
@@ -162,7 +151,7 @@ def _pack_qkv_weight(ctx: io.TransformCTX, query, key, value):
     return concat_weights
 
 
-@io.state_transform(
+@state.state_transform(
     source_key=(
         "esm.encoder.layer.*.attention.self.query.bias",
         "esm.encoder.layer.*.attention.self.key.bias",
@@ -170,8 +159,8 @@ def _pack_qkv_weight(ctx: io.TransformCTX, query, key, value):
     ),
     target_key="esm.encoder.layers.*.self_attention.layernorm_qkv.bias",
 )
-def _pack_qkv_bias(ctx: io.TransformCTX, query, key, value):
-    """Pad the embedding layer to the new input dimension."""
+def _pack_qkv_bias(ctx: state.TransformCTX, query, key, value):
+    """Pack separate Q, K, V bias tensors into a single interleaved QKV bias tensor."""
     concat_biases = torch.cat((query, key, value), dim=0)
     input_shape = concat_biases.size()
     num_heads = ctx.target.config.num_attention_heads
@@ -184,7 +173,7 @@ def _pack_qkv_bias(ctx: io.TransformCTX, query, key, value):
     return concat_biases
 
 
-@io.state_transform(
+@state.state_transform(
     source_key="esm.encoder.layers.*.self_attention.layernorm_qkv.weight",
     target_key=(
         "esm.encoder.layer.*.attention.self.query.weight",
@@ -192,7 +181,7 @@ def _pack_qkv_bias(ctx: io.TransformCTX, query, key, value):
         "esm.encoder.layer.*.attention.self.value.weight",
     ),
 )
-def _unpack_qkv_weight(ctx: io.TransformCTX, qkv_weight):
+def _unpack_qkv_weight(ctx: state.TransformCTX, qkv_weight):
     """Unpack fused QKV weights into separate [hidden_size, input_dim] tensors for query/key/value."""
     num_heads = ctx.source.config.num_attention_heads
     total_rows, input_dim = qkv_weight.size()  # size: [num_heads * 3 *head_dim, input_dim]
@@ -213,7 +202,7 @@ def _unpack_qkv_weight(ctx: io.TransformCTX, qkv_weight):
     return query, key, value
 
 
-@io.state_transform(
+@state.state_transform(
     source_key="esm.encoder.layers.*.self_attention.layernorm_qkv.bias",
     target_key=(
         "esm.encoder.layer.*.attention.self.query.bias",
@@ -221,7 +210,7 @@ def _unpack_qkv_weight(ctx: io.TransformCTX, qkv_weight):
         "esm.encoder.layer.*.attention.self.value.bias",
     ),
 )
-def _unpack_qkv_bias(ctx: io.TransformCTX, qkv_bias):
+def _unpack_qkv_bias(ctx: state.TransformCTX, qkv_bias):
     """Unpack fused QKV biases into separate [hidden_size] tensors for query/key/value."""
     num_heads = ctx.source.config.num_attention_heads
     total_size = qkv_bias.size(0)  # size: [num_heads * 3 * head_dim]
@@ -240,13 +229,13 @@ def _unpack_qkv_bias(ctx: io.TransformCTX, qkv_bias):
     return query, key, value
 
 
-def _unpad_weights(ctx: io.TransformCTX, padded_embed):
+def _unpad_weights(ctx: state.TransformCTX, padded_embed):
     """Remove padding from the embedding layer to get back to the original dimension."""
     target_embedding_dimension = ctx.target.config.vocab_size
     return padded_embed[:target_embedding_dimension]
 
 
-def _pad_weights(ctx: io.TransformCTX, source_embed):
+def _pad_weights(ctx: state.TransformCTX, source_embed):
     """Pad the embedding layer to the new input dimension."""
     target_embedding_dimension = ctx.target.config.padded_vocab_size
     hf_embedding_dimension = source_embed.size(0)
@@ -257,32 +246,32 @@ def _pad_weights(ctx: io.TransformCTX, source_embed):
     return torch.cat((source_embed, padding_rows), dim=0)
 
 
-_pad_embeddings = io.state_transform(
+_pad_embeddings = state.state_transform(
     source_key="esm.embeddings.word_embeddings.weight",
     target_key="esm.embeddings.word_embeddings.weight",
 )(_pad_weights)
 
-_pad_decoder_weights = io.state_transform(
+_pad_decoder_weights = state.state_transform(
     source_key="lm_head.decoder.weight",
     target_key="lm_head.decoder.weight",
 )(_pad_weights)
 
-_unpad_embeddings = io.state_transform(
+_unpad_embeddings = state.state_transform(
     source_key="esm.embeddings.word_embeddings.weight",
     target_key="esm.embeddings.word_embeddings.weight",
 )(_unpad_weights)
 
-_unpad_decoder_weights = io.state_transform(
+_unpad_decoder_weights = state.state_transform(
     source_key="lm_head.decoder.weight",
     target_key="lm_head.decoder.weight",
 )(_unpad_weights)
 
 
-@io.state_transform(
+@state.state_transform(
     source_key="lm_head.bias",
     target_key="lm_head.decoder.bias",
 )
-def _pad_bias(ctx: io.TransformCTX, source_bias):
+def _pad_bias(ctx: state.TransformCTX, source_bias):
     """Pad the embedding layer to the new input dimension."""
     target_embedding_dimension = ctx.target.config.padded_vocab_size
     hf_embedding_dimension = source_bias.size(0)
@@ -293,11 +282,11 @@ def _pad_bias(ctx: io.TransformCTX, source_bias):
     return output_bias
 
 
-@io.state_transform(
+@state.state_transform(
     source_key="lm_head.decoder.bias",
     target_key="lm_head.bias",
 )
-def _unpad_bias(ctx: io.TransformCTX, padded_bias):
+def _unpad_bias(ctx: state.TransformCTX, padded_bias):
     """Remove padding from the bias to get back to the original dimension."""
     target_embedding_dimension = ctx.target.config.vocab_size
     return padded_bias[:target_embedding_dimension]

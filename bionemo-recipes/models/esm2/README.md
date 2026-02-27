@@ -115,7 +115,7 @@ tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
 
 To validate the converted models, refer to the commands in [Inference Examples](#inference-examples) above to load and test both the original and converted
 models to ensure loss and logit values are similar. Additionally, refer to the golden value tests in
-[test_modeling_esm_te.py](tests/test_modeling_esm_te.py) and [test_convert.py](tests/test_convert.py).
+[test_modeling_esm_te.py](tests/test_modeling_esm_te.py) and [test_export.py](tests/test_export.py).
 
 ## Developer Guide
 

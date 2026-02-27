@@ -81,11 +81,10 @@ class NVEsmConfig(EsmConfig):
                 `v` weights for each attention head are interleaved. This parameter is set to `False`
                 when using :attr:`fuse_qkv_params=False`.
             encoder_activation: The activation function to use in the encoder.
-            attn_input_format: The input format to use for the attention. This controls
-                whether the dimensions of the intermediate hidden states is 'batch first'
-                ('bshd') or 'sequence first' ('sbhd'). `s` stands for the sequence length,
-                `b` batch size, `h` the number of heads, `d` head size. Note that these
-                formats are very closely related to the `qkv_format` in the
+            attn_input_format: The input format to use for the attention:
+                "bshd" = Batch, Sequence, Head, Dimension (standard padded format)
+                "thd"  = Total tokens (packed/unpadded), Head, Dimension (sequence packing format)
+                Note that these formats are very closely related to the `qkv_format` in the
                 `MultiHeadAttention` and `DotProductAttention` modules.
             fuse_qkv_params: Whether to fuse the qkv parameters. If set to `True`,
                 `TransformerLayer` module exposes a single fused parameter for query-key-value.
@@ -552,6 +551,55 @@ class NVEsmEmbeddings(nn.Module):
         self.token_dropout = config.token_dropout
         self.mask_token_id = config.mask_token_id
 
+    def _apply_token_dropout_bshd(self, embeddings, input_ids, attention_mask):
+        """Apply token dropout scaling for BSHD-format inputs.
+
+        Compensates for masked tokens by scaling unmasked embeddings based on the
+        observed mask ratio per sequence.
+
+        Args:
+            embeddings: Token embeddings with masked positions already zeroed out.
+            input_ids: Original input token IDs.
+            attention_mask: Attention mask indicating valid tokens.
+
+        Returns:
+            Scaled embeddings tensor.
+        """
+        mask_ratio_train = 0.15 * 0.8  # Hardcoded as the ratio used in all ESM model training runs
+        src_lengths = attention_mask.sum(-1) if attention_mask is not None else input_ids.shape[1]
+        n_masked_per_seq = (input_ids == self.mask_token_id).sum(-1).float()
+        mask_ratio_observed = n_masked_per_seq / src_lengths
+        scale_factor = (1 - mask_ratio_train) / (1 - mask_ratio_observed)
+        return (embeddings * scale_factor[:, None, None]).to(embeddings.dtype)
+
+    def _apply_token_dropout_thd(self, embeddings, input_ids, kwargs):
+        """Apply token dropout scaling for THD-format (packed sequence) inputs.
+
+        Uses cumulative sequence lengths to compute per-sequence mask ratios and
+        scales embeddings accordingly using repeat_interleave.
+
+        Args:
+            embeddings: Token embeddings with masked positions already zeroed out.
+            input_ids: Original input token IDs.
+            kwargs: Additional keyword arguments containing cu_seq_lens_q and optionally cu_seq_lens_q_padded.
+
+        Returns:
+            Scaled embeddings tensor.
+        """
+        mask_ratio_train = 0.15 * 0.8  # Hardcoded as the ratio used in all ESM model training runs
+        src_lengths = torch.diff(kwargs["cu_seq_lens_q"])
+        if "cu_seq_lens_q_padded" in kwargs:
+            src_lengths_padded = torch.diff(kwargs["cu_seq_lens_q_padded"])
+        else:
+            src_lengths_padded = src_lengths
+        # We need to find the number of masked tokens in each sequence in the padded batch.
+        is_masked = (input_ids == self.mask_token_id).squeeze(0)
+        n_masked_per_seq = torch.nested.nested_tensor_from_jagged(is_masked, offsets=kwargs["cu_seq_lens_q"]).sum(1)
+        mask_ratio_observed = n_masked_per_seq.float() / src_lengths
+        scale_factor = (1 - mask_ratio_train) / (1 - mask_ratio_observed)
+        reshaped_scale_factor = torch.repeat_interleave(scale_factor, src_lengths_padded, dim=0)
+        return (embeddings * reshaped_scale_factor.unsqueeze(-1)).to(embeddings.dtype)
+
     def forward(
         self,
         input_ids=None,
@@ -587,31 +635,10 @@ class NVEsmEmbeddings(nn.Module):
         # actually dropping out values (or, equivalently, scale up their un-dropped outputs in training).
         if self.token_dropout and input_ids is not None:
             embeddings = embeddings.masked_fill((input_ids == self.mask_token_id).unsqueeze(-1), 0.0)
-            mask_ratio_train = 0.15 * 0.8  # Hardcoded as the ratio used in all ESM model training runs
-
-            if not using_thd:
-                # BSHD token dropout correction
-                src_lengths = attention_mask.sum(-1) if attention_mask is not None else input_ids.shape[1]
-                n_masked_per_seq = (input_ids == self.mask_token_id).sum(-1).float()
-                mask_ratio_observed = n_masked_per_seq / src_lengths
-                scale_factor = (1 - mask_ratio_train) / (1 - mask_ratio_observed)
-                embeddings = (embeddings * scale_factor[:, None, None]).to(embeddings.dtype)
-
+            if using_thd:
+                embeddings = self._apply_token_dropout_thd(embeddings, input_ids, kwargs)
             else:
-                src_lengths = torch.diff(kwargs["cu_seq_lens_q"])
-                if "cu_seq_lens_q_padded" in kwargs:
-                    src_lengths_padded = torch.diff(kwargs["cu_seq_lens_q_padded"])
-                else:
-                    src_lengths_padded = src_lengths
-                # We need to find the number of masked tokens in each sequence in the padded batch.
-                is_masked = (input_ids == self.mask_token_id).squeeze(0)
-                n_masked_per_seq = torch.nested.nested_tensor_from_jagged(
-                    is_masked, offsets=kwargs["cu_seq_lens_q"]
-                ).sum(1)
-                mask_ratio_observed = n_masked_per_seq.float() / src_lengths
-                scale_factor = (1 - mask_ratio_train) / (1 - mask_ratio_observed)
-                reshaped_scale_factor = torch.repeat_interleave(scale_factor, src_lengths_padded, dim=0)
-                embeddings = (embeddings * reshaped_scale_factor.unsqueeze(-1)).to(embeddings.dtype)
+                embeddings = self._apply_token_dropout_bshd(embeddings, input_ids, attention_mask)
 
         if self.layer_norm is not None:
             embeddings = self.layer_norm(embeddings)
