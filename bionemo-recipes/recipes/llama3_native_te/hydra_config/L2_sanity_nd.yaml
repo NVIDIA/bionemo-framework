@@ -1,0 +1,31 @@
+defaults:
+  - L0_sanity
+  - _self_
+
+tp_size: 2
+cp_size: 2
+
+dataset:
+  # CP2 * (8 for FP8 Activations, 16 for FP8 Parameters)
+  pad_sequences_to_be_divisible_by: 32
+
+fp8_config:
+  enabled: true
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+  quantized_model_init_kwargs:
+    # TODO(@cspades): Quantized parameters are
+    # NOT supported with DCP checkpointing.
+    enabled: true
+
+checkpoint:
+  ckpt_dir: ./fsdp_tp_ckpts
+  save_final_model: true
+
+config_kwargs:
+  attn_input_format: "bshd" # Alternatively "thd" on datacenter hardware.
+  self_attn_mask_type: "causal" # Alternatively "padding_causal" for THD inputs.
+  tensor_parallel: true   # Tensor Parallelism for TE
+  sequence_parallel: true   # Sequence parallelism for LayerNorm on TP ranks.
+  tp_size: ${tp_size}       # Tensor Parallel Size
