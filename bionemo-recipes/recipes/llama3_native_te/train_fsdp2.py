@@ -831,7 +831,7 @@ def main(args: DictConfig) -> float | None:
                 logged_dtypes = True
 
             # Log microbatch step data for accumulation metrics
-            perf_logger.log_micro_step(batch=batch, outputs=outputs)
+            perf_logger.log_micro_step(step=step, batch=batch, outputs=outputs)
 
             # Log valid tokens count periodically (for debugging BSHD/masking differences)
             if step % 500 == 0 and micro_step == 1 and dist_config.rank == 0:
@@ -851,7 +851,7 @@ def main(args: DictConfig) -> float | None:
                 micro_step = 0
 
                 # Compute and clip gradient norms.
-                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
                 # Step optimizer.
                 optimizer.step()

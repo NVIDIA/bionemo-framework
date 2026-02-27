@@ -40,6 +40,10 @@ from distributed_config import DistributedConfig
 
 
 logger = logging.getLogger(__name__)
+
+# Tracks in-flight async checkpoint futures keyed by strategy name (e.g. "fsdp2").
+# Each entry holds the Future returned by dcp_async_save so we can await it before starting
+# the next async save or before shutting down.
 _ckpt_futures: dict = {}
 
 
@@ -439,7 +443,7 @@ def load_dataloader(
         )
         return dataloader
 
-    dataloader_state = torch.load(dataloader_path)
+    dataloader_state = torch.load(dataloader_path, weights_only=True)
 
     if (
         dataloader.num_workers != dataloader_state["num_workers"]
