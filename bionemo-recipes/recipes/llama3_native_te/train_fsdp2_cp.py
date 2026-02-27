@@ -98,6 +98,12 @@ def main(args: DictConfig) -> float | None:
     # --- Model Initialization ---
     config_kwargs = OmegaConf.to_container(args.config_kwargs, resolve=True) if args.config_kwargs else {}
 
+    # Normalize rope_scaling: transformers >=5.0 expects "rope_type" instead of "type"
+    if "rope_scaling" in config_kwargs and isinstance(config_kwargs["rope_scaling"], dict):
+        rs = config_kwargs["rope_scaling"]
+        if "type" in rs and "rope_type" not in rs:
+            rs["rope_type"] = rs.pop("type")
+
     # Handle Spike-No-More embedding initialization
     if getattr(args, "spike_no_more_embedding_init", False):
         config_kwargs["embedding_init_std"] = 1.0
