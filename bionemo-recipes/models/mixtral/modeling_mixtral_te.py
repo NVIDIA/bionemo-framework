@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""TransformerEngine-optimized Mixtral model with Mixture of Experts."""
+
 from collections import OrderedDict
 from typing import ClassVar, Unpack
 
@@ -38,6 +40,9 @@ AUTO_MAP = {
 class NVMixtralConfig(MixtralConfig):
     """NVMixtral configuration."""
 
+    # Attention input format:
+    #   "bshd" = Batch, Sequence, Head, Dimension (standard padded format)
+    #   "thd"  = Total tokens (packed/unpadded), Head, Dimension (sequence packing format)
     attn_input_format: str = "thd"
     self_attn_mask_type: str = "padding_causal"
 
