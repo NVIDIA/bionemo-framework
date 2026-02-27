@@ -17,7 +17,8 @@
 #
 # Uses pre-windowed parquet shards from /data/opengenome2/parquet_split/
 # Each shard row is exactly 8190 bases -> tokenized to 8192 tokens (BOS + 8190 + EOS).
-# No windowing or overlap needed (max_seq_length=null, stride=null).
+# Standard windowed tokenization is used; since each sequence is exactly one window
+# long, stride is irrelevant (only 1 window per sequence).
 #
 # This is the HF-model equivalent of John's Eden dataset strategy:
 # globally shuffled windows, same sequence length, comparable to sharded Eden runs.
@@ -76,14 +77,14 @@ fp8_config:
 
 # Dataset: pre-chunked globally shuffled shards
 # Each row = 8190 bases -> 8192 tokens with BOS/EOS
-# No windowing: stride=null disables windowing even though max_seq_length is set.
-# max_seq_length=8192 is still needed for THD token_micro_batch_size calculation.
+# Standard windowed tokenization with stride=200; since each sequence is exactly
+# one window long (8190 bases -> 8192 tokens), stride has no effect.
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1
   num_workers: 8
   max_seq_length: 8192
-  stride: null
+  stride: 200
   buffer_size: 10_000
   shuffle_sequences: true
   shuffle_windows: false
@@ -106,7 +107,7 @@ enable_dataloader_diagnostics: true
 diagnostics_log_dir: /data/results/diagnostics/global_shuffle
 
 logger:
-  frequency: 1
+  frequency: 10
 
 wandb:
   name: og2_7b_global_shuffle

@@ -1,6 +1,6 @@
 # OpenGenome2 Metagenome 7B - THD + BF16 + FP32 master weights + Globally Shuffled Shards
 # PARQUET_SPLIT DATASET: pre-chunked 8190bp windows at /data/opengenome2/parquet_split/
-# No windowing/overlap needed (max_seq_length=null, stride=null)
+# Standard windowed tokenization (each 8190bp sequence = 1 window)
 # 8 workers, 10k buffer
 # Fresh run from scratch
 # GBS = 1 * 8 * 6 * 8 = 384
@@ -43,7 +43,7 @@ use_meta_device: false
 fp8_enabled: false
 use_fp32_master_weights: true
 
-logger_frequency: 1
+logger_frequency: 10
 
 checkpoint_dir: "/data/savithas/checkpoints/og2-7b-fp32mw-global-shuffle"  # pragma: allowlist secret
 save_every_n_steps: 5000
