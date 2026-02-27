@@ -52,6 +52,33 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def load_iteration_precision_schedule(file_path: str) -> dict[int, str]:
+    """Load a per-iteration precision schedule from a file.
+
+    Each line should be: iteration_number,precision_type
+    where precision_type is NVFP4 or MXFP8. Lines starting with '#' are ignored.
+
+    Args:
+        file_path: Path to the schedule file.
+
+    Returns:
+        Dict mapping 1-indexed iteration number to precision type string.
+    """
+    schedule: dict[int, str] = {}
+    with open(file_path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split(",", maxsplit=1)
+            iteration = int(parts[0].strip())
+            precision = parts[1].strip()
+            if precision not in ("NVFP4", "MXFP8"):
+                raise ValueError(f"Unknown precision type '{precision}' at iteration {iteration}. Must be NVFP4 or MXFP8.")
+            schedule[iteration] = precision
+    return schedule
+
+
 def generate_layer_regex(layer_numbers: list[int] | None) -> str:
     """Generate a regex pattern to match specific layer numbers (1-indexed).
     
@@ -193,6 +220,20 @@ def main(args: DictConfig) -> float | None:
             fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
         )
 
+    # Load per-iteration precision schedule if configured.
+    iteration_precision_schedule = None
+    if args.get("iteration_precision_file") and args.iteration_precision_file is not None:
+        schedule_path = Path(args.iteration_precision_file)
+        if not schedule_path.exists():
+            raise FileNotFoundError(f"Iteration precision file not found: {schedule_path}")
+        iteration_precision_schedule = load_iteration_precision_schedule(str(schedule_path))
+        logger.info(f"Loaded iteration precision schedule with {len(iteration_precision_schedule)} entries")
+        if not args.fp8_config.enabled or not args.fp4_config.enabled:
+            raise ValueError(
+                "Both fp8_config.enabled and fp4_config.enabled must be True when using iteration_precision_file, "
+                "since the schedule may reference both MXFP8 and NVFP4 precisions."
+            )
+
     config = NVEsmConfig.from_pretrained(args.model_tag, dtype=torch.float32 if args.use_fp32_master_weights else torch.bfloat16)
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
@@ -317,7 +358,20 @@ def main(args: DictConfig) -> float | None:
                 nsys_profiling_active = True
 
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
-            
+
+            # --- Per-iteration precision update ---
+            if iteration_precision_schedule is not None:
+                iter_key = step + 1  # Schedule file uses 1-indexed iterations
+                if iter_key in iteration_precision_schedule:
+                    precision_type = iteration_precision_schedule[iter_key]
+                    for ln in layer_number_quantized_recipe_map:
+                        if precision_type == "NVFP4":
+                            layer_number_quantized_recipe_map[ln] = fp4_recipe
+                        elif precision_type == "MXFP8":
+                            layer_number_quantized_recipe_map[ln] = fp8_recipe
+                    if step % args.logger.frequency == 0:
+                        logger.info(f"Step {step}: iteration precision schedule -> {precision_type} for all layers")
+
             # --- Forward pass ---
             nvtx.range_push(f"step_{step}")
             nvtx.range_push("forward")

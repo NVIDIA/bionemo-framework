@@ -105,3 +105,7 @@ nsys_profiling:
 fp8_layers: null
 fp4_layers: null
 use_fp32_master_weights: null
+
+# Per-iteration precision schedule file. Each line: "iteration_number,PRECISION_TYPE"
+# where PRECISION_TYPE is NVFP4 or MXFP8. When set, overrides fp8_layers/fp4_layers per step.
+iteration_precision_file: null
