@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""TransformerEngine-optimized Llama model."""
+
 from collections import OrderedDict
 from typing import ClassVar, Unpack
 
@@ -42,6 +44,9 @@ AUTO_MAP = {
 class NVLlamaConfig(LlamaConfig):
     """NVLlama configuration."""
 
+    # Attention input format:
+    #   "bshd" = Batch, Sequence, Head, Dimension (standard padded format)
+    #   "thd"  = Total tokens (packed/unpadded), Head, Dimension (sequence packing format)
     attn_input_format: str = "thd"
     self_attn_mask_type: str = "padding_causal"
 

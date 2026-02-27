@@ -42,6 +42,9 @@ pre-commit run --all-files
 pre-commit run
 ```
 
+Do not copy license headers from other files, instead allow the license-check.py script to add the license header during
+pre-commit to ensure the proper year is used.
+
 Pre-commit includes:
 
 - Ruff linting/formatting (line-length: 119, Google-style docstrings)

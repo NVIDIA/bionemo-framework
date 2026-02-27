@@ -13,6 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Conversion utilities between HuggingFace Llama3 and TransformerEngine formats."""
+
+import inspect
+
 import torch
 from transformers import LlamaConfig, LlamaForCausalLM
 
@@ -85,18 +89,18 @@ def convert_llama_hf_to_te(model_hf: LlamaForCausalLM, **config_kwargs) -> NVLla
 
 
 def convert_llama_te_to_hf(model_te: NVLlamaForCausalLM, **config_kwargs) -> LlamaForCausalLM:
-    """Convert a Hugging Face model to a Transformer Engine model.
+    """Convert a Transformer Engine model to a Hugging Face model.
 
     Args:
-        model_te (nn.Module): The Hugging Face model.
-        **config_kwargs: Additional configuration kwargs to be passed to NVLlamaConfig.
+        model_te (nn.Module): The Transformer Engine model.
+        **config_kwargs: Additional configuration kwargs to be passed to LlamaConfig.
 
     Returns:
-        nn.Module: The Transformer Engine model.
+        nn.Module: The Hugging Face model.
     """
     # Filter out keys from model_te.config that are not valid LlamaConfig attributes
     te_config_dict = model_te.config.to_dict()
-    valid_keys = set(LlamaConfig.__init__.__code__.co_varnames)
+    valid_keys = set(inspect.signature(LlamaConfig.__init__).parameters)
     filtered_config = {k: v for k, v in te_config_dict.items() if k in valid_keys}
     hf_config = LlamaConfig(**filtered_config, **config_kwargs)
 
