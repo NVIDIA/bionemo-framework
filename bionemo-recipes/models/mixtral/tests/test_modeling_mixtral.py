@@ -47,6 +47,8 @@ class TestMixtralModel(BaseModelTest):
     This class provides Mixtral-specific configuration for the common test suite.
     """
 
+    is_autoregressive = True
+
     def get_model_class(self) -> Type[PreTrainedModel]:
         """Return the Mixtral TE model class."""
         return NVMixtralForCausalLM
@@ -146,9 +148,7 @@ class TestMixtralModel(BaseModelTest):
             cp_loss_rtol=0.25,
         )
 
-    # ==================== Mixtral-Specific KV-Cache Tests ====================
-
-    def _create_inference_params(self, config, batch_size=1, max_seq_len=256, num_beams=1):
+    def create_inference_params(self, config, batch_size=1, max_seq_len=256, num_beams=1):
         """Create HFInferenceParams for the given config."""
         past_key_values = HFInferenceParams(
             max_batch_size=batch_size * num_beams,
@@ -162,119 +162,3 @@ class TestMixtralModel(BaseModelTest):
         for layer_number in range(1, config.num_hidden_layers + 1):
             past_key_values.allocate_memory(layer_number)
         return past_key_values
-
-    def test_generate_with_cache(self):
-        """Test single-prompt generation with KV-cache (THD format)."""
-        config = self.create_test_config(attn_input_format="thd", self_attn_mask_type="padding_causal")
-        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
-        model.eval()
-
-        tokenizer = self.get_tokenizer()
-        prompt = "The quick brown fox jumps over"
-        inputs = tokenizer(prompt, return_tensors="pt")
-        inputs = {k: v.to("cuda") for k, v in inputs.items()}
-
-        past_key_values = self._create_inference_params(config, batch_size=1)
-
-        with torch.no_grad():
-            output_ids = model.generate(**inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values)
-
-        # Verify generation produced new tokens
-        assert output_ids.shape[1] > inputs["input_ids"].shape[1]
-
-    def test_generate_with_cache_batched(self):
-        """Test batched generation with KV-cache (left-padded BSHD converted to THD)."""
-        config = self.create_test_config(attn_input_format="thd", self_attn_mask_type="padding_causal")
-        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
-        model.eval()
-
-        tokenizer = self.get_tokenizer()
-        prompts = (
-            "The quick brown fox jumps over the lazy dog.",
-            "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-        )
-        inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left")
-        inputs = {k: v.to("cuda") for k, v in inputs.items()}
-
-        past_key_values = self._create_inference_params(config, batch_size=2)
-
-        with torch.no_grad():
-            output_ids = model.generate(**inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values)
-
-        # Verify generation produced new tokens for both sequences
-        assert output_ids.shape[0] == 2
-        assert output_ids.shape[1] > inputs["input_ids"].shape[1]
-
-    def test_generate_with_cache_beam_search(self):
-        """Test batched generation with KV-cache and beam search."""
-        config = self.create_test_config(attn_input_format="thd", self_attn_mask_type="padding_causal")
-        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
-        model.eval()
-
-        tokenizer = self.get_tokenizer()
-        prompts = (
-            "The quick brown fox jumps over the lazy dog.",
-            "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
-        )
-        inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left")
-        inputs = {k: v.to("cuda") for k, v in inputs.items()}
-
-        num_beams = 2
-        past_key_values = self._create_inference_params(config, batch_size=2, num_beams=num_beams)
-
-        with torch.no_grad():
-            output_ids = model.generate(
-                **inputs,
-                max_new_tokens=16,
-                use_cache=True,
-                past_key_values=past_key_values,
-                num_beams=num_beams,
-                do_sample=True,
-            )
-
-        # Verify generation produced new tokens for both sequences
-        assert output_ids.shape[0] == 2
-        assert output_ids.shape[1] > inputs["input_ids"].shape[1]
-
-    # ==================== Standalone Mixtral Generation Tests ====================
-
-    def test_te_mixtral_model_generate_with_cache_beam_search(self):
-        """Test Mixtral generation with KV-cache and beam search using real model weights."""
-        import gc
-
-        model_hf = self.get_reference_model()
-        model_te = convert_mixtral_hf_to_te(model_hf, attn_input_format="thd", self_attn_mask_type="padding_causal")
-        del model_hf
-        gc.collect()
-
-        model_te.to("cuda")
-        model_te.eval()
-
-        tokenizer = self.get_tokenizer()
-
-        prompts = (
-            'Licensed under the Apache License, Version 2.0 (the "License");'
-            " you may not use this file except in compliance with the License."
-            " You may obtain a copy of the License at",
-            "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore",
-        )
-        inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left")
-        inputs = {k: v.to("cuda") for k, v in inputs.items()}
-
-        num_beams = 2
-        config = model_te.config
-        past_key_values = self._create_inference_params(config, batch_size=2, num_beams=num_beams)
-
-        with torch.no_grad():
-            output_ids = model_te.generate(
-                **inputs,
-                max_new_tokens=16,
-                use_cache=True,
-                past_key_values=past_key_values,
-                num_beams=num_beams,
-                do_sample=False,
-            )
-
-        generated_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
-        assert "http://www.apache.org/licenses/LICENSE-2.0" in generated_text[0]
-        assert "et dolore magna aliqua" in generated_text[1]
