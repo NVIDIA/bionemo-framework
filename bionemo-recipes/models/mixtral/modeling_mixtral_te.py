@@ -166,7 +166,7 @@ class NVMixtralSparseMoeBlock(nn.Module):
 
         # Permute tokens by expert using TE moe_permute
         permuted_hidden, row_id_map = transformer_engine.pytorch.moe_permute(
-            hidden_states, selected_experts, map_type="index"
+            hidden_states, selected_experts.to(torch.int32), map_type="index"
         )
 
         # Compute m_splits: number of tokens per expert
@@ -185,11 +185,11 @@ class NVMixtralSparseMoeBlock(nn.Module):
         # Down projection
         expert_output = self.experts_down(intermediate, m_splits=m_splits)  # [total_tokens, H]
 
-        # Unpermute and combine with routing weights
+        # Unpermute and combine with routing weights (keep probs in float32 for numerical stability)
         output = transformer_engine.pytorch.moe_unpermute(
             expert_output,
             row_id_map,
-            merging_probs=routing_weights.to(expert_output.dtype),
+            merging_probs=routing_weights,
             map_type="index",
         )
 
