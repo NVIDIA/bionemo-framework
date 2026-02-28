@@ -79,23 +79,18 @@ def main(args: DictConfig) -> float | None:
     logger.info("Created device mesh: %s", device_mesh)
 
     # --- Model Configuration ---
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-    )
+    # Create quantization recipe -- only used if FP8 is enabled in the config.
+    fp8_recipe = None
+    if args.fp8_config.enabled:
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
 
     # --- Model Initialization ---
     config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
 
-    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
-    # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16
-    # and fp8 versions of weights are kept.
-    with (
-        torch.device("meta") if args.use_meta_device else nullcontext(),
-        transformer_engine.pytorch.quantized_model_init(
-            recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
-        ),
-    ):
-        model = NVLlamaForCausalLM(config)
+    with torch.device("meta") if args.use_meta_device else nullcontext():
+        model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe)
 
     logger.info("Initialized Model:\n%s", model)
 

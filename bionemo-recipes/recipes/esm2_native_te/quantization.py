@@ -146,6 +146,8 @@ def resolve_layer_precision(
 ) -> list[str | None]:
     """Resolve layer-wise quantization assignments from user config.
 
+    TODO(BIO-326): Remove this and move to directly initializing something in NVEsmConfig.
+
     Takes 1-indexed layer lists (as specified by the user in YAML config) and returns a per-layer
     precision list (0-indexed by position). When a quantization format is enabled but no layer list
     is provided, all layers default to that format. When one format has explicit layers and the other

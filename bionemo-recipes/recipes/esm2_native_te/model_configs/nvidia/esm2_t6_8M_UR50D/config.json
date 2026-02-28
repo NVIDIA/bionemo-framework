@@ -5,12 +5,6 @@
   "attention_probs_dropout_prob": 0.0,
   "attn_input_format": "bshd",
   "attn_mask_type": "padding",
-  "auto_map": {
-    "AutoConfig": "esm_nv.NVEsmConfig",
-    "AutoModel": "esm_nv.NVEsmModel",
-    "AutoModelForMaskedLM": "esm_nv.NVEsmForMaskedLM",
-    "AutoModelForTokenClassification": "esm_nv.NVEsmForTokenClassification"
-  },
   "classifier_dropout": null,
   "dtype": "float32",
   "emb_layer_norm_before": false,

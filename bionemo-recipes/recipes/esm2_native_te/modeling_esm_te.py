@@ -22,8 +22,9 @@
 Adapted from `modeling_esm.py` in huggingface/transformers.
 """
 
+import warnings
 from contextlib import nullcontext
-from typing import ClassVar, Literal, Optional, Unpack
+from typing import ClassVar, ContextManager, Literal, Optional, Unpack
 
 # TODO: put import guard around transformer_engine here, with an informative error message around
 # installation and the nvidia docker container.
@@ -73,6 +74,7 @@ class NVEsmConfig(EsmConfig):
         padded_vocab_size: Optional[int] = 64,
         attn_mask_type: str = "padding",
         layer_precision: list[str | None] | None = None,
+        use_quantized_model_init: bool = False,
         **kwargs,
     ):
         """Initialize the NVEsmConfig with additional TE-related config options.
@@ -105,6 +107,7 @@ class NVEsmConfig(EsmConfig):
             layer_precision: Per-layer quantization precision, a list of length ``num_hidden_layers``
                 where each element is ``"fp8"``, ``"fp4"``, or ``None`` (BF16 fallback). ``None``
                 (the default) means no quantization is configured.
+            use_quantized_model_init: Whether to use `quantized_model_init` for layer initialization.
             **kwargs: Additional config options to pass to EsmConfig.
         """
         super().__init__(**kwargs)
@@ -117,9 +120,10 @@ class NVEsmConfig(EsmConfig):
         self.max_seq_length = max_seq_length
         self.attn_mask_type = attn_mask_type
         self.layer_precision = layer_precision
+        self.use_quantized_model_init = use_quantized_model_init
 
         # Set padded_vocab_size with default fallback to vocab_size
-        self.padded_vocab_size = padded_vocab_size if padded_vocab_size is not None else self.vocab_size
+        self.padded_vocab_size = padded_vocab_size or self.vocab_size
 
         # Ensure padded_vocab_size is at least as large as vocab_size
         if self.padded_vocab_size is not None and self.vocab_size is not None:
@@ -127,52 +131,76 @@ class NVEsmConfig(EsmConfig):
                 f"padded_vocab_size ({self.padded_vocab_size}) must be greater than or equal to vocab_size ({self.vocab_size})"
             )
 
+        if layer_precision is not None:
+            assert len(layer_precision) == self.num_hidden_layers, (
+                f"layer_precision must be a list of length {self.num_hidden_layers}"
+            )
+            for precision in layer_precision:
+                assert precision in {"fp8", "fp4", None}, 'layer_precision element must be "fp8", "fp4", or None'
+
 
 class NVEsmEncoder(nn.Module):
     """NVEsmEncoder is a TransformerEngine-optimized ESM encoder."""
 
-    def __init__(self, config: NVEsmConfig):
+    def __init__(
+        self,
+        config: NVEsmConfig,
+        fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+    ):
         """Initialize a NVEsmEncoder.
 
         Args:
             config (NVEsmConfig): The configuration of the model.
+            fp8_recipe: The FP8 recipe for the encoder.
+            fp4_recipe: The FP4 recipe for the encoder.
         """
         super().__init__()
         self.config = config
+        self._fp8_recipe: transformer_engine.common.recipe.Recipe | None = fp8_recipe
+        self._fp4_recipe: transformer_engine.common.recipe.Recipe | None = fp4_recipe
+
+        if fp8_recipe is not None and self.config.layer_precision is None:
+            if fp4_recipe is not None:
+                raise RuntimeError("Both FP8 and FP4 recipes provided, but no layer precision provided.")
+
+            warnings.warn("No layer precision provided, using FP8 recipe for all layers.", UserWarning)
+            self.config.layer_precision = ["fp8"] * self.config.num_hidden_layers
 
         def _init_method(x):
             torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
 
-        self.layers = nn.ModuleList(
-            [
-                transformer_engine.pytorch.TransformerLayer(
-                    hidden_size=config.hidden_size,
-                    ffn_hidden_size=config.intermediate_size,
-                    num_attention_heads=config.num_attention_heads,
-                    layernorm_epsilon=config.layer_norm_eps,
-                    hidden_dropout=config.hidden_dropout_prob,
-                    attention_dropout=config.attention_probs_dropout_prob,
-                    qkv_weight_interleaved=config.qkv_weight_interleaved,
-                    layer_number=i + 1,
-                    layer_type="encoder",
-                    self_attn_mask_type=config.attn_mask_type,
-                    activation=config.encoder_activation,
-                    attn_input_format=config.attn_input_format,
-                    seq_length=config.max_seq_length,
-                    micro_batch_size=config.micro_batch_size,
-                    num_gqa_groups=config.num_attention_heads,
-                    fuse_qkv_params=config.fuse_qkv_params,
-                    params_dtype=config.dtype,
-                    window_size=(-1, -1),
-                    device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
-                    init_method=_init_method,
-                    output_layer_init_method=_init_method,
-                )
-                for i in range(config.num_hidden_layers)
-            ]
-        )
-        self._fp8_recipe: transformer_engine.common.recipe.Recipe | None = None
-        self._fp4_recipe: transformer_engine.common.recipe.Recipe | None = None
+        layers: list[transformer_engine.pytorch.TransformerLayer] = []
+        for i in range(config.num_hidden_layers):
+            with self.get_autocast_context(i, init=True):
+                layers += [
+                    transformer_engine.pytorch.TransformerLayer(
+                        hidden_size=config.hidden_size,
+                        ffn_hidden_size=config.intermediate_size,
+                        num_attention_heads=config.num_attention_heads,
+                        layernorm_epsilon=config.layer_norm_eps,
+                        hidden_dropout=config.hidden_dropout_prob,
+                        attention_dropout=config.attention_probs_dropout_prob,
+                        qkv_weight_interleaved=config.qkv_weight_interleaved,
+                        layer_number=i + 1,
+                        layer_type="encoder",
+                        self_attn_mask_type=config.attn_mask_type,
+                        activation=config.encoder_activation,
+                        attn_input_format=config.attn_input_format,
+                        seq_length=config.max_seq_length,
+                        micro_batch_size=config.micro_batch_size,
+                        num_gqa_groups=config.num_attention_heads,
+                        fuse_qkv_params=config.fuse_qkv_params,
+                        params_dtype=config.dtype,
+                        window_size=(-1, -1),
+                        device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
+                        init_method=_init_method,
+                        output_layer_init_method=_init_method,
+                    )
+                ]
+
+        self.layers = nn.ModuleList(layers)
+
         self.emb_layer_norm_after = transformer_engine.pytorch.LayerNorm(
             config.hidden_size,
             eps=config.layer_norm_eps,
@@ -181,46 +209,6 @@ class NVEsmEncoder(nn.Module):
         )
         if config.position_embedding_type == "rotary":
             self.rotary_embeddings = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
-
-    def set_recipes(
-        self,
-        fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
-        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
-    ) -> None:
-        """Attach quantization recipe objects for per-layer autocast.
-
-        Recipes are not serializable and must be set at runtime after model creation
-        and sharding (FSDP/DDP/mFSDP) but before training. The per-layer precision
-        assignments are read from ``self.config.layer_precision``.
-
-        Args:
-            fp8_recipe: The FP8 recipe instance (e.g., MXFP8BlockScaling), or None.
-            fp4_recipe: The FP4 recipe instance (e.g., NVFP4BlockScaling), or None.
-        """
-        self._fp8_recipe = fp8_recipe
-        self._fp4_recipe = fp4_recipe
-
-    def get_layer_autocast(self, layer_number: int):
-        """Return the appropriate TE autocast context manager for a given layer.
-
-        The context interacts with the outer FP8 autocast in the training script:
-        - FP8 layer: nullcontext() -- lets the outer FP8 autocast take effect.
-        - FP4 layer: te.pytorch.autocast(enabled=True, recipe=fp4_recipe) -- overrides to FP4.
-        - BF16 layer: te.pytorch.autocast(enabled=False) -- disables quantized compute.
-
-        Args:
-            layer_number: The 0-indexed layer number.
-
-        Returns:
-            A context manager for the layer's quantization mode.
-        """
-        precision = self.config.layer_precision[layer_number] if self.config.layer_precision is not None else None
-        if precision == "fp8":
-            return nullcontext()
-        elif precision == "fp4":
-            return transformer_engine.pytorch.autocast(enabled=True, recipe=self._fp4_recipe)
-        else:
-            return transformer_engine.pytorch.autocast(enabled=False)
 
     def forward(
         self,
@@ -246,15 +234,15 @@ class NVEsmEncoder(nn.Module):
         with torch.autocast(device_type="cuda", enabled=False):
             te_rope_emb = self.rotary_embeddings(max_seq_len=self.config.max_position_embeddings)
             te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
+            if te_rope_emb.dtype == torch.float32:
+                warnings.warn("Rotary embeddings should be in float32 for optimal performance.", UserWarning)
 
-        # Outer FP8 autocast enables FP8 compute for the encoder stack. Per-layer overrides (FP4, BF16) are handled
-        # by get_layer_autocast(), which nests inside this context.
-        with transformer_engine.pytorch.autocast(enabled=self._fp8_recipe is not None, recipe=self._fp8_recipe):
-            for layer_number, layer_module in enumerate(self.layers):
+        with self.get_autocast_context(None, outer=True):
+            for layer_idx, layer_module in enumerate(self.layers):
                 if kwargs.get("output_hidden_states", False):
                     all_hidden_states = (*all_hidden_states, hidden_states)
 
-                with self.get_layer_autocast(layer_number):
+                with self.get_autocast_context(layer_idx):
                     hidden_states = layer_module(
                         hidden_states,
                         attention_mask,
@@ -275,8 +263,51 @@ class NVEsmEncoder(nn.Module):
 
         return BaseModelOutput(
             last_hidden_state=hidden_states,
-            hidden_states=all_hidden_states if all_hidden_states else None,
+            hidden_states=all_hidden_states or None,
         )
+
+    def get_autocast_context(
+        self, layer_number: int | None, init: bool = False, outer: bool = False
+    ) -> ContextManager:
+        """Return the appropriate TE autocast context manager for a given layer.
+
+        This function handles both the quantized_model_init during layer creation and the te.autocast() during layer
+        forward pass.
+
+        Args:
+            layer_number: The 0-indexed layer number.
+            init: Whether to return a `quantized_model_init` context for layer initialization.
+            outer: Whether to return a global te.autocast() context to wrap the entire encoder stack.
+        """
+        if self.config.layer_precision is None:
+            return nullcontext()
+
+        if outer:
+            # This is especially important for something like DelayedScaling, where we want to ensure recipe
+            # post-processing happens only once per forward pass.
+            if "fp8" not in self.config.layer_precision:
+                return nullcontext()
+            if self._fp8_recipe is None:
+                warnings.warn("No FP8 recipe provided, using default recipe.", UserWarning)
+            return transformer_engine.pytorch.autocast(enabled=True, recipe=self._fp8_recipe)
+
+        precision = self.config.layer_precision[layer_number]
+        recipe = {"fp8": self._fp8_recipe, "fp4": self._fp4_recipe}.get(precision)
+
+        if init and self.config.use_quantized_model_init:
+            if precision in ("fp8", "fp4"):
+                return transformer_engine.pytorch.quantized_model_init(recipe=recipe)
+            return nullcontext()
+
+        if precision == "fp8":
+            if recipe is None:
+                warnings.warn("No FP8 recipe provided, using default recipe.", UserWarning)
+            return transformer_engine.pytorch.autocast(enabled=True, recipe=recipe)
+        if precision == "fp4":
+            if recipe is None:
+                raise RuntimeError("No FP4 recipe provided, but layer precision is set to FP4.")
+            return transformer_engine.pytorch.autocast(enabled=True, recipe=recipe)
+        return transformer_engine.pytorch.autocast(enabled=False)
 
 
 class NVEsmPreTrainedModel(EsmPreTrainedModel):
@@ -344,12 +375,20 @@ class NVEsmModel(NVEsmPreTrainedModel):
     This model uses NVDIA's TransformerEngine to optimize attention layer training and inference.
     """
 
-    def __init__(self, config: NVEsmConfig, add_pooling_layer: bool = True):
+    def __init__(
+        self,
+        config: NVEsmConfig,
+        add_pooling_layer: bool = True,
+        fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+    ):
         """Initialize a NVEsmModel.
 
         Args:
             config (NVEsmConfig): The configuration of the model.
             add_pooling_layer (bool): Whether to add a pooling layer.
+            fp8_recipe: The FP8 recipe for the encoder.
+            fp4_recipe: The FP4 recipe for the encoder.
         """
         super().__init__(config)
         self.config = config
@@ -358,7 +397,7 @@ class NVEsmModel(NVEsmPreTrainedModel):
         if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
             config.pad_token_id = 0
         self.embeddings = NVEsmEmbeddings(config)
-        self.encoder = NVEsmEncoder(config)
+        self.encoder = NVEsmEncoder(config, fp8_recipe, fp4_recipe)
         self.pooler = EsmPooler(config) if add_pooling_layer else None
 
         # Initialize weights and apply final processing
@@ -427,7 +466,7 @@ class NVEsmModel(NVEsmPreTrainedModel):
         )
         encoder_outputs = self.encoder(
             embedding_output,
-            attention_mask=extended_attention_mask,
+            attention_mask=None if self.config.attn_input_format == "thd" else extended_attention_mask,
             **kwargs,
         )
         sequence_output = encoder_outputs[0]
@@ -446,11 +485,18 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
     _tied_weights_keys: ClassVar[dict[str, str]] = {"lm_head.decoder.weight": "esm.embeddings.word_embeddings.weight"}
     _do_not_quantize = ("lm_head.dense", "lm_head.decoder")  # Flag for testing that these layers are not quantized.
 
-    def __init__(self, config: NVEsmConfig):
+    def __init__(
+        self,
+        config: NVEsmConfig,
+        fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+    ):
         """Initialize a NVEsmForMaskedLM.
 
         Args:
             config (NVEsmConfig): The configuration of the model.
+            fp8_recipe: The FP8 recipe for the encoder.
+            fp4_recipe: The FP4 recipe for the encoder.
         """
         super().__init__(config)
 
@@ -460,7 +506,7 @@ class NVEsmForMaskedLM(NVEsmPreTrainedModel):
                 "bi-directional self-attention."
             )
 
-        self.esm = NVEsmModel(config, add_pooling_layer=False)
+        self.esm = NVEsmModel(config, add_pooling_layer=False, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
         self.lm_head = NVEsmLMHead(config)
 
         self.post_init()
@@ -546,7 +592,7 @@ class NVEsmLMHead(nn.Module):
 
             self.decoder = transformer_engine.pytorch.LayerNormLinear(
                 config.hidden_size,
-                config.padded_vocab_size if config.padded_vocab_size is not None else config.vocab_size,
+                config.padded_vocab_size or config.vocab_size,
                 bias=True,
                 eps=config.layer_norm_eps,
                 params_dtype=config.dtype,
@@ -708,12 +754,23 @@ class NVEsmForTokenClassification(NVEsmPreTrainedModel):
     Adapted from EsmForTokenClassification in Hugging Face Transformers `modeling_esm.py`.
     """
 
-    def __init__(self, config):
-        """Initialize NVEsmForTokenClassification."""
+    def __init__(
+        self,
+        config,
+        fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+    ):
+        """Initialize NVEsmForTokenClassification.
+
+        Args:
+            config: The configuration of the model.
+            fp8_recipe: The FP8 recipe for the encoder.
+            fp4_recipe: The FP4 recipe for the encoder.
+        """
         super().__init__(config)
         self.num_labels = config.num_labels
 
-        self.esm = NVEsmModel(config, add_pooling_layer=False)
+        self.esm = NVEsmModel(config, add_pooling_layer=False, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
         self.classifier = transformer_engine.pytorch.Linear(
             config.hidden_size,

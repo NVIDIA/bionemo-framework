@@ -18,7 +18,6 @@ from pathlib import Path
 
 import hydra
 import torch
-import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
@@ -92,7 +91,9 @@ def main(args: DictConfig) -> float | None:
 
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     # Note: token_dropout is set to False because it's not compatible with context parallelism.
-    config = NVEsmConfig.from_pretrained(args.model_tag, token_dropout=False, dtype=torch.bfloat16)
+    config = NVEsmConfig.from_pretrained(
+        args.config_name_or_path, token_dropout=False, dtype=torch.bfloat16, **args.config_kwargs
+    )
     num_layers = config.num_hidden_layers
 
     # Resolve layer-wise quantization assignments and store on config.
@@ -108,18 +109,10 @@ def main(args: DictConfig) -> float | None:
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
 
-    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
-    # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
-    # versions of weights are kept.
-    with transformer_engine.pytorch.quantized_model_init(
-        recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
-    ):
-        model = NVEsmForMaskedLM(config)
+    # Create the model -- recipes and quantized_model_init are handled internally via get_autocast_context().
+    model = NVEsmForMaskedLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     logger.info("Initialized Model:\n%s", model)
-
-    # Attach quantization recipes to the encoder (layer precision is already on config).
-    model.esm.encoder.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     # Create optimizer.
     optimizer = AdamW(model.parameters(), **args.adamw_kwargs)

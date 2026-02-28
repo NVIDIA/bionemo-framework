@@ -15,11 +15,14 @@
 
 """TransformerEngine-optimized Mixtral model with Mixture of Experts."""
 
+import warnings
 from collections import OrderedDict
-from typing import ClassVar, Unpack
+from contextlib import nullcontext
+from typing import ClassVar, ContextManager, Unpack
 
 import torch
 import torch.nn as nn
+import transformer_engine.common.recipe
 import transformer_engine.pytorch
 from transformer_engine.pytorch.attention import InferenceParams
 from transformer_engine.pytorch.attention.inference import PagedKVCacheManager
@@ -45,6 +48,32 @@ class NVMixtralConfig(MixtralConfig):
     #   "thd"  = Total tokens (packed/unpadded), Head, Dimension (sequence packing format)
     attn_input_format: str = "thd"
     self_attn_mask_type: str = "padding_causal"
+
+    def __init__(
+        self,
+        layer_precision: list[str | None] | None = None,
+        use_quantized_model_init: bool = False,
+        **kwargs,
+    ):
+        """Initialize the NVMixtralConfig with additional TE-related config options.
+
+        Args:
+            layer_precision: Per-layer quantization precision, a list of length ``num_hidden_layers``
+                where each element is ``"fp8"``, ``"fp4"``, or ``None`` (BF16 fallback). ``None``
+                (the default) means no quantization is configured.
+            use_quantized_model_init: Whether to use `quantized_model_init` for layer initialization.
+            **kwargs: Additional config options to pass to MixtralConfig.
+        """
+        super().__init__(**kwargs)
+        self.layer_precision = layer_precision
+        self.use_quantized_model_init = use_quantized_model_init
+
+        if layer_precision is not None:
+            assert len(layer_precision) == self.num_hidden_layers, (
+                f"layer_precision must be a list of length {self.num_hidden_layers}"
+            )
+            for precision in layer_precision:
+                assert precision in {"fp8", "fp4", None}, 'layer_precision element must be "fp8", "fp4", or None'
 
 
 class NVMixtralPreTrainedModel(PreTrainedModel):
@@ -279,18 +308,41 @@ class NVMixtralDecoderLayer(nn.Module):
 class NVMixtralModel(NVMixtralPreTrainedModel):
     """Mixtral model implemented in Transformer Engine."""
 
-    def __init__(self, config: MixtralConfig):
-        """Initialize the NVMixtral model."""
+    def __init__(
+        self,
+        config: MixtralConfig,
+        fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+    ):
+        """Initialize the NVMixtral model.
+
+        Args:
+            config: The configuration of the model.
+            fp8_recipe: The FP8 recipe for the model.
+            fp4_recipe: The FP4 recipe for the model.
+        """
         super().__init__(config)
         self.config = config
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
+        self._fp8_recipe: transformer_engine.common.recipe.Recipe | None = fp8_recipe
+        self._fp4_recipe: transformer_engine.common.recipe.Recipe | None = fp4_recipe
+
+        if fp8_recipe is not None and self.config.layer_precision is None:
+            if fp4_recipe is not None:
+                raise RuntimeError("Both FP8 and FP4 recipes provided, but no layer precision provided.")
+
+            warnings.warn("No layer precision provided, using FP8 recipe for all layers.", UserWarning)
+            self.config.layer_precision = ["fp8"] * self.config.num_hidden_layers
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx, dtype=config.dtype)
 
-        self.layers = nn.ModuleList(
-            [NVMixtralDecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
-        )
+        layers: list[NVMixtralDecoderLayer] = []
+        for layer_idx in range(config.num_hidden_layers):
+            with self.get_autocast_context(layer_idx, init=True):
+                layers += [NVMixtralDecoderLayer(config, layer_idx)]
+
+        self.layers = nn.ModuleList(layers)
 
         self.norm = transformer_engine.pytorch.RMSNorm(
             config.hidden_size,
@@ -358,23 +410,25 @@ class NVMixtralModel(NVMixtralPreTrainedModel):
         with torch.autocast(device_type="cuda", enabled=False):
             te_rope_emb = self.rotary_emb(max_seq_len=self.config.max_position_embeddings)
 
-        for decoder_layer in self.layers[: self.config.num_hidden_layers]:
-            if output_hidden_states:
-                all_hidden_states = (*all_hidden_states, hidden_states)
+        with self.get_autocast_context(None, outer=True):
+            for layer_idx, decoder_layer in enumerate(self.layers[: self.config.num_hidden_layers]):
+                if output_hidden_states:
+                    all_hidden_states = (*all_hidden_states, hidden_states)
 
-            hidden_states = decoder_layer(
-                hidden_states,
-                attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
-                rotary_pos_emb=te_rope_emb,
-                inference_params=past_key_values,
-                cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
-                cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
-                cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
-                cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
-                max_seqlen_q=kwargs.get("max_length_q", None),
-                max_seqlen_kv=kwargs.get("max_length_k", None),
-                pad_between_seqs=kwargs.get("pad_between_seqs", None),
-            )
+                with self.get_autocast_context(layer_idx):
+                    hidden_states = decoder_layer(
+                        hidden_states,
+                        attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
+                        rotary_pos_emb=te_rope_emb,
+                        inference_params=past_key_values,
+                        cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
+                        cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                        cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
+                        cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
+                        max_seqlen_q=kwargs.get("max_length_q", None),
+                        max_seqlen_kv=kwargs.get("max_length_k", None),
+                        pad_between_seqs=kwargs.get("pad_between_seqs", None),
+                    )
 
         hidden_states = self.norm(hidden_states)
 
@@ -390,16 +444,68 @@ class NVMixtralModel(NVMixtralPreTrainedModel):
             hidden_states=all_hidden_states if output_hidden_states else None,
         )
 
+    def get_autocast_context(
+        self, layer_number: int | None, init: bool = False, outer: bool = False
+    ) -> ContextManager:
+        """Return the appropriate TE autocast context manager for a given layer.
+
+        This function handles both the quantized_model_init during layer creation and the te.autocast() during layer
+        forward pass.
+
+        Args:
+            layer_number: The 0-indexed layer number.
+            init: Whether to return a `quantized_model_init` context for layer initialization.
+            outer: Whether to return a global te.autocast() context to wrap the entire model stack.
+        """
+        if self.config.layer_precision is None:
+            return nullcontext()
+
+        if outer:
+            if "fp8" not in self.config.layer_precision:
+                return nullcontext()
+            if self._fp8_recipe is None:
+                warnings.warn("No FP8 recipe provided, using default recipe.", UserWarning)
+            return transformer_engine.pytorch.autocast(enabled=True, recipe=self._fp8_recipe)
+
+        precision = self.config.layer_precision[layer_number]
+        recipe = {"fp8": self._fp8_recipe, "fp4": self._fp4_recipe}.get(precision)
+
+        if init and self.config.use_quantized_model_init:
+            if precision in ("fp8", "fp4"):
+                return transformer_engine.pytorch.quantized_model_init(recipe=recipe)
+            return nullcontext()
+
+        if precision == "fp8":
+            if recipe is None:
+                warnings.warn("No FP8 recipe provided, using default recipe.", UserWarning)
+            return transformer_engine.pytorch.autocast(enabled=True, recipe=recipe)
+        if precision == "fp4":
+            if recipe is None:
+                raise RuntimeError("No FP4 recipe provided, but layer precision is set to FP4.")
+            return transformer_engine.pytorch.autocast(enabled=True, recipe=recipe)
+        return transformer_engine.pytorch.autocast(enabled=False)
+
 
 class NVMixtralForCausalLM(NVMixtralPreTrainedModel, __import__("transformers").GenerationMixin):
     """Mixtral model with causal language head."""
 
     _tied_weights_keys: ClassVar[list[str]] = []
 
-    def __init__(self, config):
-        """Initialize the NVMixtralForCausalLM model."""
+    def __init__(
+        self,
+        config,
+        fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+    ):
+        """Initialize the NVMixtralForCausalLM model.
+
+        Args:
+            config: The configuration of the model.
+            fp8_recipe: The FP8 recipe for the model.
+            fp4_recipe: The FP4 recipe for the model.
+        """
         super().__init__(config)
-        self.model = NVMixtralModel(config)
+        self.model = NVMixtralModel(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
         self.vocab_size = config.vocab_size
 
         with transformer_engine.pytorch.quantized_model_init(enabled=False):

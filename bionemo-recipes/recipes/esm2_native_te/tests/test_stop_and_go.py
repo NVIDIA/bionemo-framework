@@ -21,10 +21,10 @@ from dataclasses import dataclass
 
 import torch
 from torch.optim import AdamW
-from transformers import AutoConfig, AutoModelForMaskedLM
 
 from checkpoint import load_checkpoint_ddp, save_checkpoint_ddp
 from dataset import create_bshd_dataloader
+from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -69,8 +69,8 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
     )
 
     # Setup the model
-    config = AutoConfig.from_pretrained("example_8m_checkpoint", trust_remote_code=True, dtype=torch.bfloat16)
-    model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    config = NVEsmConfig.from_pretrained("model_configs/nvidia/esm2_t6_8M_UR50D", dtype=torch.bfloat16)
+    model = NVEsmForMaskedLM(config)
 
     # The huggingface model has a contact head that we don't use in masked language pre-training, so we delete it to
     # avoid errors with unused parameters.
@@ -153,8 +153,8 @@ def test_stop_and_go_checkpointing_and_dataloader_restoration_single_gpu(tmp_pat
     torch.save(batch, f"{step10_path_reference}_batch.pt")
     torch.save(grads, f"{step10_path_reference}_grads.pt")
     # Create fresh model, optimizer, scheduler for the resume test
-    config = AutoConfig.from_pretrained("example_8m_checkpoint", trust_remote_code=True, dtype=torch.bfloat16)
-    resumed_model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+    config = NVEsmConfig.from_pretrained("model_configs/nvidia/esm2_t6_8M_UR50D", dtype=torch.bfloat16)
+    resumed_model = NVEsmForMaskedLM(config)
 
     try:
         del resumed_model.esm.contact_head
