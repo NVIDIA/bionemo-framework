@@ -284,12 +284,6 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         for sample in iter(self.dataset):
             sample_length = len(sample["input_ids"])
             padded_len = self._padded_len(sample_length)
-            if padded_len > self.max_tokens_per_batch:
-                raise ValueError(
-                    f"TokenPackingDataset: Padded sample length ({padded_len}) exceeds max_tokens_per_batch "
-                    f"({self.max_tokens_per_batch}). Set truncation or a maximum length in your tokenizer or dataset to"
-                    " ensure all samples fit within max_tokens_per_batch."
-                )
 
             current_length += padded_len
             if current_length == self.max_tokens_per_batch:

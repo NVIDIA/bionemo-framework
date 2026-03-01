@@ -1,12 +1,12 @@
 # OpenGenome2 Metagenome 7B - GLOBALLY SHUFFLED PRE-CHUNKED SHARDS (retest on fp32-cp branch)
 # Uses pre-windowed parquet shards from /data/opengenome2/parquet_split/
-# Standard windowed tokenization (stride=200, each sequence is exactly one window)
+# Direct tokenization (stride=null): no windowing, matching original global shuffle branch
 # THD + BF16 + FP32 master weights (no FP8), GQA (8 KV heads)
 # GBS = 1 * 8 * 6 * 8 = 384
 defaults:
   - _self_
 
-job_name: "og2-7b-fp32mw-global-shuffle-retest"
+job_name: "og2-7b-fp32mw-gs-new-yaml"
 node_group: "yo-bom-lepton-001"
 resource_shape: "gpu.8xh100-sxm"
 
@@ -49,7 +49,7 @@ save_every_n_steps: 5000
 async_save: false
 
 wandb_project: "llama3-metagenome-7b"
-wandb_name: "og2-7b-global-shuffle-retest"
+wandb_name: "og2-7b-fp32mw-global-shuffle-new-yaml"
 wandb_secret: "wandb.savithas"  # pragma: allowlist secret
 
 hf_secret: "HUGGING_FACE_HUB_TOKEN.savithas"  # pragma: allowlist secret
