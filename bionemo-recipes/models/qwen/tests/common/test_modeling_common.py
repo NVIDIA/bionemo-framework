@@ -20,7 +20,7 @@ import gc
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Literal, Type
+from typing import Callable, Dict, List, Literal, Type
 
 import pytest
 import torch
@@ -987,8 +987,8 @@ class BaseModelTest(ABC):
         self.verify_model_parameters_initialized_correctly(model, should_be_fp8=True)
 
     # ==================== Generation Tests (Autoregressive Models Only) ====================
-    @abstractmethod
-    def create_inference_params(self, config, batch_size=1, max_seq_len=256, num_beams=1) -> Any:
+
+    def _create_inference_params(self, config, batch_size=1, max_seq_len=256, num_beams=1):
         """Create inference params for KV-cache generation tests.
 
         Autoregressive model tests must override this method to provide
@@ -1003,7 +1003,9 @@ class BaseModelTest(ABC):
         Returns:
             HFInferenceParams instance with allocated memory.
         """
-        pass
+        raise NotImplementedError(
+            "Autoregressive models must override _create_inference_params to provide model-specific HFInferenceParams."
+        )
 
     def test_generate_without_cache(self):
         """Test basic generation without KV-cache (BSHD, use_cache=False)."""
@@ -1038,7 +1040,7 @@ class BaseModelTest(ABC):
         inputs = tokenizer(prompt, return_tensors="pt")
         inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
-        past_key_values = self.create_inference_params(config, batch_size=1)
+        past_key_values = self._create_inference_params(config, batch_size=1)
 
         with torch.no_grad():
             output_ids = model.generate(**inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values)
@@ -1062,7 +1064,7 @@ class BaseModelTest(ABC):
         inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left")
         inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
-        past_key_values = self.create_inference_params(config, batch_size=2)
+        past_key_values = self._create_inference_params(config, batch_size=2)
 
         with torch.no_grad():
             output_ids = model.generate(**inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values)
@@ -1088,7 +1090,7 @@ class BaseModelTest(ABC):
         inputs = {k: v.to("cuda") for k, v in inputs.items()}
 
         num_beams = 2
-        past_key_values = self.create_inference_params(config, batch_size=2, num_beams=num_beams)
+        past_key_values = self._create_inference_params(config, batch_size=2, num_beams=num_beams)
 
         with torch.no_grad():
             output_ids = model.generate(

@@ -20,7 +20,7 @@ import gc
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Literal, Type
+from typing import Any, Callable, Dict, List, Literal, Type
 
 import pytest
 import torch
@@ -82,6 +82,10 @@ class BaseModelTest(ABC):
     Subclasses must implement all abstract methods to provide model-specific
     configuration, data preparation, and conversion functions.
 
+    Set ``is_autoregressive = True`` in subclasses for causal LM models to
+    enable generation / KV-cache smoke tests.  Non-autoregressive models
+    (e.g. ESM2) leave the default ``False`` and those tests are skipped.
+
     Example:
         ```python
         class ESM2ModelTester(BioNeMoModelTester):
@@ -97,6 +101,8 @@ class BaseModelTest(ABC):
             # ... implement other abstract methods
         ```
     """
+
+    is_autoregressive: bool = False
 
     @abstractmethod
     def get_model_class(self) -> Type[PreTrainedModel]:
@@ -885,13 +891,15 @@ class BaseModelTest(ABC):
             msg=lambda x: f"FP8 loss differs too much from BF16 loss: {x}",
         )
 
-    def test_quantized_model_init_forward_and_backward(self, fp8_recipe, input_format):
+    def test_quantized_model_init_forward_and_backward(self, fp8_recipe, input_format, **config_kwargs):
         """Test that model initialized with FP8 works correctly."""
         if input_format == "thd" and not HAS_DATA_CENTER_GPU:
             pytest.xfail("Padded sequences are not supported on non-datacenter hardware for THD.")
 
         model_class = self.get_model_class()
-        config = self.create_test_config(attn_input_format=input_format, self_attn_mask_type="padding_causal")
+        config = self.create_test_config(
+            attn_input_format=input_format, self_attn_mask_type="padding_causal", **config_kwargs
+        )
 
         # Initialize with FP8
         with transformer_engine.pytorch.quantized_model_init(recipe=fp8_recipe):
@@ -906,9 +914,8 @@ class BaseModelTest(ABC):
             input_data["labels"] = input_data["input_ids"].clone()
 
         # Forward and backward pass with FP8
-        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-            with transformer_engine.pytorch.autocast(recipe=fp8_recipe):
-                outputs = model(**input_data)
+        with transformer_engine.pytorch.autocast(recipe=fp8_recipe):
+            outputs = model(**input_data)
 
         loss = outputs.loss
         assert torch.isfinite(loss)
@@ -978,5 +985,122 @@ class BaseModelTest(ABC):
         # Move to CUDA
         model.init_empty_weights()
         self.verify_model_parameters_initialized_correctly(model, should_be_fp8=True)
+
+    # ==================== Generation Tests (Autoregressive Models Only) ====================
+    @abstractmethod
+    def create_inference_params(self, config, batch_size=1, max_seq_len=256, num_beams=1) -> Any:
+        """Create inference params for KV-cache generation tests.
+
+        Autoregressive model tests must override this method to provide
+        model-specific ``HFInferenceParams`` with allocated KV-cache memory.
+
+        Args:
+            config: Model configuration.
+            batch_size: Batch size.
+            max_seq_len: Maximum sequence length.
+            num_beams: Number of beams for beam search.
+
+        Returns:
+            HFInferenceParams instance with allocated memory.
+        """
+        pass
+
+    def test_generate_without_cache(self):
+        """Test basic generation without KV-cache (BSHD, use_cache=False)."""
+        if not self.is_autoregressive:
+            pytest.skip("Not an autoregressive model")
+
+        config = self.create_test_config(attn_input_format="bshd", self_attn_mask_type="causal")
+        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
+        model.eval()
+
+        tokenizer = self.get_tokenizer()
+        prompt = "The quick brown fox jumps over"
+        inputs = tokenizer(prompt, return_tensors="pt")
+        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+        with torch.no_grad():
+            output_ids = model.generate(**inputs, max_new_tokens=16, use_cache=False)
+
+        assert output_ids.shape[1] > inputs["input_ids"].shape[1]
+
+    def test_generate_with_cache(self):
+        """Test single-prompt generation with KV-cache (THD format)."""
+        if not self.is_autoregressive:
+            pytest.skip("Not an autoregressive model")
+
+        config = self.create_test_config(attn_input_format="thd", self_attn_mask_type="padding_causal")
+        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
+        model.eval()
+
+        tokenizer = self.get_tokenizer()
+        prompt = "The quick brown fox jumps over"
+        inputs = tokenizer(prompt, return_tensors="pt")
+        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+        past_key_values = self.create_inference_params(config, batch_size=1)
+
+        with torch.no_grad():
+            output_ids = model.generate(**inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values)
+
+        assert output_ids.shape[1] > inputs["input_ids"].shape[1]
+
+    def test_generate_with_cache_batched(self):
+        """Test batched generation with KV-cache (left-padded BSHD converted to THD)."""
+        if not self.is_autoregressive:
+            pytest.skip("Not an autoregressive model")
+
+        config = self.create_test_config(attn_input_format="thd", self_attn_mask_type="padding_causal")
+        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
+        model.eval()
+
+        tokenizer = self.get_tokenizer()
+        prompts = (
+            "The quick brown fox jumps over the lazy dog.",
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+        )
+        inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left")
+        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+        past_key_values = self.create_inference_params(config, batch_size=2)
+
+        with torch.no_grad():
+            output_ids = model.generate(**inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values)
+
+        assert output_ids.shape[0] == 2
+        assert output_ids.shape[1] > inputs["input_ids"].shape[1]
+
+    def test_generate_with_cache_beam_search(self):
+        """Test batched generation with KV-cache and beam search."""
+        if not self.is_autoregressive:
+            pytest.skip("Not an autoregressive model")
+
+        config = self.create_test_config(attn_input_format="thd", self_attn_mask_type="padding_causal")
+        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
+        model.eval()
+
+        tokenizer = self.get_tokenizer()
+        prompts = (
+            "The quick brown fox jumps over the lazy dog.",
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit.",
+        )
+        inputs = tokenizer(prompts, return_tensors="pt", padding=True, padding_side="left")
+        inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+        num_beams = 2
+        past_key_values = self.create_inference_params(config, batch_size=2, num_beams=num_beams)
+
+        with torch.no_grad():
+            output_ids = model.generate(
+                **inputs,
+                max_new_tokens=16,
+                use_cache=True,
+                past_key_values=past_key_values,
+                num_beams=num_beams,
+                do_sample=True,
+            )
+
+        assert output_ids.shape[0] == 2
+        assert output_ids.shape[1] > inputs["input_ids"].shape[1]
 
     # TODO: add multi-GPU tests, e.g., meta-device init after fully_shard, cp tests, etc.
