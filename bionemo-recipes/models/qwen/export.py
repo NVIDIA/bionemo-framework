@@ -24,7 +24,7 @@ from pathlib import Path
 
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer
 
-import convert
+import convert_qwen3
 from modeling_qwen3_te import AUTO_MAP
 
 
@@ -38,7 +38,7 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     model_hf = AutoConfig.from_pretrained(tag)
     model_hf = AutoModelForCausalLM.from_config(model_hf)
 
-    model_te = convert.convert_qwen3_hf_to_te(model_hf)
+    model_te = convert_qwen3.convert_qwen3_hf_to_te(model_hf)
     model_te.save_pretrained(export_path)
 
     tokenizer = AutoTokenizer.from_pretrained(tag)
