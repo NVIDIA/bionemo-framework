@@ -13,13 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for Qwen3 model.
+"""Tests for Qwen2 model.
 
-This file provides comprehensive tests for the Qwen3 model including:
+This file provides comprehensive tests for the Qwen2 model including:
 - Common tests from the test library (meta device init, golden values, conversion, FP8)
-- Qwen3-specific tests (inference, generation with KV-cache)
+- Qwen2-specific tests (inference, generation with KV-cache)
 """
 
+import os
 from typing import Callable, Dict, List, Literal, Type
 
 import pytest
@@ -35,37 +36,37 @@ from transformers import (
 )
 
 from collator import DataCollatorWithFlattening
-from convert import convert_qwen3_hf_to_te, convert_qwen3_te_to_hf
-from modeling_qwen3_te import HFInferenceParams, NVQwen3Config, NVQwen3ForCausalLM
+from convert_qwen2 import convert_qwen2_hf_to_te, convert_qwen2_te_to_hf
+from modeling_qwen2_te import HFInferenceParams, NVQwen2Config, NVQwen2ForCausalLM
 from tests.common import BaseModelTest, TestTolerances
 
 
-class TestQwen3Model(BaseModelTest):
-    """Model tester for Qwen3.
+class TestQwen2Model(BaseModelTest):
+    """Model tester for Qwen2.
 
-    This class provides Qwen3-specific configuration for the common test suite.
+    This class provides Qwen2-specific configuration for the common test suite.
     """
 
     is_autoregressive = True
 
     def get_model_class(self) -> Type[PreTrainedModel]:
-        """Return the Qwen3 TE model class."""
-        return NVQwen3ForCausalLM
+        """Return the Qwen2 TE model class."""
+        return NVQwen2ForCausalLM
 
     def get_config_class(self) -> Type[PretrainedConfig]:
-        """Return the Qwen3 config class."""
-        return NVQwen3Config
+        """Return the Qwen2 config class."""
+        return NVQwen2Config
 
     def get_upstream_model_id(self) -> str:
         """Return the upstream HuggingFace model ID."""
-        return "Qwen/Qwen3-0.6B"
+        return "Qwen/Qwen2.5-0.5B"
 
     def get_upstream_model_revision(self) -> str:
         """Return the specific revision for the upstream model."""
-        return "c1899de"
+        return "060db64"
 
     def get_tokenizer(self) -> PreTrainedTokenizer:
-        """Return the Qwen3 tokenizer."""
+        """Return the Qwen2 tokenizer."""
         tokenizer = AutoTokenizer.from_pretrained(self.get_upstream_model_id())
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
@@ -73,12 +74,19 @@ class TestQwen3Model(BaseModelTest):
 
     def get_upstream_model_class(self) -> Type[PreTrainedModel]:
         """Return the upstream HuggingFace model class."""
-
-        return transformers.models.qwen3.modeling_qwen3.Qwen3ForCausalLM
+        return transformers.models.qwen2.modeling_qwen2.Qwen2ForCausalLM
 
     def create_test_config(self, **kwargs) -> PretrainedConfig:
         # Limit the number of hidden layers to 2 for faster tests.
         return super().create_test_config(num_hidden_layers=2, **kwargs)
+
+    def get_reference_model(
+        self, dtype: torch.dtype = torch.bfloat16, attn_implementation: str = "flash_attention_2"
+    ) -> PreTrainedModel:
+        """Return the reference HuggingFace model."""
+        if os.environ.get("CI") == "true":
+            pytest.skip("Skipping Qwen2 reference model test in CI, requires Qwen2.5-0.5B download ~1GB")
+        return super().get_reference_model(dtype=dtype, attn_implementation=attn_implementation)
 
     def get_layer_path(self, model: PreTrainedModel) -> List[nn.Module]:
         """Return the list of transformer layers."""
@@ -116,14 +124,14 @@ class TestQwen3Model(BaseModelTest):
 
     def get_hf_to_te_converter(self) -> Callable:
         """Return the HF to TE conversion function."""
-        return convert_qwen3_hf_to_te
+        return convert_qwen2_hf_to_te
 
     def get_te_to_hf_converter(self) -> Callable:
         """Return the TE to HF conversion function."""
-        return convert_qwen3_te_to_hf
+        return convert_qwen2_te_to_hf
 
     def get_tolerances(self) -> TestTolerances:
-        """Return Qwen3-specific test tolerances."""
+        """Return Qwen2-specific test tolerances."""
         return TestTolerances(
             golden_value_loss_atol=0.05,
             golden_value_loss_rtol=0.02,
@@ -133,7 +141,7 @@ class TestQwen3Model(BaseModelTest):
             cp_loss_rtol=0.25,
         )
 
-    # ==================== Qwen3 Overrides ====================
+    # ==================== Qwen2 Overrides ====================
 
     @pytest.mark.parametrize("tie_word_embeddings", [True, False])
     def test_quantized_model_init_forward_and_backward(self, fp8_recipe, input_format, tie_word_embeddings):
@@ -142,19 +150,20 @@ class TestQwen3Model(BaseModelTest):
             fp8_recipe, input_format, tie_word_embeddings=tie_word_embeddings
         )
 
-    # ==================== Qwen3-Specific Overrides ====================
+    # ==================== Qwen2-Specific Overrides ====================
 
     def _create_inference_params(self, config, batch_size=1, max_seq_len=256, num_beams=1):
         """Create HFInferenceParams for the given config.
 
-        Uses config.head_dim (not hidden_size // num_attention_heads) since Qwen3
-        has independently configured head_dim.
+        Uses hidden_size // num_attention_heads for head_dim since Qwen2 does not
+        independently configure head_dim.
         """
+        head_dim = config.hidden_size // config.num_attention_heads
         past_key_values = HFInferenceParams(
             max_batch_size=batch_size * num_beams,
             max_sequence_length=max_seq_len,
             num_heads_kv=config.num_key_value_heads,
-            head_dim_k=config.head_dim,
+            head_dim_k=head_dim,
             dtype=torch.bfloat16,
             qkv_format="thd",
             max_ctx_len=max_seq_len,
