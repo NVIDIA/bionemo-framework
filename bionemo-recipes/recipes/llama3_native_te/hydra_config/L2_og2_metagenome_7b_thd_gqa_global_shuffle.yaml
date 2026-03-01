@@ -17,8 +17,8 @@
 #
 # Uses pre-windowed parquet shards from /data/opengenome2/parquet_split/
 # Each shard row is exactly 8190 bases -> tokenized to 8192 tokens (BOS + 8190 + EOS).
-# Direct tokenization (stride=null): no windowing, no truncation, just BOS/EOS.
-# This is critical for matching the original global shuffle training behavior.
+# Standard windowed tokenization with stride=200; since each sequence is exactly
+# one window long (8190 bases -> 8192 tokens), stride has no effect.
 #
 # THD format + BF16 + FP32 master weights (no FP8).
 # GBS = 1 * 8 * 6 * 8 = 384
@@ -66,14 +66,14 @@ fp8_config:
     enabled: false
 
 # Dataset: pre-chunked globally shuffled shards
-# stride=null disables windowing; max_seq_length=8192 is still needed for THD's
-# token_micro_batch_size calculation (micro_batch_size * max_seq_length).
+# Standard windowed tokenization with stride=200; since each sequence is exactly
+# one window long (8190 bases -> 8192 tokens), stride has no effect.
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1
   num_workers: 8
   max_seq_length: 8192
-  stride: null
+  stride: 200
   buffer_size: 10_000
   shuffle_sequences: true
   shuffle_windows: false
