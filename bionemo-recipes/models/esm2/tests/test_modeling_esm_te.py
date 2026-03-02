@@ -270,3 +270,7 @@ class TestESM2Model(BaseModelTest):
             model_te.state_dict()["esm.embeddings.word_embeddings.weight"].data_ptr()
             == model_te.state_dict()["lm_head.decoder.weight"].data_ptr()
         )
+
+    def create_inference_params(self, config, batch_size=1, max_seq_len=256, num_beams=1):
+        """These are unused for non-autoregressive models."""
+        pass
