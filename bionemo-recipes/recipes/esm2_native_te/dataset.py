@@ -109,7 +109,6 @@ def create_bshd_dataloader(
             non-streaming datasets.Dataset. Defaults to True.
         use_stateful_dataloader: Whether to use the StatefulDataLoader to enable checkpointing the dataloader state.
         mlm_probability: The probability of masking tokens for MLM (default 0.15). Set to 0 for no masking.
-        **kwargs: Unused, here to enable kwargs to match the signature of create_thd_dataloader.
 
     Returns:
         A dataloader that can be used for training.

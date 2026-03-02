@@ -51,6 +51,12 @@ fp8_config:
   quantized_model_init_kwargs:
     enabled: false # If this is set to true, fp8_config.enabled must also be set to true.
 
+fp4_config:
+  enabled: false
+  fp4_recipe: transformer_engine.common.recipe.NVFP4BlockScaling
+  fp4_format: "E2M1"
+  fp4_recipe_kwargs: {}
+
 # Optimizer config
 adamw_kwargs:
   lr: 4e-4
@@ -76,9 +82,13 @@ checkpoint:
 logger:
   frequency: 100
 
-fp8_stats_config:
-  enabled: false
-  fp8_stats_file: ./fp8_debugging_stats.yaml
-  fp8_log_dir: ./log_fp8_stats
 
-use_fp32_master_weights: false
+quant_stats_config:
+  enabled: false
+  quant_stats_file: ./fp8_debugging_stats.yaml
+  quant_log_dir: ./log_quant_stats
+
+# Note: The layers are going to come in 1 indexed and we convert them to be 0 indexed at runtime.
+fp8_layers: null
+fp4_layers: null
+use_fp32_master_weights: null

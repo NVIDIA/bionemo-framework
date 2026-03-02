@@ -23,11 +23,13 @@ Adapted from `modeling_esm.py` in huggingface/transformers.
 """
 
 import warnings
+from contextlib import nullcontext
 from typing import ClassVar, Literal, Optional, Unpack
 
 # TODO: put import guard around transformer_engine here, with an informative error message around
 # installation and the nvidia docker container.
 import torch
+import transformer_engine.common.recipe
 import transformer_engine.pytorch
 from torch import nn
 from torch.nn import CrossEntropyLoss
@@ -71,6 +73,7 @@ class NVEsmConfig(EsmConfig):
         max_seq_length: Optional[int] = None,
         padded_vocab_size: Optional[int] = 64,
         attn_mask_type: str = "padding",
+        layer_precision: list[str | None] | None = None,
         **kwargs,
     ):
         """Initialize the NVEsmConfig with additional TE-related config options.
@@ -100,6 +103,9 @@ class NVEsmConfig(EsmConfig):
             padded_vocab_size: The padded vocabulary size to support FP8. If not provided, defaults
                 to vocab_size. Must be greater than or equal to vocab_size.
             attn_mask_type: The type of attention mask to use.
+            layer_precision: Per-layer quantization precision, a list of length ``num_hidden_layers``
+                where each element is ``"fp8"``, ``"fp4"``, or ``None`` (BF16 fallback). ``None``
+                (the default) means no quantization is configured.
             **kwargs: Additional config options to pass to EsmConfig.
         """
         super().__init__(**kwargs)
@@ -111,6 +117,7 @@ class NVEsmConfig(EsmConfig):
         self.micro_batch_size = micro_batch_size
         self.max_seq_length = max_seq_length
         self.attn_mask_type = attn_mask_type
+        self.layer_precision = layer_precision
 
         # Set padded_vocab_size with default fallback to vocab_size
         self.padded_vocab_size = padded_vocab_size if padded_vocab_size is not None else self.vocab_size
@@ -165,6 +172,8 @@ class NVEsmEncoder(nn.Module):
                 for i in range(config.num_hidden_layers)
             ]
         )
+        self._fp8_recipe: transformer_engine.common.recipe.Recipe | None = None
+        self._fp4_recipe: transformer_engine.common.recipe.Recipe | None = None
         self.emb_layer_norm_after = transformer_engine.pytorch.LayerNorm(
             config.hidden_size,
             eps=config.layer_norm_eps,
@@ -173,6 +182,49 @@ class NVEsmEncoder(nn.Module):
         )
         if config.position_embedding_type == "rotary":
             self.rotary_embeddings = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
+
+    def set_recipes(
+        self,
+        fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+    ) -> None:
+        """Attach quantization recipe objects for per-layer autocast.
+
+        Recipes are not serializable and must be set at runtime after model creation
+        and sharding (FSDP/DDP/mFSDP) but before training. The per-layer precision
+        assignments are read from ``self.config.layer_precision``.
+
+        These recipes are also hardware specific, so we should not store them as
+        attributes of the model and attach them at runtime.
+
+        Args:
+            fp8_recipe: The FP8 recipe instance (e.g., MXFP8BlockScaling), or None.
+            fp4_recipe: The FP4 recipe instance (e.g., NVFP4BlockScaling), or None.
+        """
+        self._fp8_recipe = fp8_recipe
+        self._fp4_recipe = fp4_recipe
+
+    def get_layer_autocast(self, layer_number: int):
+        """Return the appropriate TE autocast context manager for a given layer.
+
+        The context interacts with the outer FP8 autocast in the training script:
+        - FP8 layer: nullcontext() -- lets the outer FP8 autocast take effect.
+        - FP4 layer: te.pytorch.autocast(enabled=True, recipe=fp4_recipe) -- overrides to FP4.
+        - BF16 layer: te.pytorch.autocast(enabled=False) -- disables quantized compute.
+
+        Args:
+            layer_number: The 0-indexed layer number.
+
+        Returns:
+            A context manager for the layer's quantization mode.
+        """
+        precision = self.config.layer_precision[layer_number] if self.config.layer_precision is not None else None
+        if precision == "fp8":
+            return nullcontext()
+        elif precision == "fp4":
+            return transformer_engine.pytorch.autocast(enabled=True, recipe=self._fp4_recipe)
+        else:
+            return transformer_engine.pytorch.autocast(enabled=False)
 
     def forward(
         self,
@@ -201,22 +253,26 @@ class NVEsmEncoder(nn.Module):
             if te_rope_emb.dtype == torch.float32:
                 warnings.warn("Rotary embeddings should be in float32 for optimal performance.", UserWarning)
 
-        for layer_module in self.layers:
-            if kwargs.get("output_hidden_states", False):
-                all_hidden_states = (*all_hidden_states, hidden_states)
+        # Outer FP8 autocast enables FP8 compute for the encoder stack. Per-layer overrides (FP4, BF16) are handled
+        # by get_layer_autocast(), which nests inside this context.
+        with transformer_engine.pytorch.autocast(enabled=self._fp8_recipe is not None, recipe=self._fp8_recipe):
+            for layer_number, layer_module in enumerate(self.layers):
+                if kwargs.get("output_hidden_states", False):
+                    all_hidden_states = (*all_hidden_states, hidden_states)
 
-            hidden_states = layer_module(
-                hidden_states,
-                attention_mask,
-                rotary_pos_emb=te_rope_emb,
-                cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
-                cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
-                cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
-                cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
-                max_seqlen_q=kwargs.get("max_length_q", None),
-                max_seqlen_kv=kwargs.get("max_length_k", None),
-                pad_between_seqs=kwargs.get("pad_between_seqs", None),
-            )
+                with self.get_layer_autocast(layer_number):
+                    hidden_states = layer_module(
+                        hidden_states,
+                        attention_mask,
+                        rotary_pos_emb=te_rope_emb,
+                        cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
+                        cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                        cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
+                        cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
+                        max_seqlen_q=kwargs.get("max_length_q", None),
+                        max_seqlen_kv=kwargs.get("max_length_k", None),
+                        pad_between_seqs=kwargs.get("pad_between_seqs", None),
+                    )
 
         hidden_states = self.emb_layer_norm_after(hidden_states)
 

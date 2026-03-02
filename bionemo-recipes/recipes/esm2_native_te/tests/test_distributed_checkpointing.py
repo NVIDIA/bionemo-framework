@@ -866,7 +866,6 @@ def test_final_model_save_ddp(recipe_path, tmp_path):
     Validates that DDP saves the final model correctly with:
     - model.safetensors containing weights
     - config.json with model configuration
-    - esm_nv.py for custom model code
     """
     temp_dir = str(tmp_path / "test_final_ddp")
 
@@ -888,7 +887,7 @@ def test_final_model_save_ddp(recipe_path, tmp_path):
     assert os.path.exists(final_model_dir), "Final model directory not created"
 
     # Check required files
-    required_files = ["model.safetensors", "config.json", "esm_nv.py"]
+    required_files = ["model.safetensors", "config.json"]
     for file in required_files:
         file_path = os.path.join(final_model_dir, file)
         assert os.path.exists(file_path), f"Missing required file: {file}"
@@ -901,7 +900,6 @@ def test_final_model_save_mfsdp(recipe_path, tmp_path):
     Validates that mFSDP gathers parameters and saves the final model with:
     - model.safetensors containing gathered weights
     - config.json with model configuration
-    - esm_nv.py for custom model code
     """
     temp_dir = str(tmp_path / "test_final_mfsdp")
 
@@ -924,7 +922,7 @@ def test_final_model_save_mfsdp(recipe_path, tmp_path):
     assert os.path.exists(final_model_dir), "Final model directory not created"
 
     # Check required files
-    required_files = ["model.safetensors", "config.json", "esm_nv.py"]
+    required_files = ["model.safetensors", "config.json"]
     for file in required_files:
         file_path = os.path.join(final_model_dir, file)
         assert os.path.exists(file_path), f"Missing required file: {file}"
