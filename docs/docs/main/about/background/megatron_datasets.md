@@ -53,10 +53,10 @@ for sample in MultiEpochDatasetResampler(dataset, num_epochs=3, shuffle=True):
 
 ## Training Resumption
 
-To ensure identical behavior with and without job interruption, BioNeMo provides [MegatronDataModule][bionemo.llm.data.datamodule.MegatronDataModule] to save and load state dict for training resumption, and provides [WrappedDataLoader][nemo.lightning.data.WrappedDataLoader] to add a `mode` attribute to [DataLoader][torch.utils.data.DataLoader].
+To ensure identical behavior with and without job interruption, your datamodule should save and load state dicts for training resumption. Use `WrappedDataLoader` (from `nemo.lightning.data`) to add a `mode` attribute to [DataLoader][torch.utils.data.DataLoader].
 
 ```python
-class MyDataModule(MegatronDataModule):
+class MyDataModule(pl.LightningDataModule):
     def __init__(self, *args, **kwargs):
         super().__init__()
         ...
@@ -83,10 +83,10 @@ class MyDataModule(MegatronDataModule):
         )
 ```
 
-!!! note "MegatronDataModule"
+!!! note "Training Resumption"
 
 ```
-Users will see non-overlapping training curve if their datamodule is not inheritting from `MegatronDataModule`, unless similar logics are handled by the users. In `MegatronDataModule`, `self.update_init_global_step()` must be called right before the dataloaders are returned to ensure that training resumes with the correct sample index instead of restarting from 0 everytime. We recommend users to inherit from `MegatronDataModule` similar to the pattern above.
+Users should ensure their datamodule tracks the global step for training resumption, so that training resumes with the correct sample index instead of restarting from 0.
 ```
 
 !!! note "WrappedDataLoader"
@@ -99,10 +99,8 @@ WARNING: 'train' is the default value of `mode` in `WrappedDataLoader`. If not s
 
 ## Testing Datasets for Megatron Compatibility
 
-BioNeMo also provides utility functions for test suites to validate that datasets conform to the megatron data model.
-The [assert_dataset_compatible_with_megatron][bionemo.testing.data_utils.assert_dataset_compatible_with_megatron]
-function calls the dataset with identical indices and ensures the outputs are identical, while also checking to see if
-`torch.manual_seed` was used.
+To validate that datasets conform to the megatron data model, test suites should call datasets with identical indices
+and ensure the outputs are identical, while also checking that `torch.manual_seed` was not used improperly.
 
 !!! example "Example datasets in BioNeMo"
 

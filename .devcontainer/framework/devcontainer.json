@@ -42,9 +42,6 @@
 			"settings": {
 				"python.analysis.extraPaths": [
 					"./sub-packages/bionemo-core/src",
-					"./sub-packages/bionemo-llm/src",
-					"./sub-packages/bionemo-testing/src",
-					"./sub-packages/bionemo-example_model/src",
 					"./3rdparty/NeMo",
 					"./3rdparty/Megatron-LM"
 				],

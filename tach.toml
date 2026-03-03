@@ -10,39 +10,14 @@ exclude = [
 ]
 source_roots = [
     "sub-packages/bionemo-core/src",
-    # "sub-packages/bionemo-evo2/src",  # DEPRECATED: replaced by bionemo-recipes/recipes/evo2_megatron/
-    # "sub-packages/bionemo-example_model/src",  # DEPRECATED: NeMo/Megatron example model
-    # "sub-packages/bionemo-llm/src",  # DEPRECATED: NeMo/Megatron LLM components
     "sub-packages/bionemo-scdl/src",
     "sub-packages/bionemo-size-aware-batching/src",
-    # "sub-packages/bionemo-testing/src",  # DEPRECATED: NeMo/Megatron test utilities
     "sub-packages/bionemo-webdatamodule/src",
 ]
 
 [[modules]]
 path = "bionemo.core"
 depends_on = []
-
-# [[modules]]  # DEPRECATED: replaced by bionemo-recipes/recipes/evo2_megatron/
-# path = "bionemo.evo2"
-# depends_on = [
-#     "bionemo.noodles",
-#     "bionemo.core",
-#     "bionemo.llm",
-# ]
-
-# [[modules]]  # DEPRECATED: NeMo/Megatron example model
-# path = "bionemo.example_model"
-# depends_on = [
-#     "bionemo.core",
-#     "bionemo.llm",
-# ]
-
-# [[modules]]  # DEPRECATED: NeMo/Megatron LLM components
-# path = "bionemo.llm"
-# depends_on = [
-#     "bionemo.core",
-# ]
 
 [[modules]]
 path = "bionemo.noodles"
@@ -61,13 +36,6 @@ path = "bionemo.size_aware_batching"
 depends_on = [
     "bionemo.core",
 ]
-
-# [[modules]]  # DEPRECATED: NeMo/Megatron test utilities
-# path = "bionemo.testing"
-# depends_on = [
-#     "bionemo.core",
-#     "bionemo.llm",
-# ]
 
 [[modules]]
 path = "bionemo.webdatamodule"

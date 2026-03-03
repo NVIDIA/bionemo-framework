@@ -1,7 +1,0 @@
-This sub-package (sub-packages/bionemo-llm) is deprecated.
-
-This package provided NeMo/Megatron-based LLM components for BioNeMo.
-It is no longer maintained as the framework has moved to self-contained
-recipes in bionemo-recipes/.
-
-This package will be removed in a future release.

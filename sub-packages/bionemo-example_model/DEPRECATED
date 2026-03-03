@@ -1,7 +1,0 @@
-This sub-package (sub-packages/bionemo-example_model) is deprecated.
-
-This package provided an example NeMo/Megatron model for documentation
-and tutorials. It is no longer maintained as the framework has moved to
-self-contained recipes in bionemo-recipes/.
-
-This package will be removed in a future release.

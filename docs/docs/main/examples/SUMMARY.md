@@ -1,3 +1,2 @@
-- [Evo2](bionemo-evo2/)
 - [MoCo](bionemo-moco/)
 - [SCDL](bionemo-scdl/)
