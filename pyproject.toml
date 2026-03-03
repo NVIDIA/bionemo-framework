@@ -16,12 +16,12 @@ dependencies = [
     # **ALL** bionemo sub-packages
     'bionemo-core',
     # 'bionemo-evo2',  # DEPRECATED: replaced by bionemo-recipes/recipes/evo2_megatron/
-    'bionemo-example_model',
-    'bionemo-llm',
+    # 'bionemo-example_model',  # DEPRECATED: NeMo/Megatron example model, no longer maintained
+    # 'bionemo-llm',  # DEPRECATED: NeMo/Megatron LLM components, no longer maintained
     'bionemo-moco',
     'bionemo-scdl',
     'bionemo-size-aware-batching',
-    'bionemo-testing',
+    # 'bionemo-testing',  # DEPRECATED: NeMo/Megatron test utilities, no longer maintained
     'bionemo-webdatamodule',
     # external
     'nemo_run',
@@ -44,13 +44,13 @@ nemo_toolkit = { workspace = true }
 megatron-core = { workspace = true }
 # in sub-packages/
 bionemo-core = { workspace = true }
-bionemo-example_model = { workspace = true }
-bionemo-llm = { workspace = true }
+# bionemo-example_model = { workspace = true }  # DEPRECATED
+# bionemo-llm = { workspace = true }  # DEPRECATED
 bionemo-moco = { workspace = true }
 bionemo-noodles = { workspace = true }
 bionemo-scdl = { workspace = true }
 bionemo-size-aware-batching = { workspace = true }
-bionemo-testing = { workspace = true }
+# bionemo-testing = { workspace = true }  # DEPRECATED
 bionemo-webdatamodule = { workspace = true }
 
 [tool.uv]
@@ -126,13 +126,13 @@ executionEnvironments = [
         # bionemo sub-packages
         './sub-packages/bionemo-core/src',
         # './sub-packages/bionemo-evo2/src',  # DEPRECATED: replaced by bionemo-recipes/recipes/evo2_megatron/
-        './sub-packages/bionemo-example_model/src',
-        './sub-packages/bionemo-llm/src',
+        # './sub-packages/bionemo-example_model/src',  # DEPRECATED: NeMo/Megatron example model
+        # './sub-packages/bionemo-llm/src',  # DEPRECATED: NeMo/Megatron LLM components
         './sub-packages/bionemo-moco/src',
         './sub-packages/bionemo-noodles/src',
         './sub-packages/bionemo-scdl/src',
         './sub-packages/bionemo-size-aware-batching/src',
-        './sub-packages/bionemo-testing/src',
+        # './sub-packages/bionemo-testing/src',  # DEPRECATED: NeMo/Megatron test utilities
         './sub-packages/bionemo-webdatamodule/src',
     ] },
 ]

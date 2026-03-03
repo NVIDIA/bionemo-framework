@@ -1,5 +1,8 @@
 # bionemo-llm
 
+> **DEPRECATED**: This package is deprecated and no longer maintained. The BioNeMo framework has moved to
+> self-contained recipes in `bionemo-recipes/`. This package will be removed in a future release.
+
 The Bionemo Large Language Model (LLM) submodule contains common code used in submodules that train LLMs on biological
 datasets. This includes data masking and collate functions, the
 bio-BERT common architecture code, loss functions, and other NeMo / Megatron-LM compatibility functions. Sub-packages

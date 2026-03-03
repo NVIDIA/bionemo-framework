@@ -1,0 +1,7 @@
+This sub-package (sub-packages/bionemo-testing) is deprecated.
+
+This package provided test utilities for BioNeMo sub-packages that
+depended on NeMo/Megatron. It is no longer maintained as the framework
+has moved to self-contained recipes in bionemo-recipes/.
+
+This package will be removed in a future release.

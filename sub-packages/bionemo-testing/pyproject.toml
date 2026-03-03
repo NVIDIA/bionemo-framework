@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bionemo-testing"
 readme = "README.md"
-description = "Utilities aiding test creation for BioNeMo sub-packages."
+description = "[DEPRECATED] Utilities aiding test creation for BioNeMo sub-packages. No longer maintained."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
 license = { file = "LICENSE" }

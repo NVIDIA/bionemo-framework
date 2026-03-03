@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bionemo-llm"
 readme = "README.md"
-description = "BioNeMo Large Language Model Components using NeMo and Megatron"
+description = "[DEPRECATED] BioNeMo Large Language Model Components using NeMo and Megatron. No longer maintained."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
