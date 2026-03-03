@@ -213,3 +213,5 @@ outputs/
 
 # Nsys profiles
 *.nsys-rep
+
+.claude/
