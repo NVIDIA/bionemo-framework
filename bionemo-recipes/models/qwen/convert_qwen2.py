@@ -74,16 +74,18 @@ def _split_qkv_bias(ctx: state.TransformCTX, qkv_bias: torch.Tensor):
     qkv_bias = qkv_bias.reshape(qkv_total_dim, head_size)
     q_slice = torch.cat(
         [
-            torch.arange((heads_per_group + 2) * i, (heads_per_group + 2) * i + heads_per_group)
+            torch.arange(
+                (heads_per_group + 2) * i, (heads_per_group + 2) * i + heads_per_group, device=qkv_bias.device
+            )
             for i in range(num_query_groups)
         ]
     )
-    k_slice = torch.arange(heads_per_group, qkv_total_dim, (heads_per_group + 2))
-    v_slice = torch.arange(heads_per_group + 1, qkv_total_dim, (heads_per_group + 2))
+    k_slice = torch.arange(heads_per_group, qkv_total_dim, (heads_per_group + 2), device=qkv_bias.device)
+    v_slice = torch.arange(heads_per_group + 1, qkv_total_dim, (heads_per_group + 2), device=qkv_bias.device)
 
-    q_bias = qkv_bias[q_slice].reshape(-1).cpu()
-    k_bias = qkv_bias[k_slice].reshape(-1).cpu()
-    v_bias = qkv_bias[v_slice].reshape(-1).cpu()
+    q_bias = qkv_bias[q_slice].reshape(-1)
+    k_bias = qkv_bias[k_slice].reshape(-1)
+    v_bias = qkv_bias[v_slice].reshape(-1)
 
     return q_bias, k_bias, v_bias
 
@@ -206,6 +208,11 @@ def convert_qwen2_te_to_hf(model_te: NVQwen2ForCausalLM, **config_kwargs) -> Qwe
     with torch.device("meta"):
         model_hf = Qwen2ForCausalLM(hf_config)
 
+    if model_hf.config.tie_word_embeddings:
+        state_dict_ignored_entries = model_hf._tied_weights_keys
+    else:
+        state_dict_ignored_entries = []
+
     output_model = state.apply_transforms(
         model_te,
         model_hf,
@@ -241,10 +248,12 @@ def convert_qwen2_te_to_hf(model_te: NVQwen2ForCausalLM, **config_kwargs) -> Qwe
                 fn=state.TransformFns.split_fc1,
             ),
         ],
-        state_dict_ignored_entries=model_hf._tied_weights_keys,
+        state_dict_ignored_entries=state_dict_ignored_entries,
     )
 
     output_model.model.rotary_emb.inv_freq = model_te.model.rotary_emb.inv_freq.clone()
-    output_model.tie_weights()
+
+    if model_hf.config.tie_word_embeddings:
+        output_model.tie_weights()
 
     return output_model

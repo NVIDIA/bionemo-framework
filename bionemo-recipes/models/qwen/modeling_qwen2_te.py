@@ -212,7 +212,7 @@ class NVQwen2Model(NVQwen2PreTrainedModel):
             # attention backend, but it should be faster for the flash attention backend.
             assert attention_mask is not None, "Attention mask is required when packing BSHD inputs."
             batch_size = hidden_states.size(0)
-            padded_seq_len = input_ids.size(1)
+            padded_seq_len = input_ids.size(1) if input_ids is not None else hidden_states.size(1)
             hidden_states, indices, cu_seqlens, max_seqlen, _ = _unpad_input(hidden_states, attention_mask)
             kwargs["cu_seq_lens_q"] = kwargs["cu_seq_lens_k"] = cu_seqlens
             kwargs["max_length_q"] = kwargs["max_length_k"] = max_seqlen

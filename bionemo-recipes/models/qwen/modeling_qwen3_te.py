@@ -139,7 +139,10 @@ class NVQwen3Model(NVQwen3PreTrainedModel):
                     qk_norm_eps=config.rms_norm_eps,
                     qk_norm_before_rope=True,
                     window_size=(config.sliding_window, config.sliding_window)
-                    if config.layer_types[layer_idx] == "sliding_attention"
+                    if config.layer_types is not None
+                    and len(config.layer_types) > layer_idx
+                    and config.layer_types[layer_idx] == "sliding_attention"
+                    and config.sliding_window is not None
                     else None,
                     layer_number=layer_idx + 1,
                     params_dtype=config.dtype,

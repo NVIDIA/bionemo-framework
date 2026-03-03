@@ -67,7 +67,9 @@ class TestQwen3Model(BaseModelTest):
 
     def get_tokenizer(self) -> PreTrainedTokenizer:
         """Return the Qwen3 tokenizer."""
-        tokenizer = AutoTokenizer.from_pretrained(self.get_upstream_model_id())
+        tokenizer = AutoTokenizer.from_pretrained(
+            self.get_upstream_model_id(), revision=self.get_upstream_model_revision()
+        )
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
         return tokenizer
@@ -153,7 +155,7 @@ class TestQwen3Model(BaseModelTest):
 
     # ==================== Qwen3-Specific Overrides ====================
 
-    def _create_inference_params(self, config, batch_size=1, max_seq_len=256, num_beams=1):
+    def create_inference_params(self, config, batch_size=1, max_seq_len=256, num_beams=1):
         """Create HFInferenceParams for the given config.
 
         Uses config.head_dim (not hidden_size // num_attention_heads) since Qwen3

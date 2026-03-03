@@ -53,7 +53,7 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     with open(export_path / "config.json", "w") as f:
         json.dump(config, f, indent=2, sort_keys=True)
 
-    shutil.copy("modeling_qwen3_te.py", export_path / "modeling_qwen3_te.py")
+    shutil.copy(Path(__file__).parent / "modeling_qwen3_te.py", export_path / "modeling_qwen3_te.py")
 
 
 if __name__ == "__main__":
