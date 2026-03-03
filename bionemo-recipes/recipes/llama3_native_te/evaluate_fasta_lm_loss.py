@@ -88,7 +88,7 @@ from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
 from transformers import AutoTokenizer
 
-from checkpoint import AppState
+from checkpoint import AppState, LenientLoadPlanner
 from distributed_config import DistributedConfig
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from scheduler import get_cosine_annealing_schedule_with_warmup
@@ -311,7 +311,12 @@ def load_model_from_checkpoint(
         optimizer = AdamW(model.parameters(), lr=1e-5)
         scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, num_warmup_steps=100, num_decay_steps=1000)
         app_state = AppState(model=model, optimizer=optimizer, scheduler=scheduler)
-        dcp_load({"app": app_state}, checkpoint_id=ckpt_path, process_group=device_mesh.get_group("dp"))
+        dcp_load(
+            {"app": app_state},
+            checkpoint_id=ckpt_path,
+            process_group=device_mesh.get_group("dp"),
+            planner=LenientLoadPlanner(),
+        )
         if dist_config.rank == 0:
             logger.info("DCP checkpoint loaded (step=%d, epoch=%d)", app_state.step, app_state.epoch)
 

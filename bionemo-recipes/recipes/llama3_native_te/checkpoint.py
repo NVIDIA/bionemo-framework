@@ -24,6 +24,7 @@ from typing import NamedTuple
 import torch
 import transformers
 from safetensors.torch import save_file
+from torch.distributed.checkpoint.default_planner import DefaultLoadPlanner
 from torch.distributed.checkpoint.state_dict import (
     StateDictOptions,
     get_model_state_dict,
@@ -40,6 +41,31 @@ from distributed_config import DistributedConfig
 
 
 logger = logging.getLogger(__name__)
+
+
+class LenientLoadPlanner(DefaultLoadPlanner):
+    """A load planner that skips keys missing from the checkpoint.
+
+    Handles checkpoints saved without TransformerEngine _extra_state keys
+    (FP8 metadata). These keys are registered by newer TE versions even when
+    FP8 is disabled, but older checkpoints don't contain them.
+    """
+
+    def create_local_plan(self):
+        """Create a local load plan, skipping keys missing from the checkpoint."""
+        missing_keys = [fqn for fqn in self.state_dict if fqn not in self.metadata.state_dict_metadata]
+        if missing_keys:
+            logger.warning(
+                "Skipping %d keys not found in checkpoint: %s%s",
+                len(missing_keys),
+                missing_keys[:5],
+                "..." if len(missing_keys) > 5 else "",
+            )
+            for key in missing_keys:
+                del self.state_dict[key]
+        return super().create_local_plan()
+
+
 _ckpt_futures: dict = {}
 
 
