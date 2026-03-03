@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "bionemo-evo2"
 readme = "README.md"
-description = "Library containing data preprocessing, training, and inference tooling for Evo2."
+description = "[DEPRECATED] Library containing data preprocessing, training, and inference tooling for Evo2. Use bionemo-recipes/recipes/evo2_megatron/ instead."
 authors = [{ name = "BioNeMo Team", email = "bionemofeedback@nvidia.com" }]
 requires-python = ">=3.10"
 license = { file = "LICENSE" }

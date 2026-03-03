@@ -10,7 +10,7 @@ exclude = [
 ]
 source_roots = [
     "sub-packages/bionemo-core/src",
-    "sub-packages/bionemo-evo2/src",
+    # "sub-packages/bionemo-evo2/src",  # DEPRECATED: replaced by bionemo-recipes/recipes/evo2_megatron/
     "sub-packages/bionemo-example_model/src",
     "sub-packages/bionemo-llm/src",
     "sub-packages/bionemo-scdl/src",
@@ -23,13 +23,13 @@ source_roots = [
 path = "bionemo.core"
 depends_on = []
 
-[[modules]]
-path = "bionemo.evo2"
-depends_on = [
-    "bionemo.noodles",
-    "bionemo.core",
-    "bionemo.llm",
-]
+# [[modules]]  # DEPRECATED: replaced by bionemo-recipes/recipes/evo2_megatron/
+# path = "bionemo.evo2"
+# depends_on = [
+#     "bionemo.noodles",
+#     "bionemo.core",
+#     "bionemo.llm",
+# ]
 
 [[modules]]
 path = "bionemo.example_model"

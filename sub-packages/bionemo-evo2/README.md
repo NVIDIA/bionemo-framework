@@ -1,4 +1,18 @@
-# bionemo-evo2
+# bionemo-evo2 [DEPRECATED]
+
+> **DEPRECATED**: This sub-package (`sub-packages/bionemo-evo2`) is deprecated and will be removed in a future release.
+> The replacement implementation is located at `bionemo-recipes/recipes/evo2_megatron/`, which uses Megatron-Bridge
+> instead of NeMo 2.0 / PyTorch Lightning.
+>
+> For Hyena models, the new implementation has full feature parity with this one, plus additional capabilities
+> (embedding extraction, mixed precision recipes, MCore inference engine).
+>
+> **Known gaps in the new implementation** (out of scope for initial deprecation):
+> - LoRA/PEFT support (training and prediction)
+> - Mamba model support
+> - Llama model support
+>
+> Please migrate to `bionemo-recipes/recipes/evo2_megatron/` for all new work.
 
 `bionemo-evo2` is a `pip`-installable package that contains **data preprocessing**, **training**, and **inferencing** code for Evo2, a new `Hyena`-based foundation model for genome generation and understanding. Built upon `Megatron-LM` parallelism and `NeMo2` algorithms, `bionemo-evo2` provides the remaining tools necessary to effectively fine-tune the pre-trained Evo2 model checkpoint on user-provided sequences at scale, and generate state-of-the-art life-like DNA sequences from Evo2 for downstream metagenomic tasks.
 

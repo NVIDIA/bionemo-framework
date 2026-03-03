@@ -15,3 +15,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+import warnings
+
+warnings.warn(
+    "bionemo.evo2 (sub-packages/bionemo-evo2) is deprecated and will be removed in a future release. "
+    "Please use the replacement implementation at bionemo-recipes/recipes/evo2_megatron/ instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)

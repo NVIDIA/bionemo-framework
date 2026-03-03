@@ -15,7 +15,7 @@ version = "2.0.0"
 dependencies = [
     # **ALL** bionemo sub-packages
     'bionemo-core',
-    'bionemo-evo2',
+    # 'bionemo-evo2',  # DEPRECATED: replaced by bionemo-recipes/recipes/evo2_megatron/
     'bionemo-example_model',
     'bionemo-llm',
     'bionemo-moco',
@@ -125,7 +125,7 @@ executionEnvironments = [
         "./3rdparty/NeMo",
         # bionemo sub-packages
         './sub-packages/bionemo-core/src',
-        './sub-packages/bionemo-evo2/src',
+        # './sub-packages/bionemo-evo2/src',  # DEPRECATED: replaced by bionemo-recipes/recipes/evo2_megatron/
         './sub-packages/bionemo-example_model/src',
         './sub-packages/bionemo-llm/src',
         './sub-packages/bionemo-moco/src',
