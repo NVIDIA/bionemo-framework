@@ -233,12 +233,21 @@ class AppState(Stateful):
 
     def load_state_dict(self, state_dict: dict):
         """Load the state dict for the model, optimizer, scheduler, and step."""
-        set_state_dict(
+        # Use strict=False to handle checkpoints saved without TransformerEngine
+        # _extra_state keys (FP8 metadata). These keys are registered by newer TE
+        # versions even when FP8 is disabled, and are safe to skip.
+        incompatible = set_state_dict(
             self.model,
             self.optimizer,
             model_state_dict=state_dict["model"],
             optim_state_dict=state_dict["optim"],
+            options=StateDictOptions(strict=False),
         )
+        if incompatible and (incompatible.missing_keys or incompatible.unexpected_keys):
+            if incompatible.missing_keys:
+                logger.warning(f"Missing keys when loading checkpoint: {incompatible.missing_keys}")
+            if incompatible.unexpected_keys:
+                logger.warning(f"Unexpected keys when loading checkpoint: {incompatible.unexpected_keys}")
         self.scheduler.load_state_dict(state_dict["scheduler"])
         self.step = state_dict["step"]
         self.epoch = state_dict["epoch"]

@@ -1,13 +1,12 @@
-# OpenGenome2 Metagenome 7B - GLOBALLY SHUFFLED PRE-CHUNKED SHARDS (retest on fp32-cp branch)
-# Uses pre-windowed parquet shards from /data/opengenome2/parquet_split/
-# Windowed tokenization with stride=200; stride has no effect since all seqs are ≤8190 bases.
-# Key fix: restored cast_forward_inputs=False in MixedPrecisionPolicy to match old GS branch.
-# THD + BF16 + FP32 master weights (no FP8), GQA (8 KV heads)
+# OpenGenome2 Metagenome 7B - BSHD + BF16 + FP32 master weights + Window Shuffle
+# PARQUET2 DATASET: 1733 files at /data/opengenome2/parquet2/
+# 8 workers, 10k buffer, stride=200 (inherited from base config)
+# Same as THD pq2-ws-w8-cfi-false but using BSHD format (no sequence packing)
 # GBS = 1 * 8 * 6 * 8 = 384
 defaults:
   - _self_
 
-job_name: "og2-7b-fp32mw-gs-resume"
+job_name: "og2-7b-fp32mw-pq2-bshd-ws-w8"
 node_group: "yo-bom-lepton-001"
 resource_shape: "gpu.8xh100-sxm"
 
@@ -17,18 +16,18 @@ num_train_steps: 182314
 micro_batch_size: 1
 grad_acc_steps: 8
 
-dataset_path: "/data/opengenome2/parquet_split"
+dataset_path: "/data/opengenome2/parquet2"
 data_dir: ""
 num_workers: 8
 buffer_size: 10000
 
-shuffle_windows: false
-shuffle_sequences: true
+shuffle_windows: true
+shuffle_sequences: false
 
 repo_root: "/data/savithas/bionemo-framework"
 code_path: "/data/savithas/bionemo-framework/bionemo-recipes/recipes/llama3_native_te"
 train_script: "train_fsdp2.py"
-hydra_config: "L2_og2_metagenome_7b_thd_gqa_global_shuffle"
+hydra_config: "L2_og2_metagenome_7b_bshd_gqa_bf16_fp32master_hf_ws_new_dataset"
 
 git_branch: "savitha/fp32-cp-integration"
 
@@ -45,14 +44,12 @@ use_fp32_master_weights: true
 
 logger_frequency: 10
 
-resume_from_checkpoint: true
-
-checkpoint_dir: "/data/savithas/checkpoints/og2-7b-fp32mw-global-shuffle-retest"  # pragma: allowlist secret
+checkpoint_dir: "/data/savithas/checkpoints/og2-7b-fp32mw-pq2-bshd-ws-w8"  # pragma: allowlist secret
 save_every_n_steps: 5000
 async_save: false
 
 wandb_project: "llama3-metagenome-7b"
-wandb_name: "og2-7b-fp32mw-gs-resume"
+wandb_name: "og2-7b-fp32mw-pq2-bshd-ws-w8"
 wandb_secret: "wandb.savithas"  # pragma: allowlist secret
 
 hf_secret: "HUGGING_FACE_HUB_TOKEN.savithas"  # pragma: allowlist secret
