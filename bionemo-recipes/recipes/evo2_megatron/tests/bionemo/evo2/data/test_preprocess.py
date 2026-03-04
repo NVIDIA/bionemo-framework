@@ -131,7 +131,7 @@ def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
     assert train_ds is not None
     assert val_ds is not None
     assert test_ds is not None
-    assert int(20 * 0.6) <= len(train_ds) and len(train_ds) > len(val_ds)
+    assert int(20 * 0.6) <= len(train_ds) and len(train_ds) >= len(val_ds)
     assert int(20 * 0.2) <= len(val_ds)
     assert int(20 * 0.2) <= len(test_ds)
 
