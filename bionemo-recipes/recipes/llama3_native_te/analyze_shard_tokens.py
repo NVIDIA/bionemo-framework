@@ -167,8 +167,9 @@ def analyze_dataset(
     max_rows_per_shard: int | None,
 ):
     """Analyze a single dataset's token distribution and simulated BSHD batching."""
-    shard_files = sorted(glob.glob(os.path.join(dataset_path, "*.parquet")))
+    shard_files = sorted(os.path.join(dataset_path, f) for f in os.listdir(dataset_path) if f.endswith(".parquet"))
     if not shard_files:
+        # Fallback: search subdirectories
         shard_files = sorted(glob.glob(os.path.join(dataset_path, "**/*.parquet"), recursive=True))
 
     if not shard_files:
