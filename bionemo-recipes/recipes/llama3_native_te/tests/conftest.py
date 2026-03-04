@@ -19,6 +19,7 @@ from unittest import mock
 
 import pytest
 import torch
+from transformer_engine.pytorch import fp8 as te_fp8
 
 
 sys.path.append(Path(__file__).parent.parent.as_posix())
@@ -59,6 +60,56 @@ def pytest_collection_modifyitems(items):
     stats_tests = [item for item in items if item.name in stats_test_names]
     other_tests = [item for item in items if item.name not in stats_test_names]
     items[:] = stats_tests + other_tests
+
+
+# ---------------------------------------------------------------------------
+# FP8 recipe parametrization
+# ---------------------------------------------------------------------------
+
+# Each entry: (recipe_class_name, hydra_overrides, check_fn)
+_FP8_RECIPE_CONFIGS = [
+    (
+        "DelayedScaling",
+        ["fp8_config.fp8_recipe=transformer_engine.common.recipe.DelayedScaling"],
+        te_fp8.check_fp8_support,
+    ),
+    (
+        "Float8CurrentScaling",
+        ["fp8_config.fp8_recipe=transformer_engine.common.recipe.Float8CurrentScaling"],
+        te_fp8.check_fp8_support,
+    ),
+    (
+        "Float8BlockScaling",
+        ["fp8_config.fp8_recipe=transformer_engine.common.recipe.Float8BlockScaling"],
+        te_fp8.check_fp8_block_scaling_support,
+    ),
+    (
+        "MXFP8BlockScaling",
+        ["fp8_config.fp8_recipe=transformer_engine.common.recipe.MXFP8BlockScaling"],
+        te_fp8.check_mxfp8_support,
+    ),
+]
+
+
+def _parametrize_fp8_recipes():
+    """Generate pytest.param objects with xfail marks for unsupported FP8 recipes."""
+    params = []
+    for name, overrides, check_fn in _FP8_RECIPE_CONFIGS:
+        supported, reason = check_fn()
+        params.append(
+            pytest.param(
+                overrides,
+                id=name,
+                marks=pytest.mark.xfail(condition=not supported, reason=reason),
+            )
+        )
+    return params
+
+
+@pytest.fixture(params=_parametrize_fp8_recipes())
+def fp_recipe(request):
+    """Parametrized fixture providing FP8 recipe Hydra overrides for each supported TE recipe."""
+    return request.param
 
 
 @pytest.fixture(scope="session", autouse=True)

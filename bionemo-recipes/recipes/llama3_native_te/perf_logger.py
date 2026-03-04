@@ -44,7 +44,7 @@ class PerfLogger:
         min_loss: The minimum loss seen so far.
     """
 
-    def __init__(self, dist_config: DistributedConfig, args: DictConfig):
+    def __init__(self, dist_config: DistributedConfig, args: DictConfig, start_step: int):
         """Initialize the logger."""
         self._dist_config = dist_config
         self._run_config = OmegaConf.to_container(args, resolve=True, throw_on_missing=True)
@@ -75,7 +75,7 @@ class PerfLogger:
         if self._dist_config.is_main_process():
             # Log the entire args object to wandb for experiment tracking and reproducibility.
             self._wandb_run = wandb.init(**args.wandb, config=self._run_config)
-            self._progress_bar = tqdm(total=args.num_train_steps, desc="Training")
+            self._progress_bar = tqdm(initial=start_step, total=args.num_train_steps, desc="Training")
 
             if args.profiler.enabled:
                 self._profiler = NsightProfiler(
