@@ -964,3 +964,6 @@ if __name__ == "__main__":
         f"Expected at most {expected_tokens_per_rank + 100} tokens, got {actual_shape}"
     )
     assert batch["labels"].shape[1] == actual_shape
+
+    dataloader.close()
+    torch.distributed.destroy_process_group()
