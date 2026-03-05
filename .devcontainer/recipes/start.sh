@@ -8,8 +8,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 DEVCONTAINER_JSON="${SCRIPT_DIR}/devcontainer.json"
-CONTAINER_NAME="bionemo-recipes-devcontainer"
-IMAGE_NAME="bionemo-recipes-devcontainer:latest"
+CONTAINER_NAME="${BIONEMO_CONTAINER_NAME:-bionemo-recipes-devcontainer}"
+IMAGE_NAME="${BIONEMO_IMAGE_NAME:-bionemo-recipes-devcontainer:latest}"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -147,17 +147,31 @@ if [[ -n "${POST_CREATE_CMD}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 8. Done – drop the user into an interactive shell
+# 8. Done – run a command or drop the user into an interactive shell
+#
+#    start.sh                → interactive bash (default)
+#    start.sh CMD [ARGS...]  → run CMD inside the container and return its
+#                              exit code (non-interactive, no exec)
 # ---------------------------------------------------------------------------
 
 echo ""
 echo "==> Container ${CONTAINER_NAME} is running."
-echo "    Attach with:  docker exec -it ${CONTAINER_NAME} bash"
-echo "    Stop with:    docker rm -f ${CONTAINER_NAME}"
-echo ""
-echo "==> Attaching interactive shell…"
-exec docker exec -it \
-    --user "${REMOTE_USER}" \
-    -w "${WORKSPACE_FOLDER}" \
-    "${CONTAINER_NAME}" \
-    bash
+
+if [ $# -gt 0 ]; then
+    echo "==> Running command: $*"
+    docker exec \
+        --user "${REMOTE_USER}" \
+        -w "${WORKSPACE_FOLDER}" \
+        "${CONTAINER_NAME}" \
+        "$@"
+else
+    echo "    Attach with:  docker exec -it ${CONTAINER_NAME} bash"
+    echo "    Stop with:    docker rm -f ${CONTAINER_NAME}"
+    echo ""
+    echo "==> Attaching interactive shell…"
+    exec docker exec -it \
+        --user "${REMOTE_USER}" \
+        -w "${WORKSPACE_FOLDER}" \
+        "${CONTAINER_NAME}" \
+        bash
+fi
