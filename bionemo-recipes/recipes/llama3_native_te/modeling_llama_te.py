@@ -456,7 +456,17 @@ def _unpad_input(hidden_states, attention_mask, unused_mask=None):
 
 
 class HFInferenceParams(InferenceParams):
-    """Extension of the InferenceParams class to support beam search."""
+    """Extension of the InferenceParams class to support HF generate() and beam search."""
+
+    def get_seq_length(self, layer_idx: int = 0) -> int:
+        """Return the current cached sequence length.
+
+        Required by HuggingFace transformers generate() to determine how many
+        tokens have already been cached.
+        """
+        if not self.sequences:
+            return 0
+        return max(self.sequences.values())
 
     def reorder_cache(self, beam_idx: torch.LongTensor):
         """Reorder the cache based on the beam indices."""

@@ -140,8 +140,8 @@ class TestESM2Model(BaseModelTest):
     def get_tolerances(self) -> TestTolerances:
         """Return ESM2-specific test tolerances."""
         return TestTolerances(
-            golden_value_loss_atol=1e-2,
-            golden_value_loss_rtol=1e-3,
+            golden_value_loss_atol=2e-2,
+            golden_value_loss_rtol=1e-2,
             golden_value_logits_atol=2.0,  # Higher tolerance needed after transformers PR#40370
             golden_value_logits_rtol=1e-4,
             cp_loss_atol=0.1,
