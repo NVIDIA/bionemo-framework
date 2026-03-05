@@ -78,7 +78,7 @@ def main(args: DictConfig) -> float:
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("ddp",))
 
     # For testing, we don't want to depend on loading pre-trained weights.
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True)
+    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
 
@@ -106,7 +106,7 @@ def main(args: DictConfig) -> float:
     )
 
     peft_model = peft.get_peft_model(model, peft_config)
-    peft_model.to(device=device, dtype=torch.bfloat16)
+    peft_model.to(device=device)
 
     print("----- PEFT Model --------")
     peft_model.print_trainable_parameters()

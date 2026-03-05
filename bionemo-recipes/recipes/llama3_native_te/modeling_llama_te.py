@@ -15,6 +15,7 @@
 
 """TransformerEngine-optimized Llama model."""
 
+import warnings
 from collections import OrderedDict
 from typing import ClassVar, Unpack
 
@@ -236,7 +237,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         # Ensure that rotary embeddings are computed with at a higher precision
         with torch.autocast(device_type="cuda", enabled=False):
             te_rope_emb = self.rotary_emb(max_seq_len=self.config.max_position_embeddings)
-            assert te_rope_emb.dtype == torch.float32, "RoPE embeddings should be float32 for optimal performance"
+            if te_rope_emb.dtype == torch.float32:
+                warnings.warn("Rotary embeddings should be in float32 for optimal performance.", UserWarning)
 
         for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             if output_hidden_states:
