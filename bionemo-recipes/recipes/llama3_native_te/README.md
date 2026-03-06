@@ -65,11 +65,16 @@ def compute_model_pflops(seq_len, global_batch_size, step_time_s):
     return model_flops / 1e15
 ```
 
+### Low precision performance benchmarks
+
+![Performance Benchmarks Low Precision](../../../docs/docs/assets/images/llama3/llama3_1b_fsdp2_tflops.png)
+In the above plot we can see the performance increases as we lower the precision of our transformer layers.
+
 ### Convergence Benchmarks
 
 <p align="center">
-  <img src="../../../docs/docs/assets/images/recipes/lingua-1b-loss-curve.png" alt="Llama 3 Lingua 1B Loss Curve" width="49%" />
-  <img src="../../../docs/docs/assets/images/recipes/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
+  <img src="../../../docs/docs/assets/images/recipes/llama3/lingua-1b-loss-curve.png" alt="Llama 3 Lingua 1B Loss Curve" width="49%" />
+  <img src="../../../docs/docs/assets/images/recipes/llama3/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
 </p>
 
 We compared the convergence of this Llama3 recipe (with FSDP2) against NeMo 2.0
