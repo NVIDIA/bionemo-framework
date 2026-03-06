@@ -21,8 +21,8 @@ import pytest
 import torch
 from hydra import compose, initialize_config_dir
 
-from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
-from train_fsdp2 import get_parameter_groups_with_weight_decay
+from opengenome_modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
+from optimizer import get_parameter_groups_with_weight_decay
 from train_fsdp2 import main as main_fsdp2
 
 
@@ -65,6 +65,50 @@ def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path):
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "checkpoint.resume_from_checkpoint=false",
                 "config_kwargs.attn_input_format=thd",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_sanity_convergence_fsdp2_te_bshd_grad_acc(tmp_path, recipe_path):
+    """Test FSDP2 training with BSHD format and gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "config_kwargs.attn_input_format=bshd",
+                "grad_acc_steps=2",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_sanity_convergence_fsdp2_te_thd_grad_acc(tmp_path, recipe_path):
+    """Test FSDP2 training with THD format and gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "use_sequence_packing=true",
+                "config_kwargs.attn_input_format=thd",
+                "dataset.max_seq_length=1024",
+                "grad_acc_steps=2",
             ],
         )
 

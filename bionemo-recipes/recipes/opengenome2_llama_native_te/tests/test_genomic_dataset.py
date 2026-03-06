@@ -18,7 +18,7 @@ import torch
 from transformers.data.data_collator import DataCollatorForLanguageModeling
 
 from collator import DataCollatorWithFlattening
-from genomic_dataset import GenomicDataCollator
+from opengenome_collator import GenomicDataCollator
 
 
 @pytest.fixture
