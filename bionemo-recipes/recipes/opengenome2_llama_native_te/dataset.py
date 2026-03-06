@@ -33,7 +33,7 @@ from collator import (
     TokenPackingDataset,
 )
 from distributed_config import DistributedConfig
-from genomic_dataset import GenomicDataCollator
+from opengenome_collator import GenomicDataCollator
 
 
 logger = logging.getLogger(__name__)

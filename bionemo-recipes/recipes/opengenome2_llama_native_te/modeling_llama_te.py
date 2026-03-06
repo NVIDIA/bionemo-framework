@@ -13,20 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""OpenGenome2 Llama model with TransformerEngine layers.
+"""TransformerEngine-optimized Llama model."""
 
-Implements a HuggingFace-compatible Llama model using TE's fused TransformerLayer
-for efficient pre-training. Supports:
-- Megatron-style scaled initialization for residual output layers
-- Spike-No-More embedding initialization (std=1.0)
-- FP8 training with configurable first/last layer BF16 override
-- THD and BSHD attention input formats
-"""
-
-import logging
-import math
 from collections import OrderedDict
-from contextlib import nullcontext
 from typing import ClassVar, Unpack
 
 import torch
@@ -42,21 +31,6 @@ from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 from transformers.utils.generic import TransformersKwargs
 
 
-logger = logging.getLogger(__name__)
-
-
-def _ensure_rope_theta(config):
-    """Ensure config.rope_theta is set for LlamaRotaryEmbedding compatibility.
-
-    Transformers >=5.0 may nullify rope_theta during config processing when rope_scaling is present.
-    This function restores a sensible default (500000.0 for Llama-3) to prevent TypeError in
-    LlamaRotaryEmbedding initialization.
-    """
-    if getattr(config, "rope_theta", None) is None:
-        config.rope_theta = 500000.0
-    return config
-
-
 AUTO_MAP = {
     "AutoConfig": "modeling_llama_te.NVLlamaConfig",
     "AutoModel": "modeling_llama_te.NVLlamaModel",
@@ -68,30 +42,13 @@ AUTO_MAP = {
 
 
 class NVLlamaConfig(LlamaConfig):
-    """NVLlama configuration with OG2-specific features.
+    """NVLlama configuration."""
 
-    Additional attributes:
-        attn_input_format: Input format for attention ("thd" or "bshd").
-        self_attn_mask_type: Attention mask type for self-attention.
-        embedding_init_std: Standard deviation for embedding initialization.
-            If None, uses initializer_range (typically 0.02).
-            Set to 1.0 for Spike-No-More paper approach.
-        use_megatron_scaled_init: Whether to use Megatron's scaled initialization
-            for residual output layers (attention proj, MLP fc2).
-            Scaled init uses std / sqrt(2 * num_layers) for these layers.
-        fp8_first_last_bf16: When True, keeps first and last N transformer layers
-            in bf16 for FP8 numerical stability. The lm_head is always kept in bf16.
-        num_layers_at_start_in_bf16: Number of layers at the start to keep in BF16.
-        num_layers_at_end_in_bf16: Number of layers at the end to keep in BF16.
-    """
-
+    # Attention input format:
+    #   "bshd" = Batch, Sequence, Head, Dimension (standard padded format)
+    #   "thd"  = Total tokens (packed/unpadded), Head, Dimension (sequence packing format)
     attn_input_format: str = "thd"
     self_attn_mask_type: str = "padding_causal"
-    embedding_init_std: float | None = None  # None means use initializer_range
-    use_megatron_scaled_init: bool = False  # Use scaled init for proj/fc2 (std/sqrt(2*n))
-    fp8_first_last_bf16: bool = False  # Keep first/last transformer layers in bf16 for FP8 stability
-    num_layers_at_start_in_bf16: int = 1  # Number of layers at start to keep in BF16
-    num_layers_at_end_in_bf16: int = 1  # Number of layers at end to keep in BF16
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -102,26 +59,8 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
     _no_split_modules = ("TransformerLayer",)
     _skip_keys_device_placement = ("past_key_values",)
 
-    def state_dict(self, *args, **kwargs):
-        """Override state_dict to filter out TransformerEngine's _extra_state keys.
-
-        TransformerEngine layers add _extra_state attributes that are not compatible with
-        standard PyTorch/HuggingFace model loading. These are filtered out to ensure
-        checkpoints can be loaded with from_pretrained().
-        """
-        state_dict = super().state_dict(*args, **kwargs)
-        return {k: v for k, v in state_dict.items() if not k.endswith("_extra_state")}
-
     def init_empty_weights(self):
-        """Handles moving the model from the meta device to the cuda device and initializing the weights.
-
-        Known issue: meta-device init breaks Megatron-style scaled initialization. The scaled std
-        for proj/fc2 (std / sqrt(2*num_layers)) is not correctly applied when initializing from
-        meta device -- TE's reset_parameters() does not use the output_layer_init_method passed
-        during TransformerLayer construction. The manual fixup below attempts to re-apply scaled
-        init, but does not produce the same distributions as direct CUDA initialization.
-        Use use_meta_device=false when using use_megatron_scaled_init or spike_no_more_embedding_init.
-        """
+        """Handles moving the model from the meta device to the cuda device and initializing the weights."""
         # For TE layers, calling `reset_parameters` is sufficient to move them to the cuda device and apply the weight
         # initialization we passed them during module creation.
         for module in self.modules():
@@ -134,29 +73,7 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
         self.model.embed_tokens.to_empty(device="cuda")
         self.model.embed_tokens.apply(self._init_weights)
 
-        self.model.rotary_emb.inv_freq = LlamaRotaryEmbedding(
-            config=_ensure_rope_theta(self.model.config)
-        ).inv_freq.to("cuda")
-
-        # TE's reset_parameters() doesn't use output_layer_init_method for proj/fc2.
-        # If use_megatron_scaled_init is enabled, we need to manually apply scaled init.
-        use_scaled_init = getattr(self.config, "use_megatron_scaled_init", False)
-        if use_scaled_init:
-            std = getattr(self.config, "initializer_range", 0.02)
-            num_layers = getattr(self.config, "num_hidden_layers", 32)
-            output_std = std / math.sqrt(2.0 * num_layers)
-
-            # Apply scaled init to attention proj and MLP fc2 in each TransformerLayer
-            for layer in self.model.layers:
-                # Attention output projection
-                if hasattr(layer, "self_attention") and hasattr(layer.self_attention, "proj"):
-                    proj = layer.self_attention.proj
-                    if hasattr(proj, "weight") and proj.weight is not None:
-                        proj.weight.data.normal_(mean=0.0, std=output_std)
-
-                # MLP fc2 (output layer)
-                if hasattr(layer, "layernorm_mlp") and hasattr(layer.layernorm_mlp, "fc2_weight"):
-                    layer.layernorm_mlp.fc2_weight.data.normal_(mean=0.0, std=output_std)
+        self.model.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=self.model.config).inv_freq.to("cuda")
 
         # Meta-device init seems to break weight tying, so we re-tie the weights here.
         self.tie_weights()
@@ -164,87 +81,28 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
     def _init_weights(self, module):
         """Initialize module weights.
 
-        Initialization strategy:
-        - Embeddings: config.embedding_init_std if set, else initializer_range (0.02)
-          - For Spike-No-More: set embedding_init_std=1.0 in config
-        - QKV, fc1, LM head: regular init = initializer_range (0.02)
-        - Attention proj, MLP fc2: depends on config.use_megatron_scaled_init:
-          - If False (default): regular init = initializer_range (0.02)
-          - If True: scaled init = initializer_range / sqrt(2 * num_layers)
-
-        Args:
-            module (nn.Module): The module to initialize the weights for.
+        We only use this method for standard pytorch modules, TE modules handle their own weight initialization through
+        `init_method` parameters and the `reset_parameters` method.
         """
-        # Get base std from config (typically 0.02)
-        if hasattr(self.config, "initializer_range"):
-            std = self.config.initializer_range
-        else:
-            std = getattr(self.config.get_text_config(), "initializer_range", 0.02)
+        if module.__module__.startswith("transformer_engine.pytorch"):
+            # Notably, we need to avoid calling this method for TE modules, since the default _init_weights will assume
+            # any class with `LayerNorm` in the name should have weights initialized to 1.0; breaking `LayerNormLinear`
+            # and `LayerNormMLP` modules that use `weight` for the linear layer and `layer_norm_weight` for the layer
+            # norm.
+            return
 
-        # Check if we should use Megatron's scaled init for residual output layers
-        use_scaled_init = getattr(self.config, "use_megatron_scaled_init", False)
-        if use_scaled_init:
-            num_layers = getattr(self.config, "num_hidden_layers", 32)
-            output_std = std / math.sqrt(2.0 * num_layers)
-        else:
-            output_std = std
+        super()._init_weights(module)
 
-        # Embedding init std: default to regular std (0.02), use 1.0 only if explicitly set
-        embedding_init_std = getattr(self.config, "embedding_init_std", None)
-        embedding_std = embedding_init_std if embedding_init_std is not None else std
+    def state_dict(self, *args, **kwargs):
+        """Override state_dict to filter out TransformerEngine's _extra_state keys.
 
-        # Embeddings
-        if isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=embedding_std)
-            if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
-
-        # Regular Linear layers: LM head and other Linear use regular std (0.02)
-        if isinstance(
-            module, (nn.Linear, transformer_engine.pytorch.Linear, transformer_engine.pytorch.LayerNormLinear)
-        ):
-            module.weight.data.normal_(mean=0.0, std=std)
-            if module.bias is not None:
-                module.bias.data.zero_()
-
-        if isinstance(module, transformer_engine.pytorch.LayerNorm):
-            if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
-            if hasattr(module, "bias") and module.bias is not None:
-                module.bias.data.zero_()
-        if isinstance(module, transformer_engine.pytorch.RMSNorm):
-            if hasattr(module, "weight") and module.weight is not None:
-                module.weight.data.fill_(1.0)
-        if isinstance(module, transformer_engine.pytorch.LayerNormLinear):
-            module.layer_norm_weight.data.fill_(1.0)
-            if module.layer_norm_bias is not None:
-                module.layer_norm_bias.data.zero_()
-
-        # MLP: fc1 uses regular std, fc2 uses output_std (scaled if use_megatron_scaled_init=True)
-        if isinstance(module, transformer_engine.pytorch.LayerNormMLP):
-            module.layer_norm_weight.data.fill_(1.0)
-            if hasattr(module, "fc1_weight") and module.fc1_weight is not None:
-                module.fc1_weight.data.normal_(mean=0.0, std=std)
-            if hasattr(module, "fc2_weight") and module.fc2_weight is not None:
-                module.fc2_weight.data.normal_(mean=0.0, std=output_std)
-            if hasattr(module, "fc1_bias") and module.fc1_bias is not None and module.fc1_bias.numel() > 0:
-                module.fc1_bias.data.zero_()
-            if hasattr(module, "fc2_bias") and module.fc2_bias is not None and module.fc2_bias.numel() > 0:
-                module.fc2_bias.data.zero_()
-
-        # TE TransformerLayer: attention output projection uses output_std
-        if isinstance(module, transformer_engine.pytorch.TransformerLayer):
-            if hasattr(module, "self_attention") and hasattr(module.self_attention, "proj"):
-                proj = module.self_attention.proj
-                if hasattr(proj, "weight") and proj.weight is not None:
-                    proj.weight.data.normal_(mean=0.0, std=output_std)
-                if hasattr(proj, "bias") and proj.bias is not None:
-                    proj.bias.data.zero_()
-
-        if isinstance(module, RotaryPositionEmbedding) and hasattr(module, "inv_freq"):
-            module.inv_freq = LlamaRotaryEmbedding(config=_ensure_rope_theta(self.config)).inv_freq.to(
-                module.inv_freq.device
-            )
+        TransformerEngine layers add _extra_state attributes that are not compatible with
+        standard PyTorch/HuggingFace model loading. These are filtered out to ensure
+        checkpoints can be loaded with from_pretrained().
+        """
+        state_dict = super().state_dict(*args, **kwargs)
+        # Filter out _extra_state keys which are TransformerEngine-specific and not loadable
+        return {k: v for k, v in state_dict.items() if not k.endswith("_extra_state")}
 
 
 class NVLlamaModel(NVLlamaPreTrainedModel):
@@ -259,10 +117,6 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx, dtype=config.dtype)
 
-        # TE init_method for QKV, fc1 (standard initializer_range).
-        # Scaled init for proj/fc2 is handled by _init_weights via post_init(), not by TE's
-        # output_layer_init_method, because post_init() overwrites TE's initialization and
-        # TE's reset_parameters() does not reliably apply output_layer_init_method anyway.
         def _init_method(x):
             torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
 
@@ -287,6 +141,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                     params_dtype=config.dtype,
                     device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
                     init_method=_init_method,
+                    output_layer_init_method=_init_method,
                 )
                 for layer_idx in range(config.num_hidden_layers)
             ]
@@ -301,8 +156,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         # We use TE's RotaryPositionEmbedding, but we ensure that we use the same inv_freq as the original
         # LlamaRotaryEmbedding.
         self.rotary_emb = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
-        hf_rope = LlamaRotaryEmbedding(config=_ensure_rope_theta(config))
-        self.rotary_emb.inv_freq = hf_rope.inv_freq
+        self.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=config).inv_freq
 
         self.gradient_checkpointing = False
 
@@ -322,12 +176,12 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         """Forward pass for the NVLlama model.
 
         Args:
-            input_ids: The input ids.
-            attention_mask: The attention mask.
-            position_ids: The position ids.
-            past_key_values: The past key values.
-            inputs_embeds: The inputs embeds.
-            use_cache: Whether to use cache.
+            input_ids (torch.Tensor): The input ids.
+            attention_mask (torch.Tensor): The attention mask.
+            position_ids (torch.Tensor): The position ids.
+            past_key_values (tuple[tuple[torch.Tensor, ...], ...]): The past key values.
+            inputs_embeds (torch.Tensor): The inputs embeds.
+            use_cache (bool): Whether to use cache.
             **kwargs: Additional keyword arguments.
 
         Returns:
@@ -349,6 +203,10 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         should_pack_inputs = not any(has_thd_input) and self.config.attn_input_format == "thd"
 
         if should_pack_inputs:
+            # Left-side padding is not supported in TE layers, so to make huggingface-style generation work with TE we
+            # dynamically convert to THD-style inputs in our forward pass, and then convert back to BSHD for the output.
+            # This lets the entire transformer stack run in THD mode. This might be slower for BSHD + padding with fused
+            # attention backend, but it should be faster for the flash attention backend.
             assert attention_mask is not None, "Attention mask is required when packing BSHD inputs."
             batch_size = hidden_states.size(0)
             padded_seq_len = input_ids.size(1)
@@ -357,12 +215,17 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             kwargs["max_length_q"] = kwargs["max_length_k"] = max_seqlen
 
         if self.config.attn_input_format == "thd" and hidden_states.dim() == 3 and hidden_states.size(0) == 1:
+            # For THD, the embedding output is a 3-dimensional tensor with shape [1, total_tokens, hidden_size], but TE
+            # expects a 2-dimensional tensor with shape [total_tokens, hidden_size].
             hidden_states = hidden_states.squeeze(0)
 
         if self.config.attn_input_format == "bshd" and attention_mask is not None and attention_mask.dim() == 2:
+            # Convert HF mask (1=attend, 0=pad) to TE boolean mask (True=masked, False=attend)
             attention_mask = ~attention_mask[:, None, None, :].bool()
 
-        if isinstance(past_key_values, InferenceParams):
+        if isinstance(past_key_values, InferenceParams):  # InferenceParams is TE's way of managing kv-caching.
+            # In generation mode, we set the length to 1 for each batch index. Otherwise, we use the attention mask to
+            # compute the lengths of each sequence in the batch.
             lengths = (
                 attention_mask.sum(dim=1).tolist()
                 if attention_mask.shape == input_ids.shape
@@ -370,44 +233,37 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             )
             past_key_values.pre_step(OrderedDict(zip(list(range(len(lengths))), lengths)))
 
-        # Ensure that rotary embeddings are computed at higher precision
+        # Ensure that rotary embeddings are computed with at a higher precision
         with torch.autocast(device_type="cuda", enabled=False):
             te_rope_emb = self.rotary_emb(max_seq_len=self.config.max_position_embeddings)
-            assert te_rope_emb.dtype == torch.float32, "RoPE embeddings should be float32 for optimal performance"
 
-        num_layers = self.config.num_hidden_layers
-        for layer_idx, decoder_layer in enumerate(self.layers[:num_layers]):
+        for decoder_layer in self.layers[: self.config.num_hidden_layers]:
             if output_hidden_states:
                 all_hidden_states = (*all_hidden_states, hidden_states)
 
-            # Optionally keep first and last N layers in bf16 for FP8 numerical stability
-            num_start_bf16 = getattr(self.config, "num_layers_at_start_in_bf16", 1)
-            num_end_bf16 = getattr(self.config, "num_layers_at_end_in_bf16", 1)
-            use_bf16_for_layer = getattr(self.config, "fp8_first_last_bf16", False) and (
-                layer_idx < num_start_bf16 or layer_idx >= num_layers - num_end_bf16
+            hidden_states = decoder_layer(
+                hidden_states,
+                attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
+                rotary_pos_emb=te_rope_emb,
+                inference_params=past_key_values,
+                cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
+                cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
+                cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
+                cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
+                max_seqlen_q=kwargs.get("max_length_q", None),
+                max_seqlen_kv=kwargs.get("max_length_k", None),
+                pad_between_seqs=kwargs.get("pad_between_seqs", None),
             )
-
-            with transformer_engine.pytorch.autocast(enabled=False) if use_bf16_for_layer else nullcontext():
-                hidden_states = decoder_layer(
-                    hidden_states,
-                    attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
-                    rotary_pos_emb=te_rope_emb,
-                    inference_params=past_key_values,
-                    cu_seqlens_q=kwargs.get("cu_seq_lens_q", None),
-                    cu_seqlens_kv=kwargs.get("cu_seq_lens_k", None),
-                    cu_seqlens_q_padded=kwargs.get("cu_seq_lens_q_padded", None),
-                    cu_seqlens_kv_padded=kwargs.get("cu_seq_lens_k_padded", None),
-                    max_seqlen_q=kwargs.get("max_length_q", None),
-                    max_seqlen_kv=kwargs.get("max_length_k", None),
-                    pad_between_seqs=kwargs.get("pad_between_seqs", None),
-                )
 
         hidden_states = self.norm(hidden_states)
 
+        # add hidden states from the last decoder layer. Note that these will be in THD format; we could possibly pad
+        # these with the same _pad_input call as below if we wanted them returned in BSHD format.
         if output_hidden_states:
             all_hidden_states = (*all_hidden_states, hidden_states)
 
         if should_pack_inputs:
+            # If we've converted BSHD to THD for our TE layers, we need to convert back to BSHD for the output.
             hidden_states = _pad_input(hidden_states, indices, batch_size, padded_seq_len)
 
         return BaseModelOutputWithPast(
@@ -457,16 +313,19 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         """Forward pass for the NVLlamaForCausalLM model.
 
         Args:
-            input_ids: The input ids.
-            attention_mask: The attention mask.
-            position_ids: The position ids.
-            past_key_values: The past key values.
-            inputs_embeds: The inputs embeds.
-            labels: The labels.
-            shift_labels: Labels that have already been shifted by the dataloader.
-            use_cache: Whether to use cache.
-            cache_position: The cache position.
-            logits_to_keep: Whether to keep only the last logits.
+            input_ids (torch.Tensor): The input ids.
+            attention_mask (torch.Tensor): The attention mask.
+            position_ids (torch.Tensor): The position ids.
+            past_key_values (tuple[tuple[torch.Tensor, ...], ...]): The past key values.
+            inputs_embeds (torch.Tensor): The inputs embeds.
+            labels (torch.Tensor): The labels.
+            shift_labels (torch.Tensor): Labels that have already been shifted by the dataloader, to be used instead of
+                labels for the loss function. For context parallelism, it is more reliable to shift the labels before
+                splitting the batch into shards.
+            use_cache (bool): Whether to use cache.
+            cache_position (torch.Tensor): The cache position.
+            logits_to_keep (int | torch.Tensor): Whether to keep only the last logits to reduce the memory footprint of
+                the model during generation.
             **kwargs: Additional keyword arguments.
 
         Returns:
@@ -484,6 +343,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         )
 
         hidden_states = outputs.last_hidden_state
+        # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
 
         with transformer_engine.pytorch.autocast(enabled=False):
@@ -572,11 +432,11 @@ def _unpad_input(hidden_states, attention_mask, unused_mask=None):
 
     if attention_mask.shape[1] != seq_length:  # Likely in generation mode with kv-caching
         return (
-            hidden_states.squeeze(1),
-            torch.arange(batch_size, dtype=torch.int64, device=hidden_states.device),
-            torch.arange(batch_size + 1, dtype=torch.int32, device=hidden_states.device),
-            1,
-            1,
+            hidden_states.squeeze(1),  # hidden_states
+            torch.arange(batch_size, dtype=torch.int64, device=hidden_states.device),  # indices
+            torch.arange(batch_size + 1, dtype=torch.int32, device=hidden_states.device),  # cu_seqlens
+            1,  # max_seqlen
+            1,  # seqused
         )
 
     all_masks = (attention_mask + unused_mask) if unused_mask is not None else attention_mask
@@ -596,7 +456,17 @@ def _unpad_input(hidden_states, attention_mask, unused_mask=None):
 
 
 class HFInferenceParams(InferenceParams):
-    """Extension of the InferenceParams class to support beam search."""
+    """Extension of the InferenceParams class to support HF generate() and beam search."""
+
+    def get_seq_length(self, layer_idx: int = 0) -> int:
+        """Return the current cached sequence length.
+
+        Required by HuggingFace transformers generate() to determine how many
+        tokens have already been cached.
+        """
+        if not self.sequences:
+            return 0
+        return max(self.sequences.values())
 
     def reorder_cache(self, beam_idx: torch.LongTensor):
         """Reorder the cache based on the beam indices."""
