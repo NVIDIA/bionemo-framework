@@ -50,6 +50,7 @@ from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
+from quantization import resolve_layer_precision
 from scheduler import get_cosine_annealing_schedule_with_warmup
 
 
@@ -79,13 +80,31 @@ def main(args: DictConfig) -> float | None:
     logger.info("Created device mesh: %s", device_mesh)
 
     # --- Model Configuration ---
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-    )
-
-    # --- Model Initialization ---
     config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
 
+    # Resolve layer-wise quantization assignments and store on config.
+    layer_precision = resolve_layer_precision(
+        num_layers=config.num_hidden_layers,
+        fp8_enabled=args.fp8_config.enabled,
+        fp4_enabled=args.fp4_config.enabled,
+        fp8_layers=OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None else None,
+        fp4_layers=OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None else None,
+    )
+    config.layer_precision = layer_precision
+
+    # Create quantization recipes -- these are only used if FP8/FP4 is enabled in the config.
+    fp8_recipe = None
+    fp4_recipe = None
+    if args.fp8_config.enabled:
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
+    if args.fp4_config.enabled:
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+            fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
+        )
+
+    # --- Model Initialization ---
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16
     # and fp8 versions of weights are kept.
@@ -115,6 +134,9 @@ def main(args: DictConfig) -> float | None:
             torch.distributed.get_process_group_ranks(device_mesh["cp"].get_group()),
             torch.cuda.Stream(),
         )
+
+    # Attach quantization recipes to the model (layer precision is already on config).
+    model.model.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     if args.use_meta_device:
         # TE layers require special handling to initialize the weights from the meta device.
@@ -193,10 +215,9 @@ def main(args: DictConfig) -> float | None:
 
             micro_step += 1
 
-            # Forward pass with mixed precision.
+            # Forward pass - quantization autocast is handled inside the model via set_recipes().
             with nvtx.annotate("Forward pass", color="green"):
-                with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
-                    outputs = model(**batch)
+                outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
