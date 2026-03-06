@@ -1,8 +1,8 @@
 # TransformerEngine-accelerated Llama 3 training with native PyTorch training loop
 
 This folder demonstrates how to train TE-accelerated Llama 3 with a native PyTorch training loop, including sequence
-packing and FP8 precision, using fully sharded data parallel (FSDP) for distributed training. This recipe is configured
-for genomic sequences using a custom nucleotide tokenizer.
+packing, FP8/MXFP8/NVFP4 precision with layer-wise control, using fully sharded data parallel (FSDP) for distributed
+training. This recipe is configured for genomic sequences using a custom nucleotide tokenizer.
 
 ## How to use this recipe
 
@@ -16,9 +16,9 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 ## Supported Models and Training Features
 
-| Model                                    | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP8 with THD Input Format | MXFP8<sup>[2]</sup> | Context Parallelism | Tensor Parallelism |
-| ---------------------------------------- | ---- | ----------------- | ---------------- | ------------------------- | ------------------- | ------------------- | ------------------ |
-| [Llama 3](../../models/llama3/README.md) | ✅   | ✅                | ✅               | ✅                        | ✅                  | ✅                  | 🚧                 |
+| Model                                    | BF16 | FP8<sup>[1]</sup> | MXFP8<sup>[2]</sup> | NVFP4<sup>[3]</sup> | THD Input Format | Context Parallelism | Tensor Parallelism |
+| ---------------------------------------- | ---- | ----------------- | ------------------- | ------------------- | ---------------- | ------------------- | ------------------ |
+| [Llama 3](../../models/llama3/README.md) | ✅   | ✅                | ✅                  | ✅                  | ✅               | ✅                  | 🚧                 |
 
 ✅: Supported <br/>
 🚧: Under development <br/>
@@ -26,6 +26,7 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 \[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
 \[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
+\[3\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and above (Blackwell+) <br/>
 
 ### Installing Dependencies
 
@@ -64,11 +65,16 @@ def compute_model_pflops(seq_len, global_batch_size, step_time_s):
     return model_flops / 1e15
 ```
 
+### Low precision performance benchmarks
+
+![Performance Benchmarks Low Precision](../../../docs/docs/assets/images/llama3/llama3_8gpu_tflops.png)
+In the above plot we can see the performance increases as we lower the precision of our transformer layers across the 1B and 8B variant of LLAMA3.
+
 ### Convergence Benchmarks
 
 <p align="center">
-  <img src="../../../docs/docs/assets/images/recipes/lingua-1b-loss-curve.png" alt="Llama 3 Lingua 1B Loss Curve" width="49%" />
-  <img src="../../../docs/docs/assets/images/recipes/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
+  <img src="../../../docs/docs/assets/images/recipes/llama3/lingua-1b-loss-curve.png" alt="Llama 3 Lingua 1B Loss Curve" width="49%" />
+  <img src="../../../docs/docs/assets/images/recipes/llama3/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
 </p>
 
 We compared the convergence of this Llama3 recipe (with FSDP2) against NeMo 2.0
@@ -87,6 +93,10 @@ are due checkpointing, further work will be done to improve training step time s
 
 Models were trained on 64 NVIDIA H100 GPUs with a micro batch size of 4 and a context length of 4096 for 60,000 steps.
 Training was performed with BF16 precision.
+
+### Low Precision convergence benchmarks
+
+<!-- ....TODO from WandB once ready. -->
 
 ### Distributed Training
 
@@ -127,10 +137,10 @@ batch size while running on a smaller number of GPUs.
 python train_fsdp2.py --config-name L0_sanity grad_acc_steps=2
 ```
 
-### FP8 Training
+### Quantized Training (FP8 / MXFP8 / NVFP4)
 
 To run training with FP8, enable it by overriding the `fp8_config.enabled=true` configuration parameter. Additional FP8
-configuration parameters, including switching to `MXFP8BlockScaling`, can be set via the hydra configuration.
+configuration parameters, including switching to `MXFP8BlockScaling`, can be set using the hydra configuration.
 
 ```bash
 python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true
@@ -150,24 +160,60 @@ python train_fsdp2.py --config-name L0_sanity \
 
 #### FP8 Debugging
 
-We also provide a mechanism to receive tensor data related to FP8 layers during training which may include activations, weights and gradients.
+```bash
+python train_fsdp2.py --config-name L0_sanity fp4_config.enabled=true
+```
 
-To enable this please select the following config options.
+Note: This feature is available for the `train_ddp` and the `train_fsdp2` scripts. NVFP4 stats logging is not yet
+supported and will be enabled in a future TransformerEngine release; FP8/MXFP8 stats logging works today.
+
+Additional recipe parameters (e.g., switching to `MXFP8BlockScaling`) can be set via the hydra configuration.
+
+#### Layer-Wise Precision
+
+You can control which transformer layers use FP8 or FP4 by specifying 1-indexed layer numbers via `fp8_layers` and
+`fp4_layers`. Layers not assigned to either format will run in BF16.
+
+For example, to run layers 1-3 in FP8, layers 4-6 in FP4, and the rest in BF16 on a model with more than 6 layers:
+
+```bash
+python train_fsdp2.py --config-name L0_sanity \
+  fp8_config.enabled=true \
+  fp4_config.enabled=true \
+  'fp8_layers=[1,2,3]' \
+  'fp4_layers=[4,5,6]'
+```
+
+When both `fp8_config` and `fp4_config` are enabled but only one layer list is provided, the other format automatically
+claims the remaining layers. For example, if `fp8_layers=[1,2,3]` is set and `fp4_config.enabled=true` with no
+`fp4_layers`, then layers 4 through N will default to FP4.
+
+#### Quantization Stats Debugging
+
+We provide a mechanism to log tensor statistics (activations, weights, gradients) for quantized layers during training.
+When layer-wise precision is used, the stats config is automatically updated so that only the relevant layers are
+tracked.
+
+To enable stats logging:
 
 ```bash
 python train_fsdp2.py \
-  fp8_stats_config.enabled=True \
-  fp8_stats_config.fp8_log_dir=./logs/fp8_stats_logs_dummy \
-  fp8_stats_config.fp8_stats_file=./fp8_debugging_stats.yaml \
-  fp8_config.enabled=True
+  quant_stats_config.enabled=true \
+  quant_stats_config.quant_log_dir=./logs/quant_stats \
+  quant_stats_config.quant_stats_file=./fp8_debugging_stats.yaml \
+  fp8_config.enabled=true
 ```
 
-Note: This feature is available for the `train_ddp` and the `train_fsdp2` scripts.
+Note: This feature is available for the `train_ddp` and the `train_fsdp2` scripts. NVFP4 stats logging is not yet
+supported and will be enabled in a future TransformerEngine release; FP8/MXFP8 stats logging works today.
 
-The config file structure [fp8_debugging_stats.yaml](fp8_debugging_stats.yaml) is explained in the [NVIDIA Transformer Engine config file documentation](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/debug/2_config_file_structure.html) in more detail. Below we will cover some very basic elements of the file structure.
+The config file structure [fp8_debugging_stats.yaml](fp8_debugging_stats.yaml) is explained in the
+[NVIDIA Transformer Engine config file documentation](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/debug/2_config_file_structure.html)
+in more detail.
 
-This comes as a performance cost that is dependent on the `freq` parameter mentioned above. `freq=1` collects stats on every step which in our
-experiments caused a ~29% decrease in throughput (executed on a single RTX 5090). We recommend using `freq>=10` to reduce this performance hit.
+Stats collection has a performance cost dependent on the `freq` parameter in the config file. `freq=1` collects stats
+on every step which in our experiments caused a ~29% decrease in throughput (executed on a single RTX 5090). We
+recommend using `freq>=10` to reduce this performance hit.
 
 ### Sequence Packing (THD input format)
 
