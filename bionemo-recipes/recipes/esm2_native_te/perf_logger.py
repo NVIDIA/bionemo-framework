@@ -77,7 +77,7 @@ class PerfLogger:
             self._progress_bar = tqdm(total=args.num_train_steps, desc="Training")
 
         # Whether to step debug_api.step() after each step
-        self.fp8_stats_enabled = args.fp8_stats_config.enabled
+        self.quant_stats_config = args.quant_stats_config.enabled
 
     def log_step(
         self,
@@ -101,7 +101,7 @@ class PerfLogger:
             if isinstance(grad_norm, DTensor):
                 grad_norm = grad_norm.to_local()
 
-            if self.fp8_stats_enabled:
+            if self.quant_stats_config:
                 debug_api.step()
 
             if step % self.logging_frequency == 0 and step > 0:
@@ -152,11 +152,11 @@ class PerfLogger:
 
     def finish(self):
         """Finish the logger and close the progress bar."""
+        if self.quant_stats_config:
+            debug_api.end_debug()
+
         if not self._dist_config.is_main_process():
             return
 
         wandb.finish()
         self._progress_bar.close()
-
-        if self.fp8_stats_enabled:
-            debug_api.end_debug()

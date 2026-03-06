@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import logging
+import os
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -27,16 +28,13 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
-from transformers import AutoConfig, AutoModelForMaskedLM
-
-# This import seems to be needed with meta device init and AutoModel.from_config
-from transformers.models.esm.modeling_esm import EsmForMaskedLM  # noqa: F401
 
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
-from fp8_debugging import initialize_fp8_debugging
+from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 from perf_logger import PerfLogger
+from quantization import initialize_quant_stats_logging, resolve_layer_precision
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -51,6 +49,9 @@ def main(args: DictConfig) -> float | None:
     Returns:
         float: The loss value for the final batch.
     """
+    os.environ["HF_HUB_TRUST_REMOTE_CODE"] = "1"
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
     # Initialize the distributed configuration, including creating the distributed process group.
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
@@ -58,9 +59,28 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
-    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
-    if args.fp8_stats_config.enabled:
-        initialize_fp8_debugging(dist_config, **args.fp8_stats_config, fp8_enabled=args.fp8_config.enabled)
+    # Load model config early so we know the number of layers for auto-populating layer lists.
+    config = NVEsmConfig.from_pretrained(
+        args.model_tag, dtype=torch.float32 if args.use_fp32_master_weights else torch.bfloat16
+    )
+    num_layers = config.num_hidden_layers
+
+    # Resolve layer-wise quantization assignments and store on config.
+    layer_precision = resolve_layer_precision(
+        num_layers=num_layers,
+        fp8_enabled=args.fp8_config.enabled,
+        fp4_enabled=args.fp4_config.enabled,
+        fp8_layers=OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None else None,
+        fp4_layers=OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None else None,
+    )
+    config.layer_precision = layer_precision
+    if args.quant_stats_config.enabled:
+        initialize_quant_stats_logging(
+            quant_stats_file=args.quant_stats_config.quant_stats_file,
+            quant_log_dir=args.quant_stats_config.quant_log_dir,
+            rank=dist_config.rank,
+            layer_precision=layer_precision,
+        )
 
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh(
@@ -69,15 +89,18 @@ def main(args: DictConfig) -> float | None:
         mesh_dim_names=("dp",),
     )
 
-    # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-    )
+    # Create quantization recipes -- these are only used if FP8/FP4 is enabled in the config.
+    fp8_recipe = None
+    fp4_recipe = None
+    if args.fp8_config.enabled:
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
+    if args.fp4_config.enabled:
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+            fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
+        )
 
-    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(
-        args.model_tag, trust_remote_code=True, dtype=torch.float32 if args.use_fp32_master_weights else torch.bfloat16
-    )
     # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -91,7 +114,7 @@ def main(args: DictConfig) -> float | None:
             recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
         ),
     ):
-        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+        model = NVEsmForMaskedLM(config)
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -103,12 +126,16 @@ def main(args: DictConfig) -> float | None:
             param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward
             reduce_dtype=torch.float32,  # Gradient reductions in FP32
             output_dtype=torch.bfloat16,  # Forward output dtype
+            cast_forward_inputs=False,
         )
     else:
         mp_policy = MixedPrecisionPolicy()
     for layer in transformer_stack:
         fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
     fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
+
+    # Attach quantization recipes to the encoder (layer precision is already on config).
+    model.esm.encoder.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     # Note, this should happen before we create the optimizer.
@@ -121,11 +148,12 @@ def main(args: DictConfig) -> float | None:
             model.apply(model._init_weights)
 
     # Assign names to layers so debug API can identify them
-    if args.fp8_stats_config.enabled:
+    if args.quant_stats_config.enabled:
         debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    # Note: Got an error about mixed torch.Tensor and DTensor here, so using AdamW instead.
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     # If we're using sequence packing, create a THD dataloader, otherwise create a BSHD dataloader.
@@ -162,20 +190,20 @@ def main(args: DictConfig) -> float | None:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
-            # Forward pass with mixed precision.
-            with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
-                outputs = model(**batch)
+            # --- Forward pass ---
+            outputs = model(**batch)
 
-            # Backward pass.
+            # --- Backward pass ---
             loss = outputs.loss
             loss.backward()
 
-            # Compute and clip gradient norms.
-            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            # --- Grad clip ---
+            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
-            # Step optimizer.
+            # --- Optimizer step ---
             optimizer.step()
             scheduler.step()
+
             optimizer.zero_grad()
 
             perf_logger.log_step(

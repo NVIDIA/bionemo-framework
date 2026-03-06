@@ -161,7 +161,10 @@ if __name__ == "__main__":
     )
     device = f"cuda:{dist_config.local_rank}"
 
+    fp8_recipe = DelayedScaling(fp8_format=Format.HYBRID, amax_compute_algo="max", amax_history_len=10)
+
     config = NVEsmConfig.from_pretrained("facebook/esm2_t6_8M_UR50D", dtype=torch.bfloat16, revision="c731040f")
+    config.layer_precision = ["fp8"] * config.num_hidden_layers
     model = NVEsmForMaskedLM(config)
 
     if args.strategy is Strategy.FSDP2:
@@ -195,12 +198,14 @@ if __name__ == "__main__":
             tp_dim="tp",
         )
 
+    # Attach FP8 recipes to the encoder (layer precision is already on config).
+    encoder = model.module.esm.encoder if args.strategy is Strategy.DDP else model.esm.encoder
+    encoder.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=None)
+
     model.train()
 
     generator = torch.Generator()
     generator.manual_seed(torch.distributed.get_rank())
-
-    fp8_recipe = DelayedScaling(fp8_format=Format.HYBRID, amax_compute_algo="max", amax_history_len=10)
 
     for _ in range(3):
         input_data = {
@@ -211,8 +216,7 @@ if __name__ == "__main__":
         input_data = {k: v.to(torch.cuda.current_device()) for k, v in input_data.items()}
 
         with torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
-            with transformer_engine.pytorch.autocast(enabled=True, recipe=fp8_recipe):
-                outputs = model(**input_data)
+            outputs = model(**input_data)
 
         outputs.loss.backward()
 
