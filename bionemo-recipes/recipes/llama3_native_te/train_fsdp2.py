@@ -34,7 +34,7 @@ import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import fully_shard
+from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
 from transformers.models.llama.configuration_llama import LlamaConfig
@@ -83,7 +83,11 @@ def main(args: DictConfig) -> float | None:
         model_class = LlamaForCausalLM
 
     # --- Model Configuration ---
-    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
+    config = config_class.from_pretrained(
+        args.config_name_or_path,
+        dtype=torch.float32 if args.use_fp32_master_weights else torch.bfloat16,
+        **args.config_kwargs,
+    )
 
     # Resolve layer-wise quantization assignments and store on config.
     layer_precision = resolve_layer_precision(
@@ -130,10 +134,20 @@ def main(args: DictConfig) -> float | None:
     logger.info("Initialized Model:\n%s", model)
 
     # --- Distributed Wrapping (FSDP2) ---
+    if args.use_fp32_master_weights:
+        mp_policy = MixedPrecisionPolicy(
+            param_dtype=torch.bfloat16,
+            reduce_dtype=torch.float32,
+            output_dtype=torch.bfloat16,
+            cast_forward_inputs=False,
+        )
+    else:
+        mp_policy = MixedPrecisionPolicy()
+
     # Each decoder layer should be individually sharded before sharding the full model.
     for layer in model.model.layers:
-        fully_shard(layer, mesh=device_mesh["dp"])
-    fully_shard(model, mesh=device_mesh["dp"])
+        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
+    fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
 
     # Attach quantization recipes to the model (layer precision is already on config).
     if isinstance(model, NVLlamaForCausalLM):
