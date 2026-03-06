@@ -293,7 +293,7 @@ To publish your sub-package via "Trusted Publishing" to PyPI, you can follow the
 
 - Dispatch the `bionemo-subpackage-ci.yml` workflow from GitHub Actions to test, build, and publish your sub-packages to PyPI!
   - Required: Input a comma-separated list of sub-packages you want to test and/or publish into `subpackages`.
-    - For example, `bionemo-moco,bionemo-llm,bionemo-webdatamodule`. The sub-packages will be tested and published in separate parallel environments.
+    - For example, `bionemo-moco,bionemo-webdatamodule`. The sub-packages will be tested and published in separate parallel environments.
   - Optional: Set `test` to `true` if you want to test your sub-package. (Default: `true`)
     - Sub-packages that require pre- or post- installation steps may require modification of the `install-and-test` job in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
       - Supported `pyproject.toml` Optional Dependencies: \[ `te` \]

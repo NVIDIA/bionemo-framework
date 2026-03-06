@@ -12,23 +12,14 @@ The BioNeMo codebase is structured as a meta-package that collects together many
 this way with the expectation that users will import and use BioNeMo in their own projects. By structuring code this way,
 we ensure that BioNeMo developers follow similar patterns to those we expect of our end users.
 
-Each model is stored in its own subdirectory of `sub-packages`. Some examples of models include:
-
-- `bionemo-example_model`: A minimal example MNIST model that demonstrates how you can write a lightweight
-  Megatron model that does not actually support any megatron parallelism, but should run fine as long as you only use
-  data parallelism to train.
-
-We also include useful utility packages, for example:
+Each model is stored in its own subdirectory of `sub-packages`. There are useful utility packages, for example:
 
 - `bionemo-scdl`: Single Cell Dataloader (SCDL) provides a dataset implementation that can be used by
   downstream single-cell models in the bionemo package.
-- `bionemo-testing`: A suite of utilities that are useful in testing, think `torch.testing` or `np.testing`.
 
-Finally some of the packages represent common functions and abstract base classes that expose APIs that are useful for
-interacting with `NeMo2`. Some examples of these include:
+Some of the packages represent common functions and abstract base classes that expose APIs:
 
 - `bionemo-core`: High-level APIs
-- `bionemo-llm`: Abstract base classes for code that multiple large language models (eg BERT variants) share.
 
 ### Package Structure
 

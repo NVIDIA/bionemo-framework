@@ -80,13 +80,9 @@ A core use-case of the BioNeMo Framework is to help digital biology scientists a
 <summary><b>(Click to expand) <code>sub-packages</code> models support matrix</b></summary>
 <small>
 
-| Directory               | Description                      | Support        | 5D Parallel | Megatron-FSDP | TE  | Sequence Packing | FP8 | Context Parallel |
-| ----------------------- | -------------------------------- | -------------- | ----------- | ------------- | --- | ---------------- | --- | ---------------- |
-| `bionemo-core`          | Model Config/test data utils     | ✅ Active      | ✅          | N/A           | ✅  | ❌               | N/A | N/A              |
-| `bionemo-evo2`          | 5D parallel model                | ✅ Active      | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
-| `bionemo-example_model` | Example 5D parallel model        | 🔧 Maintenance | ✅          | ❌            | ✅  | ❌               | ✅  | ✅               |
-| `bionemo-llm`           | 5D parallel base model (BioBert) | ✅ Active      | ✅          | ❌            | ✅  | ✅               | ✅  | ✅               |
-| `bionemo-testing`       | Testing Utilities                | ✅ Active      | ✅          | N/A           | N/A | N/A              | N/A | N/A              |
+| Directory      | Description                  | Support   | 5D Parallel | Megatron-FSDP | TE  | Sequence Packing | FP8 | Context Parallel |
+| -------------- | ---------------------------- | --------- | ----------- | ------------- | --- | ---------------- | --- | ---------------- |
+| `bionemo-core` | Model Config/test data utils | ✅ Active | ✅          | N/A           | ✅  | ❌               | N/A | N/A              |
 
 </small>
 </details>

@@ -9,23 +9,14 @@ because this is how we expect our users to use bionemo, as a package that they t
 own projects. By structuring code like this ourselves we ensure that bionemo developers follow similar patterns to our
 end users.
 
-Each model is stored in its own `sub-packages`. Some examples of models include:
-
-- `sub-packages/bionemo-example_model`: A minimal example MNIST model that demonstrates how you can write a lightweight
-  megatron model that doesn't actually support any megatron parallelism, but should run fine as long as you only use
-  data parallelism to train.
-
-There are also useful utility packages, for example:
+Each model is stored in its own `sub-packages`. There are useful utility packages, for example:
 
 - `sub-packages/bionemo-scdl`: Single Cell Dataloader (SCDL) provides a dataset implementation that can be used by downstream
   single-cell models in the bionemo package.
-- `sub-packages/bionemo-testing`: a suite of utilities that are useful in testing, think `torch.testing` or `np.testing`.
 
-Finally some of the packages represent common functions and abstract base classes that expose APIs that are useful for
-interacting with `NeMo2`. Some examples of these include:
+Some of the packages represent common functions and abstract base classes that expose APIs:
 
 - `sub-packages/bionemo-core`: mostly just high level APIs
-- `sub-packages/bionemo-llm`: ABCs for code that multiple large language models (eg BERT variants) share.
 
 Documentation source is stored in `docs/`
 
@@ -89,7 +80,7 @@ $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_expe
 #  Sub-packages represent individually installable subsets of the bionemo codebase. We recommend that you
 #  create new sub-packages to track your experiments and save any updated models or utilities that you need.
 ├── sub-packages
-│   ├── bionemo-core  # 🟢 bionemo-core, and bionemo-llm represent top level sub-packages that do not depend on others
+│   ├── bionemo-core  # 🟢 bionemo-core is a top level sub-package that does not depend on others
 │   │   ├── LICENSE
 │   │   ├── README.md
 │   │   ├── pyproject.toml
@@ -114,68 +105,6 @@ $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_expe
 │   │           └── pytorch
 │   │               └── utils
 │   │                   └── test_dtypes.py
-│   ├── bionemo-example_model  # 🟢 a small example model that demonstrates how to write a megatron model from scratch and train on MNIST
-│   │   ├── LICENSE
-│   │   ├── README.md
-│   │   ├── _requirements.txt
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   ├── setup.py
-│   │   ├── src
-│   │   │   └── bionemo
-│   │   │       └── example_model
-│   │   │           ├── __init__.py
-│   │   │           └── lightning_basic.py
-│   │   └── tests
-│   │       └── bionemo
-│   │           └── example_model
-│   │               └── test_lightning_basic.py
-│   ├── bionemo-llm  # 🟢 shared model code for LLM style models, eg BERT variants, transformer variants, etc.
-│   │   ├── LICENSE
-│   │   ├── README.md
-│   │   ├── _requirements-test.txt
-│   │   ├── _requirements.txt
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   ├── setup.py
-│   │   ├── src
-│   │   │   └── bionemo
-│   │   │       └── llm
-│   │   │           ├── __init__.py
-│   │   │           ├── lightning.py
-│   │   │           ├── model
-│   │   │           │   ├── __init__.py
-│   │   │           │   ├── biobert
-│   │   │           │   │   ├── __init__.py
-│   │   │           │   │   ├── lightning.py
-│   │   │           │   │   ├── model.py
-│   │   │           │   │   ├── testing_utils.py
-│   │   │           │   │   └── transformer_specs.py
-│   │   │           │   ├── config.py
-│   │   │           │   ├── layers.py
-│   │   │           │   └── loss.py
-│   │   │           └── utils
-│   │   │               ├── __init__.py
-│   │   │               ├── datamodule_utils.py
-│   │   │               ├── iomixin_utils.py
-│   │   │               ├── logger_utils.py
-│   │   │               ├── remote.py
-│   │   │               └── weight_utils.py
-│   │   └── tests
-│   │       ├── __init__.py
-│   │       └── bionemo
-│   │           └── llm
-│   │               ├── __init__.py
-│   │               ├── model
-│   │               │   ├── biobert
-│   │               │   │   └── test_transformer_specs.py
-│   │               │   └── test_loss.py
-│   │               ├── test_lightning.py
-│   │               └── utils
-│   │                   ├── __init__.py
-│   │                   ├── test_datamodule_utils.py
-│   │                   ├── test_iomixin_utils.py
-│   │                   └── test_logger_utils.py
 │   ├── bionemo-scdl  # 🟢
 │   │   ├── LICENSE
 │   │   ├── README.md
@@ -217,28 +146,6 @@ $ tree -C -I "*.pyc" -I "test_data" -I "test_experiment" -I "test_finettune_expe
 │   │               └── util
 │   │                   ├── test_async_worker_queue.py
 │   │                   └── test_torch_dataloader_utils.py
-│   ├── bionemo-testing
-│   │   ├── LICENSE
-│   │   ├── README.md
-│   │   ├── _requirements.txt
-│   │   ├── pyproject.toml
-│   │   ├── requirements.txt
-│   │   ├── setup.py
-│   │   ├── src
-│   │   │   └── bionemo
-│   │   │       └── testing
-│   │   │           ├── __init__.py
-│   │   │           ├── callbacks.py
-│   │   │           ├── harnesses
-│   │   │           │   ├── __init__.py
-│   │   │           │   └── stop_and_go.py
-│   │   │           ├── megatron_parallel_state_utils.py
-│   │   │           ├── testing_callbacks.py
-│   │   │           └── utils.py
-│   │   └── tests
-│   │       └── bionemo
-│   │           └── testing
-│   │               └── test_megatron_parallel_state_utils.py
 │   └── bionemo-webdatamodule
 │       ├── LICENSE
 │       ├── README.md

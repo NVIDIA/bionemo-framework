@@ -75,7 +75,7 @@
 
 ### Known Issues
 
-- Evo2 generation is broken (i.e. `bionemo-evo2/src/bionemo/evo2/run/infer.py`). See issue https://github.com/NVIDIA/bionemo-framework/issues/890. A workaround exists on branch https://github.com/NVIDIA/bionemo-framework/pull/949 and we are working to fix this issue for the July release.
+- Evo2 generation was broken in this release. This has been fixed in the new `evo2_megatron` implementation under `bionemo-recipes/recipes/evo2_megatron/`.
 - There is a NCCL communication issue on certain A100 multi-node environments. In our internal testing, we were not able to reproduce the issue reliably across environments. If end users see the following error, please report in issue https://github.com/NVIDIA/bionemo-framework/issues/970 :
 
 ```

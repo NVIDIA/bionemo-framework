@@ -15,13 +15,9 @@ version = "2.0.0"
 dependencies = [
     # **ALL** bionemo sub-packages
     'bionemo-core',
-    'bionemo-evo2',
-    'bionemo-example_model',
-    'bionemo-llm',
     'bionemo-moco',
     'bionemo-scdl',
     'bionemo-size-aware-batching',
-    'bionemo-testing',
     'bionemo-webdatamodule',
     # external
     'nemo_run',
@@ -44,13 +40,10 @@ nemo_toolkit = { workspace = true }
 megatron-core = { workspace = true }
 # in sub-packages/
 bionemo-core = { workspace = true }
-bionemo-example_model = { workspace = true }
-bionemo-llm = { workspace = true }
 bionemo-moco = { workspace = true }
 bionemo-noodles = { workspace = true }
 bionemo-scdl = { workspace = true }
 bionemo-size-aware-batching = { workspace = true }
-bionemo-testing = { workspace = true }
 bionemo-webdatamodule = { workspace = true }
 
 [tool.uv]
@@ -125,14 +118,10 @@ executionEnvironments = [
         "./3rdparty/NeMo",
         # bionemo sub-packages
         './sub-packages/bionemo-core/src',
-        './sub-packages/bionemo-evo2/src',
-        './sub-packages/bionemo-example_model/src',
-        './sub-packages/bionemo-llm/src',
         './sub-packages/bionemo-moco/src',
         './sub-packages/bionemo-noodles/src',
         './sub-packages/bionemo-scdl/src',
         './sub-packages/bionemo-size-aware-batching/src',
-        './sub-packages/bionemo-testing/src',
         './sub-packages/bionemo-webdatamodule/src',
     ] },
 ]
