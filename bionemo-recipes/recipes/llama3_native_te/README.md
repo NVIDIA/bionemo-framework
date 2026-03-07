@@ -67,8 +67,8 @@ def compute_model_pflops(seq_len, global_batch_size, step_time_s):
 
 ### Low precision performance benchmarks
 
-![Performance Benchmarks Low Precision](../../../docs/docs/assets/images/llama3/llama3_1b_fsdp2_tflops.png)
-In the above plot we can see the performance increases as we lower the precision of our transformer layers.
+![Performance Benchmarks Low Precision](../../../docs/docs/assets/images/llama3/llama3_8gpu_tflops.png)
+In the above plot we can see the performance increases as we lower the precision of our transformer layers across the 1B and 8B variant of LLAMA3.
 
 ### Convergence Benchmarks
 
@@ -93,6 +93,10 @@ are due checkpointing, further work will be done to improve training step time s
 
 Models were trained on 64 NVIDIA H100 GPUs with a micro batch size of 4 and a context length of 4096 for 60,000 steps.
 Training was performed with BF16 precision.
+
+### Low Precision convergence benchmarks
+
+<!-- ....TODO from WandB once ready. -->
 
 ### Distributed Training
 
