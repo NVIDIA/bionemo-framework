@@ -29,12 +29,13 @@ from contextlib import nullcontext
 from pathlib import Path
 
 import hydra
+import nvdlfw_inspect.api as debug_api
 import nvtx
 import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import fully_shard
+from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
 
@@ -50,6 +51,7 @@ from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
+from quantization import initialize_quant_stats_logging, resolve_layer_precision
 from scheduler import get_cosine_annealing_schedule_with_warmup
 
 
@@ -79,13 +81,43 @@ def main(args: DictConfig) -> float | None:
     logger.info("Created device mesh: %s", device_mesh)
 
     # --- Model Configuration ---
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+    config = NVLlamaConfig.from_pretrained(
+        args.config_name_or_path,
+        dtype=torch.float32 if args.use_fp32_master_weights else torch.bfloat16,
+        **args.config_kwargs,
     )
 
-    # --- Model Initialization ---
-    config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
+    # Resolve layer-wise quantization assignments and store on config.
+    layer_precision = resolve_layer_precision(
+        num_layers=config.num_hidden_layers,
+        fp8_enabled=args.fp8_config.enabled,
+        fp4_enabled=args.fp4_config.enabled,
+        fp8_layers=OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None else None,
+        fp4_layers=OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None else None,
+    )
+    config.layer_precision = layer_precision
 
+    if args.quant_stats_config.enabled:
+        initialize_quant_stats_logging(
+            quant_stats_file=args.quant_stats_config.quant_stats_file,
+            quant_log_dir=args.quant_stats_config.quant_log_dir,
+            rank=dist_config.rank,
+            layer_precision=layer_precision,
+        )
+
+    # Create quantization recipes -- these are only used if FP8/FP4 is enabled in the config.
+    fp8_recipe = None
+    fp4_recipe = None
+    if args.fp8_config.enabled:
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
+    if args.fp4_config.enabled:
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+            fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
+        )
+
+    # --- Model Initialization ---
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16
     # and fp8 versions of weights are kept.
@@ -102,11 +134,21 @@ def main(args: DictConfig) -> float | None:
     # --- Distributed Wrapping (FSDP2 + CP) ---
     cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
 
+    if args.use_fp32_master_weights:
+        mp_policy = MixedPrecisionPolicy(
+            param_dtype=torch.bfloat16,
+            reduce_dtype=torch.float32,
+            output_dtype=torch.bfloat16,
+            cast_forward_inputs=False,
+        )
+    else:
+        mp_policy = MixedPrecisionPolicy()
+
     # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
     # Each decoder layer should be individually sharded before sharding the full model.
     for layer in model.model.layers:
-        fully_shard(layer, mesh=cp_dp_mesh)
-    fully_shard(model, mesh=cp_dp_mesh)
+        fully_shard(layer, mesh=cp_dp_mesh, mp_policy=mp_policy)
+    fully_shard(model, mesh=cp_dp_mesh, mp_policy=mp_policy)
 
     # Attach the CP group to the model.
     for layer in model.model.layers:
@@ -116,9 +158,16 @@ def main(args: DictConfig) -> float | None:
             torch.cuda.Stream(),
         )
 
+    # Attach quantization recipes to the model (layer precision is already on config).
+    model.model.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+
     if args.use_meta_device:
         # TE layers require special handling to initialize the weights from the meta device.
         model.init_empty_weights()
+
+    # Assign names to layers so debug API can identify them
+    if args.quant_stats_config.enabled:
+        debug_api.infer_and_assign_layer_names(model)
 
     # --- Optimizer & Scheduler ---
     # Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
@@ -193,10 +242,9 @@ def main(args: DictConfig) -> float | None:
 
             micro_step += 1
 
-            # Forward pass with mixed precision.
+            # Forward pass - quantization autocast is handled inside the model via set_recipes().
             with nvtx.annotate("Forward pass", color="green"):
-                with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
-                    outputs = model(**batch)
+                outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
