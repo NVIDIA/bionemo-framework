@@ -199,7 +199,9 @@ def main():
     if rank == 0:
         print("=" * 60)
         print("Minimal repro: THD + GQA + CP NaN bug in TransformerEngine")
-        print(f"TE version: {te.__version__}")
+        import transformer_engine
+
+        print(f"TE version: {transformer_engine.__version__}")
         print(f"PyTorch version: {torch.__version__}")
         print(f"World size: {dist.get_world_size()}")
         print("=" * 60)
