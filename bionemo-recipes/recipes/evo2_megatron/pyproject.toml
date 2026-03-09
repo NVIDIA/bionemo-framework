@@ -45,6 +45,7 @@ evo2_convert_savanna_to_mbridge = "bionemo.evo2.utils.checkpoint.savanna_to_mbri
 evo2_export_mbridge_to_vortex = "bionemo.evo2.utils.checkpoint.mbridge_to_vortex:main"
 eden_export_mbridge_to_hf = "bionemo.evo2.utils.checkpoint.eden_mbridge_hf:main_export"
 eden_convert_hf_to_mbridge = "bionemo.evo2.utils.checkpoint.eden_mbridge_hf:main_import"
+bionemo_fasta_to_jsonl = "bionemo.evo2.utils.fasta_to_jsonl:main"
 #evo2_convert_to_nemo2 = "bionemo.evo2.utils.checkpoint.convert_to_nemo:main"
 #evo2_nemo2_to_hf = "bionemo.evo2.utils.checkpoint.nemo2_to_hf:main"
 #evo2_remove_optimizer = "bionemo.evo2.utils.checkpoint.evo2_remove_optimizer:main"

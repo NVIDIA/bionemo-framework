@@ -28,6 +28,7 @@ in test_evo2.py which has working test_forward_manual and test_forward_ckpt_conv
 
 import copy
 import csv
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -50,9 +51,20 @@ PRETEST_ENV = copy.deepcopy(os.environ)
 # Note: mbridge_checkpoint_path fixture is provided by conftest.py at session scope
 
 
+def _read_jsonl_results(output_file: Path) -> list[dict]:
+    """Read JSONL output file and return parsed records."""
+    records = []
+    with open(output_file) as f:
+        for raw_line in f:
+            stripped = raw_line.strip()
+            if stripped:
+                records.append(json.loads(stripped))
+    return records
+
+
 def test_infer_runs(mbridge_checkpoint_path, tmp_path):
-    """Test that infer.py runs without errors."""
-    output_file = tmp_path / "output.txt"
+    """Test that infer.py runs without errors and produces JSONL output."""
+    output_file = tmp_path / "output.jsonl"
 
     # Use a longer DNA prompt to meet FP8 dimension requirements (divisible by 8)
     # 64 characters should be safe
@@ -97,15 +109,22 @@ def test_infer_runs(mbridge_checkpoint_path, tmp_path):
     assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     assert output_file.exists(), "Output file was not created"
 
-    # Check that output contains generated text
-    generated = output_file.read_text()
-    assert len(generated) > 0, "Generated text is empty"
+    records = _read_jsonl_results(output_file)
+    assert len(records) == 1, f"Expected 1 result, got {len(records)}"
+    record = records[0]
+    assert record["id"] == "0"
+    assert record["prompt"] == prompt
+    assert len(record["completion"]) > 0, "Generated text is empty"
+    assert record["finish_reason"] in ("length", "stop")
+    assert "usage" in record
+    assert record["usage"]["prompt_tokens"] > 0
+    assert record["usage"]["completion_tokens"] > 0
 
 
 @pytest.mark.parametrize("temperature", [0.5, 1.0])
 def test_infer_temperature(mbridge_checkpoint_path, tmp_path, temperature):
     """Test that different temperatures produce output."""
-    output_file = tmp_path / f"output_temp_{temperature}.txt"
+    output_file = tmp_path / f"output_temp_{temperature}.jsonl"
     # Use a longer prompt for FP8 compatibility
     prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
     open_port = find_free_network_port()
@@ -148,7 +167,7 @@ def test_infer_temperature(mbridge_checkpoint_path, tmp_path, temperature):
 
 def test_infer_top_k(mbridge_checkpoint_path, tmp_path):
     """Test top-k sampling."""
-    output_file = tmp_path / "output_topk.txt"
+    output_file = tmp_path / "output_topk.jsonl"
     # Use a longer prompt for FP8 compatibility
     prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
     open_port = find_free_network_port()
@@ -195,7 +214,7 @@ def test_infer_phylogenetic_prompt(mbridge_checkpoint_path, tmp_path):
     Evo2 is trained with phylogenetic tags, so generation should work
     well when conditioned on these tags. Using a longer prompt for FP8.
     """
-    output_file = tmp_path / "output_phylo.txt"
+    output_file = tmp_path / "output_phylo.jsonl"
 
     # Phylogenetic prompt (padded to be longer for FP8 compatibility)
     prompt = (
@@ -247,8 +266,9 @@ def test_infer_phylogenetic_prompt(mbridge_checkpoint_path, tmp_path):
     assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     assert output_file.exists(), "Output file was not created"
 
-    generated = output_file.read_text()
-    assert len(generated) > 0, "Generated text is empty"
+    records = _read_jsonl_results(output_file)
+    assert len(records) == 1
+    assert len(records[0]["completion"]) > 0, "Generated text is empty"
 
 
 # DNA prompts for reproducibility tests (from test_prompt.py)
@@ -270,14 +290,14 @@ def run_infer_subprocess(
     Args:
         mbridge_checkpoint_path: Path to the MBridge checkpoint
         prompt: Input prompt for the model
-        output_file: Path to write output
+        output_file: Path to write output (JSONL)
         max_new_tokens: Maximum number of tokens to generate
         temperature: Sampling temperature
         top_k: Top-k sampling parameter (1 for greedy)
         seed: Random seed for reproducibility
 
     Returns:
-        The generated text from the output file
+        The generated completion text from the first JSONL record
     """
     open_port = find_free_network_port()
 
@@ -321,7 +341,9 @@ def run_infer_subprocess(
     assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     assert output_file.exists(), "Output file was not created"
 
-    return output_file.read_text()
+    records = _read_jsonl_results(output_file)
+    assert len(records) == 1, f"Expected 1 JSONL record, got {len(records)}"
+    return records[0]["completion"]
 
 
 def mid_point_split(*, seq, num_tokens: int | None = None, fraction: float = 0.5):
@@ -358,6 +380,12 @@ def _infer_script_path() -> Path:
     return _recipe_root() / "src" / "bionemo" / "evo2" / "run" / "infer.py"
 
 
+def _write_prompts_jsonl(prompt_file: Path, prompts: list[tuple[str, str]]) -> None:
+    """Write a list of (id, prompt) pairs into a JSONL file."""
+    with open(prompt_file, "w") as f:
+        f.writelines(json.dumps({"id": prompt_id, "prompt": prompt_text}) + "\n" for prompt_id, prompt_text in prompts)
+
+
 def run_infer_subprocess_parallel(
     mbridge_checkpoint_path,
     prompt_file: Path,
@@ -369,16 +397,18 @@ def run_infer_subprocess_parallel(
     tensor_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
     context_parallel_size: int = 1,
-):
-    """Helper to run inference as a subprocess with model parallelism.
+    prompt_segmentation_threshold: int | None = None,
+) -> list[dict]:
+    """Run inference as a subprocess with model parallelism.
 
     Runs the source infer.py script directly (not the installed module) so that
-    local fixes are picked up without reinstalling the package.
+    local fixes are picked up without reinstalling the package.  The caller is
+    responsible for writing the JSONL prompt file beforehand.
 
     Args:
         mbridge_checkpoint_path: Path to the MBridge checkpoint.
-        prompt_file: Path to a text file containing the prompt.
-        output_file: Path to write output.
+        prompt_file: Path to an existing JSONL prompt file.
+        output_file: Path to write JSONL output.
         max_new_tokens: Maximum number of tokens to generate.
         temperature: Sampling temperature.
         top_k: Top-k sampling parameter (1 for greedy).
@@ -386,9 +416,10 @@ def run_infer_subprocess_parallel(
         tensor_parallel_size: Tensor parallelism degree.
         pipeline_model_parallel_size: Pipeline parallelism degree.
         context_parallel_size: Context parallelism degree.
+        prompt_segmentation_threshold: If set, prompts longer than this are segmented.
 
     Returns:
-        The generated text from the output file.
+        List of parsed JSONL result dicts.
     """
     nproc_per_node = tensor_parallel_size * pipeline_model_parallel_size * context_parallel_size
     open_port = find_free_network_port()
@@ -423,6 +454,8 @@ def run_infer_subprocess_parallel(
         "--context-parallel-size",
         str(context_parallel_size),
     ]
+    if prompt_segmentation_threshold is not None:
+        cmd.extend(["--prompt-segmentation-threshold", str(prompt_segmentation_threshold)])
 
     env = copy.deepcopy(PRETEST_ENV)
     # Prepend the source src/ directory to PYTHONPATH so that local model code
@@ -442,7 +475,7 @@ def run_infer_subprocess_parallel(
     assert result.returncode == 0, f"infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
     assert output_file.exists(), "Output file was not created"
 
-    return output_file.read_text()
+    return _read_jsonl_results(output_file)
 
 
 def test_identical_prompts_should_be_identical(mbridge_checkpoint_path, tmp_path):
@@ -451,8 +484,8 @@ def test_identical_prompts_should_be_identical(mbridge_checkpoint_path, tmp_path
     With greedy decoding (top_k=1) and the same seed, identical prompts
     should produce identical outputs.
     """
-    output_file_1 = tmp_path / "output_prompt1_run1.txt"
-    output_file_2 = tmp_path / "output_prompt1_run2.txt"
+    output_file_1 = tmp_path / "output_prompt1_run1.jsonl"
+    output_file_2 = tmp_path / "output_prompt1_run2.jsonl"
 
     # Run inference twice with the same prompt
     generated_1 = run_infer_subprocess(
@@ -490,8 +523,8 @@ def test_different_prompts_produce_different_outputs(mbridge_checkpoint_path, tm
     Different input prompts should produce different outputs, demonstrating
     that the model is actually responding to the prompt content.
     """
-    output_file_1 = tmp_path / "output_prompt1.txt"
-    output_file_2 = tmp_path / "output_prompt2.txt"
+    output_file_1 = tmp_path / "output_prompt1.jsonl"
+    output_file_2 = tmp_path / "output_prompt2.jsonl"
 
     # Run inference with two different prompts
     generated_1 = run_infer_subprocess(
@@ -568,34 +601,107 @@ def test_parallel_inference_accuracy(mbridge_checkpoint_path, tmp_path, dna_sequ
     # Expected sequence identity percentages for the 1b-8k-bf16 checkpoint (from test_evo2.py)
     expected_matchpercents = [96.8, 29.7, 76.6, 71.6]
 
-    match_percents = []
-    for i, seq in enumerate(dna_sequences):
+    # Build a single JSONL prompt file with all sequences, keyed by id
+    targets_by_id: dict[str, str] = {}
+    expected_by_id: dict[str, float] = {}
+    jsonl_entries = []
+    for i, (seq, expected_mp) in enumerate(zip(dna_sequences, expected_matchpercents)):
         prompt, target = mid_point_split(seq=seq, num_tokens=num_tokens, fraction=0.5)
+        seq_id = f"seq_{i}"
+        targets_by_id[seq_id] = target
+        expected_by_id[seq_id] = expected_mp
+        jsonl_entries.append((seq_id, prompt))
 
-        prompt_file = tmp_path / f"prompt_seq{i}.txt"
-        output_file = tmp_path / f"output_seq{i}.txt"
-        prompt_file.write_text(prompt)
+    prompt_file = tmp_path / "prompts.jsonl"
+    output_file = tmp_path / "outputs.jsonl"
+    _write_prompts_jsonl(prompt_file, jsonl_entries)
 
-        generated_text = run_infer_subprocess_parallel(
-            mbridge_checkpoint_path,
-            prompt_file=prompt_file,
-            output_file=output_file,
-            max_new_tokens=num_tokens,
-            temperature=1.0,
-            top_k=1,  # Greedy decoding
-            seed=42,
-            tensor_parallel_size=tp,
-            context_parallel_size=cp,
-        )
+    # Single inference call processes all prompts (batching handled internally)
+    records = run_infer_subprocess_parallel(
+        mbridge_checkpoint_path,
+        prompt_file=prompt_file,
+        output_file=output_file,
+        max_new_tokens=num_tokens,
+        temperature=1.0,
+        top_k=1,  # Greedy decoding
+        seed=42,
+        tensor_parallel_size=tp,
+        context_parallel_size=cp,
+    )
 
-        identity = calculate_sequence_identity(target, generated_text)
-        match_percents.append(identity)
+    assert len(records) == len(dna_sequences), f"Expected {len(dna_sequences)} results, got {len(records)}"
 
-    matchperc_print = [f"{mp:.2f}%" for mp in match_percents]
-    matchperc_print_expected = [f"{ep:.2f}%" for ep in expected_matchpercents]
+    # Match results by id (output order is not guaranteed with dynamic engines)
+    results_by_id = {r["id"]: r for r in records}
+    match_percents = {}
+    for seq_id, target in targets_by_id.items():
+        assert seq_id in results_by_id, f"Missing result for {seq_id}"
+        identity = calculate_sequence_identity(target, results_by_id[seq_id]["completion"])
+        match_percents[seq_id] = identity
 
-    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
-        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    matchperc_print = {k: f"{v:.2f}%" for k, v in match_percents.items()}
+    matchperc_print_expected = {k: f"{v:.2f}%" for k, v in expected_by_id.items()}
+
+    assert all(match_percents[sid] >= 0.90 * expected_by_id[sid] for sid in targets_by_id), (
+        f"Expected at least 90% of {matchperc_print_expected}, got {matchperc_print}"
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(900)
+@pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI")
+def test_parallel_inference_accuracy_with_pst(mbridge_checkpoint_path, tmp_path, dna_sequences):
+    """Test that prompt segmentation does not degrade generation accuracy.
+
+    Runs the same accuracy check as test_parallel_inference_accuracy but with
+    --prompt-segmentation-threshold set low enough to be triggered by the test
+    prompts (~3400 tokens each). The generated output must match the same
+    accuracy thresholds as the non-PST baseline, proving that prompt
+    segmentation is numerically equivalent.
+    """
+    num_tokens = 500
+    expected_matchpercents = [96.8, 29.7, 76.6, 71.6]
+
+    targets_by_id: dict[str, str] = {}
+    expected_by_id: dict[str, float] = {}
+    jsonl_entries = []
+    for i, (seq, expected_mp) in enumerate(zip(dna_sequences, expected_matchpercents)):
+        prompt, target = mid_point_split(seq=seq, num_tokens=num_tokens, fraction=0.5)
+        seq_id = f"seq_{i}"
+        targets_by_id[seq_id] = target
+        expected_by_id[seq_id] = expected_mp
+        jsonl_entries.append((seq_id, prompt))
+
+    prompt_file = tmp_path / "prompts.jsonl"
+    output_file = tmp_path / "outputs_pst.jsonl"
+    _write_prompts_jsonl(prompt_file, jsonl_entries)
+
+    records = run_infer_subprocess_parallel(
+        mbridge_checkpoint_path,
+        prompt_file=prompt_file,
+        output_file=output_file,
+        max_new_tokens=num_tokens,
+        temperature=1.0,
+        top_k=1,
+        seed=42,
+        tensor_parallel_size=1,
+        prompt_segmentation_threshold=128,
+    )
+
+    assert len(records) == len(dna_sequences), f"Expected {len(dna_sequences)} results, got {len(records)}"
+
+    results_by_id = {r["id"]: r for r in records}
+    match_percents = {}
+    for seq_id, target in targets_by_id.items():
+        assert seq_id in results_by_id, f"Missing result for {seq_id}"
+        identity = calculate_sequence_identity(target, results_by_id[seq_id]["completion"])
+        match_percents[seq_id] = identity
+
+    matchperc_print = {k: f"{v:.2f}%" for k, v in match_percents.items()}
+    matchperc_print_expected = {k: f"{v:.2f}%" for k, v in expected_by_id.items()}
+
+    assert all(match_percents[sid] >= 0.90 * expected_by_id[sid] for sid in targets_by_id), (
+        f"PST accuracy regression: expected at least 90% of {matchperc_print_expected}, got {matchperc_print}"
     )
 
 
@@ -669,35 +775,50 @@ def test_parallel_inference_accuracy_7b(mbridge_checkpoint_7b_1m_path, tmp_path,
     # Expected sequence identity percentages for the 7b model (from test_evo2.py)
     expected_matchpercents = [97.60, 89.63, 80.03, 84.57]
 
-    match_percents = []
-    for i, seq in enumerate(dna_sequences):
+    # Build a single JSONL prompt file with all sequences, keyed by id
+    targets_by_id: dict[str, str] = {}
+    expected_by_id: dict[str, float] = {}
+    jsonl_entries = []
+    for i, (seq, expected_mp) in enumerate(zip(dna_sequences, expected_matchpercents)):
         prompt, target = mid_point_split(seq=seq, num_tokens=num_tokens, fraction=0.5)
+        seq_id = f"seq_{i}"
+        targets_by_id[seq_id] = target
+        expected_by_id[seq_id] = expected_mp
+        jsonl_entries.append((seq_id, prompt))
 
-        prompt_file = tmp_path / f"prompt_seq{i}.txt"
-        output_file = tmp_path / f"output_seq{i}.txt"
-        prompt_file.write_text(prompt)
+    prompt_file = tmp_path / "prompts.jsonl"
+    output_file = tmp_path / "outputs.jsonl"
+    _write_prompts_jsonl(prompt_file, jsonl_entries)
 
-        generated_text = run_infer_subprocess_parallel(
-            mbridge_checkpoint_7b_1m_path,
-            prompt_file=prompt_file,
-            output_file=output_file,
-            max_new_tokens=num_tokens,
-            temperature=1.0,
-            top_k=1,  # Greedy decoding
-            seed=42,
-            tensor_parallel_size=tp,
-            pipeline_model_parallel_size=pp,
-            context_parallel_size=cp,
-        )
+    # Single inference call processes all prompts (batching handled internally)
+    records = run_infer_subprocess_parallel(
+        mbridge_checkpoint_7b_1m_path,
+        prompt_file=prompt_file,
+        output_file=output_file,
+        max_new_tokens=num_tokens,
+        temperature=1.0,
+        top_k=1,  # Greedy decoding
+        seed=42,
+        tensor_parallel_size=tp,
+        pipeline_model_parallel_size=pp,
+        context_parallel_size=cp,
+    )
 
-        identity = calculate_sequence_identity(target, generated_text)
-        match_percents.append(identity)
+    assert len(records) == len(dna_sequences), f"Expected {len(dna_sequences)} results, got {len(records)}"
 
-    matchperc_print = [f"{mp:.2f}%" for mp in match_percents]
-    matchperc_print_expected = [f"{ep:.2f}%" for ep in expected_matchpercents]
+    # Match results by id (output order is not guaranteed with dynamic engines)
+    results_by_id = {r["id"]: r for r in records}
+    match_percents = {}
+    for seq_id, target in targets_by_id.items():
+        assert seq_id in results_by_id, f"Missing result for {seq_id}"
+        identity = calculate_sequence_identity(target, results_by_id[seq_id]["completion"])
+        match_percents[seq_id] = identity
 
-    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
-        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    matchperc_print = {k: f"{v:.2f}%" for k, v in match_percents.items()}
+    matchperc_print_expected = {k: f"{v:.2f}%" for k, v in expected_by_id.items()}
+
+    assert all(match_percents[sid] >= 0.90 * expected_by_id[sid] for sid in targets_by_id), (
+        f"Expected at least 90% of {matchperc_print_expected}, got {matchperc_print}"
     )
 
 

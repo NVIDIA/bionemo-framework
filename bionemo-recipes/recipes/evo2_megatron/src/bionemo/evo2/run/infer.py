@@ -23,25 +23,45 @@ MCore inference infrastructure (StaticInferenceEngine, TextGenerationController)
 
 Based on: https://github.com/NVIDIA/Megatron-LM/blob/main/examples/inference/gpt/gpt_static_inference.py
 
-Usage (CLI):
+Usage (CLI, single prompt):
     torchrun --nproc_per_node 1 -m bionemo.evo2.run.infer \
         --ckpt-dir /path/to/mbridge/checkpoint \
         --prompt "|d__Bacteria;p__Pseudomonadota|" \
-        --max-new-tokens 100
+        --max-new-tokens 100 \
+        --output-file results.jsonl
+
+Usage (CLI, batch from JSONL file):
+    torchrun --nproc_per_node 1 -m bionemo.evo2.run.infer \
+        --ckpt-dir /path/to/mbridge/checkpoint \
+        --prompt-file prompts.jsonl \
+        --max-new-tokens 100 \
+        --output-file results.jsonl
+
+    Where prompts.jsonl contains one JSON object per line::
+
+        {"id": "seq_001", "prompt": "ATCGATCG"}
+        {"id": "seq_002", "prompt": "GCTAGCTA"}
+
+    The output results.jsonl will contain::
+
+        {"id": "seq_001", "prompt": "ATCGATCG", "completion": "...", "finish_reason": "length", "usage": {...}}
+        {"id": "seq_002", "prompt": "GCTAGCTA", "completion": "...", "finish_reason": "stop", "usage": {...}}
 
 Usage (Python API):
     from bionemo.evo2.run.infer import setup_inference_engine, generate
 
     # Setup engine (loads model, creates inference components)
-    engine, tokenizer = setup_inference_engine(ckpt_dir)
+    components = setup_inference_engine(ckpt_dir)
 
     # Generate text
-    results = generate(engine, prompts=["ATCGATCG"], max_new_tokens=100)
+    results = generate(components, prompts=["ATCGATCG"], max_new_tokens=100)
 """
 
 import argparse
+import json
 import logging
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -63,7 +83,6 @@ from megatron.bridge.utils.instantiate_utils import instantiate
 from megatron.core import parallel_state
 from megatron.core.inference.contexts import StaticInferenceContext
 from megatron.core.inference.engines.static_engine import StaticInferenceEngine
-from megatron.core.inference.inference_request import InferenceRequest
 from megatron.core.inference.model_inference_wrappers.abstract_model_inference_wrapper import (
     AbstractModelInferenceWrapper,
 )
@@ -231,6 +250,7 @@ def setup_inference_engine(
     context_parallel_size: int = 1,
     mixed_precision_recipe: Optional[str] = None,
     random_seed: int = 1234,
+    prompt_segmentation_threshold: Optional[int] = None,
 ) -> Evo2InferenceComponents:
     """Setup the Evo2 inference engine and related components.
 
@@ -246,6 +266,10 @@ def setup_inference_engine(
         context_parallel_size: Context parallelism degree.
         mixed_precision_recipe: Override mixed precision recipe.
         random_seed: Random seed for reproducibility.
+        prompt_segmentation_threshold: If set, prompts longer than this are
+            segmented during prefill to reduce peak memory. The first segment
+            runs as a normal prefill; remaining tokens are processed one at a
+            time before generation begins.
 
     Returns:
         Evo2InferenceComponents containing all inference components.
@@ -361,6 +385,7 @@ def setup_inference_engine(
         inference_batch_times_seqlen_threshold=max_seq_length * max_batch_size,
         params_dtype=torch.bfloat16,
         padded_vocab_size=tokenizer.vocab_size,
+        prompt_segmentation_threshold=prompt_segmentation_threshold,
     )
 
     if is_hyena:
@@ -388,12 +413,11 @@ def setup_inference_engine(
         tokenizer=tokenizer,
     )
 
-    # Create the static inference engine (using legacy mode for simplicity)
     inference_engine = StaticInferenceEngine(
         text_generation_controller=text_generation_controller,
         max_batch_size=max_batch_size,
         random_seed=random_seed,
-        legacy=True,  # Use legacy static engine
+        legacy=True,
     )
 
     return Evo2InferenceComponents(
@@ -414,7 +438,7 @@ def generate(
     top_k: int = 0,
     top_p: float = 0.0,
     return_log_probs: bool = False,
-) -> List[InferenceRequest]:
+) -> List[Any]:
     """Generate text using the Evo2 inference engine.
 
     Args:
@@ -427,12 +451,13 @@ def generate(
         return_log_probs: Whether to return log probabilities.
 
     Returns:
-        List of InferenceRequest objects containing generated text and metadata.
+        List of inference result objects (InferenceRequest or
+        DynamicInferenceRequestRecord depending on the engine backend).
 
     Example:
         >>> components = setup_inference_engine(ckpt_dir)
         >>> results = generate(components, ["ATCGATCG"], max_new_tokens=50, top_k=1)
-        >>> print(results[0].generated_text)
+        >>> print(_unwrap_result(results[0]).generated_text)
     """
     # Reset inference context before generation
     components.inference_context.reset()
@@ -454,6 +479,99 @@ def generate(
     components.inference_context.reset()
 
     return results
+
+
+# =============================================================================
+# JSONL I/O Helpers
+# =============================================================================
+
+
+def _read_prompts_jsonl(path: Path) -> List[Dict[str, str]]:
+    """Read prompts from a JSONL file.
+
+    Each line must be a JSON object with at least a ``"prompt"`` field.
+    An optional ``"id"`` field is echoed in the output; when absent it is
+    auto-assigned from the line index.
+
+    Args:
+        path: Path to the JSONL file.
+
+    Returns:
+        List of dicts, each with ``"id"`` and ``"prompt"`` keys.
+    """
+    entries: List[Dict[str, str]] = []
+    with open(path) as f:
+        for idx, raw_line in enumerate(f):
+            stripped = raw_line.strip()
+            if not stripped:
+                continue
+            obj = json.loads(stripped)
+            if "prompt" not in obj:
+                raise ValueError(f"Line {idx} in {path} is missing required 'prompt' field: {stripped}")
+            entries.append({"id": str(obj.get("id", idx)), "prompt": obj["prompt"]})
+    return entries
+
+
+def _unwrap_result(result: Any) -> Any:
+    """Unwrap a DynamicInferenceRequestRecord to its inner request if needed."""
+    if hasattr(result, "requests"):
+        return result.requests[-1]
+    return result
+
+
+def _result_to_jsonl_record(
+    *,
+    request_id: str,
+    prompt: str,
+    result: Any,
+    max_new_tokens: int,
+    return_log_probs: bool = False,
+) -> Dict[str, Any]:
+    """Convert an inference result into a JSONL-serialisable dict.
+
+    Handles both legacy ``InferenceRequest`` objects and the newer
+    ``DynamicInferenceRequestRecord`` wrappers returned by the dynamic engine.
+
+    Output follows OpenAI Completions conventions where practical:
+    ``id``, ``prompt``, ``completion``, ``finish_reason``, ``usage``, and
+    optionally ``logprobs``.
+
+    Args:
+        request_id: User-supplied or auto-generated identifier.
+        prompt: The original prompt text.
+        result: Completed inference result from the engine.
+        max_new_tokens: Configured generation limit (used to infer finish_reason).
+        return_log_probs: Whether log-probs were requested.
+
+    Returns:
+        Dict ready for ``json.dumps``.
+    """
+    result = _unwrap_result(result)
+    generated_text = result.generated_text or ""
+    generated_length = result.generated_length or 0
+    prompt_tokens_count = len(result.prompt_tokens) if result.prompt_tokens is not None else 0
+
+    finish_reason = "length" if generated_length >= max_new_tokens else "stop"
+
+    record: Dict[str, Any] = {
+        "id": request_id,
+        "prompt": prompt,
+        "completion": generated_text,
+        "finish_reason": finish_reason,
+        "usage": {
+            "prompt_tokens": prompt_tokens_count,
+            "completion_tokens": generated_length,
+            "total_tokens": prompt_tokens_count + generated_length,
+        },
+    }
+
+    if return_log_probs and result.generated_log_probs is not None:
+        log_probs = result.generated_log_probs
+        if hasattr(log_probs, "tolist"):
+            log_probs = log_probs.tolist()
+        record["logprobs"] = {"completion_logprobs": log_probs}
+
+    return record
 
 
 # =============================================================================
@@ -495,19 +613,27 @@ def parse_args() -> argparse.Namespace:
         "--prompt",
         type=str,
         default=default_prompt,
-        help="Prompt text for generation",
+        help="Prompt text for generation (ignored when --prompt-file is given)",
     )
     ap.add_argument(
         "--prompt-file",
         type=Path,
         default=None,
-        help="Read prompt from a text file (overrides --prompt). Useful for long prompts that exceed shell argument limits.",
+        help='JSONL file with one {"id": "...", "prompt": "..."} object per line. '
+        "The 'id' field is optional and will be auto-assigned if omitted. "
+        "Overrides --prompt.",
     )
     ap.add_argument("--max-new-tokens", type=int, default=100, help="Maximum tokens to generate")
     ap.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature")
     ap.add_argument("--top-k", type=int, default=0, help="Top-k sampling (0 = disabled)")
     ap.add_argument("--top-p", type=float, default=0.0, help="Top-p nucleus sampling (0 = disabled)")
     ap.add_argument("--seed", type=int, default=None, help="Random seed")
+    ap.add_argument(
+        "--return-log-probs",
+        action="store_true",
+        default=False,
+        help="Include per-token log probabilities in JSONL output",
+    )
 
     # Parallelism arguments
     ap.add_argument("--tensor-parallel-size", type=int, default=1, help="Tensor parallelism")
@@ -515,19 +641,41 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--context-parallel-size", type=int, default=1, help="Context parallelism")
 
     # Output arguments
-    ap.add_argument("--output-file", type=Path, default=None, help="Save generated text to file")
+    ap.add_argument(
+        "--output-file",
+        type=Path,
+        default=None,
+        help="Save results as JSONL (one result object per line)",
+    )
 
     # Precision arguments
     ap.add_argument("--mixed-precision-recipe", type=str, default=None, help="Override precision recipe")
 
     # Model arguments
     ap.add_argument("--max-seq-length", type=int, default=8192, help="Max sequence length")
+    ap.add_argument(
+        "--max-batch-size",
+        type=int,
+        default=1,
+        help="Maximum batch size for inference. The inference engine pre-allocates GPU memory "
+        "proportional to this value (KV caches, attention masks, internal buffers). "
+        "For large models (e.g. 40b), only batch_size=1 may fit in memory.",
+    )
+    ap.add_argument(
+        "--prompt-segmentation-threshold",
+        type=int,
+        default=None,
+        help="If set, prompts longer than this many tokens are segmented during prefill "
+        "to reduce peak GPU memory. The first segment runs as a normal prefill pass; "
+        "remaining prompt tokens are processed one at a time (at decode speed) before "
+        "generation begins. Useful for long prompts that would otherwise OOM.",
+    )
 
     return ap.parse_args()
 
 
 def infer(
-    prompt: str,
+    prompts: List[Dict[str, str]],
     ckpt_dir: Path,
     *,
     max_new_tokens: int = 100,
@@ -535,82 +683,145 @@ def infer(
     top_k: int = 0,
     top_p: float = 0.0,
     seed: Optional[int] = None,
+    return_log_probs: bool = False,
     tensor_parallel_size: int = 1,
     pipeline_model_parallel_size: int = 1,
     context_parallel_size: int = 1,
     output_file: Optional[Path] = None,
     mixed_precision_recipe: Optional[str] = None,
     max_seq_length: int = 8192,
-) -> str:
+    max_batch_size: int = 1,
+    prompt_segmentation_threshold: Optional[int] = None,
+) -> List[Dict[str, Any]]:
     """Run autoregressive text generation with Evo2 using MCore inference.
 
     This is the main CLI entry point that sets up everything and runs inference.
     For programmatic usage, prefer setup_inference_engine + generate.
 
     Args:
-        prompt: Input text prompt for generation.
+        prompts: List of dicts, each with ``"id"`` and ``"prompt"`` keys.
         ckpt_dir: Path to MBridge checkpoint directory.
         max_new_tokens: Maximum number of tokens to generate.
         temperature: Sampling temperature (higher = more random).
         top_k: Top-k sampling parameter (0 = disabled).
         top_p: Nucleus sampling parameter (0 = disabled).
         seed: Random seed for reproducibility.
+        return_log_probs: Whether to return per-token log probabilities.
         tensor_parallel_size: Tensor parallelism degree.
         pipeline_model_parallel_size: Pipeline parallelism degree.
         context_parallel_size: Context parallelism degree.
-        output_file: Optional path to save generated text.
+        output_file: Optional path to save results as JSONL.
         mixed_precision_recipe: Override mixed precision recipe.
         max_seq_length: Maximum sequence length.
+        max_batch_size: Maximum batch size for inference. The inference engine pre-allocates
+            GPU memory proportional to this value. For large models, only 1 may fit.
+        prompt_segmentation_threshold: If set, prompts longer than this are segmented
+            during prefill to reduce peak memory.
 
     Returns:
-        The generated text string.
+        List of JSONL-serialisable result dicts.
     """
     random_seed = seed or 1234
 
-    # Setup inference components
+    torch.cuda.reset_peak_memory_stats()
+
     components = setup_inference_engine(
         ckpt_dir=ckpt_dir,
         max_seq_length=max_seq_length,
+        max_batch_size=max_batch_size,
         tensor_parallel_size=tensor_parallel_size,
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         context_parallel_size=context_parallel_size,
         mixed_precision_recipe=mixed_precision_recipe,
         random_seed=random_seed,
+        prompt_segmentation_threshold=prompt_segmentation_threshold,
     )
 
-    logger.info(f"Generating from prompt: {prompt[:50]}...")
+    mem_after_setup_gb = torch.cuda.max_memory_allocated() / (1024**3)
+    logger.info(f"[MEMORY] After model setup: peak={mem_after_setup_gb:.3f} GB")
 
-    # Generate
-    results = generate(
-        components,
-        prompts=[prompt],
-        max_new_tokens=max_new_tokens,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
+    all_records: List[Dict[str, Any]] = []
+    total_prompt_tokens = 0
+    total_completion_tokens = 0
+    t_generate_start = time.perf_counter()
+
+    for batch_start in range(0, len(prompts), max_batch_size):
+        batch = prompts[batch_start : batch_start + max_batch_size]
+        batch_prompts = [entry["prompt"] for entry in batch]
+        batch_idx = batch_start // max_batch_size + 1
+
+        logger.info(f"Generating batch {batch_idx} ({len(batch)} prompt(s))...")
+
+        t_batch_start = time.perf_counter()
+        results = generate(
+            components,
+            prompts=batch_prompts,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_k=top_k,
+            top_p=top_p,
+            return_log_probs=return_log_probs,
+        )
+        t_batch_elapsed = time.perf_counter() - t_batch_start
+
+        batch_completion_tokens = 0
+        for entry, result in zip(batch, results):
+            record = _result_to_jsonl_record(
+                request_id=entry["id"],
+                prompt=entry["prompt"],
+                result=result,
+                max_new_tokens=max_new_tokens,
+                return_log_probs=return_log_probs,
+            )
+            all_records.append(record)
+            batch_completion_tokens += record["usage"]["completion_tokens"]
+            total_prompt_tokens += record["usage"]["prompt_tokens"]
+            total_completion_tokens += record["usage"]["completion_tokens"]
+
+        batch_tok_per_sec = batch_completion_tokens / t_batch_elapsed if t_batch_elapsed > 0 else 0
+        logger.info(
+            f"[PERF] Batch {batch_idx}: {batch_completion_tokens} tokens in "
+            f"{t_batch_elapsed:.2f}s ({batch_tok_per_sec:.1f} completion tok/s)"
+        )
+
+    t_generate_elapsed = time.perf_counter() - t_generate_start
+    total_tok_per_sec = total_completion_tokens / t_generate_elapsed if t_generate_elapsed > 0 else 0
+
+    mem_after_generate_gb = torch.cuda.max_memory_allocated() / (1024**3)
+    logger.info(
+        f"[MEMORY] After generation: peak={mem_after_generate_gb:.3f} GB "
+        f"(setup={mem_after_setup_gb:.3f} GB, generation delta="
+        f"{mem_after_generate_gb - mem_after_setup_gb:.3f} GB)"
+    )
+    logger.info(
+        f"[PERF] Total: {total_prompt_tokens} prompt tokens + {total_completion_tokens} "
+        f"completion tokens in {t_generate_elapsed:.2f}s "
+        f"({total_tok_per_sec:.1f} completion tok/s)"
     )
 
-    # Extract generated text
-    generated_text = results[0].generated_text if results else ""
+    is_rank_zero = parallel_state.get_data_parallel_rank() == 0
 
-    # Output results
-    if parallel_state.get_data_parallel_rank() == 0:
-        print(f"\n=== Generated Text ===\n{generated_text}\n", file=sys.stdout)
+    if is_rank_zero:
+        for record in all_records:
+            print(
+                f"\n=== [{record['id']}] Generated Text ===\n{record['completion']}\n",
+                file=sys.stdout,
+            )
 
         if output_file is not None:
             output_file.parent.mkdir(parents=True, exist_ok=True)
             with open(output_file, "w") as f:
-                f.write(generated_text)
-            logger.info(f"Saved generated text to: {output_file}")
+                for record in all_records:
+                    f.write(json.dumps(record) + "\n")
+            logger.info(f"Saved {len(all_records)} result(s) to: {output_file}")
 
     logger.info("Inference complete!")
 
-    # Cleanup
     if dist.is_initialized():
         dist.barrier()
         dist.destroy_process_group()
 
-    return generated_text
+    return all_records
 
 
 # =============================================================================
@@ -622,26 +833,28 @@ def main() -> None:
     """CLI entry point for Evo2 text generation."""
     args = parse_args()
 
-    # Read prompt from file if specified (overrides --prompt)
-    prompt = args.prompt
     if args.prompt_file is not None:
-        with open(args.prompt_file) as f:
-            prompt = f.read().strip()
+        prompts = _read_prompts_jsonl(args.prompt_file)
+    else:
+        prompts = [{"id": "0", "prompt": args.prompt}]
 
     infer(
-        prompt=prompt,
+        prompts=prompts,
         ckpt_dir=args.ckpt_dir,
         max_new_tokens=args.max_new_tokens,
         temperature=args.temperature,
         top_k=args.top_k,
         top_p=args.top_p,
         seed=args.seed,
+        return_log_probs=args.return_log_probs,
         tensor_parallel_size=args.tensor_parallel_size,
         pipeline_model_parallel_size=args.pipeline_model_parallel_size,
         context_parallel_size=args.context_parallel_size,
         output_file=args.output_file,
         mixed_precision_recipe=args.mixed_precision_recipe,
         max_seq_length=args.max_seq_length,
+        max_batch_size=args.max_batch_size,
+        prompt_segmentation_threshold=args.prompt_segmentation_threshold,
     )
 
 
