@@ -29,7 +29,17 @@ repos:
       - id: ruff
         # 1. Attempt to automatically fix any lint issues.
         args: ["--fix"]
+        # Exclude check_copied_files destinations; they are verbatim copies
+        # of source files and must not be reformatted independently.
+        exclude: |
+          (?x)^(
+            bionemo-recipes/recipes/vllm_inference/llama3/(modeling_llama_te|convert|state)\.py
+          )$
       - id: ruff-format
+        exclude: |
+          (?x)^(
+            bionemo-recipes/recipes/vllm_inference/llama3/(modeling_llama_te|convert|state)\.py
+          )$
   - repo: https://github.com/executablebooks/mdformat
     rev: 0.7.22             # Use the latest stable version
     hooks:

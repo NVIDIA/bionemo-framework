@@ -34,10 +34,9 @@ import json
 import shutil
 from pathlib import Path
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
 from convert import convert_llama_hf_to_te, convert_llama_te_to_hf
 from modeling_llama_te import AUTO_MAP, NVLlamaForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 THIS_DIR = Path(__file__).resolve().parent

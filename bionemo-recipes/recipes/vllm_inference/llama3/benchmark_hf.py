@@ -13,23 +13,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Benchmark vLLM inference on the round-tripped Llama-3 checkpoint.
+"""Benchmark HuggingFace native inference on the reference Llama-3 model.
 
 Sweeps over a grid of (batch_size, prompt_length, output_length) and reports
 end-to-end latency, time-to-first-token, time-per-output-token, and throughput.
 
-The checkpoint is produced by export_llama3.py (HF -> TE -> HF round-trip).
-
 Usage:
-    python benchmark_vllm.py
-    python benchmark_vllm.py --model ./llama3_hf_roundtrip_checkpoint --csv vllm_results.csv
+    python benchmark_hf.py
+    python benchmark_hf.py --model meta-llama/Llama-3.2-1B-Instruct --csv hf_results.csv
 """
 
 import argparse
 import itertools
 
-from vllm import LLM, SamplingParams
-
+import torch
 from benchmark_common import (
     add_common_args,
     build_prompts,
@@ -39,23 +36,20 @@ from benchmark_common import (
     print_results,
     write_csv,
 )
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-DEFAULT_MODEL = "./llama3_hf_roundtrip_checkpoint"
+DEFAULT_MODEL = "meta-llama/Llama-3.2-1B-Instruct"
 
 
 def main() -> None:
-    """Run the vLLM benchmark sweep."""
+    """Run the HF benchmark sweep."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_common_args(parser, default_model=DEFAULT_MODEL)
     config = parse_config(parser.parse_args())
 
     print(f"Loading model: {config.model}")
-    engine = LLM(model=config.model, runner="generate", dtype="bfloat16")
-
-    # vLLM needs a tokenizer to build prompts -- reuse the one bundled with the checkpoint.
-    from transformers import AutoTokenizer
-
+    model = AutoModelForCausalLM.from_pretrained(config.model, torch_dtype=torch.bfloat16).to("cuda").eval()
     tokenizer = AutoTokenizer.from_pretrained(config.model)
     tokenizer.pad_token = tokenizer.eos_token
 
@@ -66,10 +60,13 @@ def main() -> None:
         label = f"batch={batch_size}  prompt={prompt_len}  output={output_len}"
         print(f"\n[{label}]")
 
-        prompts, _ = build_prompts(tokenizer, batch_size, prompt_len)
+        _, input_ids = build_prompts(tokenizer, batch_size, prompt_len)
+        input_ids = input_ids.to("cuda")
 
-        def _generate(max_tokens: int) -> None:
-            engine.generate(prompts, SamplingParams(max_tokens=max_tokens, temperature=0))
+        def _generate(max_new: int) -> None:
+            with torch.no_grad():
+                model.generate(input_ids, max_new_tokens=max_new, do_sample=False, use_cache=True)
+            torch.cuda.synchronize()
 
         for _ in range(config.warmup):
             _generate(output_len)
