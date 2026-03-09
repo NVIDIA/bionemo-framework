@@ -17,10 +17,10 @@
 
 This script demonstrates that a single TransformerLayer with:
 - THD format (packed sequences)
-- GQA (num_attention_heads=32, num_key_value_heads=8)
+- GQA (num_attention_heads != num_key_value_heads)
 - Context Parallelism (cp_size=2)
 
-produces NaN outputs, while MHA (num_key_value_heads=32) works fine.
+produces NaN outputs, while MHA (num_attention_heads == num_key_value_heads) works fine.
 
 Usage:
     torchrun --nproc_per_node=2 scripts/minimal_repro_thd_gqa_cp_nan.py
@@ -31,8 +31,8 @@ Environment:
     - PyTorch: 2.10.0a0+b558c986e8.nv25.11
 
 Expected behavior:
-    MHA (32/32 heads): loss is finite
-    GQA (32/8 heads):  loss is NaN  <-- BUG
+    MHA (6/6 heads): loss is finite
+    GQA (6/2 heads): loss is NaN  <-- BUG
 """
 
 import argparse
@@ -41,7 +41,6 @@ import torch
 import torch.distributed as dist
 import transformer_engine.pytorch as te
 from torch.distributed.device_mesh import init_device_mesh
-from transformer_engine.common.recipe import DelayedScaling, Format
 
 
 def create_mock_thd_batch(
@@ -49,55 +48,59 @@ def create_mock_thd_batch(
     seq_length: int,
     hidden_size: int,
     vocab_size: int,
-    cp_rank: int,
     cp_size: int,
     device: torch.device,
 ) -> dict:
-    """Create synthetic THD-format batch for a single CP rank.
+    """Create synthetic THD-format batch for CP training.
 
-    Each CP rank gets seq_length // cp_size tokens per sequence (dual-chunk zigzag).
-    cu_seqlens_padded tracks the padded boundaries.
+    IMPORTANT: For THD + CP, TE expects:
+    - hidden_states: (total_tokens_per_rank, hidden_size) — already split across CP ranks
+    - cu_seqlens: FULL sequence cu_seqlens (NOT divided by cp_size) — TE divides internally
+    - max_seqlen: FULL max sequence length (NOT divided) — TE divides internally
+
+    This matches our real training pipeline where the collator splits tokens per CP rank
+    but passes the original cu_seqlens_padded unchanged.
     """
+    # Per-rank token count: each rank gets seq_length // cp_size tokens per sequence
     tokens_per_rank = seq_length // cp_size
+    total_tokens_per_rank = num_sequences * tokens_per_rank
 
-    # Total tokens across all sequences for this rank
-    total_tokens = num_sequences * tokens_per_rank
+    # Hidden states for this rank's share of tokens
+    hidden_states = torch.randn(total_tokens_per_rank, hidden_size, device=device, dtype=torch.bfloat16)
 
-    # Create random hidden states (what embedding layer would produce)
-    hidden_states = torch.randn(total_tokens, hidden_size, device=device, dtype=torch.bfloat16)
+    # cu_seqlens for FULL sequences (TE internally divides by cp_size)
+    # e.g., 4 sequences of 256 each: [0, 256, 512, 768, 1024]
+    cu_seqlens_full = torch.arange(0, num_sequences * seq_length + 1, seq_length, device=device, dtype=torch.int32)
 
-    # Create cu_seqlens for packed sequences (padded to equal length)
-    cu_seqlens = torch.arange(0, total_tokens + 1, tokens_per_rank, device=device, dtype=torch.int32)
-
-    # Create random labels for loss computation
-    labels = torch.randint(0, vocab_size, (total_tokens,), device=device)
+    # Labels for loss computation (per-rank tokens)
+    labels = torch.randint(0, vocab_size, (total_tokens_per_rank,), device=device)
 
     return {
         "hidden_states": hidden_states,
-        "cu_seqlens": cu_seqlens,
-        "max_seqlen": tokens_per_rank,
+        "cu_seqlens": cu_seqlens_full,
+        "max_seqlen": seq_length,  # Full sequence length, not per-rank
         "labels": labels,
     }
 
 
-def run_test(num_kv_heads: int, num_attn_heads: int = 32, num_steps: int = 20):
+def run_test(num_kv_heads: int, num_attn_heads: int = 6, num_steps: int = 20):
     """Run forward/backward through a single TransformerLayer with CP."""
     rank = dist.get_rank()
     device = torch.device(f"cuda:{rank}")
     torch.cuda.set_device(device)
 
+    # Tiny config (similar to L0_sanity) for fast reproduction
     cp_size = 2
-    hidden_size = 4096
-    ffn_hidden_size = 14336
+    hidden_size = 384
+    ffn_hidden_size = 1536
     vocab_size = 256
-    seq_length = 8192  # Total sequence length before CP split
+    seq_length = 256  # Must be divisible by 2 * cp_size = 4
     num_sequences = 4  # Number of packed sequences per batch
 
     # Create device mesh for CP
     device_mesh = init_device_mesh("cuda", mesh_shape=(1, cp_size), mesh_dim_names=("dp", "cp"))
     cp_group = device_mesh["cp"].get_group()
     cp_ranks = dist.get_process_group_ranks(cp_group)
-    cp_rank = device_mesh["cp"].get_local_rank()
 
     # Create a single TransformerLayer
     torch.manual_seed(42)
@@ -123,9 +126,6 @@ def run_test(num_kv_heads: int, num_attn_heads: int = 32, num_steps: int = 20):
     rope = te.attention.RotaryPositionEmbedding(dim=hidden_size // num_attn_heads)
     rope_emb = rope(max_seq_len=seq_length).to(device)
 
-    # FP8 recipe (disabled, but needed for autocast)
-    fp8_recipe = DelayedScaling(fp8_format=Format.HYBRID)
-
     optimizer = torch.optim.AdamW(list(layer.parameters()) + list(lm_head.parameters()), lr=1e-4)
 
     head_label = (
@@ -136,6 +136,10 @@ def run_test(num_kv_heads: int, num_attn_heads: int = 32, num_steps: int = 20):
     if rank == 0:
         print(f"\n{'=' * 60}")
         print(f"Testing: {head_label} + THD + CP={cp_size}")
+        print(f"  hidden_size={hidden_size}, seq_length={seq_length}, num_sequences={num_sequences}")
+        print(
+            f"  tokens_per_rank={seq_length // cp_size}, total_tokens_per_rank={num_sequences * seq_length // cp_size}"
+        )
         print(f"{'=' * 60}")
 
     for step in range(num_steps):
@@ -144,14 +148,13 @@ def run_test(num_kv_heads: int, num_attn_heads: int = 32, num_steps: int = 20):
             seq_length=seq_length,
             hidden_size=hidden_size,
             vocab_size=vocab_size,
-            cp_rank=cp_rank,
             cp_size=cp_size,
             device=device,
         )
 
         optimizer.zero_grad()
 
-        with te.autocast(enabled=False, recipe=fp8_recipe):
+        with te.autocast(enabled=False):
             output = layer(
                 batch["hidden_states"],
                 attention_mask=None,
@@ -189,38 +192,38 @@ def run_test(num_kv_heads: int, num_attn_heads: int = 32, num_steps: int = 20):
 
 def main():
     """Run THD+GQA+CP NaN reproduction tests."""
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--steps", type=int, default=20)
+    parser = argparse.ArgumentParser(description="Minimal repro for THD+GQA+CP NaN in TransformerEngine")
+    parser.add_argument("--steps", type=int, default=20, help="Number of training steps per test")
     args = parser.parse_args()
 
     dist.init_process_group(backend="nccl")
     rank = dist.get_rank()
 
     if rank == 0:
-        print("=" * 60)
-        print("Minimal repro: THD + GQA + CP NaN bug in TransformerEngine")
         import transformer_engine
 
+        print("=" * 60)
+        print("Minimal repro: THD + GQA + CP NaN bug in TransformerEngine")
         print(f"TE version: {transformer_engine.__version__}")
         print(f"PyTorch version: {torch.__version__}")
         print(f"World size: {dist.get_world_size()}")
         print("=" * 60)
 
     # Test 1: MHA (should work)
-    mha_ok = run_test(num_kv_heads=32, num_attn_heads=32, num_steps=args.steps)
+    mha_ok = run_test(num_kv_heads=6, num_attn_heads=6, num_steps=args.steps)
 
     dist.barrier()
 
     # Test 2: GQA (should NaN)
-    gqa_ok = run_test(num_kv_heads=8, num_attn_heads=32, num_steps=args.steps)
+    gqa_ok = run_test(num_kv_heads=2, num_attn_heads=6, num_steps=args.steps)
 
     dist.barrier()
 
     if rank == 0:
         print(f"\n{'=' * 60}")
         print("SUMMARY:")
-        print(f"  MHA (32/32) + THD + CP=2: {'PASS' if mha_ok else 'FAIL (NaN)'}")
-        print(f"  GQA (32/8)  + THD + CP=2: {'PASS' if gqa_ok else 'FAIL (NaN)'}")
+        print(f"  MHA (6/6) + THD + CP=2: {'PASS' if mha_ok else 'FAIL (NaN)'}")
+        print(f"  GQA (6/2) + THD + CP=2: {'PASS' if gqa_ok else 'FAIL (NaN)'}")
         print(f"{'=' * 60}")
         if mha_ok and not gqa_ok:
             print("\nCONCLUSION: Bug confirmed in TE's THD + GQA + CP path.")
