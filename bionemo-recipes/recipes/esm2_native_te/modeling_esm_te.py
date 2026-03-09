@@ -22,6 +22,7 @@
 Adapted from `modeling_esm.py` in huggingface/transformers.
 """
 
+import warnings
 from contextlib import nullcontext
 from typing import ClassVar, Literal, Optional, Unpack
 
@@ -193,6 +194,9 @@ class NVEsmEncoder(nn.Module):
         and sharding (FSDP/DDP/mFSDP) but before training. The per-layer precision
         assignments are read from ``self.config.layer_precision``.
 
+        These recipes are also hardware specific, so we should not store them as
+        attributes of the model and attach them at runtime.
+
         Args:
             fp8_recipe: The FP8 recipe instance (e.g., MXFP8BlockScaling), or None.
             fp4_recipe: The FP4 recipe instance (e.g., NVFP4BlockScaling), or None.
@@ -246,6 +250,8 @@ class NVEsmEncoder(nn.Module):
         with torch.autocast(device_type="cuda", enabled=False):
             te_rope_emb = self.rotary_embeddings(max_seq_len=self.config.max_position_embeddings)
             te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
+            if te_rope_emb.dtype == torch.float32:
+                warnings.warn("Rotary embeddings should be in float32 for optimal performance.", UserWarning)
 
         # Outer FP8 autocast enables FP8 compute for the encoder stack. Per-layer overrides (FP4, BF16) are handled
         # by get_layer_autocast(), which nests inside this context.
@@ -427,7 +433,7 @@ class NVEsmModel(NVEsmPreTrainedModel):
         )
         encoder_outputs = self.encoder(
             embedding_output,
-            attention_mask=extended_attention_mask,
+            attention_mask=None if self.config.attn_input_format == "thd" else extended_attention_mask,
             **kwargs,
         )
         sequence_output = encoder_outputs[0]
