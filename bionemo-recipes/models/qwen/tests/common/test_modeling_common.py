@@ -452,7 +452,6 @@ class BaseModelTest(ABC):
         config = self.create_test_config(attn_input_format=input_format)
 
         model = model_class(config)
-        model.to(torch.bfloat16)
         model.to("cuda")
 
         # Prepare input data
@@ -475,7 +474,6 @@ class BaseModelTest(ABC):
         config = self.create_test_config(attn_input_format=input_format)
 
         model = model_class(config)
-        model.to(torch.bfloat16)
         model.to("cuda")
 
         # Prepare input data
@@ -498,7 +496,6 @@ class BaseModelTest(ABC):
         config = self.create_test_config(attn_input_format=input_format)
 
         model = model_class(config)
-        model.to(torch.bfloat16)
         model.to("cuda")
 
         # Prepare input data with labels
@@ -522,7 +519,6 @@ class BaseModelTest(ABC):
         config = self.create_test_config(attn_input_format=input_format)
 
         model = model_class(config)
-        model.to(torch.bfloat16)
         model.to("cuda")
 
         # Prepare input data
@@ -1011,7 +1007,7 @@ class BaseModelTest(ABC):
             pytest.skip("Not an autoregressive model")
 
         config = self.create_test_config(attn_input_format="bshd", self_attn_mask_type="causal")
-        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
+        model = self.get_model_class()(config).to("cuda")
         model.eval()
 
         tokenizer = self.get_tokenizer()
@@ -1030,7 +1026,7 @@ class BaseModelTest(ABC):
             pytest.skip("Not an autoregressive model")
 
         config = self.create_test_config(attn_input_format="thd", self_attn_mask_type="padding_causal")
-        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
+        model = self.get_model_class()(config).to("cuda")
         model.eval()
 
         tokenizer = self.get_tokenizer()
@@ -1051,7 +1047,7 @@ class BaseModelTest(ABC):
             pytest.skip("Not an autoregressive model")
 
         config = self.create_test_config(attn_input_format="thd", self_attn_mask_type="padding_causal")
-        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
+        model = self.get_model_class()(config).to("cuda")
         model.eval()
 
         tokenizer = self.get_tokenizer()
@@ -1076,7 +1072,7 @@ class BaseModelTest(ABC):
             pytest.skip("Not an autoregressive model")
 
         config = self.create_test_config(attn_input_format="thd", self_attn_mask_type="padding_causal")
-        model = self.get_model_class()(config).to("cuda").to(torch.bfloat16)
+        model = self.get_model_class()(config).to("cuda")
         model.eval()
 
         tokenizer = self.get_tokenizer()
