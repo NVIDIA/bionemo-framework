@@ -37,7 +37,7 @@ from megatron.bridge.training.pretrain import pretrain
 from megatron.bridge.utils.common_utils import get_rank_safe
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
-from bionemo.evo2.models.evo2_provider import HYENA_MODEL_OPTIONS, hyena_forward_step
+from bionemo.evo2.models.evo2_provider import MODEL_OPTIONS, hyena_forward_step, infer_model_type
 from bionemo.evo2.recipes.evo2 import evo2_1b_pretrain_config as pretrain_config
 
 
@@ -304,10 +304,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--model-size",
         type=str,
-        choices=sorted(
-            HYENA_MODEL_OPTIONS.keys()  # + list(MAMBA_MODEL_OPTIONS.keys()) + list(LLAMA_MODEL_OPTIONS.keys())
-        ),
-        default="1b",
+        choices=sorted(MODEL_OPTIONS.keys()),
+        default="evo2_1b_base",
         help="Model size/configuration to use. Options depend on the selected model-type.",
     )  # DONE
     parser.add_argument(
@@ -696,7 +694,7 @@ def train(args: argparse.Namespace) -> None:
     recipe_kwargs = {}
 
     # Model
-    model_provider = HYENA_MODEL_OPTIONS[args.model_size]
+    model_provider = MODEL_OPTIONS[args.model_size]
     recipe_kwargs["model_provider"] = model_provider
     logger.info(f"Selected model size: {args.model_size} ({model_provider.__name__})")
 
@@ -793,7 +791,12 @@ def train(args: argparse.Namespace) -> None:
     if args.seq_len_interpolation_factor is not None:
         cfg.model.seq_len_interpolation_factor = args.seq_len_interpolation_factor
     cfg.model.calculate_per_token_loss = not args.no_calculate_per_token_loss
-    cfg.model.fp32_residual_connection = not args.no_fp32_residual_connection
+    model_type = infer_model_type(args.model_size)
+    if model_type != "hyena" and not args.no_fp32_residual_connection:
+        logger.info("Disabling fp32_residual_connection for non-Hyena model (not compatible with TE layers)")
+        cfg.model.fp32_residual_connection = False
+    else:
+        cfg.model.fp32_residual_connection = not args.no_fp32_residual_connection
     cfg.model.cross_entropy_loss_fusion = args.cross_entropy_loss_fusion
     # cfg.model.cuda_graph_impl = "local" # or "transformer_engine"
     # cfg.model.cuda_graph_scope = "full_iteration"
@@ -971,8 +974,15 @@ def train(args: argparse.Namespace) -> None:
         logger.info("--- Final Configuration ---")
         cfg.print_yaml()
 
-    logger.info("Starting pretraining...")
-    pretrain(cfg, hyena_forward_step)
+    if model_type == "eden":
+        from megatron.bridge.training.gpt_step import forward_step as gpt_forward_step
+
+        forward_step_fn = gpt_forward_step
+    else:
+        forward_step_fn = hyena_forward_step
+
+    logger.info(f"Starting pretraining (model_type={model_type})...")
+    pretrain(cfg, forward_step_fn)
 
     if not args.ckpt_async_save:
         # Async checkpoint saving will lazily destroy the process group when the last checkpoint is saved.

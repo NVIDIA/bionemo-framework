@@ -76,7 +76,7 @@ from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_model_config
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
-from bionemo.evo2.models.evo2_provider import HyenaInferenceContext
+from bionemo.evo2.models.evo2_provider import HyenaInferenceContext, HyenaModelProvider
 from bionemo.evo2.run.predict import initialize_inference_distributed, resolve_checkpoint_path
 
 
@@ -175,8 +175,6 @@ class Evo2ModelInferenceWrapper(AbstractModelInferenceWrapper):
     def _forward(self, inference_input: Dict[str, Any]) -> torch.Tensor:
         """Run a forward pass of the model.
 
-        Override to pass HyenaInferenceContext properly.
-
         Args:
             inference_input: The input data dict.
 
@@ -212,7 +210,7 @@ class Evo2InferenceComponents:
     inference_engine: StaticInferenceEngine
     tokenizer: _HuggingFaceTokenizer
     inference_wrapper: Evo2ModelInferenceWrapper
-    inference_context: HyenaInferenceContext
+    inference_context: StaticInferenceContext
     model: torch.nn.Module
 
 
@@ -278,8 +276,10 @@ def setup_inference_engine(
     # does not support it for non-MoE models.
     model_provider.sequence_parallel = False
 
-    # Enable flash decode for inference
-    model_provider.flash_decode = True
+    is_hyena = isinstance(model_provider, HyenaModelProvider)
+
+    if is_hyena:
+        model_provider.flash_decode = True
 
     # Use bf16_mixed for inference to avoid FP8 issues
     if mixed_precision_recipe is not None:
@@ -331,6 +331,11 @@ def setup_inference_engine(
     logger.info("Creating model...")
     model_provider.finalize()
 
+    if not is_hyena:
+        from megatron.bridge.models.model_provider import ProcessGroupCollection
+
+        model_provider._pg_collection = ProcessGroupCollection.use_mpu_process_groups()
+
     raw_model = model_provider.provide().eval().cuda()
 
     logger.info(f"Loading weights from: {resolved_ckpt_dir}")
@@ -358,12 +363,16 @@ def setup_inference_engine(
         padded_vocab_size=tokenizer.vocab_size,
     )
 
-    # Create Hyena-specific inference context
-    inference_context = HyenaInferenceContext(
-        max_batch_size=max_batch_size,
-        max_sequence_length=max_seq_length,
-    )
-    # Don't materialize only last token - we need full logits for sampling
+    if is_hyena:
+        inference_context: StaticInferenceContext = HyenaInferenceContext(
+            max_batch_size=max_batch_size,
+            max_sequence_length=max_seq_length,
+        )
+    else:
+        inference_context = StaticInferenceContext(
+            max_batch_size=max_batch_size,
+            max_sequence_length=max_seq_length,
+        )
     inference_context.materialize_only_last_token_logits = False
 
     # Create the inference wrapper

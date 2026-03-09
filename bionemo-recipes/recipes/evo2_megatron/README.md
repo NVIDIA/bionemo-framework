@@ -52,9 +52,9 @@ First convert the checkpoint from nemo2 format (temporary step until we upload t
 
 Good checkpoint names to try are:
 
-- evo2/1b-8k-bf16:1.0 (model_size: 1b)
-- evo2/7b-1m:1.0 (model_size: 7b_arc_longcontext)
-- evo2/40b-1m-fp8-bf16:1.0 (model_size: 40b_arc_longcontext)
+- evo2/1b-8k-bf16:1.0 (model_size: evo2_1b_base)
+- evo2/7b-1m:1.0 (model_size: evo2_7b)
+- evo2/40b-1m-fp8-bf16:1.0 (model_size: evo2_40b)
 
 Other than the 7b version, the other two are checkpoints fine-tuned by the BioNeMo team to support both FP8 and BF16
 precision. The 7b version worked well on both FP8 and BF16 out of the box so it was not fine-tuned further. If you do
@@ -71,7 +71,7 @@ CKPT_OUT_DIR=evo2_1b_8k_bf16_mbridge
 evo2_convert_nemo2_to_mbridge \
   --mixed-precision-recipe bf16_with_fp8_current_scaling_mixed \
   --tokenizer-path tokenizers/nucleotide_fast_tokenizer_512 \
-  --model-size 1b \
+  --model-size evo2_1b_base \
   --seq-length 8192 \
   --nemo2-ckpt-dir $(download_bionemo_data $CKPT_NAME) \
   --mbridge-ckpt-dir $CKPT_OUT_DIR
@@ -86,7 +86,7 @@ Now run like before, but include the fine-tuned checkpoint directory you convert
 torchrun --nproc-per-node 2 --no-python \
   train_evo2 \
   --hf-tokenizer-model-path tokenizers/nucleotide_fast_tokenizer_512 \
-  --model-size 1b --max-steps 12 --eval-interval 10 \
+  --model-size evo2_1b_base --max-steps 12 --eval-interval 10 \
   --eval-iters 3 --mock-data \
   --micro-batch-size 16 --global-batch-size 32 --seq-length 1024 \
   --tensor-model-parallel 1 \
@@ -104,10 +104,99 @@ torchrun --nproc-per-node 2 --no-python \
   --finetune-ckpt-dir $CKPT_OUT_DIR
 ```
 
+## Model naming convention
+
+Model sizes are specified via `--model-size` and follow a naming convention that
+disambiguates the model architecture, origin, and context length.
+
+### Hyena (SSM) models
+
+| Key                    | Description                 |
+| ---------------------- | --------------------------- |
+| `evo2_1b_base`         | ARC 1B, 8K context          |
+| `evo2_7b_base`         | ARC 7B, 8K context          |
+| `evo2_7b`              | ARC 7B, 1M context          |
+| `evo2_20b`             | ARC 20B                     |
+| `evo2_40b_base`        | ARC 40B, 8K context         |
+| `evo2_40b`             | ARC 40B, 1M context         |
+| `striped_hyena_1b_nv`  | NVIDIA-modified 1B variant  |
+| `striped_hyena_7b_nv`  | NVIDIA-modified 7B variant  |
+| `striped_hyena_40b_nv` | NVIDIA-modified 40B variant |
+| `striped_hyena_test`   | Tiny test model             |
+
+Models prefixed with `evo2_` match the public ARC checkpoints on
+Hugging Face (e.g. `arcinstitute/savanna_evo2_1b_base`). The `_base`
+suffix denotes the 8K-context variant; without it, the model uses the
+long (1M) context length. Models prefixed with `striped_hyena_` are
+NVIDIA-modified variants that do not have a corresponding public ARC
+checkpoint.
+
+### Eden (Llama 3.1) models
+
+| Key        | Description             |
+| ---------- | ----------------------- |
+| `eden_7b`  | Eden base (~8B params)  |
+| `eden_11b` | Eden ~11B               |
+| `eden_18b` | Eden ~18B               |
+| `eden_21b` | Eden ~21B               |
+| `eden_24b` | Eden ~24B (32K context) |
+| `eden_27b` | Eden ~27B (32K context) |
+| `eden_28b` | Eden ~28B               |
+| `eden_35b` | Eden ~35B               |
+
+Eden models use the Llama 3.1 architecture and are automatically
+configured with `fp32_residual_connection = False` during training
+(this is handled internally by `train_evo2`).
+
+## Exporting to Vortex format
+
+Vortex is ARC Institute's inference format for Evo2 Hyena models. You
+can export an MBridge checkpoint to Vortex (`.pt`) using the
+`evo2_export_mbridge_to_vortex` CLI:
+
+```
+evo2_export_mbridge_to_vortex \
+  --mbridge-ckpt-dir /path/to/mbridge/iter_0000001 \
+  --output-path /path/to/output/model_vortex.pt \
+  --model-size evo2_1b_base
+```
+
+The exporter converts MBridge distributed-checkpoint weights into the
+single-file Vortex format expected by ARC's inference code. It handles
+MLP weight merging, Hyena filter pole/residue computation, and
+layer-norm key remapping.
+
+Options:
+
+- `--model-size` — one of the `evo2_*` or `striped_hyena_*` Hyena model keys listed above.
+- `--no-te` — disable Transformer Engine fused layernorm key mapping
+  (use if the checkpoint was saved without TE).
+- `--verbose` / `-v` — enable debug logging.
+
+### Converting from Savanna to Vortex (round-trip)
+
+If you have a Savanna checkpoint and want to produce a Vortex file, you
+can chain the two converters:
+
+```
+# Step 1: Savanna -> MBridge
+evo2_convert_savanna_to_mbridge \
+  --savanna-ckpt-path arcinstitute/savanna_evo2_1b_base \
+  --mbridge-ckpt-dir /tmp/mbridge_1b \
+  --model-size evo2_1b_base \
+  --tokenizer-path tokenizers/nucleotide_fast_tokenizer_256
+
+# Step 2: MBridge -> Vortex
+evo2_export_mbridge_to_vortex \
+  --mbridge-ckpt-dir /tmp/mbridge_1b/iter_0000001 \
+  --output-path /tmp/evo2_1b_vortex.pt \
+  --model-size evo2_1b_base
+```
+
 ## Where do the custom command line programs come from?
 
-See `pyproject.toml` for where runnable programs like `train_evo2` and `evo2_convert_nemo2_to_mbridge` are implemented
-in code.
+See `pyproject.toml` for where runnable programs like `train_evo2`, `evo2_convert_nemo2_to_mbridge`,
+`evo2_convert_savanna_to_mbridge`, and `evo2_export_mbridge_to_vortex` are implemented in code.
 
 ## Docker build
 

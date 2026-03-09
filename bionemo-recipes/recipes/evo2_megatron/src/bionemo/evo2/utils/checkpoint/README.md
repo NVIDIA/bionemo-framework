@@ -10,7 +10,7 @@ To convert a single PyTorch or ZeRO-1 checkpoints (`.pt`) into NeMo2 format, run
 python sub-packages/bionemo-evo2/src/bionemo/evo2/utils/checkpoint/convert_to_nemo.py --model-path <CKPT_FILE> --output-dir <OUTPUT_DIR> --model-size <MODEL_SIZE> --ckpt-format <CONVERTED_CKPT_FORMAT>
 ```
 
-where `--model-size` can be set to `7b` or `40b` (or their `_arc_1m` variants with modified GLU dimensions) and `--ckpt-format` can be set to `torch_dist` or `zarr`.
+where `--model-size` can be set to a valid model key (e.g. `evo2_7b_base`, `evo2_40b_base`, or their long-context variants `evo2_7b`, `evo2_40b`) and `--ckpt-format` can be set to `torch_dist` or `zarr`.
 
 The NeMo2 checkpoint should have the following structure for `torch_dist`:
 

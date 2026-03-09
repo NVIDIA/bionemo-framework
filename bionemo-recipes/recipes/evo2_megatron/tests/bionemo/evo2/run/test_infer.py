@@ -618,7 +618,7 @@ def mbridge_checkpoint_7b_1m_path(tmp_path_factory) -> Path:
         nemo2_ckpt_dir=nemo2_checkpoint_path,
         tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
         mbridge_ckpt_dir=tmp_dir / "mbridge_checkpoint",
-        model_size="7b_arc_longcontext",
+        model_size="evo2_7b",
         seq_length=8192,
         mixed_precision_recipe="bf16_mixed",
         vortex_style_fp8=False,
@@ -699,6 +699,111 @@ def test_parallel_inference_accuracy_7b(mbridge_checkpoint_7b_1m_path, tmp_path,
     assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
         f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
+
+
+# =============================================================================
+# Eden (Llama) inference tests
+# =============================================================================
+
+
+@pytest.fixture(scope="module")
+def mbridge_eden_checkpoint_path(mbridge_eden_checkpoint) -> Path:
+    """Module-scoped alias for the session-scoped Eden checkpoint."""
+    return mbridge_eden_checkpoint
+
+
+@pytest.mark.slow
+def test_infer_eden_runs(mbridge_eden_checkpoint_path, tmp_path):
+    """Test that infer.py runs without errors on an Eden (Llama) mbridge checkpoint."""
+    output_file = tmp_path / "eden_output.txt"
+    prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
+    open_port = find_free_network_port()
+
+    cmd = [
+        "torchrun",
+        "--nproc_per_node",
+        "1",
+        "--nnodes",
+        "1",
+        "--master_port",
+        str(open_port),
+        "-m",
+        "bionemo.evo2.run.infer",
+        "--ckpt-dir",
+        str(mbridge_eden_checkpoint_path),
+        "--prompt",
+        prompt,
+        "--max-new-tokens",
+        "10",
+        "--output-file",
+        str(output_file),
+        "--temperature",
+        "1.0",
+        "--top-k",
+        "1",
+    ]
+
+    env = copy.deepcopy(PRETEST_ENV)
+
+    result = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
+
+    assert result.returncode == 0, f"Eden infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    assert output_file.exists(), "Output file was not created"
+
+    generated = output_file.read_text()
+    assert len(generated) > 0, "Generated text is empty"
+
+
+@pytest.mark.slow
+def test_infer_eden_deterministic(mbridge_eden_checkpoint_path, tmp_path):
+    """Test that Eden inference with greedy decoding is deterministic across runs."""
+    output_1 = tmp_path / "eden_det_1.txt"
+    output_2 = tmp_path / "eden_det_2.txt"
+    prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
+
+    for output_file in (output_1, output_2):
+        open_port = find_free_network_port()
+        cmd = [
+            "torchrun",
+            "--nproc_per_node",
+            "1",
+            "--nnodes",
+            "1",
+            "--master_port",
+            str(open_port),
+            "-m",
+            "bionemo.evo2.run.infer",
+            "--ckpt-dir",
+            str(mbridge_eden_checkpoint_path),
+            "--prompt",
+            prompt,
+            "--max-new-tokens",
+            "10",
+            "--output-file",
+            str(output_file),
+            "--temperature",
+            "1.0",
+            "--top-k",
+            "1",
+            "--seed",
+            "42",
+        ]
+
+        env = copy.deepcopy(PRETEST_ENV)
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=300, env=env)
+        assert result.returncode == 0, f"Eden infer failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+
+    gen_1 = output_1.read_text()
+    gen_2 = output_2.read_text()
+    assert len(gen_1) > 0, "First generation produced empty output"
+    assert gen_1 == gen_2, f"Deterministic Eden inference produced different outputs:\nRun 1: {gen_1}\nRun 2: {gen_2}"
 
 
 class TestHyenaInferenceContext:

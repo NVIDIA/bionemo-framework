@@ -28,7 +28,7 @@ from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
 from torch.distributed.checkpoint import FileSystemReader, FileSystemWriter
 from torch.distributed.checkpoint.metadata import BytesStorageMetadata
 
-from bionemo.evo2.models.evo2_provider import HYENA_MODEL_OPTIONS, HyenaModelProvider
+from bionemo.evo2.models.evo2_provider import MODEL_OPTIONS, HyenaModelProvider
 from bionemo.evo2.recipes.evo2 import evo2_1b_pretrain_config as pretrain_config
 
 
@@ -239,7 +239,7 @@ def run_nemo2_to_mbridge(
     Returns:
         Path to the Megatron Bridge checkpoint directory.
     """
-    model_provider = HYENA_MODEL_OPTIONS[model_size](seq_length=seq_length)
+    model_provider = MODEL_OPTIONS[model_size](seq_length=seq_length)
     res_dir = nemo2_to_mbridge(
         nemo2_ckpt_dir, tokenizer_path, mbridge_ckpt_dir, model_provider, mixed_precision_recipe, vortex_style_fp8
     )
@@ -256,7 +256,7 @@ def main():
     parser.add_argument("--nemo2-ckpt-dir", type=Path, required=True)
     parser.add_argument("--tokenizer-path", type=Path, required=True)
     parser.add_argument("--mbridge-ckpt-dir", type=Path, required=True)
-    parser.add_argument("--model-size", type=str, choices=list(HYENA_MODEL_OPTIONS.keys()), required=True)
+    parser.add_argument("--model-size", type=str, choices=sorted(MODEL_OPTIONS.keys()), required=True)
     parser.add_argument("--seq-length", type=int, required=True)
     parser.add_argument("--vortex-style-fp8", action="store_true", default=False)
     parser.add_argument(

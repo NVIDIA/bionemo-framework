@@ -111,7 +111,7 @@ def mbridge_checkpoint_1b_8k_bf16(tmp_path_factory) -> Path:
         nemo2_ckpt_dir=nemo2_ckpt_path,
         tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
         mbridge_ckpt_dir=output_dir / "evo2_1b_mbridge",
-        model_size="1b",
+        model_size="evo2_1b_base",
         seq_length=8192,
         mixed_precision_recipe="bf16_mixed",
         vortex_style_fp8=False,
@@ -130,3 +130,60 @@ def mbridge_checkpoint_path(mbridge_checkpoint_1b_8k_bf16) -> Path:
         Path to the MBridge checkpoint iteration directory
     """
     return mbridge_checkpoint_1b_8k_bf16
+
+
+@pytest.fixture(scope="session")
+def mbridge_eden_checkpoint(tmp_path_factory) -> Path:
+    """Session-scoped MBridge checkpoint for a tiny Eden (Llama) model.
+
+    Creates an Eden mbridge checkpoint by training a tiny model (2 layers, seq_length=64)
+    for 1 step with mock data. Shared across test files that need an Eden checkpoint.
+
+    Returns:
+        Path to the MBridge checkpoint directory (parent of iter_0000001).
+    """
+    import copy
+    import os
+    import shlex
+    import socket
+    import subprocess
+
+    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
+
+    def _find_free_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            return s.getsockname()[1]
+
+    tmp_dir = tmp_path_factory.mktemp("eden_ckpt_session")
+    run_dir = tmp_dir / "eden_train"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    port = _find_free_port()
+
+    cmd = (
+        f"torchrun --nproc-per-node 1 --no-python --master_port {port} "
+        f"train_evo2 "
+        f"--hf-tokenizer-model-path {DEFAULT_HF_TOKENIZER_MODEL_PATH} "
+        "--model-size eden_7b --num-layers 2 "
+        "--max-steps 1 --eval-interval 1 --eval-iters 1 "
+        f"--mock-data --result-dir {run_dir} "
+        "--micro-batch-size 4 --global-batch-size 4 --seq-length 64 "
+        "--tensor-model-parallel 1 --pipeline-model-parallel 1 --context-parallel 1 "
+        "--mixed-precision-recipe bf16_mixed "
+        "--no-activation-checkpointing "
+        "--decay-steps 1000 --warmup-steps 10 "
+        "--log-interval 1 --seed 41 --dataset-seed 33"
+    )
+
+    env = copy.deepcopy(os.environ)
+    result = subprocess.run(shlex.split(cmd), check=False, capture_output=True, text=True, cwd=run_dir, env=env)
+    if result.returncode != 0:
+        print(f"Eden checkpoint creation STDOUT:\n{result.stdout}")
+        print(f"Eden checkpoint creation STDERR:\n{result.stderr}")
+    assert result.returncode == 0, f"Eden checkpoint creation failed: {result.stderr[-2000:]}"
+
+    ckpt_dir = run_dir / "evo2" / "checkpoints"
+    iter_dir = ckpt_dir / "iter_0000001"
+    assert iter_dir.exists(), f"Eden checkpoint not found at {iter_dir}"
+    return iter_dir
