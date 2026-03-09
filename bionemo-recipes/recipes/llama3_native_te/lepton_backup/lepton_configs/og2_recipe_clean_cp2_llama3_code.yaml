@@ -71,6 +71,7 @@ extra_hydra_overrides:
   - "++dataset.mask_degenerate_bases=true"
   - "++dataset.uppercase_labels=false"
   - "++dataset.text_column=text"
+  - "~dataset.load_dataset_kwargs.data_files"
 
 logger_frequency: 1
 
