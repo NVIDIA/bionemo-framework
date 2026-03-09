@@ -16,6 +16,7 @@
 
 # conftest.py
 import gc
+import os
 from pathlib import Path
 
 import pytest
@@ -63,8 +64,16 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
-    """Clean up GPU memory and reset state after each test."""
+    """Clean up GPU memory, reset state, and restore env vars after each test.
+
+    Megatron Core's LanguageModule._set_attention_backend() mutates os.environ
+    (e.g. NVTE_FUSED_ATTN, NVTE_FLASH_ATTN) when models are constructed in-process.
+    Capturing and restoring the full environment prevents cross-test pollution.
+    """
+    saved_environ = os.environ.copy()
     yield
+    os.environ.clear()
+    os.environ.update(saved_environ)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         gc.collect()
@@ -143,7 +152,6 @@ def mbridge_eden_checkpoint(tmp_path_factory) -> Path:
         Path to the MBridge checkpoint directory (parent of iter_0000001).
     """
     import copy
-    import os
     import shlex
     import socket
     import subprocess
