@@ -33,7 +33,6 @@ For standard FSDP2 training without context parallelism, use ``train_fsdp2.py`` 
 
 import gc
 import logging
-import math
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -301,7 +300,6 @@ def main(args: DictConfig) -> float | None:
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
     micro_step = 0
-    logged_dtypes = False
 
     while step < args.num_train_steps:
         for batch in train_dataloader:
@@ -319,22 +317,6 @@ def main(args: DictConfig) -> float | None:
 
             with nvtx.annotate("Backward pass", color="red"):
                 loss.backward()
-
-            if not logged_dtypes:
-                grad_param = next((p for p in model.parameters() if p.grad is not None), None)
-                if grad_param is not None and grad_param.grad is not None:
-                    logger.info(
-                        "Dtypes after first backward: param=%s grad=%s loss=%s",
-                        grad_param.dtype,
-                        grad_param.grad.dtype,
-                        outputs.loss.dtype,
-                    )
-                    # Log first batch loss for sanity check
-                    expected_random_loss = math.log(config.vocab_size)
-                    logger.info(
-                        f"First batch loss: {outputs.loss.item():.4f} (expected ~{expected_random_loss:.2f} for random)"
-                    )
-                    logged_dtypes = True
 
             perf_logger.log_micro_step(step=step, batch=batch, outputs=outputs)
 

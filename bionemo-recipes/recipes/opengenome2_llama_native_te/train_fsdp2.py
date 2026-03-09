@@ -27,7 +27,6 @@ Supports:
 
 import gc
 import logging
-import math
 import random
 from contextlib import nullcontext
 from pathlib import Path
@@ -299,7 +298,6 @@ def main(args: DictConfig) -> float | None:
     if train_dataloader is None:
         raise RuntimeError("Expected train_dataloader to be initialized before training.")
 
-    logged_dtypes = False
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
@@ -311,22 +309,6 @@ def main(args: DictConfig) -> float | None:
 
             loss = outputs.loss / args.grad_acc_steps
             loss.backward()
-
-            if not logged_dtypes:
-                grad_param = next((p for p in model.parameters() if p.grad is not None), None)
-                if grad_param is not None and grad_param.grad is not None:
-                    logger.info(
-                        "Dtypes after first backward: param=%s grad=%s loss=%s",
-                        grad_param.dtype,
-                        grad_param.grad.dtype,
-                        outputs.loss.dtype,
-                    )
-                    # Log first batch loss for sanity check
-                    expected_random_loss = math.log(config.vocab_size)
-                    logger.info(
-                        f"First batch loss: {outputs.loss.item():.4f} (expected ~{expected_random_loss:.2f} for random)"
-                    )
-                logged_dtypes = True
 
             perf_logger.log_micro_step(step=step, batch=batch, outputs=outputs)
 
