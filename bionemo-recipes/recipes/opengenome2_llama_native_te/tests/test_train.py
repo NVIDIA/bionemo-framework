@@ -24,6 +24,7 @@ from hydra import compose, initialize_config_dir
 from opengenome_modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from optimizer import get_parameter_groups_with_weight_decay
 from train_fsdp2 import main as main_fsdp2
+from train_fsdp2_cp import main as main_fsdp2_cp
 
 
 @pytest.fixture(autouse=True)
@@ -401,3 +402,23 @@ def test_train_fsdp2_fp32_master_weights_thd(tmp_path, recipe_path):
     torch.cuda.empty_cache()
 
     assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_sanity_fsdp2_cp(tmp_path, recipe_path):
+    """Test FSDP2 with context parallelism on a single GPU (cp_size=1)."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity_cp",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "num_train_steps=10",
+                "checkpoint.resume_from_checkpoint=false",
+            ],
+        )
+
+    final_loss = main_fsdp2_cp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
