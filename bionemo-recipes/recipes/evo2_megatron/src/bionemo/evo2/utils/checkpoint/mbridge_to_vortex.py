@@ -83,23 +83,22 @@ def _compute_log_poles_and_residues(
     gamma: torch.Tensor,
     residue_param: torch.Tensor,
     num_groups: int,
-    filter_order: int,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Compute Vortex log_poles and residues from Savanna/MBridge filter parameters.
 
     Args:
-        p: Pole parameter tensor.
-        gamma: Gamma (decay scaling) parameter tensor.
-        residue_param: Residue parameter tensor (the 'R' parameter in Savanna).
+        p: Pole parameter tensor of shape (num_groups, state_size).
+        gamma: Gamma (decay scaling) parameter tensor of shape (num_groups, state_size).
+        residue_param: Residue parameter tensor (the 'R' parameter) of shape (num_groups, state_size).
         num_groups: Number of hyena groups (typically hidden_size).
-        filter_order: Hyena filter order.
 
     Returns:
         Tuple of (log_poles, residues) tensors.
     """
-    p = p.to(torch.float32).reshape(num_groups, filter_order)
+    state_size = p.numel() // num_groups
+    p = p.to(torch.float32).reshape(num_groups, state_size)
     gamma = gamma.to(torch.float32)
-    residues = residue_param.to(torch.float32).reshape(num_groups, filter_order)
+    residues = residue_param.to(torch.float32).reshape(num_groups, state_size)
 
     exp_gamma = torch.exp(gamma)
     logp = -torch.exp(p) * exp_gamma
@@ -125,8 +124,9 @@ def mbridge_to_vortex_state_dict(
     """
     pattern = model_provider.hybrid_override_pattern
     num_groups = model_provider.num_groups_hyena
-    filter_order = getattr(model_provider, "hyena_filter_order", 128)
     medium_conv_len = getattr(model_provider, "hyena_medium_conv_len", 128)
+    rotary_dim = model_provider.hidden_size // model_provider.num_attention_heads
+    rotary_base = float(getattr(model_provider, "rotary_base", 10000))
 
     vortex_sd: OrderedDict[str, torch.Tensor] = OrderedDict()
 
@@ -148,7 +148,6 @@ def mbridge_to_vortex_state_dict(
                 symbol,
                 te_enabled,
                 num_groups,
-                filter_order,
                 medium_conv_len,
             )
         else:
@@ -158,6 +157,8 @@ def mbridge_to_vortex_state_dict(
                 prefix,
                 block_prefix,
                 te_enabled,
+                rotary_dim,
+                rotary_base,
             )
 
         _convert_mlp(mbridge_state_dict, vortex_sd, prefix, block_prefix, te_enabled)
@@ -177,7 +178,6 @@ def _convert_hyena_layer(
     symbol: str,
     te_enabled: bool,
     num_groups: int,
-    filter_order: int,
     medium_conv_len: int,
 ) -> None:
     """Convert a single hyena layer (S, D, or H) from mbridge to vortex."""
@@ -235,11 +235,22 @@ def _convert_hyena_layer(
         gamma_key = f"{prefix}.mixer.mixer.filter.gamma"
         r_key = f"{prefix}.mixer.mixer.filter.R"
         if p_key in src and gamma_key in src and r_key in src:
-            log_poles, residues = _compute_log_poles_and_residues(
-                src[p_key], src[gamma_key], src[r_key], num_groups, filter_order
-            )
+            log_poles, residues = _compute_log_poles_and_residues(src[p_key], src[gamma_key], src[r_key], num_groups)
             dst[f"{block_prefix}.filter.log_poles"] = log_poles
             dst[f"{block_prefix}.filter.residues"] = residues
+
+
+def _compute_inv_freq(rotary_dim: int, rotary_base: float) -> torch.Tensor:
+    """Compute rotary embedding inverse frequencies.
+
+    Args:
+        rotary_dim: Dimension of the rotary embeddings (hidden_size // num_attention_heads).
+        rotary_base: Base for the rotary frequency computation.
+
+    Returns:
+        Tensor of shape (rotary_dim // 2,) with inverse frequencies.
+    """
+    return 1.0 / (rotary_base ** (torch.arange(0, rotary_dim, 2, dtype=torch.float32) / rotary_dim))
 
 
 def _convert_attention_layer(
@@ -248,6 +259,8 @@ def _convert_attention_layer(
     prefix: str,
     block_prefix: str,
     te_enabled: bool,
+    rotary_dim: int,
+    rotary_base: float,
 ) -> None:
     """Convert a single attention layer (*) from mbridge to vortex."""
     if te_enabled:
@@ -268,6 +281,8 @@ def _convert_attention_layer(
     proj_bias_key = f"{prefix}.self_attention.linear_proj.bias"
     if proj_bias_key in src:
         dst[f"{block_prefix}.inner_mha_cls.out_proj.bias"] = src[proj_bias_key]
+
+    dst[f"{block_prefix}.inner_mha_cls.rotary_emb.inv_freq"] = _compute_inv_freq(rotary_dim, rotary_base)
 
 
 def _convert_mlp(

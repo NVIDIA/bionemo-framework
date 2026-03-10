@@ -171,10 +171,11 @@ def savanna_to_mbridge_state_dict(
     mapping = {}
 
     mapping["sequential.0.word_embeddings.weight"] = "embedding.word_embeddings.weight"
-    mapping[f"sequential.{num_layers + 1}.norm.weight"] = "decoder.final_norm.weight"
+    # Savanna sequential layout: 0=embedding, 1=lambda(no params), 2..N+1=layers, N+2=lambda, N+3=final_norm
+    mapping[f"sequential.{num_layers + 3}.norm.weight"] = "decoder.final_norm.weight"
 
     for i, symbol in enumerate(hybrid_override_pattern):
-        src_idx = i + 1
+        src_idx = i + 2
 
         if te_enabled:
             mapping[f"sequential.{src_idx}.pre_mlp_layernorm.weight"] = (
@@ -244,7 +245,7 @@ def savanna_to_mbridge_state_dict(
             used_keys.add(savanna_key)
 
     for i, symbol in enumerate(hybrid_override_pattern):
-        src_idx = i + 1
+        src_idx = i + 2
         w1_key = f"sequential.{src_idx}.mlp.w1.weight"
         w2_key = f"sequential.{src_idx}.mlp.w2.weight"
         fc1_key = f"decoder.layers.{i}.mlp.linear_fc1.weight"
