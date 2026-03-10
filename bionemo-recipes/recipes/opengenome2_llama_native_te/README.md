@@ -2,7 +2,7 @@
 
 This folder demonstrates how to train TE-accelerated Llama 3 with a native PyTorch training loop for autoregressive DNA token prediction on the metagenome subset of the OpenGenome2 genomic dataset. It uses fully sharded data parallel (FSDP2), THD
 sequence packing, a custom nucleotide tokenizer, and supports FP32 master weights. Convergence has been validated against the
-Megatron/ShardedEden OpenGenome2 baseline.
+Megatron/ShardedEden OpenGenome2 (OG2) baseline.
 
 ## How to use this recipe
 
@@ -12,17 +12,18 @@ alone by clicking
 
 ## Supported Models and Training Features
 
-| Model / feature              | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP32 master weights | RoPE in FP32 |
-| ---------------------------- | ---- | ----------------- | ---------------- | ------------------- | ------------ |
-| Llama 3 (OpenGenome2 config) | ✅   | ✅                | ✅               | ✅                  | ✅           |
+| Model / feature              | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP8 with THD Input Format | MXFP8<sup>[2]</sup> | Context Parallelism | Tensor Parallelism | FP32 Master Weights |
+| ---------------------------- | ---- | ----------------- | ---------------- | ------------------------- | ------------------- | ------------------- | ------------------ | ------------------- |
+| Llama 3 (OpenGenome2 config) | ✅   | ✅                | ✅               | ✅                        | ✅                  | ✅                  | 🚧                 | ✅                  |
 
-✅: Supported
+✅: Supported <br/>
+🚧: Under development <br/>
 
-\[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+)
+\[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
+\[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
 
-Additional features: Spike-No-More embedding init, Megatron-style scaled init for residual layers,
-weight decay grouping, genomic masking for degenerate bases, validation, checkpoint resume with
-dataloader state (StatefulDataLoader), and Nsight Systems profiling.
+Additional features specific to OG2: Spike-No-More embedding init, Megatron-style scaled init for residual layers,
+weight decay grouping, genomic data collator.
 
 ## Installing Dependencies
 
@@ -58,7 +59,7 @@ results use GBS 384 on 6× H100 nodes (48 GPUs).
 | Model                      | Step / checkpoint | Perplexity | Train loss | Test loss |
 | -------------------------- | ----------------- | ---------- | ---------- | --------- |
 | This recipe (OG2 7B)       | —                 | —          | —          | —         |
-| Megatron baseline (OG2 7B) | —                 | —          | —          | —         |
+| Megatron baseline (OG2 7B) | 1                 |            |            |           |
 
 ## Performance Benchmarks
 
@@ -87,7 +88,11 @@ Megatron Median: 4.88
 | Model                | Mean Step Time (s) | GBS | MFU (%) |
 | -------------------- | ------------------ | --- | ------- |
 | This recipe (OG2 7B) | 6.61               | 384 | 52.3    |
-| Megatron (John’s)    | 5.48               | 384 | 62.33   |
+| Megatron baseline    | 5.48               | 384 | 62.33   |
+
+This recipe is ~21% slower per step than the Megatron baseline (6.61 s vs 5.48 s). The gap is
+expected: the Megatron run uses FP8 and tensor parallelism (TP=4), which we do not yet enable.
+Enabling FP8 and TP should close most of this gap.
 
 ### Throughput: THD vs BSHD
 
@@ -113,14 +118,6 @@ correctly with meta device init; set `use_meta_device=false` when using scaled i
 Spike-No-More embedding init. See
 [opengenome_modeling_llama_te.py](opengenome_modeling_llama_te.py) for implementation details.
 
-### Spike-No-More Embedding Initialization
-
-Embeddings are initialized with `std=1.0` instead of the usual small `initializer_range` (e.g.
-0.02). The intuition is that a larger initial embedding scale avoids an early loss “spike” and
-improves training stability ([Spike-No-More, arXiv:2312.16903](https://arxiv.org/abs/2312.16903)).
-Controlled by `spike_no_more_embedding_init` in Hydra (default `true`). When enabled, we also set
-`tie_word_embeddings=false`. Use `use_meta_device=false` when combining with Megatron scaled init.
-
 ### Weight Decay Parameter Skipping
 
 We use weight-decay grouping that skips weight decay on biases, 1D parameters (e.g. LayerNorm/RMSNorm
@@ -130,12 +127,23 @@ convention and avoids over-regularizing scale parameters. Controlled by `use_wei
 and `skip_embedding_weight_decay` in Hydra (defaults: both `true`). See
 [optimizer.py](optimizer.py) for `get_parameter_groups_with_weight_decay`.
 
+### Spike-No-More Embedding Initialization
+
+Embeddings are initialized with `std=1.0` instead of the usual small `initializer_range` (e.g.
+0.02). The intuition is that a larger initial embedding scale avoids an early loss “spike” and
+improves training stability ([Spike-No-More, arXiv:2312.16903](https://arxiv.org/abs/2312.16903)).
+Controlled by `spike_no_more_embedding_init` in Hydra (default `true`). When enabled, we also set
+`tie_word_embeddings=false` and skip embedding weight decay (see above). Use
+`use_meta_device=false` when combining with Megatron scaled init.
+
 ### FP32 Master Weights and RoPE
 
-We use FSDP2 `MixedPrecisionPolicy` with `cast_forward_inputs=False` so that RoPE embeddings
-(computed in FP32 in the model) are not downcast to BF16 at module boundaries. Keeping RoPE in
-FP32 is important for long-context attention quality. See [train_fsdp2.py](train_fsdp2.py) for
-the policy setup.
+when `use_fp32_master_weights` is enabled, we initialize the model in FP32 so that the master
+weights are kept in FP32. Training uses BF16 parameters with FP32 gradient all-reduce via FSDP2 `MixedPrecisionPolicy`
+(`param_dtype=bf16`, `reduce_dtype=fp32`). We also set `cast_forward_inputs=False` because the
+default (`True`) would downcast RoPE embeddings — which are computed in FP32 in the model — to
+BF16 at FSDP module boundaries, causing numerical issues in long-context attention. See
+[train_fsdp2.py](train_fsdp2.py) for the policy setup.
 
 ## Distributed Training
 
