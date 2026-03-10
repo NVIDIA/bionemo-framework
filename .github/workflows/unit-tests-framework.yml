@@ -75,14 +75,9 @@ jobs:
         with:
           base_sha: ${{ steps.merge-base.outputs.merge-base }}
           files: |
-            **
-            !bionemo-recipes/**
-            !**.md
-            !.github/**
-            !.gitignore
-            !.devcontainer/**
-            !ci/scripts/recipes_local_test.py
-            !ci/scripts/check_copied_files.py
+            3rdparty/**
+            sub-packages/**
+            Dockerfile
             .github/workflows/unit-tests-framework.yml
 
       - name: Show output
