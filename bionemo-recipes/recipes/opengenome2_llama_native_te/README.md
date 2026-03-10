@@ -1,47 +1,408 @@
-# OpenGenome2 Llama3 Native TE Recipe
+# TransformerEngine-accelerated Llama 3 training for OpenGenome2
 
-Self-contained training recipe for OpenGenome2 genomic language models using a Llama3 architecture
-with TransformerEngine layers and FSDP2.
+This folder demonstrates how to train TE-accelerated Llama 3 with a native PyTorch training loop for autoregressive DNA token prediction on the metagenome subset of the OpenGenome2 genomic dataset. It uses fully sharded data parallel (FSDP2), THD
+sequence packing, a custom nucleotide tokenizer, and supports FP32 master weights. Convergence has been validated against the
+Megatron/ShardedEden OpenGenome2 baseline.
 
-## Features
+## How to use this recipe
 
-- **Spike-No-More embedding init** (std=1.0) for training stability
-- **Megatron-style scaled init** for residual output layers (proj/fc2)
-- **FP32 master weights** with BF16 compute via MixedPrecisionPolicy
-- **Weight decay grouping** (skip bias and 1D params, optionally embeddings)
-- **Genomic masking** for degenerate bases (N, R, Y, etc.)
-- **THD sequence packing** for efficient variable-length training
-- **FP8 training** with configurable first/last layer BF16 override
+This folder is a self-contained training example. You can download a zipped directory of this recipe
+alone by clicking
+[here](https://download-directory.github.io?url=https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/recipes/opengenome2_llama_native_te&filename=opengenome2-llama-native-te).
 
-## Quick Start
+## Supported Models and Training Features
+
+| Model / feature              | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP32 master weights | RoPE in FP32 |
+| ---------------------------- | ---- | ----------------- | ---------------- | ------------------- | ------------ |
+| Llama 3 (OpenGenome2 config) | ✅   | ✅                | ✅               | ✅                  | ✅           |
+
+✅: Supported
+
+\[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+)
+
+Additional features: Spike-No-More embedding init, Megatron-style scaled init for residual layers,
+weight decay grouping, genomic masking for degenerate bases, validation, checkpoint resume with
+dataloader state (StatefulDataLoader), and Nsight Systems profiling.
+
+## Installing Dependencies
+
+The easiest way to get started is to use the provided Dockerfile, which uses an NVIDIA PyTorch base
+image with optimized PyTorch and TransformerEngine. To build and run:
 
 ```bash
-# Build the container
 docker build -t og2_llama_te .
+docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bionemo og2_llama_te /bin/bash
+```
 
-# Single-node training (8 GPUs)
-torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_thd_gqa \
-    checkpoint.ckpt_dir=/output/checkpoints \
-    wandb.project=my-project
+Alternatively, install dependencies manually in an environment with CUDA support. See
+`requirements.txt` for the list of dependencies.
 
-# Multi-node training (6 nodes x 8 GPUs)
+## Convergence Benchmarks (vs Megatron Baseline)
+
+Our baseline is the Megatron/NeMo Llama 3 model trained with the BCR ShardedEden dataloader. To
+improve convergence and training stability, we adopted features used in the Megatron stack:
+Spike-No-More embeddings, scaled initialization of output projections (proj/fc2), and BF16 compute
+with FP32 master weights.
+
+This recipe uses THD sequence packing, whereas the Megatron baseline uses a standard BSHD dataloader.
+On the metagenome dataset, the median sequence length is ~2.2k and the average is ~4k, so with THD we
+process roughly 2–3× more tokens per training step (less padding waste). As a result, this recipe
+achieves significantly better convergence than the Megatron baseline at a matched global batch size.
+Both runs use FP32 master weights; the Megatron baseline uses FP8 training and we use BF16. Reported
+results use GBS 384 on 6× H100 nodes (48 GPUs).
+
+<p align="center">
+  <img src="assets/og2_convergence_vs_megatron.png" alt="OpenGenome2 7B convergence vs Megatron" width="80%" />
+</p>
+
+| Model                      | Step / checkpoint | Perplexity | Train loss | Test loss |
+| -------------------------- | ----------------- | ---------- | ---------- | --------- |
+| This recipe (OG2 7B)       | —                 | —          | —          | —         |
+| Megatron baseline (OG2 7B) | —                 | —          | —          | —         |
+
+## Performance Benchmarks
+
+### MFU formula (same as Llama3 70B benchmarks)
+
+MFU was calculated using a 989 TFLOPS/GPU maximum theoretical bf16 throughput for H100. Model FLOPS use the formula:
+
+```python
+def compute_model_pflops(seq_len, global_batch_size, step_time_s):
+    B, S, H, L, V = global_batch_size, seq_len, HIDDEN_DIM, N_LAYERS, VOCAB_SIZE
+    model_flops = (
+        (24 * B * S * H * H + 4 * B * S * S * H) * (3 * L) + (6 * B * S * H * V)
+    ) / step_time_s
+    return model_flops / 1e15
+```
+
+Override `--seq_len`, `--micro_batch_size`, `--grad_acc_steps`, or `--peak_tflops_per_gpu` if your
+run differs (e.g. A100: `--peak_tflops_per_gpu 312`).
+
+### MFU and step time (vs Megatron baseline)
+
+| Model                | Step time (s) | GBS | MFU (%) |
+| -------------------- | ------------- | --- | ------- |
+| This recipe (OG2 7B) | 6.53          | 384 | 52.3    |
+| Megatron (John’s)    | 4.88          | 384 | 70.04   |
+
+```mermaid
+xychart-beta
+    title "MFU (%) — fill with your numbers"
+    x-axis ["This recipe (OG2 7B)", "Megatron (John's)"]
+    y-axis "MFU (%)" 0 --> 65
+    bar [52.3, 55]
+```
+
+```mermaid
+xychart-beta
+    title "Step time (s) — fill with your numbers"
+    x-axis ["This recipe (OG2 7B)", "Megatron (John's)"]
+    y-axis "Step time (s)" 0 --> 8
+    bar [6.53, 5]
+```
+
+### Throughput: THD vs BSHD
+
+Replace placeholders with your logged step time and tokens per step (BSHD: `GBS × max_seq_length`;
+THD: non-pad tokens from collator/dataloader). Tokens/sec = tokens per step / step time.
+
+| Config             | Step time (s) | Tokens/step | Tokens/sec | Tokens/sec/GPU |
+| ------------------ | ------------- | ----------- | ---------- | -------------- |
+| THD (this recipe)  | 6.53          | —           | —          | —              |
+| BSHD (this recipe) |               | 3,145,728   | —          | —              |
+
+```mermaid
+xychart-beta
+    title "Throughput (tokens/sec) — fill with your numbers"
+    x-axis ["BSHD (Megatron)", "THD (this recipe)"]
+    y-axis "Tokens/sec" 0 --> 500000
+    bar [150000, 380000]
+```
+
+## OpenGenome2-Specific Setup
+
+### Megatron-Style Scaled Output Initialization
+
+Residual output layers (attention `proj`, MLP `fc2`) use
+`std = initializer_range / sqrt(2 * num_layers)` to match Megatron. Scaling by `1/sqrt(2*num_layers)`
+keeps the residual branch variance stable across depth so that activations and gradients neither blow
+up nor vanish when stacking many layers. This is controlled by `use_megatron_scaled_init` in Hydra
+(default `true` in `hydra_config/defaults.yaml`). **Known bug:** scaled init does not work
+correctly with meta device init; set `use_meta_device=false` when using scaled init or
+Spike-No-More embedding init. See
+[opengenome_modeling_llama_te.py](opengenome_modeling_llama_te.py) for implementation details.
+
+### Spike-No-More Embedding Initialization
+
+Embeddings are initialized with `std=1.0` instead of the usual small `initializer_range` (e.g.
+0.02). The intuition is that a larger initial embedding scale avoids an early loss “spike” and
+improves training stability ([Spike-No-More, arXiv:2312.16903](https://arxiv.org/abs/2312.16903)).
+Controlled by `spike_no_more_embedding_init` in Hydra (default `true`). When enabled, we also set
+`tie_word_embeddings=false`. Use `use_meta_device=false` when combining with Megatron scaled init.
+
+### Weight Decay Parameter Skipping
+
+We use weight-decay grouping that skips weight decay on biases, 1D parameters (e.g. LayerNorm/RMSNorm
+weights), and optionally on embedding layers. Applying weight decay to embeddings can shrink their
+norms and hurt representation quality; skipping it on biases and norm weights follows the Megatron
+convention and avoids over-regularizing scale parameters. Controlled by `use_weight_decay_grouping`
+and `skip_embedding_weight_decay` in Hydra (defaults: both `true`). See
+[optimizer.py](optimizer.py) for `get_parameter_groups_with_weight_decay`.
+
+### FP32 Master Weights and RoPE
+
+We use FSDP2 `MixedPrecisionPolicy` with `cast_forward_inputs=False` so that RoPE embeddings
+(computed in FP32 in the model) are not downcast to BF16 at module boundaries. Keeping RoPE in
+FP32 is important for long-context attention quality. See [train_fsdp2.py](train_fsdp2.py) for
+the policy setup.
+
+## Distributed Training
+
+This recipe supports distributed training using FSDP2 and FSDP2 with Context Parallelism, shown in
+two separate training entrypoints:
+
+- [Fully Sharded Data Parallel 2
+  (FSDP2)](https://docs.pytorch.org/docs/stable/distributed.fsdp.fully_shard.html), shown in
+  `train_fsdp2.py`
+- FSDP2 with Context Parallelism, shown in `train_fsdp2_cp.py`
+
+## Commands to Launch Training
+
+To run single-process training on one GPU:
+
+```bash
+python train_fsdp2.py --config-name L0_sanity
+```
+
+To run multi-process training locally (e.g. 8 GPUs):
+
+```bash
+torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_thd_gqa
+```
+
+Multi-node example (e.g. 6 nodes × 8 GPUs):
+
+```bash
 torchrun --nproc_per_node=8 --nnodes=6 --node_rank=$RANK \
     --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT \
     train_fsdp2.py --config-name og2_7b_thd_gqa \
     checkpoint.ckpt_dir=/output/checkpoints
 ```
 
+Gradient accumulation is supported. Set `grad_acc_steps` to the number of micro-batches to
+accumulate before each optimizer step (e.g. to scale effective batch size on fewer GPUs):
+
+```bash
+torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_thd_gqa grad_acc_steps=8
+```
+
+A tiny convergence/sanity config (`L0_sanity`) is available to overfit on a small dataset:
+
+```bash
+python train_fsdp2.py --config-name L0_sanity
+```
+
+### FP8 Training
+
+To run training with FP8, enable it via the `fp8_config.enabled=true` override. Use the
+`og2_7b_thd_gqa_fp8` config or override FP8 settings in your config:
+
+```bash
+torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_thd_gqa fp8_config.enabled=true
+```
+
+FP8 debugging (stats collection for activations/weights/gradients) can be enabled with
+`fp8_stats_config.enabled=True` and related options; see [fp8_debugging.py](fp8_debugging.py) and
+the [Transformer Engine config
+documentation](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/debug/2_config_file_structure.html).
+
+### Sequence Packing (THD input format)
+
+Sequence packing is handled via a padding-free collator that provides inputs (e.g. `cu_seq_lens_q`)
+for padding-free attention. Enable it with `use_sequence_packing=true` in the Hydra config. The
+main OpenGenome2 configs use THD by default.
+
+```bash
+python train_fsdp2.py --config-name L0_sanity use_sequence_packing=true
+```
+
+### Context Parallel Training
+
+Context parallelism splits each sequence across multiple GPUs along the sequence dimension, enabling
+training with very long sequences. Use `train_fsdp2_cp.py` with the `L0_sanity_cp` configuration and
+set `cp_size` to the number of context parallelism ranks. Works with both BSHD (no padding) and
+THD (padding) input formats. Only TE models are supported.
+
+```bash
+torchrun --nproc_per_node=4 train_fsdp2_cp.py --config-name L0_sanity_cp cp_size=2
+```
+
+## Downloading Pre-Training Data
+
+The default configs expect OpenGenome2-style data: either JSONL (e.g.
+`data_metagenomics_train_*.jsonl.gz`) for streaming, or a directory of pre-chunked Parquet shards for
+the globally shuffled path. Point `dataset.load_dataset_kwargs.path` to your data directory (or
+use the appropriate config). Example for pre-chunked Parquet:
+
+```bash
+torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_thd_gqa_global_shuffle \
+  dataset.load_dataset_kwargs.path=/path/to/parquet_shards
+```
+
+## Saving and Loading Checkpoints
+
+Set `checkpoint.ckpt_dir` to a writable directory. Checkpoint frequency is controlled by
+`checkpoint.save_every_n_steps`:
+
+```bash
+torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_thd_gqa \
+  checkpoint.ckpt_dir=/output/checkpoints \
+  checkpoint.save_every_n_steps=1000
+```
+
+To resume from the latest checkpoint, set `checkpoint.resume_from_checkpoint=true`:
+
+```bash
+torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_thd_gqa \
+  checkpoint.ckpt_dir=/output/checkpoints \
+  checkpoint.resume_from_checkpoint=true
+```
+
+Set `checkpoint.save_final_model=true` to export a final model at the end of training (saved under
+`final_model` in the checkpoint directory), suitable for Hugging Face Hub or local inference.
+
+## Saving Dataloader State with StatefulDataLoader
+
+Checkpointing can save and restore dataloader position when using the `StatefulDataLoader` from
+`torchdata`. Enable it with `dataset.use_stateful_dataloader=true`. The save/load logic is in
+[checkpoint.py](checkpoint.py); the dataloader instance is passed to `save_checkpoint_fsdp2` and
+`load_checkpoint_fsdp2` so that resume continues from the correct step in the data stream.
+
+## Performance Profiling with NVIDIA Nsight Systems
+
+This recipe supports profiling with NVIDIA Nsight Systems. Enable it with `profiler.enabled=true`
+and set `profiler.start_step` and `profiler.end_step` to define the step range to profile.
+Profiling runs only on global rank 0 in distributed runs.
+
+**Single GPU:**
+
+```bash
+nsys profile \
+  -o nsight_trace \
+  --trace=cuda,nvtx,osrt,cudnn,cublas \
+  --pytorch=autograd-nvtx \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end=stop \
+  python train_fsdp2.py profiler.enabled=true profiler.start_step=10 profiler.end_step=15
+```
+
+**Multi-GPU:** Wrap the same `python`/`torchrun` command with `nsys profile ...`; only rank 0
+will profile. See [perf_logger.py](perf_logger.py) and the [Nsight Systems
+documentation](https://docs.nvidia.com/nsight-systems/).
+
+## Running Inference with the Trained Model
+
+Models can be loaded from the final checkpoint directory using `AutoModelForCausalLM` or
+`NVLlamaForCausalLM` from this recipe. Standard Hugging Face loading works if `config.json` is
+updated to include an `auto_map` entry for `opengenome_modeling_llama_te.NVLlamaForCausalLM` and
+the custom forward pass is packaged in the checkpoint directory.
+
+If you trained with TE layers (which is the default), use `NVLlamaForCausalLM` for inference with
+TE’s `InferenceParams` key-value cache:
+
+```python
+import torch
+from transformers import AutoTokenizer
+from transformer_engine.pytorch.attention import InferenceParams
+from opengenome_modeling_llama_te import NVLlamaForCausalLM, NVLlamaConfig
+
+# Load the model configuration and weights
+config = NVLlamaConfig.from_pretrained("path/to/final_model")
+model = NVLlamaForCausalLM.from_pretrained("path/to/final_model", config=config)
+tokenizer = AutoTokenizer.from_pretrained("./tokenizers/nucleotide_fast_tokenizer")
+
+model.to("cuda")
+model.eval()
+
+# Example genomic sequence
+sequence = "ACGTACGT"
+inputs = tokenizer(sequence, return_tensors="pt").to("cuda")
+
+# Setup inference parameters for efficient generation
+past_key_values = InferenceParams(
+    max_batch_size=1,
+    max_sequence_length=256,
+    num_heads_kv=model.config.num_key_value_heads,
+    head_dim_k=model.config.hidden_size // model.config.num_attention_heads,
+    dtype=torch.bfloat16,
+    qkv_format="thd",
+    max_ctx_len=256,
+)
+for layer_number in range(1, model.config.num_hidden_layers + 1):
+    past_key_values.allocate_memory(layer_number)
+
+# Generate
+with torch.no_grad():
+    output_ids = model.generate(
+        **inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values
+    )
+
+generated_text = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+print(generated_text)
+```
+
+### Converting to Hugging Face Format
+
+To convert the trained TE model to a standard Hugging Face `LlamaForCausalLM` (e.g. for vLLM or
+SGLang), you can use the conversion script in the parent Llama3 models directory
+(`../../models/llama3/convert.py`) if the model layout matches. Load with `NVLlamaForCausalLM` and
+`NVLlamaConfig` from this recipe, then call `convert_llama_te_to_hf(model_te)` and save the
+resulting model and tokenizer.
+
 ## Hydra Configs
 
-| Config                          | Description                                     |
-| ------------------------------- | ----------------------------------------------- |
-| `og2_7b_thd_gqa`                | Main 7B GQA config (BF16 + FP32 master weights) |
-| `og2_7b_thd_gqa_global_shuffle` | Pre-chunked parquet shard variant               |
-| `og2_7b_thd_gqa_fp8`            | FP8 variant with Float8BlockScaling             |
-| `L0_sanity`                     | Tiny model for CI/CD testing                    |
+| Config                          | Description                                                |
+| ------------------------------- | ---------------------------------------------------------- |
+| `og2_7b_thd_gqa`                | Main 7B GQA config; streaming JSONL, windowed tokenization |
+| `og2_7b_thd_gqa_global_shuffle` | Pre-chunked Parquet shards (globally shuffled)             |
+| `og2_7b_thd_gqa_fp8`            | FP8 variant with Float8BlockScaling                        |
+| `L0_sanity`                     | Tiny model for CI/CD testing                               |
 
-## Testing
+See [hydra_config/defaults.yaml](hydra_config/defaults.yaml) for all options.
+
+## Validation
+
+Validation can be enabled with `validation.enabled=true` and `validation.data_path` pointing to
+validation data (e.g. a JSONL file). The `og2_7b_thd_gqa` config enables validation by default.
+Control evaluation frequency with `validation.eval_interval` and `validation.num_batches`.
+
+## Developer Guide
+
+### Running tests
+
+From the repository root, run the recipe test script with the recipe path:
+
+```bash
+./ci/scripts/recipes_local_test.py bionemo-recipes/recipes/opengenome2_llama_native_te/
+```
+
+Or from this recipe directory:
 
 ```bash
 pytest -v tests/
+```
+
+### Development container
+
+Use "Dev Containers: Reopen in Container" in VS Code and choose the "BioNeMo Recipes Dev
+Container" option. Run tests inside the container with `pytest -v .` in this directory.
+
+### Hydra tips
+
+[Hydra](https://hydra.cc/) manages training configurations. Override parameters from the command
+line, e.g.:
+
+```bash
+python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true
+python train_fsdp2.py --config-name og2_7b_thd_gqa grad_acc_steps=8 checkpoint.save_every_n_steps=500
 ```
