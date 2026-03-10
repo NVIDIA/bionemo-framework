@@ -80,9 +80,6 @@ def compute_model_pflops(seq_len, global_batch_size, step_time_s):
     return model_flops / 1e15
 ```
 
-Override `--seq_len`, `--micro_batch_size`, `--grad_acc_steps`, or `--peak_tflops_per_gpu` if your
-run differs (e.g. A100: `--peak_tflops_per_gpu 312`).
-
 ### MFU and step time (vs Megatron baseline)
 
 TODO: is it better to use median for the reported step time/MFU calculation?
