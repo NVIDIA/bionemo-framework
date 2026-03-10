@@ -127,7 +127,7 @@ For FP4 (NVFP4) quantization, pass an `fp4_recipe` instead and set the correspon
 `"fp4"` in `layer_precision`:
 
 ```python
-fp4_recipe = te_recipe.NVFP4()
+fp4_recipe = te_recipe.NVFP4BlockScaling()
 
 config = NVEsmConfig.from_pretrained(
     "nvidia/esm2_t6_8M_UR50D",
@@ -151,7 +151,7 @@ config = NVEsmConfig.from_pretrained(
     layer_precision=["fp4"] * 6,
     use_quantized_model_init=True,
 )
-model = NVEsmForMaskedLM(config, fp4_recipe=te_recipe.NVFP4())
+model = NVEsmForMaskedLM(config, fp4_recipe=te_recipe.NVFP4BlockScaling())
 ```
 
 ### Notes

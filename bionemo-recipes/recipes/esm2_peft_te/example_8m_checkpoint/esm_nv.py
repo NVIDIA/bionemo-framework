@@ -132,11 +132,11 @@ class NVEsmConfig(EsmConfig):
             )
 
         if layer_precision is not None:
-            assert len(layer_precision) == self.num_hidden_layers, (
-                f"layer_precision must be a list of length {self.num_hidden_layers}"
-            )
+            if len(layer_precision) != self.num_hidden_layers:
+                raise ValueError(f"layer_precision must be a list of length {self.num_hidden_layers}")
             for precision in layer_precision:
-                assert precision in {"fp8", "fp4", None}, 'layer_precision element must be "fp8", "fp4", or None'
+                if precision not in {"fp8", "fp4", None}:
+                    raise ValueError(f'layer_precision element must be "fp8", "fp4", or None, got {precision!r}')
 
 
 class NVEsmEncoder(nn.Module):
@@ -160,12 +160,20 @@ class NVEsmEncoder(nn.Module):
         self._fp8_recipe: transformer_engine.common.recipe.Recipe | None = fp8_recipe
         self._fp4_recipe: transformer_engine.common.recipe.Recipe | None = fp4_recipe
 
-        if fp8_recipe is not None and self.config.layer_precision is None:
-            if fp4_recipe is not None:
+        if self.config.layer_precision is None:
+            if fp8_recipe is not None and fp4_recipe is not None:
                 raise RuntimeError("Both FP8 and FP4 recipes provided, but no layer precision provided.")
+            if fp8_recipe is not None:
+                warnings.warn("No layer precision provided, using FP8 recipe for all layers.", UserWarning)
+                self.config.layer_precision = ["fp8"] * self.config.num_hidden_layers
+            elif fp4_recipe is not None:
+                raise RuntimeError(
+                    "FP4 recipe provided but no layer_precision configured. "
+                    "Set layer_precision explicitly when using FP4."
+                )
 
-            warnings.warn("No layer precision provided, using FP8 recipe for all layers.", UserWarning)
-            self.config.layer_precision = ["fp8"] * self.config.num_hidden_layers
+        if self.config.layer_precision is not None and "fp4" in self.config.layer_precision and fp4_recipe is None:
+            raise RuntimeError("layer_precision contains 'fp4' entries but no fp4_recipe was provided.")
 
         def _init_method(x):
             torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
@@ -234,7 +242,7 @@ class NVEsmEncoder(nn.Module):
         with torch.autocast(device_type="cuda", enabled=False):
             te_rope_emb = self.rotary_embeddings(max_seq_len=self.config.max_position_embeddings)
             te_rope_emb = te_rope_emb.to(hidden_states.device, non_blocking=True)
-            if te_rope_emb.dtype == torch.float32:
+            if te_rope_emb.dtype != torch.float32:
                 warnings.warn("Rotary embeddings should be in float32 for optimal performance.", UserWarning)
 
         with self.get_autocast_context(None, outer=True):
@@ -295,6 +303,8 @@ class NVEsmEncoder(nn.Module):
         recipe = {"fp8": self._fp8_recipe, "fp4": self._fp4_recipe}.get(precision)
 
         if init and self.config.use_quantized_model_init:
+            if precision == "fp4" and recipe is None:
+                raise RuntimeError("No FP4 recipe provided, but layer precision is set to FP4.")
             if precision in ("fp8", "fp4"):
                 return transformer_engine.pytorch.quantized_model_init(recipe=recipe)
             return nullcontext()

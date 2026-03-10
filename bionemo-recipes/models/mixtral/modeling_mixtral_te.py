@@ -24,6 +24,7 @@ import torch
 import torch.nn as nn
 import transformer_engine.common.recipe
 import transformer_engine.pytorch
+import transformers
 from transformer_engine.pytorch.attention import InferenceParams
 from transformer_engine.pytorch.attention.inference import PagedKVCacheManager
 from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
@@ -69,11 +70,11 @@ class NVMixtralConfig(MixtralConfig):
         self.use_quantized_model_init = use_quantized_model_init
 
         if layer_precision is not None:
-            assert len(layer_precision) == self.num_hidden_layers, (
-                f"layer_precision must be a list of length {self.num_hidden_layers}"
-            )
+            if len(layer_precision) != self.num_hidden_layers:
+                raise ValueError(f"layer_precision must be a list of length {self.num_hidden_layers}")
             for precision in layer_precision:
-                assert precision in {"fp8", "fp4", None}, 'layer_precision element must be "fp8", "fp4", or None'
+                if precision not in {"fp8", "fp4", None}:
+                    raise ValueError(f'layer_precision element must be "fp8", "fp4", or None, got {precision!r}')
 
 
 class NVMixtralPreTrainedModel(PreTrainedModel):
@@ -486,7 +487,7 @@ class NVMixtralModel(NVMixtralPreTrainedModel):
         return transformer_engine.pytorch.autocast(enabled=False)
 
 
-class NVMixtralForCausalLM(NVMixtralPreTrainedModel, __import__("transformers").GenerationMixin):
+class NVMixtralForCausalLM(NVMixtralPreTrainedModel, transformers.GenerationMixin):
     """Mixtral model with causal language head."""
 
     _tied_weights_keys: ClassVar[list[str]] = []

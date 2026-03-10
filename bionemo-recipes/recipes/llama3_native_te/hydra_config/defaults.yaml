@@ -42,6 +42,12 @@ fp8_config:
   fp8_format: "HYBRID"
   fp8_recipe_kwargs: {}
 
+fp4_config:
+  enabled: false
+  fp4_recipe: transformer_engine.common.recipe.NVFP4BlockScaling
+  fp4_format: "E2M1"
+  fp4_recipe_kwargs: {}
+
 # Optimizer config
 adamw_kwargs:
   lr: 3e-3

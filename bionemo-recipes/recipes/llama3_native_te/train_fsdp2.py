@@ -79,18 +79,22 @@ def main(args: DictConfig) -> float | None:
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
 
     # --- Model Configuration ---
-    # Create quantization recipe -- only used if FP8 is enabled in the config.
+    # Create quantization recipes -- only used if FP8/FP4 is enabled in the config.
     fp8_recipe = None
     if args.fp8_config.enabled:
         fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
             fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
         )
 
+    fp4_recipe = None
+    if args.fp4_config.enabled:
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(**args.fp4_config.fp4_recipe_kwargs)
+
     # --- Model Initialization ---
     if args.use_te:
         config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
         with torch.device("meta") if args.use_meta_device else nullcontext():
-            model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe)
+            model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
     else:
         config = LlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
         with torch.device("meta") if args.use_meta_device else nullcontext():
