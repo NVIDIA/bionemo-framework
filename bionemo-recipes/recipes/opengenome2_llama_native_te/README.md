@@ -2,10 +2,13 @@
 
 This folder demonstrates how to train TE-accelerated Llama 3 with a native PyTorch training loop for autoregressive DNA token prediction on the metagenome subset of the OpenGenome2 genomic dataset. It uses fully sharded data parallel (FSDP2), THD sequence packing, a custom nucleotide tokenizer, and supports FP32 master weights. Convergence has been validated against the Megatron/ShardedEden OpenGenome2 (OG2) baseline.
 
+### How to deploy this recipe on cloud providers
+
+🚧 Under development
+
 ## How to use this recipe
 
-This folder is a self-contained training example. You can download a zipped directory of this recipe
-alone by clicking
+This folder contains an independent, minimal training example. It does not depend on any other code in the top-level bionemo-framework repository. You can download a zipped directory of this folder alone by clicking
 [here](https://download-directory.github.io?url=https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/recipes/opengenome2_llama_native_te&filename=opengenome2-llama-native-te).
 
 ## Supported Models and Training Features
@@ -16,6 +19,7 @@ alone by clicking
 
 ✅: Supported <br/>
 🚧: Under development <br/>
+❌: Not supported <br/>
 
 \[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
 \[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
@@ -26,35 +30,37 @@ weight decay grouping, and the genomic data collator.
 ## Installing Dependencies
 
 The easiest way to get started is to use the provided Dockerfile, which uses an NVIDIA PyTorch base
-image with optimized PyTorch and TransformerEngine. To build and run:
+image to provide optimized versions of PyTorch and TransformerEngine. To build the container, run:
 
 ```bash
 docker build -t og2_llama_te .
 docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bionemo og2_llama_te /bin/bash
 ```
 
-Alternatively, install dependencies manually in an environment with CUDA support. See
-`requirements.txt` for the list of dependencies.
+Alternatively, the dependencies can be installed manually in an environment with CUDA support. See `requirements.txt`
+for the list of dependencies.
 
 ## Convergence Benchmarks (vs Megatron Baseline)
 
 Our baseline is the Megatron/NeMo Llama 3 model trained with the BCR ShardedEden dataloader. To
-improve convergence and training stability, we adopted features used in the Megatron stack:
+improve convergence and training stability for the OG2 recipe, we adopted features used in the Megatron stack:
 Spike-No-More embeddings, scaled initialization of output projections (proj/fc2), and BF16 compute
 with FP32 master weights.
 
-This recipe uses THD sequence packing, whereas the Megatron baseline uses a standard BSHD dataloader.
+However, this recipe uses THD sequence packing for training, whereas the Megatron baseline uses a standard BSHD dataloader.
 On the metagenome dataset, the median sequence length is ~2.2k and the average is ~4k, so with THD we
 process roughly 2–3× more tokens per training step (less padding waste). As a result, this recipe
-achieves significantly better convergence than the Megatron baseline at a matched global batch size.
+achieves significantly better convergence [TODO: add %] than the Megatron baseline at a matched global batch size.
 Both runs use FP32 master weights; the Megatron baseline uses FP8 training and we use BF16. Reported
-results use GBS 384 on 6× H100 nodes (48 GPUs).
+results use GBS 384 on 6× H100 nodes (48 GPUs). Note that we also use bf16/fp32 training while the Megatron baseline uses fp8/fp32 training 
+which may also contribute to its lower test performance. 
 
+TODO: Fill with final results/replace with final image 
 <p align="center">
   <img src="assets/og2_convergence_vs_megatron.png" alt="OpenGenome2 7B convergence vs Megatron" width="80%" />
 </p>
 
-| Model                      | Step / checkpoint | Perplexity | Train loss | Test loss |
+| Model                      | Step / checkpoint | Train loss| Test loss | Perplexity |
 | -------------------------- | ----------------- | ---------- | ---------- | --------- |
 | This recipe (OG2 7B)       |      -            |  -        | —          | —         |
 | Megatron baseline (OG2 7B) | -             |            |            |           |
