@@ -111,6 +111,103 @@ Training recipes are available in the `bionemo-recipes/recipes/` directory:
 - **[llama3_native_te](../../recipes/llama3_native_te/)** - Demonstrates training with a native PyTorch training loop
   using FSDP2, including FP8, sequence packing, and context parallelism.
 
+## Running with Low Precision (FP8/FP4)
+
+The TE-optimized Llama model supports per-layer quantization via two mechanisms: a **config-level**
+`layer_precision` list that declares which layers use which precision, and **constructor-level** recipe
+objects (`fp8_recipe`, `fp4_recipe`) that control the quantization recipe.
+
+### Configuration: `layer_precision`
+
+`NVLlamaConfig.layer_precision` is a list of length `num_hidden_layers` where each element is `"fp8"`,
+`"fp4"`, or `None` (BF16 fallback). When set, it controls the `te.autocast` context used for each
+transformer layer during both initialization and forward pass.
+
+```python
+from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
+
+# All layers in FP8
+config = NVLlamaConfig.from_pretrained(
+    "meta-llama/Llama-3.2-1B-Instruct",
+    layer_precision=["fp8"] * 16,
+)
+```
+
+If you pass an `fp8_recipe` to the model constructor **without** setting `layer_precision`, it
+defaults to `["fp8"] * num_hidden_layers` (all layers FP8). You can also mix precisions, for example
+running most layers in FP8 but keeping the first and last layers in BF16:
+
+```python
+layer_precision = [None] + ["fp8"] * 14 + [None]
+config = NVLlamaConfig.from_pretrained(
+    "meta-llama/Llama-3.2-1B-Instruct",
+    layer_precision=layer_precision,
+)
+```
+
+### Constructor arguments: `fp8_recipe` and `fp4_recipe`
+
+The model classes (`NVLlamaModel`, `NVLlamaForCausalLM`) accept `fp8_recipe` and `fp4_recipe`
+keyword arguments. These are `transformer_engine.common.recipe.Recipe` objects that configure the
+quantization algorithm (e.g., delayed scaling, block scaling, MXFP8).
+
+```python
+import torch
+import transformer_engine.common.recipe as te_recipe
+from transformers import AutoModelForCausalLM
+
+from convert import convert_llama_hf_to_te
+from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
+
+fp8_recipe = te_recipe.DelayedScaling()
+
+config = NVLlamaConfig.from_pretrained(
+    "meta-llama/Llama-3.2-1B-Instruct",
+    layer_precision=["fp8"] * 16,
+)
+model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe)
+```
+
+For FP4 (NVFP4) quantization, pass an `fp4_recipe` instead and set the corresponding layers to
+`"fp4"` in `layer_precision`:
+
+```python
+fp4_recipe = te_recipe.NVFP4()
+
+config = NVLlamaConfig.from_pretrained(
+    "meta-llama/Llama-3.2-1B-Instruct",
+    layer_precision=["fp4"] * 16,
+)
+model = NVLlamaForCausalLM(config, fp4_recipe=fp4_recipe)
+```
+
+You can also mix FP8 and FP4 layers by providing both recipes and a mixed `layer_precision` list.
+
+### Quantized model initialization: `use_quantized_model_init`
+
+When `use_quantized_model_init=True` is set in the config, layers are created inside a
+`te.quantized_model_init` context. This tells TransformerEngine to initialize weights directly in
+the target quantized format, avoiding a separate quantization step after initialization.
+
+```python
+config = NVLlamaConfig.from_pretrained(
+    "meta-llama/Llama-3.2-1B-Instruct",
+    layer_precision=["fp4"] * 16,
+    use_quantized_model_init=True,
+)
+model = NVLlamaForCausalLM(config, fp4_recipe=te_recipe.NVFP4())
+```
+
+### Notes
+
+- The `lm_head` always runs in higher precision (`te.autocast(enabled=False)`) regardless of
+  `layer_precision`, to avoid numerical instability in the output logits.
+- FP8 requires compute capability 9.0+ (Hopper). MXFP8 requires compute capability 10.0+
+  (Blackwell).
+- If an `fp8_recipe` is provided without `layer_precision`, all layers default to FP8. Providing
+  both `fp8_recipe` and `fp4_recipe` without `layer_precision` raises a `RuntimeError`.
+- An FP4 layer **requires** an `fp4_recipe`; omitting it raises a `RuntimeError`.
+
 ## Converting Between Model Formats
 
 This section explains how to convert between Hugging Face Transformers and Transformer Engine (TE) Llama 3 model

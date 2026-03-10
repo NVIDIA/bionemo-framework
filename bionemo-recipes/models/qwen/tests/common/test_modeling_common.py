@@ -26,6 +26,7 @@ import pytest
 import torch
 import transformer_engine.pytorch
 from torch import nn
+from transformer_engine.common import recipe as recipe_module
 from transformer_engine.pytorch import QuantizedTensor
 from transformer_engine.pytorch.quantization import FP8GlobalStateManager
 from transformers import AutoConfig, PretrainedConfig, PreTrainedModel, PreTrainedTokenizer, set_seed
@@ -840,8 +841,93 @@ class BaseModelTest(ABC):
         )
 
     # ==================== FP8 Tests ====================
+
+    @staticmethod
+    def _get_recipe_precision_and_kwargs(recipe):
+        """Determine layer precision string and model kwargs from a TE recipe.
+
+        Args:
+            recipe: A TransformerEngine quantization recipe.
+
+        Returns:
+            Tuple of (precision_string, model_kwargs_dict).
+        """
+        if isinstance(recipe, recipe_module.NVFP4BlockScaling):
+            return "fp4", {"fp4_recipe": recipe}
+        return "fp8", {"fp8_recipe": recipe}
+
     def test_fp8_forward_and_backward_pass(self, fp8_recipe, input_format):
-        """Test that model works with FP8 autocast."""
+        """Test forward and backward with per-layer quantization precision configured via model kwargs."""
+        if input_format == "thd" and not HAS_DATA_CENTER_GPU:
+            pytest.xfail("Padded sequences are not supported on non-datacenter hardware for THD.")
+
+        precision, recipe_kwargs = self._get_recipe_precision_and_kwargs(fp8_recipe)
+
+        model_class = self.get_model_class()
+        config = self.create_test_config(
+            dtype=torch.bfloat16, attn_input_format=input_format, self_attn_mask_type="padding_causal"
+        )
+        config.layer_precision = [precision] * config.num_hidden_layers
+
+        model = model_class(config, **recipe_kwargs)
+        model.to("cuda")
+        model.eval()
+
+        input_data = self.get_test_input_data(input_format, pad_to_multiple_of=32)
+
+        # Forward pass - model handles autocast internally via get_autocast_context
+        outputs_fp8 = model(**input_data)
+        loss_fp8 = outputs_fp8.loss
+
+        assert torch.isfinite(loss_fp8)
+
+        # Backward pass
+        loss_fp8.backward()
+
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                assert param.grad is not None, f"Parameter {name} has no gradient after FP8 backward pass"
+
+    def test_quantized_model_init_forward_and_backward(self, fp8_recipe, input_format, **config_kwargs):
+        """Test forward and backward with quantized model init via config."""
+        if input_format == "thd" and not HAS_DATA_CENTER_GPU:
+            pytest.xfail("Padded sequences are not supported on non-datacenter hardware for THD.")
+
+        precision, recipe_kwargs = self._get_recipe_precision_and_kwargs(fp8_recipe)
+
+        model_class = self.get_model_class()
+        config = self.create_test_config(
+            attn_input_format=input_format, self_attn_mask_type="padding_causal", **config_kwargs
+        )
+        config.layer_precision = [precision] * config.num_hidden_layers
+        config.use_quantized_model_init = True
+
+        model = model_class(config, **recipe_kwargs)
+        model.to("cuda")
+        model.eval()
+
+        # Verify weights are actually quantized
+        self.verify_model_parameters_initialized_correctly(model, should_be_fp8=True)
+
+        input_data = self.get_test_input_data(input_format, pad_to_multiple_of=32)
+        if "labels" not in input_data:
+            input_data["labels"] = input_data["input_ids"].clone()
+
+        # Forward and backward pass - model handles autocast internally
+        outputs = model(**input_data)
+        loss = outputs.loss
+        assert torch.isfinite(loss)
+
+        loss.backward()
+
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                assert param.grad is not None, f"Parameter {name} has no gradient after FP8 backward pass"
+
+    # ==================== Legacy FP8 Tests (external context manager) ====================
+
+    def test_legacy_fp8_forward_and_backward_pass(self, fp8_recipe, input_format):
+        """Test that model works with external FP8 autocast context manager."""
         if input_format == "thd" and not HAS_DATA_CENTER_GPU:
             pytest.xfail("Padded sequences are not supported on non-datacenter hardware for THD.")
 
@@ -887,8 +973,8 @@ class BaseModelTest(ABC):
             msg=lambda x: f"FP8 loss differs too much from BF16 loss: {x}",
         )
 
-    def test_quantized_model_init_forward_and_backward(self, fp8_recipe, input_format, **config_kwargs):
-        """Test that model initialized with FP8 works correctly."""
+    def test_legacy_quantized_model_init_forward_and_backward(self, fp8_recipe, input_format, **config_kwargs):
+        """Test that model initialized with external FP8 quantized_model_init context works correctly."""
         if input_format == "thd" and not HAS_DATA_CENTER_GPU:
             pytest.xfail("Padded sequences are not supported on non-datacenter hardware for THD.")
 
@@ -903,6 +989,9 @@ class BaseModelTest(ABC):
 
         model.to("cuda")
         model.eval()
+
+        # Verify weights are actually quantized
+        self.verify_model_parameters_initialized_correctly(model, should_be_fp8=True)
 
         # Prepare input data
         input_data = self.get_test_input_data(input_format, pad_to_multiple_of=32)

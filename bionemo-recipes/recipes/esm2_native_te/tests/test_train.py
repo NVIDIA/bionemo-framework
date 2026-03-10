@@ -308,7 +308,7 @@ def test_sanity_mfsdp_fp8_and_model_init(tmp_path, recipe_path):
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
                 "fp8_config.enabled=true",
-                "fp8_config.quantized_model_init_kwargs.enabled=true",
+                "+config_kwargs.use_quantized_model_init=true",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "num_train_steps=4",
             ],
@@ -327,7 +327,7 @@ def test_sanity_ddp_fp8_and_model_init(tmp_path, recipe_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "fp8_config.enabled=true",
-                "fp8_config.quantized_model_init_kwargs.enabled=true",
+                "+config_kwargs.use_quantized_model_init=true",
                 "num_train_steps=4",
             ],
         )
@@ -344,7 +344,7 @@ def test_sanity_convergence_fsdp2_fp8_and_model_init(tmp_path, recipe_path):
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
                 "fp8_config.enabled=true",
-                "fp8_config.quantized_model_init_kwargs.enabled=true",
+                "+config_kwargs.use_quantized_model_init=true",
                 f"checkpoint.ckpt_dir={tmp_path}",
             ],
         )
@@ -508,7 +508,9 @@ def test_sanity_convergence_mfsdp_huggingface_model(tmp_path, recipe_path):
             config_name="L0_sanity",
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
-                "model_tag=facebook/esm2_t6_8M_UR50D",
+                "config_name_or_path=facebook/esm2_t6_8M_UR50D",
+                "dataset.tokenizer_name=facebook/esm2_t6_8M_UR50D",
+                "use_te=false",
             ],
         )
 
@@ -526,7 +528,9 @@ def test_sanity_convergence_ddp_huggingface_model(tmp_path, recipe_path):
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
-                "model_tag=facebook/esm2_t6_8M_UR50D",
+                "config_name_or_path=facebook/esm2_t6_8M_UR50D",
+                "dataset.tokenizer_name=facebook/esm2_t6_8M_UR50D",
+                "use_te=false",
                 "checkpoint.resume_from_checkpoint=false",
             ],
         )
@@ -545,7 +549,9 @@ def test_sanity_convergence_fsdp2_huggingface_model(tmp_path, recipe_path):
             overrides=[
                 f"+wandb_init_args.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
-                "model_tag=facebook/esm2_t6_8M_UR50D",
+                "config_name_or_path=facebook/esm2_t6_8M_UR50D",
+                "dataset.tokenizer_name=facebook/esm2_t6_8M_UR50D",
+                "use_te=false",
                 "checkpoint.resume_from_checkpoint=false",
             ],
         )
@@ -623,7 +629,9 @@ def test_sanity_ddp_thd_token_packing_huggingface_model(tmp_path, recipe_path):
                 f"+wandb_init_args.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "use_sequence_packing=true",
-                "model_tag=facebook/esm2_t6_8M_UR50D",
+                "config_name_or_path=facebook/esm2_t6_8M_UR50D",
+                "dataset.tokenizer_name=facebook/esm2_t6_8M_UR50D",
+                "use_te=false",
                 "num_train_steps=4",
                 "use_torch_compile=false",
             ],

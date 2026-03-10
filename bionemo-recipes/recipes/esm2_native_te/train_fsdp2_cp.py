@@ -19,7 +19,6 @@ from pathlib import Path
 
 import hydra
 import torch
-import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import fully_shard
@@ -100,7 +99,9 @@ def main(args: DictConfig) -> float | None:
         raise ValueError("FP32 master weights are not supported with FSDP2+CP. Use train_fsdp2.py instead.")
 
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = NVEsmConfig.from_pretrained(args.model_tag, token_dropout=False, dtype=torch.bfloat16)
+    config = NVEsmConfig.from_pretrained(
+        args.config_name_or_path, token_dropout=False, dtype=torch.bfloat16, **args.config_kwargs
+    )
     num_layers = config.num_hidden_layers
 
     # Resolve layer-wise quantization assignments and store on config.
@@ -116,16 +117,8 @@ def main(args: DictConfig) -> float | None:
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
 
-    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
-    # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
-    # versions of weights are kept.
-    with (
-        torch.device("meta") if args.use_meta_device else nullcontext(),
-        transformer_engine.pytorch.quantized_model_init(
-            recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
-        ),
-    ):
-        model = NVEsmForMaskedLM(config)
+    with torch.device("meta") if args.use_meta_device else nullcontext():
+        model = NVEsmForMaskedLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -144,9 +137,6 @@ def main(args: DictConfig) -> float | None:
                 torch.cuda.Stream(),
             )
     fully_shard(model, mesh=cp_dp_mesh)
-
-    # Attach quantization recipes to the encoder (layer precision is already on config).
-    model.esm.encoder.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     # Note, this should happen before we create the optimizer.

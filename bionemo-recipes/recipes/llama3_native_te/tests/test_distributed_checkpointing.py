@@ -487,7 +487,7 @@ def test_checkpoint_pruning_with_files(tmp_path):
 
 _FP8_QUANTIZED_OVERRIDES = [
     "fp8_config.enabled=true",
-    "fp8_config.quantized_model_init_kwargs.enabled=true",
+    "+config_kwargs.use_quantized_model_init=true",
     "+dataset.pad_sequences_to_be_divisible_by=16",
 ]
 

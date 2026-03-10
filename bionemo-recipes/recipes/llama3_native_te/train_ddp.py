@@ -31,7 +31,6 @@ from pathlib import Path
 import hydra
 import nvdlfw_inspect.api as debug_api
 import torch
-import transformer_engine
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
@@ -75,27 +74,24 @@ def main(args: DictConfig) -> float | None:
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
 
     # --- Model Configuration ---
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-    )
+    # Create quantization recipes -- only used if FP8/FP4 is enabled in the config.
+    fp8_recipe = None
+    if args.fp8_config.enabled:
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
 
-    if args.use_te:
-        config_class = NVLlamaConfig
-        model_class = NVLlamaForCausalLM
-    else:
-        config_class = LlamaConfig
-        model_class = LlamaForCausalLM
+    fp4_recipe = None
+    if args.fp4_config.enabled:
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(**args.fp4_config.fp4_recipe_kwargs)
 
     # --- Model Initialization ---
-    config = config_class.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
-
-    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
-    # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16
-    # and fp8 versions of weights are kept.
-    with transformer_engine.pytorch.quantized_model_init(
-        recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
-    ):
-        model = model_class(config)
+    if args.use_te:
+        config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
+        model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+    else:
+        config = LlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
+        model = LlamaForCausalLM(config)
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -137,7 +133,7 @@ def main(args: DictConfig) -> float | None:
             ckpt_path=ckpt_path,
             dist_config=dist_config,
             dataloader=train_dataloader,
-            weights_only=not args.fp8_config.quantized_model_init_kwargs.enabled,
+            weights_only=not getattr(config, "use_quantized_model_init", False),
         )
         logger.info("Checkpoint loaded, resuming from step %s, epoch %s", start_step, epoch)
     else:

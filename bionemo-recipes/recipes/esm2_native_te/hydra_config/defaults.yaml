@@ -1,5 +1,7 @@
 # Training config
-model_tag: ??? # E.g., nvidia/esm2_t6_8M_UR50D, facebook/esm2_t6_8M_UR50D, or a local path (e.g ./example_8m_checkpoint)
+use_te: true # Whether to use TransformerEngine layers through NVEsmForMaskedLM (if false, use HF's EsmForMaskedLM)
+config_name_or_path: ??? # E.g., nvidia/esm2_t6_8M_UR50D, facebook/esm2_t6_8M_UR50D, or a local path (e.g ./model_configs/nvidia/esm2_t6_8M_UR50D)
+config_kwargs: {}
 num_train_steps: ???
 
 use_meta_device: true
@@ -12,7 +14,7 @@ cp_size: 1
 
 use_sequence_packing: false
 dataset:
-  tokenizer_name: ${model_tag}
+  tokenizer_name: ???
   micro_batch_size: ???
   num_workers: 1
   max_seq_length: 1024
@@ -48,8 +50,6 @@ fp8_config:
   fp8_recipe: transformer_engine.common.recipe.DelayedScaling
   fp8_format: "HYBRID"
   fp8_recipe_kwargs: {}
-  quantized_model_init_kwargs:
-    enabled: false # If this is set to true, fp8_config.enabled must also be set to true.
 
 fp4_config:
   enabled: false
