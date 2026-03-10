@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from transformers import LlamaForCausalLM
 
 from bionemo.evo2.data.test_utils.create_fasta_file import ALU_SEQUENCE, create_fasta_file
 from bionemo.evo2.run.predict import batch_collator
@@ -122,8 +123,6 @@ def hf_reimported_dir(hf_exported_dir: Path, tmp_path_factory) -> Path:
 @pytest.mark.slow
 def test_roundtrip_hf_weight_equality(hf_exported_dir: Path, hf_reimported_dir: Path):
     """Verify that mbridge->HF->mbridge->HF produces identical weights."""
-    from transformers import LlamaForCausalLM
-
     original = LlamaForCausalLM.from_pretrained(hf_exported_dir, torch_dtype=torch.bfloat16)
     reimported = LlamaForCausalLM.from_pretrained(hf_reimported_dir, torch_dtype=torch.bfloat16)
 
@@ -158,8 +157,6 @@ def test_roundtrip_prediction_equality(
     Runs predict on both the original mbridge checkpoint and on the re-imported HF checkpoint
     (loaded via AutoBridge) and compares per-token log probabilities.
     """
-    from transformers import LlamaForCausalLM
-
     num_sequences = 2
     seq_lengths = [64, 64]
 

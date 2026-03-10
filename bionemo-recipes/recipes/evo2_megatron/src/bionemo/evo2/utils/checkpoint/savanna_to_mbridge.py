@@ -19,16 +19,24 @@ Converts ARC's Savanna .pt checkpoint format directly to Megatron Bridge
 DCP format, bypassing the NeMo2 intermediate step.
 """
 
+import argparse
 import json
 import logging
 import os
 from pathlib import Path
 
+import huggingface_hub.errors
 import torch
 import torch.distributed.checkpoint as dcp
+from huggingface_hub import hf_hub_download
+from megatron.bridge.training.checkpointing import save_tokenizer_assets
+from megatron.bridge.training.config import ConfigContainer
+from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES
+from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
 from torch.distributed.checkpoint import FileSystemWriter
 
 from bionemo.evo2.models.evo2_provider import HYENA_MODEL_OPTIONS, HyenaModelProvider
+from bionemo.evo2.recipes.evo2 import evo2_1b_pretrain_config as pretrain_config
 
 
 logger = logging.getLogger(__name__)
@@ -36,9 +44,6 @@ logger = logging.getLogger(__name__)
 
 def _download_shards(repo_id: str, weights_filename: str, download_dir: str) -> list[str]:
     """Download multi-part checkpoint shards from HuggingFace."""
-    import huggingface_hub.errors
-    from huggingface_hub import hf_hub_download
-
     parts = []
     part_num = 0
     while True:
@@ -76,8 +81,6 @@ def download_savanna_checkpoint(repo_id: str, cache_dir: Path | None = None) -> 
     Returns:
         Path to the downloaded .pt file.
     """
-    from huggingface_hub import hf_hub_download
-
     modelname = repo_id.split("/")[-1]
     weights_filename = f"{modelname}.pt"
     download_dir = str(cache_dir) if cache_dir else None
@@ -296,12 +299,6 @@ def package_mbridge_checkpoint(
     Returns:
         Path to the mbridge checkpoint directory.
     """
-    from megatron.bridge.training.checkpointing import save_tokenizer_assets
-    from megatron.bridge.training.config import ConfigContainer
-    from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
-
-    from bionemo.evo2.recipes.evo2 import evo2_1b_pretrain_config as pretrain_config
-
     mbridge_ckpt_dir.mkdir(parents=True, exist_ok=True)
     iter_dir = mbridge_ckpt_dir / "iter_0000001"
     iter_dir.mkdir(parents=True, exist_ok=True)
@@ -411,10 +408,6 @@ def savanna_to_mbridge(
 
 def main():
     """CLI entry point for savanna-to-mbridge conversion."""
-    import argparse
-
-    from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES
-
     parser = argparse.ArgumentParser(description="Convert Savanna checkpoint to MBridge format")
     parser.add_argument(
         "--savanna-ckpt-path",

@@ -30,8 +30,11 @@ from pathlib import Path
 import pytest
 import torch
 
+from bionemo.core.data.load import load as bionemo_load
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
 from bionemo.evo2.data.test_utils.create_fasta_file import ALU_SEQUENCE, create_fasta_file
 from bionemo.evo2.run.predict import batch_collator
+from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
 
 from ..utils import check_fp8_support, find_free_network_port, is_a6000_gpu
 
@@ -185,12 +188,8 @@ def test_predict_evo2_runs(
 @pytest.fixture(scope="module")
 def mbridge_checkpoint_7b_1m_path(tmp_path_factory) -> Path:
     """Create or load a MBridge checkpoint for 7b-1m model testing."""
-    from bionemo.core.data.load import load
-    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
-    from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
-
     try:
-        nemo2_checkpoint_path = load("evo2/7b-1m:1.0")
+        nemo2_checkpoint_path = bionemo_load("evo2/7b-1m:1.0")
     except ValueError as e:
         if e.args[0].endswith("does not have an NGC URL."):
             pytest.skip(

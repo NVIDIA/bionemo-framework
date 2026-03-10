@@ -48,6 +48,7 @@ from typing import Any, Dict, List, Optional
 
 import torch
 import torch.distributed as dist
+from megatron.bridge.models.model_provider import ProcessGroupCollection
 from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
 from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
 from megatron.bridge.training.mixed_precision import get_mixed_precision_config
@@ -57,6 +58,7 @@ from megatron.bridge.training.utils.checkpoint_utils import (
     get_checkpoint_run_config_filename,
     read_run_config,
 )
+from megatron.bridge.utils.common_utils import get_world_size_safe
 from megatron.bridge.utils.instantiate_utils import instantiate
 from megatron.core import parallel_state
 from megatron.core.inference.contexts import StaticInferenceContext
@@ -308,8 +310,6 @@ def setup_inference_engine(
     rng_config = instantiate(run_config.get("rng")) if run_config.get("rng") else RNGConfig(seed=random_seed)
     dist_config = instantiate(run_config.get("dist")) if run_config.get("dist") else DistributedInitConfig()
 
-    from megatron.bridge.utils.common_utils import get_world_size_safe
-
     model_parallel_size = tensor_parallel_size * pipeline_model_parallel_size * context_parallel_size
     world_size = get_world_size_safe()
     data_parallel_size = world_size // model_parallel_size
@@ -332,8 +332,6 @@ def setup_inference_engine(
     model_provider.finalize()
 
     if not is_hyena:
-        from megatron.bridge.models.model_provider import ProcessGroupCollection
-
         model_provider._pg_collection = ProcessGroupCollection.use_mpu_process_groups()
 
     raw_model = model_provider.provide().eval().cuda()

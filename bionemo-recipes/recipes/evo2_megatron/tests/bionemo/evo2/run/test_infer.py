@@ -35,7 +35,10 @@ from pathlib import Path
 import pytest
 import torch
 
+from bionemo.core.data.load import load as bionemo_load
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
 from bionemo.evo2.models.evo2_provider import HyenaInferenceContext
+from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
 
 from ..utils import find_free_network_port
 
@@ -598,12 +601,8 @@ def test_parallel_inference_accuracy(mbridge_checkpoint_path, tmp_path, dna_sequ
 @pytest.fixture(scope="module")
 def mbridge_checkpoint_7b_1m_path(tmp_path_factory) -> Path:
     """Create or load a MBridge checkpoint for 7b-1m model testing."""
-    from bionemo.core.data.load import load
-    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
-    from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
-
     try:
-        nemo2_checkpoint_path = load("evo2/7b-1m:1.0")
+        nemo2_checkpoint_path = bionemo_load("evo2/7b-1m:1.0")
     except ValueError as e:
         if e.args[0].endswith("does not have an NGC URL."):
             pytest.skip(

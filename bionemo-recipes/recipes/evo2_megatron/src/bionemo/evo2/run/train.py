@@ -31,6 +31,7 @@ from megatron.bridge.training.comm_overlap import (
     userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192,
 )
 from megatron.bridge.training.config import ConfigContainer, FaultToleranceConfig
+from megatron.bridge.training.gpt_step import forward_step as gpt_forward_step
 from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES
 from megatron.bridge.training.post_training.checkpointing import has_modelopt_state
 from megatron.bridge.training.pretrain import pretrain
@@ -975,8 +976,6 @@ def train(args: argparse.Namespace) -> None:
         cfg.print_yaml()
 
     if model_type == "eden":
-        from megatron.bridge.training.gpt_step import forward_step as gpt_forward_step
-
         forward_step_fn = gpt_forward_step
     else:
         forward_step_fn = hyena_forward_step

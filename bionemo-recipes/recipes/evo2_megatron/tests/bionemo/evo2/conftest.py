@@ -15,12 +15,20 @@
 
 
 # conftest.py
+import copy
 import gc
 import os
+import shlex
+import socket
+import subprocess
 from pathlib import Path
 
 import pytest
 import torch
+
+from bionemo.core.data.load import load as bionemo_load
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH, DEFAULT_HF_TOKENIZER_MODEL_PATH_512
+from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
 
 
 def get_device_and_memory_allocated() -> str:
@@ -100,12 +108,8 @@ def mbridge_checkpoint_1b_8k_bf16(tmp_path_factory) -> Path:
     Returns:
         Path to the MBridge checkpoint iteration directory (e.g., .../iter_0000001)
     """
-    from bionemo.core.data.load import load
-    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
-    from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
-
     try:
-        nemo2_ckpt_path = load("evo2/1b-8k-bf16:1.0")
+        nemo2_ckpt_path = bionemo_load("evo2/1b-8k-bf16:1.0")
     except ValueError as e:
         if e.args[0].endswith("does not have an NGC URL."):
             pytest.skip(
@@ -151,12 +155,6 @@ def mbridge_eden_checkpoint(tmp_path_factory) -> Path:
     Returns:
         Path to the MBridge checkpoint directory (parent of iter_0000001).
     """
-    import copy
-    import shlex
-    import socket
-    import subprocess
-
-    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
 
     def _find_free_port() -> int:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

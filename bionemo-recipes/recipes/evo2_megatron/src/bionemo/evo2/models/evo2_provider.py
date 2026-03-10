@@ -47,6 +47,7 @@ from megatron.core.pipeline_parallel.utils import is_pp_first_stage, is_pp_last_
 from megatron.core.transformer.enums import AttnBackend
 from megatron.core.utils import get_batch_on_this_cp_rank, get_model_config
 
+from bionemo.evo2.models.eden_provider import EDEN_MODEL_OPTIONS
 from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig as _HyenaConfigForFlops
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import get_hyena_stack_spec
 from bionemo.evo2.models.megatron.hyena.hyena_model import HyenaModel as MCoreHyenaModel
@@ -1109,9 +1110,6 @@ HYENA_MODEL_OPTIONS: dict[str, Type[HyenaModelProvider]] = {
     "striped_hyena_test_nv": HyenaNVTestModelProvider,
     "striped_hyena_1b_nv_parallel": HyenaNV1b2ModelProvider,
 }
-
-
-from bionemo.evo2.models.eden_provider import EDEN_MODEL_OPTIONS  # noqa: E402
 
 
 MODEL_OPTIONS: dict[str, object] = {**HYENA_MODEL_OPTIONS, **EDEN_MODEL_OPTIONS}

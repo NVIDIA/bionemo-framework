@@ -61,9 +61,11 @@ import argparse
 import datetime
 import logging
 import os
+import random
 from pathlib import Path
 from typing import List, Literal, Optional, Tuple, TypeVar, Union
 
+import numpy as np
 import torch
 import torch.distributed as dist
 from megatron.bridge.data.samplers import build_pretraining_data_loader
@@ -375,10 +377,6 @@ def initialize_inference_distributed(
         This function must be called before creating the model. It initializes
         parallel_state which is used throughout the codebase.
     """
-    import random
-
-    import numpy as np
-
     # Apply defaults
     if rng_config is None:
         rng_config = RNGConfig(seed=1234)

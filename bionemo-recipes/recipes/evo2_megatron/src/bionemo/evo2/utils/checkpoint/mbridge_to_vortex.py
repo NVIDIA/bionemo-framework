@@ -19,6 +19,7 @@ Converts a Megatron Bridge DCP checkpoint to ARC's Vortex inference format
 (a single .pt file compatible with the stripedhyena inference engine).
 """
 
+import argparse
 import json
 import logging
 from collections import OrderedDict
@@ -353,8 +354,6 @@ def _build_vortex_config(provider: HyenaModelProvider) -> dict:
 
 def main():
     """CLI entry point for mbridge-to-vortex export."""
-    import argparse
-
     parser = argparse.ArgumentParser(description="Export MBridge checkpoint to Vortex format")
     parser.add_argument("--mbridge-ckpt-dir", type=Path, required=True)
     parser.add_argument("--output-path", type=Path, required=True, help="Output .pt file path")

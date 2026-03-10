@@ -24,24 +24,25 @@ Run with torchrun to handle distributed init requirements:
 """
 
 import argparse
+import tempfile
 from pathlib import Path
 
 import torch
 import torch.distributed as dist
+from megatron.bridge.models.conversion.auto_bridge import AutoBridge
+from megatron.bridge.models.model_provider import ProcessGroupCollection
+from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
+from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
+from megatron.bridge.training.mixed_precision import get_mixed_precision_config
+from megatron.bridge.training.utils.checkpoint_utils import get_checkpoint_run_config_filename, read_run_config
+from megatron.bridge.utils.instantiate_utils import instantiate
+from transformers import LlamaConfig, LlamaForCausalLM
+
+from bionemo.evo2.run.predict import initialize_inference_distributed, resolve_checkpoint_path
 
 
 def export_mbridge_to_hf(ckpt_dir: Path, hf_output_dir: Path) -> None:
     """Export an mbridge Eden checkpoint to HuggingFace format using AutoBridge."""
-    from megatron.bridge.models.conversion.auto_bridge import AutoBridge
-    from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
-    from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
-    from megatron.bridge.training.mixed_precision import get_mixed_precision_config
-    from megatron.bridge.training.utils.checkpoint_utils import get_checkpoint_run_config_filename, read_run_config
-    from megatron.bridge.utils.instantiate_utils import instantiate
-    from transformers import LlamaConfig, LlamaForCausalLM
-
-    from bionemo.evo2.run.predict import initialize_inference_distributed, resolve_checkpoint_path
-
     resolved = resolve_checkpoint_path(ckpt_dir)
     run_config = read_run_config(get_checkpoint_run_config_filename(str(resolved)))
     model_provider = instantiate(run_config["model"])
@@ -70,6 +71,7 @@ def export_mbridge_to_hf(ckpt_dir: Path, hf_output_dir: Path) -> None:
     )
 
     model_provider.finalize()
+    model_provider._pg_collection = ProcessGroupCollection.use_mpu_process_groups()
     raw_model = model_provider.provide().eval().cuda()
     _load_model_weights_from_checkpoint(
         checkpoint_path=str(resolved), model=[raw_model], dist_ckpt_strictness="ignore_all"
@@ -88,21 +90,23 @@ def export_mbridge_to_hf(ckpt_dir: Path, hf_output_dir: Path) -> None:
         torch_dtype=torch.bfloat16,
         tie_word_embeddings=model_provider.share_embeddings_and_output_weights,
     )
-    hf_model = LlamaForCausalLM(hf_config)
+    hf_config.architectures = ["LlamaForCausalLM"]
 
-    bridge = AutoBridge(hf_model)
-    bridge.save_hf_pretrained([raw_model], hf_output_dir)
+    hf_output_dir.mkdir(parents=True, exist_ok=True)
+    hf_config.save_pretrained(str(hf_output_dir))
+
+    with tempfile.TemporaryDirectory() as tmp_hf_dir:
+        hf_model = LlamaForCausalLM(hf_config)
+        hf_model.save_pretrained(tmp_hf_dir)
+        del hf_model
+        bridge = AutoBridge.from_hf_pretrained(tmp_hf_dir, torch_dtype=torch.bfloat16)
+        bridge.save_hf_weights([raw_model], str(hf_output_dir))
+
     print(f"Exported mbridge -> HF at {hf_output_dir}")
 
 
 def import_hf_to_mbridge(hf_input_dir: Path, ckpt_output_dir: Path) -> None:
     """Import an HF checkpoint and re-export to HF to test roundtrip."""
-    from megatron.bridge.models.conversion.auto_bridge import AutoBridge
-    from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
-    from megatron.bridge.training.mixed_precision import get_mixed_precision_config
-
-    from bionemo.evo2.run.predict import initialize_inference_distributed
-
     rng_config = RNGConfig(seed=1234)
     dist_config = DistributedInitConfig()
     initialize_inference_distributed(
@@ -127,7 +131,10 @@ def import_hf_to_mbridge(hf_input_dir: Path, ckpt_output_dir: Path) -> None:
         ddp_config=None, wrap_with_ddp=False, data_parallel_random_init=False, bf16=True
     )
 
-    bridge.save_hf_pretrained(model, ckpt_output_dir)
+    ckpt_output_dir = Path(ckpt_output_dir)
+    ckpt_output_dir.mkdir(parents=True, exist_ok=True)
+    bridge.hf_pretrained.config.save_pretrained(str(ckpt_output_dir))
+    bridge.save_hf_weights(model, str(ckpt_output_dir))
     print(f"Re-exported HF -> mbridge -> HF at {ckpt_output_dir}")
 
 
