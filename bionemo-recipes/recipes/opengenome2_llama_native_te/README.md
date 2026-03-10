@@ -80,44 +80,25 @@ run differs (e.g. A100: `--peak_tflops_per_gpu 312`).
 
 ### MFU and step time (vs Megatron baseline)
 
-| Model                | Step time (s) | GBS | MFU (%) |
-| -------------------- | ------------- | --- | ------- |
-| This recipe (OG2 7B) | 6.53          | 384 | 52.3    |
-| Megatron (John’s)    | 4.88          | 384 | 70.04   |
+TODO: is it better to use median for the reported step time/MFU calculation?
+Recipe Median: 6.53
+Megatron Median: 4.88
 
-```mermaid
-xychart-beta
-    title "MFU (%) — fill with your numbers"
-    x-axis ["This recipe (OG2 7B)", "Megatron (John's)"]
-    y-axis "MFU (%)" 0 --> 65
-    bar [52.3, 55]
-```
-
-```mermaid
-xychart-beta
-    title "Step time (s) — fill with your numbers"
-    x-axis ["This recipe (OG2 7B)", "Megatron (John's)"]
-    y-axis "Step time (s)" 0 --> 8
-    bar [6.53, 5]
-```
+| Model                | Mean Step Time (s) | GBS | MFU (%) |
+| -------------------- | ------------------ | --- | ------- |
+| This recipe (OG2 7B) | 6.61               | 384 | 52.3    |
+| Megatron (John’s)    | 5.48               | 384 | 62.33   |
 
 ### Throughput: THD vs BSHD
 
-Replace placeholders with your logged step time and tokens per step (BSHD: `GBS × max_seq_length`;
-THD: non-pad tokens from collator/dataloader). Tokens/sec = tokens per step / step time.
-
 | Config             | Step time (s) | Tokens/step | Tokens/sec | Tokens/sec/GPU |
 | ------------------ | ------------- | ----------- | ---------- | -------------- |
-| THD (this recipe)  | 6.53          | —           | —          | —              |
-| BSHD (this recipe) |               | 3,145,728   | —          | —              |
+| THD (this recipe)  | 6.61          | 1,741,106   | —          | 9,927          |
+| BSHD (this recipe) | 6.77          | 3,145,728   | —          | 5,380          |
 
-```mermaid
-xychart-beta
-    title "Throughput (tokens/sec) — fill with your numbers"
-    x-axis ["BSHD (Megatron)", "THD (this recipe)"]
-    y-axis "Tokens/sec" 0 --> 500000
-    bar [150000, 380000]
-```
+<p align="center">
+  <img src="plots/throughput_comparison.png" alt="BSHD vs THD throughput comparison" width="80%" />
+</p>
 
 ## OpenGenome2-Specific Setup
 
