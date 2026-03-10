@@ -1,8 +1,6 @@
 # TransformerEngine-accelerated Llama 3 training for OpenGenome2
 
-This folder demonstrates how to train TE-accelerated Llama 3 with a native PyTorch training loop for autoregressive DNA token prediction on the metagenome subset of the OpenGenome2 genomic dataset. It uses fully sharded data parallel (FSDP2), THD
-sequence packing, a custom nucleotide tokenizer, and supports FP32 master weights. Convergence has been validated against the
-Megatron/ShardedEden OpenGenome2 (OG2) baseline.
+This folder demonstrates how to train TE-accelerated Llama 3 with a native PyTorch training loop for autoregressive DNA token prediction on the metagenome subset of the OpenGenome2 genomic dataset. It uses fully sharded data parallel (FSDP2), THD sequence packing, a custom nucleotide tokenizer, and supports FP32 master weights. Convergence has been validated against the Megatron/ShardedEden OpenGenome2 (OG2) baseline.
 
 ## How to use this recipe
 
@@ -22,8 +20,8 @@ alone by clicking
 \[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
 \[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
 
-Additional features specific to OG2: Spike-No-More embedding init, Megatron-style scaled init for residual layers,
-weight decay grouping, genomic data collator.
+Additional features specific to the OG2 implementation: FP32 Mixed Preicision training, Spike-No-More embedding init, Megatron-style scaled init for residual layers,
+weight decay grouping, and the genomic data collator. 
 
 ## Installing Dependencies
 
@@ -58,8 +56,8 @@ results use GBS 384 on 6× H100 nodes (48 GPUs).
 
 | Model                      | Step / checkpoint | Perplexity | Train loss | Test loss |
 | -------------------------- | ----------------- | ---------- | ---------- | --------- |
-| This recipe (OG2 7B)       | —                 | —          | —          | —         |
-| Megatron baseline (OG2 7B) | 1                 |            |            |           |
+| This recipe (OG2 7B)       |      -            |  -        | —          | —         |
+| Megatron baseline (OG2 7B) | -             |            |            |           |
 
 ## Performance Benchmarks
 
@@ -90,7 +88,7 @@ Megatron Median: 4.88
 | This recipe (OG2 7B) | 6.61               | 384 | 52.3    |
 | Megatron baseline    | 5.48               | 384 | 62.33   |
 
-This recipe is ~21% slower per step than the Megatron baseline (6.61 s vs 5.48 s). The gap is
+This recipe is ~21% slower per step than the Megatron baseline (6.61 s vs 5.48 s) and has ~10% lower MFU. The gap is
 expected: the Megatron run uses FP8 and tensor parallelism (TP=4), which we do not yet enable.
 Enabling FP8 and TP should close most of this gap.
 
