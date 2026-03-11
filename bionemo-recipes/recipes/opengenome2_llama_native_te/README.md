@@ -94,10 +94,10 @@ wall-clock time vs global step over a clean linear region.
 
 ### Throughput: THD vs BSHD
 
-| Config             | Step time (s) | Unpadded Tokens/step | Unpadded Tokens/sec/GPU |
-| ------------------ | ------------- | -------------------- | ----------------------- |
-| THD (this recipe)  | 6.61          | 1,741,106            | 9,927                   |
-| BSHD (this recipe) | 6.77          | 3,145,728            | 5,380                   |
+| Config            | Unpadded Tokens/step | Unpadded Tokens/sec/GPU |
+| ------------------ | -------------------- | ----------------------- |
+| THD (this recipe)  | 1,741,106            | 9,927                   |
+| BSHD (this recipe) | 3,145,728            | 5,380                   |
 
 <p align="center">
   <img src="plots/throughput_comparison.png" alt="BSHD vs THD throughput comparison" width="80%" />
