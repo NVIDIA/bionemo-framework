@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: LicenseRef-Apache2
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""TransformerEngine-optimized Llama model."""
+"""TransformerEngine-optimized Qwen3 model."""
 
 import warnings
 from collections import OrderedDict
@@ -28,24 +28,21 @@ import transformers
 from transformer_engine.pytorch.attention import InferenceParams
 from transformer_engine.pytorch.attention.inference import PagedKVCacheManager
 from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
-from transformers import LlamaConfig, PreTrainedModel
+from transformers import PreTrainedModel, Qwen3Config
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
-from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
+from transformers.models.qwen3.modeling_qwen3 import Qwen3RotaryEmbedding
 from transformers.utils.generic import TransformersKwargs
 
 
 AUTO_MAP = {
-    "AutoConfig": "modeling_llama_te.NVLlamaConfig",
-    "AutoModel": "modeling_llama_te.NVLlamaModel",
-    "AutoModelForCausalLM": "modeling_llama_te.NVLlamaForCausalLM",
-    "AutoModelForSequenceClassification": "modeling_llama_te.NVLlamaForSequenceClassification",
-    "AutoModelForQuestionAnswering": "modeling_llama_te.NVLlamaForQuestionAnswering",
-    "AutoModelForTokenClassification": "modeling_llama_te.NVLlamaForTokenClassification",
+    "AutoConfig": "modeling_qwen3_te.NVQwen3Config",
+    "AutoModel": "modeling_qwen3_te.NVQwen3Model",
+    "AutoModelForCausalLM": "modeling_qwen3_te.NVQwen3ForCausalLM",
 }
 
 
-class NVLlamaConfig(LlamaConfig):
-    """NVLlama configuration."""
+class NVQwen3Config(Qwen3Config):
+    """NVQwen3 configuration."""
 
     # Attention input format:
     #   "bshd" = Batch, Sequence, Head, Dimension (standard padded format)
@@ -59,14 +56,14 @@ class NVLlamaConfig(LlamaConfig):
         use_quantized_model_init: bool = False,
         **kwargs,
     ):
-        """Initialize the NVLlamaConfig with additional TE-related config options.
+        """Initialize the NVQwen3Config with additional TE-related config options.
 
         Args:
             layer_precision: Per-layer quantization precision, a list of length ``num_hidden_layers``
                 where each element is ``"fp8"``, ``"fp4"``, or ``None`` (BF16 fallback). ``None``
                 (the default) means no quantization is configured.
             use_quantized_model_init: Whether to use `quantized_model_init` for layer initialization.
-            **kwargs: Additional config options to pass to LlamaConfig.
+            **kwargs: Additional config options to pass to Qwen3Config.
         """
         super().__init__(**kwargs)
         self.layer_precision = layer_precision
@@ -80,10 +77,10 @@ class NVLlamaConfig(LlamaConfig):
                     raise ValueError(f'layer_precision element must be "fp8", "fp4", or None, got {precision!r}')
 
 
-class NVLlamaPreTrainedModel(PreTrainedModel):
-    """Base class for NVLlama models."""
+class NVQwen3PreTrainedModel(PreTrainedModel):
+    """Base class for NVQwen3 models."""
 
-    config_class = NVLlamaConfig
+    config_class = NVQwen3Config
     base_model_prefix = "model"
     _no_split_modules = ("TransformerLayer",)
     _skip_keys_device_placement = ("past_key_values",)
@@ -102,7 +99,7 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
         self.model.embed_tokens.to_empty(device="cuda")
         self.model.embed_tokens.apply(self._init_weights)
 
-        self.model.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=self.model.config).inv_freq.to("cuda")
+        self.model.rotary_emb.inv_freq = Qwen3RotaryEmbedding(config=self.model.config).inv_freq.to("cuda")
 
         # Meta-device init seems to break weight tying, so we re-tie the weights here.
         self.tie_weights()
@@ -134,16 +131,16 @@ class NVLlamaPreTrainedModel(PreTrainedModel):
         return {k: v for k, v in state_dict.items() if not k.endswith("_extra_state")}
 
 
-class NVLlamaModel(NVLlamaPreTrainedModel):
-    """Llama3 model implemented in Transformer Engine."""
+class NVQwen3Model(NVQwen3PreTrainedModel):
+    """Qwen3 model implemented in Transformer Engine."""
 
     def __init__(
         self,
-        config: LlamaConfig,
+        config: Qwen3Config,
         fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
         fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
     ):
-        """Initialize the NVLlama model.
+        """Initialize the NVQwen3 model.
 
         Args:
             config: The configuration of the model.
@@ -196,6 +193,16 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                         attn_input_format=config.attn_input_format,
                         self_attn_mask_type=config.self_attn_mask_type,
                         num_gqa_groups=config.num_key_value_heads,
+                        kv_channels=config.head_dim,
+                        qk_norm_type="RMSNorm",
+                        qk_norm_eps=config.rms_norm_eps,
+                        qk_norm_before_rope=True,
+                        window_size=(config.sliding_window, config.sliding_window)
+                        if config.layer_types is not None
+                        and len(config.layer_types) > layer_idx
+                        and config.layer_types[layer_idx] == "sliding_attention"
+                        and config.sliding_window is not None
+                        else None,
                         layer_number=layer_idx + 1,
                         params_dtype=config.dtype,
                         device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
@@ -212,10 +219,16 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
         )
 
+        # Patch for TE not passing the correct dtype to the RMSNorm layer. To be fixed in NVIDIA/TransformerEngine#2718.
+        for layer in self.layers:
+            layer.self_attention.q_norm.weight.data = layer.self_attention.q_norm.weight.data.to(config.dtype)
+            layer.self_attention.k_norm.weight.data = layer.self_attention.k_norm.weight.data.to(config.dtype)
+
         # We use TE's RotaryPositionEmbedding, but we ensure that we use the same inv_freq as the original
-        # LlamaRotaryEmbedding.
-        self.rotary_emb = RotaryPositionEmbedding(config.hidden_size // config.num_attention_heads)
-        self.rotary_emb.inv_freq = LlamaRotaryEmbedding(config=config).inv_freq
+        # Qwen3RotaryEmbedding. Use head_dim (not hidden_size // num_attention_heads) since Qwen3 has
+        # independently configured head_dim.
+        self.rotary_emb = RotaryPositionEmbedding(config.head_dim)
+        self.rotary_emb.inv_freq = Qwen3RotaryEmbedding(config=config).inv_freq
 
         self.gradient_checkpointing = False
 
@@ -232,7 +245,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         use_cache: bool | None = None,
         **kwargs: Unpack[TransformersKwargs],
     ) -> BaseModelOutputWithPast:
-        """Forward pass for the NVLlama model.
+        """Forward pass for the NVQwen3 model.
 
         Args:
             input_ids (torch.Tensor): The input ids.
@@ -377,8 +390,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         return transformer_engine.pytorch.autocast(enabled=False)
 
 
-class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
-    """Llama3 model with causal language head."""
+class NVQwen3ForCausalLM(NVQwen3PreTrainedModel, transformers.GenerationMixin):
+    """Qwen3 model with causal language head."""
 
     _tied_weights_keys: ClassVar[dict[str, str]] = {"lm_head.weight": "model.embed_tokens.weight"}
 
@@ -388,7 +401,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
         fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
     ):
-        """Initialize the NVLlamaForCausalLM model.
+        """Initialize the NVQwen3ForCausalLM model.
 
         Args:
             config: The configuration of the model.
@@ -396,7 +409,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             fp4_recipe: The FP4 recipe for the model.
         """
         super().__init__(config)
-        self.model = NVLlamaModel(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+        self.model = NVQwen3Model(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
         self.vocab_size = config.vocab_size
         with transformer_engine.pytorch.quantized_model_init(enabled=False):
             self.lm_head = transformer_engine.pytorch.Linear(
@@ -425,7 +438,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         logits_to_keep: int | torch.Tensor = 0,
         **kwargs: Unpack[TransformersKwargs],
     ) -> CausalLMOutputWithPast:
-        """Forward pass for the NVLlamaForCausalLM model.
+        """Forward pass for the NVQwen3ForCausalLM model.
 
         Args:
             input_ids (torch.Tensor): The input ids.
@@ -480,24 +493,6 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,
         )
-
-
-class NVLlamaForSequenceClassification(
-    transformers.modeling_layers.GenericForSequenceClassification, NVLlamaPreTrainedModel
-):
-    """Llama3 model with sequence classification head."""
-
-
-class NVLlamaForQuestionAnswering(transformers.modeling_layers.GenericForQuestionAnswering, NVLlamaPreTrainedModel):
-    """Llama3 model with question answering head."""
-
-    base_model_prefix = "transformer"  # For BC, where `transformer` was used instead of `model`
-
-
-class NVLlamaForTokenClassification(
-    transformers.modeling_layers.GenericForTokenClassification, NVLlamaPreTrainedModel
-):
-    """Llama3 model with token classification head."""
 
 
 torch._dynamo.config.capture_scalar_outputs = True
@@ -571,7 +566,7 @@ def _unpad_input(hidden_states, attention_mask, unused_mask=None):
 
 
 class HFInferenceParams(InferenceParams):
-    """Extension of the InferenceParams class to support HF generate() and beam search."""
+    """Extension of the InferenceParams class to support beam search."""
 
     def get_seq_length(self, layer_idx: int = 0) -> int:
         """Return the current cached sequence length.

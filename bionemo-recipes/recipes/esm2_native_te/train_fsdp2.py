@@ -21,13 +21,13 @@ from pathlib import Path
 import hydra
 import nvdlfw_inspect.api as debug_api
 import torch
-import transformer_engine
-import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
+from transformers.models.esm.configuration_esm import EsmConfig
+from transformers.models.esm.modeling_esm import EsmForMaskedLM
 
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
@@ -59,29 +59,6 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
-    # Load model config early so we know the number of layers for auto-populating layer lists.
-    config = NVEsmConfig.from_pretrained(
-        args.model_tag, dtype=torch.float32 if args.use_fp32_master_weights else torch.bfloat16
-    )
-    num_layers = config.num_hidden_layers
-
-    # Resolve layer-wise quantization assignments and store on config.
-    layer_precision = resolve_layer_precision(
-        num_layers=num_layers,
-        fp8_enabled=args.fp8_config.enabled,
-        fp4_enabled=args.fp4_config.enabled,
-        fp8_layers=OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None else None,
-        fp4_layers=OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None else None,
-    )
-    config.layer_precision = layer_precision
-    if args.quant_stats_config.enabled:
-        initialize_quant_stats_logging(
-            quant_stats_file=args.quant_stats_config.quant_stats_file,
-            quant_log_dir=args.quant_stats_config.quant_log_dir,
-            rank=dist_config.rank,
-            layer_precision=layer_precision,
-        )
-
     # Create a device mesh for FSDP.
     device_mesh = init_device_mesh(
         "cuda",
@@ -89,32 +66,51 @@ def main(args: DictConfig) -> float | None:
         mesh_dim_names=("dp",),
     )
 
-    # Create quantization recipes -- these are only used if FP8/FP4 is enabled in the config.
-    fp8_recipe = None
-    fp4_recipe = None
-    if args.fp8_config.enabled:
-        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-        )
-    if args.fp4_config.enabled:
-        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
-            fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
-        )
+    dtype = torch.float32 if args.use_fp32_master_weights else torch.bfloat16
 
-    # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
-    if args.use_sequence_packing:
-        config.attn_input_format = "thd"
+    # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
+    if args.use_te:
+        config = NVEsmConfig.from_pretrained(args.config_name_or_path, dtype=dtype, **args.config_kwargs)
 
-    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
-    # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
-    # versions of weights are kept.
-    with (
-        torch.device("meta") if args.use_meta_device else nullcontext(),
-        transformer_engine.pytorch.quantized_model_init(
-            recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
-        ),
-    ):
-        model = NVEsmForMaskedLM(config)
+        # Resolve layer-wise quantization assignments and store on config.
+        layer_precision = resolve_layer_precision(
+            num_layers=config.num_hidden_layers,
+            fp8_enabled=args.fp8_config.enabled,
+            fp4_enabled=args.fp4_config.enabled,
+            fp8_layers=OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None else None,
+            fp4_layers=OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None else None,
+        )
+        config.layer_precision = layer_precision
+        if args.quant_stats_config.enabled:
+            initialize_quant_stats_logging(
+                quant_stats_file=args.quant_stats_config.quant_stats_file,
+                quant_log_dir=args.quant_stats_config.quant_log_dir,
+                rank=dist_config.rank,
+                layer_precision=layer_precision,
+            )
+
+        # Create quantization recipes -- these are only used if FP8/FP4 is enabled in the config.
+        fp8_recipe = None
+        fp4_recipe = None
+        if args.fp8_config.enabled:
+            fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+                fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+            )
+        if args.fp4_config.enabled:
+            fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+                fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
+            )
+
+        # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
+        if args.use_sequence_packing:
+            config.attn_input_format = "thd"
+
+        with torch.device("meta") if args.use_meta_device else nullcontext():
+            model = NVEsmForMaskedLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+    else:
+        config = EsmConfig.from_pretrained(args.config_name_or_path, dtype=dtype, **args.config_kwargs)
+        with torch.device("meta") if args.use_meta_device else nullcontext():
+            model = EsmForMaskedLM(config)
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -134,13 +130,10 @@ def main(args: DictConfig) -> float | None:
         fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
     fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
 
-    # Attach quantization recipes to the encoder (layer precision is already on config).
-    model.esm.encoder.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
-
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     # Note, this should happen before we create the optimizer.
     if args.use_meta_device:
-        if hasattr(model, "init_empty_weights"):
+        if args.use_te:
             # TE layers require special handling to initialize the weights from the meta device.
             model.init_empty_weights()
         else:
@@ -148,7 +141,7 @@ def main(args: DictConfig) -> float | None:
             model.apply(model._init_weights)
 
     # Assign names to layers so debug API can identify them
-    if args.quant_stats_config.enabled:
+    if args.use_te and args.quant_stats_config.enabled:
         debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
