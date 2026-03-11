@@ -21,7 +21,7 @@ dataloader wastes significant compute on padding. THD sequence packing avoids th
 multiple sequences into a single 8192-token batch entry, processing ~2–3× more useful tokens per
 step on this dataset.
 
-## How the reference baseline handles data: Megatron ShardedEden
+## How the reference baseline handles data: Megatron ShardedEden Dataloader
 
 For context, the Megatron/NeMo baseline uses the **ShardedEden dataloader**, which achieves a true
 global shuffle:
