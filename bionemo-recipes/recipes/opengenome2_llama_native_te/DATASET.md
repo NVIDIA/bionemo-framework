@@ -64,20 +64,20 @@ batch diversity and we hypothesized that it may slow convergence compared to the
 
 ### Tuning parameters
 
-| Parameter         | Effect                                       | Tradeoff                                                                     |
-| ----------------- | -------------------------------------------- | ---------------------------------------------------------------------------- |
-| `buffer_size`     | Controls local shuffle quality               | Larger = better randomization, more CPU memory                               |
+| Parameter         | Effect                                       | Tradeoff                                                                                   |
+| ----------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `buffer_size`     | Controls local shuffle quality               | Larger = better randomization, more CPU memory                                             |
 | `num_workers`     | Controls data loading throughput             | More workers = better I/O overlap and shuffling, but more memory (each has its own buffer) |
-| `prefetch_factor` | Batches queued ahead per worker (default: 4) | Higher = absorbs shard-transition stalls, more memory                        |
+| `prefetch_factor` | Batches queued ahead per worker (default: 4) | Higher = absorbs shard-transition stalls, more memory                                      |
 
 **Step-time spikes:** When a worker finishes its shard and opens a new one, the GPU may stall
 waiting for the buffer to refill. This causes occasional step-time spikes visible in WandB.
 Increasing `prefetch_factor` or `buffer_size` can help absorb these stalls.
 
-## Reshuffling and resharding with DuckDB
+## Reshuffling and resharding with [DuckDB](https://duckdb.org/)
 
 To address the limited batch diversity, we globally shuffle all sequences and reshard into many
-more Parquet files using DuckDB:
+more Parquet files using [DuckDB](https://duckdb.org/):
 
 <p align="center">
   <img src="assets/resharding_duckdb.png" alt="Resharding pipeline with DuckDB" width="60%" />
@@ -113,7 +113,14 @@ reading from different shards, the effective shuffle pool becomes
   <img src="assets/hf_streaming_buffer_resharded.png" alt="HF streaming buffer with resharded dataset" width="80%" />
 </p>
 
-In order to create such a dataset, use the duck db command above and create ad irectory for your sharded parquet files. Then point the `og2_7b_thd_gqa_global_shuffle` config at the output directory like so: 
+### Creating your own resharded dataset
+
+Use the [DuckDB](https://duckdb.org/) command above to globally shuffle and reshard your data:
+
+1. Install DuckDB: `pip install duckdb` (or download from [duckdb.org](https://duckdb.org/))
+2. Run the DuckDB command above from the directory containing your JSONL training files
+3. The output directory will contain Parquet shards (e.g. `output/data_0.parquet`, ...)
+4. Update your Hydra config or override on the command line:
 
 ```yaml
 dataset:
@@ -121,6 +128,13 @@ dataset:
     path: "/path/to/your/resharded_parquet_dir"
     split: "train"
     streaming: true
+```
+
+Or via command line:
+
+```bash
+torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_thd_gqa_global_shuffle \
+  dataset.load_dataset_kwargs.path=/path/to/your/resharded_parquet_dir
 ```
 
 ## Summary of approaches
@@ -131,10 +145,10 @@ dataset:
 
 ## Config mapping
 
-| Config                          | Data source         | Tokenization          | stride | buffer_size | Notes                   |
-| ------------------------------- | ------------------- | --------------------- | ------ | ----------- | ----------------------- |
-| `og2_7b_thd_gqa`                | Streaming JSONL (original)     | Windowed (on-the-fly) | 200    | 50,000      | Original 80 shards      |
-| `og2_7b_thd_gqa_global_shuffle` | Streaming Sharded Parquet | Windowed (on-the-fly) | 200    | 10,000      | Reshuffled 1,733 shards |
+| Config                          | Data source                | Tokenization          | stride | buffer_size | Notes                   |
+| ------------------------------- | -------------------------- | --------------------- | ------ | ----------- | ----------------------- |
+| `og2_7b_thd_gqa`                | Streaming JSONL (original) | Windowed (on-the-fly) | 200    | 50,000      | Original 80 shards      |
+| `og2_7b_thd_gqa_global_shuffle` | Streaming Sharded Parquet  | Windowed (on-the-fly) | 200    | 10,000      | Reshuffled 1,733 shards |
 
 Implementation: [dataset.py](dataset.py) (`create_tokenized_dataset`, `create_thd_dataloader`,
 `create_bshd_dataloader`).

@@ -50,8 +50,9 @@ Spike-No-More embeddings, scaled initialization of output projections (proj/fc2)
 with FP32 master weights.
 
 However, this recipe uses THD sequence packing for training, whereas the Megatron baseline uses a standard BSHD dataloader.
-On the metagenome dataset, the median sequence length is ~2.2k and the average is ~4k, so with THD we
-process roughly 2–3× more tokens per training step (less padding waste). As a result, this recipe
+In the metagenome dataset, the median sequence length is ~2.2k and the average is ~4k, so with THD we
+process roughly 2–3× more tokens per training step (less padding waste). See
+[Dataset and tokenization](DATASET.md) for more details on the data pipeline. As a result, this recipe
 achieves significantly better convergence [TODO: add %] than the Megatron baseline at a matched global batch size.
 Both runs use FP32 master weights; the Megatron baseline uses FP8 training and we use BF16. Reported
 results use GBS 384 on 6× H100 nodes (48 GPUs). Note that we also use bf16/fp32 training while the Megatron baseline uses fp8/fp32 training
@@ -230,9 +231,12 @@ torchrun --nproc_per_node=4 train_fsdp2_cp.py --config-name L0_sanity_cp cp_size
 ## Downloading Pre-Training Data
 
 The default configs expect OpenGenome2-style data: either JSONL (e.g.
-`data_metagenomics_train_*.jsonl.gz`) for streaming, or a directory of pre-chunked Parquet shards for
-the globally shuffled path. Point `dataset.load_dataset_kwargs.path` to your data directory (or
-use the appropriate config). Example for pre-chunked Parquet:
+`data_metagenomics_train_*.jsonl.gz`) for streaming, or a directory of globally shuffled Parquet
+shards. For details on the data pipeline, how to reshard your data with DuckDB, and the tradeoffs
+between streaming approaches, see [Dataset and tokenization](DATASET.md).
+
+Point `dataset.load_dataset_kwargs.path` to your data directory (or use the appropriate config).
+Example for pre-chunked Parquet:
 
 ```bash
 torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_thd_gqa_global_shuffle \
