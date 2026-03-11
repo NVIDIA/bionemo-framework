@@ -1,100 +1,141 @@
-# Dataset and Tokenization for OpenGenome2
+# OpenGenome2 Metagenome Dataset: Sharding, Shuffling, and Tokenization in the LlaMA 3 Recipe
 
 This document describes how data is loaded, tokenized, and shuffled for the OpenGenome2 Llama
-recipe: data sources, sharding, tokenization (windowed vs pre-chunked), the streaming buffer
-shuffle, why we reshuffled and resharded the original OpenGenome2 data, and how configs map to
-these choices.
+recipe, including our rationale and strategy for resharding and reshuffling the original OG2
+metagenome dataset.
 
-## Data sources
+## The OpenGenome2 metagenome dataset
 
-Two modes are supported:
+The training data is the metagenome subset of the OpenGenome2 dataset, originally stored as 80
+compressed JSONL shards. Within each file, sequences are sorted from longest to shortest — as seen
+in the figure below. The data was likely split by length or sequence similarity before being
+partitioned into files.
 
-- **Streaming** — HuggingFace `load_dataset(..., streaming=True)` with `data_files` pointing at
-  JSONL (e.g. `data_metagenomics_train_*.jsonl.gz`). Each file is a shard; data is read
-  sequentially per shard.
-- **Pre-chunked Parquet** — A directory of Parquet shards (e.g. produced by a reshard script).
-  Each row is a fixed-length sequence (e.g. 8190 characters → 8192 tokens with BOS/EOS). No
-  windowing is applied at tokenization time.
+<p align="center">
+  <img src="assets/og2_data_sorting.png" alt="OpenGenome2 sequence length distribution across shards" width="80%" />
+</p>
 
-## Sharding
+The median sequence length is ~2.2k bases and the mean is ~4k, but some sequences exceed 1M bases.
+Because most sequences are much shorter than the 8192-token context window, a standard BSHD
+dataloader wastes significant compute on padding. THD sequence packing avoids this by concatenating
+multiple sequences into a single 8192-token batch entry, processing ~2–3× more useful tokens per
+step on this dataset.
 
-- **Streaming** — When `world_size <= num_shards`, we use `dataset.shard(num_shards=world_size, index=rank)` so each rank gets a disjoint subset of files. When `world_size > num_shards`, we use
-  `split_dataset_by_node` so that data is split across nodes without duplicating full shards. With
-  few files (e.g. 80) and many ranks (e.g. 48), each rank sees only 1–2 files, which can create
-  strong temporal locality within a rank.
-- **Pre-chunked** — The same HuggingFace streaming API is used over many Parquet shards. Using
-  more shards (e.g. on the order of 10× world_size) gives each rank a larger mix of files and
-  better batch diversity.
+## How the reference baseline handles data: Megatron ShardedEden
 
-Implementation: [dataset.py](dataset.py) in `create_tokenized_dataset`.
+For context, the Megatron/NeMo baseline uses the **ShardedEden dataloader**, which achieves a true
+global shuffle:
 
-## Tokenization
+<p align="center">
+  <img src="assets/megatron_sharded_eden_dataloader.png" alt="Megatron ShardedEden dataloader" width="80%" />
+</p>
 
-- **Windowed** (`stride` not `None`) — Long sequences are chunked with the tokenizer’s
-  `return_overflowing_tokens=True`, `max_length=max_seq_length`, and `stride=stride` (overlap in
-  tokens). Default `stride=200`. One sequence can produce many tokenized windows.
-- **Pre-chunked** (`stride` `None`) — No windowing; each row is tokenized once with BOS/EOS
-  added and no truncation. Used when the dataset is already pre-windowed (e.g. each Parquet row is
-  one window).
+1. **Precomputed window index** — All 80 shards are indexed offline to produce a mapping of
+   `window_idx -> (sequence_id, position_in_sequence)`. With `seq_length=8192` and `stride=7992`,
+   this produces ~232M indexed windows.
+2. **Global shuffle** — A PyTorch `DistributedSampler` assigns ~4.8M random indices to each rank
+   per epoch. Every rank can see windows from any sequence in any shard.
+3. **THD packing** — Each micro-batch packs ~2 windows into 8192 tokens.
 
-Reference: [dataset.py](dataset.py) `create_tokenized_dataset`.
+This recipe replaces that pipeline with the HuggingFace streaming API.
 
-## Streaming buffer shuffle
+## How this recipe handles data: HuggingFace streaming buffer
 
-After tokenization, the stream is shuffled with
-`tokenized_dataset.shuffle(seed=42, buffer_size=buffer_size)`. This is a reservoir-style shuffle:
-the buffer holds up to `buffer_size` tokenized windows; each new item can replace a randomly
-chosen element in the buffer. The shuffle seed can be updated per epoch (e.g. via the dataloader’s
-`set_epoch`) so that different epochs see different orderings. Ordering is randomized only within a
-sliding window of size `buffer_size`, not globally.
+<p align="center">
+  <img src="assets/hf_streaming_buffer_original.png" alt="HF streaming buffer with original dataset" width="80%" />
+</p>
 
-![Streaming buffer and THD flow](assets/dataset_streaming_buffer.png)
+The pipeline has five stages:
 
-*Placeholder: add your figure as `assets/dataset_streaming_buffer.png` (files → shard → tokenize → buffer shuffle → THD pack).*
+1. **Shard assignment** — Each rank is assigned a disjoint subset of files. With 80 JSONL shards
+   and 48 ranks, each rank sees only 1–2 files.
+2. **Streaming tokenization** — Workers read sequences sequentially from their assigned shards,
+   tokenize on the fly, and split into 8k windows (with `stride=200` for overlap).
+3. **Buffer shuffle** — Tokenized windows are shuffled within a reservoir buffer of `buffer_size`
+   (default: 50,000). Each new window replaces a randomly chosen element in the buffer. Ordering is
+   randomized only within this sliding window, not globally. A buffer of 50,000 windows with
+   GBS=384 covers ~130 optimizer steps of data.
+4. **THD packing** — The collator packs ~2 windows per micro-batch into 8192 tokens.
+5. **Gradient accumulation** — n micro-steps are accumulated before each all-reduce and optimizer
+   step (GA=n).
 
-## Why we reshuffled and resharded
+With only 1–2 shards per rank and the strong internal length-sorting of the original JSONL files,
+the buffer shuffle only randomizes within a narrow slice of similar-length sequences on each rank. This limits
+batch diversity and can slow convergence compared to the Megatron baseline's true global shuffle.
 
-The original OpenGenome2 JSONL data had relatively few files (e.g. 80) and was ordered (e.g. by
-sequence length or similarity). With many ranks (e.g. 48), each rank saw only 1–2 files, so:
+### Tuning parameters
 
-- Batches had strong temporal locality (consecutive samples from the same file/source).
-- Validation loss could be worse than training loss (overfitting to local order).
-- Matching the Megatron/ShardedEden baseline was difficult until data order and precision were
-  fixed.
+| Parameter         | Effect                                       | Tradeoff                                                                     |
+| ----------------- | -------------------------------------------- | ---------------------------------------------------------------------------- |
+| `buffer_size`     | Controls local shuffle quality               | Larger = better randomization, more CPU memory                               |
+| `num_workers`     | Controls data loading throughput             | More workers = better I/O overlap, but more memory (each has its own buffer) |
+| `prefetch_factor` | Batches queued ahead per worker (default: 4) | Higher = absorbs shard-transition stalls, more memory                        |
 
-We addressed this by:
+**Step-time spikes:** When a worker finishes its shard and opens a new one, the GPU may stall
+waiting for the buffer to refill. This causes occasional step-time spikes visible in WandB.
+Increasing `prefetch_factor` or `buffer_size` can help absorb these stalls.
 
-1. **Global shuffle** — Shuffling all sequences (or windows) before writing to disk.
-2. **More shards** — Writing to many Parquet shards (e.g. 480+) so that each rank streams from
-   many files and sees a representative mix.
-3. **Pre-chunked path** — Using the pre-chunked Parquet path so that each row is one window and
-   tokenization is a simple BOS+text+EOS pass.
+## Reshuffling and resharding with DuckDB
 
-![Original file order vs reshuffled shards](assets/dataset_original_vs_reshuffled.png)
+To address the limited batch diversity, we globally shuffle all sequences and reshard into many
+more Parquet files using DuckDB:
 
-*Placeholder: add your figure as `assets/dataset_original_vs_reshuffled.png`.*
+<p align="center">
+  <img src="assets/resharding_duckdb.png" alt="Resharding pipeline with DuckDB" width="60%" />
+</p>
 
-## Scripts
+```bash
+duckdb -c "
+SET memory_limit = '100GB';
+SET temp_directory = '/tmp/duckdb_tmp';
+SET threads = 48;
+SET preserve_insertion_order = false;
+COPY (
+  SELECT text
+  FROM read_json('*train*.jsonl', format='newline_delimited')
+  ORDER BY random()
+)
+TO 'output' (FORMAT PARQUET, PER_THREAD_OUTPUT true, FILE_SIZE_BYTES '500MB');
+"
+```
 
-Resharding and inspection scripts may live in the broader repo (e.g. under
-`bionemo-recipes/recipes/llama3_native_te/scripts/` or similar):
+This produces ~1,733 Parquet shards with sequences uniformly distributed across files and no
+length ordering within any file:
 
-- **reshard_jsonl_to_parquet** — Converts JSONL (or HuggingFace cache Arrow files) to globally
-  shuffled Parquet shards. Run before using the pre-chunked config.
-- **check_shard_stats** — Prints per-shard and aggregate stats: sequence counts, window counts,
-  total characters, THD micro-steps, buffer coverage, etc.
+<p align="center">
+  <img src="assets/og2_original_vs_reshuffled.png" alt="Original vs reshuffled data distribution" width="80%" />
+</p>
 
-If your deployment uses a different path for these scripts, point your preprocessing pipeline
-there.
+With 48 ranks now streaming from ~36 shards each (instead of 1–2), and 8 workers per rank each
+reading from different shards, the effective shuffle pool becomes
+`buffer_size × num_workers` across a much more diverse set of sequences:
+
+<p align="center">
+  <img src="assets/hf_streaming_buffer_resharded.png" alt="HF streaming buffer with resharded dataset" width="80%" />
+</p>
+
+Point the `og2_7b_thd_gqa_global_shuffle` config at the output directory:
+
+```yaml
+dataset:
+  load_dataset_kwargs:
+    path: "/path/to/your/resharded_parquet_dir"
+    split: "train"
+    streaming: true
+```
+
+## Summary of approaches
+
+<p align="center">
+  <img src="assets/summary_shuffling_approaches.png" alt="Summary of shuffling approaches" width="80%" />
+</p>
 
 ## Config mapping
 
-| Config                          | Data source         | Tokenization        | stride          | buffer_size |
-| ------------------------------- | ------------------- | ------------------- | --------------- | ----------- |
-| `og2_7b_thd_gqa`                | Streaming JSONL     | Windowed            | 200             | 50_000      |
-| `og2_7b_thd_gqa_global_shuffle` | Pre-chunked Parquet | Direct (no windows) | 200 (no effect) | 10_000      |
+| Config                          | Data source         | Tokenization          | stride | buffer_size | Notes                   |
+| ------------------------------- | ------------------- | --------------------- | ------ | ----------- | ----------------------- |
+| `og2_7b_thd_gqa`                | Streaming JSONL     | Windowed (on-the-fly) | 200    | 50,000      | Original 80 shards      |
+| `og2_7b_thd_gqa_global_shuffle` | Pre-chunked Parquet | Windowed (on-the-fly) | 200    | 10,000      | Reshuffled 1,733 shards |
 
-For `og2_7b_thd_gqa`, `load_dataset_kwargs` typically points at `path: "json"` and
-`data_files: ".../data_metagenomics_train_*.jsonl.gz"`. For `og2_7b_thd_gqa_global_shuffle`,
-`load_dataset_kwargs.path` points at the directory of Parquet shards (e.g.
-`/data/opengenome2/parquet_split`).
+Implementation: [dataset.py](dataset.py) (`create_tokenized_dataset`, `create_thd_dataloader`,
+`create_bshd_dataloader`).
