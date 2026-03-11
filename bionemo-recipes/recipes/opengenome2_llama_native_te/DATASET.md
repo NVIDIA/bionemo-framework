@@ -53,8 +53,7 @@ The pipeline has five stages:
    tokenize on the fly, and split into 8k windows (with `stride=200` for overlap).
 3. **Buffer shuffle** — Tokenized windows are shuffled within a reservoir buffer of `buffer_size`
    (default: 50,000). Each new window replaces a randomly chosen element in the buffer. Ordering is
-   randomized only within this sliding window, not globally. A buffer of 50,000 windows with
-   GBS=384 covers ~130 optimizer steps of data.
+   randomized only within this sliding window, not globally.
 4. **THD packing** — The collator packs ~2 windows per micro-batch into 8192 tokens.
 5. **Gradient accumulation** — n micro-steps are accumulated before each all-reduce and optimizer
    step (GA=n).
