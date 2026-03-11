@@ -15,12 +15,12 @@ However, this recipe uses THD sequence packing for training, whereas the Megatro
 In the metagenome dataset, the median sequence length is ~2.2k and the average is ~4k, so with THD we
 process roughly 2–3× more tokens per training step (less padding waste). See
 [Dataset and tokenization](DATASET.md) for more details on the data pipeline. As a result, this recipe
-achieves significantly better convergence [TODO: add %] than the Megatron baseline at a matched global batch size.
+achieves ~10% better average NLL loss and ~10% better perplexity on the test set than the Megatron baseline at a matched global batch size.
 Both runs use FP32 master weights; the Megatron baseline uses FP8 training and we use BF16. Reported
 results use GBS 384 on 6× H100 nodes (48 GPUs). Note that we also use bf16/fp32 training while the Megatron baseline uses fp8/fp32 training
 which may also contribute to its lower test performance.
 
-TODO: Fill with final results/replace with final image
+[TODO: Fill with final results/replace with final image as available]
 
 <p align="center">
   <img src="assets/og2_convergence_vs_megatron.png" alt="OpenGenome2 7B convergence vs Megatron" width="80%" />
@@ -28,15 +28,16 @@ TODO: Fill with final results/replace with final image
 
 | Model                      | Step / checkpoint | Train loss | Mean Test loss | Mean Test Perplexity |
 | -------------------------- | ----------------- | ---------- | -------------- | -------------------- |
-| LlaMA3 Recipe (OG2 7B)     | -                 | -          | —              | —                    |
+| LlaMA3 Recipe (OG2 7B)     | 165000            | 0.95       | 0.92           | 2.51                 |
 | Megatron baseline (OG2 7B) | 182313            | 1.01       | 1.019          | 2.80                 |
 
-> **Evaluation methodology:** Test losses were computed using
-> [`scripts/evaluate_fasta_lm_loss.py`](scripts/evaluate_fasta_lm_loss.py) on a fixed set of
-> pre-sampled metagenomics test sequences ([`scripts/metagenomics.fasta`](scripts/metagenomics.fasta)).
-> The Megatron baseline was evaluated using a similar per-sequence log-probability script on the same
-> FASTA file, so the per-sequence metrics are directly comparable across models. Degenerate (non-ACGT)
-> bases are masked during evaluation to match training behavior.
+> **Evaluation methodology:** Test losses are average NLL (negative log-likelihood) computed using
+> [`scripts/evaluate_fasta_lm_loss.py`](scripts/evaluate_fasta_lm_loss.py) on 100 randomly sampled
+> sequences from the metagenomics test chunk (`data_metagenomics_test_chunk1`), saved as
+> [`scripts/metagenomics.fasta`](scripts/metagenomics.fasta). The script computes per-token
+> `log_softmax` → `gather` log-probabilities, masks non-ACGT (degenerate) bases, and reports per-sequence
+> mean NLL. The Megatron baseline was evaluated on the same FASTA file using an equivalent
+> per-sequence log-probability script, so metrics are directly comparable.
 
 ## Performance Benchmarks
 
