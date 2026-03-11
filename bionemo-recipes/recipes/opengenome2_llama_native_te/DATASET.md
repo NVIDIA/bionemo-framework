@@ -67,7 +67,7 @@ batch diversity and we hypothesized that it may slow convergence compared to the
 | Parameter         | Effect                                       | Tradeoff                                                                     |
 | ----------------- | -------------------------------------------- | ---------------------------------------------------------------------------- |
 | `buffer_size`     | Controls local shuffle quality               | Larger = better randomization, more CPU memory                               |
-| `num_workers`     | Controls data loading throughput             | More workers = better I/O overlap, but more memory (each has its own buffer) |
+| `num_workers`     | Controls data loading throughput             | More workers = better I/O overlap and shuffling, but more memory (each has its own buffer) |
 | `prefetch_factor` | Batches queued ahead per worker (default: 4) | Higher = absorbs shard-transition stalls, more memory                        |
 
 **Step-time spikes:** When a worker finishes its shard and opens a new one, the GPU may stall
