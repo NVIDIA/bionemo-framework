@@ -37,53 +37,9 @@ mapping = {
 reverse_mapping = {v: k for k, v in mapping.items()}
 
 
-def _split_experts_gate_up(gate_up_proj: torch.Tensor):
-    """Split a stacked expert gate_up tensor into per-expert tensors.
-
-    Args:
-        gate_up_proj: Tensor of shape [num_experts, 2*ffn, hidden].
-
-    Returns:
-        Tuple of per-expert tensors, each of shape [2*ffn, hidden].
-    """
-    return tuple(gate_up_proj[i] for i in range(gate_up_proj.shape[0]))
-
-
-def _split_experts_down(down_proj: torch.Tensor):
-    """Split a stacked expert down_proj tensor into per-expert tensors.
-
-    Args:
-        down_proj: Tensor of shape [num_experts, hidden, ffn].
-
-    Returns:
-        Tuple of per-expert tensors, each of shape [hidden, ffn].
-    """
-    return tuple(down_proj[i] for i in range(down_proj.shape[0]))
-
-
-def _make_merge_experts_fn(num_experts: int):
-    """Create a merge function with the correct number of named parameters.
-
-    The state.py transform system maps function parameter names to source dict keys by inspecting
-    the function signature. When ``source_key`` is a tuple, it pairs each tuple element with the
-    corresponding named parameter via ``{param: source_key[i]}``. This means ``*args`` style
-    parameters do not work -- the system cannot map positional varargs to specific source keys.
-
-    Since the number of experts is dynamic (varies per model config), we use ``exec()`` to generate
-    a function with exactly ``num_experts`` named parameters (weight0, weight1, ..., weightN-1).
-
-    Args:
-        num_experts: The number of expert weight parameters the generated function will accept.
-
-    Returns:
-        A callable ``(weight0, weight1, ..., weight{N-1}) -> torch.Tensor`` that stacks the
-        per-expert weight tensors into a single tensor of shape ``[num_experts, ...]``.
-    """
-    param_names = [f"weight{i}" for i in range(num_experts)]
-    code = f"def merge_experts({', '.join(param_names)}):\n    return torch.stack([{', '.join(param_names)}])"
-    local_ns = {"torch": torch}
-    exec(code, local_ns)
-    return local_ns["merge_experts"]
+def _identity(x: torch.Tensor) -> torch.Tensor:
+    """Identity transform — passes the tensor through unchanged."""
+    return x
 
 
 def convert_mixtral_hf_to_te(model_hf: MixtralForCausalLM, **config_kwargs) -> NVMixtralForCausalLM:
@@ -100,12 +56,6 @@ def convert_mixtral_hf_to_te(model_hf: MixtralForCausalLM, **config_kwargs) -> N
     with torch.device("meta"):
         model_te = NVMixtralForCausalLM(te_config)
 
-    num_experts = model_hf.config.num_local_experts
-
-    # Build expert weight target keys for gate_up and down projections
-    gate_up_target_keys = tuple(f"model.layers.*.mlp.experts_gate_up.weight{i}" for i in range(num_experts))
-    down_target_keys = tuple(f"model.layers.*.mlp.experts_down.weight{i}" for i in range(num_experts))
-
     output_model = state.apply_transforms(
         model_hf,
         model_te,
@@ -120,15 +70,17 @@ def convert_mixtral_hf_to_te(model_hf: MixtralForCausalLM, **config_kwargs) -> N
                 target_key="model.layers.*.self_attention.layernorm_qkv.weight",
                 fn=state.TransformFns.merge_qkv,
             ),
+            # HF stores experts as [num_experts, out, in] stacked tensors;
+            # TE now also uses a single stacked parameter per projection.
             state.state_transform(
                 source_key="model.layers.*.mlp.experts.gate_up_proj",
-                target_key=gate_up_target_keys,
-                fn=_split_experts_gate_up,
+                target_key="model.layers.*.mlp.experts_gate_up_weight",
+                fn=_identity,
             ),
             state.state_transform(
                 source_key="model.layers.*.mlp.experts.down_proj",
-                target_key=down_target_keys,
-                fn=_split_experts_down,
+                target_key="model.layers.*.mlp.experts_down_weight",
+                fn=_identity,
             ),
         ],
     )
@@ -156,13 +108,6 @@ def convert_mixtral_te_to_hf(model_te: NVMixtralForCausalLM, **config_kwargs) ->
     with torch.device("meta"):
         model_hf = MixtralForCausalLM(hf_config)
 
-    num_experts = hf_config.num_local_experts
-
-    gate_up_source_keys = tuple(f"model.layers.*.mlp.experts_gate_up.weight{i}" for i in range(num_experts))
-    down_source_keys = tuple(f"model.layers.*.mlp.experts_down.weight{i}" for i in range(num_experts))
-
-    merge_fn = _make_merge_experts_fn(num_experts)
-
     output_model = state.apply_transforms(
         model_te,
         model_hf,
@@ -177,15 +122,17 @@ def convert_mixtral_te_to_hf(model_te: NVMixtralForCausalLM, **config_kwargs) ->
                 ),
                 fn=state.TransformFns.split_qkv,
             ),
+            # TE now stores experts as [num_experts, out, in] stacked tensors;
+            # HF also uses the same stacked format.
             state.state_transform(
-                source_key=gate_up_source_keys,
+                source_key="model.layers.*.mlp.experts_gate_up_weight",
                 target_key="model.layers.*.mlp.experts.gate_up_proj",
-                fn=merge_fn,
+                fn=_identity,
             ),
             state.state_transform(
-                source_key=down_source_keys,
+                source_key="model.layers.*.mlp.experts_down_weight",
                 target_key="model.layers.*.mlp.experts.down_proj",
-                fn=merge_fn,
+                fn=_identity,
             ),
         ],
     )

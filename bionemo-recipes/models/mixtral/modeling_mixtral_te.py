@@ -15,16 +15,24 @@
 
 """TransformerEngine-optimized Mixtral model with Mixture of Experts."""
 
+import logging
+import os
 import warnings
 from collections import OrderedDict
+from collections.abc import Callable
 from contextlib import nullcontext
-from typing import ClassVar, ContextManager, Unpack
+from dataclasses import dataclass
+from typing import Any, ClassVar, ContextManager, Protocol, Unpack
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import transformer_engine.common.recipe
 import transformer_engine.pytorch
 import transformers
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
+from torch.distributed.tensor import DTensor, Shard
+from torch.distributed.tensor.device_mesh import DeviceMesh
 from transformer_engine.pytorch.attention import InferenceParams
 from transformer_engine.pytorch.attention.inference import PagedKVCacheManager
 from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
@@ -32,6 +40,9 @@ from transformers import MixtralConfig, PreTrainedModel
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
 from transformers.models.llama.modeling_llama import LlamaRotaryEmbedding
 from transformers.utils.generic import TransformersKwargs
+
+
+logger = logging.getLogger(__name__)
 
 
 AUTO_MAP = {
@@ -49,32 +60,89 @@ class NVMixtralConfig(MixtralConfig):
     #   "thd"  = Total tokens (packed/unpadded), Head, Dimension (sequence packing format)
     attn_input_format: str = "thd"
     self_attn_mask_type: str = "padding_causal"
+    layer_precision: list[str | None] | None = None
+    use_quantized_model_init: bool = False
+    expert_parallel_size: int = 1
+    moe_aux_loss_coeff: float = 0.0
 
-    def __init__(
-        self,
-        layer_precision: list[str | None] | None = None,
-        use_quantized_model_init: bool = False,
-        **kwargs,
-    ):
-        """Initialize the NVMixtralConfig with additional TE-related config options.
-
-        Args:
-            layer_precision: Per-layer quantization precision, a list of length ``num_hidden_layers``
-                where each element is ``"fp8"``, ``"fp4"``, or ``None`` (BF16 fallback). ``None``
-                (the default) means no quantization is configured.
-            use_quantized_model_init: Whether to use `quantized_model_init` for layer initialization.
-            **kwargs: Additional config options to pass to MixtralConfig.
-        """
+    def __init__(self, **kwargs):
+        """Initialize the NVMixtralConfig with additional TE-related config options."""
         super().__init__(**kwargs)
-        self.layer_precision = layer_precision
-        self.use_quantized_model_init = use_quantized_model_init
 
-        if layer_precision is not None:
-            if len(layer_precision) != self.num_hidden_layers:
+        if self.layer_precision is not None:
+            if len(self.layer_precision) != self.num_hidden_layers:
                 raise ValueError(f"layer_precision must be a list of length {self.num_hidden_layers}")
-            for precision in layer_precision:
+            for precision in self.layer_precision:
                 if precision not in {"fp8", "fp4", None}:
                     raise ValueError(f'layer_precision element must be "fp8", "fp4", or None, got {precision!r}')
+
+        if self.num_local_experts % self.expert_parallel_size != 0:
+            raise ValueError(
+                f"num_local_experts ({self.num_local_experts}) must be divisible by "
+                f"expert_parallel_size ({self.expert_parallel_size})"
+            )
+
+
+@dataclass
+class DispatchOutput:
+    """Output of TokenDispatcher.dispatch().
+
+    Attributes:
+        expert_input: Tokens sorted by local expert, shape ``[total_recv_tokens, H]``.
+        tokens_per_expert: Token count per local expert.
+        handle: Opaque state needed by ``combine()`` to reverse the dispatch.
+    """
+
+    expert_input: torch.Tensor
+    tokens_per_expert: list[int]
+    handle: Any
+
+
+class TokenDispatcher(Protocol):
+    """Protocol for MoE token dispatch/combine strategies.
+
+    Encapsulates the full dispatch cycle (permute -> communicate -> sort) and
+    combine cycle (unsort -> communicate -> unpermute) so that the MoE block
+    is agnostic to the communication backend (NCCL all-to-all, HybridEP, etc.).
+    """
+
+    def dispatch(
+        self,
+        hidden_states: torch.Tensor,
+        selected_experts: torch.Tensor,
+        routing_weights: torch.Tensor,
+    ) -> DispatchOutput:
+        """Dispatch tokens to their assigned experts.
+
+        Args:
+            hidden_states: Flattened input tensor of shape ``[N, H]``.
+            selected_experts: Expert assignments, shape ``[N, top_k]``, int.
+            routing_weights: Normalized routing probabilities, shape ``[N, top_k]``, float32.
+
+        Returns:
+            DispatchOutput with expert-sorted tokens, per-expert counts, and an opaque handle.
+        """
+        ...
+
+    def combine(
+        self,
+        expert_output: torch.Tensor,
+        handle: Any,
+    ) -> torch.Tensor:
+        """Combine expert outputs back to the original token order.
+
+        Args:
+            expert_output: Expert output tensor of shape ``[total_recv_tokens, H]``.
+            handle: Opaque state from ``dispatch()``.
+
+        Returns:
+            Combined output tensor of shape ``[N, H]`` with routing weights applied.
+        """
+        ...
+
+    def set_ep_group(self, ep_group: dist.ProcessGroup) -> None:
+        """Set the expert-parallel process group for communication."""
+        ...
 
 
 class NVMixtralPreTrainedModel(PreTrainedModel):
@@ -91,6 +159,12 @@ class NVMixtralPreTrainedModel(PreTrainedModel):
         for module in self.modules():
             if hasattr(module, "reset_parameters"):
                 module.reset_parameters()
+
+        # After reset_parameters materializes GroupedLinear views on CUDA,
+        # re-stack them into the authoritative stacked parameters.
+        for module in self.modules():
+            if isinstance(module, NVMixtralSparseMoeBlock):
+                module._restack_from_views()
 
         self.model.embed_tokens.to_empty(device="cuda")
         self.model.embed_tokens.apply(self._init_weights)
@@ -119,7 +193,7 @@ class NVMixtralPreTrainedModel(PreTrainedModel):
 class NVMixtralSparseMoeBlock(nn.Module):
     """Mixture of Experts block using TransformerEngine GroupedLinear."""
 
-    def __init__(self, config: MixtralConfig):
+    def __init__(self, config: MixtralConfig, dispatcher: TokenDispatcher | None = None):
         """Initialize the sparse MoE block."""
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -128,11 +202,25 @@ class NVMixtralSparseMoeBlock(nn.Module):
         self.top_k = config.num_experts_per_tok
         self.jitter_noise = config.router_jitter_noise
 
+        # Expert parallelism
+        self.ep_size = getattr(config, "expert_parallel_size", 1)
+        self.num_local_experts = self.num_experts // self.ep_size
+        self.moe_aux_loss_coeff = getattr(config, "moe_aux_loss_coeff", 0.0)
+        self._aux_loss: torch.Tensor = torch.tensor(0.0)
+
+        self.dispatcher: TokenDispatcher = dispatcher or AllToAllTokenDispatcher(
+            self.num_experts,
+            self.num_local_experts,
+            self.hidden_size,
+            self.ep_size,
+        )
+
         device = "meta" if torch.get_default_device() == torch.device("meta") else "cuda"
 
         def _init_method(x):
             torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
 
+        # Router always outputs num_experts logits (replicated across EP ranks)
         with transformer_engine.pytorch.quantized_model_init(enabled=False):
             self.gate = transformer_engine.pytorch.Linear(
                 self.hidden_size,
@@ -143,9 +231,9 @@ class NVMixtralSparseMoeBlock(nn.Module):
                 init_method=_init_method,
             )
 
-        # Expert FFNs using TE GroupedLinear for efficient parallel processing
+        # Expert FFNs — only num_local_experts per rank when EP > 1
         self.experts_gate_up = transformer_engine.pytorch.GroupedLinear(
-            num_gemms=self.num_experts,
+            num_gemms=self.num_local_experts,
             in_features=self.hidden_size,
             out_features=2 * self.intermediate_size,
             bias=False,
@@ -154,7 +242,7 @@ class NVMixtralSparseMoeBlock(nn.Module):
             init_method=_init_method,
         )
         self.experts_down = transformer_engine.pytorch.GroupedLinear(
-            num_gemms=self.num_experts,
+            num_gemms=self.num_local_experts,
             in_features=self.intermediate_size,
             out_features=self.hidden_size,
             bias=False,
@@ -162,6 +250,97 @@ class NVMixtralSparseMoeBlock(nn.Module):
             device=device,
             init_method=_init_method,
         )
+
+        # Stack per-expert weights into single parameters (authoritative weight store).
+        # GroupedLinear's _parameters dict is emptied; weight attributes are set as views
+        # so that reset_parameters() / _get_weight_tensors() can still find them.
+        self.experts_gate_up_weight = nn.Parameter(
+            torch.stack(
+                [self.experts_gate_up._parameters.pop(f"weight{i}").data for i in range(self.num_local_experts)]
+            )
+        )  # [num_local_experts, 2*intermediate_size, hidden_size]
+
+        self.experts_down_weight = nn.Parameter(
+            torch.stack([self.experts_down._parameters.pop(f"weight{i}").data for i in range(self.num_local_experts)])
+        )  # [num_local_experts, hidden_size, intermediate_size]
+
+        # Set views back on GroupedLinear so getattr(self, "weight{i}") still works
+        # (needed by GroupedLinear.reset_parameters and _get_weight_tensors).
+        self._sync_expert_views()
+
+    def _restack_from_views(self) -> None:
+        """Re-create stacked parameters on CUDA after meta init.
+
+        Called by ``init_empty_weights()`` after ``reset_parameters()`` has been called
+        on all TE modules. Since GroupedLinear has no registered parameters (we popped them),
+        its ``reset_parameters()`` cannot move them from meta to CUDA. This method explicitly
+        creates the stacked parameters on CUDA and reinitializes them.
+        """
+        device = torch.cuda.current_device()
+        for attr_name in ("experts_gate_up_weight", "experts_down_weight"):
+            old_param = getattr(self, attr_name)
+            new_data = torch.empty_like(old_param, device=device)
+            torch.nn.init.normal_(new_data, mean=0.0, std=0.02)
+            setattr(self, attr_name, nn.Parameter(new_data))
+
+        # Re-sync views to point to the new stacked parameter
+        self._sync_expert_views()
+
+    def _sync_expert_views(self) -> None:
+        """Set GroupedLinear weight attributes as views of the stacked parameters.
+
+        GroupedLinear internally uses ``getattr(self, f"weight{i}")`` in methods like
+        ``reset_parameters()`` and ``_get_weight_tensors()``. After popping the original
+        parameters, we set views of the stacked tensor so these methods keep working.
+        Uses ``object.__setattr__`` to bypass ``nn.Module.__setattr__`` and avoid
+        re-registering them as parameters.
+        """
+        gate_up_w = self.experts_gate_up_weight
+        if isinstance(gate_up_w, DTensor):
+            gate_up_w = gate_up_w.to_local()
+        for i in range(self.num_local_experts):
+            object.__setattr__(self.experts_gate_up, f"weight{i}", gate_up_w[i])
+
+        down_w = self.experts_down_weight
+        if isinstance(down_w, DTensor):
+            down_w = down_w.to_local()
+        for i in range(self.num_local_experts):
+            object.__setattr__(self.experts_down, f"weight{i}", down_w[i])
+
+    def set_ep_group(self, ep_group: dist.ProcessGroup, ep_mesh: DeviceMesh) -> None:
+        """Set the expert-parallel process group and convert stacked weights to DTensors.
+
+        Must be called before the first forward pass when ``ep_size > 1``.
+
+        Args:
+            ep_group: A ``torch.distributed.ProcessGroup`` whose world size equals ``self.ep_size``.
+            ep_mesh: A 1-D ``DeviceMesh`` for expert parallelism. Used to wrap stacked weights
+                as ``DTensor(Shard(0))`` so that DCP can save/load/reshard them automatically.
+        """
+        self.dispatcher.set_ep_group(ep_group)
+        # Convert stacked parameters to DTensors with Shard(0) on the expert dimension.
+        # Global shape is [num_experts, ...]; each rank stores [num_local_experts, ...].
+        self.experts_gate_up_weight = nn.Parameter(
+            DTensor.from_local(self.experts_gate_up_weight.data, device_mesh=ep_mesh, placements=[Shard(0)])
+        )
+        self.experts_down_weight = nn.Parameter(
+            DTensor.from_local(self.experts_down_weight.data, device_mesh=ep_mesh, placements=[Shard(0)])
+        )
+
+    def _expert_ffn(self, tokens: torch.Tensor, m_splits: list[int]) -> torch.Tensor:
+        """Run the expert SwiGLU FFN (gate_up -> silu -> down).
+
+        Args:
+            tokens: Input tensor of shape [total_tokens, H], sorted by expert.
+            m_splits: Number of tokens per local expert.
+
+        Returns:
+            Output tensor of shape [total_tokens, H].
+        """
+        gate_up_output = self.experts_gate_up(tokens, m_splits=m_splits)
+        gate_output, up_output = gate_up_output.chunk(2, dim=-1)
+        intermediate = torch.nn.functional.silu(gate_output) * up_output
+        return self.experts_down(intermediate, m_splits=m_splits)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """Forward pass for the MoE block.
@@ -194,44 +373,34 @@ class NVMixtralSparseMoeBlock(nn.Module):
         # Normalize routing weights
         routing_weights = routing_weights / routing_weights.sum(dim=-1, keepdim=True)
 
-        # Permute tokens by expert using TE moe_permute
-        permuted_hidden, row_id_map = transformer_engine.pytorch.moe_permute(
-            hidden_states, selected_experts.to(torch.int32), map_type="index"
-        )
+        # Auxiliary load-balancing loss (switch transformer style)
+        if self.moe_aux_loss_coeff > 0:
+            num_tokens = hidden_states.shape[0]
+            m_splits_tensor = torch.bincount(selected_experts.reshape(-1), minlength=self.num_experts).int()
+            # f_i: fraction of tokens dispatched to each expert
+            f = m_splits_tensor.float() / (num_tokens * self.top_k)
+            # P_i: mean router probability per expert (over all tokens)
+            router_probs = torch.nn.functional.softmax(router_logits, dim=-1, dtype=torch.float32)
+            p = router_probs.mean(dim=0)
+            self._aux_loss = self.moe_aux_loss_coeff * self.num_experts * (f * p).sum()
+        else:
+            self._aux_loss = torch.tensor(0.0, device=hidden_states.device)
 
-        # Compute m_splits: number of tokens per expert
-        # selected_experts is [N, top_k], flatten and count per expert
-        flat_experts = selected_experts.reshape(-1)
-        m_splits = torch.histc(flat_experts.float(), bins=self.num_experts, min=0, max=self.num_experts - 1)
-        m_splits = m_splits.int().tolist()
+        # Populate GroupedLinear weight attributes from stacked parameters.
+        # For EP, the stacked parameter is a DTensor; .to_local() gives the local shard.
+        self._sync_expert_views()
 
-        # Expert computation: gate_up projection
-        gate_up_output = self.experts_gate_up(permuted_hidden, m_splits=m_splits)  # [total_tokens, 2*ffn]
+        dispatch_output = self.dispatcher.dispatch(hidden_states, selected_experts, routing_weights)
+        expert_output = self._expert_ffn(dispatch_output.expert_input, dispatch_output.tokens_per_expert)
+        output = self.dispatcher.combine(expert_output, dispatch_output.handle)
 
-        # Split into gate and up, apply SwiGLU activation
-        gate_output, up_output = gate_up_output.chunk(2, dim=-1)
-        intermediate = torch.nn.functional.silu(gate_output) * up_output
-
-        # Down projection
-        expert_output = self.experts_down(intermediate, m_splits=m_splits)  # [total_tokens, H]
-
-        # Unpermute and combine with routing weights (keep probs in float32 for numerical stability)
-        output = transformer_engine.pytorch.moe_unpermute(
-            expert_output,
-            row_id_map,
-            merging_probs=routing_weights,
-            map_type="index",
-        )
-
-        # Reshape back to original shape
-        output = output.reshape(original_shape)
-        return output
+        return output.reshape(original_shape)
 
 
 class NVMixtralDecoderLayer(nn.Module):
     """Mixtral decoder layer using TE attention and MoE MLP."""
 
-    def __init__(self, config: MixtralConfig, layer_idx: int):
+    def __init__(self, config: MixtralConfig, layer_idx: int, dispatcher: TokenDispatcher | None = None):
         """Initialize the decoder layer."""
         super().__init__()
         self.hidden_size = config.hidden_size
@@ -268,7 +437,7 @@ class NVMixtralDecoderLayer(nn.Module):
             device=device,
         )
 
-        self.mlp = NVMixtralSparseMoeBlock(config)
+        self.mlp = NVMixtralSparseMoeBlock(config, dispatcher)
 
     def forward(
         self,
@@ -314,6 +483,7 @@ class NVMixtralModel(NVMixtralPreTrainedModel):
         config: MixtralConfig,
         fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
         fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        dispatcher: TokenDispatcher | None = None,
     ):
         """Initialize the NVMixtral model.
 
@@ -321,6 +491,7 @@ class NVMixtralModel(NVMixtralPreTrainedModel):
             config: The configuration of the model.
             fp8_recipe: The FP8 recipe for the model.
             fp4_recipe: The FP4 recipe for the model.
+            dispatcher: The token dispatcher for the model. If None, the default AllToAllTokenDispatcher will be used.
         """
         super().__init__(config)
         self.config = config
@@ -341,7 +512,7 @@ class NVMixtralModel(NVMixtralPreTrainedModel):
         layers: list[NVMixtralDecoderLayer] = []
         for layer_idx in range(config.num_hidden_layers):
             with self.get_autocast_context(layer_idx, init=True):
-                layers += [NVMixtralDecoderLayer(config, layer_idx)]
+                layers += [NVMixtralDecoderLayer(config, layer_idx, dispatcher)]
 
         self.layers = nn.ModuleList(layers)
 
@@ -358,6 +529,26 @@ class NVMixtralModel(NVMixtralPreTrainedModel):
         self.gradient_checkpointing = False
 
         self.post_init()
+
+    def set_ep_groups(self, ep_group: dist.ProcessGroup, ep_mesh: DeviceMesh) -> None:
+        """Propagate an expert-parallel process group and mesh to every MoE block.
+
+        Args:
+            ep_group: The EP process group to set on each ``NVMixtralSparseMoeBlock``.
+            ep_mesh: A 1-D ``DeviceMesh`` for expert parallelism.
+        """
+        for layer in self.layers:
+            layer.mlp.set_ep_group(ep_group, ep_mesh)
+
+    def set_dispatchers(self, make_dispatcher: Callable[[], TokenDispatcher]) -> None:
+        """Replace the token dispatcher on every MoE block.
+
+        Args:
+            make_dispatcher: A factory callable that creates a new ``TokenDispatcher``
+                instance for each layer (e.g. ``lambda: AllToAllTokenDispatcher(...)``).
+        """
+        for layer in self.layers:
+            layer.mlp.set_dispatcher(make_dispatcher())
 
     def forward(
         self,
@@ -497,6 +688,7 @@ class NVMixtralForCausalLM(NVMixtralPreTrainedModel, transformers.GenerationMixi
         config,
         fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
         fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        dispatcher: TokenDispatcher | None = None,
     ):
         """Initialize the NVMixtralForCausalLM model.
 
@@ -504,9 +696,11 @@ class NVMixtralForCausalLM(NVMixtralPreTrainedModel, transformers.GenerationMixi
             config: The configuration of the model.
             fp8_recipe: The FP8 recipe for the model.
             fp4_recipe: The FP4 recipe for the model.
+            dispatcher: The token dispatcher for expert parallelism. If None, the default
+                AllToAllTokenDispatcher will be used.
         """
         super().__init__(config)
-        self.model = NVMixtralModel(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+        self.model = NVMixtralModel(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe, dispatcher=dispatcher)
         self.vocab_size = config.vocab_size
 
         with transformer_engine.pytorch.quantized_model_init(enabled=False):
@@ -562,6 +756,11 @@ class NVMixtralForCausalLM(NVMixtralPreTrainedModel, transformers.GenerationMixi
                 logits=logits, labels=labels, shift_labels=shift_labels, vocab_size=self.config.vocab_size, **kwargs
             )
 
+        # Collect auxiliary load-balancing loss from all MoE layers
+        if self.config.moe_aux_loss_coeff > 0 and loss is not None:
+            aux_loss = sum(layer.mlp._aux_loss for layer in self.model.layers)
+            loss = loss + aux_loss
+
         return CausalLMOutputWithPast(
             loss=loss,
             logits=logits,
@@ -571,12 +770,49 @@ class NVMixtralForCausalLM(NVMixtralPreTrainedModel, transformers.GenerationMixi
         )
 
 
-# Required for torch.compile'd functions below (_pad_input, _unpad_input) that use
-# data-dependent scalar values (e.g., max_seqlen_in_batch.item()). Without this,
-# torch._dynamo will raise a GuardOnDataDependentSymNode error during tracing.
-# This must be set at module level because torch.compile traces lazily on first call,
+def save_final_model_ep(
+    model: NVMixtralForCausalLM,
+    save_directory: str | os.PathLike,
+    dist_config=None,
+) -> None:
+    """Gather all EP-sharded expert weights and save as safetensors.
+
+    Uses ``get_model_state_dict(full_state_dict=True)`` to all-gather DTensors,
+    matching the pattern from ``save_final_model_fsdp2`` in the llama3 checkpoint module.
+
+    All ranks must call this function. Only rank 0 writes files.
+
+    Args:
+        model: The NVMixtral model (may have DTensor expert parameters).
+        save_directory: Directory to save ``model.safetensors`` and config.
+        dist_config: Optional distributed config with ``is_main_process()`` method.
+            If ``None``, only rank 0 saves.
+    """
+    from safetensors.torch import save_file
+
+    model_state_dict = get_model_state_dict(
+        model,
+        options=StateDictOptions(full_state_dict=True, cpu_offload=True),
+    )
+
+    # Filter out TE _extra_state keys
+    model_state_dict = {k: v for k, v in model_state_dict.items() if not k.endswith("_extra_state")}
+
+    is_main = dist_config.is_main_process() if dist_config is not None else (dist.get_rank() == 0)
+    if is_main:
+        os.makedirs(save_directory, exist_ok=True)
+        save_file(model_state_dict, os.path.join(save_directory, "model.safetensors"))
+        model.config.save_pretrained(save_directory)
+        logger.info(f"Saved final EP model to {save_directory}")
+
+
+# Required for torch.compile'd functions below (_pad_input, _unpad_input, _build_expert_sort_indices)
+# that use data-dependent scalar values (e.g., max_seqlen_in_batch.item()) or produce tensors
+# whose shape depends on input data (e.g., repeat_interleave with tensor counts).
+# These must be set at module level because torch.compile traces lazily on first call,
 # so a scoped setting would not be active at trace time.
 torch._dynamo.config.capture_scalar_outputs = True
+torch._dynamo.config.capture_dynamic_output_shape_ops = True
 
 
 @torch.compile
@@ -646,3 +882,214 @@ class HFInferenceParams(InferenceParams):
             updated_key_cache = key_cache.index_select(0, beam_idx)
             updated_value_cache = value_cache.index_select(0, beam_idx)
             self.cache_manager.cache[layer_number] = (updated_key_cache, updated_value_cache)
+
+
+@torch.compile(fullgraph=True)
+def _build_expert_sort_indices(recv_counts: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Build sort and unsort index tensors for reordering received tokens by local expert.
+
+    After all-to-all, tokens arrive grouped by source rank:
+    ``[src0_exp0..src0_expL, src1_exp0..src1_expL, ...]``. ``GroupedLinear`` expects them
+    grouped by expert: ``[all_exp0, all_exp1, ...]``.
+
+    Uses only vectorized tensor operations (no ``.item()`` calls or Python-level loops)
+    so that it is compatible with ``torch.compile(fullgraph=True)``.
+
+    Args:
+        recv_counts: Integer tensor of shape ``[ep_size, num_local_experts]`` giving the
+            number of tokens received from each source rank for each local expert.
+
+    Returns:
+        A ``(sort_indices, unsort_indices)`` pair of 1-D ``int64`` tensors that can be
+        used to reorder and restore the token dimension.
+    """
+    ep_size, num_local_experts = recv_counts.shape
+    device = recv_counts.device
+    num_blocks = ep_size * num_local_experts
+
+    # Source-grouped (row-major) block offsets: [s0e0, s0e1, ..., s1e0, s1e1, ...]
+    counts_src = recv_counts.reshape(-1).long()
+    offsets_src = torch.zeros(num_blocks, dtype=torch.long, device=device)
+    offsets_src[1:] = counts_src[:-1].cumsum(0)
+
+    # Expert-grouped (column-major) block offsets: [e0s0, e0s1, ..., e1s0, e1s1, ...]
+    counts_exp = recv_counts.t().contiguous().reshape(-1).long()
+    offsets_exp = torch.zeros(num_blocks, dtype=torch.long, device=device)
+    offsets_exp[1:] = counts_exp[:-1].cumsum(0)
+
+    total = counts_src.sum()
+
+    # Mapping from source block index (s * L + e) to expert block index (e * S + s)
+    s_idx = torch.arange(ep_size, device=device).unsqueeze(1).expand(ep_size, num_local_experts)
+    e_idx = torch.arange(num_local_experts, device=device).unsqueeze(0).expand(ep_size, num_local_experts)
+    src_to_exp = (e_idx * ep_size + s_idx).reshape(-1)
+
+    # Per-block positional shift from source layout to expert layout
+    shifts = offsets_exp[src_to_exp] - offsets_src
+
+    # Expand per-block shifts to per-token
+    token_shifts = shifts.repeat_interleave(counts_src)
+
+    # Map each source-grouped position to its expert-grouped destination
+    src_positions = torch.arange(total, device=device)
+    dst_positions = src_positions + token_shifts
+
+    # sort_indices[exp_pos] = src_pos (gathers source tokens into expert order)
+    sort_indices = torch.empty(total, dtype=torch.long, device=device)
+    sort_indices[dst_positions] = src_positions
+
+    # unsort_indices: inverse permutation (restores expert-ordered output to source order)
+    unsort_indices = torch.empty_like(sort_indices)
+    unsort_indices[sort_indices] = torch.arange(total, device=device)
+
+    return sort_indices, unsort_indices
+
+
+@dataclass
+class _AllToAllHandle:
+    """Opaque handle for AllToAllTokenDispatcher, storing state between dispatch and combine."""
+
+    row_id_map: torch.Tensor
+    routing_weights: torch.Tensor
+    unsort_indices: torch.Tensor | None = None
+    input_split_sizes: list[int] | None = None
+    output_split_sizes: list[int] | None = None
+
+
+class AllToAllTokenDispatcher:
+    """TokenDispatcher using NCCL all-to-all for expert-parallel communication.
+
+    Handles both EP=1 (no communication, just permute/unpermute) and EP>1
+    (all-to-all token exchange between ranks) cases transparently.
+
+    Args:
+        num_experts: Total number of experts (global).
+        num_local_experts: Number of experts on this rank.
+        hidden_size: Hidden dimension size.
+        ep_size: Expert parallel world size.
+    """
+
+    def __init__(self, num_experts: int, num_local_experts: int, hidden_size: int, ep_size: int):
+        """Initialize the AllToAllTokenDispatcher."""
+        self.num_experts = num_experts
+        self.num_local_experts = num_local_experts
+        self.hidden_size = hidden_size
+        self.ep_size = ep_size
+        self._ep_group: dist.ProcessGroup | None = None
+
+    def set_ep_group(self, ep_group: dist.ProcessGroup) -> None:
+        """Set the expert-parallel process group for all-to-all communication."""
+        self._ep_group = ep_group
+
+    def dispatch(
+        self,
+        hidden_states: torch.Tensor,
+        selected_experts: torch.Tensor,
+        routing_weights: torch.Tensor,
+    ) -> DispatchOutput:
+        """Dispatch tokens to their assigned experts via permute and optional all-to-all.
+
+        Args:
+            hidden_states: Flattened input tensor of shape ``[N, H]``.
+            selected_experts: Expert assignments, shape ``[N, top_k]``, int.
+            routing_weights: Normalized routing probabilities, shape ``[N, top_k]``, float32.
+
+        Returns:
+            DispatchOutput with expert-sorted tokens, per-expert counts, and an opaque handle.
+        """
+        # Permute tokens by expert using TE moe_permute
+        permuted_hidden, row_id_map = transformer_engine.pytorch.moe_permute(
+            hidden_states, selected_experts.to(torch.int32), map_type="index"
+        )
+
+        # Compute m_splits: number of tokens per expert
+        m_splits_tensor = torch.bincount(selected_experts.reshape(-1), minlength=self.num_experts).int()
+
+        if self.ep_size > 1:
+            assert self._ep_group is not None, (
+                "EP group must be set via set_ep_group() before dispatch when ep_size > 1"
+            )
+            ep_group = self._ep_group
+
+            # Token counts per expert, reshaped to [ep_size, num_local_experts]
+            send_counts = m_splits_tensor.reshape(self.ep_size, self.num_local_experts)
+
+            # Exchange per-expert token counts between EP ranks
+            recv_counts = torch.empty_like(send_counts)
+            dist.all_to_all_single(recv_counts.flatten(), send_counts.flatten(), group=ep_group)
+
+            # Derive split sizes for the token all-to-all
+            input_split_sizes = send_counts.sum(dim=1).tolist()
+            output_split_sizes = recv_counts.sum(dim=1).tolist()
+            local_m_splits = recv_counts.sum(dim=0).int().tolist()
+
+            # Dispatch tokens to expert-owning ranks
+            recv_tokens = torch.empty(
+                sum(output_split_sizes),
+                self.hidden_size,
+                device=permuted_hidden.device,
+                dtype=permuted_hidden.dtype,
+            )
+            dist.all_to_all_single(recv_tokens, permuted_hidden, output_split_sizes, input_split_sizes, group=ep_group)
+
+            # Sort received tokens by local expert index.
+            # After all_to_all layout is [src0_exp0..src0_expL, src1_exp0..src1_expL, ...].
+            # GroupedLinear needs [all_exp0, all_exp1, ...].
+            sort_indices, unsort_indices = _build_expert_sort_indices(recv_counts)
+
+            handle = _AllToAllHandle(
+                row_id_map=row_id_map,
+                routing_weights=routing_weights,
+                unsort_indices=unsort_indices,
+                input_split_sizes=input_split_sizes,
+                output_split_sizes=output_split_sizes,
+            )
+            return DispatchOutput(
+                expert_input=recv_tokens[sort_indices],
+                tokens_per_expert=local_m_splits,
+                handle=handle,
+            )
+
+        handle = _AllToAllHandle(row_id_map=row_id_map, routing_weights=routing_weights)
+        return DispatchOutput(
+            expert_input=permuted_hidden,
+            tokens_per_expert=m_splits_tensor.tolist(),
+            handle=handle,
+        )
+
+    def combine(self, expert_output: torch.Tensor, handle: _AllToAllHandle) -> torch.Tensor:
+        """Combine expert outputs back to the original token order.
+
+        Args:
+            expert_output: Expert output tensor of shape ``[total_recv_tokens, H]``.
+            handle: Handle from ``dispatch()`` containing state for the reverse operation.
+
+        Returns:
+            Combined output tensor of shape ``[N, H]`` with routing weights applied.
+        """
+        if self.ep_size > 1:
+            assert handle.unsort_indices is not None
+            # Unsort back to source-rank-grouped order and reverse all_to_all
+            combined = torch.empty(
+                sum(handle.input_split_sizes),
+                self.hidden_size,
+                device=expert_output.device,
+                dtype=expert_output.dtype,
+            )
+            dist.all_to_all_single(
+                combined,
+                expert_output[handle.unsort_indices],
+                handle.input_split_sizes,
+                handle.output_split_sizes,
+                group=self._ep_group,
+            )
+        else:
+            combined = expert_output
+
+        # Unpermute and combine with routing weights (keep probs in float32 for numerical stability)
+        return transformer_engine.pytorch.moe_unpermute(
+            combined,
+            handle.row_id_map,
+            merging_probs=handle.routing_weights,
+            map_type="index",
+        )
