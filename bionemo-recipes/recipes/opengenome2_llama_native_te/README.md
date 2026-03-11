@@ -387,11 +387,11 @@ This computes per-token log probabilities for each sequence in the FASTA file, m
 bases, and reports per-sequence and aggregate metrics (CE loss, perplexity). Results are saved as
 JSON for easy comparison across runs. See `scripts/evaluate_fasta_lm_loss.py` for full usage.
 
-## Validation
+## Validation Logging
 
-Validation can be enabled with `validation.enabled=true` and `validation.data_path` pointing to
+Validation logging during training can be enabled with `validation.enabled=true` and `validation.data_path` pointing to
 validation data (e.g. a JSONL file). The `og2_7b_thd_gqa` config enables validation by default.
-Control evaluation frequency with `validation.eval_interval` and `validation.num_batches`.
+Control evaluation frequency with `validation.eval_interval` and `validation.num_batches`.This can be helpful when debugging training convergence. 
 
 ## Developer Guide
 
