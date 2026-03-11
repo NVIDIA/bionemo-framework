@@ -113,7 +113,7 @@ reading from different shards, the effective shuffle pool becomes
   <img src="assets/hf_streaming_buffer_resharded.png" alt="HF streaming buffer with resharded dataset" width="80%" />
 </p>
 
-Point the `og2_7b_thd_gqa_global_shuffle` config at the output directory:
+In order to create such a dataset, use the duck db command above and create ad irectory for your sharded parquet files. Then point the `og2_7b_thd_gqa_global_shuffle` config at the output directory like so: 
 
 ```yaml
 dataset:
@@ -133,8 +133,8 @@ dataset:
 
 | Config                          | Data source         | Tokenization          | stride | buffer_size | Notes                   |
 | ------------------------------- | ------------------- | --------------------- | ------ | ----------- | ----------------------- |
-| `og2_7b_thd_gqa`                | Streaming JSONL     | Windowed (on-the-fly) | 200    | 50,000      | Original 80 shards      |
-| `og2_7b_thd_gqa_global_shuffle` | Pre-chunked Parquet | Windowed (on-the-fly) | 200    | 10,000      | Reshuffled 1,733 shards |
+| `og2_7b_thd_gqa`                | Streaming JSONL (original)     | Windowed (on-the-fly) | 200    | 50,000      | Original 80 shards      |
+| `og2_7b_thd_gqa_global_shuffle` | Streaming Sharded Parquet | Windowed (on-the-fly) | 200    | 10,000      | Reshuffled 1,733 shards |
 
 Implementation: [dataset.py](dataset.py) (`create_tokenized_dataset`, `create_thd_dataloader`,
 `create_bshd_dataloader`).
