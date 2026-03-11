@@ -125,8 +125,7 @@ You can also mix FP8 and FP4 layers by providing both recipes and a mixed `layer
 
 When `use_quantized_model_init=True` is set in the config, layers are created inside a
 `te.quantized_model_init` context. This tells TransformerEngine to initialize weights directly in
-the target quantized format, avoiding a separate quantization step after initialization. This is
-primarily useful when loading pre-quantized checkpoints.
+the target quantized format, avoiding a separate quantization step after initialization.
 
 ```python
 config = NVMixtralConfig(

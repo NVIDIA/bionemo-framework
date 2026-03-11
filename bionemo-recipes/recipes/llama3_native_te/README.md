@@ -140,8 +140,7 @@ python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true
 
 When training with FP8, you can initialize model weights directly in the target quantized format by setting
 `config_kwargs.use_quantized_model_init=true`. This tells TransformerEngine to create weights inside a
-`te.quantized_model_init` context, avoiding a separate quantization step after initialization. This is primarily useful
-when loading pre-quantized checkpoints.
+`te.quantized_model_init` context, avoiding a separate quantization step after initialization.
 
 ```bash
 python train_fsdp2.py --config-name L0_sanity \
