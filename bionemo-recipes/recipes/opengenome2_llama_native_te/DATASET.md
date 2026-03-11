@@ -98,7 +98,7 @@ TO 'output' (FORMAT PARQUET, PER_THREAD_OUTPUT true, FILE_SIZE_BYTES '500MB');
 "
 ```
 
-This produces ~1,733 Parquet shards with sequences uniformly distributed across files and no
+This produces 1,734 Parquet shards with sequences uniformly distributed across files and no
 length ordering within any file:
 
 <p align="center">
