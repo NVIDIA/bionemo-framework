@@ -170,6 +170,27 @@ When both `fp8_config` and `fp4_config` are enabled but only one layer list is p
 claims the remaining layers. For example, if `fp8_layers=[1,2,3]` is set and `fp4_config.enabled=true` with no
 `fp4_layers`, then layers 4 through N will default to FP4.
 
+#### Quantized Model Initialization
+
+When training with FP8 or FP4, you can initialize model weights directly in the target quantized format by setting
+`config_kwargs.use_quantized_model_init=true`. This tells TransformerEngine to create weights inside a
+`te.quantized_model_init` context, avoiding a separate quantization step after initialization. This is primarily useful
+when loading pre-quantized checkpoints.
+
+```bash
+python train_fsdp2.py --config-name L0_sanity \
+  fp8_config.enabled=true \
+  +config_kwargs.use_quantized_model_init=true
+```
+
+This also works with NVFP4:
+
+```bash
+python train_fsdp2.py --config-name L0_sanity \
+  fp4_config.enabled=true \
+  +config_kwargs.use_quantized_model_init=true
+```
+
 #### Quantization Stats Debugging
 
 We provide a mechanism to log tensor statistics (activations, weights, gradients) for quantized layers during training.

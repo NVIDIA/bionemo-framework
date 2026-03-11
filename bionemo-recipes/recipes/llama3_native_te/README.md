@@ -136,6 +136,19 @@ configuration parameters, including switching to `MXFP8BlockScaling`, can be set
 python train_fsdp2.py --config-name L0_sanity fp8_config.enabled=true
 ```
 
+#### Quantized Model Initialization
+
+When training with FP8, you can initialize model weights directly in the target quantized format by setting
+`config_kwargs.use_quantized_model_init=true`. This tells TransformerEngine to create weights inside a
+`te.quantized_model_init` context, avoiding a separate quantization step after initialization. This is primarily useful
+when loading pre-quantized checkpoints.
+
+```bash
+python train_fsdp2.py --config-name L0_sanity \
+  fp8_config.enabled=true \
+  +config_kwargs.use_quantized_model_init=true
+```
+
 #### FP8 Debugging
 
 We also provide a mechanism to receive tensor data related to FP8 layers during training which may include activations, weights and gradients.
