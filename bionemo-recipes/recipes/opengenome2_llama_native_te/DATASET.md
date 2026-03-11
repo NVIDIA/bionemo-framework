@@ -60,7 +60,7 @@ The pipeline has five stages:
 
 With only 1–2 shards per rank and the strong internal length-sorting of the original JSONL files,
 the buffer shuffle only randomizes within a narrow slice of similar-length sequences on each rank. This limits
-batch diversity and can slow convergence compared to the Megatron baseline's true global shuffle.
+batch diversity and we hypothesized that it may slow convergence compared to the Megatron baseline's true global shuffle.
 
 ### Tuning parameters
 
