@@ -46,11 +46,6 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 torch._dynamo.config.suppress_errors = True
 
-# Force first batch to run with CUDA_LAUNCH_BLOCKING enabled to avoid CUDA asynchronous initialization
-# race condition in TE LayerNormLinear. This is unset after the first batch.
-# See https://github.com/NVIDIA/bionemo-framework/issues/1301 for more details.
-# os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
-
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     """Parse arguments for Evo2 model training."""
@@ -679,6 +674,45 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(args=args)
 
 
+def _validate_finetune_ckpt_dir(ckpt_dir: str) -> Path:
+    """Validate that a finetune checkpoint directory exists and looks like a valid MBridge checkpoint.
+
+    Args:
+        ckpt_dir: Path to the checkpoint directory (may contain ``iter_XXXXXXX`` subdirs
+            or be a direct checkpoint directory with ``run_config.yaml``).
+
+    Returns:
+        Resolved absolute path to the checkpoint directory.
+
+    Raises:
+        FileNotFoundError: If the directory does not exist or is not a valid checkpoint.
+    """
+    ckpt_path = Path(ckpt_dir).resolve()
+    if not ckpt_path.exists():
+        raise FileNotFoundError(
+            f"Finetune checkpoint directory does not exist: {ckpt_path}\n"
+            f"  (original path: {ckpt_dir})\n"
+            "Please verify the --finetune-ckpt-dir path. If running from a notebook,\n"
+            "ensure the path is absolute or relative to the working directory."
+        )
+    if not ckpt_path.is_dir():
+        raise FileNotFoundError(f"Finetune checkpoint path is not a directory: {ckpt_path}")
+
+    has_iter_dirs = any(ckpt_path.glob("iter_*"))
+    has_run_config = (ckpt_path / "run_config.yaml").exists()
+    has_latest_txt = (ckpt_path / "latest_checkpointed_iteration.txt").exists()
+
+    if not (has_iter_dirs or has_run_config or has_latest_txt):
+        raise FileNotFoundError(
+            f"Finetune checkpoint directory does not look like a valid MBridge checkpoint: {ckpt_path}\n"
+            "Expected to find at least one of:\n"
+            "  - iter_XXXXXXX/ subdirectories\n"
+            "  - run_config.yaml\n"
+            "  - latest_checkpointed_iteration.txt"
+        )
+    return ckpt_path
+
+
 def main():
     """Parsing args and running evo2 training."""
     args = parse_args()
@@ -941,8 +975,9 @@ def train(args: argparse.Namespace) -> None:
     cfg.checkpoint.most_recent_k = args.most_recent_k
 
     if args.finetune_ckpt_dir:
+        validated_ckpt_dir = _validate_finetune_ckpt_dir(args.finetune_ckpt_dir)
         cfg.checkpoint.finetune = True
-        cfg.checkpoint.pretrained_checkpoint = args.finetune_ckpt_dir
+        cfg.checkpoint.pretrained_checkpoint = str(validated_ckpt_dir)
         cfg.checkpoint.dist_ckpt_strictness = "ignore_all"  # necessary unfortunately to avoid extra_state issues.
     if args.nvidia_fault_tolerance:
         cfg.ft = FaultToleranceConfig(
