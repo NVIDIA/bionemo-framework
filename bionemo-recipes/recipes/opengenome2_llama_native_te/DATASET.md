@@ -83,21 +83,6 @@ more Parquet files using [DuckDB](https://duckdb.org/):
   <img src="assets/resharding_duckdb.png" alt="Resharding pipeline with DuckDB" width="60%" />
 </p>
 
-```bash
-duckdb -c "
-SET memory_limit = '100GB';
-SET temp_directory = '/tmp/duckdb_tmp';
-SET threads = 48;
-SET preserve_insertion_order = false;
-COPY (
-  SELECT text
-  FROM read_json('*train*.jsonl', format='newline_delimited')
-  ORDER BY random()
-)
-TO 'output' (FORMAT PARQUET, PER_THREAD_OUTPUT true, FILE_SIZE_BYTES '500MB');
-"
-```
-
 This produces 1,734 Parquet shards with sequences globally shuffled (no
 length ordering within any file) and uniformly distributed across files:
 
@@ -115,10 +100,24 @@ reading from different shards, the effective shuffle pool becomes
 
 ### Creating your own resharded dataset
 
-Use the [DuckDB](https://duckdb.org/) command above to globally shuffle and reshard your data:
-
 1. Install DuckDB: `pip install duckdb` (or download from [duckdb.org](https://duckdb.org/))
-2. Run the DuckDB command above from the directory containing your JSONL training files
+2. Run the following from the directory containing your JSONL training files:
+
+```bash
+duckdb -c "
+SET memory_limit = '100GB';
+SET temp_directory = '/tmp/duckdb_tmp';
+SET threads = 48;
+SET preserve_insertion_order = false;
+COPY (
+  SELECT text
+  FROM read_json('*train*.jsonl', format='newline_delimited')
+  ORDER BY random()
+)
+TO 'output' (FORMAT PARQUET, PER_THREAD_OUTPUT true, FILE_SIZE_BYTES '500MB');
+"
+```
+
 3. The output directory will contain Parquet shards (e.g. `output/data_0.parquet`, ...)
 4. Update your Hydra config or override on the command line:
 
