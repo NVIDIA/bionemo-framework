@@ -391,7 +391,7 @@ JSON for easy comparison across runs. See `scripts/evaluate_fasta_lm_loss.py` fo
 
 Validation logging during training can be enabled with `validation.enabled=true` and `validation.data_path` pointing to
 validation data (e.g. a JSONL file). The `og2_7b_thd_gqa` config enables validation by default.
-Control evaluation frequency with `validation.eval_interval` and `validation.num_batches`.This can be helpful when debugging training convergence. 
+Control evaluation frequency with `validation.eval_interval` and `validation.num_batches`.This can be helpful when debugging training convergence.
 
 ## Developer Guide
 

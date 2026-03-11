@@ -54,8 +54,8 @@ Example usage::
     # ── Compare ──────────────────────────────────────────────────────────
     python -c "
     import json, statistics
-    hf   = json.load(open('/data/savithas/eval_results/hf_ws_fasta_eval.json'))
-    eden = json.load(open('/data/savithas/eval_results/eden_fasta_eval.json'))
+    hf   = json.load(open('/path/to/model1_fasta_eval.json'))
+    eden = json.load(open('/path/to/model2_fasta_eval.json'))
     print()
     print('=== Per-sequence log-prob comparison (FASTA-based) ===')
     for tag, r in [('HF Window-Shuffle', hf), ('Eden Dataset', eden)]:
