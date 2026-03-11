@@ -193,3 +193,31 @@ def mbridge_eden_checkpoint(tmp_path_factory) -> Path:
     iter_dir = ckpt_dir / "iter_0000001"
     assert iter_dir.exists(), f"Eden checkpoint not found at {iter_dir}"
     return iter_dir
+
+
+@pytest.fixture(scope="session")
+def mbridge_checkpoint_eden_7b(tmp_path_factory) -> Path:
+    """Session-scoped MBridge checkpoint for the Eden (Llama) 7B model.
+
+    Converts the NeMo2 Eden 7B checkpoint from PBSS to MBridge format once per session.
+    Skips if PBSS data source is not configured or data is unavailable.
+
+    Returns:
+        Path to the MBridge checkpoint iteration directory (e.g., .../iter_0000001)
+    """
+    try:
+        nemo2_ckpt_path = bionemo_load("evo2_llama/7B-8k-og2:1.0")
+    except (ValueError, Exception) as e:
+        pytest.skip(f"Eden 7B checkpoint not available: {e}")
+
+    output_dir = tmp_path_factory.mktemp("mbridge_ckpt_eden_7b_session")
+    mbridge_ckpt_dir = run_nemo2_to_mbridge(
+        nemo2_ckpt_dir=nemo2_ckpt_path,
+        tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+        mbridge_ckpt_dir=output_dir / "eden_7b_mbridge",
+        model_size="eden_7b",
+        seq_length=8192,
+        mixed_precision_recipe="bf16_mixed",
+        vortex_style_fp8=False,
+    )
+    return mbridge_ckpt_dir / "iter_0000001"
