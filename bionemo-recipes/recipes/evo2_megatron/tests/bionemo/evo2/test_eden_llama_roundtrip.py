@@ -16,87 +16,49 @@
 """Test mbridge -> HF -> mbridge roundtrip fidelity for Eden (Llama) models.
 
 Verifies that an Eden mbridge checkpoint survives the mbridge -> HF -> mbridge
-round trip with bit-exact weight preservation.
+round trip with bit-exact weight preservation, using the pure state-dict
+converters in ``eden_mbridge_hf``.
 """
-
-import copy
-import os
-import shlex
-import subprocess
-from pathlib import Path
 
 import pytest
 import torch
 
+from bionemo.evo2.utils.checkpoint.eden_mbridge_hf import (
+    hf_to_mbridge_state_dict,
+    mbridge_to_hf_state_dict,
+)
 from bionemo.evo2.utils.checkpoint.mbridge_to_vortex import load_mbridge_state_dict
-
-from .utils import find_free_network_port
-
-
-ROUNDTRIP_HELPER = Path(__file__).parent / "_eden_roundtrip_helper.py"
-PRETEST_ENV = copy.deepcopy(os.environ)
 
 
 @pytest.fixture(scope="module")
-def eden_ckpt(mbridge_eden_checkpoint) -> Path:
+def eden_ckpt(mbridge_eden_checkpoint):
     """Module-scoped alias for the session-scoped Eden checkpoint."""
     return mbridge_eden_checkpoint
 
 
 @pytest.fixture(scope="module")
-def original_mbridge_sd(eden_ckpt: Path) -> dict[str, torch.Tensor]:
+def original_mbridge_sd(eden_ckpt):
     """Load the original mbridge state dict from DCP (no distributed init needed)."""
     return load_mbridge_state_dict(eden_ckpt)
 
 
 @pytest.fixture(scope="module")
-def hf_exported_dir(eden_ckpt: Path, tmp_path_factory) -> Path:
-    """Export the Eden mbridge checkpoint to HuggingFace format."""
-    tmp_dir = tmp_path_factory.mktemp("eden_hf_export")
-    hf_dir = tmp_dir / "hf_checkpoint"
+def roundtripped_mbridge_sd(original_mbridge_sd):
+    """Perform mbridge -> HF -> mbridge roundtrip via pure state-dict conversion.
 
-    open_port = find_free_network_port()
-    cmd = (
-        f"torchrun --nproc_per_node 1 --nnodes 1 --master_port {open_port} "
-        f"{ROUNDTRIP_HELPER} --mode export "
-        f"--ckpt-dir {eden_ckpt} --hf-output-dir {hf_dir}"
-    )
-    env = copy.deepcopy(PRETEST_ENV)
-    result = subprocess.run(shlex.split(cmd), check=False, capture_output=True, text=True, env=env)
-    if result.returncode != 0:
-        print(f"EXPORT STDOUT:\n{result.stdout}")
-        print(f"EXPORT STDERR:\n{result.stderr}")
-    assert result.returncode == 0, f"mbridge->HF export failed: {result.stderr[-2000:]}"
-    assert hf_dir.exists(), f"HF export dir not created at {hf_dir}"
-    return hf_dir
-
-
-@pytest.fixture(scope="module")
-def roundtripped_mbridge_sd(hf_exported_dir: Path, tmp_path_factory) -> dict[str, torch.Tensor]:
-    """Import HF checkpoint back into an mbridge model and return the state dict.
-
-    Flow: HF -> mbridge (via AutoBridge).  The helper script saves the megatron
-    model's state dict as a .pt file so we can compare it against the original.
+    Uses the 2-layer eden_7b config that the ``mbridge_eden_checkpoint`` fixture creates.
     """
-    tmp_dir = tmp_path_factory.mktemp("eden_mbridge_reimport")
-    reimport_dir = tmp_dir / "reimported_mbridge"
+    num_layers = 2
+    num_heads = 32
+    num_kv_heads = 8
 
-    open_port = find_free_network_port()
-    cmd = (
-        f"torchrun --nproc_per_node 1 --nnodes 1 --master_port {open_port} "
-        f"{ROUNDTRIP_HELPER} --mode import "
-        f"--hf-input-dir {hf_exported_dir} --ckpt-output-dir {reimport_dir}"
-    )
-    env = copy.deepcopy(PRETEST_ENV)
-    result = subprocess.run(shlex.split(cmd), check=False, capture_output=True, text=True, env=env)
-    if result.returncode != 0:
-        print(f"IMPORT STDOUT:\n{result.stdout}")
-        print(f"IMPORT STDERR:\n{result.stderr}")
-    assert result.returncode == 0, f"HF->mbridge import failed: {result.stderr[-2000:]}"
+    sd = {k: v.clone() for k, v in original_mbridge_sd.items() if isinstance(v, torch.Tensor)}
 
-    sd_path = reimport_dir / "state_dict.pt"
-    assert sd_path.exists(), f"Roundtripped state dict not found at {sd_path}"
-    return torch.load(sd_path, map_location="cpu", weights_only=True)
+    hf_sd = mbridge_to_hf_state_dict(sd, num_layers=num_layers, num_heads=num_heads, num_kv_heads=num_kv_heads)
+
+    mbridge_sd = hf_to_mbridge_state_dict(hf_sd, num_layers=num_layers, num_heads=num_heads, num_kv_heads=num_kv_heads)
+
+    return mbridge_sd
 
 
 def _tensor_keys(sd: dict[str, object]) -> set[str]:

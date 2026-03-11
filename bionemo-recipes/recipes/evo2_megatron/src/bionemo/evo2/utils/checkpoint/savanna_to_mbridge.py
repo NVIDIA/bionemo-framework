@@ -126,29 +126,45 @@ def download_savanna_checkpoint(repo_id: str, cache_dir: Path | None = None, rev
 def load_savanna_state_dict(path: Path) -> dict[str, torch.Tensor]:
     """Load a Savanna checkpoint and strip module/sequential prefixes.
 
+    Uses mmap=True to avoid loading all weights into RAM at once;
+    tensors are paged in from disk on demand.
+
     Args:
         path: Path to the .pt checkpoint file.
 
     Returns:
         Flat state dict with keys like 'sequential.{i}.xxx'.
     """
-    raw = torch.load(str(path), map_location="cpu", weights_only=False)
+    raw = torch.load(str(path), map_location="cpu", weights_only=True, mmap=True)
     if "module" in raw:
         raw = raw["module"]
 
     state_dict = {}
-    for k, v in raw.items():
-        key = k
-        key = key.removeprefix("module.")
+    for k in list(raw.keys()):
+        v = raw.pop(k)
+        key = k.removeprefix("module.")
         state_dict[key] = v
 
     return state_dict
+
+
+_FP32_SUFFIXES = frozenset({"h", "decay", "gamma", "R", "p"})
+"""Parameter name suffixes that stay in float32; everything else is cast to ``params_dtype``.
+
+These correspond to Hyena filter parameters that are initialised with
+``dtype=torch.float32`` in the model (``ImplicitModalFilter``,
+``ExplicitSingleDecayFilter``).  The old Savanna→NeMo converter preserves
+the same split; matching it here ensures the DCP checkpoint dtypes align
+with what the model's ``sharded_state_dict()`` declares.
+"""
 
 
 def savanna_to_mbridge_state_dict(
     savanna_state_dict: dict[str, torch.Tensor],
     hybrid_override_pattern: str,
     te_enabled: bool = True,
+    medium_conv_len: int = 128,
+    params_dtype: torch.dtype = torch.bfloat16,
 ) -> dict[str, torch.Tensor]:
     """Convert Savanna state dict keys to MBridge (Megatron) format.
 
@@ -166,6 +182,10 @@ def savanna_to_mbridge_state_dict(
         savanna_state_dict: State dict loaded from Savanna checkpoint.
         hybrid_override_pattern: The layer pattern string (e.g. "SDH*SDH...").
         te_enabled: Whether TransformerEngine fused layernorm is used.
+        medium_conv_len: Truncation length for medium hyena filter (filter.h / filter.decay).
+            Matches NeMo's ``HyenaConfig.hyena_medium_conv_len`` (default 128).
+        params_dtype: Target dtype for most parameters (default bfloat16).
+            Filter parameters whose suffix is in ``_FP32_SUFFIXES`` stay float32.
 
     Returns:
         State dict with MBridge-style keys.
@@ -240,12 +260,13 @@ def savanna_to_mbridge_state_dict(
             mapping[f"sequential.{src_idx}.mixer.dense.bias"] = f"decoder.layers.{i}.self_attention.linear_proj.bias"
 
     mbridge_state_dict = {}
-    used_keys = set()
 
     for savanna_key, mbridge_key in mapping.items():
         if savanna_key in savanna_state_dict:
-            mbridge_state_dict[mbridge_key] = savanna_state_dict[savanna_key]
-            used_keys.add(savanna_key)
+            t = savanna_state_dict.pop(savanna_key).clone()
+            if "filter.h" in mbridge_key or "filter.decay" in mbridge_key:
+                t = t[:, :medium_conv_len]
+            mbridge_state_dict[mbridge_key] = t
 
     for i, symbol in enumerate(hybrid_override_pattern):
         src_idx = i + 2
@@ -254,18 +275,20 @@ def savanna_to_mbridge_state_dict(
         fc1_key = f"decoder.layers.{i}.mlp.linear_fc1.weight"
 
         if w1_key in savanna_state_dict and w2_key in savanna_state_dict:
-            w1 = savanna_state_dict[w1_key]
-            w2 = savanna_state_dict[w2_key]
+            w1 = savanna_state_dict.pop(w1_key)
+            w2 = savanna_state_dict.pop(w2_key)
             mbridge_state_dict[fc1_key] = torch.cat([w1, w2], dim=0)
-            used_keys.add(w1_key)
-            used_keys.add(w2_key)
+            del w1, w2
 
-    unmapped = set(savanna_state_dict.keys()) - used_keys
-    extra_state_keys = {k for k in unmapped if "_extra_state" in k}
-    unmapped -= extra_state_keys
-
+    unmapped = {k for k in savanna_state_dict if "_extra_state" not in k}
     if unmapped:
         logger.warning(f"Unmapped savanna keys ({len(unmapped)}): {sorted(unmapped)[:20]}")
+
+    for key in mbridge_state_dict:
+        suffix = key.rsplit(".", 1)[-1]
+        target_dtype = torch.float32 if suffix in _FP32_SUFFIXES else params_dtype
+        if mbridge_state_dict[key].dtype != target_dtype:
+            mbridge_state_dict[key] = mbridge_state_dict[key].to(target_dtype)
 
     return mbridge_state_dict
 
@@ -401,8 +424,16 @@ def savanna_to_mbridge(
     model_provider = provider_cls(**kwargs)
     pattern = model_provider.hybrid_override_pattern
 
-    logger.info(f"Converting with pattern={pattern}, te_enabled={te_enabled}")
-    mbridge_sd = savanna_to_mbridge_state_dict(savanna_sd, pattern, te_enabled=te_enabled)
+    medium_conv_len = getattr(model_provider, "hyena_medium_conv_len", 128)
+    params_dtype = getattr(model_provider, "params_dtype", torch.bfloat16)
+    logger.info(
+        f"Converting with pattern={pattern}, te_enabled={te_enabled}, "
+        f"medium_conv_len={medium_conv_len}, params_dtype={params_dtype}"
+    )
+    mbridge_sd = savanna_to_mbridge_state_dict(
+        savanna_sd, pattern, te_enabled=te_enabled, medium_conv_len=medium_conv_len, params_dtype=params_dtype
+    )
+    del savanna_sd
     logger.info(f"Converted {len(mbridge_sd)} keys")
 
     result = package_mbridge_checkpoint(

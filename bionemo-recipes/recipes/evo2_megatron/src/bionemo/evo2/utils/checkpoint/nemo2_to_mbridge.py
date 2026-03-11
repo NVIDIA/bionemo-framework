@@ -71,31 +71,22 @@ def convert_nemo2_dcp_to_megatron(
     # 2. Load directly from DCP to memory (no_dist=True for single process)
     dcp.load(state_dict=state_dict, storage_reader=reader, no_dist=True)
 
-    # 3. Munge Keys
-    # Removing "module." prefix as requested
-    prefix_len = len("module.")
-    new_state_dict = {}
-    for k, v in state_dict.items():
-        # Safety check: ensure key actually has the prefix before slicing
+    # 3. Rename keys in-place (strip "module." prefix)
+    for k in list(state_dict.keys()):
         if k.startswith("module."):
-            new_key = k[prefix_len:]
-        else:
-            new_key = k
-        new_state_dict[new_key] = v
+            state_dict[k[len("module.") :]] = state_dict.pop(k)
 
     logger.info(f"Keys munged. saving to {dest_path}...")
 
     # 4. Save to DCP with Sharding
-    # Calculate required threads to achieve target shard size
-    # DCP FileSystemWriter writes one file per thread when single_file_per_rank=False
-
     writer = FileSystemWriter(
         dest_path,
-        single_file_per_rank=False,  # roughly one file per parameter
+        single_file_per_rank=False,
         thread_count=os.cpu_count(),
     )
 
-    dcp.save(state_dict=new_state_dict, storage_writer=writer, no_dist=True)
+    dcp.save(state_dict=state_dict, storage_writer=writer, no_dist=True)
+    del state_dict
     logger.info("Conversion complete.")
 
 

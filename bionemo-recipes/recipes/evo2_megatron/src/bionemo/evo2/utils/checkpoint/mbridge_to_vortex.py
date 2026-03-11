@@ -136,8 +136,9 @@ def mbridge_to_vortex_state_dict(
 
     embed_key = "embedding.word_embeddings.weight"
     if embed_key in mbridge_state_dict:
-        vortex_sd["embedding_layer.weight"] = mbridge_state_dict[embed_key]
-        vortex_sd["unembed.weight"] = mbridge_state_dict[embed_key]
+        embed_w = mbridge_state_dict.pop(embed_key)
+        vortex_sd["embedding_layer.weight"] = embed_w
+        vortex_sd["unembed.weight"] = embed_w
 
     for layer_idx, symbol in enumerate(pattern):
         prefix = f"decoder.layers.{layer_idx}"
@@ -169,7 +170,7 @@ def mbridge_to_vortex_state_dict(
 
     final_norm_key = "decoder.final_norm.weight"
     if final_norm_key in mbridge_state_dict:
-        vortex_sd["norm.scale"] = mbridge_state_dict[final_norm_key]
+        vortex_sd["norm.scale"] = mbridge_state_dict.pop(final_norm_key)
 
     return vortex_sd
 
@@ -212,62 +213,68 @@ def _convert_hyena_layer(
     num_groups: int,
     medium_conv_len: int,
 ) -> None:
-    """Convert a single hyena layer (S, D, or H) from mbridge to vortex."""
+    """Convert a single hyena layer (S, D, or H) from mbridge to vortex.
+
+    Pops consumed keys from ``src`` to free memory incrementally.
+    """
     if te_enabled:
         ln_key = f"{prefix}.mixer.dense_projection.layer_norm_weight"
     else:
         ln_key = f"{prefix}.norm.weight"
     if ln_key in src:
-        dst[f"{block_prefix}.pre_norm.scale"] = src[ln_key]
+        dst[f"{block_prefix}.pre_norm.scale"] = src.pop(ln_key)
 
     dense_proj_key = f"{prefix}.mixer.dense_projection.weight"
     if dense_proj_key in src:
-        dst[f"{block_prefix}.projections.weight"] = src[dense_proj_key]
+        dst[f"{block_prefix}.projections.weight"] = src.pop(dense_proj_key)
 
     short_filter_key = f"{prefix}.mixer.hyena_proj_conv.short_conv_weight"
     if short_filter_key in src:
-        w = src[short_filter_key]
+        w = src.pop(short_filter_key)
         if w.dim() == 2:
             w = w[:, None]
         dst[f"{block_prefix}.filter.short_filter_weight"] = w
 
     dense_weight_key = f"{prefix}.mixer.dense.weight"
     if dense_weight_key in src:
-        dst[f"{block_prefix}.out_filter_dense.weight"] = src[dense_weight_key]
+        dst[f"{block_prefix}.out_filter_dense.weight"] = src.pop(dense_weight_key)
 
     dense_bias_key = f"{prefix}.mixer.dense.bias"
     if dense_bias_key in src:
-        dst[f"{block_prefix}.out_filter_dense.bias"] = src[dense_bias_key]
+        dst[f"{block_prefix}.out_filter_dense.bias"] = src.pop(dense_bias_key)
 
     if symbol == "S":
         sc_key = f"{prefix}.mixer.mixer.short_conv.short_conv_weight"
         if sc_key in src:
-            dst[f"{block_prefix}.filter.h"] = src[sc_key]
+            dst[f"{block_prefix}.filter.h"] = src.pop(sc_key)
 
     elif symbol == "D":
         conv_bias_key = f"{prefix}.mixer.mixer.conv_bias"
         if conv_bias_key in src:
-            dst[f"{block_prefix}.filter.D"] = src[conv_bias_key]
+            dst[f"{block_prefix}.filter.D"] = src.pop(conv_bias_key)
 
         h_key = f"{prefix}.mixer.mixer.filter.h"
         decay_key = f"{prefix}.mixer.mixer.filter.decay"
         if h_key in src and decay_key in src:
-            h = src[h_key]
-            decay = src[decay_key]
+            h = src.pop(h_key)
+            decay = src.pop(decay_key)
             trunc_len = min(medium_conv_len, h.shape[1]) if h.dim() > 1 else medium_conv_len
             h_trunc = h[:, :trunc_len] * decay[:, :trunc_len]
+            del h, decay
             dst[f"{block_prefix}.filter.h"] = h_trunc.unsqueeze(1)
 
     elif symbol == "H":
         conv_bias_key = f"{prefix}.mixer.mixer.conv_bias"
         if conv_bias_key in src:
-            dst[f"{block_prefix}.filter.D"] = src[conv_bias_key]
+            dst[f"{block_prefix}.filter.D"] = src.pop(conv_bias_key)
 
         p_key = f"{prefix}.mixer.mixer.filter.p"
         gamma_key = f"{prefix}.mixer.mixer.filter.gamma"
         r_key = f"{prefix}.mixer.mixer.filter.R"
         if p_key in src and gamma_key in src and r_key in src:
-            log_poles, residues = _compute_log_poles_and_residues(src[p_key], src[gamma_key], src[r_key], num_groups)
+            log_poles, residues = _compute_log_poles_and_residues(
+                src.pop(p_key), src.pop(gamma_key), src.pop(r_key), num_groups
+            )
             dst[f"{block_prefix}.filter.log_poles"] = log_poles
             dst[f"{block_prefix}.filter.residues"] = residues
 
@@ -294,25 +301,28 @@ def _convert_attention_layer(
     rotary_dim: int,
     rotary_base: float,
 ) -> None:
-    """Convert a single attention layer (*) from mbridge to vortex."""
+    """Convert a single attention layer (*) from mbridge to vortex.
+
+    Pops consumed keys from ``src`` to free memory incrementally.
+    """
     if te_enabled:
         ln_key = f"{prefix}.self_attention.linear_qkv.layer_norm_weight"
     else:
         ln_key = f"{prefix}.input_layernorm.weight"
     if ln_key in src:
-        dst[f"{block_prefix}.pre_norm.scale"] = src[ln_key]
+        dst[f"{block_prefix}.pre_norm.scale"] = src.pop(ln_key)
 
     qkv_key = f"{prefix}.self_attention.linear_qkv.weight"
     if qkv_key in src:
-        dst[f"{block_prefix}.inner_mha_cls.Wqkv.weight"] = src[qkv_key]
+        dst[f"{block_prefix}.inner_mha_cls.Wqkv.weight"] = src.pop(qkv_key)
 
     proj_weight_key = f"{prefix}.self_attention.linear_proj.weight"
     if proj_weight_key in src:
-        dst[f"{block_prefix}.inner_mha_cls.out_proj.weight"] = src[proj_weight_key]
+        dst[f"{block_prefix}.inner_mha_cls.out_proj.weight"] = src.pop(proj_weight_key)
 
     proj_bias_key = f"{prefix}.self_attention.linear_proj.bias"
     if proj_bias_key in src:
-        dst[f"{block_prefix}.inner_mha_cls.out_proj.bias"] = src[proj_bias_key]
+        dst[f"{block_prefix}.inner_mha_cls.out_proj.bias"] = src.pop(proj_bias_key)
 
     dst[f"{block_prefix}.inner_mha_cls.rotary_emb.inv_freq"] = _compute_inv_freq(rotary_dim, rotary_base)
 
@@ -324,23 +334,26 @@ def _convert_mlp(
     block_prefix: str,
     te_enabled: bool,
 ) -> None:
-    """Convert MLP weights for a layer, splitting merged fc1 back into gate + up-proj."""
+    """Convert MLP weights for a layer, splitting merged fc1 back into gate + up-proj.
+
+    Pops consumed keys from ``src`` to free memory incrementally.
+    """
     if te_enabled:
         post_norm_key = f"{prefix}.mlp.linear_fc1.layer_norm_weight"
     else:
         post_norm_key = f"{prefix}.pre_mlp_layernorm.weight"
     if post_norm_key in src:
-        dst[f"{block_prefix}.post_norm.scale"] = src[post_norm_key]
+        dst[f"{block_prefix}.post_norm.scale"] = src.pop(post_norm_key)
 
     fc1_key = f"{prefix}.mlp.linear_fc1.weight"
     if fc1_key in src:
-        l1_weight, l2_weight = _split_fc1(src[fc1_key])
+        l1_weight, l2_weight = _split_fc1(src.pop(fc1_key))
         dst[f"{block_prefix}.mlp.l1.weight"] = l1_weight
         dst[f"{block_prefix}.mlp.l2.weight"] = l2_weight
 
     fc2_key = f"{prefix}.mlp.linear_fc2.weight"
     if fc2_key in src:
-        dst[f"{block_prefix}.mlp.l3.weight"] = src[fc2_key]
+        dst[f"{block_prefix}.mlp.l3.weight"] = src.pop(fc2_key)
 
 
 def mbridge_to_vortex(
@@ -369,6 +382,7 @@ def mbridge_to_vortex(
 
     logger.info(f"Converting to vortex format (pattern={model_provider.hybrid_override_pattern})...")
     vortex_sd = mbridge_to_vortex_state_dict(mbridge_sd, model_provider, te_enabled=te_enabled)
+    del mbridge_sd
     logger.info(f"Converted to {len(vortex_sd)} vortex keys")
 
     _validate_vortex_keys(vortex_sd, model_provider.hybrid_override_pattern)

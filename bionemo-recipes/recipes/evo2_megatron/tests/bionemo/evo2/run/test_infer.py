@@ -39,6 +39,7 @@ from bionemo.core.data.load import load as bionemo_load
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
 from bionemo.evo2.models.evo2_provider import HyenaInferenceContext
 from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
+from bionemo.evo2.utils.checkpoint.savanna_to_mbridge import savanna_to_mbridge
 
 from ..utils import find_free_network_port
 
@@ -687,6 +688,80 @@ def test_parallel_inference_accuracy_7b(mbridge_checkpoint_7b_1m_path, tmp_path,
             tensor_parallel_size=tp,
             pipeline_model_parallel_size=pp,
             context_parallel_size=cp,
+        )
+
+        identity = calculate_sequence_identity(target, generated_text)
+        match_percents.append(identity)
+
+    matchperc_print = [f"{mp:.2f}%" for mp in match_percents]
+    matchperc_print_expected = [f"{ep:.2f}%" for ep in expected_matchpercents]
+
+    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    )
+
+
+SAVANNA_7B_REPO = "arcinstitute/savanna_evo2_7b"
+
+
+@pytest.fixture(scope="module")
+def mbridge_checkpoint_7b_from_savanna(tmp_path_factory) -> Path:
+    """Convert the ARC Savanna 7B checkpoint to MBridge and return the iteration directory.
+
+    Downloads the savanna checkpoint from HuggingFace, converts it via
+    ``savanna_to_mbridge``, and returns the ``iter_0000001`` path ready for
+    inference.
+    """
+    tmp_dir = tmp_path_factory.mktemp("mbridge_ckpt_7b_savanna")
+    mbridge_ckpt_dir = savanna_to_mbridge(
+        savanna_ckpt_path=SAVANNA_7B_REPO,
+        mbridge_ckpt_dir=tmp_dir / "mbridge_checkpoint",
+        model_size="evo2_7b",
+        tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+        seq_length=8192,
+        te_enabled=True,
+        mixed_precision_recipe="bf16_mixed",
+    )
+    return mbridge_ckpt_dir / "iter_0000001"
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(1800)
+@pytest.mark.skipif(
+    not os.environ.get("LONG_TESTS"),
+    reason="Set LONG_TESTS=1 to run (downloads ~30GB savanna checkpoint)",
+)
+def test_savanna_to_mbridge_inference_accuracy_7b(mbridge_checkpoint_7b_from_savanna, tmp_path, dna_sequences):
+    """Validate the Savanna-to-MBridge conversion by running inference at TP=2.
+
+    Downloads the ARC 7B savanna checkpoint, converts it to MBridge, generates
+    500 tokens for each test sequence, and checks that sequence identity matches
+    expected baselines within 90%.
+    """
+    tp = 2
+    if torch.cuda.device_count() < tp:
+        pytest.skip(f"Not enough GPUs: need {tp}, have {torch.cuda.device_count()}")
+
+    num_tokens = 500
+    expected_matchpercents = [97.60, 89.63, 80.03, 84.57]
+
+    match_percents = []
+    for i, seq in enumerate(dna_sequences):
+        prompt, target = mid_point_split(seq=seq, num_tokens=num_tokens, fraction=0.5)
+
+        prompt_file = tmp_path / f"prompt_savanna7b_seq{i}.txt"
+        output_file = tmp_path / f"output_savanna7b_seq{i}.txt"
+        prompt_file.write_text(prompt)
+
+        generated_text = run_infer_subprocess_parallel(
+            mbridge_checkpoint_7b_from_savanna,
+            prompt_file=prompt_file,
+            output_file=output_file,
+            max_new_tokens=num_tokens,
+            temperature=1.0,
+            top_k=1,
+            seed=42,
+            tensor_parallel_size=tp,
         )
 
         identity = calculate_sequence_identity(target, generated_text)
