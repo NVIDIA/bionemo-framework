@@ -24,7 +24,7 @@ This folder contains an independent, minimal training example. It does not depen
 \[1\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 9.0 and above (Hopper+) <br/>
 \[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
 
-Additional features specific to the OG2 implementation: FP32 Mixed Preicision training, Spike-No-More embedding init, Megatron-style scaled init for residual layers,
+Additional features specific to the OG2 implementation: FP32 Mixed Precision training, Spike-No-More embedding init, Megatron-style scaled init for residual layers,
 weight decay grouping, and the genomic data collator.
 
 ## Installing Dependencies
@@ -42,7 +42,9 @@ for the list of dependencies.
 
 ## Convergence Benchmarks (vs Megatron Baseline)
 
-Our baseline is the Megatron/NeMo Llama 3 model trained with the BCR ShardedEden dataloader. To
+Our baseline is the Megatron/NeMo Llama 3 model trained with the Megatron ShardedEden dataloader. The
+7B model uses Grouped Query Attention (GQA) with 32 attention heads and 8 key-value heads, matching
+the configuration used by the reference Megatron baseline. To
 improve convergence and training stability for the OG2 recipe, we adopted features used in the Megatron stack:
 Spike-No-More embeddings, scaled initialization of output projections (proj/fc2), and BF16 compute
 with FP32 master weights.
