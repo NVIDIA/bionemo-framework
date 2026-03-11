@@ -98,8 +98,8 @@ TO 'output' (FORMAT PARQUET, PER_THREAD_OUTPUT true, FILE_SIZE_BYTES '500MB');
 "
 ```
 
-This produces 1,734 Parquet shards with sequences uniformly distributed across files and no
-length ordering within any file:
+This produces 1,734 Parquet shards with sequences globally shuffled (no
+length ordering within any file) and uniformly distributed across files:
 
 <p align="center">
   <img src="assets/og2_original_vs_reshuffled.png" alt="Original vs reshuffled data distribution" width="80%" />
