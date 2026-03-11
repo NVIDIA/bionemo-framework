@@ -33,7 +33,7 @@ def peft_model(recipe_path):
     config.id2label = SS3_ID2LABEL
     config.label2id = SS3_LABEL2ID
 
-    base_model = AutoModelForTokenClassification.from_config(config, trust_remote_code=True)
+    base_model = AutoModelForTokenClassification.from_config(config, trust_remote_code=True, dtype=torch.bfloat16)
 
     lora_config = peft.LoraConfig(
         task_type=peft.TaskType.TOKEN_CLS,
@@ -45,7 +45,7 @@ def peft_model(recipe_path):
     )
 
     model = peft.get_peft_model(base_model, lora_config)
-    model.to(device="cuda", dtype=torch.bfloat16)
+    model.to(device="cuda")
     model.eval()
     return model
 

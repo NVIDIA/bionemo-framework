@@ -25,12 +25,15 @@ from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
-from transformers import AutoConfig, AutoModelForMaskedLM
+from transformers.models.esm.configuration_esm import EsmConfig
+from transformers.models.esm.modeling_esm import EsmForMaskedLM
 
 from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
+from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 from perf_logger import PerfLogger
+from quantization import resolve_layer_precision
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -65,24 +68,52 @@ def main(args: DictConfig) -> float | None:
         mesh_dim_names=("dp", "tp"),
     )
 
-    # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-    )
+    if args.use_fp32_master_weights:
+        raise ValueError("FP32 master weights are not supported with mFSDP. Use train_fsdp2.py instead.")
 
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
-    config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
-    # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
-    if args.use_sequence_packing:
-        config.attn_input_format = "thd"
+    if args.use_te:
+        config = NVEsmConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
 
-    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
-    # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16 and fp8
-    # versions of weights are kept.
-    with transformer_engine.pytorch.quantized_model_init(
-        recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
-    ):
-        model = AutoModelForMaskedLM.from_config(config, trust_remote_code=True)
+        # Resolve layer-wise quantization assignments and store on config.
+        layer_precision = resolve_layer_precision(
+            num_layers=config.num_hidden_layers,
+            fp8_enabled=args.fp8_config.enabled,
+            fp4_enabled=args.fp4_config.enabled,
+            fp8_layers=OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None else None,
+            fp4_layers=OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None else None,
+        )
+        config.layer_precision = layer_precision
+
+        # Create quantization recipes -- these are only used if FP8/FP4 is enabled in the config.
+        fp8_recipe = None
+        fp4_recipe = None
+        if args.fp8_config.enabled:
+            fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+                fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+            )
+        if args.fp4_config.enabled:
+            fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+                fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
+            )
+
+        # If we're using sequence packing with TE layers, we need to pass the `attn_input_format` argument.
+        if args.use_sequence_packing:
+            config.attn_input_format = "thd"
+
+        model = NVEsmForMaskedLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+        fsdp_unit_modules = [
+            transformer_engine.pytorch.TransformerLayer,
+            transformer_engine.pytorch.LayerNorm,
+            transformer_engine.pytorch.LayerNormLinear,
+        ]
+    else:
+        config = EsmConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
+        model = EsmForMaskedLM(config)
+        fsdp_unit_modules = [
+            transformers.models.esm.modeling_esm.EsmLayer,
+            transformers.models.esm.modeling_esm.EsmEmbeddings,
+        ]
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -93,13 +124,7 @@ def main(args: DictConfig) -> float | None:
     model, optimizer = fully_shard(
         module=model,
         optimizer=optimizer,
-        fsdp_unit_modules=[
-            transformer_engine.pytorch.TransformerLayer,
-            transformer_engine.pytorch.LayerNorm,
-            transformer_engine.pytorch.LayerNormLinear,
-            transformers.models.esm.modeling_esm.EsmLayer,
-            transformers.models.esm.modeling_esm.EsmEmbeddings,
-        ],
+        fsdp_unit_modules=fsdp_unit_modules,
         device_mesh=device_mesh,
         dp_shard_dim="dp",
         tp_dim="tp",
@@ -146,9 +171,8 @@ def main(args: DictConfig) -> float | None:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
-            # Forward pass with mixed precision.
-            with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
-                outputs = model(**batch)
+            # Forward pass.
+            outputs = model(**batch)
 
             # Backward pass.
             loss = outputs.loss

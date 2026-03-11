@@ -31,13 +31,14 @@ logger = logging.getLogger(__name__)
 
 SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     "bionemo-recipes/models/esm2/modeling_esm_te.py": [
-        "bionemo-recipes/recipes/esm2_native_te/example_8m_checkpoint/esm_nv.py",
+        "bionemo-recipes/recipes/esm2_native_te/modeling_esm_te.py",
         "bionemo-recipes/recipes/esm2_peft_te/example_8m_checkpoint/esm_nv.py",
         "bionemo-recipes/recipes/esm2_accelerate_te/example_8m_checkpoint/esm_nv.py",
     ],
     "bionemo-recipes/models/esm2/collator.py": [
         "bionemo-recipes/models/llama3/collator.py",
         "bionemo-recipes/models/mixtral/collator.py",
+        "bionemo-recipes/models/qwen/collator.py",
         "bionemo-recipes/recipes/esm2_native_te/collator.py",
         "bionemo-recipes/recipes/llama3_native_te/collator.py",
         "bionemo-recipes/recipes/opengenome2_llama_native_te/collator.py",
@@ -47,6 +48,7 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
         "bionemo-recipes/models/amplify/src/amplify/state.py",
         "bionemo-recipes/models/llama3/state.py",
         "bionemo-recipes/models/mixtral/state.py",
+        "bionemo-recipes/models/qwen/state.py",
     ],
     "bionemo-recipes/models/llama3/modeling_llama_te.py": [
         "bionemo-recipes/recipes/llama3_native_te/modeling_llama_te.py",
@@ -55,13 +57,11 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     "bionemo-recipes/models/llama3/nucleotide_fast_tokenizer": [
         "bionemo-recipes/recipes/llama3_native_te/tokenizers/nucleotide_fast_tokenizer",
     ],
-    "bionemo-recipes/recipes/esm2_native_te/fp8_debugging.py": [
-        "bionemo-recipes/recipes/llama3_native_te/fp8_debugging.py",
-    ],
     # Common test library - synced between models
     "bionemo-recipes/models/esm2/tests/common": [
         "bionemo-recipes/models/llama3/tests/common",
         "bionemo-recipes/models/mixtral/tests/common",
+        "bionemo-recipes/models/qwen/tests/common",
     ],
 }
 

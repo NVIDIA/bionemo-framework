@@ -41,8 +41,12 @@ fp8_config:
   fp8_recipe: transformer_engine.common.recipe.DelayedScaling
   fp8_format: "HYBRID"
   fp8_recipe_kwargs: {}
-  quantized_model_init_kwargs:
-    enabled: false # If this is set to true, fp8_config.enabled must also be set to true.
+
+fp4_config:
+  enabled: false
+  fp4_recipe: transformer_engine.common.recipe.NVFP4BlockScaling
+  fp4_format: "E2M1"
+  fp4_recipe_kwargs: {}
 
 # Optimizer config
 adamw_kwargs:
