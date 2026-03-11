@@ -25,7 +25,7 @@ This folder contains an independent, minimal training example. It does not depen
 \[2\]: Requires [compute capability](https://developer.nvidia.com/cuda-gpus) 10.0 and 10.3 (Blackwell), 12.0 support pending <br/>
 
 Additional features specific to the OG2 implementation: FP32 Mixed Preicision training, Spike-No-More embedding init, Megatron-style scaled init for residual layers,
-weight decay grouping, and the genomic data collator. 
+weight decay grouping, and the genomic data collator.
 
 ## Installing Dependencies
 
@@ -52,18 +52,19 @@ On the metagenome dataset, the median sequence length is ~2.2k and the average i
 process roughly 2–3× more tokens per training step (less padding waste). As a result, this recipe
 achieves significantly better convergence [TODO: add %] than the Megatron baseline at a matched global batch size.
 Both runs use FP32 master weights; the Megatron baseline uses FP8 training and we use BF16. Reported
-results use GBS 384 on 6× H100 nodes (48 GPUs). Note that we also use bf16/fp32 training while the Megatron baseline uses fp8/fp32 training 
-which may also contribute to its lower test performance. 
+results use GBS 384 on 6× H100 nodes (48 GPUs). Note that we also use bf16/fp32 training while the Megatron baseline uses fp8/fp32 training
+which may also contribute to its lower test performance.
 
-TODO: Fill with final results/replace with final image 
+TODO: Fill with final results/replace with final image
+
 <p align="center">
   <img src="assets/og2_convergence_vs_megatron.png" alt="OpenGenome2 7B convergence vs Megatron" width="80%" />
 </p>
 
-| Model                      | Step / checkpoint | Train loss| Test loss | Perplexity |
-| -------------------------- | ----------------- | ---------- | ---------- | --------- |
-| This recipe (OG2 7B)       |      -            |  -        | —          | —         |
-| Megatron baseline (OG2 7B) | -             |            |            |           |
+| Model                      | Step / checkpoint | Train loss | Mean Test loss | Mean Test Perplexity |
+| -------------------------- | ----------------- | ---------- | -------------- | -------------------- |
+| LlaMA3 Recipe (OG2 7B)     | -                 | -          | —              | —                    |
+| Megatron baseline (OG2 7B) | 182313            | 1.01       | 1.019          | 2.80                 |
 
 ## Performance Benchmarks
 
@@ -82,25 +83,22 @@ def compute_model_pflops(seq_len, global_batch_size, step_time_s):
 
 ### MFU and step time (vs Megatron baseline)
 
-TODO: is it better to use median for the reported step time/MFU calculation?
-Recipe Median: 6.53
-Megatron Median: 4.88
+| Model                | Step Time (s) | GBS | MFU (%) |
+| -------------------- | ------------- | --- | ------- |
+| This recipe (OG2 7B) | 6.60          | 384 | 51.8    |
+| Megatron baseline    | 5.01          | 384 | 68.2    |
 
-| Model                | Mean Step Time (s) | GBS | MFU (%) |
-| -------------------- | ------------------ | --- | ------- |
-| This recipe (OG2 7B) | 6.61               | 384 | 52.3    |
-| Megatron baseline    | 5.48               | 384 | 62.33   |
-
-This recipe is ~21% slower per step than the Megatron baseline (6.61 s vs 5.48 s) and has ~10% lower MFU. The gap is
-expected: the Megatron run uses FP8 and tensor parallelism (TP=4), which we do not yet enable.
-Enabling FP8 and TP should close most of this gap.
+This recipe is ~32% slower per step than the Megatron baseline (6.60 s vs 5.01 s). The gap is
+expected: the Megatron run uses FP8 and tensor parallelism (TP=4) which we do not yet enable.
+Enabling FP8 and TP should close most of this gap. Step times are computed as the slope of
+wall-clock time vs global step over a clean linear region.
 
 ### Throughput: THD vs BSHD
 
-| Config             | Step time (s) | Tokens/step | Tokens/sec | Tokens/sec/GPU |
-| ------------------ | ------------- | ----------- | ---------- | -------------- |
-| THD (this recipe)  | 6.61          | 1,741,106   | —          | 9,927          |
-| BSHD (this recipe) | 6.77          | 3,145,728   | —          | 5,380          |
+| Config             | Step time (s) | Unpadded Tokens/step | Unpadded Tokens/sec/GPU |
+| ------------------ | ------------- | -------------------- | ----------------------- |
+| THD (this recipe)  | 6.61          | 1,741,106            | 9,927                   |
+| BSHD (this recipe) | 6.77          | 3,145,728            | 5,380                   |
 
 <p align="center">
   <img src="plots/throughput_comparison.png" alt="BSHD vs THD throughput comparison" width="80%" />
