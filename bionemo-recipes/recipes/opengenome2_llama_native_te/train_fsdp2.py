@@ -128,6 +128,13 @@ def main(args: DictConfig) -> float | None:
         config_class = LlamaConfig
         model_class = LlamaForCausalLM
 
+    # Validate config: meta-device init breaks custom initialization
+    if getattr(args, "use_meta_device", False):
+        if getattr(args, "use_megatron_scaled_init", False):
+            raise ValueError("use_meta_device=true is incompatible with use_megatron_scaled_init=true")
+        if getattr(args, "spike_no_more_embedding_init", False):
+            raise ValueError("use_meta_device=true is incompatible with spike_no_more_embedding_init=true")
+
     # Determine dtype for model initialization
     use_fp32_master_weights = getattr(args, "use_fp32_master_weights", False)
     model_dtype = torch.float32 if use_fp32_master_weights else torch.bfloat16
