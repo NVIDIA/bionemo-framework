@@ -42,7 +42,7 @@ from bionemo.evo2.recipes.evo2 import evo2_1b_pretrain_config as pretrain_config
 logger = logging.getLogger(__name__)
 
 
-def _download_shards(repo_id: str, weights_filename: str, download_dir: str) -> list[str]:
+def _download_shards(repo_id: str, weights_filename: str, download_dir: str, revision: str | None = None) -> list[str]:
     """Download multi-part checkpoint shards from HuggingFace."""
     parts = []
     part_num = 0
@@ -52,6 +52,7 @@ def _download_shards(repo_id: str, weights_filename: str, download_dir: str) -> 
                 repo_id=repo_id,
                 filename=f"{weights_filename}.part{part_num}",
                 local_dir=download_dir,
+                revision=revision,
             )
             parts.append(part_path)
             part_num += 1
@@ -69,7 +70,7 @@ def _cleanup_parts(parts: list[str]) -> None:
             pass
 
 
-def download_savanna_checkpoint(repo_id: str, cache_dir: Path | None = None) -> Path:
+def download_savanna_checkpoint(repo_id: str, cache_dir: Path | None = None, revision: str | None = None) -> Path:
     """Download a Savanna checkpoint from HuggingFace Hub.
 
     Handles both single-file and multi-part (sharded) checkpoints.
@@ -77,6 +78,7 @@ def download_savanna_checkpoint(repo_id: str, cache_dir: Path | None = None) -> 
     Args:
         repo_id: HuggingFace repo ID (e.g. 'arcinstitute/savanna_evo2_1b_base').
         cache_dir: Optional directory to cache downloads in.
+        revision: HuggingFace revision to use for the savanna checkpoint.
 
     Returns:
         Path to the downloaded .pt file.
@@ -90,6 +92,7 @@ def download_savanna_checkpoint(repo_id: str, cache_dir: Path | None = None) -> 
             repo_id=repo_id,
             filename=weights_filename,
             local_dir=download_dir,
+            revision=revision,
         )
         return Path(weights_path)
     except Exception:
@@ -100,7 +103,7 @@ def download_savanna_checkpoint(repo_id: str, cache_dir: Path | None = None) -> 
         if final_path.exists():
             return final_path
 
-        parts = _download_shards(repo_id, weights_filename, download_dir)
+        parts = _download_shards(repo_id, weights_filename, download_dir, revision)
 
         if not parts:
             raise FileNotFoundError(f"No checkpoint files found in {repo_id}")
@@ -150,9 +153,9 @@ def savanna_to_mbridge_state_dict(
     """Convert Savanna state dict keys to MBridge (Megatron) format.
 
     The Savanna checkpoint uses keys like:
-      sequential.0.word_embeddings.weight       (embedding)
-      sequential.{i+1}.{layer_keys}             (layer i)
-      sequential.{N+1}.norm.weight              (final norm)
+      sequential.0.word_embeddings.weight           (embedding)
+      sequential.{i+2}.{layer_keys}                 (layer i; index 1 is a no-param lambda)
+      sequential.{N+3}.norm.weight                  (final norm; N+2 is another lambda)
 
     MBridge uses:
       embedding.word_embeddings.weight
@@ -366,6 +369,7 @@ def savanna_to_mbridge(
     seq_length: int | None = None,
     te_enabled: bool = True,
     mixed_precision_recipe: str = "bf16_mixed",
+    revision: str | None = None,
 ) -> Path:
     """Convert a Savanna checkpoint to MBridge format end-to-end.
 
@@ -377,6 +381,7 @@ def savanna_to_mbridge(
         seq_length: Override sequence length (uses provider default if None).
         te_enabled: Whether TE fused layernorm keys are used.
         mixed_precision_recipe: Mixed precision recipe name.
+        revision: HuggingFace revision to use for the savanna checkpoint.
 
     Returns:
         Path to the mbridge checkpoint directory.
@@ -384,7 +389,7 @@ def savanna_to_mbridge(
     savanna_path = Path(savanna_ckpt_path)
     if not savanna_path.exists():
         logger.info(f"Path {savanna_ckpt_path} not found locally, treating as HF repo ID...")
-        savanna_path = download_savanna_checkpoint(str(savanna_ckpt_path))
+        savanna_path = download_savanna_checkpoint(str(savanna_ckpt_path), revision=revision)
 
     logger.info(f"Loading savanna checkpoint from {savanna_path}...")
     savanna_sd = load_savanna_state_dict(savanna_path)
@@ -427,6 +432,15 @@ def main():
         choices=list(MIXED_PRECISION_RECIPES.keys()),
         default="bf16_mixed",
     )
+    parser.add_argument(
+        "--revision",
+        type=str,
+        default=None,
+        help="HuggingFace revision to use for the savanna checkpoint. It is STRONGLY encouraged to use a specific "
+        "revision to ensure reproducibility and security. It is possible that a checkpoint on huggingface could be "
+        "compromised with malware, so providing a revision (commit SHA) is strongly recommended. If no revision is "
+        "provided, the latest commit will be used.",
+    )
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
@@ -440,6 +454,7 @@ def main():
         seq_length=args.seq_length,
         te_enabled=not args.no_te,
         mixed_precision_recipe=args.mixed_precision_recipe,
+        revision=args.revision,
     )
 
 

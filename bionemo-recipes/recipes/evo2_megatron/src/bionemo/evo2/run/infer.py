@@ -332,6 +332,8 @@ def setup_inference_engine(
     model_provider.finalize()
 
     if not is_hyena:
+        # _pg_collection is a dataclass field on GPTModelProvider (megatron.bridge);
+        # setting it before provide() is the intended configuration pattern.
         model_provider._pg_collection = ProcessGroupCollection.use_mpu_process_groups()
 
     raw_model = model_provider.provide().eval().cuda()

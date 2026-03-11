@@ -131,6 +131,11 @@ def patch_eden_tokenizer(tokenizer):
     """Patch the byte-level tokenizer to use Eden-specific special token IDs.
 
     Eden training uses BOS=1, EOS=2, SEP=3, PAD=0 instead of the defaults.
+
+    Note: Not called automatically by predict/train/infer — those load tokenizer
+    assets from the checkpoint which already contain the correct IDs.  This
+    utility is provided for callers that construct a fresh tokenizer outside
+    the normal checkpoint flow.
     """
     bos_id, eos_id, sep_id, pad_id = 1, 2, 3, 0
     tokenizer._bos_id = bos_id

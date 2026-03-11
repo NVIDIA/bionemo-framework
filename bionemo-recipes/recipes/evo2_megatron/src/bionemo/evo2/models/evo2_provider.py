@@ -692,10 +692,8 @@ class Hyena20bModelProvider(HyenaModelProvider):
     rotary_base: int = 1_000_000
     seq_len_interpolation_factor: float = 128
     hyena_medium_conv_len: int = 128
-    short_conv_len: int = 7
     hyena_short_conv_len: int = 3
     add_attn_proj_bias: bool = True
-    hyena_out_proj_bias: bool = True
 
 
 @dataclass
@@ -1112,14 +1110,22 @@ HYENA_MODEL_OPTIONS: dict[str, Type[HyenaModelProvider]] = {
 }
 
 
+_collisions = set(HYENA_MODEL_OPTIONS) & set(EDEN_MODEL_OPTIONS)
+if _collisions:
+    raise ValueError(f"HYENA_MODEL_OPTIONS and EDEN_MODEL_OPTIONS have colliding keys: {sorted(_collisions)}")
+
 MODEL_OPTIONS: dict[str, object] = {**HYENA_MODEL_OPTIONS, **EDEN_MODEL_OPTIONS}
 
 
 def infer_model_type(model_size: str) -> str:
     """Infer the model architecture type from the model size key.
 
+    Args:
+        model_size: A model size key such as ``"evo2_1b_base"`` or ``"eden_7b"``.
+
     Returns:
-        "hyena" if the key is in HYENA_MODEL_OPTIONS, "eden" if in EDEN_MODEL_OPTIONS.
+        ``"hyena"`` if *model_size* is in :data:`HYENA_MODEL_OPTIONS`,
+        ``"eden"`` if in :data:`EDEN_MODEL_OPTIONS`.
 
     Raises:
         ValueError: If the key is not found in any model options dict.

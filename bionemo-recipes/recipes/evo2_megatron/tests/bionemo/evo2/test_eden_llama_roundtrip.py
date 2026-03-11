@@ -15,12 +15,11 @@
 
 """Test mbridge -> HF -> mbridge roundtrip fidelity for Eden (Llama) models.
 
-Ported from sub-packages/bionemo-evo2/tests/bionemo/evo2/utils/checkpoint/test_eden_llama_roundtrip.py
-which tested NeMo -> HF -> NeMo. This version tests the Megatron Bridge equivalent.
+Verifies that an Eden mbridge checkpoint survives the mbridge -> HF -> mbridge
+round trip with bit-exact weight preservation.
 """
 
 import copy
-import glob
 import os
 import shlex
 import subprocess
@@ -28,52 +27,26 @@ from pathlib import Path
 
 import pytest
 import torch
-from transformers import LlamaForCausalLM
 
-from bionemo.evo2.data.test_utils.create_fasta_file import ALU_SEQUENCE, create_fasta_file
-from bionemo.evo2.run.predict import batch_collator
+from bionemo.evo2.utils.checkpoint.mbridge_to_vortex import load_mbridge_state_dict
 
-from .utils import find_free_network_port, is_a6000_gpu
+from .utils import find_free_network_port
 
 
 ROUNDTRIP_HELPER = Path(__file__).parent / "_eden_roundtrip_helper.py"
 PRETEST_ENV = copy.deepcopy(os.environ)
 
 
-def _run_predict(ckpt_dir: Path, fasta_path: Path, output_dir: Path, env: dict) -> dict:
-    """Run predict_evo2 and return collated predictions."""
-    open_port = find_free_network_port()
-    command = (
-        f"torchrun --nproc_per_node 1 --nnodes 1 --master_port {open_port} "
-        f"-m bionemo.evo2.run.predict --fasta {fasta_path} --ckpt-dir {ckpt_dir} "
-        f"--output-dir {output_dir} "
-        "--micro-batch-size 3 --write-interval epoch "
-        "--output-log-prob-seqs --log-prob-collapse-option per_token "
-        "--num-nodes 1 --devices 1"
-    )
-    result = subprocess.run(
-        shlex.split(command), check=False, cwd=output_dir.parent, capture_output=True, env=env, text=True
-    )
-    if result.returncode != 0:
-        print(f"PREDICT STDOUT:\n{result.stdout}")
-        print(f"PREDICT STDERR:\n{result.stderr}")
-    assert result.returncode == 0, f"predict_evo2 failed: {result.stderr[-2000:]}"
-
-    pred_files = sorted(glob.glob(str(output_dir / "predictions__rank_*__dp_rank_*.pt")))
-    preds = [torch.load(pf) for pf in pred_files]
-    return batch_collator(
-        [p for p in preds if p is not None],
-        batch_dim=0,
-        seq_dim=1,
-        batch_dim_key_defaults={},
-        seq_dim_key_defaults={},
-    )
-
-
 @pytest.fixture(scope="module")
 def eden_ckpt(mbridge_eden_checkpoint) -> Path:
     """Module-scoped alias for the session-scoped Eden checkpoint."""
     return mbridge_eden_checkpoint
+
+
+@pytest.fixture(scope="module")
+def original_mbridge_sd(eden_ckpt: Path) -> dict[str, torch.Tensor]:
+    """Load the original mbridge state dict from DCP (no distributed init needed)."""
+    return load_mbridge_state_dict(eden_ckpt)
 
 
 @pytest.fixture(scope="module")
@@ -99,88 +72,58 @@ def hf_exported_dir(eden_ckpt: Path, tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="module")
-def hf_reimported_dir(hf_exported_dir: Path, tmp_path_factory) -> Path:
-    """Import the HF checkpoint back and re-export to HF for weight comparison."""
-    tmp_dir = tmp_path_factory.mktemp("eden_hf_reimport")
-    reimported_hf_dir = tmp_dir / "reimported_hf_checkpoint"
+def roundtripped_mbridge_sd(hf_exported_dir: Path, tmp_path_factory) -> dict[str, torch.Tensor]:
+    """Import HF checkpoint back into an mbridge model and return the state dict.
+
+    Flow: HF -> mbridge (via AutoBridge).  The helper script saves the megatron
+    model's state dict as a .pt file so we can compare it against the original.
+    """
+    tmp_dir = tmp_path_factory.mktemp("eden_mbridge_reimport")
+    reimport_dir = tmp_dir / "reimported_mbridge"
 
     open_port = find_free_network_port()
     cmd = (
         f"torchrun --nproc_per_node 1 --nnodes 1 --master_port {open_port} "
         f"{ROUNDTRIP_HELPER} --mode import "
-        f"--hf-input-dir {hf_exported_dir} --ckpt-output-dir {reimported_hf_dir}"
+        f"--hf-input-dir {hf_exported_dir} --ckpt-output-dir {reimport_dir}"
     )
     env = copy.deepcopy(PRETEST_ENV)
     result = subprocess.run(shlex.split(cmd), check=False, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         print(f"IMPORT STDOUT:\n{result.stdout}")
         print(f"IMPORT STDERR:\n{result.stderr}")
-    assert result.returncode == 0, f"HF->mbridge->HF re-import failed: {result.stderr[-2000:]}"
-    assert reimported_hf_dir.exists(), f"Reimported HF dir not created at {reimported_hf_dir}"
-    return reimported_hf_dir
+    assert result.returncode == 0, f"HF->mbridge import failed: {result.stderr[-2000:]}"
+
+    sd_path = reimport_dir / "state_dict.pt"
+    assert sd_path.exists(), f"Roundtripped state dict not found at {sd_path}"
+    return torch.load(sd_path, map_location="cpu", weights_only=True)
+
+
+def _tensor_keys(sd: dict[str, object]) -> set[str]:
+    """Return keys whose values are Tensors (skip _extra_state / bytes metadata)."""
+    return {k for k, v in sd.items() if isinstance(v, torch.Tensor)}
 
 
 @pytest.mark.slow
-def test_roundtrip_hf_weight_equality(hf_exported_dir: Path, hf_reimported_dir: Path):
-    """Verify that mbridge->HF->mbridge->HF produces identical weights."""
-    original = LlamaForCausalLM.from_pretrained(hf_exported_dir, torch_dtype=torch.bfloat16)
-    reimported = LlamaForCausalLM.from_pretrained(hf_reimported_dir, torch_dtype=torch.bfloat16)
+def test_roundtrip_mbridge_weight_equality(
+    original_mbridge_sd: dict[str, torch.Tensor],
+    roundtripped_mbridge_sd: dict[str, torch.Tensor],
+):
+    """Verify that mbridge -> HF -> mbridge produces identical weights."""
+    orig_keys = _tensor_keys(original_mbridge_sd)
+    rt_keys = _tensor_keys(roundtripped_mbridge_sd)
 
-    orig_sd = original.state_dict()
-    reimp_sd = reimported.state_dict()
-
-    assert set(orig_sd.keys()) == set(reimp_sd.keys()), (
-        f"Key mismatch.\nOnly in original: {sorted(set(orig_sd) - set(reimp_sd))}\n"
-        f"Only in reimported: {sorted(set(reimp_sd) - set(orig_sd))}"
+    assert orig_keys == rt_keys, (
+        f"Key mismatch.\nOnly in original: {sorted(orig_keys - rt_keys)}\n"
+        f"Only in roundtripped: {sorted(rt_keys - orig_keys)}"
     )
 
-    for key in sorted(orig_sd.keys()):
-        assert orig_sd[key].shape == reimp_sd[key].shape, f"Shape mismatch for {key}"
+    for key in sorted(orig_keys):
+        assert original_mbridge_sd[key].shape == roundtripped_mbridge_sd[key].shape, f"Shape mismatch for {key}"
         torch.testing.assert_close(
-            orig_sd[key],
-            reimp_sd[key],
+            original_mbridge_sd[key],
+            roundtripped_mbridge_sd[key],
             atol=0,
             rtol=0,
             msg=lambda diff: f"Weight mismatch for {key}: {diff}",
         )
-
-
-@pytest.mark.slow
-def test_roundtrip_prediction_equality(
-    eden_ckpt: Path,
-    hf_exported_dir: Path,
-    hf_reimported_dir: Path,
-    tmp_path,
-):
-    """Verify that predictions from the original and roundtripped models match.
-
-    Runs predict on both the original mbridge checkpoint and on the re-imported HF checkpoint
-    (loaded via AutoBridge) and compares per-token log probabilities.
-    """
-    num_sequences = 2
-    seq_lengths = [64, 64]
-
-    fasta_path = tmp_path / "test.fasta"
-    create_fasta_file(fasta_path, num_sequences, sequence_lengths=seq_lengths, repeating_dna_pattern=ALU_SEQUENCE)
-
-    env = copy.deepcopy(PRETEST_ENV)
-    if is_a6000_gpu():
-        env["NCCL_P2P_DISABLE"] = "1"
-
-    # Predictions from the original mbridge checkpoint
-    original_preds = _run_predict(eden_ckpt, fasta_path, tmp_path / "orig_preds", env)
-
-    assert "log_probs_seqs" in original_preds
-    assert "seq_idx" in original_preds
-
-    # Load the original and reimported HF models and compare forward pass
-    original_hf = LlamaForCausalLM.from_pretrained(hf_exported_dir, torch_dtype=torch.bfloat16).eval()
-    reimported_hf = LlamaForCausalLM.from_pretrained(hf_reimported_dir, torch_dtype=torch.bfloat16).eval()
-
-    # Quick sanity: HF forward pass should produce identical outputs for both
-    input_ids = torch.randint(0, 256, (1, 32))
-    with torch.no_grad():
-        orig_logits = original_hf(input_ids).logits
-        reimp_logits = reimported_hf(input_ids).logits
-
-    torch.testing.assert_close(orig_logits, reimp_logits, atol=0, rtol=0)

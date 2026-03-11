@@ -71,6 +71,7 @@ def export_mbridge_to_hf(ckpt_dir: Path, hf_output_dir: Path) -> None:
     )
 
     model_provider.finalize()
+    # _pg_collection is a dataclass field on GPTModelProvider (megatron.bridge)
     model_provider._pg_collection = ProcessGroupCollection.use_mpu_process_groups()
     raw_model = model_provider.provide().eval().cuda()
     _load_model_weights_from_checkpoint(
@@ -106,7 +107,11 @@ def export_mbridge_to_hf(ckpt_dir: Path, hf_output_dir: Path) -> None:
 
 
 def import_hf_to_mbridge(hf_input_dir: Path, ckpt_output_dir: Path) -> None:
-    """Import an HF checkpoint and re-export to HF to test roundtrip."""
+    """Import an HF checkpoint into an mbridge model and save the mbridge state dict.
+
+    The saved state dict uses bare mbridge keys (no ``module.`` prefix) so it
+    can be compared directly against the original mbridge DCP state dict.
+    """
     rng_config = RNGConfig(seed=1234)
     dist_config = DistributedInitConfig()
     initialize_inference_distributed(
@@ -127,15 +132,17 @@ def import_hf_to_mbridge(hf_input_dir: Path, ckpt_output_dir: Path) -> None:
     mp_config.setup(provider)
     provider.finalize()
 
-    model = provider.provide_distributed_model(
+    models = provider.provide_distributed_model(
         ddp_config=None, wrap_with_ddp=False, data_parallel_random_init=False, bf16=True
     )
 
+    raw_sd = models[0].state_dict()
+    mbridge_sd = {k.removeprefix("module."): v for k, v in raw_sd.items()}
+
     ckpt_output_dir = Path(ckpt_output_dir)
     ckpt_output_dir.mkdir(parents=True, exist_ok=True)
-    bridge.hf_pretrained.config.save_pretrained(str(ckpt_output_dir))
-    bridge.save_hf_weights(model, str(ckpt_output_dir))
-    print(f"Re-exported HF -> mbridge -> HF at {ckpt_output_dir}")
+    torch.save(mbridge_sd, str(ckpt_output_dir / "state_dict.pt"))
+    print(f"Saved roundtripped mbridge state dict to {ckpt_output_dir / 'state_dict.pt'}")
 
 
 def main():

@@ -40,13 +40,17 @@ def load_mbridge_state_dict(mbridge_ckpt_dir: Path) -> dict[str, torch.Tensor]:
     """Load state dict from an mbridge DCP checkpoint directory.
 
     Args:
-        mbridge_ckpt_dir: Path to the mbridge checkpoint (containing iter_XXXXXXX/).
+        mbridge_ckpt_dir: Path to the mbridge checkpoint root (containing iter_XXXXXXX/),
+            or directly to an iter_XXXXXXX directory.
 
     Returns:
         Flat state dict with all tensor parameters.
     """
-    latest_file = mbridge_ckpt_dir / "latest_checkpointed_iteration.txt"
-    if latest_file.exists():
+    import re
+
+    if re.match(r"^iter_\d+$", mbridge_ckpt_dir.name):
+        iter_dir = mbridge_ckpt_dir
+    elif (latest_file := mbridge_ckpt_dir / "latest_checkpointed_iteration.txt").exists():
         iteration = latest_file.read_text().strip()
         iter_dir = mbridge_ckpt_dir / f"iter_{int(iteration):07d}"
     else:
@@ -168,6 +172,34 @@ def mbridge_to_vortex_state_dict(
         vortex_sd["norm.scale"] = mbridge_state_dict[final_norm_key]
 
     return vortex_sd
+
+
+def _validate_vortex_keys(vortex_sd: dict[str, torch.Tensor], pattern: str) -> None:
+    """Validate that all mandatory keys are present in the converted vortex state dict.
+
+    Raises:
+        ValueError: If any mandatory keys are missing.
+    """
+    mandatory = {"embedding_layer.weight", "unembed.weight", "norm.scale"}
+
+    for layer_idx, symbol in enumerate(pattern):
+        bp = f"blocks.{layer_idx}"
+        mandatory.add(f"{bp}.pre_norm.scale")
+        mandatory.add(f"{bp}.post_norm.scale")
+        mandatory.add(f"{bp}.mlp.l1.weight")
+        mandatory.add(f"{bp}.mlp.l2.weight")
+        mandatory.add(f"{bp}.mlp.l3.weight")
+
+        if symbol == "*":
+            mandatory.add(f"{bp}.inner_mha_cls.Wqkv.weight")
+            mandatory.add(f"{bp}.inner_mha_cls.out_proj.weight")
+        else:
+            mandatory.add(f"{bp}.projections.weight")
+            mandatory.add(f"{bp}.out_filter_dense.weight")
+
+    missing = sorted(mandatory - set(vortex_sd.keys()))
+    if missing:
+        raise ValueError(f"Vortex conversion produced {len(missing)} missing mandatory keys: {missing[:20]}")
 
 
 def _convert_hyena_layer(
@@ -338,6 +370,8 @@ def mbridge_to_vortex(
     logger.info(f"Converting to vortex format (pattern={model_provider.hybrid_override_pattern})...")
     vortex_sd = mbridge_to_vortex_state_dict(mbridge_sd, model_provider, te_enabled=te_enabled)
     logger.info(f"Converted to {len(vortex_sd)} vortex keys")
+
+    _validate_vortex_keys(vortex_sd, model_provider.hybrid_override_pattern)
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

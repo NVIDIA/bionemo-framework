@@ -137,13 +137,16 @@ def test_patch_eden_tokenizer():
 
 
 def _make_mock_savanna_sd(pattern: str) -> dict[str, torch.Tensor]:
-    """Create a minimal mock savanna state dict for the given pattern."""
+    """Create a minimal mock savanna state dict for the given pattern.
+
+    Savanna layout: 0=embedding, 1=lambda(no params), 2..N+1=layers, N+2=lambda, N+3=final_norm.
+    """
     sd = {}
     sd["sequential.0.word_embeddings.weight"] = torch.randn(512, 1920)
     num_layers = len(pattern)
 
     for i, symbol in enumerate(pattern):
-        src_idx = i + 1
+        src_idx = i + 2
         sd[f"sequential.{src_idx}.pre_mlp_layernorm.weight"] = torch.randn(1920)
         sd[f"sequential.{src_idx}.mlp.w1.weight"] = torch.randn(5120, 1920)
         sd[f"sequential.{src_idx}.mlp.w2.weight"] = torch.randn(5120, 1920)
@@ -171,7 +174,7 @@ def _make_mock_savanna_sd(pattern: str) -> dict[str, torch.Tensor]:
             sd[f"sequential.{src_idx}.mixer.dense.weight"] = torch.randn(1920, 1920)
             sd[f"sequential.{src_idx}.mixer.dense.bias"] = torch.randn(1920)
 
-    sd[f"sequential.{num_layers + 1}.norm.weight"] = torch.randn(1920)
+    sd[f"sequential.{num_layers + 3}.norm.weight"] = torch.randn(1920)
     return sd
 
 
