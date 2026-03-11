@@ -2,6 +2,82 @@
 
 This folder demonstrates how to train TE-accelerated Llama 3 with a native PyTorch training loop for autoregressive DNA token prediction on the metagenome subset of the OpenGenome2 genomic dataset. It uses fully sharded data parallel (FSDP2), THD sequence packing, a custom nucleotide tokenizer, and supports FP32 master weights. Convergence has been validated against the Megatron/ShardedEden OpenGenome2 (OG2) baseline.
 
+## Convergence Benchmarks (vs Megatron Baseline)
+
+Our baseline is the Megatron/NeMo Llama 3 model trained with the Megatron ShardedEden dataloader. The
+7B model uses Grouped Query Attention (GQA) with 32 attention heads and 8 key-value heads, matching
+the configuration used by the reference Megatron baseline. To
+improve convergence and training stability for the OG2 recipe, we adopted features used in the Megatron stack:
+Spike-No-More embeddings, scaled initialization of output projections (proj/fc2), and BF16 compute
+with FP32 master weights.
+
+However, this recipe uses THD sequence packing for training, whereas the Megatron baseline uses a standard BSHD dataloader.
+In the metagenome dataset, the median sequence length is ~2.2k and the average is ~4k, so with THD we
+process roughly 2–3× more tokens per training step (less padding waste). See
+[Dataset and tokenization](DATASET.md) for more details on the data pipeline. As a result, this recipe
+achieves significantly better convergence [TODO: add %] than the Megatron baseline at a matched global batch size.
+Both runs use FP32 master weights; the Megatron baseline uses FP8 training and we use BF16. Reported
+results use GBS 384 on 6× H100 nodes (48 GPUs). Note that we also use bf16/fp32 training while the Megatron baseline uses fp8/fp32 training
+which may also contribute to its lower test performance.
+
+TODO: Fill with final results/replace with final image
+
+<p align="center">
+  <img src="assets/og2_convergence_vs_megatron.png" alt="OpenGenome2 7B convergence vs Megatron" width="80%" />
+</p>
+
+| Model                      | Step / checkpoint | Train loss | Mean Test loss | Mean Test Perplexity |
+| -------------------------- | ----------------- | ---------- | -------------- | -------------------- |
+| LlaMA3 Recipe (OG2 7B)     | -                 | -          | —              | —                    |
+| Megatron baseline (OG2 7B) | 182313            | 1.01       | 1.019          | 2.80                 |
+
+> **Evaluation methodology:** Test losses were computed using
+> [`scripts/evaluate_fasta_lm_loss.py`](scripts/evaluate_fasta_lm_loss.py) on a fixed set of
+> pre-sampled metagenomics test sequences ([`scripts/metagenomics.fasta`](scripts/metagenomics.fasta)).
+> The Megatron baseline was evaluated using a similar per-sequence log-probability script on the same
+> FASTA file, so the per-sequence metrics are directly comparable across models. Degenerate (non-ACGT)
+> bases are masked during evaluation to match training behavior.
+
+## Performance Benchmarks
+
+### MFU formula (same as Llama3 70B benchmarks)
+
+MFU was calculated using a 989 TFLOPS/GPU maximum theoretical bf16 throughput for H100. Model FLOPS use the formula:
+
+```python
+def compute_model_pflops(seq_len, global_batch_size, step_time_s):
+    B, S, H, L, V = global_batch_size, seq_len, HIDDEN_DIM, N_LAYERS, VOCAB_SIZE
+    model_flops = (
+        (24 * B * S * H * H + 4 * B * S * S * H) * (3 * L) + (6 * B * S * H * V)
+    ) / step_time_s
+    return model_flops / 1e15
+```
+
+### MFU and step time (vs Megatron baseline)
+
+| Model                | Step Time (s) | GBS | MFU (%) |
+| -------------------- | ------------- | --- | ------- |
+| This recipe (OG2 7B) | 6.60          | 384 | 51.8    |
+| Megatron baseline    | 5.01          | 384 | 68.2    |
+
+This recipe is ~32% slower per step than the Megatron baseline (6.60 s vs 5.01 s). The gap is
+expected: the Megatron run uses FP8 and tensor parallelism (TP=4) which we do not yet enable.
+Enabling FP8 and TP should close most of this gap. Step times are computed as the slope of
+wall-clock time vs global step over a clean linear region.
+
+### Throughput: THD vs BSHD
+
+As seen in the table and chart below, using THD with our recipe provides ~80-85% improvement in the throughput (measured in the number of unpadded tokens) compared to BSHD.
+
+| Config             | Unpadded Tokens/global batch | Unpadded Tokens/sec/GPU |
+| ------------------ | ---------------------------- | ----------------------- |
+| THD (this recipe)  | 1,741,106                    | 9,927                   |
+| BSHD (this recipe) | 3,145,728                    | 5,380                   |
+
+<p align="center">
+  <img src="plots/throughput_comparison.png" alt="BSHD vs THD throughput comparison" width="80%" />
+</p>
+
 ## How to use this recipe
 
 This folder contains an independent, minimal training example. It does not depend on any other code in the top-level bionemo-framework repository. You can download a zipped directory of this folder alone by clicking
@@ -35,73 +111,6 @@ docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bi
 
 Alternatively, the dependencies can be installed manually in an environment with CUDA support. See `requirements.txt`
 for the list of dependencies.
-
-## Convergence Benchmarks (vs Megatron Baseline)
-
-Our baseline is the Megatron/NeMo Llama 3 model trained with the Megatron ShardedEden dataloader. The
-7B model uses Grouped Query Attention (GQA) with 32 attention heads and 8 key-value heads, matching
-the configuration used by the reference Megatron baseline. To
-improve convergence and training stability for the OG2 recipe, we adopted features used in the Megatron stack:
-Spike-No-More embeddings, scaled initialization of output projections (proj/fc2), and BF16 compute
-with FP32 master weights.
-
-However, this recipe uses THD sequence packing for training, whereas the Megatron baseline uses a standard BSHD dataloader.
-In the metagenome dataset, the median sequence length is ~2.2k and the average is ~4k, so with THD we
-process roughly 2–3× more tokens per training step (less padding waste). See
-[Dataset and tokenization](DATASET.md) for more details on the data pipeline. As a result, this recipe
-achieves significantly better convergence [TODO: add %] than the Megatron baseline at a matched global batch size.
-Both runs use FP32 master weights; the Megatron baseline uses FP8 training and we use BF16. Reported
-results use GBS 384 on 6× H100 nodes (48 GPUs). Note that we also use bf16/fp32 training while the Megatron baseline uses fp8/fp32 training
-which may also contribute to its lower test performance.
-
-TODO: Fill with final results/replace with final image
-
-<p align="center">
-  <img src="assets/og2_convergence_vs_megatron.png" alt="OpenGenome2 7B convergence vs Megatron" width="80%" />
-</p>
-
-| Model                      | Step / checkpoint | Train loss | Mean Test loss | Mean Test Perplexity |
-| -------------------------- | ----------------- | ---------- | -------------- | -------------------- |
-| LlaMA3 Recipe (OG2 7B)     | -                 | -          | —              | —                    |
-| Megatron baseline (OG2 7B) | 182313            | 1.01       | 1.019          | 2.80                 |
-
-## Performance Benchmarks
-
-### MFU formula (same as Llama3 70B benchmarks)
-
-MFU was calculated using a 989 TFLOPS/GPU maximum theoretical bf16 throughput for H100. Model FLOPS use the formula:
-
-```python
-def compute_model_pflops(seq_len, global_batch_size, step_time_s):
-    B, S, H, L, V = global_batch_size, seq_len, HIDDEN_DIM, N_LAYERS, VOCAB_SIZE
-    model_flops = (
-        (24 * B * S * H * H + 4 * B * S * S * H) * (3 * L) + (6 * B * S * H * V)
-    ) / step_time_s
-    return model_flops / 1e15
-```
-
-### MFU and step time (vs Megatron baseline)
-
-| Model                | Step Time (s) | GBS | MFU (%) |
-| -------------------- | ------------- | --- | ------- |
-| This recipe (OG2 7B) | 6.60          | 384 | 51.8    |
-| Megatron baseline    | 5.01          | 384 | 68.2    |
-
-This recipe is ~32% slower per step than the Megatron baseline (6.60 s vs 5.01 s). The gap is
-expected: the Megatron run uses FP8 and tensor parallelism (TP=4) which we do not yet enable.
-Enabling FP8 and TP should close most of this gap. Step times are computed as the slope of
-wall-clock time vs global step over a clean linear region.
-
-### Throughput: THD vs BSHD
-
-| Config            | Unpadded Tokens/step | Unpadded Tokens/sec/GPU |
-| ------------------ | -------------------- | ----------------------- |
-| THD (this recipe)  | 1,741,106            | 9,927                   |
-| BSHD (this recipe) | 3,145,728            | 5,380                   |
-
-<p align="center">
-  <img src="plots/throughput_comparison.png" alt="BSHD vs THD throughput comparison" width="80%" />
-</p>
 
 ## OpenGenome2-Specific Setup
 
@@ -359,6 +368,23 @@ resulting model and tokenizer.
 | `L0_sanity`                     | Tiny model for CI/CD testing                               |
 
 See [hydra_config/defaults.yaml](hydra_config/defaults.yaml) for all options.
+
+## Evaluating Checkpoints
+
+To compute per-sequence test loss on a fixed FASTA file (for comparing checkpoints or models):
+
+```bash
+cd scripts
+torchrun --nproc_per_node=1 evaluate_fasta_lm_loss.py \
+    --checkpoint-dir /path/to/checkpoint \
+    --checkpoint-step 30000 \
+    --fasta metagenomics.fasta \
+    --output /path/to/results.json
+```
+
+This computes per-token log probabilities for each sequence in the FASTA file, masks degenerate
+bases, and reports per-sequence and aggregate metrics (CE loss, perplexity). Results are saved as
+JSON for easy comparison across runs. See `scripts/evaluate_fasta_lm_loss.py` for full usage.
 
 ## Validation
 
