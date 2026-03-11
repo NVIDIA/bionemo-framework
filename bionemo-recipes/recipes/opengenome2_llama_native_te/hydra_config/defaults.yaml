@@ -31,7 +31,7 @@ seed: 42
 # WARNING: meta-device init breaks Megatron-style scaled initialization (proj/fc2 std)
 # and Spike-No-More embedding init (std=1.0). Regular initialization (std=0.02) works fine.
 # Set to false when using use_megatron_scaled_init or spike_no_more_embedding_init.
-use_meta_device: true
+use_meta_device: false
 use_torch_compile: false
 use_sequence_packing: false
 

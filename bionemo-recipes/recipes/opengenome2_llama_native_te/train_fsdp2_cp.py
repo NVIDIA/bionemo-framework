@@ -133,6 +133,13 @@ def main(args: DictConfig) -> float | None:
         fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
     )
 
+    # Validate config: meta-device init breaks custom initialization
+    if getattr(args, "use_meta_device", False):
+        if getattr(args, "use_megatron_scaled_init", False):
+            raise ValueError("use_meta_device=true is incompatible with use_megatron_scaled_init=true")
+        if getattr(args, "spike_no_more_embedding_init", False):
+            raise ValueError("use_meta_device=true is incompatible with spike_no_more_embedding_init=true")
+
     # Determine dtype for model initialization
     use_fp32_master_weights = getattr(args, "use_fp32_master_weights", False)
     model_dtype = torch.float32 if use_fp32_master_weights else torch.bfloat16

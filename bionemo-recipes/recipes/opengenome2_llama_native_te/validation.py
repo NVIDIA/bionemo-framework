@@ -87,6 +87,9 @@ def run_validation(
             logger.warning(f"Validation forward pass failed on rank {dist_config.rank}: {e}")
             continue
 
+    if num_evaluated == 0:
+        raise RuntimeError(f"All {num_batches} validation batches failed on rank {dist_config.rank}")
+
     torch.distributed.barrier()
 
     # Aggregate across ranks
