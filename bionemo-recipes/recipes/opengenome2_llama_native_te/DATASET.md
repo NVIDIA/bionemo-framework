@@ -101,7 +101,7 @@ reading from different shards, the effective shuffle pool becomes
 ### Creating your own resharded dataset
 
 1. Install DuckDB: `pip install duckdb` (or download from [duckdb.org](https://duckdb.org/))
-2. Run the following from the directory containing your JSONL training files:
+2. Run the following from the directory containing your JSONL training file. Note that FILE_SIZE_BYTES dtermines the total number of shards you write lut (choose a smaller value for more shards) :
 
 ```bash
 duckdb -c "
@@ -114,7 +114,7 @@ COPY (
   FROM read_json('*train*.jsonl', format='newline_delimited')
   ORDER BY random()
 )
-TO 'output' (FORMAT PARQUET, PER_THREAD_OUTPUT true, FILE_SIZE_BYTES '500MB');
+TO 'output' (FORMAT PARQUET, PER_THREAD_OUTPUT true, FILE_SIZE_BYTES '200MB');
 "
 ```
 
