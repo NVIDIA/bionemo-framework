@@ -74,7 +74,9 @@ def create_mock_thd_batch(device: torch.device) -> dict:
     }
 
 
-def run_forward_backward(num_kv_heads: int, device: torch.device, cp_group, cp_ranks) -> bool:
+def run_forward_backward(
+    num_kv_heads: int, device: torch.device, cp_group, cp_ranks, match_production: bool = False
+) -> bool:
     """Run forward/backward through a single TransformerLayer with CP.
 
     Returns True if all steps produce finite loss, False if NaN is encountered.
@@ -85,6 +87,18 @@ def run_forward_backward(num_kv_heads: int, device: torch.device, cp_group, cp_r
         if num_kv_heads != NUM_ATTN_HEADS
         else f"MHA ({NUM_ATTN_HEADS}/{num_kv_heads})"
     )
+    if match_production:
+        head_label += " [production params]"
+
+    extra_kwargs = {}
+    if match_production:
+        extra_kwargs = {
+            "fuse_qkv_params": True,
+            "qkv_weight_interleaved": True,
+            "hidden_dropout": 0,
+            "attention_dropout": 0,
+            "layer_number": 1,
+        }
 
     torch.manual_seed(42)
     layer = te.TransformerLayer(
@@ -97,6 +111,7 @@ def run_forward_backward(num_kv_heads: int, device: torch.device, cp_group, cp_r
         activation="swiglu",
         attn_input_format="thd",
         self_attn_mask_type="padding_causal",
+        **extra_kwargs,
     ).to(device=device, dtype=torch.bfloat16)
 
     layer.set_context_parallel_group(cp_group, cp_ranks, torch.cuda.Stream())
@@ -151,6 +166,11 @@ def main():
     """
     parser = argparse.ArgumentParser()
     parser.add_argument("--num-kv-heads", type=int, required=True, help="Number of KV heads (6=MHA, 2=GQA)")
+    parser.add_argument(
+        "--match-production",
+        action="store_true",
+        help="Use same TransformerLayer params as NVLlamaForCausalLM (fuse_qkv_params, qkv_weight_interleaved, etc.)",
+    )
     args = parser.parse_args()
 
     dist.init_process_group(backend="nccl")
@@ -164,9 +184,17 @@ def main():
 
     if rank == 0:
         print(f"TE version: {transformer_engine.__version__}, PyTorch: {torch.__version__}")
-        print(f"Testing num_kv_heads={args.num_kv_heads}, num_attn_heads={NUM_ATTN_HEADS}, CP={CP_SIZE}")
+        print(f"Testing THD + num_kv_heads={args.num_kv_heads}, num_attn_heads={NUM_ATTN_HEADS}, CP={CP_SIZE}")
+        if args.match_production:
+            print("  Using production params: fuse_qkv_params=True, qkv_weight_interleaved=True")
 
-    ok = run_forward_backward(num_kv_heads=args.num_kv_heads, device=device, cp_group=cp_group, cp_ranks=cp_ranks)
+    ok = run_forward_backward(
+        num_kv_heads=args.num_kv_heads,
+        device=device,
+        cp_group=cp_group,
+        cp_ranks=cp_ranks,
+        match_production=args.match_production,
+    )
 
     dist.barrier()
     dist.destroy_process_group()
