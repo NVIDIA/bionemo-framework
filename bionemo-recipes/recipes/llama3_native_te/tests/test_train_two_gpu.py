@@ -243,8 +243,9 @@ def test_multi_gpu_train_te_fsdp2_cp_thd(tmp_path, recipe_path):
 def test_thd_mha_cp_control(recipe_path):
     """Control test: MHA + THD + CP works correctly (no NaN).
 
-    Verifies that MHA (num_kv_heads == num_attn_heads) with packed sequences and
-    context parallelism produces finite loss. This is the control for the GQA NaN bug.
+    Verifies that MHA (num_kv_heads == num_attn_heads) with packed sequences (THD)
+    and context parallelism produces finite loss. This is the control for the
+    THD + GQA + CP NaN bug.
     """
     run_train_cmd(
         [
@@ -266,9 +267,10 @@ def test_thd_gqa_cp_nan_bug(recipe_path):
     """Reproduce THD + GQA + CP NaN bug in TransformerEngine.
 
     GQA (num_kv_heads=2, num_attn_heads=6) with packed sequences (THD) and
-    context parallelism produces NaN. When TE fixes this bug, this test will
-    start passing and strict=True will flag it as XPASS, alerting us to remove
-    the xfail marker.
+    context parallelism produces NaN. BSHD + GQA + CP works fine -- the bug is
+    specific to the THD code path. When TE fixes this bug, this test will start
+    passing and strict=True will flag it as XPASS, alerting us to remove the
+    xfail marker.
     """
     run_train_cmd(
         [
