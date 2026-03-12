@@ -108,13 +108,12 @@ jobs:
             fi
           fi
 
-          # Assign Docker images and extra sparse-checkout paths
+          # Assign Docker images to the selected directories
           DIRS_WITH_IMAGES=$(echo "$DIRS" | jq -c '
             map({
               dir: .,
               name: (. | sub("^bionemo-recipes/"; "")),
-              image: "svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed",
-              extra_checkout: "sub-packages/bionemo-recipeutils\nsub-packages/bionemo-core"
+              image: "svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed"
             })
           ')
           echo "dirs=$DIRS_WITH_IMAGES" >> $GITHUB_OUTPUT
@@ -159,7 +158,8 @@ jobs:
         with:
           sparse-checkout: |
             ${{ matrix.recipe.dir }}
-            ${{ matrix.recipe.extra_checkout }}
+            sub-packages/bionemo-recipeutils
+            sub-packages/bionemo-core
           sparse-checkout-cone-mode: false
 
       - name: Cache Hugging Face models
