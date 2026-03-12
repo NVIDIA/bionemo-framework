@@ -23,6 +23,7 @@ import pytest
 import torch
 from hydra import compose, initialize_config_dir
 from torch.distributed.device_mesh import init_device_mesh
+from transformers import AutoTokenizer
 
 from collator import ContextParallelDataLoaderWrapper, DataCollatorForContextParallel
 from dataset import create_bshd_dataloader, create_thd_dataloader, create_tokenized_dataset
@@ -782,6 +783,28 @@ def test_cp_dataloader_multi_gpu(recipe_path, dataset_path):
         print(f"STDOUT:\n{result.stdout}")
         print(f"STDERR:\n{result.stderr}")
         pytest.fail(f"Command failed with exit code {result.returncode}")
+
+
+@pytest.mark.parametrize(
+    "sequence",
+    [
+        "ACGTACGT",
+        "A" * 100,
+        "TTTCCCGGGAAA",
+    ],
+)
+def test_tokenizer_roundtrip_decode(tokenizer_path, sequence):
+    """Test that encode -> decode round-trips correctly (no inserted spaces).
+
+    The tokenizer uses a character-level WordLevel model with a Split pre-tokenizer,
+    so each nucleotide becomes a separate token. Without the Fuse decoder, decoding
+    inserts spaces between tokens (e.g., "AAA" -> [65,65,65] -> "A A A"). The Fuse
+    decoder joins them back without spaces.
+    """
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    token_ids = tokenizer.encode(sequence, add_special_tokens=False)
+    decoded = tokenizer.decode(token_ids, skip_special_tokens=False)
+    assert decoded == sequence, f"Round-trip failed: '{sequence}' -> {token_ids} -> '{decoded}'"
 
 
 if __name__ == "__main__":
