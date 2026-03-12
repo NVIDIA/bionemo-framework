@@ -44,10 +44,6 @@ evo2_convert_savanna_to_mbridge = "bionemo.evo2.utils.checkpoint.savanna_to_mbri
 evo2_export_mbridge_to_vortex = "bionemo.evo2.utils.checkpoint.mbridge_to_vortex:main"
 bionemo_fasta_to_jsonl = "bionemo.evo2.utils.fasta_to_jsonl:main"
 
-[tool.ruff.lint.isort]
-known-first-party = ["bionemo", "infra_bionemo"]
-lines-after-imports = 2
-
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bionemo.*"]
