@@ -93,16 +93,19 @@ eden_convert_hf_to_mbridge \
 
 ## Model sizes
 
-| Key        | Description             |
-| ---------- | ----------------------- |
-| `eden_7b`  | Eden base (~8B params)  |
-| `eden_11b` | Eden ~11B               |
-| `eden_18b` | Eden ~18B               |
-| `eden_21b` | Eden ~21B               |
-| `eden_24b` | Eden ~24B (32K context) |
-| `eden_27b` | Eden ~27B (32K context) |
-| `eden_28b` | Eden ~28B               |
-| `eden_35b` | Eden ~35B               |
+| Key         | Description             |
+| ----------- | ----------------------- |
+| `eden_100m` | Eden ~100M              |
+| `eden_300m` | Eden ~300M              |
+| `eden_1b`   | Eden ~1B                |
+| `eden_7b`   | Eden base (~8B params)  |
+| `eden_11b`  | Eden ~11B               |
+| `eden_18b`  | Eden ~18B               |
+| `eden_21b`  | Eden ~21B               |
+| `eden_24b`  | Eden ~24B (32K context) |
+| `eden_27b`  | Eden ~27B (32K context) |
+| `eden_28b`  | Eden ~28B               |
+| `eden_35b`  | Eden ~35B               |
 
 ## Data
 
