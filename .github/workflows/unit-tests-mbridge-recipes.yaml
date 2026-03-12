@@ -1,4 +1,4 @@
-name: "BioNeMo Recipes CI"
+name: "BioNeMo MBridge Recipes CI"
 
 on:
   push:
@@ -53,9 +53,9 @@ jobs:
           dir_names: true
           dir_names_max_depth: 3
           files: |
-            bionemo-recipes/models/**
-            bionemo-recipes/recipes/**
-            !bionemo-recipes/recipes/*megatron/**
+            bionemo-recipes/recipes/*megatron/**
+            sub-packages/bionemo-recipeutils/**
+            sub-packages/bionemo-core/**
 
       - id: set-dirs
         name: Determine which directories to run
@@ -64,8 +64,8 @@ jobs:
           PR_INFO: ${{ steps.get-pr-info.outputs.pr-info }}
           CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
         run: |
-          # Get all recipe and model directories
-          ALL_DIRS=$(ls -d bionemo-recipes/models/*/ bionemo-recipes/recipes/*/ 2>/dev/null | jq -R -s -c 'split("\n")[:-1] | map(rtrimstr("/"))')
+          # Get all *megatron recipe directories
+          ALL_DIRS=$(ls -d bionemo-recipes/recipes/*megatron/ 2>/dev/null | jq -R -s -c 'split("\n")[:-1] | map(rtrimstr("/"))')
 
           # Helper to check for a PR label
           has_label() {
@@ -73,45 +73,48 @@ jobs:
               echo "$PR_INFO" | jq -e ".labels[]? | select(.name == \"$1\")" > /dev/null 2>&1
           }
 
+          # --- Shared sub-package dependency handling ---
+          # MBridge recipes depend on shared sub-packages (bionemo-core, bionemo-recipeutils)
+          # installed from git in pyproject.toml. When those sub-packages change, we need to
+          # test all megatron recipes against the local version. Each recipe's .ci_build.sh
+          # handles reinstalling from the local checkout if present.
+          #
+          # To add a new megatron recipe that depends on shared sub-packages:
+          #   1. Add it as a directory under bionemo-recipes/recipes/ with a *megatron suffix
+          #   2. Ensure its .ci_build.sh includes the local sub-package override
+          #      (see eden_megatron/.ci_build.sh for the pattern)
+
           # Determine which directories to run
           if [[ "$EVENT_NAME" == "schedule" ]]; then
-            echo "Scheduled run - running all directories"
+            echo "Scheduled run - running all megatron recipes"
             DIRS="$ALL_DIRS"
           elif has_label "ciflow:skip"; then
             echo "Found 'ciflow:skip' label - skipping all recipe tests"
             DIRS="[]"
           elif has_label "ciflow:all-recipes"; then
-            echo "Found 'ciflow:all-recipes' label - running all directories"
+            echo "Found 'ciflow:all-recipes' label - running all megatron recipes"
             DIRS="$ALL_DIRS"
           else
-            # Filter directories to only those that have changed files
+            # Start with megatron recipe directories that have direct changes
             DIRS=$(echo "$ALL_DIRS" | jq -c --argjson changed "$CHANGED_FILES" '
               map(select(. as $dir | $changed | index($dir) != null))
             ')
+
+            # If a shared sub-package changed, run ALL megatron recipes
+            SHARED_DEP_CHANGED=$(echo "$CHANGED_FILES" | jq 'map(select(startswith("sub-packages/bionemo-recipeutils") or startswith("sub-packages/bionemo-core"))) | length > 0')
+            if [[ "$SHARED_DEP_CHANGED" == "true" ]]; then
+              echo "Shared sub-package changed - running all megatron recipes"
+              DIRS="$ALL_DIRS"
+            fi
           fi
 
-          # Assign Docker images to the selected directories
-          # Currently, AMPLIFY is the only folder that needs a custom base image, since we have to support both TE and
-          # xformers-based models for golden value testing. The rest of the models use the default pytorch image.
-
-          # This uses a squashed version of the pytorch:26.02-py3 image, generated with `docker-squash
-          # nvcr.io/nvidia/pytorch:26.02-py3 -t svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed --output
-          # type=registry,compression=zstd,force-compression=true,oci-mediatypes=true,compression-level=15` and pushed
-          # to the dockerhub registry. Our github actions are able to cache image pulls from dockerhub but not nvcr, so
-          # hopefully this cuts down slightly on CI time at the expense of having a slightly in-directed image location.
-
+          # Assign Docker images and extra sparse-checkout paths
           DIRS_WITH_IMAGES=$(echo "$DIRS" | jq -c '
             map({
               dir: .,
               name: (. | sub("^bionemo-recipes/"; "")),
-              image: (
-                if . == "bionemo-recipes/models/amplify" then
-                  "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
-                else
-                  # "nvcr.io/nvidia/pytorch:26.02-py3"
-                  "svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed"
-                end
-              )
+              image: "svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed",
+              extra_checkout: "sub-packages/bionemo-recipeutils\nsub-packages/bionemo-core"
             })
           ')
           echo "dirs=$DIRS_WITH_IMAGES" >> $GITHUB_OUTPUT
@@ -132,7 +135,7 @@ jobs:
     needs: changed-dirs
     runs-on: linux-amd64-gpu-l4-latest-1
     if: ${{ needs.changed-dirs.outputs.dirs != '[]' }}
-    name: "unit-tests (${{ matrix.recipe.name }})"
+    name: "mbridge-unit-tests (${{ matrix.recipe.name }})"
     container:
       image: ${{ matrix.recipe.image }}
       options: --shm-size=16G
@@ -154,7 +157,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          sparse-checkout: "${{ matrix.recipe.dir }}"
+          sparse-checkout: |
+            ${{ matrix.recipe.dir }}
+            ${{ matrix.recipe.extra_checkout }}
           sparse-checkout-cone-mode: false
 
       - name: Cache Hugging Face models
@@ -190,9 +195,7 @@ jobs:
           fi
           pytest -v .
 
-  verify-recipe-tests:
-    # This job checks the status of the unit-tests matrix and fails if any matrix job failed or was cancelled.
-    # Use this job as the required check for PRs.
+  verify-mbridge-recipe-tests:
     needs: unit-tests
     runs-on: ubuntu-latest
     if: always()
@@ -200,9 +203,9 @@ jobs:
       - name: Check unit-tests matrix status
         run: |
           if [[ "${{ needs.unit-tests.result }}" == "failure" || "${{ needs.unit-tests.result }}" == "cancelled" ]]; then
-            echo "Some unit-tests matrix jobs have failed or been cancelled!"
+            echo "Some mbridge unit-tests matrix jobs have failed or been cancelled!"
             exit 1
           else
-            echo "All unit-tests matrix jobs have completed successfully or were skipped!"
+            echo "All mbridge unit-tests matrix jobs have completed successfully or were skipped!"
             exit 0
           fi
