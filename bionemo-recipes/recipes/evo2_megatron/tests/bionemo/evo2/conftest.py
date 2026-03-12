@@ -150,10 +150,10 @@ def mbridge_eden_checkpoint(tmp_path_factory) -> Path:
     """Session-scoped MBridge checkpoint for a tiny Eden (Llama) model.
 
     Creates an Eden mbridge checkpoint by training a tiny model (2 layers, seq_length=64)
-    for 1 step with mock data. Shared across test files that need an Eden checkpoint.
+    for 2 steps with mock data. Shared across test files that need an Eden checkpoint.
 
     Returns:
-        Path to the MBridge checkpoint directory (parent of iter_0000001).
+        Path to the MBridge checkpoint directory (parent of iter_0000002).
     """
 
     def _find_free_port() -> int:
@@ -172,7 +172,7 @@ def mbridge_eden_checkpoint(tmp_path_factory) -> Path:
         f"train_evo2 "
         f"--hf-tokenizer-model-path {DEFAULT_HF_TOKENIZER_MODEL_PATH} "
         "--model-size eden_7b --num-layers 2 "
-        "--max-steps 1 --eval-interval 1 --eval-iters 1 "
+        "--max-steps 2 --eval-interval 2 --eval-iters 1 "
         f"--mock-data --result-dir {run_dir} "
         "--micro-batch-size 4 --global-batch-size 4 --seq-length 64 "
         "--tensor-model-parallel 1 --pipeline-model-parallel 1 --context-parallel 1 "
@@ -190,7 +190,7 @@ def mbridge_eden_checkpoint(tmp_path_factory) -> Path:
     assert result.returncode == 0, f"Eden checkpoint creation failed: {result.stderr[-2000:]}"
 
     ckpt_dir = run_dir / "evo2" / "checkpoints"
-    iter_dir = ckpt_dir / "iter_0000001"
+    iter_dir = ckpt_dir / "iter_0000002"
     assert iter_dir.exists(), f"Eden checkpoint not found at {iter_dir}"
     return iter_dir
 

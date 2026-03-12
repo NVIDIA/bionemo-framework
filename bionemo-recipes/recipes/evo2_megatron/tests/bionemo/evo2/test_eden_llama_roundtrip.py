@@ -18,6 +18,11 @@
 Verifies that an Eden mbridge checkpoint survives the mbridge -> HF -> mbridge
 round trip with bit-exact weight preservation, using the pure state-dict
 converters in ``eden_mbridge_hf``.
+
+The checkpoint uses Megatron's stacked layer format where layer weights are
+stored as ``decoder.layers.mlp.…`` with shape ``[num_layers, ...]`` rather
+than per-layer indexed keys.  Both directions of the converter must
+handle this format.
 """
 
 import pytest
@@ -30,6 +35,11 @@ from bionemo.evo2.utils.checkpoint.eden_mbridge_hf import (
 from bionemo.evo2.utils.checkpoint.mbridge_to_vortex import load_mbridge_state_dict
 
 
+NUM_LAYERS = 2
+NUM_HEADS = 32
+NUM_KV_HEADS = 8
+
+
 @pytest.fixture(scope="module")
 def eden_ckpt(mbridge_eden_checkpoint):
     """Module-scoped alias for the session-scoped Eden checkpoint."""
@@ -38,32 +48,29 @@ def eden_ckpt(mbridge_eden_checkpoint):
 
 @pytest.fixture(scope="module")
 def original_mbridge_sd(eden_ckpt):
-    """Load the original mbridge state dict from DCP (no distributed init needed)."""
+    """Load the original mbridge state dict from DCP (stacked layer format)."""
     return load_mbridge_state_dict(eden_ckpt)
 
 
 @pytest.fixture(scope="module")
 def roundtripped_mbridge_sd(original_mbridge_sd):
-    """Perform mbridge -> HF -> mbridge roundtrip via pure state-dict conversion.
+    """Perform stacked mbridge -> HF -> stacked mbridge roundtrip.
 
     Uses the 2-layer eden_7b config that the ``mbridge_eden_checkpoint`` fixture creates.
+    Both the input and output use Megatron's stacked layer format.
     """
-    num_layers = 2
-    num_heads = 32
-    num_kv_heads = 8
-
     sd = {k: v.clone() for k, v in original_mbridge_sd.items() if isinstance(v, torch.Tensor)}
 
-    hf_sd = mbridge_to_hf_state_dict(sd, num_layers=num_layers, num_heads=num_heads, num_kv_heads=num_kv_heads)
+    hf_sd = mbridge_to_hf_state_dict(sd, num_layers=NUM_LAYERS, num_heads=NUM_HEADS, num_kv_heads=NUM_KV_HEADS)
 
-    mbridge_sd = hf_to_mbridge_state_dict(hf_sd, num_layers=num_layers, num_heads=num_heads, num_kv_heads=num_kv_heads)
+    mbridge_sd = hf_to_mbridge_state_dict(hf_sd, num_layers=NUM_LAYERS, num_heads=NUM_HEADS, num_kv_heads=NUM_KV_HEADS)
 
     return mbridge_sd
 
 
-def _tensor_keys(sd: dict[str, object]) -> set[str]:
-    """Return keys whose values are Tensors (skip _extra_state / bytes metadata)."""
-    return {k for k, v in sd.items() if isinstance(v, torch.Tensor)}
+def _model_weight_keys(sd: dict[str, object]) -> set[str]:
+    """Return tensor keys that are model weights (excludes optimizer state)."""
+    return {k for k, v in sd.items() if isinstance(v, torch.Tensor) and not k.startswith("optimizer.")}
 
 
 @pytest.mark.slow
@@ -71,9 +78,9 @@ def test_roundtrip_mbridge_weight_equality(
     original_mbridge_sd: dict[str, torch.Tensor],
     roundtripped_mbridge_sd: dict[str, torch.Tensor],
 ):
-    """Verify that mbridge -> HF -> mbridge produces identical weights."""
-    orig_keys = _tensor_keys(original_mbridge_sd)
-    rt_keys = _tensor_keys(roundtripped_mbridge_sd)
+    """Verify that stacked mbridge -> HF -> stacked mbridge produces identical weights."""
+    orig_keys = _model_weight_keys(original_mbridge_sd)
+    rt_keys = _model_weight_keys(roundtripped_mbridge_sd)
 
     assert orig_keys == rt_keys, (
         f"Key mismatch.\nOnly in original: {sorted(orig_keys - rt_keys)}\n"

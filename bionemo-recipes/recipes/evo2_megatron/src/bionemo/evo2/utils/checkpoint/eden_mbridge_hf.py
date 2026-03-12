@@ -107,6 +107,63 @@ def _split_qkv(
 # ---------------------------------------------------------------------------
 
 
+def _unstack_layers(mbridge_sd: dict[str, torch.Tensor], num_layers: int) -> None:
+    """Convert stacked layer tensors to per-layer indexed keys in place.
+
+    MBridge DCP checkpoints may store layer weights as stacked tensors with
+    shape ``[num_layers, ...]`` under keys like ``decoder.layers.mlp.linear_fc1.weight``.
+    This function splits them into indexed keys like
+    ``decoder.layers.0.mlp.linear_fc1.weight``, ``decoder.layers.1.mlp.linear_fc1.weight``, etc.
+    """
+    prefix = "decoder.layers."
+    stacked_keys = [k for k in list(mbridge_sd.keys()) if k.startswith(prefix) and not k[len(prefix) :][0].isdigit()]
+    for key in stacked_keys:
+        tensor = mbridge_sd.pop(key)
+        suffix = key[len(prefix) :]
+        if tensor.shape[0] != num_layers:
+            logger.warning(
+                f"Stacked key {key} has leading dim {tensor.shape[0]} but expected {num_layers} layers, skipping"
+            )
+            mbridge_sd[key] = tensor
+            continue
+        for i in range(num_layers):
+            mbridge_sd[f"decoder.layers.{i}.{suffix}"] = tensor[i]
+
+
+def _stack_layers(mbridge_sd: dict[str, torch.Tensor], num_layers: int) -> None:
+    """Convert per-layer indexed keys to stacked tensors in place.
+
+    Reverses :func:`_unstack_layers`: gathers ``decoder.layers.{i}.X`` for
+    ``i`` in ``0..num_layers-1`` and stacks them into a single
+    ``decoder.layers.X`` tensor with shape ``[num_layers, ...]``.
+
+    This produces the format that Megatron expects for homogeneous-layer models.
+    """
+    import re
+
+    prefix = "decoder.layers."
+    indexed_keys = [k for k in mbridge_sd if k.startswith(prefix) and re.match(r"\d+\.", k[len(prefix) :])]
+
+    suffixes: set[str] = set()
+    for key in indexed_keys:
+        rest = key[len(prefix) :]
+        suffix = re.sub(r"^\d+\.", "", rest)
+        suffixes.add(suffix)
+
+    for suffix in sorted(suffixes):
+        layer_tensors = []
+        for i in range(num_layers):
+            indexed_key = f"decoder.layers.{i}.{suffix}"
+            if indexed_key not in mbridge_sd:
+                logger.warning(f"Missing indexed key {indexed_key} during stacking, skipping suffix {suffix}")
+                break
+            layer_tensors.append(mbridge_sd[indexed_key])
+        else:
+            for i in range(num_layers):
+                del mbridge_sd[f"decoder.layers.{i}.{suffix}"]
+            mbridge_sd[f"decoder.layers.{suffix}"] = torch.stack(layer_tensors)
+
+
 def mbridge_to_hf_state_dict(
     mbridge_sd: dict[str, torch.Tensor],
     num_layers: int,
@@ -118,6 +175,8 @@ def mbridge_to_hf_state_dict(
 
     Args:
         mbridge_sd: State dict loaded from an MBridge DCP checkpoint.
+            Handles both indexed keys (``decoder.layers.0.…``) and stacked
+            keys (``decoder.layers.mlp.…`` with a leading ``num_layers`` dim).
         num_layers: Number of transformer layers.
         num_heads: Number of attention heads (Q heads).
         num_kv_heads: Number of key/value heads (GQA groups).
@@ -126,6 +185,8 @@ def mbridge_to_hf_state_dict(
     Returns:
         State dict with HuggingFace ``model.layers.*`` keys.
     """
+    _unstack_layers(mbridge_sd, num_layers)
+
     hf_sd: dict[str, torch.Tensor] = {}
 
     hf_sd["model.embed_tokens.weight"] = mbridge_sd.pop("embedding.word_embeddings.weight")
@@ -260,6 +321,9 @@ def hf_to_mbridge_state_dict(
 ) -> dict[str, torch.Tensor]:
     """Convert a HuggingFace LlamaForCausalLM state dict to MBridge keys.
 
+    Produces the stacked layer format that Megatron uses for homogeneous
+    models: ``decoder.layers.mlp.…`` with shape ``[num_layers, ...]``.
+
     Args:
         hf_sd: State dict from a HuggingFace Llama model.
         num_layers: Number of transformer layers.
@@ -268,7 +332,7 @@ def hf_to_mbridge_state_dict(
         te_enabled: Whether TE fused layernorm keys are used.
 
     Returns:
-        State dict with MBridge-style keys.
+        State dict with MBridge-style stacked layer keys.
     """
     mbridge_sd: dict[str, torch.Tensor] = {}
 
@@ -326,6 +390,8 @@ def hf_to_mbridge_state_dict(
     unmapped = set(hf_sd)
     if unmapped:
         logger.warning(f"Unmapped HF keys ({len(unmapped)}): {sorted(unmapped)[:20]}")
+
+    _stack_layers(mbridge_sd, num_layers)
 
     return mbridge_sd
 
