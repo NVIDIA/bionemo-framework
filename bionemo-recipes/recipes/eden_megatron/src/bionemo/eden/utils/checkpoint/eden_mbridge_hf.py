@@ -16,8 +16,7 @@
 """Eden (Llama) MBridge <-> HuggingFace checkpoint converters.
 
 Pure state-dict manipulation — no distributed init, no model instantiation,
-no GPU required.  Works exactly like the Hyena converters
-(``savanna_to_mbridge``, ``mbridge_to_vortex``).
+no GPU required.
 
 CLI entry points
 ~~~~~~~~~~~~~~~~
@@ -34,8 +33,8 @@ import torch
 import torch.distributed.checkpoint as dcp
 from torch.distributed.checkpoint import FileSystemWriter
 
-from bionemo.evo2.models.eden_provider import EDEN_MODEL_OPTIONS
-from bionemo.evo2.utils.checkpoint.mbridge_to_vortex import load_mbridge_state_dict
+from bionemo.eden.models.eden_provider import EDEN_MODEL_OPTIONS
+from bionemo.eden.utils.checkpoint.mbridge_checkpoint_utils import load_mbridge_state_dict
 
 
 logger = logging.getLogger(__name__)

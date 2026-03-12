@@ -70,7 +70,6 @@ from typing import Any, Dict, List, Optional
 
 import torch
 import torch.distributed as dist
-from megatron.bridge.models.model_provider import ProcessGroupCollection
 from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
 from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
 from megatron.bridge.training.mixed_precision import get_mixed_precision_config
@@ -92,14 +91,11 @@ from megatron.core.inference.model_inference_wrappers.inference_wrapper_config i
     InferenceWrapperConfig,
 )
 from megatron.core.inference.sampling_params import SamplingParams
-from megatron.core.inference.text_generation_controllers.text_generation_controller import (
-    TextGenerationController,
-)
 from megatron.core.transformer.module import Float16Module
 from megatron.core.utils import get_model_config
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
-from bionemo.evo2.models.evo2_provider import HyenaInferenceContext, HyenaModelProvider
+from bionemo.evo2.models.evo2_provider import HyenaInferenceContext
 from bionemo.evo2.run.predict import initialize_inference_distributed, resolve_checkpoint_path
 from bionemo.evo2.run.text_generation_controller import Evo2TextGenerationController
 
@@ -408,10 +404,7 @@ def setup_inference_engine(
     # does not support it for non-MoE models.
     model_provider.sequence_parallel = False
 
-    is_hyena = isinstance(model_provider, HyenaModelProvider)
-
-    if is_hyena:
-        model_provider.flash_decode = True
+    model_provider.flash_decode = True
 
     # Use bf16_mixed for inference to avoid FP8 issues
     if mixed_precision_recipe is not None:
@@ -461,11 +454,6 @@ def setup_inference_engine(
     logger.info("Creating model...")
     model_provider.finalize()
 
-    if not is_hyena:
-        # _pg_collection is a dataclass field on GPTModelProvider (megatron.bridge);
-        # setting it before provide() is the intended configuration pattern.
-        model_provider._pg_collection = ProcessGroupCollection.use_mpu_process_groups()
-
     raw_model = model_provider.provide().eval().cuda()
 
     logger.info(f"Loading weights from: {resolved_ckpt_dir}")
@@ -495,16 +483,10 @@ def setup_inference_engine(
     if prompt_segmentation_threshold is not None:
         inference_wrapper_config.add_attributes({"prompt_segmentation_threshold": prompt_segmentation_threshold})
 
-    if is_hyena:
-        inference_context: StaticInferenceContext = HyenaInferenceContext(
-            max_batch_size=max_batch_size,
-            max_sequence_length=max_seq_length,
-        )
-    else:
-        inference_context = StaticInferenceContext(
-            max_batch_size=max_batch_size,
-            max_sequence_length=max_seq_length,
-        )
+    inference_context: StaticInferenceContext = HyenaInferenceContext(
+        max_batch_size=max_batch_size,
+        max_sequence_length=max_seq_length,
+    )
     inference_context.materialize_only_last_token_logits = False
 
     # Create the inference wrapper
@@ -515,30 +497,20 @@ def setup_inference_engine(
     )
 
     # Create the text generation controller and inference engine.
-    # Evo2 (Hyena) requires the static engine (legacy=True) because the dynamic
+    # Evo2 requires the static engine (legacy=True) because the dynamic
     # engine's DynamicInferenceContext is incompatible with Hyena SSM state
     # management.  We use Evo2TextGenerationController which adds prompt
     # segmentation threshold (PST) support on top of the static path.
-    # Eden (standard transformer) can use the dynamic engine (legacy=False)
-    # which provides paged KV cache and built-in chunked prefill.
-    if is_hyena:
-        text_generation_controller = Evo2TextGenerationController(
-            inference_wrapped_model=inference_wrapper,
-            tokenizer=tokenizer,
-        )
-        legacy = True
-    else:
-        text_generation_controller = TextGenerationController(
-            inference_wrapped_model=inference_wrapper,
-            tokenizer=tokenizer,
-        )
-        legacy = False
+    text_generation_controller = Evo2TextGenerationController(
+        inference_wrapped_model=inference_wrapper,
+        tokenizer=tokenizer,
+    )
 
     inference_engine = StaticInferenceEngine(
         text_generation_controller=text_generation_controller,
         max_batch_size=max_batch_size,
         random_seed=random_seed,
-        legacy=legacy,
+        legacy=True,
     )
 
     return Evo2InferenceComponents(

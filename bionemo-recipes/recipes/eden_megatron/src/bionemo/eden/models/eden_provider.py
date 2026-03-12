@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Eden (Llama 3.1 variant) model providers for the Evo2 recipe.
+"""Eden (Llama 3.1 variant) model providers for the Eden recipe.
 
-Eden models are Llama 3.1 architecture variants used in the Evo2 project
+Eden models are Llama 3.1 architecture variants
 by BCR (Bio-Computing Research). They inherit from Megatron Bridge's
 Llama31ModelProvider and override architecture-specific defaults.
 """

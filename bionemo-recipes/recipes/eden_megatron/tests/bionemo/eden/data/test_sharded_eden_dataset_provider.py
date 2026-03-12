@@ -25,14 +25,19 @@ import torch
 from megatron.bridge.training.tokenizers.config import TokenizerConfig
 from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
 
-from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH, DEFAULT_HF_TOKENIZER_MODEL_PATH_512
-from bionemo.evo2.data.sharded_eden_dataset_provider import (
+from bionemo.eden.data.sharded_eden_dataset_provider import (
     DatasetBuildContext,
     ShardedEdenDataset,
     ShardedEdenDatasetProvider,
     extract_sample_id,
     precompute_window_database,
 )
+
+
+# Tokenizer paths from recipe root (relative to test file)
+_REPO_BASE_DIR = Path(__file__).resolve().parents[6]
+DEFAULT_HF_TOKENIZER_MODEL_PATH = str(_REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_256")
+DEFAULT_HF_TOKENIZER_MODEL_PATH_512 = str(_REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_512")
 
 
 @pytest.fixture

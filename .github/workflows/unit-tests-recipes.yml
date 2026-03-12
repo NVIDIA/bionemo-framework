@@ -55,6 +55,8 @@ jobs:
           files: |
             bionemo-recipes/models/**
             bionemo-recipes/recipes/**
+            sub-packages/bionemo-recipeutils/**
+            sub-packages/bionemo-core/**
 
       - id: set-dirs
         name: Determine which directories to run
@@ -87,6 +89,13 @@ jobs:
             DIRS=$(echo "$ALL_DIRS" | jq -c --argjson changed "$CHANGED_FILES" '
               map(select(. as $dir | $changed | index($dir) != null))
             ')
+
+            # If bionemo-recipeutils or bionemo-core changed, ensure both evo2_megatron and eden_megatron run
+            SHARED_DEP_CHANGED=$(echo "$CHANGED_FILES" | jq 'map(select(startswith("sub-packages/bionemo-recipeutils") or startswith("sub-packages/bionemo-core"))) | length > 0')
+            if [[ "$SHARED_DEP_CHANGED" == "true" ]]; then
+              echo "Shared dependency changed - adding dependent recipes"
+              DIRS=$(echo "$DIRS" | jq -c '. + ["bionemo-recipes/recipes/evo2_megatron", "bionemo-recipes/recipes/eden_megatron"] | unique')
+            fi
           fi
 
           # Assign Docker images to the selected directories
@@ -107,8 +116,14 @@ jobs:
                 if . == "bionemo-recipes/models/amplify" then
                   "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
                 else
-                  # "nvcr.io/nvidia/pytorch:26.02-py3"
                   "svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed"
+                end
+              ),
+              extra_checkout: (
+                if (. == "bionemo-recipes/recipes/evo2_megatron" or . == "bionemo-recipes/recipes/eden_megatron") then
+                  "sub-packages/bionemo-recipeutils"
+                else
+                  ""
                 end
               )
             })
@@ -153,7 +168,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          sparse-checkout: "${{ matrix.recipe.dir }}"
+          sparse-checkout: |
+            ${{ matrix.recipe.dir }}
+            ${{ matrix.recipe.extra_checkout }}
           sparse-checkout-cone-mode: false
 
       - name: Cache Hugging Face models
