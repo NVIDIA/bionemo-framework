@@ -134,67 +134,12 @@ def eden_pretrain_config(
         precision_config = get_mixed_precision_config(precision_config)
 
     if mock:
-        from megatron.bridge.training.config import DatasetProvider
+        from bionemo.eden.data.eden_mock_dataset_provider import MockEdenDatasetProvider
 
-        from bionemo.eden.data.sharded_eden_dataset_provider import (
-            ShardedEdenDatasetProvider as _Unused,  # noqa: F401
+        dataset_cfg_or_provider = MockEdenDatasetProvider(
+            random_seed=dataset_seed,
+            seq_length=seq_length,
         )
-
-        class _MockEdenProvider(DatasetProvider):
-            """Minimal mock dataset for Eden smoke tests."""
-
-            random_seed: int = dataset_seed
-            dataloader_type: str = "single"
-
-            def build_datasets(self, context):
-                from bionemo.core.data.multi_epoch_dataset import (
-                    IdentityMultiEpochDatasetWrapper,
-                    MultiEpochDatasetResampler,
-                )
-
-                class _FakeDataset(torch.utils.data.Dataset):
-                    def __init__(self, length, sl):
-                        self._length = length
-                        self._sl = sl
-
-                    def __len__(self):
-                        return self._length
-
-                    def __getitem__(self, idx):
-                        tokens = torch.randint(0, 256, (self._sl,), dtype=torch.int64)
-                        labels = tokens.clone()
-                        labels[:-1] = tokens[1:]
-                        loss_mask = torch.ones(self._sl, dtype=torch.float)
-                        position_ids = torch.arange(self._sl, dtype=torch.int64)
-                        return {
-                            "tokens": tokens,
-                            "labels": labels,
-                            "loss_mask": loss_mask,
-                            "position_ids": position_ids,
-                        }
-
-                fake = _FakeDataset(1000, seq_length)
-                train_ds = MultiEpochDatasetResampler(
-                    IdentityMultiEpochDatasetWrapper(fake),
-                    num_samples=context.train_samples,
-                    shuffle=True,
-                    seed=self.random_seed,
-                )
-                val_ds = MultiEpochDatasetResampler(
-                    IdentityMultiEpochDatasetWrapper(fake),
-                    num_samples=context.valid_samples,
-                    shuffle=False,
-                    seed=self.random_seed,
-                )
-                test_ds = MultiEpochDatasetResampler(
-                    IdentityMultiEpochDatasetWrapper(fake),
-                    num_samples=context.test_samples,
-                    shuffle=False,
-                    seed=self.random_seed,
-                )
-                return train_ds, val_ds, test_ds
-
-        dataset_cfg_or_provider = _MockEdenProvider()
     elif sharded_eden_data:
         assert sequence_db_dir is not None
         assert train_window_db_path is not None

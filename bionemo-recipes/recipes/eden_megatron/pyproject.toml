@@ -37,6 +37,7 @@ predict_eden = "bionemo.eden.run.predict:main"
 eden_convert_nemo2_to_mbridge = "bionemo.eden.utils.checkpoint.nemo2_to_mbridge:main"
 eden_export_mbridge_to_hf = "bionemo.eden.utils.checkpoint.eden_mbridge_hf:main_export"
 eden_convert_hf_to_mbridge = "bionemo.eden.utils.checkpoint.eden_mbridge_hf:main_import"
+eden_remove_optimizer = "bionemo.eden.utils.checkpoint.eden_remove_optimizer:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

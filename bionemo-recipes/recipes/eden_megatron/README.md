@@ -21,6 +21,7 @@ source ./.ci_test_env.sh  # source the virtualenv
 | `eden_convert_nemo2_to_mbridge` | Convert NeMo2 checkpoints to MBridge DCP format      |
 | `eden_export_mbridge_to_hf`     | Export Eden MBridge checkpoint to HuggingFace Llama  |
 | `eden_convert_hf_to_mbridge`    | Convert HuggingFace Llama checkpoint to Eden MBridge |
+| `eden_remove_optimizer`         | Strip optimizer state from an MBridge checkpoint     |
 
 ## Quick start
 
@@ -90,6 +91,23 @@ eden_convert_hf_to_mbridge \
   --mbridge-ckpt-dir /path/to/eden_mbridge_reimported \
   --model-size eden_7b
 ```
+
+## Removing optimizer state from a checkpoint
+
+Training checkpoints include optimizer state (Adam moments, LR scheduler, RNG state)
+which roughly triples checkpoint size. Use `eden_remove_optimizer` to produce a
+smaller weights-only checkpoint suitable for release or fine-tuning:
+
+```bash
+eden_remove_optimizer \
+  --src-ckpt-dir /path/to/training/checkpoints \
+  --dst-ckpt-dir /path/to/weights_only_checkpoint
+```
+
+The tool automatically finds the latest `iter_*` directory, strips optimizer and
+scheduler state from the DCP files, and copies model weights, tokenizer, and
+config files to the destination. The resulting checkpoint is directly usable
+with `--finetune-ckpt-dir` or the export tools.
 
 ## Model sizes
 

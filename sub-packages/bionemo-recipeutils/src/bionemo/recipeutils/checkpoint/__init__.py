@@ -12,17 +12,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-"""Remove optimizer state from an Evo2 MBridge checkpoint.
-
-Thin wrapper around ``bionemo.recipeutils.checkpoint.remove_optimizer``
-providing a recipe-local entry point.
-"""
-
-from bionemo.recipeutils.checkpoint.remove_optimizer import main, remove_optimizer
-
-
-__all__ = ["main", "remove_optimizer"]
-
-if __name__ == "__main__":
-    main()

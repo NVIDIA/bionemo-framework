@@ -22,6 +22,7 @@ basecamp = ["polars"]
 [project.scripts]
 bionemo_fasta_to_jsonl = "bionemo.recipeutils.io.fasta_to_jsonl:main"
 bionemo_precompute_windows = "bionemo.recipeutils.data.basecamp.sharded_dataset:main_precompute"
+bionemo_remove_optimizer = "bionemo.recipeutils.checkpoint.remove_optimizer:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

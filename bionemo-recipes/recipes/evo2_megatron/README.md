@@ -36,6 +36,7 @@ All CLI tools are defined in `pyproject.toml` under `[project.scripts]`.
 | `evo2_convert_nemo2_to_mbridge`   | Convert NeMo2 checkpoints to MBridge DCP format       |
 | `evo2_convert_savanna_to_mbridge` | Convert Savanna checkpoints to MBridge DCP format     |
 | `evo2_export_mbridge_to_vortex`   | Export MBridge checkpoint to Vortex `.pt` format      |
+| `evo2_remove_optimizer`           | Strip optimizer state from an MBridge checkpoint      |
 | `bionemo_fasta_to_jsonl`          | Convert FASTA files to JSONL format                   |
 
 Run any tool with `--help` for full usage details.
@@ -144,6 +145,23 @@ Options:
 - `--stitched-promoter` — bp to include from promoter region (default: 1024).
 - `--stitched-intron` — bp from neighboring introns (default: 32).
 - `--only-longest-transcript` — keep only the longest transcript per gene.
+
+## Removing optimizer state from a checkpoint
+
+Training checkpoints include optimizer state (Adam moments, LR scheduler, RNG state)
+which roughly triples checkpoint size. Use `evo2_remove_optimizer` to produce a
+smaller weights-only checkpoint suitable for release or fine-tuning:
+
+```bash
+evo2_remove_optimizer \
+  --src-ckpt-dir /path/to/training/checkpoints \
+  --dst-ckpt-dir /path/to/weights_only_checkpoint
+```
+
+The tool automatically finds the latest `iter_*` directory, strips optimizer and
+scheduler state from the DCP files, and copies model weights, tokenizer, and
+config files to the destination. The resulting checkpoint is directly usable
+with `--finetune-ckpt-dir` or the export tools.
 
 ## Fine-tuning from an existing checkpoint
 
