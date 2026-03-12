@@ -18,11 +18,15 @@
 Reproduces NaN bugs in TransformerEngine when using GQA with context parallelism.
 
 Usage:
-    # Small test (6 attn / 2 kv, hidden=384):
+    # Bare layer (NaN with GQA + CP):
     torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-kv-heads 2
 
-    # Production-like ratio (32 attn / 8 kv, hidden=4096, head_dim=128):
-    torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-attn-heads 32 --num-kv-heads 8 --hidden-size 4096
+    # Match production model params (fuse_qkv_params, qkv_weight_interleaved):
+    torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-kv-heads 2 --match-production
+
+    # Production-like ratio:
+    torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-attn-heads 32 --num-kv-heads 8 \
+        --hidden-size 4096 --match-production
 
     # MHA control:
     torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-kv-heads 6
@@ -55,8 +59,13 @@ def run_forward_backward(
     device: torch.device,
     cp_group,
     cp_ranks,
+    match_production: bool = False,
 ) -> bool:
     """Run forward/backward through a single TransformerLayer with BSHD + CP.
+
+    Args:
+        match_production: If True, use the same TransformerLayer params as
+            NVLlamaForCausalLM (fuse_qkv_params, qkv_weight_interleaved, etc.)
 
     Returns True if all steps produce finite loss, False if NaN is encountered.
     """
@@ -67,6 +76,19 @@ def run_forward_backward(
         if num_kv_heads != num_attn_heads
         else f"MHA ({num_attn_heads}/{num_kv_heads})"
     )
+    if match_production:
+        head_label += " [production params]"
+
+    # Extra kwargs that match NVLlamaForCausalLM's TransformerLayer creation
+    extra_kwargs = {}
+    if match_production:
+        extra_kwargs = {
+            "fuse_qkv_params": True,
+            "qkv_weight_interleaved": True,
+            "hidden_dropout": 0,
+            "attention_dropout": 0,
+            "layer_number": 1,
+        }
 
     torch.manual_seed(42)
     layer = te.TransformerLayer(
@@ -79,6 +101,7 @@ def run_forward_backward(
         activation="swiglu",
         attn_input_format="bshd",
         self_attn_mask_type="causal",
+        **extra_kwargs,
     ).to(device=device, dtype=torch.bfloat16)
 
     layer.set_context_parallel_group(cp_group, cp_ranks, torch.cuda.Stream())
@@ -127,6 +150,11 @@ def main():
     parser.add_argument(
         "--hidden-size", type=int, default=384, help="Hidden size (must be divisible by num-attn-heads)"
     )
+    parser.add_argument(
+        "--match-production",
+        action="store_true",
+        help="Use same TransformerLayer params as NVLlamaForCausalLM (fuse_qkv_params, qkv_weight_interleaved, etc.)",
+    )
     args = parser.parse_args()
 
     assert args.hidden_size % args.num_attn_heads == 0, (
@@ -152,6 +180,9 @@ def main():
             f" hidden_size={args.hidden_size}, head_dim={args.hidden_size // args.num_attn_heads}, CP={CP_SIZE}"
         )
 
+    if rank == 0 and args.match_production:
+        print("  Using production params: fuse_qkv_params=True, qkv_weight_interleaved=True")
+
     ok = run_forward_backward(
         num_attn_heads=args.num_attn_heads,
         num_kv_heads=args.num_kv_heads,
@@ -159,6 +190,7 @@ def main():
         device=device,
         cp_group=cp_group,
         cp_ranks=cp_ranks,
+        match_production=args.match_production,
     )
 
     dist.barrier()
