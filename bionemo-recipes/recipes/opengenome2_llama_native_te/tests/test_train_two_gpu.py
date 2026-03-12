@@ -134,14 +134,11 @@ def test_multi_gpu_train_te_fsdp2_cp_bshd(tmp_path, recipe_path):
 
 @requires_multi_gpu
 @requires_datacenter_hardware
-def test_thd_gqa_cp_nan_bug(recipe_path):
-    """Reproduce THD + GQA + CP NaN bug in TransformerEngine.
+def test_thd_mha_cp_control(recipe_path):
+    """Control test: MHA + THD + CP works correctly (no NaN).
 
-    This test confirms that using packed sequences (THD) with grouped-query attention
-    (num_kv_heads != num_attn_heads) and context parallelism produces NaN outputs.
-    MHA (same number of heads) works fine with the same setup.
-
-    See: scripts/minimal_repro_thd_gqa_cp_nan.py for a more verbose standalone version.
+    Verifies that MHA (num_kv_heads == num_attn_heads) with packed sequences and
+    context parallelism produces finite loss. This is the control for the GQA NaN bug.
     """
     run_train_cmd(
         [
@@ -149,6 +146,32 @@ def test_thd_gqa_cp_nan_bug(recipe_path):
             "--standalone",
             "--nproc_per_node=2",
             "tests/test_thd_gqa_cp_nan.py",
+            "--num-kv-heads",
+            "6",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
+@requires_datacenter_hardware
+@pytest.mark.xfail(strict=True, reason="TE bug: THD + GQA + CP produces NaN (num_kv_heads != num_attn_heads)")
+def test_thd_gqa_cp_nan_bug(recipe_path):
+    """Reproduce THD + GQA + CP NaN bug in TransformerEngine.
+
+    GQA (num_kv_heads=2, num_attn_heads=6) with packed sequences (THD) and
+    context parallelism produces NaN. When TE fixes this bug, this test will
+    start passing and strict=True will flag it as XPASS, alerting us to remove
+    the xfail marker.
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=2",
+            "tests/test_thd_gqa_cp_nan.py",
+            "--num-kv-heads",
+            "2",
         ],
         recipe_path,
     )

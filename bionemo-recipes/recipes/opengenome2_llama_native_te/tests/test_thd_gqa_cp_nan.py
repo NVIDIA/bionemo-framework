@@ -15,32 +15,27 @@
 
 """Minimal reproduction of THD + GQA + CP NaN bug in TransformerEngine.
 
-This test demonstrates that a single TE TransformerLayer with:
-- THD format (packed sequences)
-- GQA (num_attention_heads != num_key_value_heads)
-- Context Parallelism (cp_size=2)
+A single TE TransformerLayer with THD format, GQA (num_kv_heads != num_attn_heads),
+and context parallelism (cp_size=2) produces NaN outputs. MHA works fine.
 
-produces NaN outputs, while MHA (num_attention_heads == num_key_value_heads) works fine.
+Usage:
+    # MHA control (should pass):
+    torchrun --nproc_per_node=2 tests/test_thd_gqa_cp_nan.py --num-kv-heads 6
 
-Run directly:
-    torchrun --nproc_per_node=2 tests/test_thd_gqa_cp_nan.py
+    # GQA bug repro (NaN → exit 1):
+    torchrun --nproc_per_node=2 tests/test_thd_gqa_cp_nan.py --num-kv-heads 2
 
-Or via pytest (test_train_two_gpu.py wraps this script).
-
-Environment:
-    - Container: nvcr.io/nvidia/pytorch:25.11-py3
-    - TransformerEngine: 2.9.0+70f53666
-    - PyTorch: 2.10.0a0+b558c986e8.nv25.11
-
-Expected behavior:
-    MHA (6/6 heads): loss is finite (PASS)
-    GQA (6/2 heads): loss is NaN  (BUG in TE)
+Exit codes:
+    0: All training steps produced finite loss.
+    1: NaN loss detected.
 """
 
+import argparse
 import sys
 
 import torch
 import torch.distributed as dist
+import transformer_engine
 import transformer_engine.pytorch as te
 from torch.distributed.device_mesh import init_device_mesh
 
@@ -84,6 +79,13 @@ def run_forward_backward(num_kv_heads: int, device: torch.device, cp_group, cp_r
 
     Returns True if all steps produce finite loss, False if NaN is encountered.
     """
+    rank = dist.get_rank()
+    head_label = (
+        f"GQA ({NUM_ATTN_HEADS}/{num_kv_heads})"
+        if num_kv_heads != NUM_ATTN_HEADS
+        else f"MHA ({NUM_ATTN_HEADS}/{num_kv_heads})"
+    )
+
     torch.manual_seed(42)
     layer = te.TransformerLayer(
         hidden_size=HIDDEN_SIZE,
@@ -125,23 +127,32 @@ def run_forward_backward(num_kv_heads: int, device: torch.device, cp_group, cp_r
         logits = lm_head(output)
         loss = torch.nn.functional.cross_entropy(logits, batch["labels"])
 
+        if rank == 0:
+            print(f"  {head_label} step {step}: loss={loss.item():.4f}")
+
         if torch.isnan(loss).item():
+            if rank == 0:
+                print(f"  FAIL: {head_label} + THD + CP={CP_SIZE} produced NaN at step {step}")
             return False
 
         loss.backward()
         torch.nn.utils.clip_grad_norm_(layer.parameters(), max_norm=1.0)
         optimizer.step()
 
+    if rank == 0:
+        print(f"  PASS: {head_label} + THD + CP={CP_SIZE} completed {NUM_STEPS} steps")
     return True
 
 
 def main():
-    """Run THD+GQA+CP NaN reproduction test.
+    """Run THD + CP test with configurable num_kv_heads.
 
-    Exit codes:
-        0: Bug reproduced (MHA works, GQA NaNs) -- expected result
-        1: Unexpected result (both work or both fail)
+    Exits 0 if all steps produce finite loss, 1 if NaN is detected.
     """
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num-kv-heads", type=int, required=True, help="Number of KV heads (6=MHA, 2=GQA)")
+    args = parser.parse_args()
+
     dist.init_process_group(backend="nccl")
     rank = dist.get_rank()
     device = torch.device(f"cuda:{rank}")
@@ -152,37 +163,15 @@ def main():
     cp_ranks = dist.get_process_group_ranks(cp_group)
 
     if rank == 0:
-        print(f"TE version: {te.__version__}, PyTorch: {torch.__version__}")
+        print(f"TE version: {transformer_engine.__version__}, PyTorch: {torch.__version__}")
+        print(f"Testing num_kv_heads={args.num_kv_heads}, num_attn_heads={NUM_ATTN_HEADS}, CP={CP_SIZE}")
 
-    # Test 1: MHA (6/6) -- should work
-    mha_ok = run_forward_backward(num_kv_heads=NUM_ATTN_HEADS, device=device, cp_group=cp_group, cp_ranks=cp_ranks)
+    ok = run_forward_backward(num_kv_heads=args.num_kv_heads, device=device, cp_group=cp_group, cp_ranks=cp_ranks)
+
     dist.barrier()
-
-    # Test 2: GQA (6/2) -- should NaN due to TE bug
-    gqa_ok = run_forward_backward(num_kv_heads=2, device=device, cp_group=cp_group, cp_ranks=cp_ranks)
-    dist.barrier()
-
-    if rank == 0:
-        print(f"MHA (6/6) + THD + CP=2: {'PASS' if mha_ok else 'FAIL (NaN)'}")
-        print(f"GQA (6/2) + THD + CP=2: {'PASS' if gqa_ok else 'FAIL (NaN)'}")
-
-        if mha_ok and not gqa_ok:
-            print("BUG CONFIRMED: THD + GQA + CP produces NaN in TransformerEngine")
-        elif mha_ok and gqa_ok:
-            print("BUG FIXED: GQA no longer produces NaN (TE may have been updated)")
-        else:
-            print(f"UNEXPECTED: MHA={'ok' if mha_ok else 'NaN'}, GQA={'ok' if gqa_ok else 'NaN'}")
-
     dist.destroy_process_group()
 
-    # Exit 0 if bug is confirmed (expected), 1 otherwise
-    if mha_ok and not gqa_ok:
-        sys.exit(0)
-    elif mha_ok and gqa_ok:
-        # Bug is fixed -- also exit 0, this is the happy path
-        sys.exit(0)
-    else:
-        sys.exit(1)
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
