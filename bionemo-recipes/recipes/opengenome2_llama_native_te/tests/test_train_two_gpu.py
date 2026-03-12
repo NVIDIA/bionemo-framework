@@ -134,6 +134,28 @@ def test_multi_gpu_train_te_fsdp2_cp_bshd(tmp_path, recipe_path):
 
 @requires_multi_gpu
 @requires_datacenter_hardware
+def test_thd_gqa_cp_nan_bug(recipe_path):
+    """Reproduce THD + GQA + CP NaN bug in TransformerEngine.
+
+    This test confirms that using packed sequences (THD) with grouped-query attention
+    (num_kv_heads != num_attn_heads) and context parallelism produces NaN outputs.
+    MHA (same number of heads) works fine with the same setup.
+
+    See: scripts/minimal_repro_thd_gqa_cp_nan.py for a more verbose standalone version.
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=2",
+            "tests/test_thd_gqa_cp_nan.py",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
+@requires_datacenter_hardware
 def test_multi_gpu_train_te_fsdp2_cp_thd(tmp_path, recipe_path):
     """Test FSDP2 with context parallelism on 2 GPUs using THD input format."""
     run_train_cmd(
