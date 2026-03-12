@@ -118,13 +118,6 @@ jobs:
                 else
                   "svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed"
                 end
-              ),
-              extra_checkout: (
-                if (. == "bionemo-recipes/recipes/evo2_megatron" or . == "bionemo-recipes/recipes/eden_megatron") then
-                  "sub-packages/bionemo-recipeutils"
-                else
-                  ""
-                end
               )
             })
           ')
@@ -170,7 +163,6 @@ jobs:
         with:
           sparse-checkout: |
             ${{ matrix.recipe.dir }}
-            ${{ matrix.recipe.extra_checkout }}
           sparse-checkout-cone-mode: false
 
       - name: Cache Hugging Face models

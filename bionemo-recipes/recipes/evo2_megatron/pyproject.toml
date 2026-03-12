@@ -90,13 +90,12 @@ override-dependencies = [
 
 [tool.uv.sources]
 # Shared recipe utilities (framework-agnostic)
-bionemo-recipeutils = { path = "../../../sub-packages/bionemo-recipeutils" }
-
 # External dependencies with specific git tags/commits
 causal_conv1d = { git = "https://github.com/Dao-AILab/causal-conv1d.git", tag = "v1.5.4" }
 nv-grouped-gemm = { git = "https://github.com/fanshiqing/grouped_gemm", tag = "v1.1.4.post6" }
 
 # Internal dependencies
+bionemo-recipeutils = { git = "https://github.com/NVIDIA/bionemo-framework.git", branch = "main", subdirectory = "sub-packages/bionemo-recipeutils" }
 bionemo-core = { git = "https://github.com/NVIDIA/bionemo-framework.git", branch = "main", subdirectory = "sub-packages/bionemo-core" }
 nvidia-resiliency-ext = { git = "https://github.com/NVIDIA/nvidia-resiliency-ext.git", rev = "54f85fe422d296cf04ea524130014bd3a2c3add1" }  # pragma: allowlist secret
 
