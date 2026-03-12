@@ -58,8 +58,10 @@ Usage (Python API):
 """
 
 import argparse
+import gc
 import json
 import logging
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -99,10 +101,114 @@ from megatron.core.utils import get_model_config
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
 from bionemo.evo2.models.evo2_provider import HyenaInferenceContext, HyenaModelProvider
 from bionemo.evo2.run.predict import initialize_inference_distributed, resolve_checkpoint_path
+from bionemo.evo2.run.text_generation_controller import Evo2TextGenerationController
 
 
 logger: logging.Logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+# =============================================================================
+# Hardware-Aware Defaults
+# =============================================================================
+
+
+def _get_gpu_info() -> tuple[int, int]:
+    """Return ``(per_gpu_memory_gb, num_gpus)`` from CUDA device properties.
+
+    Returns ``(0, 0)`` when CUDA is unavailable.
+    """
+    if not torch.cuda.is_available():
+        return (0, 0)
+    mem_gb = torch.cuda.get_device_properties(0).total_memory // 1024**3
+    num_gpus = torch.cuda.device_count()
+    return (mem_gb, num_gpus)
+
+
+def _infer_model_size(ckpt_dir: Path) -> str:
+    """Infer model-size category from checkpoint path components.
+
+    Returns one of ``"40b"``, ``"7b"``, or ``"small"`` (covers 1b / Eden / unknown).
+    """
+    path_lower = str(ckpt_dir).lower()
+    if "40b" in path_lower:
+        return "40b"
+    if "7b" in path_lower:
+        return "7b"
+    return "small"
+
+
+def _detect_max_seq_length(ckpt_dir: Path) -> int:
+    """Auto-detect a conservative ``max_seq_length`` based on GPU memory and model size.
+
+    The values are intentionally conservative and match the lookup tables used in
+    NVIDIA's reference inference script.  Users can override via the
+    ``EVO2_MAX_SEQ_LEN`` environment variable or the ``--max-seq-length`` CLI flag.
+
+    Args:
+        ckpt_dir: Checkpoint directory (used to infer model size).
+
+    Returns:
+        An integer suitable for ``--max-seq-length``.
+    """
+    mem_gb, num_gpus = _get_gpu_info()
+    model_size = _infer_model_size(ckpt_dir)
+
+    if model_size == "40b":
+        if mem_gb > 120 and num_gpus >= 4:
+            ret = 1_000_000
+        elif mem_gb > 120 and num_gpus >= 2:
+            ret = 100_000
+        elif mem_gb > 120:
+            ret = 20_000
+        elif mem_gb > 60 and num_gpus >= 2:
+            ret = 20_000
+        else:
+            ret = 10_000
+    else:
+        if mem_gb > 40:
+            ret = 100_000
+        else:
+            ret = 20_000
+
+    logger.info(
+        f"Auto-detected max_seq_length={ret:,} (model_size={model_size}, gpu_mem={mem_gb}GB, num_gpus={num_gpus})"
+    )
+    return ret
+
+
+def _resolve_int(cli_val: Optional[int], env_var: str, auto_default: Optional[int]) -> Optional[int]:
+    """Resolve an integer setting with priority: CLI arg > env var > auto default.
+
+    Args:
+        cli_val: Value from argparse (``None`` when not supplied by user).
+        env_var: Environment variable name to check.
+        auto_default: Fallback value from hardware auto-detection.
+
+    Returns:
+        Resolved integer, or ``None`` when all three tiers are absent.
+    """
+    if cli_val is not None:
+        return cli_val
+    env = os.environ.get(env_var)
+    if env is not None:
+        resolved = int(env)
+        logger.info(f"Using {env_var}={resolved} from environment")
+        return resolved
+    return auto_default
+
+
+def _prune_caches() -> None:
+    """Run ``gc.collect()`` and ``torch.cuda.empty_cache()`` to free fragmented memory.
+
+    Called before model setup to maximise contiguous GPU memory available for
+    weight loading and KV-cache allocation.
+    """
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    logger.info("Pruned Python and CUDA caches")
+
 
 # =============================================================================
 # Evo2 Model Inference Wrapper
@@ -385,8 +491,9 @@ def setup_inference_engine(
         inference_batch_times_seqlen_threshold=max_seq_length * max_batch_size,
         params_dtype=torch.bfloat16,
         padded_vocab_size=tokenizer.vocab_size,
-        prompt_segmentation_threshold=prompt_segmentation_threshold,
     )
+    if prompt_segmentation_threshold is not None:
+        inference_wrapper_config.add_attributes({"prompt_segmentation_threshold": prompt_segmentation_threshold})
 
     if is_hyena:
         inference_context: StaticInferenceContext = HyenaInferenceContext(
@@ -407,17 +514,31 @@ def setup_inference_engine(
         inference_context=inference_context,
     )
 
-    # Create the text generation controller
-    text_generation_controller = TextGenerationController(
-        inference_wrapped_model=inference_wrapper,
-        tokenizer=tokenizer,
-    )
+    # Create the text generation controller and inference engine.
+    # Evo2 (Hyena) requires the static engine (legacy=True) because the dynamic
+    # engine's DynamicInferenceContext is incompatible with Hyena SSM state
+    # management.  We use Evo2TextGenerationController which adds prompt
+    # segmentation threshold (PST) support on top of the static path.
+    # Eden (standard transformer) can use the dynamic engine (legacy=False)
+    # which provides paged KV cache and built-in chunked prefill.
+    if is_hyena:
+        text_generation_controller = Evo2TextGenerationController(
+            inference_wrapped_model=inference_wrapper,
+            tokenizer=tokenizer,
+        )
+        legacy = True
+    else:
+        text_generation_controller = TextGenerationController(
+            inference_wrapped_model=inference_wrapper,
+            tokenizer=tokenizer,
+        )
+        legacy = False
 
     inference_engine = StaticInferenceEngine(
         text_generation_controller=text_generation_controller,
         max_batch_size=max_batch_size,
         random_seed=random_seed,
-        legacy=True,
+        legacy=legacy,
     )
 
     return Evo2InferenceComponents(
@@ -652,7 +773,13 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--mixed-precision-recipe", type=str, default=None, help="Override precision recipe")
 
     # Model arguments
-    ap.add_argument("--max-seq-length", type=int, default=8192, help="Max sequence length")
+    ap.add_argument(
+        "--max-seq-length",
+        type=int,
+        default=None,
+        help="Max sequence length. When omitted, resolved as: "
+        "EVO2_MAX_SEQ_LEN env var > auto-detected from GPU memory and model size.",
+    )
     ap.add_argument(
         "--max-batch-size",
         type=int,
@@ -668,7 +795,8 @@ def parse_args() -> argparse.Namespace:
         help="If set, prompts longer than this many tokens are segmented during prefill "
         "to reduce peak GPU memory. The first segment runs as a normal prefill pass; "
         "remaining prompt tokens are processed one at a time (at decode speed) before "
-        "generation begins. Useful for long prompts that would otherwise OOM.",
+        "generation begins. Useful for long prompts that would otherwise OOM. "
+        "Also settable via EVO2_PST env var.",
     )
 
     return ap.parse_args()
@@ -723,6 +851,7 @@ def infer(
     """
     random_seed = seed or 1234
 
+    _prune_caches()
     torch.cuda.reset_peak_memory_stats()
 
     components = setup_inference_engine(
@@ -833,6 +962,10 @@ def main() -> None:
     """CLI entry point for Evo2 text generation."""
     args = parse_args()
 
+    # --- Resolve settings: CLI arg > env var > auto-detected default ---
+    max_seq_length = _resolve_int(args.max_seq_length, "EVO2_MAX_SEQ_LEN", _detect_max_seq_length(args.ckpt_dir))
+    prompt_segmentation_threshold = _resolve_int(args.prompt_segmentation_threshold, "EVO2_PST", None)
+
     if args.prompt_file is not None:
         prompts = _read_prompts_jsonl(args.prompt_file)
     else:
@@ -852,9 +985,9 @@ def main() -> None:
         context_parallel_size=args.context_parallel_size,
         output_file=args.output_file,
         mixed_precision_recipe=args.mixed_precision_recipe,
-        max_seq_length=args.max_seq_length,
+        max_seq_length=max_seq_length,
         max_batch_size=args.max_batch_size,
-        prompt_segmentation_threshold=args.prompt_segmentation_threshold,
+        prompt_segmentation_threshold=prompt_segmentation_threshold,
     )
 
 
