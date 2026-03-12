@@ -74,6 +74,18 @@ jobs:
               echo "$PR_INFO" | jq -e ".labels[]? | select(.name == \"$1\")" > /dev/null 2>&1
           }
 
+          # --- Shared sub-package dependency handling ---
+          # Some recipes depend on shared sub-packages (bionemo-core, bionemo-recipeutils)
+          # installed from git in pyproject.toml. When those sub-packages change, we need to
+          # test the dependent recipes against the local version. The .ci_build.sh in each
+          # recipe handles reinstalling from the local checkout if present.
+          #
+          # To add a new recipe that depends on shared sub-packages:
+          #   1. Add the recipe path to SHARED_DEP_RECIPES below
+          #   2. Ensure the recipe's .ci_build.sh includes the local sub-package override
+          #      (see eden_megatron/.ci_build.sh for the pattern)
+          SHARED_DEP_RECIPES='["bionemo-recipes/recipes/evo2_megatron", "bionemo-recipes/recipes/eden_megatron"]'
+
           # Determine which directories to run
           if [[ "$EVENT_NAME" == "schedule" ]]; then
             echo "Scheduled run - running all directories"
@@ -90,11 +102,10 @@ jobs:
               map(select(. as $dir | $changed | index($dir) != null))
             ')
 
-            # If bionemo-recipeutils or bionemo-core changed, ensure both evo2_megatron and eden_megatron run
             SHARED_DEP_CHANGED=$(echo "$CHANGED_FILES" | jq 'map(select(startswith("sub-packages/bionemo-recipeutils") or startswith("sub-packages/bionemo-core"))) | length > 0')
             if [[ "$SHARED_DEP_CHANGED" == "true" ]]; then
-              echo "Shared dependency changed - adding dependent recipes"
-              DIRS=$(echo "$DIRS" | jq -c '. + ["bionemo-recipes/recipes/evo2_megatron", "bionemo-recipes/recipes/eden_megatron"] | unique')
+              echo "Shared sub-package changed - adding dependent recipes: $SHARED_DEP_RECIPES"
+              DIRS=$(echo "$DIRS" | jq -c --argjson recipes "$SHARED_DEP_RECIPES" '. + $recipes | unique')
             fi
           fi
 
@@ -108,7 +119,7 @@ jobs:
           # to the dockerhub registry. Our github actions are able to cache image pulls from dockerhub but not nvcr, so
           # hopefully this cuts down slightly on CI time at the expense of having a slightly in-directed image location.
 
-          DIRS_WITH_IMAGES=$(echo "$DIRS" | jq -c '
+          DIRS_WITH_IMAGES=$(echo "$DIRS" | jq -c --argjson recipes "$SHARED_DEP_RECIPES" '
             map({
               dir: .,
               name: (. | sub("^bionemo-recipes/"; "")),
@@ -117,6 +128,13 @@ jobs:
                   "svcbionemo023/bionemo-framework:amplify-model-devcontainer-082025"
                 else
                   "svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed"
+                end
+              ),
+              extra_checkout: (
+                if (. as $d | $recipes | index($d) != null) then
+                  "sub-packages/bionemo-recipeutils\nsub-packages/bionemo-core"
+                else
+                  ""
                 end
               )
             })
@@ -163,6 +181,7 @@ jobs:
         with:
           sparse-checkout: |
             ${{ matrix.recipe.dir }}
+            ${{ matrix.recipe.extra_checkout }}
           sparse-checkout-cone-mode: false
 
       - name: Cache Hugging Face models
