@@ -692,7 +692,7 @@ class Hyena20bModelProvider(HyenaModelProvider):
     rotary_base: int = 1_000_000
     seq_len_interpolation_factor: float = 128
     hyena_medium_conv_len: int = 128
-    hyena_short_conv_len: int = 3
+    hyena_short_conv_len: int = 7
     add_attn_proj_bias: bool = True
 
 
