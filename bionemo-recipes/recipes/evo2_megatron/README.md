@@ -549,5 +549,3 @@ Note, in the following two sections, the model described as `ft1(step199)` is th
 |   B300 |        40b |       FALSE |                |      BF16 | 0.55         |               |           |
 |   H200 |        40b |       FALSE |                |      BF16 | 0.53         |               |           |
 |   B300 |        40b |       FALSE |                |       FP8 | 0.48         |               |           |
-
-## Quickstart tutorials
