@@ -13,6 +13,7 @@ dynamic = ["version"]
 dependencies = [
     "torch",
     "numpy",
+    "polars",
 ]
 
 [project.optional-dependencies]

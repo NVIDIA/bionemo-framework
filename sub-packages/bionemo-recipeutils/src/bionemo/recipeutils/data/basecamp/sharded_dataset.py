@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
+import polars as pol
 import torch
 import torch.distributed as dist
 from torch.utils.data import Dataset, default_collate
@@ -489,8 +490,6 @@ def precompute_window_database(
         stride: Stride between windows (default: 7992).
         window_min_length_threshold: Minimum length of windows to include (default: 0).
     """
-    import polars as pol
-
     print(f"Creating window database at {output_window_db} from {split_parquet_file}")
     print(
         f"Using window_size={window_size}, stride={stride}, window_min_length_threshold={window_min_length_threshold}"

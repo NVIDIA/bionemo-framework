@@ -36,7 +36,7 @@ megatron-core.
 
 # ruff: noqa: N812, C417, RUF015, F841, D417
 
-import concurrent
+import concurrent.futures
 import copy
 import functools
 from collections import defaultdict
@@ -489,8 +489,7 @@ class Evo2TextGenerationController(TextGenerationController):
             required_result_tokens = batch_prompt_tokens_with_generations[
                 idx, input_prompt_length : (input_prompt_length + required_sequence_length)
             ]
-            generated_sequence_lengths = generated_sequence_lengths.to(dtype=torch.int32)
-            request.generated_sequence_lengths = generated_sequence_lengths.to(dtype=torch.int32)
+            request.generated_sequence_lengths = generated_sequence_lengths[idx].to(dtype=torch.int32)
             request.generated_length = required_sequence_length
             request.generated_tokens = required_result_tokens
 
@@ -545,7 +544,7 @@ class Evo2TextGenerationController(TextGenerationController):
                 batch_prompt_tokens_with_generations[
                     idx, : (input_prompt_length + required_sequence_length)
                 ],
-                input_prompt_length + generated_sequence_lengths,
+                input_prompt_length + generated_sequence_lengths[idx],
                 sampling_params.return_segments,
             )
             request.text = text  # Inference server returns prompts & generations together
