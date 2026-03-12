@@ -13,22 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Test GQA + CP with configurable attention format and head counts.
+"""Test GQA + CP with BSHD format -- reproduces TE bug and verifies workaround.
 
-Reproduces NaN bugs in TransformerEngine when using GQA with context parallelism.
+Two bugs in TransformerEngine's GQA + context parallelism (TE 2.9-2.10):
+
+  Bug 1 (BSHD): GQA + CP NaNs when fuse_qkv_params is not set (default=False).
+      Workaround: set fuse_qkv_params=True (which NVLlamaForCausalLM does).
+
+  Bug 2 (THD):  GQA + CP NaNs regardless of fuse_qkv_params. No workaround.
+      See test_thd_gqa_cp_nan.py for that test.
+
+MHA (num_kv_heads == num_attn_heads) works fine in all configurations.
+
+Verified on:
+    - TE 2.9.0+70f53666  / PyTorch 2.10.0a0+b558c986e8.nv25.11 (H100)
+    - TE 2.10.0+769ed778  / PyTorch 2.10.0a0+b4e4ee81d3.nv25.12 (RTX 5090)
 
 Usage:
-    # Bare layer (NaN with GQA + CP):
+    # Bug repro — bare GQA + CP NaNs (no fuse_qkv_params):
     torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-kv-heads 2
 
-    # Match production model params (fuse_qkv_params, qkv_weight_interleaved):
+    # Workaround — passes with production params (fuse_qkv_params=True):
     torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-kv-heads 2 --match-production
 
-    # Production-like ratio:
-    torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-attn-heads 32 --num-kv-heads 8 \
-        --hidden-size 4096 --match-production
-
-    # MHA control:
+    # MHA control (always passes):
     torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-kv-heads 6
 
 Exit codes:
@@ -65,7 +73,8 @@ def run_forward_backward(
 
     Args:
         match_production: If True, use the same TransformerLayer params as
-            NVLlamaForCausalLM (fuse_qkv_params, qkv_weight_interleaved, etc.)
+            NVLlamaForCausalLM (fuse_qkv_params=True, qkv_weight_interleaved=True).
+            This is the workaround for the BSHD + GQA + CP NaN bug.
 
     Returns True if all steps produce finite loss, False if NaN is encountered.
     """
@@ -77,9 +86,8 @@ def run_forward_backward(
         else f"MHA ({num_attn_heads}/{num_kv_heads})"
     )
     if match_production:
-        head_label += " [production params]"
+        head_label += " [fuse_qkv=True]"
 
-    # Extra kwargs that match NVLlamaForCausalLM's TransformerLayer creation
     extra_kwargs = {}
     if match_production:
         extra_kwargs = {
@@ -153,7 +161,7 @@ def main():
     parser.add_argument(
         "--match-production",
         action="store_true",
-        help="Use same TransformerLayer params as NVLlamaForCausalLM (fuse_qkv_params, qkv_weight_interleaved, etc.)",
+        help="Use fuse_qkv_params=True (workaround for BSHD + GQA + CP NaN bug)",
     )
     args = parser.parse_args()
 
@@ -179,9 +187,8 @@ def main():
             f"Testing BSHD + num_attn_heads={args.num_attn_heads}, num_kv_heads={args.num_kv_heads},"
             f" hidden_size={args.hidden_size}, head_dim={args.hidden_size // args.num_attn_heads}, CP={CP_SIZE}"
         )
-
-    if rank == 0 and args.match_production:
-        print("  Using production params: fuse_qkv_params=True, qkv_weight_interleaved=True")
+        if args.match_production:
+            print("  Using production params: fuse_qkv_params=True, qkv_weight_interleaved=True")
 
     ok = run_forward_backward(
         num_attn_heads=args.num_attn_heads,

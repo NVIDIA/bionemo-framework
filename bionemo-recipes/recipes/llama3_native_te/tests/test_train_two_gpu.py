@@ -262,15 +262,17 @@ def test_thd_mha_cp_control(recipe_path):
 
 @requires_multi_gpu
 @requires_datacenter_hardware
-@pytest.mark.xfail(strict=True, reason="TE bug: THD + GQA + CP produces NaN (num_kv_heads != num_attn_heads)")
+@pytest.mark.xfail(
+    strict=True,
+    reason="TE bug: THD + GQA + CP produces NaN regardless of fuse_qkv_params (no workaround)",
+)
 def test_thd_gqa_cp_nan_bug(recipe_path):
-    """Reproduce THD + GQA + CP NaN bug in TransformerEngine.
+    """Reproduce THD + GQA + CP NaN bug in TransformerEngine (Bug 2 of 2).
 
     GQA (num_kv_heads=2, num_attn_heads=6) with packed sequences (THD) and
-    context parallelism produces NaN. BSHD + GQA + CP works fine -- the bug is
-    specific to the THD code path. When TE fixes this bug, this test will start
-    passing and strict=True will flag it as XPASS, alerting us to remove the
-    xfail marker.
+    context parallelism produces NaN. Unlike the BSHD variant (Bug 1), there is
+    no workaround -- fuse_qkv_params=True does not help. When TE fixes this bug,
+    this test will start passing and strict=True will flag it as XPASS.
     """
     run_train_cmd(
         [
@@ -278,6 +280,53 @@ def test_thd_gqa_cp_nan_bug(recipe_path):
             "--standalone",
             "--nproc_per_node=2",
             "tests/test_thd_gqa_cp_nan.py",
+            "--num-kv-heads",
+            "2",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
+def test_bshd_gqa_cp_with_fuse_qkv(recipe_path):
+    """Verify BSHD + GQA + CP works with fuse_qkv_params=True (production workaround).
+
+    NVLlamaForCausalLM sets fuse_qkv_params=True, which avoids the BSHD + GQA + CP
+    NaN bug. This test confirms that the workaround works.
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=2",
+            "tests/test_bshd_gqa_cp.py",
+            "--num-kv-heads",
+            "2",
+            "--match-production",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
+@pytest.mark.xfail(
+    strict=True,
+    reason="TE bug: BSHD + GQA + CP produces NaN without fuse_qkv_params=True",
+)
+def test_bshd_gqa_cp_nan_bug(recipe_path):
+    """Reproduce BSHD + GQA + CP NaN bug in TransformerEngine (Bug 1 of 2).
+
+    GQA (num_kv_heads=2, num_attn_heads=6) with BSHD format and context parallelism
+    produces NaN when fuse_qkv_params is not set (TE default is False).
+    Workaround: set fuse_qkv_params=True (see test_bshd_gqa_cp_with_fuse_qkv).
+    When TE fixes this, strict=True will flag XPASS.
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=2",
+            "tests/test_bshd_gqa_cp.py",
             "--num-kv-heads",
             "2",
         ],

@@ -15,15 +15,30 @@
 
 """Minimal reproduction of THD + GQA + CP NaN bug in TransformerEngine.
 
-A single TE TransformerLayer with THD format, GQA (num_kv_heads != num_attn_heads),
-and context parallelism (cp_size=2) produces NaN outputs. MHA works fine.
+Bug 2 of two GQA + context parallelism bugs in TE 2.9-2.10:
+
+  Bug 1 (BSHD): GQA + CP NaNs when fuse_qkv_params is not set (default=False).
+      Workaround: set fuse_qkv_params=True (which NVLlamaForCausalLM does).
+      See test_bshd_gqa_cp.py for that test.
+
+  Bug 2 (THD):  GQA + CP NaNs regardless of fuse_qkv_params. No workaround.
+      This is the test for Bug 2.
+
+MHA (num_kv_heads == num_attn_heads) works fine in all configurations.
+
+Verified on:
+    - TE 2.9.0+70f53666  / PyTorch 2.10.0a0+b558c986e8.nv25.11 (H100)
+    - TE 2.10.0+769ed778  / PyTorch 2.10.0a0+b4e4ee81d3.nv25.12 (RTX 5090)
 
 Usage:
     # MHA control (should pass):
     torchrun --nproc_per_node=2 tests/test_thd_gqa_cp_nan.py --num-kv-heads 6
 
-    # GQA bug repro (NaN → exit 1):
+    # GQA bug repro (NaN -> exit 1):
     torchrun --nproc_per_node=2 tests/test_thd_gqa_cp_nan.py --num-kv-heads 2
+
+    # GQA with production params (still NaN -> exit 1, no workaround for THD):
+    torchrun --nproc_per_node=2 tests/test_thd_gqa_cp_nan.py --num-kv-heads 2 --match-production
 
 Exit codes:
     0: All training steps produced finite loss.
