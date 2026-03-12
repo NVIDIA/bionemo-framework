@@ -654,49 +654,6 @@ class HyenaNV40bModelProvider(Hyena40bModelProvider):
 
 
 @dataclass
-class Hyena20bModelProvider(HyenaModelProvider):
-    """Config matching the Evo2 20B 1M context model (arcinstitute/evo2_20b).
-
-    Source: evo2/configs/evo2-20b-1m.yml from ARC's evo2 repo.
-    Layer pattern derived from: hcs=[0,4,7,11,14,18,21], hcm=[1,5,8,12,15,19,22],
-    hcl=[2,6,9,13,16,20,23], attn=[3,10,17].
-    """
-
-    hybrid_override_pattern: str = "SDH*SDHSDH*SDHSDH*SDHSDH"
-    num_layers: int = 24
-    seq_length: int = 1_048_576
-    hidden_size: int = 8192
-    num_groups_hyena: int = 8192
-    num_groups_hyena_medium: int = 512
-    num_groups_hyena_short: int = 512
-    make_vocab_size_divisible_by: int = 8
-    tokenizer_library: str = "byte-level"
-    mapping_type: str = "base"
-    ffn_hidden_size: int = 22528
-    gated_linear_unit: bool = True
-    num_attention_heads: int = 64
-    use_cpu_initialization: bool = False
-    hidden_dropout: float = 0.0
-    attention_dropout: float = 0.0
-    params_dtype: torch.dtype = torch.bfloat16
-    normalization: str = "RMSNorm"
-    add_qkv_bias: bool = False
-    add_bias_linear: bool = False
-    layernorm_epsilon: float = 1e-6
-    recompute_granularity: str = "full"
-    recompute_method: str = "uniform"
-    recompute_num_layers: int = 4
-    hyena_init_method: str = "small_init"
-    hyena_output_layer_init_method: str = "wang_init"
-    hyena_filter_no_wd: bool = True
-    rotary_base: int = 1_000_000
-    seq_len_interpolation_factor: float = 128
-    hyena_medium_conv_len: int = 128
-    hyena_short_conv_len: int = 7
-    add_attn_proj_bias: bool = True
-
-
-@dataclass
 class Hyena7bARCLongContextModelProvider(Hyena7bModelProvider):
     """The checkpoint from ARC requires padding to the FFN dim due to requirements of large TP size for training at long context.
 
@@ -769,7 +726,6 @@ HYENA_MODEL_OPTIONS: dict[str, Type[HyenaModelProvider]] = {
     "evo2_1b_base": Hyena1bModelProvider,
     "evo2_7b_base": Hyena7bModelProvider,
     "evo2_7b": Hyena7bARCLongContextModelProvider,
-    "evo2_20b": Hyena20bModelProvider,
     "evo2_40b_base": Hyena40bModelProvider,
     "evo2_40b": Hyena40bARCLongContextModelProvider,
     # NVIDIA-modified variants (striped_hyena_ prefix, no public ARC checkpoint)
@@ -817,7 +773,6 @@ __all__ = [
     "Hyena1bModelProvider",
     "Hyena7bARCLongContextModelProvider",
     "Hyena7bModelProvider",
-    "Hyena20bModelProvider",
     "Hyena40bARCLongContextModelProvider",
     "Hyena40bModelProvider",
     "HyenaModelProvider",

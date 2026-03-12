@@ -239,11 +239,11 @@ Convert to MBridge format first:
 
 ```bash
 evo2_convert_savanna_to_mbridge \
-  --savanna-ckpt-path arcinstitute/savanna_evo2_20b \
-  --mbridge-ckpt-dir evo2_20b_mbridge \
-  --model-size evo2_20b \
+  --savanna-ckpt-path arcinstitute/savanna_evo2_7b \
+  --mbridge-ckpt-dir evo2_7b_mbridge \
+  --model-size evo2_7b \
   --tokenizer-path tokenizers/nucleotide_fast_tokenizer_512 \
-  --seq-length 8192
+  --seq-length 1048576
 ```
 
 The `--savanna-ckpt-path` accepts either a local `.pt` file path or a HuggingFace
@@ -253,7 +253,6 @@ repo ID (e.g., `arcinstitute/savanna_evo2_1b_base`). Available Savanna checkpoin
 | ------------------------------------ | --------------- |
 | `arcinstitute/savanna_evo2_1b_base`  | `evo2_1b_base`  |
 | `arcinstitute/savanna_evo2_7b`       | `evo2_7b`       |
-| `arcinstitute/savanna_evo2_20b`      | `evo2_20b`      |
 | `arcinstitute/savanna_evo2_40b_base` | `evo2_40b_base` |
 
 Options:
@@ -360,7 +359,6 @@ disambiguates the model architecture, origin, and context length.
 | `evo2_1b_base`                 | ARC 1B, 8K context           |
 | `evo2_7b_base`                 | ARC 7B, 8K context           |
 | `evo2_7b`                      | ARC 7B, 1M context           |
-| `evo2_20b`                     | ARC 20B, 1M context          |
 | `evo2_40b_base`                | ARC 40B, 8K context          |
 | `evo2_40b`                     | ARC 40B, 1M context          |
 | `striped_hyena_1b_nv`          | NVIDIA-modified 1B variant   |
@@ -398,11 +396,10 @@ Eden models use the Llama 3.1 architecture. They are supported by
 
 The `examples/` directory contains Jupyter notebooks demonstrating common workflows:
 
-| Notebook                             | Description                                                |
-| ------------------------------------ | ---------------------------------------------------------- |
-| `zeroshot_brca1.ipynb`               | Zero-shot BRCA1 variant effect prediction with Evo2 1B     |
-| `fine-tuning-tutorial.ipynb`         | Fine-tune the 1B checkpoint on human chromosomes           |
-| `evo2_20b_finetune_and_export.ipynb` | Full 20B lifecycle: Savanna → MBridge → fine-tune → Vortex |
+| Notebook                     | Description                                            |
+| ---------------------------- | ------------------------------------------------------ |
+| `zeroshot_brca1.ipynb`       | Zero-shot BRCA1 variant effect prediction with Evo2 1B |
+| `fine-tuning-tutorial.ipynb` | Fine-tune the 1B checkpoint on human chromosomes       |
 
 ## Docker build
 

@@ -23,7 +23,6 @@ from bionemo.evo2.models.evo2_provider import (
     HYENA_MODEL_OPTIONS,
     MODEL_OPTIONS,
     Hyena1bModelProvider,
-    Hyena20bModelProvider,
     infer_model_type,
 )
 from bionemo.evo2.utils.checkpoint.mbridge_to_vortex import _split_fc1, mbridge_to_vortex_state_dict
@@ -32,7 +31,7 @@ from bionemo.evo2.utils.checkpoint.savanna_to_mbridge import savanna_to_mbridge_
 
 def test_evo2_prefix_for_arc_models():
     """Verify evo2-prefixed ARC model keys exist in HYENA_MODEL_OPTIONS."""
-    for key in ["evo2_1b_base", "evo2_7b_base", "evo2_7b", "evo2_20b", "evo2_40b_base", "evo2_40b"]:
+    for key in ["evo2_1b_base", "evo2_7b_base", "evo2_7b", "evo2_40b_base", "evo2_40b"]:
         assert key in HYENA_MODEL_OPTIONS
 
 
@@ -57,24 +56,6 @@ def test_no_key_collisions_between_hyena_and_eden():
 def test_model_options_is_union():
     """Verify MODEL_OPTIONS is the union of HYENA and EDEN model options."""
     assert set(MODEL_OPTIONS.keys()) == set(HYENA_MODEL_OPTIONS.keys()) | set(EDEN_MODEL_OPTIONS.keys())
-
-
-def test_hyena_20b_basic_params():
-    """Verify Hyena20bModelProvider returns expected architecture parameters."""
-    provider = Hyena20bModelProvider()
-    assert provider.num_layers == 24
-    assert provider.hidden_size == 8192
-    assert provider.num_attention_heads == 64
-    assert provider.ffn_hidden_size == 22528
-    assert provider.seq_length == 1_048_576
-
-
-def test_hyena_20b_pattern():
-    """Verify hybrid_override_pattern has valid chars (S, D, H, *) and length matches num_layers."""
-    provider = Hyena20bModelProvider()
-    assert len(provider.hybrid_override_pattern) == provider.num_layers
-    for char in provider.hybrid_override_pattern:
-        assert char in "SDH*", f"Invalid pattern char: {char}"
 
 
 def test_all_eden_options_instantiate():
