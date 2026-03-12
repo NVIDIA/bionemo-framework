@@ -24,15 +24,15 @@ use_megatron_scaled_init: false
 use_fp32_master_weights: false
 
 dataset:
-  tokenizer_name_or_path: nvidia/Llama-3.1-8B-Instruct-FP8
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 1
   max_seq_length: 256
-  text_column: "text"
+  text_column: "sequence"
   mask_degenerate_bases: false
   load_dataset_kwargs:
     path: "parquet"
     split: "train"
-    data_files: "dlcm_sanity_dataset.parquet"
+    data_files: "test_genomic_sequences.parquet"
     streaming: True
 
 wandb:

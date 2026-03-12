@@ -23,7 +23,7 @@ which may also contribute to its lower test performance.
 [TODO: Fill with final results/replace with final image as available]
 
 <p align="center">
-  <img src="assets/og2_convergence_vs_megatron.png" alt="OpenGenome2 7B convergence vs Megatron" width="80%" />
+  <img src="../../../docs/docs/assets/images/recipes/og2_convergence_vs_megatron.png" alt="OpenGenome2 7B convergence vs Megatron" width="80%" />
 </p>
 
 | Model                      | Step / checkpoint | Train loss | Mean Test loss | Mean Test Perplexity |
@@ -76,7 +76,7 @@ As seen in the table and chart below, using THD with our recipe provides ~80-85%
 | BSHD (this recipe) | 3,145,728                    | 5,380                   |
 
 <p align="center">
-  <img src="plots/throughput_comparison.png" alt="BSHD vs THD throughput comparison" width="80%" />
+  <img src="../../../docs/docs/assets/images/recipes/og2_throughput_comparison.png" alt="BSHD vs THD throughput comparison" width="80%" />
 </p>
 
 ## How to use this recipe
@@ -113,7 +113,7 @@ docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bi
 Alternatively, the dependencies can be installed manually in an environment with CUDA support. See `requirements.txt`
 for the list of dependencies.
 
-## OpenGenome2-Specific Setup
+## Key Settings for Improved Accuracy
 
 ### Megatron-Style Scaled Output Initialization
 
@@ -152,6 +152,15 @@ weights are kept in FP32. Training uses BF16 parameters with FP32 gradient all-r
 default (`True`) would downcast RoPE embeddings — which are computed in FP32 in the model — to
 BF16 at FSDP module boundaries, causing numerical issues in long-context attention. See
 [train_fsdp2.py](train_fsdp2.py) for the policy setup.
+
+### Tokenizer: BOS/EOS handling
+
+The nucleotide tokenizer adds `<BOS>` and `<EOS>` to every window. During windowed tokenization,
+each chunk of `max_seq_length` tokens is wrapped as `<BOS>...<EOS>`. Both BOS and EOS are excluded
+from the loss by the genomic masking (they are not DNA tokens, so their labels are set to -100).
+For inference, use `add_special_tokens=True` — the model expects `<BOS>` as the first input token.
+For sequences longer than 8192 tokens, use a sliding window with 200-token overlap to match
+training, or use context parallelism.
 
 ## Distributed Training
 

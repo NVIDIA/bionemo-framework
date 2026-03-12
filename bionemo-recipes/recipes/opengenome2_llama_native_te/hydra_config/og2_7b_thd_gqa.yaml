@@ -29,7 +29,7 @@ defaults:
   - _self_
 
 # 7B model with GQA
-config_name_or_path: meta-llama/Llama-3.1-8B
+config_name_or_path: ./model_configs/meta-llama/Llama-3.1-8B
 config_kwargs:
   vocab_size: 256
   num_hidden_layers: 32
