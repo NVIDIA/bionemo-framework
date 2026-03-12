@@ -13,13 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Test that BSHD + GQA + CP works correctly (no NaN).
+"""Test GQA + CP with configurable attention format and head counts.
 
-Unlike THD + GQA + CP (which produces NaN due to a TE bug), the BSHD format
-with GQA and context parallelism works correctly. This test verifies that.
+Reproduces NaN bugs in TransformerEngine when using GQA with context parallelism.
 
 Usage:
+    # Small test (6 attn / 2 kv, hidden=384):
     torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-kv-heads 2
+
+    # Production-like ratio (32 attn / 8 kv, hidden=4096, head_dim=128):
+    torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-attn-heads 32 --num-kv-heads 8 --hidden-size 4096
+
+    # MHA control:
+    torchrun --nproc_per_node=2 tests/test_bshd_gqa_cp.py --num-kv-heads 6
 
 Exit codes:
     0: All training steps produced finite loss.
@@ -36,33 +42,37 @@ import transformer_engine.pytorch as te
 from torch.distributed.device_mesh import init_device_mesh
 
 
-# Tiny model config for fast reproduction
-HIDDEN_SIZE = 384
-FFN_HIDDEN_SIZE = 1536
 VOCAB_SIZE = 256
-SEQ_LENGTH = 256  # Must be divisible by 2 * cp_size = 4
-NUM_ATTN_HEADS = 6
+SEQ_LENGTH = 256
 CP_SIZE = 2
 NUM_STEPS = 5
 
 
-def run_forward_backward(num_kv_heads: int, device: torch.device, cp_group, cp_ranks) -> bool:
+def run_forward_backward(
+    num_attn_heads: int,
+    num_kv_heads: int,
+    hidden_size: int,
+    device: torch.device,
+    cp_group,
+    cp_ranks,
+) -> bool:
     """Run forward/backward through a single TransformerLayer with BSHD + CP.
 
     Returns True if all steps produce finite loss, False if NaN is encountered.
     """
     rank = dist.get_rank()
+    ffn_hidden_size = hidden_size * 4
     head_label = (
-        f"GQA ({NUM_ATTN_HEADS}/{num_kv_heads})"
-        if num_kv_heads != NUM_ATTN_HEADS
-        else f"MHA ({NUM_ATTN_HEADS}/{num_kv_heads})"
+        f"GQA ({num_attn_heads}/{num_kv_heads})"
+        if num_kv_heads != num_attn_heads
+        else f"MHA ({num_attn_heads}/{num_kv_heads})"
     )
 
     torch.manual_seed(42)
     layer = te.TransformerLayer(
-        hidden_size=HIDDEN_SIZE,
-        ffn_hidden_size=FFN_HIDDEN_SIZE,
-        num_attention_heads=NUM_ATTN_HEADS,
+        hidden_size=hidden_size,
+        ffn_hidden_size=ffn_hidden_size,
+        num_attention_heads=num_attn_heads,
         num_gqa_groups=num_kv_heads,
         bias=False,
         normalization="RMSNorm",
@@ -73,16 +83,15 @@ def run_forward_backward(num_kv_heads: int, device: torch.device, cp_group, cp_r
 
     layer.set_context_parallel_group(cp_group, cp_ranks, torch.cuda.Stream())
 
-    lm_head = torch.nn.Linear(HIDDEN_SIZE, VOCAB_SIZE, bias=False, device=device, dtype=torch.bfloat16)
-    rope = te.attention.RotaryPositionEmbedding(dim=HIDDEN_SIZE // NUM_ATTN_HEADS)
+    lm_head = torch.nn.Linear(hidden_size, VOCAB_SIZE, bias=False, device=device, dtype=torch.bfloat16)
+    rope = te.attention.RotaryPositionEmbedding(dim=hidden_size // num_attn_heads)
     rope_emb = rope(max_seq_len=SEQ_LENGTH).to(device)
     optimizer = torch.optim.AdamW(list(layer.parameters()) + list(lm_head.parameters()), lr=1e-4)
 
-    # BSHD format: each CP rank gets seq_length / cp_size tokens
     seq_per_rank = SEQ_LENGTH // CP_SIZE
 
     for step in range(NUM_STEPS):
-        hidden = torch.randn(1, seq_per_rank, HIDDEN_SIZE, device=device, dtype=torch.bfloat16)
+        hidden = torch.randn(1, seq_per_rank, hidden_size, device=device, dtype=torch.bfloat16)
         labels = torch.randint(0, VOCAB_SIZE, (seq_per_rank,), device=device)
 
         optimizer.zero_grad()
@@ -111,13 +120,21 @@ def run_forward_backward(num_kv_heads: int, device: torch.device, cp_group, cp_r
 
 
 def main():
-    """Run BSHD + CP test with configurable num_kv_heads.
-
-    Exits 0 if all steps produce finite loss, 1 if NaN is detected.
-    """
+    """Run BSHD + CP test with configurable head counts and hidden size."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num-kv-heads", type=int, required=True, help="Number of KV heads (6=MHA, 2=GQA)")
+    parser.add_argument("--num-attn-heads", type=int, default=6, help="Number of attention heads")
+    parser.add_argument("--num-kv-heads", type=int, required=True, help="Number of KV heads")
+    parser.add_argument(
+        "--hidden-size", type=int, default=384, help="Hidden size (must be divisible by num-attn-heads)"
+    )
     args = parser.parse_args()
+
+    assert args.hidden_size % args.num_attn_heads == 0, (
+        f"hidden_size ({args.hidden_size}) must be divisible by num_attn_heads ({args.num_attn_heads})"
+    )
+    assert args.num_attn_heads % args.num_kv_heads == 0, (
+        f"num_attn_heads ({args.num_attn_heads}) must be divisible by num_kv_heads ({args.num_kv_heads})"
+    )
 
     dist.init_process_group(backend="nccl")
     rank = dist.get_rank()
@@ -130,9 +147,19 @@ def main():
 
     if rank == 0:
         print(f"TE version: {transformer_engine.__version__}, PyTorch: {torch.__version__}")
-        print(f"Testing BSHD + num_kv_heads={args.num_kv_heads}, num_attn_heads={NUM_ATTN_HEADS}, CP={CP_SIZE}")
+        print(
+            f"Testing BSHD + num_attn_heads={args.num_attn_heads}, num_kv_heads={args.num_kv_heads},"
+            f" hidden_size={args.hidden_size}, head_dim={args.hidden_size // args.num_attn_heads}, CP={CP_SIZE}"
+        )
 
-    ok = run_forward_backward(num_kv_heads=args.num_kv_heads, device=device, cp_group=cp_group, cp_ranks=cp_ranks)
+    ok = run_forward_backward(
+        num_attn_heads=args.num_attn_heads,
+        num_kv_heads=args.num_kv_heads,
+        hidden_size=args.hidden_size,
+        device=device,
+        cp_group=cp_group,
+        cp_ranks=cp_ranks,
+    )
 
     dist.barrier()
     dist.destroy_process_group()
