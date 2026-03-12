@@ -161,7 +161,7 @@ def test_predict_evo2_runs(
 
     # Load and collate predictions
     # Note: predict.py outputs are all batch-first (batch_dim=0), seq-second (seq_dim=1)
-    preds = [torch.load(pf) for pf in pred_files]
+    preds = [torch.load(pf, weights_only=True) for pf in pred_files]
     preds = batch_collator(
         [p for p in preds if p is not None],
         batch_dim=0,
@@ -260,7 +260,7 @@ def baseline_predictions_7b_1m_results(
     # Use the updated glob pattern matching the new naming convention
     # Epoch mode: predictions__rank_{global_rank}__dp_rank_{dp_rank}.pt
     pred_files = glob.glob(str(output_dir / "predictions__rank_*__dp_rank_*.pt"))
-    preds = [torch.load(pf) for pf in pred_files]
+    preds = [torch.load(pf, weights_only=True) for pf in pred_files]
     preds = batch_collator(
         [p for p in preds if p is not None],
         batch_dim=0,
@@ -395,7 +395,7 @@ def test_predict_evo2_equivalent_with_log_probs(
         seq_idx_map = json.load(f)
 
     # Load and collate predictions from all DP ranks
-    preds = [torch.load(pf) for pf in pred_files]
+    preds = [torch.load(pf, weights_only=True) for pf in pred_files]
     preds = batch_collator(
         [p for p in preds if p is not None],
         batch_dim=0,
@@ -544,7 +544,7 @@ def test_predict_evo2_embedding_extraction(
     pred_files = sorted(glob.glob(str(output_dir / "predictions__rank_*__dp_rank_*.pt")))
     assert len(pred_files) == 1, f"Expected 1 prediction file, got {len(pred_files)}"
 
-    preds = torch.load(pred_files[0])
+    preds = torch.load(pred_files[0], weights_only=True)
     assert isinstance(preds, dict)
 
     # Verify expected keys for embedding extraction

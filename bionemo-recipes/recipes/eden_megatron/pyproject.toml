@@ -38,6 +38,10 @@ eden_convert_nemo2_to_mbridge = "bionemo.eden.utils.checkpoint.nemo2_to_mbridge:
 eden_export_mbridge_to_hf = "bionemo.eden.utils.checkpoint.eden_mbridge_hf:main_export"
 eden_convert_hf_to_mbridge = "bionemo.eden.utils.checkpoint.eden_mbridge_hf:main_import"
 
+[tool.ruff.lint.isort]
+known-first-party = ["bionemo", "infra_bionemo"]
+lines-after-imports = 2
+
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["bionemo.*"]
