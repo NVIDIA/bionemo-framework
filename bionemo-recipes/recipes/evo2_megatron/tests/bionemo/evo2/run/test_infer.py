@@ -35,7 +35,11 @@ from pathlib import Path
 import pytest
 import torch
 
+from bionemo.core.data.load import load as bionemo_load
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
 from bionemo.evo2.models.evo2_provider import HyenaInferenceContext
+from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
+from bionemo.evo2.utils.checkpoint.savanna_to_mbridge import savanna_to_mbridge
 
 from ..utils import find_free_network_port
 
@@ -598,12 +602,8 @@ def test_parallel_inference_accuracy(mbridge_checkpoint_path, tmp_path, dna_sequ
 @pytest.fixture(scope="module")
 def mbridge_checkpoint_7b_1m_path(tmp_path_factory) -> Path:
     """Create or load a MBridge checkpoint for 7b-1m model testing."""
-    from bionemo.core.data.load import load
-    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
-    from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
-
     try:
-        nemo2_checkpoint_path = load("evo2/7b-1m:1.0")
+        nemo2_checkpoint_path = bionemo_load("evo2/7b-1m:1.0")
     except ValueError as e:
         if e.args[0].endswith("does not have an NGC URL."):
             pytest.skip(
@@ -618,7 +618,7 @@ def mbridge_checkpoint_7b_1m_path(tmp_path_factory) -> Path:
         nemo2_ckpt_dir=nemo2_checkpoint_path,
         tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
         mbridge_ckpt_dir=tmp_dir / "mbridge_checkpoint",
-        model_size="7b_arc_longcontext",
+        model_size="evo2_7b",
         seq_length=8192,
         mixed_precision_recipe="bf16_mixed",
         vortex_style_fp8=False,
@@ -699,6 +699,185 @@ def test_parallel_inference_accuracy_7b(mbridge_checkpoint_7b_1m_path, tmp_path,
     assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
         f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
     )
+
+
+SAVANNA_7B_REPO = "arcinstitute/savanna_evo2_7b"
+
+
+@pytest.fixture(scope="module")
+def mbridge_checkpoint_7b_from_savanna(tmp_path_factory) -> Path:
+    """Convert the ARC Savanna 7B checkpoint to MBridge and return the iteration directory.
+
+    Downloads the savanna checkpoint from HuggingFace, converts it via
+    ``savanna_to_mbridge``, and returns the ``iter_0000001`` path ready for
+    inference.
+    """
+    tmp_dir = tmp_path_factory.mktemp("mbridge_ckpt_7b_savanna")
+    mbridge_ckpt_dir = savanna_to_mbridge(
+        savanna_ckpt_path=SAVANNA_7B_REPO,
+        mbridge_ckpt_dir=tmp_dir / "mbridge_checkpoint",
+        model_size="evo2_7b",
+        tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+        seq_length=8192,
+        te_enabled=True,
+        mixed_precision_recipe="bf16_mixed",
+    )
+    return mbridge_ckpt_dir / "iter_0000001"
+
+
+@pytest.mark.slow
+@pytest.mark.timeout(1800)
+@pytest.mark.skipif(
+    not os.environ.get("LONG_TESTS"),
+    reason="Set LONG_TESTS=1 to run (downloads ~30GB savanna checkpoint)",
+)
+def test_savanna_to_mbridge_inference_accuracy_7b(mbridge_checkpoint_7b_from_savanna, tmp_path, dna_sequences):
+    """Validate the Savanna-to-MBridge conversion by running inference at TP=2.
+
+    Downloads the ARC 7B savanna checkpoint, converts it to MBridge, generates
+    500 tokens for each test sequence, and checks that sequence identity matches
+    expected baselines within 90%.
+    """
+    tp = 2
+    if torch.cuda.device_count() < tp:
+        pytest.skip(f"Not enough GPUs: need {tp}, have {torch.cuda.device_count()}")
+
+    num_tokens = 500
+    expected_matchpercents = [97.60, 89.63, 80.03, 84.57]
+
+    match_percents = []
+    for i, seq in enumerate(dna_sequences):
+        prompt, target = mid_point_split(seq=seq, num_tokens=num_tokens, fraction=0.5)
+
+        prompt_file = tmp_path / f"prompt_savanna7b_seq{i}.txt"
+        output_file = tmp_path / f"output_savanna7b_seq{i}.txt"
+        prompt_file.write_text(prompt)
+
+        generated_text = run_infer_subprocess_parallel(
+            mbridge_checkpoint_7b_from_savanna,
+            prompt_file=prompt_file,
+            output_file=output_file,
+            max_new_tokens=num_tokens,
+            temperature=1.0,
+            top_k=1,
+            seed=42,
+            tensor_parallel_size=tp,
+        )
+
+        identity = calculate_sequence_identity(target, generated_text)
+        match_percents.append(identity)
+
+    matchperc_print = [f"{mp:.2f}%" for mp in match_percents]
+    matchperc_print_expected = [f"{ep:.2f}%" for ep in expected_matchpercents]
+
+    assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
+        f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
+    )
+
+
+# =============================================================================
+# Eden (Llama) inference tests
+# =============================================================================
+
+
+@pytest.fixture(scope="module")
+def mbridge_eden_checkpoint_path(mbridge_eden_checkpoint) -> Path:
+    """Module-scoped alias for the session-scoped Eden checkpoint."""
+    return mbridge_eden_checkpoint
+
+
+@pytest.mark.slow
+def test_infer_eden_runs(mbridge_eden_checkpoint_path, tmp_path):
+    """Test that infer.py runs without errors on an Eden (Llama) mbridge checkpoint."""
+    output_file = tmp_path / "eden_output.txt"
+    prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
+    open_port = find_free_network_port()
+
+    cmd = [
+        "torchrun",
+        "--nproc_per_node",
+        "1",
+        "--nnodes",
+        "1",
+        "--master_port",
+        str(open_port),
+        "-m",
+        "bionemo.evo2.run.infer",
+        "--ckpt-dir",
+        str(mbridge_eden_checkpoint_path),
+        "--prompt",
+        prompt,
+        "--max-new-tokens",
+        "10",
+        "--output-file",
+        str(output_file),
+        "--temperature",
+        "1.0",
+        "--top-k",
+        "1",
+    ]
+
+    env = copy.deepcopy(PRETEST_ENV)
+
+    result = subprocess.run(
+        cmd,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
+
+    assert result.returncode == 0, f"Eden infer command failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    assert output_file.exists(), "Output file was not created"
+
+    generated = output_file.read_text()
+    assert len(generated) > 0, "Generated text is empty"
+
+
+@pytest.mark.slow
+def test_infer_eden_deterministic(mbridge_eden_checkpoint_path, tmp_path):
+    """Test that Eden inference with greedy decoding is deterministic across runs."""
+    output_1 = tmp_path / "eden_det_1.txt"
+    output_2 = tmp_path / "eden_det_2.txt"
+    prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
+
+    for output_file in (output_1, output_2):
+        open_port = find_free_network_port()
+        cmd = [
+            "torchrun",
+            "--nproc_per_node",
+            "1",
+            "--nnodes",
+            "1",
+            "--master_port",
+            str(open_port),
+            "-m",
+            "bionemo.evo2.run.infer",
+            "--ckpt-dir",
+            str(mbridge_eden_checkpoint_path),
+            "--prompt",
+            prompt,
+            "--max-new-tokens",
+            "10",
+            "--output-file",
+            str(output_file),
+            "--temperature",
+            "1.0",
+            "--top-k",
+            "1",
+            "--seed",
+            "42",
+        ]
+
+        env = copy.deepcopy(PRETEST_ENV)
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=300, env=env)
+        assert result.returncode == 0, f"Eden infer failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+
+    gen_1 = output_1.read_text()
+    gen_2 = output_2.read_text()
+    assert len(gen_1) > 0, "First generation produced empty output"
+    assert gen_1 == gen_2, f"Deterministic Eden inference produced different outputs:\nRun 1: {gen_1}\nRun 2: {gen_2}"
 
 
 class TestHyenaInferenceContext:

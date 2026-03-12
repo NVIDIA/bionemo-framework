@@ -28,7 +28,7 @@ from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
 from torch.distributed.checkpoint import FileSystemReader, FileSystemWriter
 from torch.distributed.checkpoint.metadata import BytesStorageMetadata
 
-from bionemo.evo2.models.evo2_provider import HYENA_MODEL_OPTIONS, HyenaModelProvider
+from bionemo.evo2.models.evo2_provider import MODEL_OPTIONS, HyenaModelProvider
 from bionemo.evo2.recipes.evo2 import evo2_1b_pretrain_config as pretrain_config
 
 
@@ -71,31 +71,22 @@ def convert_nemo2_dcp_to_megatron(
     # 2. Load directly from DCP to memory (no_dist=True for single process)
     dcp.load(state_dict=state_dict, storage_reader=reader, no_dist=True)
 
-    # 3. Munge Keys
-    # Removing "module." prefix as requested
-    prefix_len = len("module.")
-    new_state_dict = {}
-    for k, v in state_dict.items():
-        # Safety check: ensure key actually has the prefix before slicing
+    # 3. Rename keys in-place (strip "module." prefix)
+    for k in list(state_dict.keys()):
         if k.startswith("module."):
-            new_key = k[prefix_len:]
-        else:
-            new_key = k
-        new_state_dict[new_key] = v
+            state_dict[k[len("module.") :]] = state_dict.pop(k)
 
     logger.info(f"Keys munged. saving to {dest_path}...")
 
     # 4. Save to DCP with Sharding
-    # Calculate required threads to achieve target shard size
-    # DCP FileSystemWriter writes one file per thread when single_file_per_rank=False
-
     writer = FileSystemWriter(
         dest_path,
-        single_file_per_rank=False,  # roughly one file per parameter
+        single_file_per_rank=False,
         thread_count=os.cpu_count(),
     )
 
-    dcp.save(state_dict=new_state_dict, storage_writer=writer, no_dist=True)
+    dcp.save(state_dict=state_dict, storage_writer=writer, no_dist=True)
+    del state_dict
     logger.info("Conversion complete.")
 
 
@@ -239,7 +230,7 @@ def run_nemo2_to_mbridge(
     Returns:
         Path to the Megatron Bridge checkpoint directory.
     """
-    model_provider = HYENA_MODEL_OPTIONS[model_size](seq_length=seq_length)
+    model_provider = MODEL_OPTIONS[model_size](seq_length=seq_length)
     res_dir = nemo2_to_mbridge(
         nemo2_ckpt_dir, tokenizer_path, mbridge_ckpt_dir, model_provider, mixed_precision_recipe, vortex_style_fp8
     )
@@ -256,7 +247,7 @@ def main():
     parser.add_argument("--nemo2-ckpt-dir", type=Path, required=True)
     parser.add_argument("--tokenizer-path", type=Path, required=True)
     parser.add_argument("--mbridge-ckpt-dir", type=Path, required=True)
-    parser.add_argument("--model-size", type=str, choices=list(HYENA_MODEL_OPTIONS.keys()), required=True)
+    parser.add_argument("--model-size", type=str, choices=sorted(MODEL_OPTIONS.keys()), required=True)
     parser.add_argument("--seq-length", type=int, required=True)
     parser.add_argument("--vortex-style-fp8", action="store_true", default=False)
     parser.add_argument(

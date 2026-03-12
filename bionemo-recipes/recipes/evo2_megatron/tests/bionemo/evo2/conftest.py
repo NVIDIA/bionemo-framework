@@ -15,11 +15,20 @@
 
 
 # conftest.py
+import copy
 import gc
+import os
+import shlex
+import socket
+import subprocess
 from pathlib import Path
 
 import pytest
 import torch
+
+from bionemo.core.data.load import load as bionemo_load
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH, DEFAULT_HF_TOKENIZER_MODEL_PATH_512
+from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
 
 
 def get_device_and_memory_allocated() -> str:
@@ -63,8 +72,16 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
-    """Clean up GPU memory and reset state after each test."""
+    """Clean up GPU memory, reset state, and restore env vars after each test.
+
+    Megatron Core's LanguageModule._set_attention_backend() mutates os.environ
+    (e.g. NVTE_FUSED_ATTN, NVTE_FLASH_ATTN) when models are constructed in-process.
+    Capturing and restoring the full environment prevents cross-test pollution.
+    """
+    saved_environ = os.environ.copy()
     yield
+    os.environ.clear()
+    os.environ.update(saved_environ)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         gc.collect()
@@ -91,12 +108,8 @@ def mbridge_checkpoint_1b_8k_bf16(tmp_path_factory) -> Path:
     Returns:
         Path to the MBridge checkpoint iteration directory (e.g., .../iter_0000001)
     """
-    from bionemo.core.data.load import load
-    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
-    from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
-
     try:
-        nemo2_ckpt_path = load("evo2/1b-8k-bf16:1.0")
+        nemo2_ckpt_path = bionemo_load("evo2/1b-8k-bf16:1.0")
     except ValueError as e:
         if e.args[0].endswith("does not have an NGC URL."):
             pytest.skip(
@@ -111,7 +124,7 @@ def mbridge_checkpoint_1b_8k_bf16(tmp_path_factory) -> Path:
         nemo2_ckpt_dir=nemo2_ckpt_path,
         tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
         mbridge_ckpt_dir=output_dir / "evo2_1b_mbridge",
-        model_size="1b",
+        model_size="evo2_1b_base",
         seq_length=8192,
         mixed_precision_recipe="bf16_mixed",
         vortex_style_fp8=False,
@@ -130,3 +143,81 @@ def mbridge_checkpoint_path(mbridge_checkpoint_1b_8k_bf16) -> Path:
         Path to the MBridge checkpoint iteration directory
     """
     return mbridge_checkpoint_1b_8k_bf16
+
+
+@pytest.fixture(scope="session")
+def mbridge_eden_checkpoint(tmp_path_factory) -> Path:
+    """Session-scoped MBridge checkpoint for a tiny Eden (Llama) model.
+
+    Creates an Eden mbridge checkpoint by training a tiny model (2 layers, seq_length=64)
+    for 2 steps with mock data. Shared across test files that need an Eden checkpoint.
+
+    Returns:
+        Path to the MBridge checkpoint directory (parent of iter_0000002).
+    """
+
+    def _find_free_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            return s.getsockname()[1]
+
+    tmp_dir = tmp_path_factory.mktemp("eden_ckpt_session")
+    run_dir = tmp_dir / "eden_train"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    port = _find_free_port()
+
+    cmd = (
+        f"torchrun --nproc-per-node 1 --no-python --master_port {port} "
+        f"train_evo2 "
+        f"--hf-tokenizer-model-path {DEFAULT_HF_TOKENIZER_MODEL_PATH} "
+        "--model-size eden_7b --num-layers 2 "
+        "--max-steps 2 --eval-interval 2 --eval-iters 1 "
+        f"--mock-data --result-dir {run_dir} "
+        "--micro-batch-size 4 --global-batch-size 4 --seq-length 64 "
+        "--tensor-model-parallel 1 --pipeline-model-parallel 1 --context-parallel 1 "
+        "--mixed-precision-recipe bf16_mixed "
+        "--no-activation-checkpointing "
+        "--decay-steps 1000 --warmup-steps 10 "
+        "--log-interval 1 --seed 41 --dataset-seed 33"
+    )
+
+    env = copy.deepcopy(os.environ)
+    result = subprocess.run(shlex.split(cmd), check=False, capture_output=True, text=True, cwd=run_dir, env=env)
+    if result.returncode != 0:
+        print(f"Eden checkpoint creation STDOUT:\n{result.stdout}")
+        print(f"Eden checkpoint creation STDERR:\n{result.stderr}")
+    assert result.returncode == 0, f"Eden checkpoint creation failed: {result.stderr[-2000:]}"
+
+    ckpt_dir = run_dir / "evo2" / "checkpoints"
+    iter_dir = ckpt_dir / "iter_0000002"
+    assert iter_dir.exists(), f"Eden checkpoint not found at {iter_dir}"
+    return iter_dir
+
+
+@pytest.fixture(scope="session")
+def mbridge_checkpoint_eden_7b(tmp_path_factory) -> Path:
+    """Session-scoped MBridge checkpoint for the Eden (Llama) 7B model.
+
+    Converts the NeMo2 Eden 7B checkpoint from PBSS to MBridge format once per session.
+    Skips if PBSS data source is not configured or data is unavailable.
+
+    Returns:
+        Path to the MBridge checkpoint iteration directory (e.g., .../iter_0000001)
+    """
+    try:
+        nemo2_ckpt_path = bionemo_load("evo2_llama/7B-8k-og2:1.0")
+    except (ValueError, Exception) as e:
+        pytest.skip(f"Eden 7B checkpoint not available: {e}")
+
+    output_dir = tmp_path_factory.mktemp("mbridge_ckpt_eden_7b_session")
+    mbridge_ckpt_dir = run_nemo2_to_mbridge(
+        nemo2_ckpt_dir=nemo2_ckpt_path,
+        tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
+        mbridge_ckpt_dir=output_dir / "eden_7b_mbridge",
+        model_size="eden_7b",
+        seq_length=8192,
+        mixed_precision_recipe="bf16_mixed",
+        vortex_style_fp8=False,
+    )
+    return mbridge_ckpt_dir / "iter_0000001"

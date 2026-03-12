@@ -102,61 +102,61 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: 
         [
             {
                 "test_name": "test_forward",
-                "model_size": "1b",
+                "model_size": "evo2_1b_base",
                 "seq_len_cap": 6000,
                 "memory_needed_by_test": 18,
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward",
-                "model_size": "7b",
+                "model_size": "evo2_7b_base",
                 "seq_len_cap": 4000,
                 "memory_needed_by_test": 33,
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward_manual",
-                "model_size": "1b",
+                "model_size": "evo2_1b_base",
                 "seq_len_cap": 6000,
                 "memory_needed_by_test": 18,
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward_manual",
-                "model_size": "7b",
+                "model_size": "evo2_7b_base",
                 "seq_len_cap": 4000,
                 "memory_needed_by_test": 21,
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward_ckpt_conversion",
-                "model_size": "1b",
+                "model_size": "evo2_1b_base",
                 "seq_len_cap": 6000,
                 "memory_needed_by_test": 18,
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward_ckpt_conversion",
-                "model_size": "7b",
+                "model_size": "evo2_7b_base",
                 "seq_len_cap": 4000,
                 "memory_needed_by_test": 21,
             },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate_mbridge",
-                "model_size": "1b",
+                "model_size": "evo2_1b_base",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 16,
             },  # checked both variants in isolation - needs ~21GB peak on L4
             {
                 "test_name": "test_batch_generate_mbridge",
-                "model_size": "7b",
+                "model_size": "evo2_7b_base",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 43,
             },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate_coding_sequences",
-                "model_size": "1b",
+                "model_size": "evo2_1b_base",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 12,
             },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate_coding_sequences",
-                "model_size": "7b",
+                "model_size": "evo2_7b_base",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 28,
             },  # checked both variants in isolation
@@ -166,9 +166,9 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: 
     memory_needed_df_wi_index = memory_needed_df.set_index(["test_name", "model_size"])
 
     if "1b" in ckpt_name:
-        model_size = "1b"
+        model_size = "evo2_1b_base"
     elif "7b" in ckpt_name:
-        model_size = "7b"
+        model_size = "evo2_7b_base"
     else:
         raise ValueError(f"{ckpt_name=} is not supported for testing")
 
@@ -449,7 +449,7 @@ def test_forward_ckpt_conversion(
             nemo2_ckpt_dir=ckpt_path,
             tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
             mbridge_ckpt_dir=tmp_path / "mbridge_checkpoint",
-            model_size="1b" if "1b" in ckpt_name else "7b" if "7b-8k" in ckpt_name else "7b_arc_longcontext",
+            model_size="evo2_1b_base" if "1b" in ckpt_name else "evo2_7b_base" if "7b-8k" in ckpt_name else "evo2_7b",
             seq_length=1048576 if "1m" in ckpt_name else 8192,
             mixed_precision_recipe="bf16_mixed" if not is_fp8_supported else "bf16_with_fp8_current_scaling_mixed",
             # The checkpoints from the original evo2 training that are "fp8 sensitive" require vortex_style_fp8=True
@@ -615,7 +615,7 @@ def test_batch_generate_coding_sequences(
             nemo2_ckpt_dir=nemo2_ckpt_path,
             tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
             mbridge_ckpt_dir=tmp_path / "mbridge_checkpoint",
-            model_size="1b" if "1b" in ckpt_name else "7b_arc_longcontext" if "7b-1m" in ckpt_name else "7b",
+            model_size="evo2_1b_base" if "1b" in ckpt_name else "evo2_7b" if "7b-1m" in ckpt_name else "evo2_7b_base",
             seq_length=8192,
             mixed_precision_recipe=mixed_precision_recipe,
             vortex_style_fp8=vortex_style_fp8,
@@ -778,7 +778,7 @@ def test_batch_generate_mbridge(
             nemo2_ckpt_dir=nemo2_ckpt_path,
             tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
             mbridge_ckpt_dir=tmp_path / "mbridge_checkpoint",
-            model_size="1b" if "1b" in ckpt_name else "7b_arc_longcontext" if "7b-1m" in ckpt_name else "7b",
+            model_size="evo2_1b_base" if "1b" in ckpt_name else "evo2_7b" if "7b-1m" in ckpt_name else "evo2_7b_base",
             seq_length=8192,
             mixed_precision_recipe=mixed_precision_recipe,
             vortex_style_fp8=vortex_style_fp8,
@@ -827,3 +827,136 @@ def test_batch_generate_mbridge(
         assert all(mp >= 0.90 * ep for mp, ep in zip(match_percents, expected_matchpercents)), (
             f"Expected at least 90% of {matchperc_print_expected=}, got {matchperc_print=}"
         )
+
+
+# =============================================================================
+# Eden (Llama 3.1) forward pass and generation tests
+#
+# These test that the NeMo2→mbridge converted Eden 7B checkpoint produces
+# reasonable sequence identity results, mirroring the Hyena tests above.
+# =============================================================================
+
+PBSS_SKIP = pytest.mark.skipif(
+    os.environ.get("BIONEMO_DATA_SOURCE") != "pbss",
+    reason="Test data is not available on NGC — run with BIONEMO_DATA_SOURCE=pbss",
+)
+CI_SKIP = pytest.mark.skipif(bool(os.environ.get("CI")), reason="Skip in CI due to disk space / memory")
+
+
+@pytest.fixture(scope="module")
+def eden_7b_ckpt_path(mbridge_checkpoint_eden_7b) -> Path:
+    """Module-scoped alias for the session-scoped Eden 7B mbridge checkpoint."""
+    return mbridge_checkpoint_eden_7b
+
+
+@PBSS_SKIP
+@CI_SKIP
+@pytest.mark.slow
+def test_forward_ckpt_conversion_eden(
+    sequences: list[str],
+    eden_7b_ckpt_path: Path,
+):
+    """Test the forward pass of an Eden (Llama) model loaded from a NeMo2→mbridge converted checkpoint.
+
+    Loads the real Eden 7B checkpoint, runs a forward pass on DNA sequences, and checks
+    that next-token prediction accuracy (matchrate) is reasonable.
+    """
+    assert len(sequences) > 0
+
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if gb_available < 28:
+        pytest.skip(f"Insufficient GPU memory: {gb_available:.1f}GB available, need at least 28GB for Eden 7B")
+
+    with distributed_model_parallel_state(), torch.no_grad():
+        model_config, mtron_args = load_model_config(eden_7b_ckpt_path)
+        assert mtron_args is None, "mtron_args should be None since this is a Megatron Bridge checkpoint"
+        tokenizer = load_tokenizer(eden_7b_ckpt_path)
+        model_config.bf16 = True
+        model_config.finalize()
+        raw_megatron_model = model_config.provide(pre_process=True, post_process=True).eval().cuda()
+        _load_model_weights_from_checkpoint(
+            checkpoint_path=eden_7b_ckpt_path, model=[raw_megatron_model], dist_ckpt_strictness="ignore_all"
+        )
+        model = Float16Module(model_config, raw_megatron_model)
+
+        matchrates = []
+        seq_len_cap = 4000
+        for seq in sequences:
+            partial_seq = seq[:seq_len_cap]
+            device = torch.cuda.current_device()
+            input_ids = torch.tensor(tokenizer.tokenize(partial_seq)).int().unsqueeze(0).to(device)
+            logits = model(
+                input_ids=input_ids,
+                position_ids=None,
+                attention_mask=None,
+                labels=None,
+            )
+            matchrate = _calc_matchrate(tokenizer=tokenizer, in_seq=partial_seq, logits=logits)
+            matchrates.append(matchrate)
+            logger.info(f"eden_7b forward matchrate: {matchrate * 100:.1f}%")
+
+        # Eden 7B matchrates on these DNA prompts are lower than Hyena (~34-61% observed).
+        # The golden values test confirms the model outputs match reference predictions;
+        # these thresholds are a basic sanity check that the checkpoint loaded correctly.
+        for i, mr in enumerate(matchrates):
+            assert mr > 0.30, f"Sequence {i} matchrate too low: {mr * 100:.1f}%"
+
+
+@PBSS_SKIP
+@CI_SKIP
+@pytest.mark.timeout(900)
+@pytest.mark.slow
+def test_batch_generate_mbridge_eden(
+    sequences: list[str],
+    eden_7b_ckpt_path: Path,
+):
+    """Test autoregressive generation with the Eden 7B model via MCore inference engine.
+
+    Converts the Eden checkpoint, runs autoregressive generation, and checks that the
+    generated sequences have reasonable identity to the target continuation.
+    """
+    from bionemo.evo2.run.infer import generate, setup_inference_engine
+
+    assert len(sequences) > 0
+
+    gb_available = torch.cuda.mem_get_info()[0] / 1024**3
+    if gb_available < 28:
+        pytest.skip(f"Insufficient GPU memory: {gb_available:.1f}GB available, need at least 28GB for Eden 7B")
+
+    num_tokens_to_generate = 500
+
+    with distributed_model_parallel_state(), torch.no_grad():
+        seq_splits = [mid_point_split(seq=seq, num_tokens=num_tokens_to_generate, fraction=0.5) for seq in sequences]
+        prompts = [split[0] for split in seq_splits]
+        targets = [split[1] for split in seq_splits]
+
+        components = setup_inference_engine(
+            ckpt_dir=eden_7b_ckpt_path,
+            max_seq_length=8192,
+            max_batch_size=1,
+            tensor_parallel_size=1,
+            random_seed=42,
+        )
+
+        results = generate(
+            components,
+            prompts=prompts,
+            max_new_tokens=num_tokens_to_generate,
+            temperature=1.0,
+            top_k=1,
+        )
+
+        match_percents: list[float] = []
+        for i, (result, target) in enumerate(zip(results, targets)):
+            generated_text = result.generated_text if result else ""
+            match_percent = calculate_sequence_identity(target, generated_text)
+            if match_percent is not None:
+                match_percents.append(match_percent)
+                logger.info(f"eden_7b generate seq[{i}] identity: {match_percent:.1f}%")
+
+        # Basic sanity: generation should produce some reasonable identity.
+        # Once baseline values are established from a real run, these can be tightened
+        # with specific expected_matchpercents like the Hyena tests.
+        assert len(match_percents) == len(sequences), "Not all sequences produced match results"
+        for i, mp in enumerate(match_percents):
+            assert mp > 10.0, f"Sequence {i} identity too low: {mp:.1f}%"
