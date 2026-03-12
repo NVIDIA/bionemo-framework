@@ -49,6 +49,39 @@ class EdenModelProvider(Llama31ModelProvider):
 
 
 @dataclass
+class Eden100MModelProvider(EdenModelProvider):
+    """Eden ~100M provider (Llama 3.1 architecture)."""
+
+    num_layers: int = 12
+    hidden_size: int = 512
+    ffn_hidden_size: int = 2048
+    num_attention_heads: int = 8
+    num_query_groups: int = 2
+
+
+@dataclass
+class Eden300MModelProvider(EdenModelProvider):
+    """Eden ~300M provider (Llama 3.1 architecture)."""
+
+    num_layers: int = 20
+    hidden_size: int = 1024
+    ffn_hidden_size: int = 4096
+    num_attention_heads: int = 16
+    num_query_groups: int = 4
+
+
+@dataclass
+class Eden1BModelProvider(EdenModelProvider):
+    """Eden ~1B provider (Llama 3.1 architecture)."""
+
+    num_layers: int = 16
+    hidden_size: int = 2048
+    ffn_hidden_size: int = 8192
+    num_attention_heads: int = 16
+    num_query_groups: int = 8
+
+
+@dataclass
 class Eden11BModelProvider(EdenModelProvider):
     """Eden ~11B provider (Llama 3.1 architecture)."""
 
@@ -145,6 +178,9 @@ def patch_eden_tokenizer(tokenizer):
 
 
 EDEN_MODEL_OPTIONS: dict[str, Type[EdenModelProvider]] = {
+    "eden_100m": Eden100MModelProvider,
+    "eden_300m": Eden300MModelProvider,
+    "eden_1b": Eden1BModelProvider,
     "eden_7b": EdenModelProvider,
     "eden_11b": Eden11BModelProvider,
     "eden_18b": Eden18BModelProvider,
@@ -158,6 +194,7 @@ EDEN_MODEL_OPTIONS: dict[str, Type[EdenModelProvider]] = {
 
 __all__ = [
     "EDEN_MODEL_OPTIONS",
+    "Eden1BModelProvider",
     "Eden11BModelProvider",
     "Eden18BModelProvider",
     "Eden21BModelProvider",
@@ -165,6 +202,8 @@ __all__ = [
     "Eden27BModelProvider",
     "Eden28BModelProvider",
     "Eden35BModelProvider",
+    "Eden100MModelProvider",
+    "Eden300MModelProvider",
     "EdenModelProvider",
     "patch_eden_tokenizer",
 ]
