@@ -10,29 +10,33 @@ uv venv --system-site-packages
 # 2. Activate the environment
 source .venv/bin/activate
 
-# 3. Install dependencies and ensure that constraints are not violated
+# 3. Install build requirements and pin transformer_engine
 pip freeze | grep transformer_engine > pip-constraints.txt
-uv pip install -r build_requirements.txt --no-build-isolation  # some extra requirements are needed for building
-uv pip install -c pip-constraints.txt -e . --no-build-isolation
+uv pip install -r build_requirements.txt --no-build-isolation
 
-# 4. Override shared sub-packages with local versions if checked out.
-#    pyproject.toml installs bionemo-core and bionemo-recipeutils from git (main branch)
-#    so they work for standalone installs. In CI, when a PR changes those sub-packages,
-#    the workflow sparse-checks them out alongside this recipe so we can test against the
-#    actual changes instead of the published main-branch version.
-#    After overriding, re-install the recipe itself (--no-deps) to restore its console
-#    scripts (e.g. train_evo2) which may have been clobbered by the sub-package installs.
+# 4. Pre-install local sub-packages if checked out by CI.
+#    pyproject.toml references bionemo-recipeutils and bionemo-core from git (main).
+#    In CI, the workflow sparse-checks them out alongside this recipe so we can test
+#    against the PR's changes. But if the sub-packages don't exist on main yet (e.g.
+#    a new package introduced in the PR), uv's git source resolution fails and the
+#    entire recipe install is aborted — leaving ALL deps (megatron-bridge, etc.)
+#    uninstalled. By pre-installing from local and temporarily removing their git
+#    source entries, the subsequent recipe install sees them as already satisfied and
+#    only needs to resolve the remaining deps normally.
 RECIPE_ROOT="$(cd "$(dirname "$0")" && pwd)"
-ANY_LOCAL_OVERRIDE=false
+cp pyproject.toml pyproject.toml.ci_bak
 for pkg_dir in "$RECIPE_ROOT/../../../sub-packages/bionemo-recipeutils" "$RECIPE_ROOT/../../../sub-packages/bionemo-core"; do
     if [ -d "$pkg_dir" ]; then
         pkg_name=$(basename "$pkg_dir")
-        echo "Reinstalling $pkg_name from local checkout: $pkg_dir"
+        echo "Pre-installing $pkg_name from local checkout: $pkg_dir"
         uv pip install -e "$pkg_dir" --no-build-isolation
-        ANY_LOCAL_OVERRIDE=true
+        # Remove the git source entry so uv uses the already-installed local version
+        sed -i "/^${pkg_name} *=/d" pyproject.toml
     fi
 done
-if [ "$ANY_LOCAL_OVERRIDE" = true ]; then
-    echo "Re-installing recipe package to restore console scripts"
-    uv pip install -e . --no-deps --no-build-isolation
-fi
+
+# 5. Install the recipe with all remaining dependencies
+uv pip install -c pip-constraints.txt -e . --no-build-isolation
+
+# 6. Restore original pyproject.toml (the edit was only needed for uv resolution)
+mv pyproject.toml.ci_bak pyproject.toml
