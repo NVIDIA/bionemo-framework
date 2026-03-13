@@ -1,0 +1,116 @@
+# @package _global_
+defaults:
+  - /base
+  - _self_
+
+############################################################
+# lepton job info
+############################################################
+node_group: yo-bom-lepton-001
+mount_from: node-nfs:fs1
+num_nodes: 1
+device_type: gpu
+num_devices: 2
+gpu_type: h100-sxm
+resource_shape: "${device_type}.${num_devices}x${gpu_type}"
+
+############################################################
+# kratos info: where to log data
+############################################################
+kratos_subject: "convergence_tests_v0.0.3"
+
+############################################################
+# recipe identifiers
+# mostly used for logging and observability
+############################################################
+recipe_subdir: llama3_native_te
+model_type: llama3
+variant: train # train, finetune
+
+# Core identifiers for filtering
+framework: native # native, accelerate
+precision: bf16 # likely bf16 or fp8
+te_enabled: true
+fp8_enabled: false
+fp8_recipe: ""
+fp8_format: ""
+cp_enabled: false
+
+# Catchall for additional features/configs
+extras: [] # e.g. [thd]
+
+############################################################
+# wandb info (total_gpus used for group name)
+############################################################
+# `total_gpus` calculated from lepton job info above
+total_gpus: ${multiply:${num_devices},${num_nodes}}
+
+wandb_init_args:
+  project: "test_convergence__recipes__${sanitize:${branch}}"
+  group: "${model_type}__${task_cmd}__${total_gpus}gpus__${sanitize:${gpu_type}}"
+  job_type: "${recipe_subdir}"
+  name: null
+
+############################################################
+# task commands
+# shared across all products (if not explicitly overridden)
+############################################################
+
+# script overrides
+use_torch_compile: true
+use_meta_device: true
+use_sequence_packing: false
+# these should match the keys in the recipe's config file
+num_train_steps: 250
+# dataset commands
+micro_batch_size: 1
+max_seq_length: 256
+num_workers: 1
+
+# lr commands
+num_warmup_steps: 10
+# checkpoint controls
+ckpt_dir: ""
+save_final_model: false
+resume_from_checkpoint: false
+
+############################################################
+# Each product is a different config to run, alongside
+# config-specific arguments. Must have a w`andb_name`.
+############################################################
+products:
+  # L0 sanity test without context parallelism
+  - config: L0_sanity
+    task_cmd: train_fsdp2
+    cp_enabled: false
+    wandb_name: "llama3_native__L0_sanity__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "llama3-native-L0-sanity"
+  # L0 sanity test with context parallelism
+  - config: L0_sanity_cp
+    task_cmd: train_fsdp2_cp
+    cp_enabled: true
+    wandb_name: "llama3_native__L0_sanity_cp__${now:%Y%m%d-%H%M%S}__${gitsha:}"
+    job_name: "llama3-native-L0-sanity-cp"
+
+############################################################
+# run script
+# This gets called right after `checkout_script` in the base config.
+############################################################
+run_script: |
+  torchrun ${task_cmd}.py \
+    --config-name ${config}.yaml \
+    +wandb.mode=${wandb_init_args.mode} \
+    +wandb.project=${wandb_init_args.project} \
+    +wandb.name=${wandb_name} \
+    num_train_steps=${num_train_steps} \
+    dataset.micro_batch_size=${micro_batch_size} \
+    dataset.max_seq_length=${max_seq_length} \
+    dataset.num_workers=${num_workers} \
+    use_torch_compile=${use_torch_compile} \
+    use_meta_device=${use_meta_device} \
+    use_sequence_packing=${use_sequence_packing} \
+    lr_scheduler_kwargs.num_warmup_steps=${num_warmup_steps} \
+    checkpoint.ckpt_dir=${ckpt_dir} \
+    checkpoint.save_final_model=${save_final_model} \
+    checkpoint.resume_from_checkpoint=${resume_from_checkpoint} \
+    fp8_config.enabled=${fp8_enabled}

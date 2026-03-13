@@ -1,0 +1,122 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# UV package manager
+.python-version
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Weights & Biases
+wandb/
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn
+
+# Model weights and checkpoints
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.bin
+checkpoints/
+
+# Data files (large)
+*.parquet
+*.arrow
+*.h5
+*.hdf5
+*.fasta
+*.fasta.gz
+*.tsv.gz
+features.json
+interpretations.json
+cluster_labels.json
+
+# Activation stores
+activations_store/
+**/activations_store/
+
+# Output directories
+outputs/
+**/outputs/
+**/outputs_*/
+analysis_output/
+**/analysis_output/
+
+# Data directories (but not source code data/ modules)
+/data/
+datasets/
+recipes/*/data/
+!**/src/**/data/
+
+# Viewer public data (generated)
+**/public/features.json
+**/public/features_atlas.parquet
+**/public/*.parquet
+**/public/features/
+**/public/features/*.json
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Keep specific files
+!recipes/**/configs/**
+!**/config.yaml
+# Note: uv.lock is NOT ignored - it's useful for reproducibility
