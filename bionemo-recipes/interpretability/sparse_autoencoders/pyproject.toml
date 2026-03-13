@@ -2,6 +2,13 @@
 # This is a monorepo workspace that contains multiple Python packages.
 # For development: `uv sync` installs all packages
 # For external users: Each package can be installed independently
+# NOTE: Do NOT `pip install -e .` from this directory. Install sub-packages directly:
+#   pip install -e sae/
+#   pip install -e recipes/esm2/
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "biosae-workspace"
@@ -15,6 +22,14 @@ dependencies = [
     "umap-learn>=0.5.11",
     "wandb>=0.24.0",
 ]
+
+# Prevent setuptools from auto-discovering sae/ and recipes/ as packages
+[tool.setuptools]
+py-modules = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = []
 
 [tool.uv.workspace]
 members = ["sae", "recipes/esm2", "recipes/codonfm"]

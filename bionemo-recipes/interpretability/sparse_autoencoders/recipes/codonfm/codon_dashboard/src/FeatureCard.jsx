@@ -249,10 +249,22 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
   const freq = feature.activation_freq || 0
   const maxAct = feature.max_activation || 0
   const llmConf = feature.llm_confidence || 0
-  const description = feature.label || feature.description || `jjjFeature ${feature.feature_id}`
+  const highScoreFrac = feature.high_score_fraction
+  const variantDelta = feature.mean_variant_delta
+  const siteDelta = feature.mean_site_delta
+  const localDelta = feature.mean_local_delta
+  const clinvarFrac = feature.clinvar_fraction
+  const phylop = feature.mean_phylop
+  const gcMean = feature.gc_mean
+  const trinucEntropy = feature.trinuc_entropy
+  const geneEntropy = feature.gene_entropy
+  const geneNUnique = feature.gene_n_unique
+  const description = feature.label || feature.description || `Feature ${feature.feature_id}`
 
-  // DEBUG
-  console.log(`[${feature.feature_id}] label:`, feature.label, 'description:', feature.description, 'keys:', Object.keys(feature).slice(0, 10))
+  // Log only features with labels starting with 'fires'
+  if (description.toLowerCase().startsWith('fires')) {
+    console.log(`[${feature.feature_id}] ${description}`)
+  }
 
   const handleClick = () => {
     const willExpand = !expanded
@@ -467,6 +479,74 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
             <span style={styles.statLabel}>Max</span>
             <span style={styles.statValue}>{maxAct.toFixed(1)}</span>
           </div>
+          {highScoreFrac != null && !isNaN(highScoreFrac) && (
+            <div style={styles.stat}>
+              <span style={styles.statLabel}>Hi-Score</span>
+              <span style={{ ...styles.statValue, color: highScoreFrac > 0.6 ? '#d32f2f' : highScoreFrac < 0.4 ? '#388e3c' : '#666' }}>
+                {(highScoreFrac * 100).toFixed(0)}%
+              </span>
+            </div>
+          )}
+          {variantDelta != null && !isNaN(variantDelta) && (
+            <div style={styles.stat}>
+              <span style={styles.statLabel}>Δ Var</span>
+              <span style={{ ...styles.statValue, color: Math.abs(variantDelta) > 0.5 ? '#1565c0' : '#666' }}>
+                {variantDelta > 0 ? '+' : ''}{variantDelta.toFixed(2)}
+              </span>
+            </div>
+          )}
+          {siteDelta != null && !isNaN(siteDelta) && (
+            <div style={styles.stat}>
+              <span style={styles.statLabel}>Δ Site</span>
+              <span style={{ ...styles.statValue, color: Math.abs(siteDelta) > 0.5 ? '#7b1fa2' : '#666' }}>
+                {siteDelta > 0 ? '+' : ''}{siteDelta.toFixed(2)}
+              </span>
+            </div>
+          )}
+          {localDelta != null && !isNaN(localDelta) && (
+            <div style={styles.stat}>
+              <span style={styles.statLabel}>Δ Local</span>
+              <span style={{ ...styles.statValue, color: Math.abs(localDelta) > 0.5 ? '#00695c' : '#666' }}>
+                {localDelta > 0 ? '+' : ''}{localDelta.toFixed(2)}
+              </span>
+            </div>
+          )}
+          {clinvarFrac != null && !isNaN(clinvarFrac) && (
+            <div style={styles.stat}>
+              <span style={styles.statLabel}>ClinVar</span>
+              <span style={styles.statValue}>{(clinvarFrac * 100).toFixed(0)}%</span>
+            </div>
+          )}
+          {phylop != null && !isNaN(phylop) && (
+            <div style={styles.stat}>
+              <span style={styles.statLabel}>PhyloP</span>
+              <span style={styles.statValue}>{phylop.toFixed(1)}</span>
+            </div>
+          )}
+          {gcMean != null && !isNaN(gcMean) && (
+            <div style={styles.stat}>
+              <span style={styles.statLabel}>GC</span>
+              <span style={{ ...styles.statValue, color: Math.abs(gcMean - 0.5) > 0.1 ? '#e65100' : '#666' }}>
+                {(gcMean * 100).toFixed(0)}%
+              </span>
+            </div>
+          )}
+          {trinucEntropy != null && !isNaN(trinucEntropy) && (
+            <div style={styles.stat}>
+              <span style={styles.statLabel}>Trinuc H</span>
+              <span style={{ ...styles.statValue, color: trinucEntropy < 3 ? '#ad1457' : '#666' }}>
+                {trinucEntropy.toFixed(1)}
+              </span>
+            </div>
+          )}
+          {geneNUnique != null && geneNUnique > 0 && (
+            <div style={styles.stat}>
+              <span style={styles.statLabel}>Genes</span>
+              <span style={{ ...styles.statValue, color: geneNUnique < 5 ? '#4527a0' : '#666' }}>
+                {geneNUnique}
+              </span>
+            </div>
+          )}
           <span style={styles.expandIcon}>{expanded ? '▼' : '▶'}</span>
         </div>
       </div>

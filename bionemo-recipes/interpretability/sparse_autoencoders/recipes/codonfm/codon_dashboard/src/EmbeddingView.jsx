@@ -9,10 +9,10 @@ const CATEGORY_COLORS = [
   "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5"
 ]
 
-// Sequential color palette (viridis-like)
+// Sequential color palette (turbo)
 const SEQUENTIAL_COLORS = [
-  "#440154", "#482878", "#3e4a89", "#31688e", "#26838f",
-  "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"
+  "#30123b", "#4145ab", "#4675ee", "#39a6ff", "#0ac6f5",
+  "#2bd6a4", "#8dd754", "#dae640", "#ff9b3d", "#f81828"
 ]
 
 // Default color for uniform coloring (NVIDIA green)
@@ -63,7 +63,7 @@ class FeatureTooltip {
   }
 }
 
-export default function EmbeddingView({ brush, categoryColumn, categoryColumns, onFeatureClick, highlightedFeatureId, viewportState, onViewportChange, labels }) {
+export default function EmbeddingView({ brush, categoryColumn, categoryColumns, onFeatureClick, highlightedFeatureId, viewportState, onViewportChange, labels, features, selectedCategory }) {
   const containerRef = useRef(null)
   const viewRef = useRef(null)
   const onFeatureClickRef = useRef(onFeatureClick)
@@ -80,17 +80,48 @@ export default function EmbeddingView({ brush, categoryColumn, categoryColumns, 
 
   // Update selection and tooltip when highlightedFeatureId changes
   useEffect(() => {
-    if (viewRef.current) {
+    if (viewRef.current && highlightedFeatureId != null) {
+      // Find the feature data
+      const feature = features?.find(f => f.feature_id === highlightedFeatureId)
+
+      // Build tooltip fields
+      const fields = {
+        label: feature?.label || `Feature ${highlightedFeatureId}`,
+        log_frequency: feature?.log_frequency || feature?.activation_freq || 0,
+        max_activation: feature?.max_activation || 0,
+        color_field: null
+      }
+
+      // Add selected category metric if available
+      if (selectedCategory && selectedCategory !== 'none' && feature) {
+        const metricName = selectedCategory.replace(/_/g, ' ')
+        const metricValue = feature[selectedCategory]
+        if (metricValue !== undefined && metricValue !== null) {
+          fields.color_field = `${metricName}: ${typeof metricValue === 'number' ? metricValue.toFixed(3) : metricValue}`
+        }
+      }
+
+      // Construct tooltip object with feature data
+      const tooltipObj = {
+        identifier: highlightedFeatureId,
+        text: `Feature #${highlightedFeatureId}`,
+        fields: fields
+      }
       viewRef.current.update({
-        selection: highlightedFeatureId != null ? [highlightedFeatureId] : null,
-        tooltip: highlightedFeatureId != null ? highlightedFeatureId : null
+        selection: [highlightedFeatureId],
+        tooltip: tooltipObj
+      })
+    } else if (viewRef.current && highlightedFeatureId == null) {
+      viewRef.current.update({
+        selection: null,
+        tooltip: null
       })
     }
-  }, [highlightedFeatureId])
+  }, [highlightedFeatureId, features, selectedCategory])
 
-  // Update viewport when viewportState changes
+  // Update viewport when viewportState changes (skip null to let auto-fit persist)
   useEffect(() => {
-    if (viewRef.current) {
+    if (viewRef.current && viewportState != null) {
       viewRef.current.update({
         viewportState: viewportState
       })
@@ -211,7 +242,38 @@ export default function EmbeddingView({ brush, categoryColumn, categoryColumns, 
         containerRef.current.innerHTML = ''
       }
     }
-  }, [brush, categoryColumn, categoryColumns])
+  }, [brush])
+
+  // Update category coloring in-place (without recreating the view)
+  useEffect(() => {
+    if (!viewRef.current) return
+
+    let categoryColName = null
+    let colors = Array(50).fill(DEFAULT_COLOR)
+
+    if (categoryColumn && categoryColumn !== "none") {
+      const colInfo = categoryColumns?.find(c => c.name === categoryColumn)
+      if (colInfo) {
+        if (colInfo.type === 'sequential') {
+          categoryColName = `${categoryColumn}_bin`
+          colors = SEQUENTIAL_COLORS
+        } else if (colInfo.type === 'string') {
+          categoryColName = `${categoryColumn}_cat`
+          colors = CATEGORY_COLORS.slice(0, Math.max(colInfo.nUnique, 10))
+        } else {
+          categoryColName = categoryColumn
+          colors = CATEGORY_COLORS.slice(0, Math.max(colInfo.nUnique, 10))
+        }
+      }
+    }
+
+    viewRef.current.update({
+      category: categoryColName,
+      categoryColors: colors,
+      selection: null,
+      tooltip: null,
+    })
+  }, [categoryColumn, categoryColumns])
 
   // Handle resize
   useEffect(() => {

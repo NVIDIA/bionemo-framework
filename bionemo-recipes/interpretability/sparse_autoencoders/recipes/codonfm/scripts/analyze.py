@@ -185,113 +185,34 @@ def compute_vocab_logits(sae, inference, device="cuda"):
     return results
 
 
-# ── 2. Codon-level annotations ───────────────────────────────────────
+# ── 2. Streaming codon annotations + top-K tracking ──────────────────
 
-def compute_codon_annotations(
-    sae, activations_3d, masks, sequences, device="cuda"
+def _summarize_codon_annotations(
+    n_features, aa_counts, rare_counts, common_counts,
+    cpg_counts, non_cpg_counts, wobble_gc_counts, wobble_at_counts,
+    first30_counts, rest_counts,
 ):
-    """Compute per-codon annotation correlations (amino acid, usage, CpG, wobble, position)."""
-    n_sequences = activations_3d.shape[0]
-    n_features = sae.hidden_dim
-    valid_lens = masks.sum(dim=1).long()
+    """Summarize accumulated annotation counts into per-feature dicts."""
+    all_aas = sorted(set(CODON_TO_AA.values()))
 
-    # Accumulate per-feature correlation with annotations
-    # We'll use simple mean activation for positive vs negative sets
-    aa_activations = {aa: {f: [] for f in range(n_features)} for aa in set(CODON_TO_AA.values())}
-    rare_codon_acts = {f: [] for f in range(n_features)}
-    common_codon_acts = {f: [] for f in range(n_features)}
-    cpg_acts = {f: [] for f in range(n_features)}
-    non_cpg_acts = {f: [] for f in range(n_features)}
-    wobble_gc_acts = {f: [] for f in range(n_features)}
-    wobble_at_acts = {f: [] for f in range(n_features)}
-    first30_acts = {f: [] for f in range(n_features)}
-    rest_acts = {f: [] for f in range(n_features)}
-
-    print("  Computing codon-level annotations...")
-    for i in tqdm(range(n_sequences), desc="  Codon annotations"):
-        vl = int(valid_lens[i].item())
-        if vl == 0:
-            continue
-
-        seq = sequences[i]
-        codons = [seq[j*3:(j+1)*3] for j in range(vl)]
-
-        emb = activations_3d[i, :vl, :].to(device)
-        with torch.no_grad():
-            _, codes = sae(emb)
-        codes_cpu = codes.cpu().numpy()
-
-        for j, codon in enumerate(codons):
-            codon_upper = codon.upper()
-            aa = CODON_TO_AA.get(codon_upper, "?")
-            usage = HUMAN_CODON_USAGE.get(codon_upper, 10.0)
-            wobble = codon_upper[2] if len(codon_upper) == 3 else "?"
-
-            # CpG: check if this codon ends with C and next starts with G (or vice versa)
-            is_cpg = False
-            if j < vl - 1:
-                next_codon = codons[j + 1].upper() if j + 1 < len(codons) else ""
-                if len(codon_upper) == 3 and len(next_codon) >= 1:
-                    is_cpg = (codon_upper[2] == "C" and next_codon[0] == "G")
-
-            for f in range(n_features):
-                act = float(codes_cpu[j, f])
-                if act <= 0:
-                    continue
-
-                # Amino acid
-                aa_activations[aa][f].append(act)
-
-                # Codon usage
-                if usage < 10.0:
-                    rare_codon_acts[f].append(act)
-                else:
-                    common_codon_acts[f].append(act)
-
-                # CpG
-                if is_cpg:
-                    cpg_acts[f].append(act)
-                else:
-                    non_cpg_acts[f].append(act)
-
-                # Wobble position
-                if wobble in ("G", "C"):
-                    wobble_gc_acts[f].append(act)
-                else:
-                    wobble_at_acts[f].append(act)
-
-                # Position in gene
-                if j < 30:
-                    first30_acts[f].append(act)
-                else:
-                    rest_acts[f].append(act)
-
-    # Summarize: for each feature, find strongest amino acid
-    print("  Summarizing annotations...")
     results = {}
     for f in range(n_features):
         annotations = {}
 
         # Best amino acid
-        best_aa = None
-        best_aa_count = 0
-        total_fires = sum(len(aa_activations[aa][f]) for aa in aa_activations)
+        total_fires = int(aa_counts[:, f].sum())
         if total_fires > 0:
-            for aa in aa_activations:
-                count = len(aa_activations[aa][f])
-                frac = count / total_fires if total_fires > 0 else 0
-                if count > best_aa_count:
-                    best_aa_count = count
-                    best_aa = aa
-            if best_aa and best_aa_count / total_fires > 0.3:
+            best_aa_idx = int(aa_counts[:, f].argmax())
+            best_aa_count = int(aa_counts[best_aa_idx, f])
+            if best_aa_count / total_fires > 0.3:
                 annotations["amino_acid"] = {
-                    "aa": best_aa,
+                    "aa": all_aas[best_aa_idx],
                     "fraction": best_aa_count / total_fires,
                 }
 
         # Rare vs common codons
-        n_rare = len(rare_codon_acts[f])
-        n_common = len(common_codon_acts[f])
+        n_rare = int(rare_counts[f])
+        n_common = int(common_counts[f])
         if n_rare + n_common > 10:
             rare_frac = n_rare / (n_rare + n_common)
             if rare_frac > 0.6:
@@ -300,16 +221,16 @@ def compute_codon_annotations(
                 annotations["codon_usage"] = {"bias": "common", "fraction": 1 - rare_frac}
 
         # CpG
-        n_cpg = len(cpg_acts[f])
-        n_non = len(non_cpg_acts[f])
+        n_cpg = int(cpg_counts[f])
+        n_non = int(non_cpg_counts[f])
         if n_cpg + n_non > 10:
             cpg_frac = n_cpg / (n_cpg + n_non)
-            if cpg_frac > 0.3:  # CpG is normally ~1-2% of dinucleotides
+            if cpg_frac > 0.3:
                 annotations["cpg"] = {"enrichment": cpg_frac}
 
         # Wobble preference
-        n_gc = len(wobble_gc_acts[f])
-        n_at = len(wobble_at_acts[f])
+        n_gc = int(wobble_gc_counts[f])
+        n_at = int(wobble_at_counts[f])
         if n_gc + n_at > 10:
             gc_frac = n_gc / (n_gc + n_at)
             if gc_frac > 0.7:
@@ -318,11 +239,11 @@ def compute_codon_annotations(
                 annotations["wobble"] = {"preference": "AT", "fraction": 1 - gc_frac}
 
         # Position in gene
-        n_first = len(first30_acts[f])
-        n_rest = len(rest_acts[f])
+        n_first = int(first30_counts[f])
+        n_rest = int(rest_counts[f])
         if n_first + n_rest > 10:
             first_frac = n_first / (n_first + n_rest)
-            expected_frac = 30 / 600  # roughly 5% for avg gene
+            expected_frac = 30 / 600
             if first_frac > expected_frac * 3:
                 annotations["position"] = {"region": "N-terminal", "enrichment": first_frac / expected_frac}
 
@@ -330,6 +251,137 @@ def compute_codon_annotations(
             results[f] = annotations
 
     return results
+
+
+def stream_annotations_and_topk(
+    sae, inference, sequences, layer, context_length, batch_size,
+    device="cuda", n_top_examples=5,
+):
+    """Single-pass streaming: extract activations, run SAE, accumulate codon stats + top-K per feature.
+
+    Never materializes the full [n_sequences, max_len, hidden_dim] tensor.
+    Memory usage: O(n_features * K) for top-K tracking + O(n_features * n_aa) for codon counts.
+
+    Returns:
+        codon_annotations: dict per feature
+        top_acts: np.ndarray [n_features, K] - top activation values per feature
+        top_indices: np.ndarray [n_features, K] - corresponding sequence indices
+    """
+    n_features = sae.hidden_dim
+    n_sequences = len(sequences)
+    K = n_top_examples
+
+    # Codon annotation accumulators
+    all_aas = sorted(set(CODON_TO_AA.values()))
+    aa_to_idx = {aa: i for i, aa in enumerate(all_aas)}
+    n_aa = len(all_aas)
+
+    aa_counts = np.zeros((n_aa, n_features), dtype=np.int64)
+    rare_counts = np.zeros(n_features, dtype=np.int64)
+    common_counts = np.zeros(n_features, dtype=np.int64)
+    cpg_counts = np.zeros(n_features, dtype=np.int64)
+    non_cpg_counts = np.zeros(n_features, dtype=np.int64)
+    wobble_gc_counts = np.zeros(n_features, dtype=np.int64)
+    wobble_at_counts = np.zeros(n_features, dtype=np.int64)
+    first30_counts = np.zeros(n_features, dtype=np.int64)
+    rest_counts = np.zeros(n_features, dtype=np.int64)
+
+    # Top-K tracking per feature (vectorized heap replacement)
+    top_acts = np.full((n_features, K), -np.inf, dtype=np.float32)
+    top_indices = np.full((n_features, K), -1, dtype=np.int64)
+
+    print(f"  Streaming {n_sequences} sequences (batch_size={batch_size})...")
+    n_batches = (n_sequences + batch_size - 1) // batch_size
+
+    for batch_start in tqdm(range(0, n_sequences, batch_size), total=n_batches, desc="  Streaming"):
+        batch_seqs = sequences[batch_start:batch_start + batch_size]
+        items = [process_item(s, context_length=context_length, tokenizer=inference.tokenizer) for s in batch_seqs]
+
+        batch_input = {
+            "input_ids": torch.tensor(np.stack([it["input_ids"] for it in items])).to(device),
+            "attention_mask": torch.tensor(np.stack([it["attention_mask"] for it in items])).to(device),
+        }
+
+        with torch.no_grad():
+            out = inference.model(batch_input, return_hidden_states=True)
+        hidden = out.all_hidden_states[layer].float()  # [B, L, D] on GPU
+        attn = batch_input["attention_mask"]
+
+        # Build mask excluding CLS/SEP
+        keep = attn.clone()
+        keep[:, 0] = 0
+        lengths = attn.sum(dim=1)
+        for b in range(keep.shape[0]):
+            sep = int(lengths[b].item()) - 1
+            if sep > 0:
+                keep[b, sep] = 0
+
+        # Process each sequence in the batch
+        for b in range(len(batch_seqs)):
+            seq_idx = batch_start + b
+            vl = int(keep[b].sum().item())
+            if vl == 0:
+                continue
+
+            # Match original behavior: take first vl positions
+            emb = hidden[b, :vl, :]  # [vl, D] on GPU
+
+            with torch.no_grad():
+                _, codes = sae(emb)  # [vl, n_features]
+
+            # ── Top-K tracking (vectorized) ──
+            max_per_feat = codes.max(dim=0).values.cpu().numpy()  # [n_features]
+            min_vals = top_acts.min(axis=1)
+            min_positions = top_acts.argmin(axis=1)
+            update_mask = max_per_feat > min_vals
+            feat_indices = np.where(update_mask)[0]
+            top_acts[feat_indices, min_positions[feat_indices]] = max_per_feat[feat_indices]
+            top_indices[feat_indices, min_positions[feat_indices]] = seq_idx
+
+            # ── Codon annotation stats ──
+            codes_cpu = codes.cpu().numpy()
+            seq = batch_seqs[b]
+            codons = [seq[j*3:(j+1)*3].upper() for j in range(vl)]
+
+            aa_idx = np.array([aa_to_idx.get(CODON_TO_AA.get(c, "?"), 0) for c in codons], dtype=np.int32)
+            is_rare = np.array([HUMAN_CODON_USAGE.get(c, 10.0) < 10.0 for c in codons])
+            wobble_chars = [c[2] if len(c) == 3 else "?" for c in codons]
+            is_wobble_gc = np.array([w in ("G", "C") for w in wobble_chars])
+            is_first30 = np.arange(vl) < 30
+
+            is_cpg = np.zeros(vl, dtype=bool)
+            for j in range(vl - 1):
+                if len(codons[j]) == 3 and len(codons[j+1]) >= 1:
+                    is_cpg[j] = (codons[j][2] == "C" and codons[j+1][0] == "G")
+
+            active = codes_cpu > 0
+
+            for a in range(n_aa):
+                pos_mask = aa_idx == a
+                if pos_mask.any():
+                    aa_counts[a] += active[pos_mask].sum(axis=0)
+
+            rare_counts += active[is_rare].sum(axis=0) if is_rare.any() else 0
+            common_counts += active[~is_rare].sum(axis=0) if (~is_rare).any() else 0
+            cpg_counts += active[is_cpg].sum(axis=0) if is_cpg.any() else 0
+            non_cpg_counts += active[~is_cpg].sum(axis=0) if (~is_cpg).any() else 0
+            wobble_gc_counts += active[is_wobble_gc].sum(axis=0) if is_wobble_gc.any() else 0
+            wobble_at_counts += active[~is_wobble_gc].sum(axis=0) if (~is_wobble_gc).any() else 0
+            first30_counts += active[is_first30].sum(axis=0) if is_first30.any() else 0
+            rest_counts += active[~is_first30].sum(axis=0) if (~is_first30).any() else 0
+
+        del out, batch_input, hidden
+        torch.cuda.empty_cache()
+
+    # Summarize
+    print("  Summarizing annotations...")
+    codon_annotations = _summarize_codon_annotations(
+        n_features, aa_counts, rare_counts, common_counts,
+        cpg_counts, non_cpg_counts, wobble_gc_counts, wobble_at_counts,
+        first30_counts, rest_counts,
+    )
+
+    return codon_annotations, top_acts, top_indices
 
 
 # ── 3. Auto-interpretation ───────────────────────────────────────────
@@ -355,47 +407,103 @@ def get_llm_client(provider: str, model: str = None):
         raise ValueError(f"Unknown LLM provider: {provider}")
 
 
-def run_auto_interp(
-    sae, vocab_logits, activations_3d, masks, sequences,
-    feature_indices, device="cuda", llm_provider="anthropic", llm_model=None,
-    num_workers=1,
+def _extract_sequence_activations(
+    inference, sae, sequences, seq_indices, layer, context_length, batch_size, device,
 ):
-    """Run LLM auto-interpretation on selected features."""
+    """Re-extract and run SAE for a specific set of sequence indices.
+
+    Returns dict: seq_idx -> (valid_len, codes_cpu tensor [vl, n_features])
+    """
+    # De-duplicate and sort for efficient batching
+    unique_indices = sorted(set(seq_indices))
+    result = {}
+
+    for batch_start in range(0, len(unique_indices), batch_size):
+        batch_idx = unique_indices[batch_start:batch_start + batch_size]
+        batch_seqs = [sequences[i] for i in batch_idx]
+        items = [process_item(s, context_length=context_length, tokenizer=inference.tokenizer) for s in batch_seqs]
+
+        batch_input = {
+            "input_ids": torch.tensor(np.stack([it["input_ids"] for it in items])).to(device),
+            "attention_mask": torch.tensor(np.stack([it["attention_mask"] for it in items])).to(device),
+        }
+
+        with torch.no_grad():
+            out = inference.model(batch_input, return_hidden_states=True)
+        hidden = out.all_hidden_states[layer].float()
+        attn = batch_input["attention_mask"]
+
+        keep = attn.clone()
+        keep[:, 0] = 0
+        lengths = attn.sum(dim=1)
+        for b in range(keep.shape[0]):
+            sep = int(lengths[b].item()) - 1
+            if sep > 0:
+                keep[b, sep] = 0
+
+        for b in range(len(batch_idx)):
+            vl = int(keep[b].sum().item())
+            if vl == 0:
+                continue
+            emb = hidden[b, :vl, :]
+            with torch.no_grad():
+                _, codes = sae(emb)
+            result[batch_idx[b]] = (vl, codes.cpu())
+
+        del out, batch_input, hidden
+        torch.cuda.empty_cache()
+
+    return result
+
+
+def run_auto_interp(
+    sae, vocab_logits, inference, sequences, records,
+    feature_indices, top_indices,
+    layer, context_length, batch_size,
+    device="cuda", llm_provider="anthropic", llm_model=None, num_workers=1,
+):
+    """Run LLM auto-interpretation using precomputed top-K indices.
+
+    Re-extracts activations only for the sequences that appear in top_indices
+    for the requested features, avoiding O(n_features * n_sequences) work.
+    """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     client = get_llm_client(llm_provider, llm_model)
-    n_features = sae.hidden_dim
-    valid_lens = masks.sum(dim=1).long()
+
+    # Collect all unique sequence indices needed
+    needed_seq_indices = set()
+    for f in feature_indices:
+        for idx in top_indices[f]:
+            if idx >= 0:
+                needed_seq_indices.add(int(idx))
+
+    print(f"  Re-extracting {len(needed_seq_indices)} unique sequences for {len(feature_indices)} features...")
+    seq_cache = _extract_sequence_activations(
+        inference, sae, sequences, list(needed_seq_indices),
+        layer, context_length, batch_size, device,
+    )
 
     # Build per-feature example strings
     print("  Preparing examples for auto-interp...")
     feature_examples = {}
     for f in tqdm(feature_indices, desc="  Collecting examples"):
-        # Find top sequences for this feature
-        max_acts = []
-        for i in range(activations_3d.shape[0]):
-            vl = int(valid_lens[i].item())
-            if vl == 0:
-                continue
-            emb = activations_3d[i, :vl, :].to(device)
-            with torch.no_grad():
-                _, codes = sae(emb)
-            max_act = codes[:, f].max().item()
-            max_acts.append((max_act, i))
-
-        max_acts.sort(reverse=True)
-        top_seqs = max_acts[:5]
+        # Get top sequences for this feature (sorted by activation, descending)
+        feat_top = []
+        for k in range(top_indices.shape[1]):
+            si = int(top_indices[f, k])
+            if si >= 0 and si in seq_cache:
+                vl, codes = seq_cache[si]
+                max_act = codes[:, f].max().item()
+                feat_top.append((max_act, si))
+        feat_top.sort(reverse=True)
 
         examples = []
-        for max_act, seq_idx in top_seqs:
-            vl = int(valid_lens[seq_idx].item())
+        for max_act, seq_idx in feat_top[:5]:
+            vl, codes = seq_cache[seq_idx]
             seq = sequences[seq_idx]
             codons = [seq[j*3:(j+1)*3] for j in range(vl)]
-
-            emb = activations_3d[seq_idx, :vl, :].to(device)
-            with torch.no_grad():
-                _, codes = sae(emb)
-            acts = codes[:, f].cpu().numpy()
+            acts = codes[:, f].numpy()
 
             # Mark top activating codons
             threshold = np.percentile(acts[acts > 0], 80) if (acts > 0).sum() > 0 else 0
@@ -406,7 +514,33 @@ def run_auto_interp(
                     marked.append(f"***{codon}({aa})***")
                 else:
                     marked.append(f"{codon}({aa})")
-            examples.append(" ".join(marked))
+
+            # Build metadata string
+            meta_str = ""
+            if records is not None and seq_idx < len(records):
+                m = records[seq_idx].metadata
+                meta_parts = []
+                gene = m.get("gene")
+                if gene: meta_parts.append(f"Gene: {gene}")
+                src = m.get("source")
+                if src: meta_parts.append(f"Source: {src}")
+                ip = m.get("is_pathogenic")
+                if ip and str(ip).lower() not in ("", "unknown"): meta_parts.append(f"Pathogenic: {ip}")
+                pp = m.get("phylop")
+                if pp is not None: meta_parts.append(f"PhyloP: {pp:.2f}")
+                ref = m.get("ref_codon")
+                alt = m.get("alt_codon")
+                vpo = m.get("var_pos_offset")
+                if ref and alt: meta_parts.append(f"Variant: {ref}>{alt} at pos {vpo}")
+                for score_col in ["1b_cdwt", "5b_cdwt", "1b", "5b"]:
+                    sc = m.get(score_col)
+                    if sc is not None:
+                        meta_parts.append(f"Model score ({score_col}): {float(sc):.3f}")
+                        break
+                if meta_parts:
+                    meta_str = f" [{', '.join(meta_parts)}]"
+
+            examples.append(f"{' '.join(marked)}{meta_str}")
 
         feature_examples[f] = examples
 
@@ -414,7 +548,6 @@ def run_auto_interp(
     print(f"  Running LLM interpretation with {num_workers} workers...")
 
     def interpret_feature(f):
-        """Interpret a single feature and score confidence."""
         logits_info = vocab_logits.get(f, {})
         top_pos = logits_info.get("top_positive", [])[:5]
         top_neg = logits_info.get("top_negative", [])[:5]
@@ -431,10 +564,11 @@ Top promoted codons (decoder logits): {pos_str}
 Top suppressed codons: {neg_str}
 
 Top activating sequences (***highlighted*** = high activation):
+Each sequence may include metadata in brackets: gene name, data source (ClinVar=germline variants, COSMIC=somatic cancer mutations), pathogenicity label, PhyloP conservation score, variant info (ref>alt codon at position), and model effect score (more negative = higher predicted impact).
 {examples_str}
 
 In 1 short sentence starting with "Fires on", describe what biological pattern this feature detects.
-Consider: amino acid identity, specific codon choice, codon usage bias, positional context, CpG sites, wobble position patterns.
+Consider: amino acid identity, specific codon choice, codon usage bias, positional context, CpG sites, wobble position patterns, and any variant/clinical metadata patterns you observe.
 
 Format your response as:
 Label: <one short phrase>
@@ -444,7 +578,6 @@ Confidence: <0.00 to 1.00>"""
             response = client.generate(prompt)
             text = response.text.strip()
 
-            # Parse label and confidence from response
             label = None
             confidence = 0.0
 
@@ -454,11 +587,10 @@ Confidence: <0.00 to 1.00>"""
                 elif line.startswith('Confidence:'):
                     try:
                         confidence = float(line.replace('Confidence:', '').strip())
-                        confidence = max(0.0, min(1.0, confidence))  # Clamp to [0, 1]
+                        confidence = max(0.0, min(1.0, confidence))
                     except ValueError:
                         confidence = 0.0
 
-            # Fallback if parsing failed
             if not label:
                 label = f"Feature {f}"
 
@@ -487,7 +619,7 @@ def build_feature_labels(
     """Combine all analyses into a single label per feature."""
     labels = {}
     details = {}
-    llm_confidences = {}  # Track LLM label confidence scores
+    llm_confidences = {}
 
     for f in range(n_features):
         parts = []
@@ -495,7 +627,6 @@ def build_feature_labels(
         # Auto-interp label takes priority
         if auto_interp_labels and f in auto_interp_labels:
             label_entry = auto_interp_labels[f]
-            # Handle both new dict format and old string format
             if isinstance(label_entry, dict):
                 labels[f] = label_entry.get("label", f"Feature {f}")
                 llm_confidences[f] = label_entry.get("confidence", 0.0)
@@ -510,29 +641,19 @@ def build_feature_labels(
             }
             continue
 
-        # No LLM label for features with only codon annotations
         llm_confidences[f] = 0.0
 
-        # Amino acid identity
         ann = codon_annotations.get(f, {})
         if "amino_acid" in ann:
             aa = ann["amino_acid"]["aa"]
             frac = ann["amino_acid"]["fraction"]
             parts.append(f"{aa} ({frac:.0%})")
-
-        # Codon usage
         if "codon_usage" in ann:
             parts.append(f"{ann['codon_usage']['bias']} codons")
-
-        # Wobble
         if "wobble" in ann:
             parts.append(f"wobble {ann['wobble']['preference']}")
-
-        # CpG
         if "cpg" in ann:
             parts.append("CpG enriched")
-
-        # Position
         if "position" in ann:
             parts.append("N-terminal")
 
@@ -573,77 +694,19 @@ def main():
     inference.configure_model()
     inference.model.to(device).eval()
 
-    # Check for activations checkpoint first
-    activations_ckpt = output_dir / "activations_checkpoint.pt"
-    if activations_ckpt.exists():
-        print("\nLoading activations from checkpoint...")
-        ckpt = torch.load(activations_ckpt)
-        activations_3d = ckpt["activations_3d"]
-        masks = ckpt["masks"]
-        sequences = ckpt["sequences"]
-        print(f"Loaded: {activations_3d.shape}")
-    else:
-        # Load sequences
-        max_codons = args.context_length - 2
-        records = read_codon_csv(
-            args.csv_path,
-            max_sequences=args.num_sequences,
-            max_codons=max_codons,
-        )
-        sequences = [r.sequence for r in records]
-        print(f"Loaded {len(sequences)} sequences")
-
-        # Extract 3D activations
-        print("\nExtracting activations...")
-        all_emb, all_masks = [], []
-        with torch.no_grad():
-            for i in tqdm(range(0, len(sequences), args.batch_size), desc="Extracting"):
-                batch_seqs = sequences[i:i + args.batch_size]
-                items = [process_item(s, context_length=args.context_length, tokenizer=inference.tokenizer) for s in batch_seqs]
-                batch = {
-                    "input_ids": torch.tensor(np.stack([it["input_ids"] for it in items])).to(device),
-                    "attention_mask": torch.tensor(np.stack([it["attention_mask"] for it in items])).to(device),
-                }
-                out = inference.model(batch, return_hidden_states=True)
-                hidden = out.all_hidden_states[args.layer].float().cpu()
-                attn = batch["attention_mask"].cpu()
-                keep = attn.clone()
-                keep[:, 0] = 0
-                lengths = attn.sum(dim=1)
-                for b in range(keep.shape[0]):
-                    sep = int(lengths[b].item()) - 1
-                    if sep > 0:
-                        keep[b, sep] = 0
-                all_emb.append(hidden)
-                all_masks.append(keep)
-                del out, batch
-                torch.cuda.empty_cache()
-
-        max_len = max(e.shape[1] for e in all_emb)
-        hdim = all_emb[0].shape[2]
-        padded_emb, padded_masks = [], []
-        for emb, msk in zip(all_emb, all_masks):
-            B, L, D = emb.shape
-            if L < max_len:
-                emb = torch.cat([emb, torch.zeros(B, max_len - L, D)], dim=1)
-                msk = torch.cat([msk, torch.zeros(B, max_len - L, dtype=msk.dtype)], dim=1)
-            padded_emb.append(emb)
-            padded_masks.append(msk)
-        activations_3d = torch.cat(padded_emb, dim=0)
-        masks = torch.cat(padded_masks, dim=0)
-        print(f"Activations: {activations_3d.shape}")
-
-        # Save checkpoint
-        torch.save({
-            "activations_3d": activations_3d,
-            "masks": masks,
-            "sequences": sequences,
-        }, activations_ckpt)
-        print(f"Saved activations checkpoint to {activations_ckpt}")
+    # Load sequences
+    max_codons = args.context_length - 2
+    records = read_codon_csv(
+        args.csv_path,
+        max_sequences=args.num_sequences,
+        max_codons=max_codons,
+    )
+    sequences = [r.sequence for r in records]
+    print(f"Loaded {len(sequences)} sequences")
 
     # ── Analysis ─────────────────────────────────────────────────────
 
-    # 1. Vocabulary logits
+    # 1. Vocabulary logits (only uses SAE decoder, no activations needed)
     print("\n[1/3] Vocabulary logit analysis...")
     vocab_logits_file = output_dir / "vocab_logits_checkpoint.json"
     if vocab_logits_file.exists():
@@ -657,19 +720,33 @@ def main():
             json.dump(vocab_logits, f)
     print(f"  Computed logits for {len(vocab_logits)} features")
 
-    # 2. Codon-level annotations
-    print("\n[2/3] Codon-level annotations...")
+    # 2. Streaming codon annotations + top-K tracking (single pass, constant memory)
+    print("\n[2/3] Streaming codon annotations + top-K tracking...")
     codon_annotations_file = output_dir / "codon_annotations_checkpoint.json"
-    if codon_annotations_file.exists():
+    topk_file = output_dir / "topk_checkpoint.npz"
+
+    if codon_annotations_file.exists() and topk_file.exists():
         print("  Loading codon annotations from checkpoint...")
         with open(codon_annotations_file) as f:
             codon_annotations = json.load(f)
             codon_annotations = {int(k): v for k, v in codon_annotations.items()}
+        topk_data = np.load(topk_file)
+        top_acts = topk_data["top_acts"]
+        top_indices = topk_data["top_indices"]
+        print(f"  {len(codon_annotations)} features with codon annotations")
     else:
-        codon_annotations = compute_codon_annotations(sae, activations_3d, masks, sequences, device)
+        codon_annotations, top_acts, top_indices = stream_annotations_and_topk(
+            sae, inference, sequences,
+            layer=args.layer,
+            context_length=args.context_length,
+            batch_size=args.batch_size,
+            device=device,
+            n_top_examples=max(args.n_examples if hasattr(args, 'n_examples') else 5, 5),
+        )
         with open(codon_annotations_file, "w") as f:
             json.dump(codon_annotations, f, default=str)
-    print(f"  {len(codon_annotations)} features with codon annotations")
+        np.savez_compressed(topk_file, top_acts=top_acts, top_indices=top_indices)
+        print(f"  {len(codon_annotations)} features with codon annotations")
 
     # 3. Auto-interp (optional)
     auto_interp_labels = {}
@@ -678,50 +755,46 @@ def main():
         print("  Loading auto-interp checkpoint...")
         with open(auto_interp_ckpt) as f:
             ckpt_data = json.load(f)
-            # Handle both old format (string) and new format (dict with label/confidence)
             for k, v in ckpt_data.items():
                 k_int = int(k)
                 if isinstance(v, dict):
                     auto_interp_labels[k_int] = v
                 else:
-                    # Old format: string label, default confidence to 0.0
                     auto_interp_labels[k_int] = {"label": v, "confidence": 0.0}
         print(f"  Loaded {len(auto_interp_labels)} existing interpretations")
 
     if args.auto_interp:
         print("\n[3/3] Auto-interpretation (LLM)...")
-        # Get all alive features
         alive_features = [f for f in range(n_features) if f in codon_annotations]
-
-        # Sort by vocab logits magnitude (proxy for feature importance)
         alive_features_sorted = sorted(
             alive_features,
             key=lambda f: max([abs(v) for _, v in vocab_logits[f].get("top_positive", [])], default=0),
             reverse=True,
         )
-
-        # Limit to max features if specified
         if args.max_auto_interp_features:
             alive_features_sorted = alive_features_sorted[:args.max_auto_interp_features]
 
-        # Filter out already-done features
         todo_features = [f for f in alive_features_sorted if f not in auto_interp_labels]
 
         if todo_features:
             print(f"  Running auto-interp on {len(todo_features)} features "
                   f"({len(auto_interp_labels)} already done)")
             new_labels, new_confidences = run_auto_interp(
-                sae, vocab_logits, activations_3d, masks, sequences,
-                todo_features, device, llm_provider=args.llm_provider, llm_model=args.llm_model,
+                sae, vocab_logits, inference, sequences, records,
+                todo_features, top_indices,
+                layer=args.layer,
+                context_length=args.context_length,
+                batch_size=args.batch_size,
+                device=device,
+                llm_provider=args.llm_provider,
+                llm_model=args.llm_model,
                 num_workers=args.auto_interp_workers,
             )
-            # Store as dicts with label and confidence
             for f in new_labels:
                 auto_interp_labels[f] = {
                     "label": new_labels[f],
                     "confidence": new_confidences[f],
                 }
-            # Save checkpoint after each batch
             with open(auto_interp_ckpt, "w") as f:
                 json.dump(auto_interp_labels, f, indent=2)
         else:
@@ -740,19 +813,15 @@ def main():
     # Save results
     print("\nSaving results...")
 
-    # Full analysis JSON
     with open(output_dir / "feature_analysis.json", "w") as f:
         json.dump(details, f, indent=2, default=str)
 
-    # Labels JSON (for dashboard)
     with open(output_dir / "feature_labels.json", "w") as f:
         json.dump(labels, f, indent=2)
 
-    # LLM confidences JSON (for dashboard sorting)
     with open(output_dir / "llm_confidences.json", "w") as f:
         json.dump(llm_confidences, f, indent=2)
 
-    # Vocab logits JSON (for dashboard detail page)
     logits_export = {}
     for feat_id, data in vocab_logits.items():
         logits_export[str(feat_id)] = {
@@ -782,7 +851,7 @@ def main():
             pq.write_table(table, atlas_path, compression='snappy')
             print(f"  Updated {n} feature labels and confidence scores in atlas")
 
-    # Copy vocab_logits.json to dashboard dir for the detail page
+    # Copy analysis files to dashboard dir
     if args.dashboard_dir:
         import shutil
         dashboard_dir = Path(args.dashboard_dir)

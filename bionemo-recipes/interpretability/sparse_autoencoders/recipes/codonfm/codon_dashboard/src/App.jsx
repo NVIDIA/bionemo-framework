@@ -3,6 +3,7 @@ import * as vg from '@uwdata/vgplot'
 import { wasmConnector, MosaicClient } from '@uwdata/mosaic-core'
 import { Query, sql, literal } from '@uwdata/mosaic-sql'
 import FeatureCard from './FeatureCard'
+import FeatureList from './FeatureList'
 import EmbeddingView from './EmbeddingView'
 import Histogram from './Histogram'
 import InfoButton from './InfoButton'
@@ -31,7 +32,7 @@ const styles = {
   mainContent: {
     flex: 1,
     display: 'grid',
-    gridTemplateColumns: '55% 45%',
+    gridTemplateColumns: '60% 40%',
     gap: '16px',
     minHeight: 0,
     overflow: 'hidden',
@@ -72,9 +73,11 @@ const styles = {
   },
   histogramRow: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
+    gridTemplateColumns: '1fr 1fr 1fr',
     gap: '12px',
     flexShrink: 0,
+    height: '115px',
+    marginBottom: '8px',
   },
   histogramPanel: {
     background: '#fff',
@@ -95,7 +98,7 @@ const styles = {
     flexShrink: 0,
   },
   searchInput: {
-    flex: 1,
+    flex: 0.81,
     padding: '8px 12px',
     fontSize: '13px',
     border: '1px solid #ddd',
@@ -173,13 +176,22 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
 
   const brushRef = useRef(null)
   const [showGuideModal, setShowGuideModal] = useState(false)
+  const [showMetricsModal, setShowMetricsModal] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [cardResetKey, setCardResetKey] = useState(0)
   const [plotResetKey, setPlotResetKey] = useState(0)
-  const [viewportState, setViewportState] = useState(null) // null = default/fit view
+  const [viewportState, setViewportState] = useState(null) // null = let embedding-atlas auto-fit on first load
+  const [displayedCardCount, setDisplayedCardCount] = useState(20) // Pagination: start with 20 cards
+  const [showEditedOnly, setShowEditedOnly] = useState(false) // Filter for edited features only
+  const [histMetric1, setHistMetric1] = useState('log_frequency')
+  const [histMetric2, setHistMetric2] = useState('max_activation')
+  const [histMetric3, setHistMetric3] = useState('none') // tracks color-by selection
   const featureRefs = useRef({})
   const featureListRef = useRef(null)
+  const endOfListRef = useRef(null)
   const searchSource = useRef({ source: 'search' })
+  const editedSource = useRef({ source: 'edited' })
+  const loadingMoreRef = useRef(false)
 
   // Lazy-load examples for a single feature from DuckDB (feature_examples VIEW)
   const loadExamplesForFeature = useCallback(async (featureId) => {
@@ -196,6 +208,32 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
     }))
   }, [])
 
+  // Intersection Observer for infinite scroll pagination
+  useEffect(() => {
+    const sentinel = endOfListRef.current
+    if (!sentinel) return
+
+    const observer = new IntersectionObserver(
+      entries => {
+        if (entries[0].isIntersecting && !loadingMoreRef.current) {
+          loadingMoreRef.current = true
+          setDisplayedCardCount(prev => prev + 20)
+          // Reset flag after a delay to allow next batch
+          setTimeout(() => {
+            loadingMoreRef.current = false
+          }, 300)
+        }
+      },
+      { threshold: 0.5, rootMargin: '100px' }
+    )
+
+    observer.observe(sentinel)
+
+    return () => {
+      observer.disconnect()
+    }
+  }, [])
+
   // Handle click on a feature in the UMAP (or null for empty canvas click)
   const animationRef = useRef(null)
   const currentViewportRef = useRef(null)
@@ -203,9 +241,18 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
 
   // Handle viewport changes from the UMAP component
   const handleViewportChange = useCallback((vp) => {
-    // Capture initial viewport on first report
+    // Capture initial viewport on first report, slightly zoomed out so all points fit
     if (!initialViewportRef.current && vp) {
-      initialViewportRef.current = { ...vp }
+      initialViewportRef.current = { ...vp, scale: vp.scale * 0.85 }
+      setViewportState(initialViewportRef.current)
+      currentViewportRef.current = { ...initialViewportRef.current }
+    }
+    // Clamp zoom to max scale of 5
+    if (vp && vp.scale > 5) {
+      const clamped = { ...vp, scale: 5 }
+      setViewportState(clamped)
+      currentViewportRef.current = clamped
+      return
     }
     // Always track current viewport (but not during our own animations)
     if (!animationRef.current) {
@@ -228,7 +275,7 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
     }
 
     const start = currentViewportRef.current || initialViewportRef.current || { x: 0, y: 0, scale: 1 }
-    const targetScale = 4
+    const targetScale = 4 // capped below max zoom of 5
     const duration = 800
     const startTime = performance.now()
 
@@ -432,7 +479,15 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
             }
           } else if (col.type === 'DOUBLE' || col.type === 'FLOAT') {
             // Numeric columns for sequential coloring
-            if (['log_frequency', 'max_activation', 'activation_freq', 'frequency'].includes(col.name)) {
+            if (['log_frequency', 'max_activation', 'activation_freq', 'frequency',
+                 'mean_variant_1bcdwt', 'mean_variant_5bcdwt', 'mean_variant_5b',
+                 'high_score_fraction', 'clinvar_fraction',
+                 'mean_phylop', 'mean_variant_delta', 'mean_site_delta', 'mean_local_delta',
+                 'high_score_delta', 'low_score_delta',
+                 'gc_mean', 'gc_std',
+                 'trinuc_entropy', 'trinuc_dominant_frac',
+                 'gene_entropy', 'gene_n_unique', 'gene_dominant_frac',
+            ].includes(col.name)) {
               sequentialColumns.push({ name: col.name, type: 'sequential' })
             }
           }
@@ -489,14 +544,22 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
           SELECT * FROM read_parquet('${examplesUrl}')
         `)
 
-        const metaResult = await vg.coordinator().query(`SELECT * FROM feature_metadata ORDER BY feature_id`)
-        const loadedFeatures = metaResult.toArray().map(row => ({
+        // Load features from the features table (which has labels)
+        const featuresResult = await vg.coordinator().query(`
+          SELECT
+            feature_id,
+            label,
+            activation_freq,
+            max_activation
+          FROM features
+          ORDER BY feature_id
+        `)
+        const loadedFeatures = featuresResult.toArray().map(row => ({
           feature_id: row.feature_id,
-          description: row.description,
+          label: row.label,
+          description: row.label,
           activation_freq: row.activation_freq,
           max_activation: row.max_activation,
-          best_f1: row.best_f1,
-          best_annotation: row.best_annotation,
         }))
         setFeatures(loadedFeatures)
 
@@ -563,6 +626,7 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
     class FeatureFilterClient extends MosaicClient {
       constructor(filterBy) {
         super(filterBy)
+        this._isConnected = true
       }
 
       query(filter = []) {
@@ -581,6 +645,8 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
       }
 
       queryResult(data) {
+        if (!this._isConnected) return
+
         console.log('FeatureFilterClient received data:', data)
         try {
           let ids = new Set()
@@ -607,7 +673,13 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
       }
 
       queryError(err) {
-        console.error('FeatureFilterClient error:', err)
+        if (this._isConnected) {
+          console.error('FeatureFilterClient error:', err)
+        }
+      }
+
+      disconnect() {
+        this._isConnected = false
       }
     }
 
@@ -625,6 +697,7 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
     return () => {
       clearTimeout(timeoutId)
       try {
+        client.disconnect()
         coordinator.disconnect(client)
       } catch (err) {
         // Ignore disconnect errors
@@ -659,16 +732,155 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
     setSelectedFeatureIds(null)
     setSearchTerm('')
     setClickedFeatureId(null)
-    // Reset viewport - will be handled by remount with plotResetKey
-    setViewportState(null)
-    // Clear initial viewport ref so it gets recaptured after remount
-    initialViewportRef.current = null
-    currentViewportRef.current = null
+    // Reset viewport to the auto-fit view captured on first load
+    if (initialViewportRef.current) {
+      setViewportState({ ...initialViewportRef.current })
+      currentViewportRef.current = { ...initialViewportRef.current }
+    } else {
+      setViewportState(null)
+      currentViewportRef.current = null
+    }
     // Reset all cards to collapsed state
     setCardResetKey(k => k + 1)
     // Reset histograms and UMAP to clear brush visuals
     setPlotResetKey(k => k + 1)
   }, [])
+
+  // Export all edited features to CSV with full data
+  const handleExportEdited = useCallback(() => {
+    // Get all edited features
+    const editedFeatures = features.filter(f => localStorage.getItem(`featureTitle_${f.feature_id}`) !== null)
+
+    if (editedFeatures.length === 0) {
+      alert('No edited features to export')
+      return
+    }
+
+    const lines = []
+    const escapeCsv = (str) => `"${(str || '').toString().replace(/"/g, '""')}"`
+
+    // Codon mapping for amino acids
+    const CODON_AA = {
+      'TTT':'F','TTC':'F','TTA':'L','TTG':'L','TCT':'S','TCC':'S','TCA':'S','TCG':'S',
+      'TAT':'Y','TAC':'Y','TAA':'*','TAG':'*','TGT':'C','TGC':'C','TGA':'*','TGG':'W',
+      'CTT':'L','CTC':'L','CTA':'L','CTG':'L','CCT':'P','CCC':'P','CCA':'P','CCG':'P',
+      'CAT':'H','CAC':'H','CAA':'Q','CAG':'Q','CGT':'R','CGC':'R','CGA':'R','CGG':'R',
+      'ATT':'I','ATC':'I','ATA':'I','ATG':'M','ACT':'T','ACC':'T','ACA':'T','ACG':'T',
+      'AAT':'N','AAC':'N','AAA':'K','AAG':'K','AGT':'S','AGC':'S','AGA':'R','AGG':'R',
+      'GTT':'V','GTC':'V','GTA':'V','GTG':'V','GCT':'A','GCC':'A','GCA':'A','GCG':'A',
+      'GAT':'D','GAC':'D','GAA':'E','GAG':'E','GGT':'G','GGC':'G','GGA':'G','GGG':'G',
+    }
+
+    editedFeatures.forEach((f, idx) => {
+      const userTitle = localStorage.getItem(`featureTitle_${f.feature_id}`)
+      const label = f.label || `Feature ${f.feature_id}`
+
+      // Add separator for readability
+      if (idx > 0) lines.push('')
+
+      // Feature metadata
+      lines.push(`=== FEATURE ${f.feature_id} ===`)
+      lines.push(`Feature ID,${f.feature_id}`)
+      lines.push(`Original Label,${escapeCsv(label)}`)
+      lines.push(`Your Title,${escapeCsv(userTitle)}`)
+      lines.push(`Activation Frequency,${(f.activation_freq || 0).toFixed(6)}`)
+      lines.push(`Max Activation,${(f.max_activation || 0).toFixed(4)}`)
+      lines.push('')
+
+      // Vocab logits
+      const logits = vocabLogits?.[String(f.feature_id)]
+      if (logits) {
+        lines.push('TOP PROMOTED CODONS')
+        lines.push('Codon,Amino Acid,Logit Value')
+        ;(logits.top_positive || []).forEach(([codon, val]) => {
+          lines.push(`${codon},${CODON_AA[codon] || '?'},${val.toFixed(4)}`)
+        })
+        lines.push('')
+
+        lines.push('TOP SUPPRESSED CODONS')
+        lines.push('Codon,Amino Acid,Logit Value')
+        ;(logits.top_negative || []).forEach(([codon, val]) => {
+          lines.push(`${codon},${CODON_AA[codon] || '?'},${val.toFixed(4)}`)
+        })
+        lines.push('')
+      }
+
+      // Feature analysis
+      const analysis = featureAnalysis?.[String(f.feature_id)]
+      if (analysis?.codon_annotations) {
+        lines.push('CODON ANNOTATIONS')
+        const ann = analysis.codon_annotations
+        if (ann.amino_acid) {
+          lines.push(`Amino Acid,${ann.amino_acid.aa}`)
+          lines.push(`AA Frequency,${(ann.amino_acid.fraction * 100).toFixed(1)}%`)
+        }
+        if (ann.codon_usage) {
+          lines.push(`Codon Usage,${ann.codon_usage.bias}`)
+        }
+        if (ann.wobble) {
+          lines.push(`Wobble Position,${ann.wobble.preference}`)
+        }
+        if (ann.cpg) {
+          lines.push(`CpG Context,${ann.cpg.fraction}`)
+        }
+        lines.push('')
+      }
+    })
+
+    // Create and download file
+    const csv = lines.join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `edited_features_${new Date().toISOString().split('T')[0]}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, [features, vocabLogits, featureAnalysis])
+
+  // Update Mosaic crossfilter when "Edited Only" toggle changes
+  useEffect(() => {
+    if (!brushRef.current || !mosaicReady) return
+
+    const selection = brushRef.current
+
+    if (showEditedOnly) {
+      // Get all edited feature IDs from localStorage
+      const editedIds = features
+        .filter(f => localStorage.getItem(`featureTitle_${f.feature_id}`) !== null)
+        .map(f => f.feature_id)
+
+      if (editedIds.length > 0) {
+        // Create predicate: feature_id IN (id1, id2, id3, ...)
+        const idsStr = editedIds.join(',')
+        // Use raw SQL string, not literal() which would quote it as a string
+        const predicateSql = `feature_id IN (${idsStr})`
+
+        try {
+          selection.update({
+            source: editedSource.current,
+            predicate: predicateSql,
+            value: 'edited'
+          })
+        } catch (err) {
+          console.warn('Error updating edited filter:', err)
+        }
+      }
+    } else {
+      // Clear the edited filter
+      try {
+        selection.update({
+          source: editedSource.current,
+          predicate: null,
+          value: null
+        })
+      } catch (err) {
+        console.warn('Error clearing edited filter:', err)
+      }
+    }
+  }, [showEditedOnly, mosaicReady, features])
 
   // Handle search - updates both Mosaic crossfilter (for UMAP/histograms) and local state (for cards)
   const handleSearchChange = useCallback((e) => {
@@ -723,6 +935,11 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
       )
     }
 
+    // Filter by edited features only
+    if (showEditedOnly) {
+      result = result.filter(f => localStorage.getItem(`featureTitle_${f.feature_id}`) !== null)
+    }
+
     // Sort
     if (sortBy === 'frequency') {
       result = [...result].sort((a, b) => (b.activation_freq || 0) - (a.activation_freq || 0))
@@ -730,10 +947,36 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
       result = [...result].sort((a, b) => (b.max_activation || 0) - (a.max_activation || 0))
     } else if (sortBy === 'feature_id') {
       result = [...result].sort((a, b) => a.feature_id - b.feature_id)
+    } else if (sortBy === 'high_score_fraction') {
+      result = [...result].sort((a, b) => (b.high_score_fraction || 0) - (a.high_score_fraction || 0))
+    } else if (sortBy === 'mean_variant_delta') {
+      result = [...result].sort((a, b) => Math.abs(b.mean_variant_delta || 0) - Math.abs(a.mean_variant_delta || 0))
+    } else if (sortBy === 'mean_site_delta') {
+      result = [...result].sort((a, b) => Math.abs(b.mean_site_delta || 0) - Math.abs(a.mean_site_delta || 0))
+    } else if (sortBy === 'mean_local_delta') {
+      result = [...result].sort((a, b) => Math.abs(b.mean_local_delta || 0) - Math.abs(a.mean_local_delta || 0))
+    } else if (sortBy === 'clinvar_fraction') {
+      result = [...result].sort((a, b) => (b.clinvar_fraction || 0) - (a.clinvar_fraction || 0))
+    } else if (sortBy === 'mean_phylop') {
+      result = [...result].sort((a, b) => (b.mean_phylop || 0) - (a.mean_phylop || 0))
+    } else if (sortBy === 'gc_mean') {
+      result = [...result].sort((a, b) => Math.abs((b.gc_mean || 0.5) - 0.5) - Math.abs((a.gc_mean || 0.5) - 0.5))
+    } else if (sortBy === 'trinuc_entropy') {
+      result = [...result].sort((a, b) => (a.trinuc_entropy ?? 99) - (b.trinuc_entropy ?? 99))
+    } else if (sortBy === 'gene_entropy') {
+      result = [...result].sort((a, b) => (a.gene_entropy ?? 99) - (b.gene_entropy ?? 99))
+    } else if (sortBy === 'gene_n_unique') {
+      result = [...result].sort((a, b) => (a.gene_n_unique || 999) - (b.gene_n_unique || 999))
     }
 
     return result
-  }, [features, sortBy, selectedFeatureIds, searchTerm])
+  }, [features, sortBy, selectedFeatureIds, searchTerm, showEditedOnly])
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setDisplayedCardCount(20)
+    loadingMoreRef.current = false
+  }, [searchTerm, sortBy, selectedFeatureIds, showEditedOnly])
 
   if (loading) {
     const pct = Math.round(((loadingProgress.step - 1) / loadingProgress.total) * 100)
@@ -774,9 +1017,28 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
-        <h1 style={styles.title}>{title}</h1>
-        <p style={styles.subtitle}>{subtitle}</p>
+      <div style={{ ...styles.header, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 style={styles.title}>{title}</h1>
+          <p style={styles.subtitle}>{subtitle}</p>
+        </div>
+        <button
+          onClick={handleExportEdited}
+          title="Export all edited features to CSV"
+          style={{
+            padding: '8px 14px',
+            fontSize: '12px',
+            border: '1px solid #ddd',
+            borderRadius: '6px',
+            background: 'white',
+            cursor: 'pointer',
+            color: '#666',
+            whiteSpace: 'nowrap',
+            fontWeight: '500',
+          }}
+        >
+          ⬇ Export Edited
+        </button>
       </div>
 
       <div style={styles.mainContent}>
@@ -791,22 +1053,38 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
                 <label style={{ fontSize: '12px', color: '#666' }}>Color by:</label>
                 <select
                   value={selectedCategory}
-                  onChange={e => setSelectedCategory(e.target.value)}
+                  onChange={e => {
+                    const val = e.target.value
+                    setSelectedCategory(val)
+                    setHistMetric3(val)
+                    // Clear selections but don't reset the UMAP view
+                    setClickedFeatureId(null)
+                    setCardResetKey(k => k + 1)
+                  }}
                   style={styles.colorSelect}
                 >
-                  <option value="none">None (uniform)</option>
+                  <option value="none">None</option>
                   {categoryColumns.map(col => (
                     <option key={col.name} value={col.name}>
-                      {col.name} {col.type === 'sequential' ? '(sequential)' : `(${col.nUnique} values)`}
+                      {col.name.replace(/_/g, ' ')}
                     </option>
                   ))}
                 </select>
+                <span
+                  onClick={() => setShowMetricsModal(true)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    width: '15px', height: '15px', borderRadius: '50%', border: '1px solid #bbb',
+                    fontSize: '10px', fontWeight: '600', color: '#888', cursor: 'pointer',
+                    userSelect: 'none', lineHeight: 1, flexShrink: 0,
+                  }}
+                >i</span>
                 <button onClick={handleClearSelection} style={styles.clearButton}>
                   Clear Selection
                 </button>
               </div>
             </div>
-            <div style={styles.embeddingContainer}>
+            <div style={{ ...styles.embeddingContainer, position: 'relative' }}>
               {mosaicReady && (
                 <EmbeddingView
                   key={`umap-${plotResetKey}`}
@@ -818,40 +1096,89 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
                   viewportState={viewportState}
                   onViewportChange={handleViewportChange}
                   labels={clusterLabels}
+                  features={features}
+                  selectedCategory={selectedCategory}
                 />
               )}
+              {selectedCategory && selectedCategory !== 'none' && (() => {
+                const colInfo = categoryColumns.find(c => c.name === selectedCategory)
+                if (!colInfo || colInfo.type !== 'sequential') return null
+                const colors = [
+                  "#30123b", "#4145ab", "#4675ee", "#39a6ff", "#0ac6f5",
+                  "#2bd6a4", "#8dd754", "#dae640", "#ff9b3d", "#f81828"
+                ]
+                // Compute min/max from features
+                const vals = features
+                  .map(f => f[selectedCategory])
+                  .filter(v => v != null && !isNaN(v))
+                const minVal = vals.length > 0 ? Math.min(...vals) : 0
+                const maxVal = vals.length > 0 ? Math.max(...vals) : 1
+                const fmt = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(1) : v.toFixed(3)
+                return (
+                  <div style={{
+                    position: 'absolute', right: '12px', top: '12%', bottom: '12%',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center',
+                    gap: '2px', pointerEvents: 'none',
+                  }}>
+                    <span style={{ fontSize: '9px', color: '#666', fontWeight: '600' }}>{fmt(maxVal)}</span>
+                    <div style={{
+                      flex: 1, width: '12px', borderRadius: '3px',
+                      background: `linear-gradient(to bottom, ${[...colors].reverse().join(', ')})`,
+                    }} />
+                    <span style={{ fontSize: '9px', color: '#666', fontWeight: '600' }}>{fmt(minVal)}</span>
+                    <span style={{
+                      fontSize: '8px', color: '#999', maxWidth: '60px', textAlign: 'center',
+                      lineHeight: '1.2', marginTop: '2px',
+                    }}>
+                      {selectedCategory.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                )
+              })()}
             </div>
           </div>
 
           <div style={styles.histogramRow}>
-            <div style={styles.histogramPanel}>
-              <span style={styles.panelTitle}>
-                Log Frequency
-                <InfoButton text="Distribution of feature activation frequencies on a log scale. A good SAE typically looks log-normal here. Features on the left fire rarely; features on the right fire often. Drag to brush and filter the UMAP and feature list." />
-              </span>
-              <div style={{ fontSize: '11px', color: '#999', marginTop: '1px' }}>How often each feature fires across inputs</div>
-              {mosaicReady && (
-                <Histogram
-                  key={`hist-freq-${plotResetKey}`}
-                  brush={brushRef.current}
-                  column="log_frequency"
-                />
-              )}
-            </div>
-            <div style={styles.histogramPanel}>
-              <span style={styles.panelTitle}>
-                Max Activation
-                <InfoButton text="Distribution of peak activation values across features. Higher values mean the feature responds more strongly to its preferred input. Drag to brush and filter the UMAP and feature list." />
-              </span>
-              <div style={{ fontSize: '11px', color: '#999', marginTop: '1px' }}>Strongest activation observed per feature</div>
-              {mosaicReady && (
-                <Histogram
-                  key={`hist-max-${plotResetKey}`}
-                  brush={brushRef.current}
-                  column="max_activation"
-                />
-              )}
-            </div>
+            {[
+              { value: histMetric1, setter: setHistMetric1 },
+              { value: histMetric2, setter: setHistMetric2 },
+              { value: histMetric3, setter: setHistMetric3 },
+            ].map(({ value, setter }, i) => (
+              <div key={i} style={styles.histogramPanel}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <select
+                    value={value}
+                    onChange={e => setter(e.target.value)}
+                    style={{
+                      padding: '4px 8px',
+                      fontSize: '11px',
+                      border: '1px solid #ddd',
+                      borderRadius: '4px',
+                      background: 'white',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="log_frequency">Log Frequency</option>
+                    <option value="max_activation">Max Activation</option>
+                    <option value="activation_freq">Activation Frequency</option>
+                    {categoryColumns
+                      .filter(c => c.type === 'sequential')
+                      .map(col => (
+                        <option key={col.name} value={col.name}>
+                          {col.name.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                {mosaicReady && value && value !== 'none' && (
+                  <Histogram
+                    key={`hist-${i}-${value}-${plotResetKey}`}
+                    brush={brushRef.current}
+                    column={value}
+                  />
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -872,7 +1199,26 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
               <option value="frequency">By Frequency</option>
               <option value="max_activation">By Max Activation</option>
               <option value="feature_id">By Feature ID</option>
+              <option value="high_score_fraction">By High Score Fraction</option>
+              <option value="mean_variant_delta">By Variant Delta</option>
+              <option value="mean_site_delta">By Site Delta</option>
+              <option value="mean_local_delta">By Local Delta</option>
+              <option value="clinvar_fraction">By ClinVar Fraction</option>
+              <option value="mean_phylop">By PhyloP</option>
+              <option value="gc_mean">By GC Bias</option>
+              <option value="trinuc_entropy">By Trinuc Specificity</option>
+              <option value="gene_entropy">By Gene Specificity</option>
+              <option value="gene_n_unique">By Gene Specificity (count)</option>
             </select>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', color: '#666', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <input
+                type="checkbox"
+                checked={showEditedOnly}
+                onChange={() => setShowEditedOnly(!showEditedOnly)}
+                style={{ cursor: 'pointer' }}
+              />
+              Edited Only
+            </label>
           </div>
 
           <div style={{ ...styles.stats, display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -891,58 +1237,20 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
             >i</span>
           </div>
 
-          <div ref={featureListRef} style={styles.featureList}>
-            {(() => {
-              const visibleFeatures = filteredFeatures.slice(0, 100)
-              const clickedIsVisible = clickedFeatureId != null &&
-                visibleFeatures.some(f => Number(f.feature_id) === Number(clickedFeatureId))
-              const clickedFeature = clickedFeatureId != null && !clickedIsVisible
-                ? features.find(f => Number(f.feature_id) === Number(clickedFeatureId))
-                : null
-
-              return (
-                <>
-                  {/* Only render clicked feature at top if NOT already in visible list */}
-                  {clickedFeature && (
-                    <FeatureCard
-                      key={`clicked-${clickedFeature.feature_id}-${cardResetKey}`}
-                      ref={el => { featureRefs.current[clickedFeature.feature_id] = el }}
-                      feature={clickedFeature}
-                      isHighlighted={true}
-                      forceExpanded={true}
-                      onClick={handleCardClick}
-                      loadExamples={loadExamplesForFeature}
-                      vocabLogits={vocabLogits}
-                      featureAnalysis={featureAnalysis}
-                    />
-                  )}
-                  {visibleFeatures.map(feature => (
-                    <FeatureCard
-                      key={`${feature.feature_id}-${cardResetKey}`}
-                      ref={el => { featureRefs.current[feature.feature_id] = el }}
-                      feature={feature}
-                      isHighlighted={Number(clickedFeatureId) === Number(feature.feature_id)}
-                      forceExpanded={Number(clickedFeatureId) === Number(feature.feature_id)}
-                      onClick={handleCardClick}
-                      loadExamples={loadExamplesForFeature}
-                      vocabLogits={vocabLogits}
-                      featureAnalysis={featureAnalysis}
-                    />
-                  ))}
-                </>
-              )
-            })()}
-            {filteredFeatures.length > 100 && (
-              <div style={{ textAlign: 'center', padding: '12px', color: '#666', fontSize: '13px' }}>
-                Showing first 100 results. Refine your selection to see more.
-              </div>
-            )}
-            {filteredFeatures.length === 0 && clickedFeatureId == null && (
-              <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
-                No features match your selection.
-              </div>
-            )}
-          </div>
+          <FeatureList
+            filteredFeatures={filteredFeatures}
+            displayedCardCount={displayedCardCount}
+            clickedFeatureId={clickedFeatureId}
+            features={features}
+            cardResetKey={cardResetKey}
+            handleCardClick={handleCardClick}
+            loadExamples={loadExamplesForFeature}
+            vocabLogits={vocabLogits}
+            featureAnalysis={featureAnalysis}
+            featureListRef={featureListRef}
+            endOfListRef={endOfListRef}
+            featureRefs={featureRefs}
+          />
         </div>
       </div>
 
@@ -984,6 +1292,95 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
               <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>3D Structures (AlphaFold)</h3>
               <p style={{ margin: '0 0 0' }}>
                 For each top-activating protein, the dashboard fetches the AlphaFold-predicted 3D structure from the EBI database using the UniProt accession extracted from the protein ID (e.g., <code>AF-P36888-F1</code>). It downloads the structure in CIF format, trying model versions 6, 4, and 3 in order. The structure is rendered using the Mol* viewer with a custom color theme: each residue is colored by its per-position feature activation value, interpolating from white (low/no activation) to bright green (high activation). Gray indicates residues with no activation data. This lets you see where the feature fires in 3D protein space, revealing whether activated residues cluster in functional domains, surface patches, or structural motifs.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showMetricsModal && (
+        <div
+          onClick={() => setShowMetricsModal(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#fff', borderRadius: '10px', maxWidth: '620px', width: '90%',
+              maxHeight: '80vh', overflowY: 'auto', padding: '28px 32px',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: '600' }}>Variant Analysis Metrics</h2>
+              <span
+                onClick={() => setShowMetricsModal(false)}
+                style={{ cursor: 'pointer', fontSize: '20px', color: '#999', lineHeight: 1 }}
+              >&times;</span>
+            </div>
+
+            <div style={{ fontSize: '13px', color: '#444', lineHeight: '1.7' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginTop: '0', marginBottom: '6px' }}>Mean Variant Score (per model)</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                For each feature, the average model effect score across variant sequences where the feature fires. Computed separately for each available model score column: <code>1b_cdwt</code>, <code>5b_cdwt</code>, and <code>5b</code>. A high value means the feature preferentially activates on variants that model predicts to be functionally impactful.
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>High Score Fraction</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                Variants are split at the median model score. Among variants where a feature fires, what fraction are high-scoring? A value of 0.5 means no preference. Above 0.5 means the feature disproportionately fires on high-impact variants. Robust to outliers — measures distributional preference rather than average.
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>ClinVar Fraction</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                Among variant sequences where the feature fires, the fraction from ClinVar vs COSMIC. ClinVar variants are germline (inherited, Mendelian disease). COSMIC variants are somatic (cancer mutations). High ClinVar fraction means the feature responds to germline disease patterns; low means it prefers somatic cancer mutation patterns.
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>Mean PhyloP</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                Average evolutionary conservation score (PhyloP) across sequences where the feature fires. High values indicate conserved positions (functionally important). Negative values indicate rapidly evolving regions. Features with high mean PhyloP capture evolutionarily constrained patterns.
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>Mean Variant Delta</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                For each gene, the difference in max feature activation between the variant and reference sequence: <code>max_act(variant) &minus; max_act(ref)</code>, averaged across all variant-ref pairs. Positive means the mutation increases feature activation; negative means it suppresses it. Near zero means the feature responds to the gene background, not the specific mutation. This controls for gene identity.
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>Mean Site Delta</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                Like mean variant delta, but measured only at the exact codon position where the mutation occurs: <code>activation_f(variant, pos) &minus; activation_f(ref, pos)</code>. This captures direct effects — the feature responding to the changed codon itself. Compare with mean variant delta: a large variant delta but small site delta means the feature captures indirect/distal effects of the mutation (e.g., changes to predicted protein folding context), not the local codon change.
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>Mean Local Delta</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                Like variant delta, but using the max activation within a <strong>3-codon window</strong> around the variant site instead of the full sequence. Captures local effects of the mutation: <code>max(window_variant) &minus; max(window_ref)</code>. A large local delta with a small global delta means the mutation's effect is localized. Compare with site delta (exact position only) and variant delta (full sequence).
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>GC Content (mean, std)</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                Mean and standard deviation of GC content across all sequences where the feature fires. Features with extreme GC mean (far from ~0.5) are GC-biased. Features with low GC std activate only on sequences with similar GC content — suggesting sensitivity to nucleotide composition rather than specific codon patterns.
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>Trinuc Entropy</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                Shannon entropy (in bits) of the trinucleotide context distribution among variant sequences where the feature fires. Low entropy means the feature concentrates on specific mutation contexts (e.g., <code>C[C&gt;T]G</code> for CpG transitions). High entropy means it fires across diverse mutation types. The dominant fraction shows what fraction of activations come from the most common trinuc context.
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>Gene Distribution</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                Shannon entropy of the gene distribution among sequences where the feature fires. Low entropy means the feature is gene-specific — it concentrates on a few genes. High entropy means it fires broadly. <code>gene_n_unique</code> is the number of distinct genes. <code>gene_dominant_frac</code> is the fraction from the most common gene. A feature with low entropy and high dominant fraction has learned something specific to one gene family.
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>High Score Delta</h3>
+              <p style={{ margin: '0 0 16px' }}>
+                Same as mean variant delta, but averaged only over variants with model scores above the median. Shows how the feature responds specifically to high-impact mutations. Compare with low score delta: if <code>high_score_delta &gt;&gt; low_score_delta</code>, the feature selectively detects impactful mutations.
+              </p>
+
+              <h3 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '6px' }}>Low Score Delta</h3>
+              <p style={{ margin: '0 0 0' }}>
+                Same as mean variant delta, but averaged only over variants with model scores below the median. Features where high score delta and low score delta differ significantly have learned to discriminate mutation severity. Features where both are similar just detect that a mutation occurred without distinguishing impact.
               </p>
             </div>
           </div>

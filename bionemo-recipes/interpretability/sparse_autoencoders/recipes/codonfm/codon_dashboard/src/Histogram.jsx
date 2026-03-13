@@ -14,7 +14,15 @@ export default function Histogram({ brush, column, label }) {
     containerRef.current.innerHTML = ''
 
     const width = containerRef.current.clientWidth - 20
-    const height = 80
+    const height = 60
+    const marginLeft = 45
+    const marginBottom = 20
+    const marginRight = 10
+    const marginTop = 5
+
+    // Wrapper to position the axis line over the plot
+    const wrapper = document.createElement('div')
+    wrapper.style.position = 'relative'
 
     const plot = vg.plot(
       // Background histogram: full data (no filterBy)
@@ -32,13 +40,28 @@ export default function Histogram({ brush, column, label }) {
       vg.yLabel(null),
       vg.width(width),
       vg.height(height),
-      vg.marginLeft(45),
-      vg.marginBottom(20),
-      vg.marginTop(5),
-      vg.marginRight(10)
+      vg.marginLeft(marginLeft),
+      vg.marginBottom(marginBottom),
+      vg.marginTop(marginTop),
+      vg.marginRight(marginRight)
     )
 
-    containerRef.current.appendChild(plot)
+    wrapper.appendChild(plot)
+
+    // Gray x-axis line positioned at the bottom of the plot area
+    const axisLine = document.createElement('div')
+    axisLine.style.cssText = `
+      position: absolute;
+      left: ${marginLeft}px;
+      right: ${marginRight}px;
+      bottom: ${marginBottom}px;
+      height: 1px;
+      background: #888;
+      pointer-events: none;
+    `
+    wrapper.appendChild(axisLine)
+
+    containerRef.current.appendChild(wrapper)
 
     return () => {
       if (containerRef.current) {

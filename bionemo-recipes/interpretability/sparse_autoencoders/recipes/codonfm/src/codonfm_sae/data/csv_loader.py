@@ -71,9 +71,26 @@ def read_codon_csv(
     if max_sequences is not None:
         df = df.head(max_sequences)
 
+    # Metadata columns to carry through (if present)
+    metadata_columns = [
+        "var_pos_offset", "ref_codon", "alt_codon", "source",
+        "ROLE_IN_CANCER", "MUTATION_DESCRIPTION", "is_pathogenic",
+        "in_splice_junction", "phylop", "gene",
+        "5b_cdwt", "5b", "1b_cdwt", "1b", "600m", "80m", "5b_avg",
+        "trinuc_context", "gc_content",
+    ]
+    available_meta = [c for c in metadata_columns if c in df.columns]
+
     records = []
     for idx, row in df.iterrows():
         record_id = str(row[id_column]) if id_column else f"seq_{idx}"
-        records.append(CodonRecord(id=record_id, sequence=str(row[seq_column])))
+        meta = {}
+        for col in available_meta:
+            val = row[col]
+            if pd.isna(val):
+                meta[col] = None
+            else:
+                meta[col] = val
+        records.append(CodonRecord(id=record_id, sequence=str(row[seq_column]), metadata=meta))
 
     return records

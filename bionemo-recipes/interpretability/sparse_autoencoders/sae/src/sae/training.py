@@ -490,7 +490,10 @@ class Trainer:
         # Compute global batch size
         global_batch_size = self.config.batch_size * self.parallel_config.dp_size
 
-        self._print_rank0(f"\nTraining SAE for {self.config.n_epochs} epochs...")
+        remaining_info = ""
+        if resume_from is not None:
+            remaining_info = f" (resuming from epoch {self.current_epoch})"
+        self._print_rank0(f"\nTraining SAE for {self.config.n_epochs} epochs{remaining_info}...")
         try:
             self._print_rank0(f"Batches per epoch: ~{len(self.dataloader)}")
         except TypeError:
@@ -500,10 +503,17 @@ class Trainer:
         if self.config.warmup_steps > 0:
             self._print_rank0(f"LR warmup: {self.config.warmup_steps} steps")
 
-        self.global_step = 0
+        # If resuming, keep restored global_step and current_epoch; otherwise start fresh
+        if resume_from is None:
+            self.global_step = 0
+            start_epoch = 0
+        else:
+            start_epoch = self.current_epoch
+            self._print_rank0(f"Resuming from epoch {start_epoch}, step {self.global_step}")
+
         epoch_losses = []
 
-        for epoch in range(self.config.n_epochs):
+        for epoch in range(start_epoch, self.config.n_epochs):
             self.current_epoch = epoch
             batch_losses = []
 
