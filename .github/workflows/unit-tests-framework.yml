@@ -64,7 +64,6 @@ jobs:
           dir_names_max_depth: 2
           files: |
             sub-packages/**
-            pyproject.toml
             .github/workflows/unit-tests-framework.yml
 
       - name: Show output
