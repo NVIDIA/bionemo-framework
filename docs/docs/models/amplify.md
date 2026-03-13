@@ -55,7 +55,7 @@ Schulz, Sarath Chandar, Christopher James Langmead bioRxiv 2024.09.23.614603; do
 
 **Runtime Engine(s):**
 
-- BioNeMo, NeMo, Megatron-LM
+- BioNeMo, TransformerEngine
 
 **Supported Hardware Microarchitecture Compatibility:**
 
@@ -69,13 +69,9 @@ Schulz, Sarath Chandar, Christopher James Langmead bioRxiv 2024.09.23.614603; do
 ### Model Versions
 
 The model is fully compatible with weights distributed via HuggingFace, i.e.,
-[chandar-lab/AMPLIFY_120M](https://huggingface.co/chandar-lab/AMPLIFY_120M). To initialize a NeMo version of AMPLIFY
-from a HuggingFace tag, use the provided `HFAMPLIFYImporter`:
-
-```python
-module = biobert_lightning_module(config=AMPLIFYConfig())
-io.import_ckpt(module, f"hf://chandar-lab/AMPLIFY_120M", tmp_path / "nemo_checkpoint")
-```
+[chandar-lab/AMPLIFY_120M](https://huggingface.co/chandar-lab/AMPLIFY_120M). See
+[`bionemo-recipes/models/amplify`](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/models/amplify)
+for checkpoint conversion utilities and usage examples.
 
 ## Training & Evaluation
 
@@ -86,7 +82,7 @@ For more details on the training dataset, see the original AMPLIFY paper.
 
 ### Inference
 
-**Engine:** BioNeMo, NeMo
+**Engine:** BioNeMo, TransformerEngine
 
 **Test Hardware:**
 

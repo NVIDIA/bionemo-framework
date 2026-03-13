@@ -9,4 +9,6 @@ State-of-the-art models are continually integrated into the BioNeMo Framework. T
 | [Evo2](./evo2.md)             | DNA          | Generative AI           | [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes) |
 | [Geneformer](./geneformer.md) | Single Cell  | Representation Learning | [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes) |
 
+<!-- TODO: MolMIM has not yet been ported to bionemo-recipes. Add a model card entry here once a recipe is available. -->
+
 For more information about the models included in BioNeMo Framework, refer to the Model Cards linked in the table above or the original publications referenced in the respective model descriptions.

@@ -57,7 +57,7 @@ acid.
 
 **Runtime Engine(s)**
 
-- BioNeMo, NeMo, Megatron, TransformerEngine
+- BioNeMo, TransformerEngine
 
 **Supported Hardware Microarchitecture Compatibility**
 
@@ -85,7 +85,7 @@ Dataset](../../main/datasets/uniprot.md).
 
 ### Inference
 
-**Engine:** BioNeMo, NeMo
+**Engine:** BioNeMo, TransformerEngine
 
 **Test Hardware**
 
