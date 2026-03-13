@@ -158,8 +158,7 @@ The same pattern applies to Qwen2.5 models using `NVQwen2Config` and `NVQwen2For
 
 When `use_quantized_model_init=True` is set in the config, layers are created inside a
 `te.quantized_model_init` context. This tells TransformerEngine to initialize weights directly in
-the target quantized format, avoiding a separate quantization step after initialization. This is
-primarily useful when loading pre-quantized checkpoints.
+the target quantized format, avoiding a separate quantization step after initialization.
 
 ```python
 config = NVQwen3Config.from_pretrained(
