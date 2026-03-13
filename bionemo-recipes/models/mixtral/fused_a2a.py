@@ -87,14 +87,6 @@ def get_buffer(group: torch.distributed.ProcessGroup, hidden_bytes: int):
         if nvshmem:
             num_rdma_bytes = max(config.get_rdma_buffer_size_hint(hidden_bytes, group.size()), num_rdma_bytes)
 
-    if not nvshmem and group.size() > 8:
-        raise RuntimeError(
-            f"DeepEP was compiled without NVSHMEM support (SM90 features disabled), "
-            f"but expert parallelism group size {group.size()} > 8 requires internode "
-            f"RDMA communication. Recompile DeepEP with NVSHMEM or reduce ep_size to "
-            f"fit within a single node (max 8 GPUs)."
-        )
-
     # Allocate buffer if not existed or not enough buffer
     # NOTES: the adaptive routing configuration of the network **must be off**
     if (
