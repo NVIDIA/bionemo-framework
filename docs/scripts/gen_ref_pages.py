@@ -12,8 +12,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Generate the code reference pages and copy Jupyter notebooks and README files."""
+"""Generate reference pages and copy docs from framework packages and recipes."""
 
+import json
 import logging
 from pathlib import Path
 
@@ -53,6 +54,66 @@ def copy_binary_file(source: Path, dest: Path, log_message: str) -> None:
     logger.info(log_message)
 
 
+def copy_notebook_file(source: Path, dest: Path, root: Path, log_message: str) -> None:
+    """Copy a notebook while normalizing minor schema issues for docs builds.
+
+    Some notebooks contain legacy `stream` outputs without a `name` field,
+    which `mkdocs-jupyter` rejects during site generation. Default those
+    outputs to `stdout` when copying into the generated docs tree.
+
+    Args:
+        source (Path): Source notebook path.
+        dest (Path): Destination notebook path.
+        root (Path): Repository root for edit-path calculation.
+        log_message (str): Message to log after copying.
+    """
+    notebook = json.loads(source.read_text())
+    notebook.setdefault("metadata", {})
+
+    for cell in notebook.get("cells", []):
+        cell.setdefault("metadata", {})
+        if cell.get("cell_type") == "code":
+            cell.setdefault("outputs", [])
+            cell.setdefault("execution_count", None)
+
+        for output in cell.get("outputs", []):
+            output_type = output.get("output_type")
+
+            if output_type == "stream":
+                output.setdefault("name", "stdout")
+            elif output_type in {"display_data", "execute_result"}:
+                output.setdefault("metadata", {})
+
+                if output_type == "execute_result":
+                    output.setdefault("execution_count", None)
+
+    with mkdocs_gen_files.open(dest, "w") as fd:
+        json.dump(notebook, fd)
+
+    logger.info(log_message)
+    mkdocs_gen_files.set_edit_path(dest, source.relative_to(root))
+
+
+def copy_docs_from_dir(source_dir: Path, dest_dir: Path, root: Path, log_prefix: str) -> None:
+    """Copy Markdown and notebook files from a directory tree.
+
+    Args:
+        source_dir (Path): Directory containing documentation files.
+        dest_dir (Path): Destination directory in the generated docs tree.
+        root (Path): Repository root for edit-path calculation.
+        log_prefix (str): Prefix used in log messages.
+    """
+    for path in sorted(source_dir.rglob("*")):
+        if not path.is_file() or path.suffix not in {".md", ".ipynb"}:
+            continue
+
+        dest_file = dest_dir / path.relative_to(source_dir)
+        if path.suffix == ".ipynb":
+            copy_notebook_file(path, dest_file, root, f"{log_prefix}: {dest_file}")
+        else:
+            copy_text_file(path, dest_file, root, f"{log_prefix}: {dest_file}")
+
+
 def generate_api_reference() -> None:
     """Generate API reference documentation for a given source directory.
 
@@ -90,7 +151,7 @@ def generate_api_reference() -> None:
 
 
 def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
-    """Copy Jupyter notebooks from a sub-package to the examples directory.
+    """Copy example docs from a sub-package to the examples directory.
 
     Args:
         sub_package (Path): The path to the sub-package directory.
@@ -99,22 +160,11 @@ def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
     Returns:
         None
     """
-    examples_dir = sub_package / "examples"
-    if not examples_dir.exists():
-        return
-
-    dest_dir = Path("main/examples") / sub_package.name
-
-    # Copy notebooks
-    for notebook in examples_dir.glob("*.ipynb"):
-        dest_file = dest_dir / notebook.name
-        copy_binary_file(notebook, dest_file, f"Added notebook: {dest_file}")
-        mkdocs_gen_files.set_edit_path(dest_file, notebook.relative_to(root))
-
-    # Copy markdown files
-    for markdown in examples_dir.glob("*.md"):
-        dest_file = dest_dir / markdown.name
-        copy_text_file(markdown, dest_file, root, f"Added markdown: {dest_file}")
+    for docs_dir_name in ("examples", "notebooks"):
+        docs_dir = sub_package / docs_dir_name
+        if docs_dir.exists():
+            dest_dir = Path("main/examples") / sub_package.name
+            copy_docs_from_dir(docs_dir, dest_dir, root, "Added sub-package example")
 
 
 def get_subpackage_readmes(sub_package: Path, root: Path) -> None:
@@ -162,6 +212,14 @@ def get_recipes_readmes(recipes_dir: Path, root: Path) -> None:
             dest_file = Path("main/recipes") / subdir / "index.md"
             copy_text_file(subdir_readme, dest_file, root, f"Added recipes {subdir} README: {dest_file}")
 
+        # Copy collection-level markdown docs such as context guides.
+        for extra_doc in sorted(subdir_path.glob("*.md")):
+            if extra_doc.name == "README.md":
+                continue
+
+            dest_file = Path("main/recipes") / subdir / extra_doc.name
+            copy_text_file(extra_doc, dest_file, root, f"Added recipes {subdir} doc: {dest_file}")
+
         # Copy individual model/recipe READMEs
         for item in subdir_path.iterdir():
             if not item.is_dir():
@@ -172,6 +230,60 @@ def get_recipes_readmes(recipes_dir: Path, root: Path) -> None:
                 dest_dir = Path("main/recipes") / subdir / item.name
                 dest_file = dest_dir / f"{item.name}.md"
                 copy_text_file(readme_file, dest_file, root, f"Added {subdir} README: {dest_file}")
+
+
+def get_recipe_docs(recipe_item: Path, section: str, root: Path) -> None:
+    """Copy supplementary docs from a recipe or model into the recipes tree.
+
+    Args:
+        recipe_item (Path): Path to an individual recipe or model directory.
+        section (str): Either "models" or "recipes".
+        root (Path): Repository root for edit-path calculation.
+    """
+    dest_dir = Path("main/recipes") / section / recipe_item.name
+
+    for extra_doc in sorted(recipe_item.glob("*.md")):
+        if extra_doc.name == "README.md" or extra_doc.name.startswith("AGENT_"):
+            continue
+
+        dest_file = dest_dir / extra_doc.name
+        copy_text_file(extra_doc, dest_file, root, f"Added recipe doc: {dest_file}")
+
+    for docs_dir_name in ("examples", "notebooks"):
+        docs_dir = recipe_item / docs_dir_name
+        if docs_dir.exists():
+            copy_docs_from_dir(docs_dir, dest_dir / docs_dir_name, root, "Added recipe example")
+
+
+def get_recipe_examples(recipe_item: Path, root: Path) -> None:
+    """Copy recipe examples and notebooks into the tutorials tree.
+
+    Args:
+        recipe_item (Path): Path to an individual recipe or model directory.
+        root (Path): Repository root for edit-path calculation.
+    """
+    dest_name = "bionemo-evo2" if recipe_item.name == "evo2_megatron" else recipe_item.name
+    dest_dir = Path("main/examples") / dest_name
+
+    for docs_dir_name in ("examples", "notebooks"):
+        docs_dir = recipe_item / docs_dir_name
+        if docs_dir.exists():
+            copy_docs_from_dir(docs_dir, dest_dir, root, "Added recipe tutorial")
+
+
+def get_third_party_examples(third_party_item: Path, root: Path) -> None:
+    """Copy third-party examples into the tutorials tree when present.
+
+    Args:
+        third_party_item (Path): Path to a third-party workspace member.
+        root (Path): Repository root for edit-path calculation.
+    """
+    dest_dir = Path("main/examples") / third_party_item.name
+
+    for docs_dir_name in ("examples", "notebooks"):
+        docs_dir = third_party_item / docs_dir_name
+        if docs_dir.exists():
+            copy_docs_from_dir(docs_dir, dest_dir, root, "Added third-party tutorial")
 
 
 def get_subpackage_assets(sub_package: Path, root: Path) -> None:
@@ -253,6 +365,7 @@ def generate_pages() -> None:
     root = Path(__file__).parent.parent.parent
     sub_packages_dir = root / "sub-packages"
     recipes_dir = root / "bionemo-recipes"
+    third_party_dir = root / "3rdparty"
 
     # Generate api docs for sub-packages
     generate_api_reference()
@@ -267,6 +380,24 @@ def generate_pages() -> None:
     # Process recipes
     get_recipes_assets(recipes_dir, root)
     get_recipes_readmes(recipes_dir, root)
+
+    for section in ("models", "recipes"):
+        section_dir = recipes_dir / section
+        if not section_dir.exists():
+            continue
+
+        for recipe_item in sorted(section_dir.iterdir()):
+            if not recipe_item.is_dir():
+                continue
+
+            get_recipe_docs(recipe_item, section, root)
+            get_recipe_examples(recipe_item, root)
+
+    # Process optional third-party examples.
+    if third_party_dir.exists():
+        for third_party_item in sorted(third_party_dir.iterdir()):
+            if third_party_item.is_dir():
+                get_third_party_examples(third_party_item, root)
 
 
 if __name__ in {"__main__", "<run_path>"}:

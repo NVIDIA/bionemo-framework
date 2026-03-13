@@ -8,27 +8,18 @@
 # - Scheduled runs (daily at 7 AM UTC)
 #
 # WORKFLOW OVERVIEW:
-# 1. changed-files: Detects which files have changed compared to main branch
-#    - Tracks changes in: All files (**) except:
-#      * bionemo-recipes/** (recipes have separate workflow)
-#      * **.md (markdown documentation files)
-#      * .github/** (GitHub configuration, except this workflow file)
-#      * .gitignore, .devcontainer/**
-#      * ci/scripts/recipes_local_test.py
-#    - Includes: .github/workflows/unit-tests-framework.yml (this workflow file)
+# 1. changed-files: Detects whether framework-relevant files have changed compared to main branch
 # 2. pre-commit: Runs static code checks and linting
 # 3. get-pr-labels: Retrieves PR labels for conditional job execution
-# 4. build-bionemo-image: Builds Docker image (conditional on triggers/labels)
-# 5. run-tests: Runs unit tests (when image build succeeds)
-# 6. run-tests-slow: Runs slow tests (when image succeeds + ciflow:slow label OR schedule/merge_group/ciflow:all)
-# 7. run-tests-notebooks: Runs notebook tests (when image succeeds + ciflow:notebooks label OR schedule/merge_group/ciflow:all)
-# 8. verify-tests-status: Verifies all test jobs completed successfully
+# 4. run-tests: Uses the shared recipes base image, installs all framework packages editable, and runs unit tests
+# 5. run-tests-slow: Uses the same environment and runs slow tests when requested
+# 6. run-tests-notebooks: Uses the same environment and runs notebook tests when requested
+# 7. verify-tests-status: Verifies all test jobs completed successfully
 #
 # CONDITIONAL EXECUTION:
-# - build-bionemo-image runs on: schedule, ciflow:all label, (no ciflow:skip + modified files), (merge_group + modified files)
-# - run-tests runs when: build-bionemo-image succeeds
-# - run-tests-slow runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
-# - run-tests-notebooks runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:notebooks)
+# - run-tests runs on: schedule, ciflow:all label, or framework-relevant file changes (unless ciflow:skip)
+# - run-tests-slow runs when run-tests conditions are met AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
+# - run-tests-notebooks runs when run-tests conditions are met AND (schedule OR merge_group OR ciflow:all OR ciflow:notebooks)
 
 name: "BioNeMo Framework CI"
 
@@ -60,7 +51,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: "recursive"
 
       - name: Get merge-base commit
         id: merge-base
@@ -75,9 +65,11 @@ jobs:
         with:
           base_sha: ${{ steps.merge-base.outputs.merge-base }}
           files: |
-            3rdparty/**
             sub-packages/**
-            Dockerfile
+            ci/scripts/**
+            pyproject.toml
+            requirements-cve.txt
+            requirements-test.txt
             .github/workflows/unit-tests-framework.yml
 
       - name: Show output
@@ -136,89 +128,38 @@ jobs:
           echo "labels=[]" >> $GITHUB_OUTPUT
           echo "Set empty labels for non-PR branch"
 
-  build-bionemo-image:
+  run-tests:
     needs:
       - pre-commit
-      - get-pr-labels
       - changed-files
-    runs-on: linux-amd64-cpu16
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-l4-latest-1
+    container:
+      image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
+      options: --shm-size=16G
+      env:
+        CI: true
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HF_HOME: /cache/huggingface
     if: |
       (github.event_name == 'schedule') ||
       contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
       (
         !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
         (needs.changed-files.outputs.any_changed == 'true')
-      ) ||
-      (
-        (github.event_name == 'merge_group') &&
-        (needs.changed-files.outputs.any_changed == 'true')
       )
     steps:
+      - name: Show GPU info
+        run: nvidia-smi
 
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ vars.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
 
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: true
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Docker Metadata
-        id: metadata
-        uses: docker/metadata-action@v5
-        with:
-          images: svcbionemo023/bionemo-framework
-          tags: |
-            type=schedule
-            type=ref,event=branch
-            type=ref,event=tag
-            type=ref,event=pr
-            type=raw,value=${{ github.run_id }}
-
-      # This action sets up our cache-from and cache-to flags appropriately; see the README of this action for more
-      # info. It doesn't seem to cache correctly for merge_group events, so we need to add that as an extra argument in
-      # the step below. There's probably a slight optimization to be had here by caching from the pr- caches for
-      # merge_group events. See https://github.com/int128/docker-build-cache-config-action/issues/1005 for more info.
-      - uses: int128/docker-build-cache-config-action@v1
-        id: cache
-        with:
-          image: svcbionemo023/bionemo-build-cache
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: |
-            ${{ steps.cache.outputs.cache-from }}
-            type=registry,ref=svcbionemo023/bionemo-build-cache:main
-          cache-to: ${{ steps.cache.outputs.cache-to }}
-
-
-  run-tests:
-    needs:
-      - build-bionemo-image
-      - get-pr-labels
-    runs-on: linux-amd64-gpu-l4-latest-1
-    container:
-      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
-      credentials:
-        username: ${{ vars.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-      env:
-        CI: true
-        HF_TOKEN: ${{ secrets.HF_TOKEN }}
-    if: needs.build-bionemo-image.result == 'success'
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Install framework test environment
+        run: bash ./ci/scripts/install_framework_test_env.sh
 
       - name: Run tests
         # Tests in this stage generate code coverage metrics for the repository
@@ -226,8 +167,7 @@ jobs:
         env:
           BIONEMO_DATA_SOURCE: ngc
         run: |
-          chmod +x ./ci/scripts/run_pytest_unittests.sh
-          ./ci/scripts/run_pytest_unittests.sh
+          bash ./ci/scripts/run_pytest_unittests.sh
 
       - name: Upload coverage to Codecov
         # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
@@ -247,16 +187,26 @@ jobs:
 
   run-tests-slow:
     needs:
-      - build-bionemo-image
+      - pre-commit
+      - changed-files
       - get-pr-labels
     runs-on: linux-amd64-gpu-l4-latest-1
     container:
-      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
-      credentials:
-        username: ${{ vars.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
+      options: --shm-size=16G
+      env:
+        CI: true
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HF_HOME: /cache/huggingface
     if: |
-        (needs.build-bionemo-image.result == 'success') &&
+        (
+          (github.event_name == 'schedule') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+          (
+            !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
+            (needs.changed-files.outputs.any_changed == 'true')
+          )
+        ) &&
         (
           (github.event_name == 'schedule') ||
           (github.event_name == 'merge_group') ||
@@ -264,8 +214,17 @@ jobs:
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
         )
     steps:
+      - name: Show GPU info
+        run: nvidia-smi
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install framework test environment
+        run: bash ./ci/scripts/install_framework_test_env.sh
 
       - name: Run slow tests
 
@@ -274,18 +233,25 @@ jobs:
         # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
         #  to run package by package like we do with the fast tests.
         run: |
-          chmod +x ./ci/scripts/run_pytest_slow.sh
-          ./ci/scripts/run_pytest_slow.sh
+          bash ./ci/scripts/run_pytest_slow.sh
 
 
   run-tests-notebooks:
     needs:
-      - build-bionemo-image
+      - pre-commit
+      - changed-files
       - get-pr-labels
     runs-on: linux-amd64-gpu-l4-latest-1
 
     if: |
-        (needs.build-bionemo-image.result == 'success') &&
+        (
+          (github.event_name == 'schedule') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+          (
+            !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
+            (needs.changed-files.outputs.any_changed == 'true')
+          )
+        ) &&
         (
           (github.event_name == 'schedule') ||
           (github.event_name == 'merge_group') ||
@@ -293,20 +259,30 @@ jobs:
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:notebooks')
         )
     container:
-      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
-      credentials:
-        username: ${{ vars.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
+      options: --shm-size=16G
+      env:
+        CI: true
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HF_HOME: /cache/huggingface
     steps:
+      - name: Show GPU info
+        run: nvidia-smi
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install framework test environment
+        run: bash ./ci/scripts/install_framework_test_env.sh
 
       - name: Run notebook tests
         env:
           BIONEMO_DATA_SOURCE: ngc
         run: |
-          chmod +x ./ci/scripts/run_pytest_notebooks.sh
-          ./ci/scripts/run_pytest_notebooks.sh
+          bash ./ci/scripts/run_pytest_notebooks.sh
 
   verify-tests-status:
     # Base on the status of this job, the unit-tests workflow succeeds or fails
@@ -314,8 +290,8 @@ jobs:
     # It is a workaround for the lack of a built-in feature to finalize a pipeline by checking the status of multiple jobs
     needs: # List all your run-*-test jobs
       - pre-commit
+      - changed-files
       - get-pr-labels
-      - build-bionemo-image
       - run-tests
       - run-tests-slow
       - run-tests-notebooks

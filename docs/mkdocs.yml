@@ -66,6 +66,8 @@ plugins:
         python:
           paths:
             - ../sub-packages/*/src
+            - ../bionemo-recipes/models/*/src
+            - ../bionemo-recipes/recipes/*/src
   - mkdocs-jupyter:
       theme: auto
       highlight_extra_classes: "jupyter-notebook"

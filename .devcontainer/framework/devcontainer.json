@@ -1,5 +1,5 @@
 {
-	"name": "BioNeMo2 Framework Dev Container",
+	"name": "BioNeMo Framework Dev Container",
 	"runArgs": [
 		"--gpus=all",
 		"--shm-size=4g"
@@ -42,11 +42,13 @@
 			"settings": {
 				"python.analysis.extraPaths": [
 					"./sub-packages/bionemo-core/src",
-					"./sub-packages/bionemo-llm/src",
-					"./sub-packages/bionemo-testing/src",
-					"./sub-packages/bionemo-example_model/src",
-					"./3rdparty/NeMo",
-					"./3rdparty/Megatron-LM"
+					"./sub-packages/bionemo-moco/src",
+					"./sub-packages/bionemo-noodles/src",
+					"./sub-packages/bionemo-recipeutils/src",
+					"./sub-packages/bionemo-scdl/src",
+					"./sub-packages/bionemo-scspeedtest/src",
+					"./sub-packages/bionemo-size-aware-batching/src",
+					"./sub-packages/bionemo-webdatamodule/src"
 				],
 				"python.defaultInterpreterPath": "/usr/bin/python",
 				"python.testing.pytestEnabled": true,

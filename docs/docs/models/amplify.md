@@ -1,8 +1,14 @@
 ## Model Overview
 
+!!! note "Training Code Lives in bionemo-recipes"
+Use [`bionemo-recipes/models/amplify`](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/models/amplify)
+for checkpoint conversion and model implementation details. For training, use the ESM-2 recipes in
+[`bionemo-recipes/recipes`](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/recipes)
+with an AMPLIFY model tag such as `nvidia/AMPLIFY_120M`.
+
 ### Description
 
-A NeMo and Megatron-LM compatible version of the [AMPLIFY model](https://www.biorxiv.org/content/10.1101/2024.09.23.614603v1),
+A TransformerEngine-optimized implementation of the [AMPLIFY model](https://www.biorxiv.org/content/10.1101/2024.09.23.614603v1),
 a protein language model variant of ESM-2 with modified layer structure and dataset construction. The model is designed
 for protein sequence understanding and prediction tasks, with variants available at 120M and 350M parameter sizes.
 
@@ -92,41 +98,11 @@ AMPLIFY is provided under the Apache 2.0 license.
 
 ## Pre-training Performance
 
-??? Example "Example pre-training commands"
+Use the recipe READMEs for current training entrypoints:
 
-````
-=== "120M"
-
-    ```
-    python /workspace/bionemo-framework/sub-packages/bionemo-amplify/src/bionemo/amplify/train_amplify.py \
-        ...
-        --num-nodes=2 \
-        --devices=8 \
-        --min-seq-length 512 \
-        --max-seq-length 512 \
-        --num-layers 24 \
-        --num-attention-heads 10 \
-        --hidden-size 640 \
-        --ffn-hidden-size 2560 \
-        --micro-batch-size 256
-    ```
-
-=== "350M"
-
-    ```
-    python /workspace/bionemo-framework/sub-packages/bionemo-amplify/src/bionemo/amplify/train_amplify.py \
-        ...
-        --num-nodes=4 \
-        --devices=8 \
-        --min-seq-length 512 \
-        --max-seq-length 512 \
-        --num-layers 32 \
-        --num-attention-heads 15 \
-        --hidden-size 960 \
-        --ffn-hidden-size 3840 \
-        --micro-batch-size 128
-    ```
-````
+- [`bionemo-recipes/models/amplify`](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/models/amplify)
+- [`bionemo-recipes/recipes/esm2_native_te`](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/recipes/esm2_native_te)
+- [`bionemo-recipes/recipes/esm2_accelerate_te`](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/recipes/esm2_accelerate_te)
 
 | Model Size | GPUs             | Batch Size (per GPU) | Training Step Time (s) |
 | ---------- | ---------------- | -------------------- | ---------------------- |
