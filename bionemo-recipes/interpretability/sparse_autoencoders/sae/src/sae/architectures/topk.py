@@ -1,14 +1,29 @@
-"""
-Top-K Sparse Autoencoder implementation with optional AuxK dead latent loss.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Top-K Sparse Autoencoder implementation with optional AuxK dead latent loss.
 
 Based on: https://cdn.openai.com/papers/sparse-autoencoders.pdf
 Reference: https://github.com/openai/sparse_autoencoder
 """
 
+from typing import Any, Dict, Optional, Tuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict, Any, Optional, Tuple
 
 from .base import SparseAutoencoder
 
@@ -18,12 +33,12 @@ class TopKSAE(SparseAutoencoder):
 
     Architecture (matches OpenAI):
         # If normalize_input=True:
-        μ, σ = mean(x), std(x)           # per-sample statistics
-        x_norm = (x - μ) / σ             # standardize
+        mu, sigma = mean(x), std(x)       # per-sample statistics
+        x_norm = (x - mu) / sigma         # standardize
         x_centered = x_norm - pre_bias
         latents = ReLU(TopK(encoder(x_centered) + latent_bias))
         recon_norm = decoder(latents) + pre_bias
-        recon = recon_norm * σ + μ       # restore original scale
+        recon = recon_norm * sigma + mu   # restore original scale
 
         # If normalize_input=False:
         x_centered = x - pre_bias
@@ -55,11 +70,12 @@ class TopKSAE(SparseAutoencoder):
         top_k: int,
         normalize_input: bool = True,
         auxk: Optional[int] = None,
-        auxk_coef: float = 1/32,
+        auxk_coef: float = 1 / 32,
         dead_tokens_threshold: int = 10_000_000,
         init_encoder_from_decoder: bool = True,
         init_pre_bias: bool = True,
     ):
+        """Initialize the Top-K SAE with encoder, decoder, and optional auxiliary loss."""
         super().__init__(input_dim, hidden_dim)
         self.top_k = top_k
         self.init_pre_bias = init_pre_bias
@@ -86,10 +102,7 @@ class TopKSAE(SparseAutoencoder):
             self._init_encoder_from_decoder()
 
         # Track steps since each latent was last active (for auxk loss)
-        self.register_buffer(
-            "stats_last_nonzero",
-            torch.zeros(hidden_dim, dtype=torch.long)
-        )
+        self.register_buffer("stats_last_nonzero", torch.zeros(hidden_dim, dtype=torch.long))
 
     def _get_config(self) -> Dict[str, Any]:
         """Return constructor args for checkpoint serialization."""
@@ -236,9 +249,7 @@ class TopKSAE(SparseAutoencoder):
         # Reset counter for active latents, increment by token count for inactive
         n_tokens = codes.shape[0]
         self.stats_last_nonzero = torch.where(
-            active_mask,
-            torch.zeros_like(self.stats_last_nonzero),
-            self.stats_last_nonzero + n_tokens
+            active_mask, torch.zeros_like(self.stats_last_nonzero), self.stats_last_nonzero + n_tokens
         )
 
     def _compute_auxk_loss(

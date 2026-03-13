@@ -1,15 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 # sae/relu_l1.py
+from typing import Dict
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Dict
+
 from .base import SparseAutoencoder
 
 
-
 class ReLUSAE(SparseAutoencoder):
-    """
-    ReLU Sparse Autoencoder with L1 penalty.
+    """ReLU Sparse Autoencoder with L1 penalty.
 
     From Section 2.2 of OpenAI paper:
         z = ReLU(W_enc(x - b_pre) + b_enc)
@@ -32,6 +47,7 @@ class ReLUSAE(SparseAutoencoder):
         normalize_decoder: bool = True,
         normalize_input: bool = True,
     ):
+        """Initialize the ReLU SAE with encoder, decoder, and bias parameters."""
         super().__init__(input_dim, hidden_dim)
         self.l1_coeff = l1_coeff
         self._normalize_decoder = normalize_decoder
@@ -50,7 +66,7 @@ class ReLUSAE(SparseAutoencoder):
         nn.init.xavier_uniform_(self.decoder.weight)
         if self._normalize_decoder:
             self._normalize_decoder_weights()
-        
+
         # Tied init: encoder = decoder.T
         with torch.no_grad():
             self.encoder.weight.copy_(self.decoder.weight.T)
@@ -61,6 +77,7 @@ class ReLUSAE(SparseAutoencoder):
             self.decoder.weight.data = F.normalize(self.decoder.weight.data, dim=0)
 
     def encode(self, x: torch.Tensor) -> torch.Tensor:
+        """Encode input through ReLU activation to produce sparse codes."""
         x_centered = x - self.pre_bias
         if self.normalize_input:
             x_centered = F.normalize(x_centered, dim=-1)
@@ -68,16 +85,18 @@ class ReLUSAE(SparseAutoencoder):
         return F.relu(pre_acts)
 
     def decode(self, codes: torch.Tensor) -> torch.Tensor:
+        """Decode sparse codes back to input space."""
         return self.decoder(codes) + self.pre_bias
 
     def loss(self, x: torch.Tensor, **kwargs) -> Dict[str, torch.Tensor]:
+        """Compute reconstruction loss with L1 sparsity penalty."""
         recon, codes = self(x)
-        
+
         recon_loss = F.mse_loss(recon, x)
         l1_loss = codes.abs().sum(dim=-1).mean()  # Sum over features, mean over batch
-        
+
         total_loss = recon_loss + self.l1_coeff * l1_loss
-        
+
         # Eval metrics (computed from already-available recon, no extra forward pass)
         with torch.no_grad():
             total_var = torch.var(x, dim=0).sum()
@@ -94,6 +113,7 @@ class ReLUSAE(SparseAutoencoder):
         }
 
     def post_step(self) -> None:
+        """Normalize decoder weights after each optimizer step."""
         if self._normalize_decoder:
             self._normalize_decoder_weights()
 

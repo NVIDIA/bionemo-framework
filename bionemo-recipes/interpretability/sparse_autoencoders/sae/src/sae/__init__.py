@@ -1,5 +1,19 @@
-"""
-SAE: Generic Sparse Autoencoder Package
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""SAE: Generic Sparse Autoencoder Package.
 
 A domain-agnostic implementation of Sparse Autoencoders (SAEs) for
 interpretability research. Provides multiple SAE architectures, training
@@ -12,135 +26,126 @@ Main Components:
     - utils: Utility functions (device, seed, memory)
 """
 
-from .architectures import SparseAutoencoder, ReLUSAE, TopKSAE, MoESAE
-from .training import Trainer, TrainingConfig, WandbConfig, ParallelConfig
-from .perf_logger import PerfLogger
-from .eval import (
-    DeadLatentTracker,
-    compute_reconstruction_metrics,
-    evaluate_sparsity,
-    SparsityMetrics,
-    compute_loss_recovered,
-    evaluate_loss_recovered,
-    LossRecoveredResult,
-    evaluate_sae,
-    EvalResults,
-)
-from .utils import get_device, set_seed
 from .activation_store import (
     ActivationStore,
     ActivationStoreConfig,
-    save_activations,
     load_activations,
+    save_activations,
 )
 from .analysis import (
-    FeatureStats,
-    TopExample,
+    ClusterInfo,
     FeatureGeometry,
     FeatureLogits,
-    ClusterInfo,
+    FeatureStats,
+    TopExample,
+    build_cluster_label_prompt,
+    compute_cluster_centroids,
+    compute_feature_logits,
     compute_feature_stats,
     compute_feature_umap,
-    compute_feature_logits,
-    compute_cluster_centroids,
-    build_cluster_label_prompt,
-    save_cluster_labels,
-    save_feature_atlas,
     export_text_features_parquet,
     launch_dashboard,
+    save_cluster_labels,
+    save_feature_atlas,
 )
-from .collector import (
-    TokenActivationCollector,
-    TokenExample,
-    CollectorResult,
-)
+from .architectures import MoESAE, ReLUSAE, SparseAutoencoder, TopKSAE
 from .autointerp import (
-    LLMClient,
-    LLMResponse,
-    AnthropicClient,
-    OpenAICompatibleClient,
-    OpenAIClient,
-    NIMClient,
-    NVIDIAInternalClient,
-    FeatureSampler,
-    FeatureExamples,
-    AutoInterpreter,
-    FeatureInterpretation,
     DEFAULT_PROMPT_TEMPLATE,
     TOKEN_PROMPT_TEMPLATE,
+    AnthropicClient,
+    AutoInterpreter,
+    FeatureExamples,
+    FeatureInterpretation,
+    FeatureSampler,
+    LLMClient,
+    LLMResponse,
+    NIMClient,
+    NVIDIAInternalClient,
+    OpenAIClient,
+    OpenAICompatibleClient,
 )
-from .steering import SteeredModel, Intervention, InterventionMode
+from .collector import (
+    CollectorResult,
+    TokenActivationCollector,
+    TokenExample,
+)
+from .eval import (
+    DeadLatentTracker,
+    EvalResults,
+    LossRecoveredResult,
+    SparsityMetrics,
+    compute_loss_recovered,
+    compute_reconstruction_metrics,
+    evaluate_loss_recovered,
+    evaluate_sae,
+    evaluate_sparsity,
+)
+from .perf_logger import PerfLogger
 from .process_group_manager import ProcessGroupManager
+from .steering import Intervention, InterventionMode, SteeredModel
+from .training import ParallelConfig, Trainer, TrainingConfig, WandbConfig
+from .utils import get_device, set_seed
+
 
 __version__ = "0.1.0"
 
 __all__ = [
-    # Architectures
-    'SparseAutoencoder',
-    'ReLUSAE',
-    'TopKSAE',
-    'MoESAE',
-    # Training
-    'Trainer',
-    'TrainingConfig',
-    'WandbConfig',
-    'ParallelConfig',
-    'PerfLogger',
-    # Activation Store
-    'ActivationStore',
-    'ActivationStoreConfig',
-    'save_activations',
-    'load_activations',
-    # Analysis
-    'FeatureStats',
-    'TopExample',
-    'FeatureGeometry',
-    'FeatureLogits',
-    'ClusterInfo',
-    'compute_feature_stats',
-    'compute_feature_umap',
-    'compute_feature_logits',
-    'compute_cluster_centroids',
-    'build_cluster_label_prompt',
-    'save_cluster_labels',
-    'save_feature_atlas',
-    'export_text_features_parquet',
-    'launch_dashboard',
-    # Collector
-    'TokenActivationCollector',
-    'TokenExample',
-    'CollectorResult',
-    # Evaluation
-    'DeadLatentTracker',
-    'compute_reconstruction_metrics',
-    'evaluate_sparsity',
-    'SparsityMetrics',
-    'compute_loss_recovered',
-    'evaluate_loss_recovered',
-    'LossRecoveredResult',
-    'evaluate_sae',
-    'EvalResults',
-    # Utils
-    'get_device',
-    'set_seed',
-    # Auto-interpretation
-    'LLMClient',
-    'LLMResponse',
-    'AnthropicClient',
-    'OpenAICompatibleClient',
-    'OpenAIClient',
-    'NIMClient',
-    'NVIDIAInternalClient',
-    'FeatureSampler',
-    'FeatureExamples',
-    'AutoInterpreter',
-    'FeatureInterpretation',
-    'DEFAULT_PROMPT_TEMPLATE',
-    'TOKEN_PROMPT_TEMPLATE',
-    # Steering
-    'SteeredModel',
-    'Intervention',
-    'InterventionMode',
-    # Process Group Manager
-    'ProcessGroupManager',
+    "DEFAULT_PROMPT_TEMPLATE",
+    "TOKEN_PROMPT_TEMPLATE",
+    "ActivationStore",
+    "ActivationStoreConfig",
+    "AnthropicClient",
+    "AutoInterpreter",
+    "ClusterInfo",
+    "CollectorResult",
+    "DeadLatentTracker",
+    "EvalResults",
+    "FeatureExamples",
+    "FeatureGeometry",
+    "FeatureInterpretation",
+    "FeatureLogits",
+    "FeatureSampler",
+    "FeatureStats",
+    "Intervention",
+    "InterventionMode",
+    "LLMClient",
+    "LLMResponse",
+    "LossRecoveredResult",
+    "MoESAE",
+    "NIMClient",
+    "NVIDIAInternalClient",
+    "OpenAIClient",
+    "OpenAICompatibleClient",
+    "ParallelConfig",
+    "PerfLogger",
+    "ProcessGroupManager",
+    "ReLUSAE",
+    "SparseAutoencoder",
+    "SparsityMetrics",
+    "SteeredModel",
+    "TokenActivationCollector",
+    "TokenExample",
+    "TopExample",
+    "TopKSAE",
+    "Trainer",
+    "TrainingConfig",
+    "WandbConfig",
+    "build_cluster_label_prompt",
+    "compute_cluster_centroids",
+    "compute_feature_logits",
+    "compute_feature_stats",
+    "compute_feature_umap",
+    "compute_loss_recovered",
+    "compute_reconstruction_metrics",
+    "evaluate_loss_recovered",
+    "evaluate_sae",
+    "evaluate_sparsity",
+    "export_text_features_parquet",
+    "get_device",
+    "launch_dashboard",
+    "load_activations",
+    "save_activations",
+    "save_cluster_labels",
+    "save_feature_atlas",
+    "set_seed",
 ]

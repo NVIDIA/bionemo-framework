@@ -1,5 +1,19 @@
-"""
-Post-training SAE evaluation suite.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Post-training SAE evaluation suite.
 
 Runs model-agnostic metrics (reconstruction, sparsity) always.
 Optionally runs loss recovered and custom recipe-specific metrics
@@ -7,25 +21,28 @@ via callables passed by the recipe.
 """
 
 import json
-import torch
-from typing import Optional, Callable, Any, Dict
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, Callable, Dict, Optional
 
-from .reconstruction import evaluate_reconstruction, ReconstructionMetrics
-from .sparsity import evaluate_sparsity, SparsityMetrics
+import torch
+
 from .loss_recovered import LossRecoveredResult
+from .reconstruction import ReconstructionMetrics, evaluate_reconstruction
+from .sparsity import SparsityMetrics, evaluate_sparsity
 
 
 @dataclass
 class EvalResults:
     """Container for post-training evaluation results."""
+
     reconstruction: ReconstructionMetrics
     sparsity: SparsityMetrics
     loss_recovered: Optional[LossRecoveredResult] = None
     custom: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
+        """Convert evaluation results to a serializable dictionary."""
         d = {
             "reconstruction": {
                 "mse": self.reconstruction.mse,
@@ -60,7 +77,7 @@ class EvalResults:
         """Save results to JSON file."""
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             json.dump(self.to_dict(), f, indent=2)
 
     def print_summary(self) -> None:
@@ -74,14 +91,18 @@ class EvalResults:
         print(f"  Variance Explained: {self.reconstruction.variance_explained:.4f}")
         print(f"  FVU:                {self.reconstruction.normalized_mse:.6f}")
 
-        print(f"\nSparsity:")
+        print("\nSparsity:")
         print(f"  Mean L0:            {self.sparsity.mean_l0:.2f}")
-        print(f"  Feature utilization: {self.sparsity.features_used}/{self.sparsity.n_features} ({self.sparsity.feature_utilization_pct:.1f}%) fired on {self.sparsity.n_eval_tokens:,} eval tokens")
+        print(
+            f"  Feature utilization: {self.sparsity.features_used}/{self.sparsity.n_features} ({self.sparsity.feature_utilization_pct:.1f}%) fired on {self.sparsity.n_eval_tokens:,} eval tokens"
+        )
         if self.sparsity.dead_pct >= 0:
-            print(f"  Dead latents:       {self.sparsity.n_dead}/{self.sparsity.n_features} ({self.sparsity.dead_pct:.1f}%) inactive > {self.sparsity.dead_tokens_threshold:,} tokens")
+            print(
+                f"  Dead latents:       {self.sparsity.n_dead}/{self.sparsity.n_features} ({self.sparsity.dead_pct:.1f}%) inactive > {self.sparsity.dead_tokens_threshold:,} tokens"
+            )
 
         if self.loss_recovered is not None:
-            print(f"\nLoss Recovered:")
+            print("\nLoss Recovered:")
             print(f"  Score:       {self.loss_recovered.loss_recovered:.1%}")
             print(f"  CE Original: {self.loss_recovered.ce_original:.4f}")
             print(f"  CE SAE:      {self.loss_recovered.ce_sae:.4f}")
@@ -104,6 +125,7 @@ class EvalResults:
         print("=" * 60)
 
     def __repr__(self) -> str:
+        """Return string representation of evaluation results."""
         parts = [
             f"  reconstruction: {self.reconstruction}",
             f"  sparsity: {self.sparsity}",
@@ -124,8 +146,7 @@ def evaluate_sae(
     custom_metrics: Optional[Dict[str, Callable[[], Any]]] = None,
     reconstruction: Optional[ReconstructionMetrics] = None,
 ) -> EvalResults:
-    """
-    Post-training evaluation suite for a trained SAE.
+    """Post-training evaluation suite for a trained SAE.
 
     Computes sparsity statistics on the provided embeddings.
     Reconstruction metrics can be pre-computed (e.g. from training) or

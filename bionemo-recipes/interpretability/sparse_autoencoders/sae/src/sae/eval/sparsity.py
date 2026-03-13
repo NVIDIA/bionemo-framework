@@ -1,13 +1,29 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Sparsity statistics for SAE evaluation."""
 
-import torch
-from typing import Dict
 from dataclasses import dataclass
+
+import torch
 
 
 @dataclass
 class SparsityMetrics:
     """Container for sparsity statistics."""
+
     mean_l0: float
     n_features: int
     # Feature utilization: fraction that fired at least once on the eval set.
@@ -23,6 +39,7 @@ class SparsityMetrics:
     dead_tokens_threshold: int = -1
 
     def __repr__(self) -> str:
+        """Return string representation of sparsity metrics."""
         return (
             f"SparsityMetrics(L0={self.mean_l0:.2f}, "
             f"utilization={self.feature_utilization_pct:.1f}%, "
@@ -36,8 +53,7 @@ def evaluate_sparsity(
     batch_size: int = 1024,
     device: str = "cpu",
 ) -> SparsityMetrics:
-    """
-    Compute sparsity statistics for a trained SAE.
+    """Compute sparsity statistics for a trained SAE.
 
     Args:
         sae: Trained SAE model.
@@ -57,7 +73,7 @@ def evaluate_sparsity(
 
     with torch.no_grad():
         for i in range(0, n_samples, batch_size):
-            batch = embeddings[i:i + batch_size].to(device)
+            batch = embeddings[i : i + batch_size].to(device)
             codes = sae.encode(batch)
 
             l0 = (codes != 0).float().sum(dim=-1)

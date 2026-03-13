@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Data utilities for biological sequence data.
 
 Provides utilities for:
@@ -5,23 +20,23 @@ Provides utilities for:
 - Downloading from UniProt/SwissProt
 - Creating datasets for protein sequences
 """
+
 import gzip
+import os
+import random
 from pathlib import Path
-from typing import List, Optional, Iterator, Union
-from .types import ProteinRecord
+from typing import Dict, Iterator, List, Optional, TextIO, Tuple, Union
+
 from sae.utils import get_file_limit
 from tqdm import tqdm
-import random
-import os
+
+from .types import ProteinRecord
+
 
 def shard_fasta(
-    input_file: Path,
-    output_dir: Path,
-    proteins_per_shard: int = 1000,
-    max_open_files: Optional[int] = None
+    input_file: Path, output_dir: Path, proteins_per_shard: int = 1000, max_open_files: Optional[int] = None
 ) -> int:
-    """
-    Split a large FASTA file into smaller shards with a specified number of proteins per shard.
+    """Split a large FASTA file into smaller shards with a specified number of proteins per shard.
 
     This function processes large FASTA files in batches to respect system file handle
     limits. It creates numbered shard files in the specified output directory.
@@ -51,8 +66,7 @@ def shard_fasta(
 
     # Count proteins and calculate shards
     total_proteins = count_proteins_in_fasta(input_file)
-    num_shards = (total_proteins + proteins_per_shard -
-                  1) // proteins_per_shard
+    num_shards = (total_proteins + proteins_per_shard - 1) // proteins_per_shard
     print(f"Total proteins: {total_proteins}")
     print(f"Number of shards: {num_shards}")
 
@@ -64,8 +78,7 @@ def shard_fasta(
 
             # Open current batch of shard files
             current_shard_files: Dict[int, TextIO] = {
-                i: open(output_dir / f"shard_{i}.fasta", "w")
-                for i in range(start_shard, end_shard)
+                i: open(output_dir / f"shard_{i}.fasta", "w") for i in range(start_shard, end_shard)
             }
 
             try:
@@ -80,8 +93,7 @@ def shard_fasta(
                             if current_content:
                                 shard = current_protein // proteins_per_shard
                                 if start_shard <= shard < end_shard:
-                                    current_shard_files[shard].write(
-                                        "".join(current_content))
+                                    current_shard_files[shard].write("".join(current_content))
                                     pbar.update(1)
                                 current_content = []
                             current_protein += 1
@@ -95,8 +107,7 @@ def shard_fasta(
                     if current_content:
                         shard = (current_protein - 1) // proteins_per_shard
                         if start_shard <= shard < end_shard:
-                            current_shard_files[shard].write(
-                                "".join(current_content))
+                            current_shard_files[shard].write("".join(current_content))
                             pbar.update(1)
 
             finally:
@@ -110,28 +121,26 @@ def shard_fasta(
 def count_proteins_in_fasta(file_path: Union[str, Path]) -> int:
     """Count number of proteins in a FASTA file."""
     count = 0
-    with gzip.open(file_path, "rt") if str(file_path).endswith('.gz') else open(file_path, "r") as f:
+    with gzip.open(file_path, "rt") if str(file_path).endswith(".gz") else open(file_path, "r") as f:
         for line in f:
             if line.startswith(">"):
                 count += 1
     return count
 
+
 def sample_proteins_from_fasta(
-    input_file: str,
-    output_file: str,
-    num_proteins: int,
-    max_length: Optional[int] = 1022
+    input_file: str, output_file: str, num_proteins: int, max_length: Optional[int] = 1022
 ) -> None:
-    """
-    Filter protein sequences by length and randomly select a subset.
+    """Filter protein sequences by length and randomly select a subset.
+
     Uses reservoir sampling for O(k) memory complexity where k = num_proteins.
 
-    Note - The reservoir sampling version writes them in the order they were added to the reservoir, 
+    Note - The reservoir sampling version writes them in the order they were added to the reservoir,
     which is partially random but not uniformly shuffled. If you need the output order to be fully randomized:
 
     ```
     random.shuffle(reservoir)
-    
+
     with open_output(output_file, "wt") as outfile:
         for header, sequence in reservoir:
             outfile.write(header)
@@ -139,8 +148,8 @@ def sample_proteins_from_fasta(
     ```
 
     """
-    open_input = gzip.open if str(input_file).endswith('.gz') else open
-    open_output = gzip.open if str(output_file).endswith('.gz') else open
+    open_input = gzip.open if str(input_file).endswith(".gz") else open
+    open_output = gzip.open if str(output_file).endswith(".gz") else open
 
     print(f"Filtering proteins by length (max_length: {max_length})...")
 
@@ -196,12 +205,11 @@ def sample_proteins_from_fasta(
     print(f"Successfully wrote {len(reservoir)} proteins to {output_file}")
 
 
-
 def read_fasta(
     filepath: Union[str, Path],
     max_sequences: Optional[int] = None,
     max_length: Optional[int] = None,
-    min_length: Optional[int] = None
+    min_length: Optional[int] = None,
 ) -> List[ProteinRecord]:
     """Read sequences from a FASTA file.
 
@@ -218,10 +226,11 @@ def read_fasta(
     filepath = Path(filepath)
 
     # Handle gzipped files
-    if str(filepath).endswith('.gz'):
-        open_fn = lambda p: gzip.open(p, 'rt')
-    else:
-        open_fn = lambda p: open(p, 'r')
+    def open_fn(p):
+        """Open a file, handling gzip compression."""
+        if str(p).endswith(".gz"):
+            return gzip.open(p, "rt")
+        return open(p, "r")
 
     with open_fn(filepath) as f:
         current_id = None
@@ -233,16 +242,12 @@ def read_fasta(
             if not line:
                 continue
 
-            if line.startswith('>'):
+            if line.startswith(">"):
                 # Save previous record if exists
                 if current_id is not None:
-                    seq = ''.join(current_seq)
+                    seq = "".join(current_seq)
                     if _passes_length_filter(seq, min_length, max_length):
-                        records.append(ProteinRecord(
-                            id=current_id,
-                            sequence=seq,
-                            description=current_desc
-                        ))
+                        records.append(ProteinRecord(id=current_id, sequence=seq, description=current_desc))
 
                     if max_sequences and len(records) >= max_sequences:
                         return records
@@ -258,22 +263,14 @@ def read_fasta(
 
         # Don't forget last record
         if current_id is not None:
-            seq = ''.join(current_seq)
+            seq = "".join(current_seq)
             if _passes_length_filter(seq, min_length, max_length):
-                records.append(ProteinRecord(
-                    id=current_id,
-                    sequence=seq,
-                    description=current_desc
-                ))
+                records.append(ProteinRecord(id=current_id, sequence=seq, description=current_desc))
 
     return records
 
 
-def _passes_length_filter(
-    seq: str,
-    min_length: Optional[int],
-    max_length: Optional[int]
-) -> bool:
+def _passes_length_filter(seq: str, min_length: Optional[int], max_length: Optional[int]) -> bool:
     """Check if sequence passes length filters."""
     if min_length and len(seq) < min_length:
         return False
@@ -283,9 +280,7 @@ def _passes_length_filter(
 
 
 def stream_fasta(
-    filepath: Union[str, Path],
-    max_length: Optional[int] = None,
-    min_length: Optional[int] = None
+    filepath: Union[str, Path], max_length: Optional[int] = None, min_length: Optional[int] = None
 ) -> Iterator[ProteinRecord]:
     """Stream sequences from a FASTA file one at a time.
 
@@ -301,10 +296,11 @@ def stream_fasta(
     """
     filepath = Path(filepath)
 
-    if str(filepath).endswith('.gz'):
-        open_fn = lambda p: gzip.open(p, 'rt')
-    else:
-        open_fn = lambda p: open(p, 'r')
+    def open_fn(p):
+        """Open a file, handling gzip compression."""
+        if str(p).endswith(".gz"):
+            return gzip.open(p, "rt")
+        return open(p, "r")
 
     with open_fn(filepath) as f:
         current_id = None
@@ -316,15 +312,11 @@ def stream_fasta(
             if not line:
                 continue
 
-            if line.startswith('>'):
+            if line.startswith(">"):
                 if current_id is not None:
-                    seq = ''.join(current_seq)
+                    seq = "".join(current_seq)
                     if _passes_length_filter(seq, min_length, max_length):
-                        yield ProteinRecord(
-                            id=current_id,
-                            sequence=seq,
-                            description=current_desc
-                        )
+                        yield ProteinRecord(id=current_id, sequence=seq, description=current_desc)
 
                 header = line[1:]
                 parts = header.split(None, 1)
@@ -335,20 +327,12 @@ def stream_fasta(
                 current_seq.append(line)
 
         if current_id is not None:
-            seq = ''.join(current_seq)
+            seq = "".join(current_seq)
             if _passes_length_filter(seq, min_length, max_length):
-                yield ProteinRecord(
-                    id=current_id,
-                    sequence=seq,
-                    description=current_desc
-                )
+                yield ProteinRecord(id=current_id, sequence=seq, description=current_desc)
 
 
-def write_fasta(
-    records: List[ProteinRecord],
-    filepath: Union[str, Path],
-    line_width: int = 80
-) -> None:
+def write_fasta(records: List[ProteinRecord], filepath: Union[str, Path], line_width: int = 80) -> None:
     """Write sequences to a FASTA file.
 
     Args:
@@ -358,7 +342,7 @@ def write_fasta(
     """
     filepath = Path(filepath)
 
-    with open(filepath, 'w') as f:
+    with open(filepath, "w") as f:
         for record in records:
             # Write header
             if record.description:
@@ -369,14 +353,11 @@ def write_fasta(
             # Write sequence with line wrapping
             seq = record.sequence
             for i in range(0, len(seq), line_width):
-                f.write(seq[i:i+line_width] + '\n')
+                f.write(seq[i : i + line_width] + "\n")
 
 
 def sample_sequences(
-    records: List[ProteinRecord],
-    n: int,
-    seed: Optional[int] = None,
-    stratify_by_length: bool = False
+    records: List[ProteinRecord], n: int, seed: Optional[int] = None, stratify_by_length: bool = False
 ) -> List[ProteinRecord]:
     """Randomly sample sequences from a list.
 

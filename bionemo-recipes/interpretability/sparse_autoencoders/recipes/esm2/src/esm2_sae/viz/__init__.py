@@ -1,25 +1,36 @@
-"""
-Feature visualization utilities for SAE analysis.
-"""
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
-from .feature_umap import compute_feature_umap, FeatureGeometry
+"""Feature visualization utilities for SAE analysis."""
+
 from .feature_activations import (
-    compute_feature_activations,
-    FeatureStats,
     FeatureExample,
+    FeatureStats,
+    compute_feature_activations,
 )
-from .io import save_geometry, save_stats, save_examples
+from .feature_umap import FeatureGeometry, compute_feature_umap
+from .io import save_examples, save_geometry, save_stats
+
 
 __all__ = [
-    # UMAP
-    "compute_feature_umap",
-    "FeatureGeometry",
-    # Activations
-    "compute_feature_activations",
-    "FeatureStats",
     "FeatureExample",
-    # I/O
+    "FeatureGeometry",
+    "FeatureStats",
+    "compute_feature_activations",
+    "compute_feature_umap",
+    "save_examples",
     "save_geometry",
     "save_stats",
-    "save_examples",
 ]

@@ -1,17 +1,30 @@
-"""
-Auto-interpretation pipeline using LLMs.
-"""
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Auto-interpretation pipeline using LLMs."""
 
 import json
 import random
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional, Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import torch
 
 from .llm import LLMClient
-from .sampler import FeatureSampler, FeatureExamples
+from .sampler import FeatureExamples, FeatureSampler
 
 
 DEFAULT_PROMPT_TEMPLATE = """You are analyzing features learned by a sparse autoencoder.
@@ -47,6 +60,7 @@ Description:"""
 @dataclass
 class FeatureInterpretation:
     """Interpretation result for a single feature."""
+
     feature_idx: int
     description: str
     model: str
@@ -92,6 +106,7 @@ class AutoInterpreter:
         prompt_template: Optional[str] = None,
         max_workers: int = 10,
     ):
+        """Initialize the auto-interpreter with an LLM client and prompt template."""
         self.llm_client = llm_client
         self.prompt_template = prompt_template or DEFAULT_PROMPT_TEMPLATE
         self.max_workers = max_workers
@@ -99,14 +114,11 @@ class AutoInterpreter:
     def _build_sampler_prompt(self, examples: FeatureExamples) -> str:
         """Build prompt from sampler-based examples."""
         high_str = "\n".join(
-            f"Example {i+1} (activation={ex['activation']:.3f}):\n{ex['formatted']}"
+            f"Example {i + 1} (activation={ex['activation']:.3f}):\n{ex['formatted']}"
             for i, ex in enumerate(examples.high_examples)
         )
 
-        low_str = "\n".join(
-            f"Example {i+1}:\n{ex['formatted']}"
-            for i, ex in enumerate(examples.low_examples)
-        )
+        low_str = "\n".join(f"Example {i + 1}:\n{ex['formatted']}" for i, ex in enumerate(examples.low_examples))
 
         return self.prompt_template.format(
             feature_idx=examples.feature_idx,
@@ -149,7 +161,7 @@ class AutoInterpreter:
                     ctx_parts.append(text_labels[j])
             context_str = "".join(ctx_parts)
 
-            high_str += f"  \u2022 \"{ex.token_label.strip()}\" (activation={ex.activation:.2f})\n"
+            high_str += f'  \u2022 "{ex.token_label.strip()}" (activation={ex.activation:.2f})\n'
             high_str += f"    Context: ...{context_str}...\n"
 
         # Logit evidence
@@ -246,7 +258,9 @@ class AutoInterpreter:
         if collector is not None:
             for feat_idx in feature_indices:
                 prompt = self._build_token_prompt(
-                    feat_idx, collector, logits,
+                    feat_idx,
+                    collector,
+                    logits,
                     n_examples=n_examples,
                     context_window=context_window,
                 )
@@ -257,10 +271,14 @@ class AutoInterpreter:
             all_examples = sampler.sample_features(feature_indices)
             for ex in all_examples:
                 prompt = self._build_sampler_prompt(ex)
-                prompt_info.append((
-                    ex.feature_idx, prompt,
-                    len(ex.high_examples), len(ex.low_examples),
-                ))
+                prompt_info.append(
+                    (
+                        ex.feature_idx,
+                        prompt,
+                        len(ex.high_examples),
+                        len(ex.low_examples),
+                    )
+                )
 
         else:
             raise ValueError("Either 'sampler' or 'collector' must be provided")

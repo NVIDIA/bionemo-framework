@@ -1,5 +1,19 @@
-"""
-Step 3: Evaluate SAE and build dashboard data with F1-annotated labels.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+r"""Step 3: Evaluate SAE and build dashboard data with F1-annotated labels.
 
 Loads a trained SAE checkpoint, runs F1 evaluation against SwissProt annotations,
 computes loss recovered, and builds dashboard data (atlas + feature examples)
@@ -33,14 +47,14 @@ from typing import List, Tuple
 
 import numpy as np
 import torch
+from sae.architectures import TopKSAE
+from sae.utils import get_device, set_seed
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
 
-from sae.architectures import TopKSAE
-from sae.utils import set_seed, get_device
-
 
 def parse_args():
+    """Parse command-line arguments for SAE evaluation."""
     p = argparse.ArgumentParser(description="Evaluate ESM2 SAE and build dashboard")
 
     # Checkpoint
@@ -52,8 +66,9 @@ def parse_args():
     p.add_argument("--layer", type=int, default=24)
     p.add_argument("--batch-size", type=int, default=1, help="Batch size for forward passes")
     p.add_argument("--max-seq-len", type=int, default=512)
-    p.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16",
-                   help="Model dtype (must match extraction dtype)")
+    p.add_argument(
+        "--dtype", choices=["bf16", "fp16", "fp32"], default="bf16", help="Model dtype (must match extraction dtype)"
+    )
 
     # Data
     p.add_argument("--data-dir", type=str, default="./data")
@@ -64,8 +79,9 @@ def parse_args():
     p.add_argument("--f1-max-proteins", type=int, default=1000)
     p.add_argument("--f1-min-positives", type=int, default=20)
     p.add_argument("--f1-threshold", type=float, default=0.5, help="F1 threshold for labeling features")
-    p.add_argument("--normalization-n-proteins", type=int, default=2000,
-                    help="Proteins for activation_max normalization")
+    p.add_argument(
+        "--normalization-n-proteins", type=int, default=2000, help="Proteins for activation_max normalization"
+    )
 
     # Loss recovered
     p.add_argument("--loss-recovered-n-sequences", type=int, default=100)
@@ -108,12 +124,12 @@ def load_sae_from_checkpoint(checkpoint_path: str, top_k: int) -> TopKSAE:
     )
     sae.load_state_dict(state_dict)
 
-    print(f"Loaded SAE: {input_dim} -> {hidden_dim:,} latents "
-          f"(top-{top_k}, normalize_input={normalize_input})")
+    print(f"Loaded SAE: {input_dim} -> {hidden_dim:,} latents (top-{top_k}, normalize_input={normalize_input})")
     return sae
 
 
 # ── Activation extraction (matches step1_15b_extract.py exactly) ─────────
+
 
 def load_esm2_model(model_name: str, dtype: torch.dtype, device: str):
     """Load ESM2 model + tokenizer the same way as step1_15b_extract.py."""
@@ -194,7 +210,6 @@ def extract_activations_3d(
 
     # Pad to same seq_len across batches for 3D stacking
     max_len = max(e.shape[1] for e in all_embeddings)
-    hidden_dim = all_embeddings[0].shape[2]
 
     padded_emb = []
     padded_masks = []
@@ -251,6 +266,7 @@ def extract_activations_flat(
 
 # ── F1 helpers ───────────────────────────────────────────────────────────
 
+
 def build_f1_labels(val_results, n_features, f1_threshold):
     """Build feature labels from F1 results."""
     best_per_feature = {}
@@ -279,7 +295,9 @@ def build_f1_labels(val_results, n_features, f1_threshold):
 
 # ── Main ─────────────────────────────────────────────────────────────────
 
+
 def main():
+    """Run SAE evaluation pipeline: F1 scores, loss recovered, and dashboard data."""
     args = parse_args()
     set_seed(args.seed)
     device = args.device or get_device()
@@ -306,10 +324,11 @@ def main():
         if esm2_model is None:
             print(f"Loading {args.model_name} (layer {args.layer}, {args.dtype})...")
             esm2_model, esm2_tokenizer = load_esm2_model(
-                args.model_name, model_dtype, device,
+                args.model_name,
+                model_dtype,
+                device,
             )
-            print(f"  Layers: {esm2_model.config.num_hidden_layers}, "
-                  f"Hidden: {esm2_model.config.hidden_size}")
+            print(f"  Layers: {esm2_model.config.num_hidden_layers}, Hidden: {esm2_model.config.hidden_size}")
         return esm2_model, esm2_tokenizer
 
     # ── 3. F1 Evaluation ─────────────────────────────────────────────
@@ -320,13 +339,14 @@ def main():
     activation_max = None
 
     if not args.skip_f1:
-        from esm2_sae.eval import compute_f1_scores, compute_activation_max
         from esm2_sae.data import (
-            read_fasta, download_swissprot,
             download_annotated_proteins,
+            download_swissprot,
             load_annotations_tsv,
             proteins_to_concept_labels,
+            read_fasta,
         )
+        from esm2_sae.eval import compute_activation_max, compute_f1_scores
 
         print("\n" + "=" * 60)
         print("F1 EVALUATION")
@@ -360,27 +380,41 @@ def main():
 
             val_sequences, concept_labels_val = proteins_to_concept_labels(val_proteins)
             test_sequences, concept_labels_test = proteins_to_concept_labels(test_proteins)
-            print(f"F1 eval: {len(val_proteins)} val + {len(test_proteins)} test proteins, "
-                  f"{len(concept_counts)} concepts")
+            print(
+                f"F1 eval: {len(val_proteins)} val + {len(test_proteins)} test proteins, "
+                f"{len(concept_counts)} concepts"
+            )
 
             model, tokenizer = get_esm2()
             print("Extracting embeddings for F1 evaluation...")
             val_embeddings_3d, val_masks = extract_activations_3d(
-                model, tokenizer, val_sequences, args.layer,
-                batch_size=args.batch_size, max_length=args.max_seq_len,
+                model,
+                tokenizer,
+                val_sequences,
+                args.layer,
+                batch_size=args.batch_size,
+                max_length=args.max_seq_len,
             )
             test_embeddings_3d, test_masks = extract_activations_3d(
-                model, tokenizer, test_sequences, args.layer,
-                batch_size=args.batch_size, max_length=args.max_seq_len,
+                model,
+                tokenizer,
+                test_sequences,
+                args.layer,
+                batch_size=args.batch_size,
+                max_length=args.max_seq_len,
             )
 
             # Compute activation_max for normalization
-            norm_sequences = val_sequences[:min(args.normalization_n_proteins, len(val_sequences))]
+            norm_sequences = val_sequences[: min(args.normalization_n_proteins, len(val_sequences))]
             if norm_sequences:
                 print(f"Computing activation_max from {len(norm_sequences)} proteins...")
                 norm_emb, norm_masks = extract_activations_3d(
-                    model, tokenizer, norm_sequences, args.layer,
-                    batch_size=args.batch_size, max_length=args.max_seq_len,
+                    model,
+                    tokenizer,
+                    norm_sequences,
+                    args.layer,
+                    batch_size=args.batch_size,
+                    max_length=args.max_seq_len,
                 )
                 activation_max = compute_activation_max(sae, norm_emb, norm_masks, device=device)
                 print(f"  activation_max range: [{activation_max.min():.4f}, {activation_max.max():.4f}]")
@@ -390,41 +424,55 @@ def main():
             print("Computing F1 scores (val)...")
             t0 = time.time()
             val_results = compute_f1_scores(
-                sae=sae, embeddings=val_embeddings_3d, concept_labels=concept_labels_val,
-                masks=val_masks, min_positives=args.f1_min_positives,
-                device=device, show_progress=True, activation_max=activation_max,
+                sae=sae,
+                embeddings=val_embeddings_3d,
+                concept_labels=concept_labels_val,
+                masks=val_masks,
+                min_positives=args.f1_min_positives,
+                device=device,
+                show_progress=True,
+                activation_max=activation_max,
             )
             print(f"  Val: {len(val_results)} pairs in {time.time() - t0:.1f}s")
 
             print("Computing F1 scores (test)...")
             t0 = time.time()
             test_results = compute_f1_scores(
-                sae=sae, embeddings=test_embeddings_3d, concept_labels=concept_labels_test,
-                masks=test_masks, min_positives=args.f1_min_positives,
-                device=device, show_progress=True, activation_max=activation_max,
+                sae=sae,
+                embeddings=test_embeddings_3d,
+                concept_labels=concept_labels_test,
+                masks=test_masks,
+                min_positives=args.f1_min_positives,
+                device=device,
+                show_progress=True,
+                activation_max=activation_max,
             )
             print(f"  Test: {len(test_results)} pairs in {time.time() - t0:.1f}s")
 
             # Build labels from val results
             print("Building feature labels from F1 results...")
             f1_labels, feature_stats_for_dashboard = build_f1_labels(
-                val_results, n_features, args.f1_threshold,
+                val_results,
+                n_features,
+                args.f1_threshold,
             )
 
             # Save F1 summary
             f1_summary = _build_f1_summary(
-                val_results, test_results, args.f1_threshold,
+                val_results,
+                test_results,
+                args.f1_threshold,
             )
 
-            print(f"\nF1 Summary:")
+            print("\nF1 Summary:")
             print(f"  Concepts matched:       {f1_summary['n_concepts_matched']}")
             print(f"  Mean F1 (domain, test): {f1_summary['mean_f1_domain_test']:.4f}")
             print(f"  Max F1 (domain, test):  {f1_summary['max_f1_domain_test']:.4f}")
             print(f"  Above {f1_summary['f1_threshold']} (val):    {f1_summary['n_above_threshold_val']}")
             print(f"  Above {f1_summary['f1_threshold']} (both):   {f1_summary['n_pairs_above_threshold_both']}")
-            if f1_summary['top_pairs']:
-                print(f"  Top pairs (test):")
-                for p in f1_summary['top_pairs'][:5]:
+            if f1_summary["top_pairs"]:
+                print("  Top pairs (test):")
+                for p in f1_summary["top_pairs"][:5]:
                     print(f"    Feature {p['feature']:>5d}  F1={p['f1_domain']:.3f}  {p['concept']}")
 
             f1_path = output_dir / "f1_results.json"
@@ -444,9 +492,9 @@ def main():
         print("=" * 60)
 
         try:
-            from transformers import AutoModelForMaskedLM
+            from esm2_sae.data import download_swissprot, read_fasta
             from esm2_sae.eval import evaluate_esm2_loss_recovered
-            from esm2_sae.data import read_fasta, download_swissprot
+            from transformers import AutoModelForMaskedLM
 
             # Free the base model to make room for the LM head model
             if esm2_model is not None:
@@ -459,9 +507,7 @@ def main():
             lm_kwargs = {"trust_remote_code": True}
             if model_dtype != torch.float32:
                 lm_kwargs["dtype"] = model_dtype
-            esm_lm_model = AutoModelForMaskedLM.from_pretrained(
-                args.model_name, **lm_kwargs
-            ).to(device)
+            esm_lm_model = AutoModelForMaskedLM.from_pretrained(args.model_name, **lm_kwargs).to(device)
 
             try:
                 esm_tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
@@ -473,13 +519,17 @@ def main():
             if not swissprot_path.exists():
                 download_swissprot(data_dir)
             records = read_fasta(swissprot_path, max_length=args.max_seq_len)
-            lr_sequences = [r.sequence for r in records[:args.loss_recovered_n_sequences]]
+            lr_sequences = [r.sequence for r in records[: args.loss_recovered_n_sequences]]
 
             layer_idx = args.layer - 1
             print(f"Computing loss recovered on {len(lr_sequences)} sequences (layer_idx={layer_idx})...")
             loss_recovered_result = evaluate_esm2_loss_recovered(
-                sae=sae, model=esm_lm_model, tokenizer=esm_tokenizer,
-                sequences=lr_sequences, layer_idx=layer_idx, device=device,
+                sae=sae,
+                model=esm_lm_model,
+                tokenizer=esm_tokenizer,
+                sequences=lr_sequences,
+                layer_idx=layer_idx,
+                device=device,
             )
             print(f"  Loss recovered: {loss_recovered_result.loss_recovered:.4f}")
             print(f"  CE original: {loss_recovered_result.ce_original:.4f}")
@@ -489,12 +539,16 @@ def main():
             # Save result
             lr_path = output_dir / "loss_recovered.json"
             with open(lr_path, "w") as f:
-                json.dump({
-                    "loss_recovered": loss_recovered_result.loss_recovered,
-                    "ce_original": loss_recovered_result.ce_original,
-                    "ce_sae": loss_recovered_result.ce_sae,
-                    "ce_zero": loss_recovered_result.ce_zero,
-                }, f, indent=2)
+                json.dump(
+                    {
+                        "loss_recovered": loss_recovered_result.loss_recovered,
+                        "ce_original": loss_recovered_result.ce_original,
+                        "ce_sae": loss_recovered_result.ce_sae,
+                        "ce_zero": loss_recovered_result.ce_zero,
+                    },
+                    f,
+                    indent=2,
+                )
             print(f"Saved to {lr_path}")
 
             del esm_lm_model
@@ -508,9 +562,9 @@ def main():
         print("BUILDING DASHBOARD DATA")
         print("=" * 60)
 
-        from sae.analysis import compute_feature_stats, compute_feature_umap, save_feature_atlas
+        from esm2_sae.data import download_swissprot, read_fasta
         from esm2_sae.data_export import export_protein_features_parquet
-        from esm2_sae.data import read_fasta, download_swissprot
+        from sae.analysis import compute_feature_stats, compute_feature_umap, save_feature_atlas
 
         dashboard_dir = output_dir / "dashboard"
         dashboard_dir.mkdir(parents=True, exist_ok=True)
@@ -520,7 +574,7 @@ def main():
         if not swissprot_path.exists():
             download_swissprot(data_dir)
         records = read_fasta(swissprot_path, max_length=args.max_seq_len)
-        records = records[:args.num_proteins]
+        records = records[: args.num_proteins]
         sequences = [r.sequence for r in records]
         protein_ids = [r.id for r in records]
         print(f"Loaded {len(sequences)} proteins for dashboard")
@@ -528,8 +582,12 @@ def main():
         model, tokenizer = get_esm2()
         print("Extracting 3D activations for dashboard...")
         activations, masks = extract_activations_3d(
-            model, tokenizer, sequences, args.layer,
-            batch_size=args.batch_size, max_length=args.max_seq_len,
+            model,
+            tokenizer,
+            sequences,
+            args.layer,
+            batch_size=args.batch_size,
+            max_length=args.max_seq_len,
         )
         activations_flat = activations[masks.bool()]
         print(f"  {activations_flat.shape[0]:,} residues, dim={activations_flat.shape[1]}")
@@ -557,9 +615,14 @@ def main():
         print("[4/4] Exporting protein examples...")
         t0 = time.time()
         export_protein_features_parquet(
-            sae=sae, activations=activations, sequences=sequences,
-            protein_ids=protein_ids, output_dir=dashboard_dir,
-            masks=masks, n_examples=6, device=device,
+            sae=sae,
+            activations=activations,
+            sequences=sequences,
+            protein_ids=protein_ids,
+            output_dir=dashboard_dir,
+            masks=masks,
+            n_examples=6,
+            device=device,
             feature_stats=feature_stats_for_dashboard,
         )
         print(f"       Done in {time.time() - t0:.1f}s")
@@ -568,12 +631,14 @@ def main():
         print(f"  Atlas:    {atlas_path}")
         print(f"  Features: {dashboard_dir}/feature_metadata.parquet")
         print(f"  Examples: {dashboard_dir}/feature_examples.parquet")
-        print(f"\nTo view locally:")
+        print("\nTo view locally:")
         print(f"  scp -r cluster:{dashboard_dir} ./dashboard")
-        print(f"  python -c \"from esm2_sae import launch_protein_dashboard; "
-              f"proc = launch_protein_dashboard('dashboard/features_atlas.parquet', "
-              f"features_dir='dashboard'); "
-              f"input('Press Enter to stop.\\n'); proc.terminate()\"")
+        print(
+            '  python -c "from esm2_sae import launch_protein_dashboard; '
+            "proc = launch_protein_dashboard('dashboard/features_atlas.parquet', "
+            "features_dir='dashboard'); "
+            "input('Press Enter to stop.\\n'); proc.terminate()\""
+        )
 
     # Free GPU
     if esm2_model is not None:
@@ -605,11 +670,10 @@ def _build_f1_summary(val_results, test_results, f1_threshold):
         if key in test_lookup:
             test_matched.append(test_lookup[key])
 
-    n_above_threshold_val = sum(
-        1 for r in best_per_concept_val.values() if r.f1_domain > f1_threshold
-    )
+    n_above_threshold_val = sum(1 for r in best_per_concept_val.values() if r.f1_domain > f1_threshold)
     n_above_threshold_both = sum(
-        1 for concept, val_r in best_per_concept_val.items()
+        1
+        for concept, val_r in best_per_concept_val.items()
         if val_r.f1_domain > f1_threshold
         and (val_r.feature_idx, concept) in test_lookup
         and test_lookup[(val_r.feature_idx, concept)].f1_domain > f1_threshold

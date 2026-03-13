@@ -1,5 +1,19 @@
-"""
-Data export utilities for saving activations and feature analysis to Parquet/DuckDB.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Data export utilities for saving activations and feature analysis to Parquet/DuckDB.
 
 This module provides simple functions to save:
 1. Raw activations (codes) from the SAE
@@ -8,21 +22,26 @@ This module provides simple functions to save:
 Both can be saved to Parquet (for portable storage) or DuckDB (for SQL queries).
 """
 
+import subprocess
 import time
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Union, Any
+from typing import Any, Dict, List, Optional, Tuple, Union
+
 import numpy as np
 import torch
+
 
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
+
     HAS_PARQUET = True
 except ImportError:
     HAS_PARQUET = False
 
 try:
     import duckdb
+
     HAS_DUCKDB = True
 except ImportError:
     HAS_DUCKDB = False
@@ -53,6 +72,7 @@ class ActivationsExporter:
     """
 
     def __init__(self):
+        """Initialize the exporter and check for optional dependencies."""
         if not HAS_PARQUET:
             print("Warning: pyarrow not installed. Install with: pip install pyarrow")
         if not HAS_DUCKDB:
@@ -86,11 +106,11 @@ class ActivationsExporter:
 
         # Build data dict
         data = {
-            'protein_id': protein_ids,
+            "protein_id": protein_ids,
         }
 
         if residue_indices is not None:
-            data['residue_idx'] = residue_indices
+            data["residue_idx"] = residue_indices
 
         # Add activation columns (sparse format: only non-zero features)
         # This is more efficient than storing the full dense matrix
@@ -102,13 +122,13 @@ class ActivationsExporter:
 
         # Create sparse representation
         sparse_data = {
-            'protein_id': [protein_ids[i] for i in nonzero_rows],
-            'feature_id': nonzero_cols.tolist(),
-            'activation': nonzero_values.tolist(),
+            "protein_id": [protein_ids[i] for i in nonzero_rows],
+            "feature_id": nonzero_cols.tolist(),
+            "activation": nonzero_values.tolist(),
         }
 
         if residue_indices is not None:
-            sparse_data['residue_idx'] = [residue_indices[i] for i in nonzero_rows]
+            sparse_data["residue_idx"] = [residue_indices[i] for i in nonzero_rows]
 
         # Create table
         table = pa.table(sparse_data)
@@ -116,13 +136,11 @@ class ActivationsExporter:
         # Add metadata if provided
         if metadata:
             existing_metadata = table.schema.metadata or {}
-            existing_metadata.update({
-                k.encode(): str(v).encode() for k, v in metadata.items()
-            })
+            existing_metadata.update({k.encode(): str(v).encode() for k, v in metadata.items()})
             table = table.replace_schema_metadata(existing_metadata)
 
         # Write to file
-        compression = 'snappy' if compress else None
+        compression = "snappy" if compress else None
         pq.write_table(table, str(output_path), compression=compression)
 
         print(f"✓ Saved {len(nonzero_rows)} non-zero activations to {output_path}")
@@ -162,17 +180,18 @@ class ActivationsExporter:
 
         # Create sparse representation
         data = {
-            'protein_id': [protein_ids[i] for i in nonzero_rows],
-            'feature_id': nonzero_cols.tolist(),
-            'activation': nonzero_values.tolist(),
+            "protein_id": [protein_ids[i] for i in nonzero_rows],
+            "feature_id": nonzero_cols.tolist(),
+            "activation": nonzero_values.tolist(),
         }
 
         if residue_indices is not None:
-            data['residue_idx'] = [residue_indices[i] for i in nonzero_rows]
+            data["residue_idx"] = [residue_indices[i] for i in nonzero_rows]
 
         # Convert to records
         import pandas as pd
-        df = pd.DataFrame(data)
+
+        activations_df = pd.DataFrame(data)  # noqa: F841 - referenced by DuckDB SQL
 
         # Write to DuckDB
         con = duckdb.connect(str(db_path))
@@ -180,10 +199,10 @@ class ActivationsExporter:
         if if_exists == "replace":
             con.execute(f"DROP TABLE IF EXISTS {table_name}")
 
-        con.execute(f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM df")
+        con.execute(f"CREATE TABLE IF NOT EXISTS {table_name} AS SELECT * FROM activations_df")
 
         if if_exists == "append":
-            con.execute(f"INSERT INTO {table_name} SELECT * FROM df")
+            con.execute(f"INSERT INTO {table_name} SELECT * FROM activations_df")
 
         con.close()
 
@@ -212,6 +231,7 @@ class FeatureDataExporter:
     """
 
     def __init__(self):
+        """Initialize the exporter and check for optional dependencies."""
         if not HAS_PARQUET:
             print("Warning: pyarrow not installed. Install with: pip install pyarrow")
         if not HAS_DUCKDB:
@@ -250,7 +270,7 @@ class FeatureDataExporter:
 
     def _save_to_parquet(self, output_dir, stats, examples, annotations, geometry):
         """Save to separate Parquet files."""
-        from .viz.io import save_stats, save_examples, save_geometry
+        from .viz.io import save_examples, save_geometry, save_stats
 
         if stats is not None:
             save_stats(stats, output_dir / "stats.parquet")
@@ -270,63 +290,70 @@ class FeatureDataExporter:
             raise ImportError("duckdb required. Install with: pip install duckdb")
 
         import pandas as pd
+
         db_path = output_dir / "features.duckdb"
         con = duckdb.connect(str(db_path))
 
         if stats is not None:
-            df = pd.DataFrame([
-                {
-                    'feature_id': s.feature_id,
-                    'activation_frequency': s.activation_frequency,
-                    'mean_activation': s.mean_activation,
-                    'max_activation': s.max_activation,
-                    'n_proteins_active': s.n_proteins_active,
-                }
-                for s in stats
-            ])
-            con.execute("CREATE TABLE IF NOT EXISTS stats AS SELECT * FROM df")
+            stats_df = pd.DataFrame(  # noqa: F841 - referenced by DuckDB SQL
+                [
+                    {
+                        "feature_id": s.feature_id,
+                        "activation_frequency": s.activation_frequency,
+                        "mean_activation": s.mean_activation,
+                        "max_activation": s.max_activation,
+                        "n_proteins_active": s.n_proteins_active,
+                    }
+                    for s in stats
+                ]
+            )
+            con.execute("CREATE TABLE IF NOT EXISTS stats AS SELECT * FROM stats_df")
             print(f"  - stats table ({len(stats)} features)")
 
         if examples is not None:
-            df = pd.DataFrame([
-                {
-                    'feature_id': e.feature_id,
-                    'protein_id': e.protein_id,
-                    'residue_idx': e.residue_idx,
-                    'activation_value': e.activation_value,
-                    'sequence_window': e.sequence_window,
-                    'window_start': e.window_start,
-                }
-                for e in examples
-            ])
-            con.execute("CREATE TABLE IF NOT EXISTS examples AS SELECT * FROM df")
+            examples_df = pd.DataFrame(  # noqa: F841 - referenced by DuckDB SQL
+                [
+                    {
+                        "feature_id": e.feature_id,
+                        "protein_id": e.protein_id,
+                        "residue_idx": e.residue_idx,
+                        "activation_value": e.activation_value,
+                        "sequence_window": e.sequence_window,
+                        "window_start": e.window_start,
+                    }
+                    for e in examples
+                ]
+            )
+            con.execute("CREATE TABLE IF NOT EXISTS examples AS SELECT * FROM examples_df")
             print(f"  - examples table ({len(examples)} examples)")
 
         if annotations is not None:
-            df = pd.DataFrame([
-                {
-                    'feature_id': a.feature_id,
-                    'best_annotation': a.best_annotation,
-                    'best_f1': a.best_f1,
-                    'best_precision': a.best_precision,
-                    'best_recall': a.best_recall,
-                    'best_threshold': a.best_threshold,
-                }
-                for a in annotations
-            ])
-            con.execute("CREATE TABLE IF NOT EXISTS annotations AS SELECT * FROM df")
+            annotations_df = pd.DataFrame(  # noqa: F841 - referenced by DuckDB SQL
+                [
+                    {
+                        "feature_id": a.feature_id,
+                        "best_annotation": a.best_annotation,
+                        "best_f1": a.best_f1,
+                        "best_precision": a.best_precision,
+                        "best_recall": a.best_recall,
+                        "best_threshold": a.best_threshold,
+                    }
+                    for a in annotations
+                ]
+            )
+            con.execute("CREATE TABLE IF NOT EXISTS annotations AS SELECT * FROM annotations_df")
             print(f"  - annotations table ({len(annotations)} features)")
 
         if geometry is not None:
             data = {
-                'feature_id': geometry.feature_ids,
-                'umap_x': geometry.umap_x,
-                'umap_y': geometry.umap_y,
+                "feature_id": geometry.feature_ids,
+                "umap_x": geometry.umap_x,
+                "umap_y": geometry.umap_y,
             }
             if geometry.cluster_ids is not None:
-                data['cluster_id'] = geometry.cluster_ids
-            df = pd.DataFrame(data)
-            con.execute("CREATE TABLE IF NOT EXISTS geometry AS SELECT * FROM df")
+                data["cluster_id"] = geometry.cluster_ids
+            geometry_df = pd.DataFrame(data)  # noqa: F841 - referenced by DuckDB SQL
+            con.execute("CREATE TABLE IF NOT EXISTS geometry AS SELECT * FROM geometry_df")
             print(f"  - geometry table ({len(geometry.feature_ids)} features)")
 
         con.close()
@@ -335,10 +362,7 @@ class FeatureDataExporter:
 
 # Convenience functions
 def save_activations_parquet(
-    codes: Union[torch.Tensor, np.ndarray],
-    protein_ids: List[str],
-    output_path: Union[str, Path],
-    **kwargs
+    codes: Union[torch.Tensor, np.ndarray], protein_ids: List[str], output_path: Union[str, Path], **kwargs
 ) -> None:
     """Quick function to save activations to Parquet.
 
@@ -355,7 +379,7 @@ def save_activations_duckdb(
     protein_ids: List[str],
     db_path: Union[str, Path],
     table_name: str = "activations",
-    **kwargs
+    **kwargs,
 ) -> None:
     """Quick function to save activations to DuckDB.
 
@@ -367,11 +391,7 @@ def save_activations_duckdb(
     exporter.save_to_duckdb(codes, protein_ids, db_path, table_name, **kwargs)
 
 
-def save_feature_data(
-    output_dir: Union[str, Path],
-    format: str = "parquet",
-    **data
-) -> None:
+def save_feature_data(output_dir: Union[str, Path], format: str = "parquet", **data) -> None:
     """Quick function to save feature data.
 
     Example:
@@ -396,7 +416,7 @@ def build_dashboard_data(
     output_dir: Union[str, Path],
     masks: Optional[torch.Tensor] = None,
     n_examples: int = 6,
-    device: str = 'cpu',
+    device: str = "cpu",
 ) -> Tuple[Path, Path]:
     """Build all data files needed by the protein dashboard.
 
@@ -431,10 +451,10 @@ def build_dashboard_data(
     n_features = sae.hidden_dim
     n_residues = activations_flat.shape[0]
     n_proteins = len(sequences)
-    print(f"\n{'='*60}")
-    print(f"Building dashboard data")
+    print(f"\n{'=' * 60}")
+    print("Building dashboard data")
     print(f"  {n_features:,} features | {n_residues:,} residues | {n_proteins:,} proteins")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Step 1: Feature statistics
     print("[1/4] Computing feature statistics...")
@@ -458,17 +478,22 @@ def build_dashboard_data(
     print("[4/4] Exporting protein examples...")
     t0 = time.time()
     export_protein_features_parquet(
-        sae=sae, activations=activations, sequences=sequences,
-        protein_ids=protein_ids, output_dir=features_dir,
-        masks=masks, n_examples=n_examples, device=device,
+        sae=sae,
+        activations=activations,
+        sequences=sequences,
+        protein_ids=protein_ids,
+        output_dir=features_dir,
+        masks=masks,
+        n_examples=n_examples,
+        device=device,
     )
     print(f"       Done in {time.time() - t0:.1f}s\n")
 
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     print(f"Dashboard data ready in {time.time() - t_total:.1f}s")
     print(f"  Atlas:    {atlas_path}")
     print(f"  Examples: {features_dir}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     return atlas_path, features_dir
 
@@ -482,7 +507,7 @@ def export_protein_features_parquet(
     masks: Optional[torch.Tensor] = None,
     n_examples: int = 6,
     feature_stats: Optional[Dict[int, Dict]] = None,
-    device: str = 'cpu',
+    device: str = "cpu",
 ) -> None:
     """Export feature data as Parquet files for the protein UMAP dashboard.
 
@@ -511,7 +536,7 @@ def export_protein_features_parquet(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     sae = sae.eval().to(device)
-    n_proteins, seq_len, hidden_dim = activations.shape
+    n_proteins, seq_len, _hidden_dim = activations.shape
     n_features = sae.hidden_dim
 
     # Precompute valid lengths once
@@ -531,7 +556,7 @@ def export_protein_features_parquet(
         for i in tqdm(range(n_proteins), desc="SAE encode (pass 1)"):
             emb = activations[i].to(device)
             acts = sae.encode(emb)  # (seq_len, n_features) — on device
-            max_acts[i] = acts[:valid_lens[i]].max(dim=0).values.cpu().numpy()
+            max_acts[i] = acts[: valid_lens[i]].max(dim=0).values.cpu().numpy()
 
     # For each feature, find top-N proteins by max activation
     print(f"Finding top {n_examples} proteins per feature...")
@@ -539,10 +564,7 @@ def export_protein_features_parquet(
     for feat_idx in range(n_features):
         col = max_acts[:, feat_idx]
         top_indices = np.argsort(col)[::-1][:n_examples]
-        feature_top[feat_idx] = [
-            (int(idx), float(col[idx]))
-            for idx in top_indices if col[idx] > 0
-        ]
+        feature_top[feat_idx] = [(int(idx), float(col[idx])) for idx in top_indices if col[idx] > 0]
 
     # Build reverse index: which features need each protein's per-residue data
     protein_to_features: Dict[int, set] = {}
@@ -571,59 +593,67 @@ def export_protein_features_parquet(
         global_max = float(max_acts[:, feat_idx].max())
 
         stats = feature_stats.get(feat_idx, {}) if feature_stats else {}
-        metadata_rows.append({
-            'feature_id': feat_idx,
-            'description': stats.get('best_annotation') or f'Feature {feat_idx}',
-            'activation_freq': stats.get('activation_freq', 0.0),
-            'max_activation': global_max if global_max > 0 else 0.0,
-            'best_f1': stats.get('best_f1'),
-            'best_annotation': stats.get('best_annotation'),
-        })
+        metadata_rows.append(
+            {
+                "feature_id": feat_idx,
+                "description": stats.get("best_annotation") or f"Feature {feat_idx}",
+                "activation_freq": stats.get("activation_freq", 0.0),
+                "max_activation": global_max if global_max > 0 else 0.0,
+                "best_f1": stats.get("best_f1"),
+                "best_annotation": stats.get("best_annotation"),
+            }
+        )
 
         for rank, (prot_idx, max_act) in enumerate(feature_top[feat_idx]):
             acts_arr = example_acts[(prot_idx, feat_idx)]
-            seq = sequences[prot_idx][:valid_lens[prot_idx]]
+            seq = sequences[prot_idx][: valid_lens[prot_idx]]
             pid = protein_ids[prot_idx]
-            accession = pid.split('|')[1] if '|' in pid else pid
+            accession = pid.split("|")[1] if "|" in pid else pid
 
-            example_rows.append({
-                'feature_id': feat_idx,
-                'example_rank': rank,
-                'protein_id': pid,
-                'alphafold_id': f'AF-{accession}-F1',
-                'sequence': seq,
-                'activations': acts_arr.tolist(),
-                'max_activation': float(max_act),
-            })
+            example_rows.append(
+                {
+                    "feature_id": feat_idx,
+                    "example_rank": rank,
+                    "protein_id": pid,
+                    "alphafold_id": f"AF-{accession}-F1",
+                    "sequence": seq,
+                    "activations": acts_arr.tolist(),
+                    "max_activation": float(max_act),
+                }
+            )
 
     del max_acts, example_acts  # free memory
 
     # Write feature_metadata.parquet
-    meta_table = pa.table({
-        'feature_id': pa.array([r['feature_id'] for r in metadata_rows], type=pa.int32()),
-        'description': pa.array([r['description'] for r in metadata_rows], type=pa.utf8()),
-        'activation_freq': pa.array([r['activation_freq'] for r in metadata_rows], type=pa.float32()),
-        'max_activation': pa.array([r['max_activation'] for r in metadata_rows], type=pa.float32()),
-        'best_f1': pa.array([r['best_f1'] for r in metadata_rows], type=pa.float32()),
-        'best_annotation': pa.array([r['best_annotation'] for r in metadata_rows], type=pa.utf8()),
-    })
-    meta_path = output_dir / 'feature_metadata.parquet'
+    meta_table = pa.table(
+        {
+            "feature_id": pa.array([r["feature_id"] for r in metadata_rows], type=pa.int32()),
+            "description": pa.array([r["description"] for r in metadata_rows], type=pa.utf8()),
+            "activation_freq": pa.array([r["activation_freq"] for r in metadata_rows], type=pa.float32()),
+            "max_activation": pa.array([r["max_activation"] for r in metadata_rows], type=pa.float32()),
+            "best_f1": pa.array([r["best_f1"] for r in metadata_rows], type=pa.float32()),
+            "best_annotation": pa.array([r["best_annotation"] for r in metadata_rows], type=pa.utf8()),
+        }
+    )
+    meta_path = output_dir / "feature_metadata.parquet"
     pq.write_table(meta_table, str(meta_path))
     print(f"  Saved {len(metadata_rows)} features to {meta_path}")
 
     # Write feature_examples.parquet (sorted by feature_id for row-group pushdown)
     activations_type = pa.list_(pa.float32())
-    examples_table = pa.table({
-        'feature_id': pa.array([r['feature_id'] for r in example_rows], type=pa.int32()),
-        'example_rank': pa.array([r['example_rank'] for r in example_rows], type=pa.int8()),
-        'protein_id': pa.array([r['protein_id'] for r in example_rows], type=pa.utf8()),
-        'alphafold_id': pa.array([r['alphafold_id'] for r in example_rows], type=pa.utf8()),
-        'sequence': pa.array([r['sequence'] for r in example_rows], type=pa.utf8()),
-        'activations': pa.array([r['activations'] for r in example_rows], type=activations_type),
-        'max_activation': pa.array([r['max_activation'] for r in example_rows], type=pa.float32()),
-    })
-    examples_table = examples_table.sort_by('feature_id')
-    examples_path = output_dir / 'feature_examples.parquet'
+    examples_table = pa.table(
+        {
+            "feature_id": pa.array([r["feature_id"] for r in example_rows], type=pa.int32()),
+            "example_rank": pa.array([r["example_rank"] for r in example_rows], type=pa.int8()),
+            "protein_id": pa.array([r["protein_id"] for r in example_rows], type=pa.utf8()),
+            "alphafold_id": pa.array([r["alphafold_id"] for r in example_rows], type=pa.utf8()),
+            "sequence": pa.array([r["sequence"] for r in example_rows], type=pa.utf8()),
+            "activations": pa.array([r["activations"] for r in example_rows], type=activations_type),
+            "max_activation": pa.array([r["max_activation"] for r in example_rows], type=pa.float32()),
+        }
+    )
+    examples_table = examples_table.sort_by("feature_id")
+    examples_path = output_dir / "feature_examples.parquet"
     pq.write_table(examples_table, str(examples_path), row_group_size=n_examples * 100)
     print(f"  Saved {len(example_rows)} examples to {examples_path}")
 
@@ -639,7 +669,7 @@ def export_protein_features_json(
     feature_stats: Optional[Dict[int, Dict]] = None,
     model_name: str = "esm2-8m",
     layer: int = 6,
-    device: str = 'cpu',
+    device: str = "cpu",
 ) -> None:
     """Deprecated: use export_protein_features_parquet() instead.
 
@@ -661,12 +691,13 @@ def export_protein_features_json(
         device: Compute device
     """
     import json
+
     from tqdm import tqdm
 
     output_path = Path(output_path)
 
     sae = sae.eval().to(device)
-    n_proteins, seq_len, hidden_dim = activations.shape
+    n_proteins, seq_len, _hidden_dim = activations.shape
     n_features = sae.hidden_dim
 
     # Precompute valid lengths
@@ -684,17 +715,14 @@ def export_protein_features_json(
         for i in tqdm(range(n_proteins), desc="SAE encode (pass 1)"):
             emb = activations[i].to(device)
             acts = sae.encode(emb)
-            max_acts[i] = acts[:valid_lens[i]].max(dim=0).values.cpu().numpy()
+            max_acts[i] = acts[: valid_lens[i]].max(dim=0).values.cpu().numpy()
 
     # For each feature, find top-N proteins
     feature_top = {}
     for feat_idx in range(n_features):
         col = max_acts[:, feat_idx]
         top_indices = np.argsort(col)[::-1][:n_examples]
-        feature_top[feat_idx] = [
-            (int(idx), float(col[idx]))
-            for idx in top_indices if col[idx] > 0
-        ]
+        feature_top[feat_idx] = [(int(idx), float(col[idx])) for idx in top_indices if col[idx] > 0]
 
     # Build reverse index: protein -> features needing per-residue data
     protein_to_features: Dict[int, set] = {}
@@ -723,29 +751,33 @@ def export_protein_features_json(
         examples = []
         for prot_idx, max_act in feature_top[feat_idx]:
             acts_arr = example_acts[(prot_idx, feat_idx)]
-            seq = sequences[prot_idx][:valid_lens[prot_idx]]
+            seq = sequences[prot_idx][: valid_lens[prot_idx]]
             pid = protein_ids[prot_idx]
-            accession = pid.split('|')[1] if '|' in pid else pid
+            accession = pid.split("|")[1] if "|" in pid else pid
 
-            examples.append({
-                "protein_id": pid,
-                "alphafold_id": f"AF-{accession}-F1",
-                "sequence": seq,
-                "activations": acts_arr.tolist(),
-                "max_activation": float(max_act),
-            })
+            examples.append(
+                {
+                    "protein_id": pid,
+                    "alphafold_id": f"AF-{accession}-F1",
+                    "sequence": seq,
+                    "activations": acts_arr.tolist(),
+                    "max_activation": float(max_act),
+                }
+            )
 
         stats = feature_stats.get(feat_idx, {}) if feature_stats else {}
 
-        features_list.append({
-            "feature_id": feat_idx,
-            "description": stats.get("best_annotation") or f"Feature {feat_idx}",
-            "activation_freq": stats.get("activation_freq", 0.0),
-            "max_activation": global_max if global_max > 0 else 0.0,
-            "best_f1": stats.get("best_f1"),
-            "best_annotation": stats.get("best_annotation"),
-            "examples": examples,
-        })
+        features_list.append(
+            {
+                "feature_id": feat_idx,
+                "description": stats.get("best_annotation") or f"Feature {feat_idx}",
+                "activation_freq": stats.get("activation_freq", 0.0),
+                "max_activation": global_max if global_max > 0 else 0.0,
+                "best_f1": stats.get("best_f1"),
+                "best_annotation": stats.get("best_annotation"),
+                "examples": examples,
+            }
+        )
 
     del max_acts, example_acts
 
@@ -757,7 +789,7 @@ def export_protein_features_json(
         "features": features_list,
     }
 
-    with open(output_path, 'w') as f:
+    with open(output_path, "w") as f:
         json.dump(output_data, f)
 
     print(f"Exported {n_features} features ({n_examples} examples each) to {output_path}")
@@ -792,10 +824,9 @@ def launch_protein_dashboard(
         >>> proc = launch_protein_dashboard("./outputs/features_atlas.parquet")
         >>> proc.terminate()  # when done
     """
-    import subprocess
     import shutil
-    import webbrowser
     import time
+    import webbrowser
 
     data_path = Path(data_path).resolve()
     if not data_path.exists():
@@ -809,16 +840,20 @@ def launch_protein_dashboard(
     viz_dir = get_protein_dashboard_dir()
     if not (viz_dir / "package.json").exists():
         raise FileNotFoundError(
-            f"Could not find protein dashboard at {viz_dir}. "
-            "Is the recipes/esm2/protein_dashboard directory present?"
+            f"Could not find protein dashboard at {viz_dir}. Is the recipes/esm2/protein_dashboard directory present?"
         )
 
     public_dir = viz_dir / "public"
     public_dir.mkdir(exist_ok=True)
 
     if clean_public:
-        for stale in ['features_atlas.parquet', 'feature_metadata.parquet',
-                       'feature_examples.parquet', 'features.json', 'cluster_labels.json']:
+        for stale in [
+            "features_atlas.parquet",
+            "feature_metadata.parquet",
+            "feature_examples.parquet",
+            "features.json",
+            "cluster_labels.json",
+        ]:
             p = public_dir / stale
             if p.exists():
                 p.unlink()
@@ -829,7 +864,7 @@ def launch_protein_dashboard(
         print(f"Copied {data_path} -> {dest_parquet}")
 
     # Copy feature parquet files
-    for fname in ['feature_metadata.parquet', 'feature_examples.parquet']:
+    for fname in ["feature_metadata.parquet", "feature_examples.parquet"]:
         src = features_dir / fname
         if src.exists():
             dest = public_dir / fname

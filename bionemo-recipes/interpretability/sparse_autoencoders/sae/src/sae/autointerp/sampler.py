@@ -1,18 +1,33 @@
-"""
-Sample examples for feature interpretation.
-"""
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Sample examples for feature interpretation."""
+
+from dataclasses import dataclass
+from typing import Any, Callable
 
 import torch
-from dataclasses import dataclass
-from typing import Callable, Optional, Any
 
 
 @dataclass
 class FeatureExamples:
     """Examples for a single feature."""
+
     feature_idx: int
     high_examples: list[dict]  # High activation examples
-    low_examples: list[dict]   # Low/zero activation examples
+    low_examples: list[dict]  # Low/zero activation examples
 
 
 class FeatureSampler:
@@ -51,14 +66,16 @@ class FeatureSampler:
         n_high: int = 10,
         n_low: int = 5,
     ):
+        """Initialize the sampler with activations, data, and formatting function."""
         self.activations = activations
         self.data = data
         self.format_fn = format_fn
         self.n_high = n_high
         self.n_low = n_low
 
-        assert len(data) == activations.shape[0], \
+        assert len(data) == activations.shape[0], (
             f"Data length {len(data)} != activations shape {activations.shape[0]}"
+        )
 
     def sample_feature(self, feature_idx: int) -> FeatureExamples:
         """Sample examples for a single feature."""
@@ -69,7 +86,7 @@ class FeatureSampler:
 
         # High activation examples (top n_high)
         high_examples = []
-        for idx in sorted_indices[:self.n_high]:
+        for idx in sorted_indices[: self.n_high]:
             idx = idx.item()
             act_value = feature_acts[idx].item()
             if act_value <= 0:
@@ -79,18 +96,20 @@ class FeatureSampler:
             # This requires per-position activations if available
             active_indices = []  # Placeholder - depends on data structure
 
-            high_examples.append({
-                "data_idx": idx,
-                "activation": act_value,
-                "formatted": self.format_fn(self.data[idx], act_value, active_indices),
-            })
+            high_examples.append(
+                {
+                    "data_idx": idx,
+                    "activation": act_value,
+                    "formatted": self.format_fn(self.data[idx], act_value, active_indices),
+                }
+            )
 
         # Low/zero activation examples (random from zero activations)
         zero_mask = feature_acts == 0
         zero_indices = torch.where(zero_mask)[0]
 
         if len(zero_indices) >= self.n_low:
-            perm = torch.randperm(len(zero_indices))[:self.n_low]
+            perm = torch.randperm(len(zero_indices))[: self.n_low]
             low_indices = zero_indices[perm]
         else:
             low_indices = zero_indices
@@ -98,11 +117,13 @@ class FeatureSampler:
         low_examples = []
         for idx in low_indices:
             idx = idx.item()
-            low_examples.append({
-                "data_idx": idx,
-                "activation": 0.0,
-                "formatted": self.format_fn(self.data[idx], 0.0, []),
-            })
+            low_examples.append(
+                {
+                    "data_idx": idx,
+                    "activation": 0.0,
+                    "formatted": self.format_fn(self.data[idx], 0.0, []),
+                }
+            )
 
         return FeatureExamples(
             feature_idx=feature_idx,

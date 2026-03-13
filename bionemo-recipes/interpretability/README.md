@@ -18,6 +18,7 @@ Sparse autoencoders (SAEs) are a mechanistic interpretability technique for deco
   - **`codonfm/`** — SAE recipes for CodonFM codon-level representations
 
 ## Structure
+
 ```
 interpretability/
     sparse-autoencoders/
@@ -30,6 +31,7 @@ interpretability/
 ## Getting Started
 
 Each recipe directory contains its own README with setup instructions, Docker build commands, and guidance on interpreting results. The general pattern follows the rest of bionemo-recipes:
+
 ```bash
 cd sparse-autoencoders/recipes/esm2
 docker build -t esm2_sae .

@@ -1,25 +1,41 @@
-"""
-Reconstruction quality metrics for SAE evaluation.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Reconstruction quality metrics for SAE evaluation.
 
 Measures how well the SAE reconstructs the original embeddings:
 - MSE: Mean squared error between original and reconstructed
 - Variance Explained (R²): Proportion of variance captured by reconstruction
 """
 
-import torch
-import numpy as np
-from typing import Dict, Optional, Tuple, Union
 from dataclasses import dataclass
+from typing import Dict
+
+import torch
 
 
 @dataclass
 class ReconstructionMetrics:
     """Container for reconstruction quality metrics."""
+
     mse: float
     variance_explained: float
     normalized_mse: float  # MSE / var(original)
 
     def __repr__(self) -> str:
+        """Return string representation of reconstruction metrics."""
         return (
             f"ReconstructionMetrics(mse={self.mse:.6f}, "
             f"var_explained={self.variance_explained:.4f}, "
@@ -31,8 +47,7 @@ def compute_mse(
     original: torch.Tensor,
     reconstructed: torch.Tensor,
 ) -> float:
-    """
-    Compute mean squared error between original and reconstructed.
+    """Compute mean squared error between original and reconstructed.
 
     Args:
         original: Original embeddings, shape (..., hidden_dim)
@@ -49,8 +64,7 @@ def compute_variance_explained(
     reconstructed: torch.Tensor,
     eps: float = 1e-8,
 ) -> float:
-    """
-    Compute variance explained (R²) by the reconstruction.
+    """Compute variance explained (R²) by the reconstruction.
 
     R² = 1 - Var(residual) / Var(original)
 
@@ -80,8 +94,7 @@ def compute_normalized_mse(
     reconstructed: torch.Tensor,
     eps: float = 1e-8,
 ) -> float:
-    """
-    Compute MSE normalized by the variance of the original.
+    """Compute MSE normalized by the variance of the original.
 
     Normalized MSE = MSE / Var(original)
 
@@ -105,8 +118,7 @@ def compute_reconstruction_metrics(
     original: torch.Tensor,
     reconstructed: torch.Tensor,
 ) -> ReconstructionMetrics:
-    """
-    Compute all reconstruction quality metrics.
+    """Compute all reconstruction quality metrics.
 
     Args:
         original: Original embeddings, shape (n_samples, hidden_dim)
@@ -126,10 +138,9 @@ def evaluate_reconstruction(
     sae: torch.nn.Module,
     embeddings: torch.Tensor,
     batch_size: int = 1024,
-    device: str = 'cpu',
+    device: str = "cpu",
 ) -> ReconstructionMetrics:
-    """
-    Evaluate SAE reconstruction quality on a dataset.
+    """Evaluate SAE reconstruction quality on a dataset.
 
     For SAEs with normalize_input=True, metrics are computed in the normalized
     space (what the SAE is actually learning to reconstruct).
@@ -152,7 +163,7 @@ def evaluate_reconstruction(
 
     with torch.no_grad():
         for i in range(0, n_samples, batch_size):
-            batch = embeddings[i:i + batch_size].to(device)
+            batch = embeddings[i : i + batch_size].to(device)
             reconstructed, _ = sae(batch)
 
             # Always compute on original data - standard practice
@@ -160,7 +171,7 @@ def evaluate_reconstruction(
             recon_centered = reconstructed
 
             # Accumulate for aggregation
-            mse = torch.nn.functional.mse_loss(recon_centered, target, reduction='sum')
+            mse = torch.nn.functional.mse_loss(recon_centered, target, reduction="sum")
             var_total = torch.var(target, dim=0).sum() * batch.shape[0]
             residual = target - recon_centered
             var_residual = torch.var(residual, dim=0).sum() * batch.shape[0]
@@ -190,8 +201,7 @@ def compute_batch_reconstruction_metrics(
     original: torch.Tensor,
     reconstructed: torch.Tensor,
 ) -> Dict[str, float]:
-    """
-    Compute reconstruction metrics for a single batch (for use in training loop).
+    """Compute reconstruction metrics for a single batch (for use in training loop).
 
     Args:
         original: Original batch
@@ -202,7 +212,7 @@ def compute_batch_reconstruction_metrics(
     """
     metrics = compute_reconstruction_metrics(original, reconstructed)
     return {
-        'mse': metrics.mse,
-        'variance_explained': metrics.variance_explained,
-        'normalized_mse': metrics.normalized_mse,
+        "mse": metrics.mse,
+        "variance_explained": metrics.variance_explained,
+        "normalized_mse": metrics.normalized_mse,
     }

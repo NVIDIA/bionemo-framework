@@ -1,5 +1,19 @@
-"""
-FastAPI server for SAE feature steering with SSE streaming.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""FastAPI server for SAE feature steering with SSE streaming.
 
 Provides three endpoints:
 - GET  /features — feature metadata from parquet (for the picker UI)
@@ -11,7 +25,6 @@ Launch via launch_steering_server() or use create_app() for custom setups.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -90,9 +103,7 @@ def create_app(
         if search:
             q = search.lower()
             results = [
-                f for f in results
-                if q in str(f.get("description", "")).lower()
-                or q in str(f.get("feature_id", ""))
+                f for f in results if q in str(f.get("description", "")).lower() or q in str(f.get("feature_id", ""))
             ]
         return results[:limit]
 
@@ -124,9 +135,7 @@ def create_app(
             else:
                 steered_model.clear_interventions()
 
-            steered_tokens = _generate_tokens(
-                steered_model, tokenizer, prompt, max_tokens
-            )
+            steered_tokens = _generate_tokens(steered_model, tokenizer, prompt, max_tokens)
             for token_text in steered_tokens:
                 event = json.dumps({"source": "steered", "token": token_text})
                 yield f"event: token\ndata: {event}\n\n"
@@ -134,9 +143,7 @@ def create_app(
             # Generate baseline response if compare mode
             if compare:
                 steered_model.clear_interventions()
-                baseline_tokens = _generate_tokens(
-                    steered_model, tokenizer, prompt, max_tokens
-                )
+                baseline_tokens = _generate_tokens(steered_model, tokenizer, prompt, max_tokens)
                 for token_text in baseline_tokens:
                     event = json.dumps({"source": "baseline", "token": token_text})
                     yield f"event: token\ndata: {event}\n\n"

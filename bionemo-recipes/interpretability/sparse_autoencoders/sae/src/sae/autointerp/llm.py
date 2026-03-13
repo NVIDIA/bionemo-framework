@@ -1,5 +1,19 @@
-"""
-LLM clients for auto-interpretation.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""LLM clients for auto-interpretation.
 
 All clients use environment variables for API keys:
 - ANTHROPIC_API_KEY for Anthropic
@@ -7,16 +21,17 @@ All clients use environment variables for API keys:
 - NIM_API_KEY and NIM_BASE_URL for NVIDIA NIM
 """
 
+import concurrent.futures
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
-import concurrent.futures
 
 
 @dataclass
 class LLMResponse:
     """Response from an LLM."""
+
     text: str
     model: str
     usage: Optional[dict] = None
@@ -43,6 +58,7 @@ class LLMClient(ABC):
             if show_progress:
                 try:
                     from tqdm import tqdm
+
                     futures_iter = tqdm(
                         concurrent.futures.as_completed(futures),
                         total=len(futures),
@@ -71,6 +87,7 @@ class AnthropicClient(LLMClient):
         api_key: Optional[str] = None,
         max_tokens: int = 1024,
     ):
+        """Initialize the Anthropic client with model and API key."""
         self.model = model
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         self.max_tokens = max_tokens
@@ -80,11 +97,13 @@ class AnthropicClient(LLMClient):
 
         try:
             import anthropic
+
             self.client = anthropic.Anthropic(api_key=self.api_key)
         except ImportError:
             raise ImportError("Install anthropic: pip install anthropic")
 
     def generate(self, prompt: str) -> LLMResponse:
+        """Generate a response using the Anthropic API."""
         message = self.client.messages.create(
             model=self.model,
             max_tokens=self.max_tokens,
@@ -121,6 +140,7 @@ class OpenAICompatibleClient(LLMClient):
         max_tokens: int = 1024,
         temperature: Optional[float] = None,
     ):
+        """Initialize the OpenAI-compatible client with model and API configuration."""
         self.model = model
         self.api_key = api_key or os.environ.get(api_key_env)
         self.max_tokens = max_tokens
@@ -131,6 +151,7 @@ class OpenAICompatibleClient(LLMClient):
 
         try:
             import openai
+
             kwargs = {"api_key": self.api_key}
             if base_url:
                 kwargs["base_url"] = base_url
@@ -139,6 +160,7 @@ class OpenAICompatibleClient(LLMClient):
             raise ImportError("Install openai: pip install openai")
 
     def generate(self, prompt: str) -> LLMResponse:
+        """Generate a response using the OpenAI-compatible API."""
         kwargs = {
             "model": self.model,
             "max_tokens": self.max_tokens,
@@ -154,16 +176,21 @@ class OpenAICompatibleClient(LLMClient):
             usage={
                 "input_tokens": response.usage.prompt_tokens if response.usage else None,
                 "output_tokens": response.usage.completion_tokens if response.usage else None,
-            } if response.usage else None,
+            }
+            if response.usage
+            else None,
         )
 
 
 # Backward-compatible aliases with sensible defaults
 
+
 def OpenAIClient(model: str = "gpt-4o", api_key: Optional[str] = None, max_tokens: int = 1024):
     """Client for OpenAI models."""
     return OpenAICompatibleClient(
-        model=model, api_key=api_key, api_key_env="OPENAI_API_KEY",
+        model=model,
+        api_key=api_key,
+        api_key_env="OPENAI_API_KEY",  # pragma: allowlist secret
         max_tokens=max_tokens,
     )
 
@@ -176,7 +203,9 @@ def NIMClient(
 ):
     """Client for NVIDIA NIM (uses OpenAI-compatible API)."""
     return OpenAICompatibleClient(
-        model=model, api_key=api_key, api_key_env="NIM_API_KEY",
+        model=model,
+        api_key=api_key,
+        api_key_env="NIM_API_KEY",  # pragma: allowlist secret
         base_url=base_url or os.environ.get("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1"),
         max_tokens=max_tokens,
     )
@@ -191,6 +220,10 @@ def NVIDIAInternalClient(
 ):
     """Client for NVIDIA internal inference API (Bedrock Claude via NVIDIA)."""
     return OpenAICompatibleClient(
-        model=model, api_key=api_key, api_key_env="CLAUDE_SONNET_INFERENCE_API_KEY",
-        base_url=base_url, max_tokens=max_tokens, temperature=temperature,
+        model=model,
+        api_key=api_key,
+        api_key_env="CLAUDE_SONNET_INFERENCE_API_KEY",  # pragma: allowlist secret
+        base_url=base_url,
+        max_tokens=max_tokens,
+        temperature=temperature,
     )

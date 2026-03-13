@@ -1,34 +1,50 @@
-"""
-Feature activation statistics and example collection.
-"""
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Feature activation statistics and example collection."""
+
+import heapq
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
 import numpy as np
 import torch
-from typing import List, Optional, Tuple
-from dataclasses import dataclass
-import heapq
 from tqdm import tqdm
 
 
 @dataclass
 class FeatureStats:
     """Global statistics for a single feature."""
+
     feature_id: int
     activation_frequency: float  # Fraction of residues where feature fires
-    mean_activation: float       # Mean activation when active
-    max_activation: float        # Global max activation
-    n_proteins_active: int       # Number of proteins where feature appeared
+    mean_activation: float  # Mean activation when active
+    max_activation: float  # Global max activation
+    n_proteins_active: int  # Number of proteins where feature appeared
 
 
 @dataclass
 class FeatureExample:
     """A single high-activation example for a feature."""
+
     feature_id: int
     protein_id: str
     residue_idx: int
     activation_value: float
-    sequence_window: str         # e.g., 10 residues centered on position
-    window_start: int            # Start index of window in full sequence
+    sequence_window: str  # e.g., 10 residues centered on position
+    window_start: int  # Start index of window in full sequence
     highlight_values: List[float]  # Per-residue activations in window
 
 
@@ -41,11 +57,10 @@ def compute_feature_activations(
     n_top_examples: int = 20,
     window_size: int = 21,
     activation_threshold: float = 0.0,
-    device: str = 'cpu',
+    device: str = "cpu",
     batch_size: int = 32,
 ) -> Tuple[List[FeatureStats], List[FeatureExample]]:
-    """
-    Compute feature activation statistics and collect top examples.
+    """Compute feature activation statistics and collect top examples.
 
     Args:
         sae: Trained SAE model
@@ -63,7 +78,7 @@ def compute_feature_activations(
         Tuple of (feature_stats, feature_examples)
     """
     sae = sae.eval().to(device)
-    n_seqs, seq_len, hidden_dim = embeddings.shape
+    n_seqs, seq_len, _hidden_dim = embeddings.shape
     n_features = sae.hidden_dim
 
     # Accumulators
@@ -150,15 +165,19 @@ def compute_feature_activations(
     feature_stats = []
     for feat_idx in range(n_features):
         freq = total_active_count[feat_idx] / total_valid_positions if total_valid_positions > 0 else 0
-        mean_act = total_activations[feat_idx] / total_active_count[feat_idx] if total_active_count[feat_idx] > 0 else 0
+        mean_act = (
+            total_activations[feat_idx] / total_active_count[feat_idx] if total_active_count[feat_idx] > 0 else 0
+        )
 
-        feature_stats.append(FeatureStats(
-            feature_id=feat_idx,
-            activation_frequency=freq,
-            mean_activation=mean_act,
-            max_activation=max_activations[feat_idx],
-            n_proteins_active=len(proteins_with_feature[feat_idx]),
-        ))
+        feature_stats.append(
+            FeatureStats(
+                feature_id=feat_idx,
+                activation_frequency=freq,
+                mean_activation=mean_act,
+                max_activation=max_activations[feat_idx],
+                n_proteins_active=len(proteins_with_feature[feat_idx]),
+            )
+        )
 
     # Extract examples from heaps
     feature_examples = []

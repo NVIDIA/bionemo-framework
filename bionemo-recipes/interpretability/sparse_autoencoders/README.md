@@ -60,11 +60,11 @@ trainer.train(embeddings)
 
 ## SAE Architectures
 
-| Architecture | Class | Sparsity Mechanism |
-|---|---|---|
-| ReLU + L1 | `ReLUSAE` | L1 penalty on activations |
-| Top-K | `TopKSAE` | Only top-K features activate per input |
-| Mixture of Experts | `MoESAE` | Expert routing with sparse gating |
+| Architecture       | Class     | Sparsity Mechanism                     |
+| ------------------ | --------- | -------------------------------------- |
+| ReLU + L1          | `ReLUSAE` | L1 penalty on activations              |
+| Top-K              | `TopKSAE` | Only top-K features activate per input |
+| Mixture of Experts | `MoESAE`  | Expert routing with sparse gating      |
 
 ## Feature Exploration
 

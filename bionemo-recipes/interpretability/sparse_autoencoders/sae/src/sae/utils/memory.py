@@ -1,24 +1,40 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 from __future__ import annotations
+
 
 def _fmt_bytes(b: int) -> str:
     # Decimal units to match your "3.36GB" math (1 GB = 1e9 bytes)
     if b < 1_000:
         return f"{b}B"
     if b < 1_000_000:
-        return f"{b/1e3:.2f}KB"
+        return f"{b / 1e3:.2f}KB"
     if b < 1_000_000_000:
-        return f"{b/1e6:.2f}MB"
+        return f"{b / 1e6:.2f}MB"
     if b < 1_000_000_000_000:
-        return f"{b/1e9:.2f}GB"
-    return f"{b/1e12:.2f}TB"
+        return f"{b / 1e9:.2f}GB"
+    return f"{b / 1e12:.2f}TB"
 
 
 def sae_weight_memory(d: int, expansion: float, precision_bytes: int, bias: bool = True) -> str:
-    """
-    Weights for SAE:
-      W_enc: (n, d)
-      W_dec: (d, n)
-      (optional) biases: (n + d)
+    """Compute weight memory for an SAE.
+
+    W_enc: (n, d)
+    W_dec: (d, n)
+    (optional) biases: (n + d)
     n = int(expansion * d)
     """
     n = int(expansion * d)
@@ -29,8 +45,7 @@ def sae_weight_memory(d: int, expansion: float, precision_bytes: int, bias: bool
 
 
 def sae_forward_memory(d: int, expansion: float, precision_bytes: int, batch_size: int, k: int) -> dict:
-    """
-    Forward activation memory you typically retain for backward.
+    """Forward activation memory you typically retain for backward.
 
     Components:
       x:                (B, d)
@@ -60,9 +75,10 @@ def sae_forward_memory(d: int, expansion: float, precision_bytes: int, batch_siz
     }
 
 
-def sae_backward_memory(d: int, expansion: float, precision_bytes: int, batch_size: int, optimizer: str = "adam") -> dict:
-    """
-    Backward/grad/optimizer memory estimate.
+def sae_backward_memory(
+    d: int, expansion: float, precision_bytes: int, batch_size: int, optimizer: str = "adam"
+) -> dict:
+    """Backward/grad/optimizer memory estimate.
 
     Includes:
       - activation grads: grad_x (B,d) and grad_pre (B,n)  [dominant]
@@ -105,10 +121,10 @@ def sae_backward_memory(d: int, expansion: float, precision_bytes: int, batch_si
     }
 
 
-def sae_total_memory(d: int, expansion: float, precision_bytes: int, batch_size: int, k: int, optimizer: str = "adam") -> str:
-    """
-    Total = weights + forward + backward/optimizer. Prints breakdown.
-    """
+def sae_total_memory(
+    d: int, expansion: float, precision_bytes: int, batch_size: int, k: int, optimizer: str = "adam"
+) -> str:
+    """Total = weights + forward + backward/optimizer. Prints breakdown."""
     n = int(expansion * d)
     P = precision_bytes
 

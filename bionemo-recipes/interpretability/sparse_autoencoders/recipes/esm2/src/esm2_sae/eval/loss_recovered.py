@@ -1,17 +1,31 @@
-"""
-Loss recovered evaluation for SAEs on ESM2.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Loss recovered evaluation for SAEs on ESM2.
 
 ESM2-specific wrapper around the general loss_recovered metric.
 CE is computed over all non-special tokens (positions 1..length-2) per sequence,
 matching InterPLM's convention for masked language models.
 """
 
+from typing import List, Tuple
+
+import numpy as np
 import torch
 import torch.nn.functional as F
-from typing import List, Tuple
-import numpy as np
-
-from sae.eval import evaluate_loss_recovered, LossRecoveredResult
+from sae.eval import LossRecoveredResult, evaluate_loss_recovered
 
 
 def evaluate_esm2_loss_recovered(
@@ -25,8 +39,7 @@ def evaluate_esm2_loss_recovered(
     seed: int = 42,
     max_length: int = 1024,
 ) -> LossRecoveredResult:
-    """
-    Evaluate SAE loss recovered on protein sequences.
+    """Evaluate SAE loss recovered on protein sequences.
 
     Args:
         sae: Trained sparse autoencoder.
@@ -59,8 +72,7 @@ def evaluate_esm2_loss_recovered(
         encoder_layers = encoder.layers
     else:
         raise AttributeError(
-            f"Cannot find encoder layers on {type(encoder).__name__}. "
-            f"Expected 'layer' or 'layers' attribute."
+            f"Cannot find encoder layers on {type(encoder).__name__}. Expected 'layer' or 'layers' attribute."
         )
 
     # Pre-tokenize into batches
@@ -74,10 +86,12 @@ def evaluate_esm2_loss_recovered(
             max_length=max_length,
             return_tensors="pt",
         )
-        batches.append({
-            "input_ids": enc["input_ids"].to(device),
-            "attention_mask": enc["attention_mask"].to(device),
-        })
+        batches.append(
+            {
+                "input_ids": enc["input_ids"].to(device),
+                "attention_mask": enc["attention_mask"].to(device),
+            }
+        )
 
     def get_hiddens(batch):
         outputs = model(
@@ -95,8 +109,12 @@ def evaluate_esm2_loss_recovered(
             logits = model(input_ids, attention_mask).logits
         else:
             logits = _forward_with_hidden(
-                model, encoder_layers, layer_idx,
-                input_ids, attention_mask, hidden_override,
+                model,
+                encoder_layers,
+                layer_idx,
+                input_ids,
+                attention_mask,
+                hidden_override,
             )
 
         return _esm2_sequence_ce(logits, input_ids, attention_mask)
@@ -124,6 +142,7 @@ def _forward_with_hidden(
     hidden_override: torch.Tensor,
 ) -> torch.Tensor:
     """Forward pass with the hidden state at layer_idx replaced."""
+
     def hook_fn(module, inputs, output):
         # Cast to match model dtype (e.g. SAE outputs float32 but model runs in bf16)
         ref = output[0] if isinstance(output, tuple) else output
@@ -167,9 +186,9 @@ def _esm2_sequence_ce(
     labels: torch.Tensor,
     attention_mask: torch.Tensor,
 ) -> Tuple[float, int]:
-    """
-    CE for masked language models: score every non-special, non-padding token
-    (exclude start and end tokens). Returns (total_ce, n_tokens).
+    """CE for masked language models: score every non-special, non-padding token.
+
+    Excludes start and end tokens. Returns (total_ce, n_tokens).
     """
     B, L, V = logits.shape
 

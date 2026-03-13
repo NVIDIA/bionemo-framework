@@ -1,5 +1,19 @@
-"""
-Train SAE from cached activations.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Train SAE from cached activations.
 
 Loads pre-extracted activations from an ActivationStore cache directory
 and trains a Sparse Autoencoder. Requires extract.py to have been run
@@ -27,44 +41,38 @@ from pathlib import Path
 
 import numpy as np
 import torch
-
 from sae.activation_store import load_activations
-from sae.architectures import TopKSAE, ReLUSAE
+from sae.architectures import ReLUSAE, TopKSAE
 from sae.perf_logger import PerfLogger
 from sae.training import ParallelConfig, Trainer, TrainingConfig, WandbConfig
 from sae.utils import get_device, set_seed
 
 
 def parse_args():
+    """Parse command-line arguments for SAE training."""
     p = argparse.ArgumentParser(
         description="Train SAE from cached activations",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Required
-    p.add_argument("--cache-dir", type=str, required=True,
-                   help="Path to activation cache (from extract.py)")
-    p.add_argument("--model-name", type=str, required=True,
-                   help="ESM2 model name (for cache validation)")
-    p.add_argument("--layer", type=int, required=True,
-                   help="Layer index (for cache validation)")
+    p.add_argument("--cache-dir", type=str, required=True, help="Path to activation cache (from extract.py)")
+    p.add_argument("--model-name", type=str, required=True, help="ESM2 model name (for cache validation)")
+    p.add_argument("--layer", type=int, required=True, help="Layer index (for cache validation)")
 
     # SAE architecture
     sae_group = p.add_argument_group("SAE model")
-    sae_group.add_argument("--model-type", type=str, default="topk",
-                           choices=["topk", "relu"])
+    sae_group.add_argument("--model-type", type=str, default="topk", choices=["topk", "relu"])
     sae_group.add_argument("--expansion-factor", type=int, default=8)
     sae_group.add_argument("--top-k", type=int, default=32)
-    sae_group.add_argument("--normalize-input", action=argparse.BooleanOptionalAction,
-                           default=False)
-    sae_group.add_argument("--auxk", type=int, default=None,
-                           help="Auxiliary latents for dead latent loss (None=disabled)")
-    sae_group.add_argument("--auxk-coef", type=float, default=1/32)
+    sae_group.add_argument("--normalize-input", action=argparse.BooleanOptionalAction, default=False)
+    sae_group.add_argument(
+        "--auxk", type=int, default=None, help="Auxiliary latents for dead latent loss (None=disabled)"
+    )
+    sae_group.add_argument("--auxk-coef", type=float, default=1 / 32)
     sae_group.add_argument("--dead-tokens-threshold", type=int, default=10_000_000)
-    sae_group.add_argument("--init-pre-bias", action=argparse.BooleanOptionalAction,
-                           default=False)
-    sae_group.add_argument("--l1-coeff", type=float, default=1e-2,
-                           help="L1 coefficient (relu only)")
+    sae_group.add_argument("--init-pre-bias", action=argparse.BooleanOptionalAction, default=False)
+    sae_group.add_argument("--l1-coeff", type=float, default=1e-2, help="L1 coefficient (relu only)")
 
     # Training
     train_group = p.add_argument_group("Training")
@@ -72,20 +80,16 @@ def parse_args():
     train_group.add_argument("--n-epochs", type=int, default=3)
     train_group.add_argument("--batch-size", type=int, default=4096)
     train_group.add_argument("--log-interval", type=int, default=50)
-    train_group.add_argument("--shuffle", action=argparse.BooleanOptionalAction,
-                             default=True)
+    train_group.add_argument("--shuffle", action=argparse.BooleanOptionalAction, default=True)
     train_group.add_argument("--num-workers", type=int, default=0)
-    train_group.add_argument("--pin-memory", action=argparse.BooleanOptionalAction,
-                             default=False)
+    train_group.add_argument("--pin-memory", action=argparse.BooleanOptionalAction, default=False)
     train_group.add_argument("--max-grad-norm", type=float, default=None)
-    train_group.add_argument("--lr-scale-with-latents",
-                             action=argparse.BooleanOptionalAction, default=False)
+    train_group.add_argument("--lr-scale-with-latents", action=argparse.BooleanOptionalAction, default=False)
     train_group.add_argument("--lr-reference-hidden-dim", type=int, default=2048)
 
     # W&B
     wb_group = p.add_argument_group("Weights & Biases")
-    wb_group.add_argument("--wandb", action=argparse.BooleanOptionalAction,
-                          default=False, dest="wandb_enabled")
+    wb_group.add_argument("--wandb", action=argparse.BooleanOptionalAction, default=False, dest="wandb_enabled")
     wb_group.add_argument("--wandb-project", type=str, default="sae_esm2_recipe")
     wb_group.add_argument("--wandb-run-name", type=str, default=None)
     wb_group.add_argument("--wandb-group", type=str, default=None)
@@ -98,18 +102,22 @@ def parse_args():
     ckpt_group.add_argument("--resume-from", type=str, default=None)
 
     # Infrastructure
-    p.add_argument("--dp-size", type=int, default=1,
-                   help="Data parallel size (use with torchrun)")
+    p.add_argument("--dp-size", type=int, default=1, help="Data parallel size (use with torchrun)")
     p.add_argument("--output-dir", type=str, default="./outputs")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default=None)
-    p.add_argument("--num-proteins", type=int, default=None,
-                   help="Subset cached activations to this many proteins' worth of shards")
+    p.add_argument(
+        "--num-proteins",
+        type=int,
+        default=None,
+        help="Subset cached activations to this many proteins' worth of shards",
+    )
 
     return p.parse_args()
 
 
 def build_sae(args, input_dim: int) -> torch.nn.Module:
+    """Build an SAE model from command-line arguments."""
     hidden_dim = input_dim * args.expansion_factor
 
     if args.model_type == "topk":
@@ -133,6 +141,7 @@ def build_sae(args, input_dim: int) -> torch.nn.Module:
 
 
 def build_training_config(args, device: str) -> TrainingConfig:
+    """Build a TrainingConfig from command-line arguments."""
     return TrainingConfig(
         lr=args.lr,
         n_epochs=args.n_epochs,
@@ -150,6 +159,7 @@ def build_training_config(args, device: str) -> TrainingConfig:
 
 
 def build_wandb_config(args) -> WandbConfig:
+    """Build a WandbConfig from command-line arguments."""
     return WandbConfig(
         enabled=args.wandb_enabled,
         project=args.wandb_project,
@@ -161,10 +171,12 @@ def build_wandb_config(args) -> WandbConfig:
 
 
 def build_parallel_config(args) -> ParallelConfig:
+    """Build a ParallelConfig from command-line arguments."""
     return ParallelConfig(dp_size=args.dp_size)
 
 
 def main():
+    """Train an SAE from cached activations."""
     args = parse_args()
 
     set_seed(args.seed)
@@ -175,22 +187,16 @@ def main():
     # Load cached activations
     cache_path = Path(args.cache_dir)
     if not (cache_path / "metadata.json").exists():
-        raise FileNotFoundError(
-            f"No cache found at {cache_path}. Run extract.py first."
-        )
+        raise FileNotFoundError(f"No cache found at {cache_path}. Run extract.py first.")
 
     store = load_activations(cache_path)
     meta = store.metadata
 
     # Validate cache matches config
     if meta.get("model_name") != args.model_name:
-        raise ValueError(
-            f"Cache model mismatch: {meta['model_name']} vs {args.model_name}"
-        )
+        raise ValueError(f"Cache model mismatch: {meta['model_name']} vs {args.model_name}")
     if meta.get("layer") != args.layer:
-        raise ValueError(
-            f"Cache layer mismatch: {meta['layer']} vs {args.layer}"
-        )
+        raise ValueError(f"Cache layer mismatch: {meta['layer']} vs {args.layer}")
 
     # Compute subsetting
     cached_sequences = meta.get("n_sequences", None)
@@ -198,8 +204,10 @@ def main():
     if args.num_proteins and cached_sequences and args.num_proteins < cached_sequences:
         keep_ratio = args.num_proteins / cached_sequences
         max_shards = max(1, int(np.ceil(keep_ratio * meta["n_shards"])))
-        print(f"Subsetting: {args.num_proteins}/{cached_sequences} proteins "
-              f"-> using {max_shards}/{meta['n_shards']} shards (~{keep_ratio:.1%})")
+        print(
+            f"Subsetting: {args.num_proteins}/{cached_sequences} proteins "
+            f"-> using {max_shards}/{meta['n_shards']} shards (~{keep_ratio:.1%})"
+        )
 
     # Estimate memory needed to decide: stream vs load-all
     n_shards_to_use = max_shards or meta["n_shards"]
@@ -245,8 +253,10 @@ def main():
     if use_streaming:
         rank = int(os.environ.get("RANK", 0))
         world_size = int(os.environ.get("WORLD_SIZE", 1))
-        print(f"Streaming from disk (~{est_gb:.0f}GB too large for RAM). "
-              f"Peak RAM: ~{shard_size * meta['hidden_dim'] * 4 / (1024**3):.1f}GB/process")
+        print(
+            f"Streaming from disk (~{est_gb:.0f}GB too large for RAM). "
+            f"Peak RAM: ~{shard_size * meta['hidden_dim'] * 4 / (1024**3):.1f}GB/process"
+        )
 
         dataloader = store.get_streaming_dataloader(
             batch_size=args.batch_size,

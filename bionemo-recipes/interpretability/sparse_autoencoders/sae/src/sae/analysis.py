@@ -1,5 +1,19 @@
-"""
-Feature analysis tools for trained SAEs.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Feature analysis tools for trained SAEs.
 
 Computes domain-agnostic artifacts:
 - Per-feature activation statistics
@@ -11,15 +25,18 @@ Results are saved as Parquet tables for easy querying with DuckDB or pandas.
 """
 
 import json
-from pathlib import Path
-from typing import Optional, Union, List, Iterator, Dict
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Dict, List, Optional, Union
+
 import numpy as np
 import torch
+
 
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
+
     HAS_PARQUET = True
 except ImportError:
     HAS_PARQUET = False
@@ -28,34 +45,38 @@ except ImportError:
 @dataclass
 class FeatureStats:
     """Per-feature activation statistics."""
+
     feature_id: int
-    activation_freq: float      # Fraction of inputs where feature fires (> 0)
-    mean_activation: float      # Mean activation when active
-    max_activation: float       # Maximum activation observed
-    std_activation: float       # Std dev of activations when active
-    total_activations: int      # Number of times feature fired
+    activation_freq: float  # Fraction of inputs where feature fires (> 0)
+    mean_activation: float  # Mean activation when active
+    max_activation: float  # Maximum activation observed
+    std_activation: float  # Std dev of activations when active
+    total_activations: int  # Number of times feature fired
 
 
 @dataclass
 class TopExample:
     """A top-firing example for a feature."""
+
     feature_id: int
-    example_idx: int           # Index in the dataset
-    activation_value: float    # Activation value
+    example_idx: int  # Index in the dataset
+    activation_value: float  # Activation value
 
 
 @dataclass
 class FeatureGeometry:
     """UMAP coordinates and optional clusters for features."""
-    feature_ids: np.ndarray      # (n_features,)
-    umap_x: np.ndarray           # (n_features,)
-    umap_y: np.ndarray           # (n_features,)
+
+    feature_ids: np.ndarray  # (n_features,)
+    umap_x: np.ndarray  # (n_features,)
+    umap_y: np.ndarray  # (n_features,)
     cluster_ids: Optional[np.ndarray] = None  # (n_features,)
 
 
 @dataclass
 class FeatureLogits:
     """Top positive/negative logits for a feature."""
+
     feature_id: int
     top_positive: List[tuple]  # [(token_str, logit_value), ...]
     top_negative: List[tuple]  # [(token_str, logit_value), ...]
@@ -64,9 +85,10 @@ class FeatureLogits:
 @dataclass
 class ClusterInfo:
     """Information about a feature cluster from UMAP/HDBSCAN."""
+
     cluster_id: int
-    x: float            # centroid x
-    y: float            # centroid y
+    x: float  # centroid x
+    y: float  # centroid y
     feature_ids: List[int]
     size: int
 
@@ -93,7 +115,7 @@ class _StatsAccumulator:
         self.count_active += active_mask.sum(dim=0).long()
         masked = codes * active_mask.float()
         self.sum_act += masked.sum(dim=0).double()
-        self.sum_sq += (masked ** 2).sum(dim=0).double()
+        self.sum_sq += (masked**2).sum(dim=0).double()
         batch_max = codes.max(dim=0).values
         self.max_act = torch.maximum(self.max_act, batch_max)
 
@@ -104,24 +126,26 @@ class _StatsAccumulator:
             count = self.count_active[i].item()
             if count > 0:
                 mean = self.sum_act[i].item() / count
-                variance = (self.sum_sq[i].item() / count) - (mean ** 2)
+                variance = (self.sum_sq[i].item() / count) - (mean**2)
                 std = max(0.0, variance) ** 0.5
             else:
                 mean = 0.0
                 std = 0.0
 
-            stats.append(FeatureStats(
-                feature_id=i,
-                activation_freq=count / self.total_samples if self.total_samples > 0 else 0.0,
-                mean_activation=float(mean),
-                max_activation=float(self.max_act[i].item()),
-                std_activation=float(std),
-                total_activations=int(count),
-            ))
+            stats.append(
+                FeatureStats(
+                    feature_id=i,
+                    activation_freq=count / self.total_samples if self.total_samples > 0 else 0.0,
+                    mean_activation=float(mean),
+                    max_activation=float(self.max_act[i].item()),
+                    std_activation=float(std),
+                    total_activations=int(count),
+                )
+            )
         return stats
 
 
-def compute_cluster_centroids(geometry: 'FeatureGeometry') -> List[ClusterInfo]:
+def compute_cluster_centroids(geometry: "FeatureGeometry") -> List[ClusterInfo]:
     """Group features by cluster and compute centroids.
 
     Args:
@@ -145,13 +169,15 @@ def compute_cluster_centroids(geometry: 'FeatureGeometry') -> List[ClusterInfo]:
     for cid, indices in clusters.items():
         xs = geometry.umap_x[indices]
         ys = geometry.umap_y[indices]
-        result.append(ClusterInfo(
-            cluster_id=cid,
-            x=float(np.mean(xs)),
-            y=float(np.mean(ys)),
-            feature_ids=[int(geometry.feature_ids[i]) for i in indices],
-            size=len(indices),
-        ))
+        result.append(
+            ClusterInfo(
+                cluster_id=cid,
+                x=float(np.mean(xs)),
+                y=float(np.mean(ys)),
+                feature_ids=[int(geometry.feature_ids[i]) for i in indices],
+                size=len(indices),
+            )
+        )
 
     result.sort(key=lambda c: -c.size)
     return result
@@ -160,7 +186,7 @@ def compute_cluster_centroids(geometry: 'FeatureGeometry') -> List[ClusterInfo]:
 def build_cluster_label_prompt(
     cluster: ClusterInfo,
     descriptions: Dict[int, str],
-    stats: List['FeatureStats'],
+    stats: List["FeatureStats"],
     max_features: int = 15,
 ) -> str:
     """Build an LLM prompt to generate a short label for a cluster.
@@ -221,21 +247,21 @@ def save_cluster_labels(
         output_path: Path to write the JSON file
     """
     if len(clusters) != len(labels):
-        raise ValueError(
-            f"clusters has {len(clusters)} items, labels has {len(labels)}"
-        )
+        raise ValueError(f"clusters has {len(clusters)} items, labels has {len(labels)}")
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     data = []
     for cluster, label in zip(clusters, labels):
-        data.append({
-            "x": cluster.x,
-            "y": cluster.y,
-            "text": label,
-            "priority": cluster.size,
-        })
+        data.append(
+            {
+                "x": cluster.x,
+                "y": cluster.y,
+                "text": label,
+                "priority": cluster.size,
+            }
+        )
 
     with open(output_path, "w") as f:
         json.dump(data, f, indent=2)
@@ -289,18 +315,16 @@ def compute_feature_stats(
     # Build batch iterator from tensor or dataloader
     if isinstance(activations, torch.Tensor):
         n_samples = activations.shape[0]
-        batches = (
-            activations[i:i + batch_size]
-            for i in range(0, n_samples, batch_size)
-        )
+        batches = (activations[i : i + batch_size] for i in range(0, n_samples, batch_size))
         n_batches = (n_samples + batch_size - 1) // batch_size
     else:
         batches = activations
-        n_batches = len(activations) if hasattr(activations, '__len__') else None
+        n_batches = len(activations) if hasattr(activations, "__len__") else None
 
     if show_progress:
         try:
             from tqdm.auto import tqdm
+
             batches = tqdm(batches, total=n_batches, desc="Computing feature statistics")
         except ImportError:
             pass
@@ -337,11 +361,13 @@ def compute_feature_stats(
     top_examples = []
     for feat_idx in range(n_features):
         for act_val, example_idx in sorted(heaps[feat_idx], key=lambda x: -x[0]):
-            top_examples.append(TopExample(
-                feature_id=feat_idx,
-                example_idx=example_idx,
-                activation_value=act_val,
-            ))
+            top_examples.append(
+                TopExample(
+                    feature_id=feat_idx,
+                    example_idx=example_idx,
+                    activation_value=act_val,
+                )
+            )
 
     # Optionally save to Parquet
     if output_dir is not None:
@@ -351,27 +377,27 @@ def compute_feature_stats(
         output_dir.mkdir(parents=True, exist_ok=True)
 
         stats_data = {
-            'feature_id': [s.feature_id for s in stats],
-            'activation_freq': [s.activation_freq for s in stats],
-            'mean_activation': [s.mean_activation for s in stats],
-            'max_activation': [s.max_activation for s in stats],
-            'std_activation': [s.std_activation for s in stats],
-            'total_activations': [s.total_activations for s in stats],
+            "feature_id": [s.feature_id for s in stats],
+            "activation_freq": [s.activation_freq for s in stats],
+            "mean_activation": [s.mean_activation for s in stats],
+            "max_activation": [s.max_activation for s in stats],
+            "std_activation": [s.std_activation for s in stats],
+            "total_activations": [s.total_activations for s in stats],
         }
         pq.write_table(pa.table(stats_data), str(output_dir / "feature_stats.parquet"))
         print(f"Saved {len(stats)} feature stats to {output_dir / 'feature_stats.parquet'}")
 
         ex_data = {
-            'feature_id': [e.feature_id for e in top_examples],
-            'example_idx': [e.example_idx for e in top_examples],
-            'activation_value': [e.activation_value for e in top_examples],
+            "feature_id": [e.feature_id for e in top_examples],
+            "example_idx": [e.example_idx for e in top_examples],
+            "activation_value": [e.activation_value for e in top_examples],
         }
         pq.write_table(pa.table(ex_data), str(output_dir / "top_examples.parquet"))
         print(f"Saved {len(top_examples)} top examples to {output_dir / 'top_examples.parquet'}")
 
         n_active = sum(1 for s in stats if s.total_activations > 0)
         n_dead = n_features - n_active
-        print(f"\nSummary:")
+        print("\nSummary:")
         print(f"  Total features: {n_features}")
         print(f"  Active features: {n_active}")
         print(f"  Dead features: {n_dead} ({100 * n_dead / n_features:.1f}%)")
@@ -432,11 +458,13 @@ def compute_feature_logits(
         neg_values = effects[neg_indices].tolist()
         top_negative = [(vocab[i], v) for i, v in zip(neg_indices, neg_values)]
 
-        results.append(FeatureLogits(
-            feature_id=feat_idx,
-            top_positive=top_positive,
-            top_negative=top_negative,
-        ))
+        results.append(
+            FeatureLogits(
+                feature_id=feat_idx,
+                top_positive=top_positive,
+                top_negative=top_negative,
+            )
+        )
 
     return results
 
@@ -445,13 +473,12 @@ def compute_feature_umap(
     sae: torch.nn.Module,
     n_neighbors: int = 15,
     min_dist: float = 0.1,
-    metric: str = 'cosine',
+    metric: str = "cosine",
     random_state: int = 42,
     compute_clusters: bool = True,
     hdbscan_min_cluster_size: int = 10,
 ) -> FeatureGeometry:
-    """
-    Compute UMAP coordinates for SAE features from decoder weights.
+    """Compute UMAP coordinates for SAE features from decoder weights.
 
     Args:
         sae: Trained SAE with decoder.weight attribute
@@ -512,7 +539,7 @@ def compute_feature_umap(
 
             clusterer = hdbscan.HDBSCAN(
                 min_cluster_size=hdbscan_min_cluster_size,
-                metric='euclidean',
+                metric="euclidean",
             )
             cluster_ids = clusterer.fit_predict(coords_high)
             print(f"  Found {len(set(cluster_ids)) - (1 if -1 in cluster_ids else 0)} clusters")
@@ -535,8 +562,7 @@ def save_feature_atlas(
     extra_columns: Optional[dict] = None,
     labels: Optional[List[str]] = None,
 ) -> None:
-    """
-    Save combined feature atlas for visualization dashboard.
+    """Save combined feature atlas for visualization dashboard.
 
     Combines feature statistics and UMAP geometry into a single Parquet file
     compatible with the mosaic-linked-viz dashboard.
@@ -574,34 +600,28 @@ def save_feature_atlas(
 
     # Build base data from stats
     data = {
-        'feature_id': [s.feature_id for s in stats],
-        'label': feature_labels,
-        'activation_freq': [s.activation_freq for s in stats],
-        'mean_activation': [s.mean_activation for s in stats],
-        'max_activation': [s.max_activation for s in stats],
-        'std_activation': [s.std_activation for s in stats],
-        'total_activations': [s.total_activations for s in stats],
+        "feature_id": [s.feature_id for s in stats],
+        "label": feature_labels,
+        "activation_freq": [s.activation_freq for s in stats],
+        "mean_activation": [s.mean_activation for s in stats],
+        "max_activation": [s.max_activation for s in stats],
+        "std_activation": [s.std_activation for s in stats],
+        "total_activations": [s.total_activations for s in stats],
     }
 
     # Add computed columns
-    data['log_frequency'] = [
-        np.log10(s.activation_freq) if s.activation_freq > 0 else -10.0
-        for s in stats
-    ]
+    data["log_frequency"] = [np.log10(s.activation_freq) if s.activation_freq > 0 else -10.0 for s in stats]
 
     # Add geometry
-    data['x'] = geometry.umap_x.tolist()
-    data['y'] = geometry.umap_y.tolist()
+    data["x"] = geometry.umap_x.tolist()
+    data["y"] = geometry.umap_y.tolist()
     if geometry.cluster_ids is not None:
         # HDBSCAN assigns -1 to noise points; DuckDB's UTINYINT (used by
         # embedding-atlas for the category column) can't represent negatives.
         # Replace -1 with None so they become NULL in the parquet file.
-        data['cluster_id'] = [
-            int(c) if c >= 0 else None
-            for c in geometry.cluster_ids.tolist()
-        ]
+        data["cluster_id"] = [int(c) if c >= 0 else None for c in geometry.cluster_ids.tolist()]
     else:
-        data['cluster_id'] = [0] * n_features
+        data["cluster_id"] = [0] * n_features
 
     # Add top example info if provided
     if top_examples:
@@ -611,13 +631,11 @@ def save_feature_atlas(
             if ex.feature_id not in top_by_feature:
                 top_by_feature[ex.feature_id] = ex
 
-        data['top_example_idx'] = [
-            top_by_feature[i].example_idx if i in top_by_feature else None
-            for i in range(n_features)
+        data["top_example_idx"] = [
+            top_by_feature[i].example_idx if i in top_by_feature else None for i in range(n_features)
         ]
-        data['top_example_activation'] = [
-            top_by_feature[i].activation_value if i in top_by_feature else None
-            for i in range(n_features)
+        data["top_example_activation"] = [
+            top_by_feature[i].activation_value if i in top_by_feature else None for i in range(n_features)
         ]
 
     # Add any extra columns (domain-specific data like F1 scores, annotations, etc.)
@@ -628,7 +646,7 @@ def save_feature_atlas(
             data[col_name] = list(col_data)
 
     table = pa.table(data)
-    pq.write_table(table, str(output_path), compression='snappy')
+    pq.write_table(table, str(output_path), compression="snappy")
     print(f"Saved feature atlas ({n_features} features) to {output_path}")
 
 
@@ -693,12 +711,8 @@ def export_text_features_parquet(
         meta_max_acts.append(stats.max_activation)
 
         fl = logits_map.get(feature_idx)
-        meta_pos_logits.append(
-            _json.dumps([[t, round(v, 3)] for t, v in fl.top_positive]) if fl else None
-        )
-        meta_neg_logits.append(
-            _json.dumps([[t, round(v, 3)] for t, v in fl.top_negative]) if fl else None
-        )
+        meta_pos_logits.append(_json.dumps([[t, round(v, 3)] for t, v in fl.top_positive]) if fl else None)
+        meta_neg_logits.append(_json.dumps([[t, round(v, 3)] for t, v in fl.top_negative]) if fl else None)
 
         # Examples: get top texts by text_codes
         text_acts = collector_result.text_codes[:, feature_idx]
@@ -717,8 +731,7 @@ def export_text_features_parquet(
             if text_codes is not None:
                 acts = text_codes[:, feature_idx]
                 token_data = [
-                    {"token": tok, "activation": round(act.item(), 4)}
-                    for tok, act in zip(text_labels, acts)
+                    {"token": tok, "activation": round(act.item(), 4)} for tok, act in zip(text_labels, acts)
                 ]
             else:
                 token_data = [{"token": tok, "activation": 0.0} for tok in text_labels]
@@ -731,28 +744,32 @@ def export_text_features_parquet(
             rank += 1
 
     # Write feature_metadata.parquet
-    meta_table = pa.table({
-        'feature_id': pa.array(meta_feature_ids, type=pa.int32()),
-        'description': pa.array(meta_descriptions, type=pa.utf8()),
-        'activation_freq': pa.array(meta_freqs, type=pa.float32()),
-        'max_activation': pa.array(meta_max_acts, type=pa.float32()),
-        'top_positive_logits_json': pa.array(meta_pos_logits, type=pa.utf8()),
-        'top_negative_logits_json': pa.array(meta_neg_logits, type=pa.utf8()),
-    })
-    meta_path = output_dir / 'feature_metadata.parquet'
+    meta_table = pa.table(
+        {
+            "feature_id": pa.array(meta_feature_ids, type=pa.int32()),
+            "description": pa.array(meta_descriptions, type=pa.utf8()),
+            "activation_freq": pa.array(meta_freqs, type=pa.float32()),
+            "max_activation": pa.array(meta_max_acts, type=pa.float32()),
+            "top_positive_logits_json": pa.array(meta_pos_logits, type=pa.utf8()),
+            "top_negative_logits_json": pa.array(meta_neg_logits, type=pa.utf8()),
+        }
+    )
+    meta_path = output_dir / "feature_metadata.parquet"
     pq.write_table(meta_table, str(meta_path))
     print(f"Saved {n_features} feature metadata to {meta_path}")
 
     # Write feature_examples.parquet (sorted by feature_id)
-    examples_table = pa.table({
-        'feature_id': pa.array(ex_feature_ids, type=pa.int32()),
-        'example_rank': pa.array(ex_ranks, type=pa.int8()),
-        'text_idx': pa.array(ex_text_idxs, type=pa.int32()),
-        'max_activation': pa.array(ex_max_acts, type=pa.float32()),
-        'tokens_json': pa.array(ex_tokens_jsons, type=pa.utf8()),
-    })
-    examples_table = examples_table.sort_by('feature_id')
-    examples_path = output_dir / 'feature_examples.parquet'
+    examples_table = pa.table(
+        {
+            "feature_id": pa.array(ex_feature_ids, type=pa.int32()),
+            "example_rank": pa.array(ex_ranks, type=pa.int8()),
+            "text_idx": pa.array(ex_text_idxs, type=pa.int32()),
+            "max_activation": pa.array(ex_max_acts, type=pa.float32()),
+            "tokens_json": pa.array(ex_tokens_jsons, type=pa.utf8()),
+        }
+    )
+    examples_table = examples_table.sort_by("feature_id")
+    examples_path = output_dir / "feature_examples.parquet"
     pq.write_table(examples_table, str(examples_path), row_group_size=n_examples * 100)
     print(f"Saved {len(ex_feature_ids)} feature examples to {examples_path}")
 
@@ -782,10 +799,10 @@ def launch_dashboard(
         >>> proc = launch_dashboard("./outputs/features_atlas.parquet")
         >>> proc.terminate()  # when done
     """
-    import subprocess
-    import webbrowser
-    import time
     import shutil
+    import subprocess
+    import time
+    import webbrowser
 
     data_path = Path(data_path).resolve()
     if not data_path.exists():
@@ -801,8 +818,7 @@ def launch_dashboard(
         viz_dir = Path(__file__).parent / "dashboard"
         if not viz_dir.exists():
             raise FileNotFoundError(
-                f"Could not find bundled dashboard at {viz_dir}. "
-                "Please specify viz_dir explicitly."
+                f"Could not find bundled dashboard at {viz_dir}. Please specify viz_dir explicitly."
             )
     else:
         viz_dir = Path(viz_dir)
@@ -821,7 +837,7 @@ def launch_dashboard(
         print(f"Copied {data_path} -> {dest_parquet}")
 
     # Copy feature parquet files
-    for fname in ['feature_metadata.parquet', 'feature_examples.parquet']:
+    for fname in ["feature_metadata.parquet", "feature_examples.parquet"]:
         src = features_dir / fname
         if src.exists():
             dest = public_dir / fname

@@ -1,5 +1,19 @@
-"""
-Mixture-of-Experts Sparse Autoencoder.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Mixture-of-Experts Sparse Autoencoder.
 
 Partitions the feature dictionary across N expert sub-SAEs with a lightweight
 learned router. Each input selects top-k experts; final reconstruction is the
@@ -16,8 +30,7 @@ Supports:
 
 from __future__ import annotations
 
-import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -29,6 +42,7 @@ from .base import SparseAutoencoder
 # ---------------------------------------------------------------------------
 # Virtual decoder wrapper for analysis tool compatibility
 # ---------------------------------------------------------------------------
+
 
 class _VirtualDecoder(nn.Module):
     """Exposes a concatenated ``.weight`` from multiple expert decoders.
@@ -63,6 +77,7 @@ class _VirtualDecoder(nn.Module):
 # Small helper: build one expert's encoder/decoder pair
 # ---------------------------------------------------------------------------
 
+
 def _init_expert_pair(
     encoder: nn.Linear,
     decoder: nn.Linear,
@@ -79,6 +94,7 @@ def _init_expert_pair(
 # ---------------------------------------------------------------------------
 # MoE SAE
 # ---------------------------------------------------------------------------
+
 
 class MoESAE(SparseAutoencoder):
     """Mixture-of-Experts Sparse Autoencoder.
@@ -123,10 +139,9 @@ class MoESAE(SparseAutoencoder):
         shared_top_k: int = 32,
         init_encoder_from_decoder: bool = True,
     ):
+        """Initialize the MoE SAE with expert sub-SAEs and a learned router."""
         if d_sae % n_experts != 0:
-            raise ValueError(
-                f"d_sae ({d_sae}) must be divisible by n_experts ({n_experts})"
-            )
+            raise ValueError(f"d_sae ({d_sae}) must be divisible by n_experts ({n_experts})")
 
         total_hidden = d_sae + (d_shared if d_shared else 0)
         super().__init__(d_in, total_hidden)
@@ -151,18 +166,12 @@ class MoESAE(SparseAutoencoder):
         self.router = nn.Linear(d_in, n_experts, bias=False)
 
         # ----- Expert parameters -----
-        self.expert_pre_biases = nn.ParameterList(
-            [nn.Parameter(torch.zeros(d_in)) for _ in range(n_experts)]
-        )
-        self.expert_encoders = nn.ModuleList(
-            [nn.Linear(d_in, self.expert_dim, bias=False) for _ in range(n_experts)]
-        )
+        self.expert_pre_biases = nn.ParameterList([nn.Parameter(torch.zeros(d_in)) for _ in range(n_experts)])
+        self.expert_encoders = nn.ModuleList([nn.Linear(d_in, self.expert_dim, bias=False) for _ in range(n_experts)])
         self.expert_latent_biases = nn.ParameterList(
             [nn.Parameter(torch.zeros(self.expert_dim)) for _ in range(n_experts)]
         )
-        self.expert_decoders = nn.ModuleList(
-            [nn.Linear(self.expert_dim, d_in, bias=False) for _ in range(n_experts)]
-        )
+        self.expert_decoders = nn.ModuleList([nn.Linear(self.expert_dim, d_in, bias=False) for _ in range(n_experts)])
 
         # Initialise expert encoder/decoder pairs
         for enc, dec in zip(self.expert_encoders, self.expert_decoders):
@@ -179,9 +188,7 @@ class MoESAE(SparseAutoencoder):
             self.shared_encoder = nn.Linear(d_in, d_shared, bias=False)
             self.shared_latent_bias = nn.Parameter(torch.zeros(d_shared))
             self.shared_decoder = nn.Linear(d_shared, d_in, bias=False)
-            _init_expert_pair(
-                self.shared_encoder, self.shared_decoder, init_encoder_from_decoder
-            )
+            _init_expert_pair(self.shared_encoder, self.shared_decoder, init_encoder_from_decoder)
 
         # ----- Virtual decoder for analysis compatibility -----
         self._virtual_decoder = _VirtualDecoder(
@@ -218,16 +225,12 @@ class MoESAE(SparseAutoencoder):
     # Normalisation helpers (mirrors TopKSAE pattern)
     # ------------------------------------------------------------------
 
-    def _normalize(
-        self, x: torch.Tensor
-    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def _normalize(self, x: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         mu = x.mean(dim=-1, keepdim=True)
         std = x.std(dim=-1, keepdim=True) + 1e-8
         return (x - mu) / std, {"mu": mu, "std": std}
 
-    def _denormalize(
-        self, x: torch.Tensor, info: Dict[str, torch.Tensor]
-    ) -> torch.Tensor:
+    def _denormalize(self, x: torch.Tensor, info: Dict[str, torch.Tensor]) -> torch.Tensor:
         return x * info["std"] + info["mu"]
 
     # ------------------------------------------------------------------
@@ -256,19 +259,14 @@ class MoESAE(SparseAutoencoder):
     # Per-expert encode / decode
     # ------------------------------------------------------------------
 
-    def _expert_encode(
-        self, x: torch.Tensor, expert_idx: int
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _expert_encode(self, x: torch.Tensor, expert_idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """Encode *x* through expert *expert_idx*.
 
         Returns ``(codes, l1_value)`` where *l1_value* is the per-sample
         L1 norm of the codes (used for sparsity loss in relu mode).
         """
         x_centered = x - self.expert_pre_biases[expert_idx]
-        pre_act = (
-            self.expert_encoders[expert_idx](x_centered)
-            + self.expert_latent_biases[expert_idx]
-        )
+        pre_act = self.expert_encoders[expert_idx](x_centered) + self.expert_latent_biases[expert_idx]
         codes = torch.relu(pre_act)
 
         if self.expert_mode == "topk":
@@ -278,21 +276,14 @@ class MoESAE(SparseAutoencoder):
         l1 = codes.abs().sum(dim=-1)  # [n_selected]
         return codes, l1
 
-    def _expert_decode(
-        self, codes: torch.Tensor, expert_idx: int
-    ) -> torch.Tensor:
-        return (
-            self.expert_decoders[expert_idx](codes)
-            + self.expert_pre_biases[expert_idx]
-        )
+    def _expert_decode(self, codes: torch.Tensor, expert_idx: int) -> torch.Tensor:
+        return self.expert_decoders[expert_idx](codes) + self.expert_pre_biases[expert_idx]
 
     # ------------------------------------------------------------------
     # Routing
     # ------------------------------------------------------------------
 
-    def _route(
-        self, x: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _route(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Compute routing decisions.
 
         Returns:
@@ -305,9 +296,7 @@ class MoESAE(SparseAutoencoder):
         router_logits = self.router(x)
         router_probs = F.softmax(router_logits, dim=-1)
 
-        top_probs, top_indices = torch.topk(
-            router_probs, self.k_experts, dim=-1
-        )
+        top_probs, top_indices = torch.topk(router_probs, self.k_experts, dim=-1)
         gate_weights = top_probs / (top_probs.sum(dim=-1, keepdim=True) + 1e-8)
 
         return router_logits, router_probs, top_indices, gate_weights
@@ -316,9 +305,7 @@ class MoESAE(SparseAutoencoder):
     # Forward variants
     # ------------------------------------------------------------------
 
-    def forward_with_aux(
-        self, x: torch.Tensor
-    ) -> Dict[str, torch.Tensor]:
+    def forward_with_aux(self, x: torch.Tensor) -> Dict[str, torch.Tensor]:
         """Full forward pass returning routing metadata.
 
         Returns dict with keys:
@@ -344,9 +331,7 @@ class MoESAE(SparseAutoencoder):
             route_input = x_normed
 
         # --- Routing ---
-        router_logits, router_probs, top_indices, gate_weights = self._route(
-            route_input
-        )
+        router_logits, router_probs, top_indices, gate_weights = self._route(route_input)
 
         # --- Expert processing ---
         combined_codes = x.new_zeros(batch, self.d_sae)
@@ -357,7 +342,7 @@ class MoESAE(SparseAutoencoder):
         for e in range(self.n_experts):
             # mask: which samples selected this expert?
             # top_indices is [batch, k_experts]
-            match = (top_indices == e)  # [batch, k_experts]
+            match = top_indices == e  # [batch, k_experts]
             sample_mask = match.any(dim=-1)  # [batch]
             n_selected = sample_mask.sum().item()
             if n_selected == 0:
@@ -382,9 +367,7 @@ class MoESAE(SparseAutoencoder):
             combined_codes[sample_mask, offset : offset + self.expert_dim] = codes_e
 
             # Gating-weighted reconstruction
-            combined_recon[sample_mask] += (
-                gate_e_selected.unsqueeze(-1) * recon_e
-            )
+            combined_recon[sample_mask] += gate_e_selected.unsqueeze(-1) * recon_e
 
             # Accumulate sparsity loss (only meaningful for relu mode)
             total_sparsity_loss = total_sparsity_loss + l1_e.mean()
@@ -420,9 +403,7 @@ class MoESAE(SparseAutoencoder):
             "shared_codes": shared_codes,
         }
 
-    def forward(
-        self, x: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """Return ``(reconstruction, codes)``."""
         info = self.forward_with_aux(x)
         return info["recon"], info["codes"]
@@ -449,10 +430,10 @@ class MoESAE(SparseAutoencoder):
     # ------------------------------------------------------------------
 
     def loss(self, x: torch.Tensor, **kwargs) -> Dict[str, torch.Tensor]:
+        """Compute total loss including reconstruction, sparsity, load-balancing, and router entropy."""
         info = self.forward_with_aux(x)
         recon = info["recon"]
         codes = info["codes"]
-        router_logits = info["router_logits"]
         router_probs = info["router_probs"]
         top_indices = info["top_indices"]
 
@@ -473,17 +454,13 @@ class MoESAE(SparseAutoencoder):
         # ---- 4. Router entropy regularisation ----
         if self.router_entropy_coeff != 0.0:
             # H(p) = -sum(p * log(p))
-            entropy = -(
-                router_probs * torch.log(router_probs + 1e-8)
-            ).sum(dim=-1).mean()
+            entropy = -(router_probs * torch.log(router_probs + 1e-8)).sum(dim=-1).mean()
             # positive coeff → loss = -coeff*H → encourages high entropy (uniform)
             # negative coeff → loss = -coeff*H → encourages low entropy (sharp)
             router_entropy_loss = -self.router_entropy_coeff * entropy
         else:
             router_entropy_loss = x.new_zeros(1)
-            entropy = -(
-                router_probs * torch.log(router_probs + 1e-8)
-            ).sum(dim=-1).mean()
+            entropy = -(router_probs * torch.log(router_probs + 1e-8)).sum(dim=-1).mean()
 
         # ---- Shared backbone sparsity (if present, relu mode) ----
         shared_l1 = x.new_zeros(1)
@@ -535,13 +512,12 @@ class MoESAE(SparseAutoencoder):
     # ------------------------------------------------------------------
 
     def post_step(self) -> None:
+        """Normalize all expert and shared decoder weights to unit norm."""
         with torch.no_grad():
             for dec in self.expert_decoders:
                 dec.weight.data = F.normalize(dec.weight.data, dim=0)
             if self.shared_decoder is not None:
-                self.shared_decoder.weight.data = F.normalize(
-                    self.shared_decoder.weight.data, dim=0
-                )
+                self.shared_decoder.weight.data = F.normalize(self.shared_decoder.weight.data, dim=0)
 
     # ------------------------------------------------------------------
     # Diagnostics
@@ -555,9 +531,7 @@ class MoESAE(SparseAutoencoder):
         """EMA update of running utilisation and per-expert recon error."""
         alpha = self._diag_ema
         self.expert_utilization.mul_(1 - alpha).add_(batch_util, alpha=alpha)
-        self.expert_recon_error.mul_(1 - alpha).add_(
-            per_expert_mse.detach(), alpha=alpha
-        )
+        self.expert_recon_error.mul_(1 - alpha).add_(per_expert_mse.detach(), alpha=alpha)
         self.expert_update_count += 1
 
     def get_expert_diagnostics(self) -> Dict[str, Any]:
@@ -627,9 +601,7 @@ class MoESAE(SparseAutoencoder):
             for bias in self.expert_pre_biases:
                 bias.data = median.to(bias.device)
             if self.shared_pre_bias is not None:
-                self.shared_pre_bias.data = median.to(
-                    self.shared_pre_bias.device
-                )
+                self.shared_pre_bias.data = median.to(self.shared_pre_bias.device)
 
     # ------------------------------------------------------------------
     # Config (for checkpointing / wandb)

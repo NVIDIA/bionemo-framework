@@ -12,16 +12,19 @@ A domain-agnostic implementation of Sparse Autoencoders (SAEs) for interpretabil
 ## Installation
 
 ### As a standalone package
+
 ```bash
 pip install -e sae/
 ```
 
 ### From git repository
+
 ```bash
 pip install git+https://github.com/yourusername/biosae.git#subdirectory=sae
 ```
 
 ### For development (with UV workspace)
+
 ```bash
 # From repository root
 uv sync
@@ -79,6 +82,7 @@ sae = ReLUSAE(
 ```
 
 **Parameters:**
+
 - `input_dim`: Dimension of input embeddings
 - `hidden_dim`: Number of latent features (typically 4-32x input_dim)
 - `l1_coeff`: L1 penalty coefficient (controls sparsity)
@@ -99,6 +103,7 @@ sae = TopKSAE(
 ```
 
 **Parameters:**
+
 - `input_dim`: Dimension of input embeddings
 - `hidden_dim`: Number of latent features
 - `top_k`: Number of active features per input
@@ -111,13 +116,13 @@ sae = TopKSAE(
 from sae.training import TrainingConfig
 
 config = TrainingConfig(
-    lr=3e-4,                    # Learning rate
-    n_epochs=10,                # Number of epochs
-    batch_size=4096,            # Batch size
-    device='cuda',              # Device ('cuda', 'cpu', 'mps')
-    log_interval=100,           # Log every N steps
-    checkpoint_dir='./ckpts',   # Checkpoint directory (None = no checkpointing)
-    checkpoint_steps=1000,      # Checkpoint every N steps
+    lr=3e-4,  # Learning rate
+    n_epochs=10,  # Number of epochs
+    batch_size=4096,  # Batch size
+    device="cuda",  # Device ('cuda', 'cpu', 'mps')
+    log_interval=100,  # Log every N steps
+    checkpoint_dir="./ckpts",  # Checkpoint directory (None = no checkpointing)
+    checkpoint_steps=1000,  # Checkpoint every N steps
 )
 ```
 
@@ -147,7 +152,7 @@ print(f"Variance Explained: {metrics.variance_explained:.2%}")
 ```python
 from sae.eval import DeadLatentTracker
 
-tracker = DeadLatentTracker(hidden_dim=4096, device='cuda')
+tracker = DeadLatentTracker(hidden_dim=4096, device="cuda")
 
 for batch in dataloader:
     codes = sae.encode(batch)
@@ -197,6 +202,7 @@ print(f"Estimated memory: {total_mem / 1e9:.2f} GB")
 ## Design Philosophy
 
 This package is designed to be:
+
 - **Minimal**: Only essential dependencies (torch, numpy, tqdm)
 - **Domain-agnostic**: No biology, NLP, or vision-specific code
 - **Extensible**: Easy to subclass `SparseAutoencoder` for custom architectures

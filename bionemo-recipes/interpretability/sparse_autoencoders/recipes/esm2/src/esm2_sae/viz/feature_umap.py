@@ -1,19 +1,34 @@
-"""
-Feature UMAP computation from SAE decoder weights.
-"""
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Feature UMAP computation from SAE decoder weights."""
+
+from dataclasses import dataclass
+from typing import Optional
 
 import numpy as np
 import torch
-from typing import Optional
-from dataclasses import dataclass
 
 
 @dataclass
 class FeatureGeometry:
     """UMAP coordinates and optional clusters for features."""
-    feature_ids: np.ndarray      # (n_features,)
-    umap_x: np.ndarray           # (n_features,)
-    umap_y: np.ndarray           # (n_features,)
+
+    feature_ids: np.ndarray  # (n_features,)
+    umap_x: np.ndarray  # (n_features,)
+    umap_y: np.ndarray  # (n_features,)
     cluster_ids: Optional[np.ndarray] = None  # (n_features,)
 
 
@@ -21,13 +36,12 @@ def compute_feature_umap(
     sae: torch.nn.Module,
     n_neighbors: int = 15,
     min_dist: float = 0.1,
-    metric: str = 'cosine',
+    metric: str = "cosine",
     random_state: int = 42,
     compute_clusters: bool = True,
     hdbscan_min_cluster_size: int = 10,
 ) -> FeatureGeometry:
-    """
-    Compute UMAP coordinates for SAE features from decoder weights.
+    """Compute UMAP coordinates for SAE features from decoder weights.
 
     Args:
         sae: Trained SAE with decoder.weight attribute
@@ -84,7 +98,7 @@ def compute_feature_umap(
 
             clusterer = hdbscan.HDBSCAN(
                 min_cluster_size=hdbscan_min_cluster_size,
-                metric='euclidean',
+                metric="euclidean",
             )
             cluster_ids = clusterer.fit_predict(coords_high)
         except ImportError:

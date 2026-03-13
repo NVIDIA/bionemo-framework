@@ -1,20 +1,34 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import gzip
 import io
-from typing import List, Dict, Optional, Union
 from pathlib import Path
+from typing import Optional, Union
+
 import requests
-from .types import ProteinRecord
+
 
 SWISSPROT_FASTA_URL = (
-    "https://ftp.uniprot.org/pub/databases/uniprot/current_release/"
-    "knowledgebase/complete/uniprot_sprot.fasta.gz"
+    "https://ftp.uniprot.org/pub/databases/uniprot/current_release/knowledgebase/complete/uniprot_sprot.fasta.gz"
 )
-UNIREF50_FASTA_URL = (
-    "https://ftp.uniprot.org/pub/databases/uniprot/uniref/uniref50/uniref50.fasta.gz"
-)
+UNIREF50_FASTA_URL = "https://ftp.uniprot.org/pub/databases/uniprot/uniref/uniref50/uniref50.fasta.gz"
 
 
 def download_swissprot(output_path: Union[str, Path]) -> Path:
+    """Download the SwissProt FASTA database to the specified directory."""
     output_path = Path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -63,18 +77,20 @@ def download_uniref50(
         filepath = output_path / f"uniref50_{max_proteins}_maxlen{max_length}.fasta"
     else:
         filepath = output_path / f"uniref50_first_{max_proteins}.fasta"
-    print(f"Downloading {max_proteins:,} UniRef50 proteins to {filepath}..."
-          + (f" (max_length={max_length})" if max_length else ""))
+    print(
+        f"Downloading {max_proteins:,} UniRef50 proteins to {filepath}..."
+        + (f" (max_length={max_length})" if max_length else "")
+    )
     written, scanned = _download_gzipped_fasta_subset(
         UNIREF50_FASTA_URL,
         filepath,
         max_proteins=max_proteins,
         max_length=max_length,
     )
-    print(f"Downloaded subset: {filepath} ({written:,} proteins"
-          + (f", scanned {scanned:,}" if max_length else "") + ")")
+    print(
+        f"Downloaded subset: {filepath} ({written:,} proteins" + (f", scanned {scanned:,}" if max_length else "") + ")"
+    )
     return filepath
-
 
 
 def _download_file(url: str, filepath: Path) -> None:
@@ -82,21 +98,24 @@ def _download_file(url: str, filepath: Path) -> None:
     response = requests.get(url, stream=True)
     response.raise_for_status()
 
-    total_size = int(response.headers.get('content-length', 0))
+    total_size = int(response.headers.get("content-length", 0))
 
-    with open(filepath, 'wb') as f:
+    with open(filepath, "wb") as f:
         downloaded = 0
         for chunk in response.iter_content(chunk_size=8192):
             f.write(chunk)
             downloaded += len(chunk)
             if total_size > 0:
                 percent = (downloaded / total_size) * 100
-                print(f"\rDownloading: {percent:.1f}%", end='', flush=True)
+                print(f"\rDownloading: {percent:.1f}%", end="", flush=True)
     print()
 
 
 def _download_gzipped_fasta_subset(
-    url: str, filepath: Path, max_proteins: int, max_length: Optional[int] = None,
+    url: str,
+    filepath: Path,
+    max_proteins: int,
+    max_length: Optional[int] = None,
 ) -> tuple:
     """Download a gzipped FASTA URL and write the first N proteins.
 
@@ -111,12 +130,12 @@ def _download_gzipped_fasta_subset(
 
     written = 0
     scanned = 0
-    open_output = gzip.open if str(filepath).endswith('.gz') else open
+    open_output = gzip.open if str(filepath).endswith(".gz") else open
 
     with response:
-        with gzip.GzipFile(fileobj=response.raw, mode='rb') as gz_file:
-            with io.TextIOWrapper(gz_file, encoding='utf-8') as infile:
-                with open_output(filepath, 'wt') as outfile:
+        with gzip.GzipFile(fileobj=response.raw, mode="rb") as gz_file:
+            with io.TextIOWrapper(gz_file, encoding="utf-8") as infile:
+                with open_output(filepath, "wt") as outfile:
                     if max_length is None:
                         # Fast path: no length filtering
                         for line in infile:
@@ -143,8 +162,11 @@ def _download_gzipped_fasta_subset(
                                             outfile.write(sl)
                                         written += 1
                                         if written % 1000 == 0:
-                                            print(f"\r  Collected {written:,}/{max_proteins:,} "
-                                                  f"(scanned {scanned:,})", end="", flush=True)
+                                            print(
+                                                f"\r  Collected {written:,}/{max_proteins:,} (scanned {scanned:,})",
+                                                end="",
+                                                flush=True,
+                                            )
                                         if written >= max_proteins:
                                             break
                                 header = line
@@ -169,7 +191,3 @@ def _download_gzipped_fasta_subset(
         raise RuntimeError("No proteins were downloaded from UniRef50 stream.")
 
     return written, scanned
-
-
-
-

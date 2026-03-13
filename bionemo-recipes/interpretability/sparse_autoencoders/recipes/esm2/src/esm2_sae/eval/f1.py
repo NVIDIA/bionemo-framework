@@ -1,14 +1,29 @@
-"""
-F1 Score metrics for SAE feature interpretability.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""F1 Score metrics for SAE feature interpretability.
 
 Measures how well SAE features align with known biological concepts
 (e.g., Swiss-Prot annotations like domains, binding sites).
 """
 
-import torch
+from dataclasses import dataclass
+from typing import Dict, List, Optional
+
 import numpy as np
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, field
+import torch
 from tqdm import tqdm
 
 
@@ -21,16 +36,18 @@ AA_LEVEL_PREFIXES = ("ACT_SITE", "MOD_RES", "CARBOHYD", "DISULFID")
 @dataclass
 class F1Result:
     """Single feature-concept pair result."""
+
     feature_idx: int
     concept: str
     f1: float
     precision: float
     recall: float
     threshold: float
-    f1_domain: float = 0.0       # F1 using domain recall (primary metric)
-    recall_domain: float = 0.0   # Domain-level recall
+    f1_domain: float = 0.0  # F1 using domain recall (primary metric)
+    recall_domain: float = 0.0  # Domain-level recall
 
     def __repr__(self) -> str:
+        """Return a string representation of the F1 result."""
         return f"F1Result(f{self.feature_idx}->{self.concept[:30]}, F1={self.f1:.3f}, F1d={self.f1_domain:.3f})"
 
 
@@ -38,10 +55,9 @@ def compute_activation_max(
     sae: torch.nn.Module,
     embeddings: torch.Tensor,
     masks: Optional[torch.Tensor] = None,
-    device: str = 'cuda',
+    device: str = "cuda",
 ) -> np.ndarray:
-    """
-    Compute per-feature max activation across a set of embeddings.
+    """Compute per-feature max activation across a set of embeddings.
 
     Used for normalization: run SAE on a large sample (e.g. 50k training proteins)
     to get stable max-activation estimates, then use these to normalize activations
@@ -87,13 +103,12 @@ def compute_f1_scores(
     masks: Optional[torch.Tensor] = None,
     thresholds: Optional[List[float]] = None,
     min_positives: int = 10,
-    device: str = 'cuda',
+    device: str = "cuda",
     show_progress: bool = True,
     activation_max: Optional[np.ndarray] = None,
     feature_chunk_size: int = 512,
 ) -> List[F1Result]:
-    """
-    Compute F1 scores between SAE features and biological concepts.
+    """Compute F1 scores between SAE features and biological concepts.
 
     Encodes each sequence once and streams TP/FP/domain-hit accumulation
     across features, so runtime scales with n_sequences (not n_features).
@@ -125,7 +140,7 @@ def compute_f1_scores(
     if thresholds is None:
         thresholds = [0.0, 0.15, 0.5, 0.6, 0.8]
 
-    n_seqs, seq_len_max, hidden_dim = embeddings.shape
+    n_seqs, seq_len_max, _hidden_dim = embeddings.shape
     assert len(concept_labels) == n_seqs
 
     sae = sae.eval().to(device)
@@ -183,8 +198,7 @@ def compute_f1_scores(
     tp = {c: np.zeros((n_features, n_thresholds), dtype=np.float64) for c in valid_concepts}
     fp = {c: np.zeros((n_features, n_thresholds), dtype=np.float64) for c in valid_concepts}
     domains_hit = {
-        c: np.zeros((n_features, n_thresholds), dtype=np.int64)
-        for c in valid_concepts if not concept_is_aa[c]
+        c: np.zeros((n_features, n_thresholds), dtype=np.int64) for c in valid_concepts if not concept_is_aa[c]
     }
 
     # ── Stream through sequences: encode each ONCE ──
@@ -216,12 +230,12 @@ def compute_f1_scores(
                     valid = np.ones(seq_len, dtype=bool)
 
                 labels_valid = labels[valid]
-                labels_bool = (labels_valid > 0)
+                labels_bool = labels_valid > 0
                 if not labels_bool.any():
                     continue
 
-                acts_valid = acts[valid]                     # (n_valid, n_features)
-                acts_valid = acts_valid / act_max_full       # normalize (broadcasts)
+                acts_valid = acts[valid]  # (n_valid, n_features)
+                acts_valid = acts_valid / act_max_full  # normalize (broadcasts)
 
                 is_aa = concept_is_aa[concept]
 
@@ -233,8 +247,8 @@ def compute_f1_scores(
 
                 # Accumulate per threshold
                 for t_idx, thresh in enumerate(thresholds):
-                    preds = acts_valid > thresh              # (n_valid, n_features)
-                    tp_mask = preds & labels_bool[:, None]   # (n_valid, n_features)
+                    preds = acts_valid > thresh  # (n_valid, n_features)
+                    tp_mask = preds & labels_bool[:, None]  # (n_valid, n_features)
 
                     tp[concept][:, t_idx] += tp_mask.sum(axis=0)
                     fp[concept][:, t_idx] += (preds & ~labels_bool[:, None]).sum(axis=0)
@@ -243,9 +257,9 @@ def compute_f1_scores(
                     if domain_masks is not None:
                         for _d_id, is_d in domain_masks:
                             # Slice to only rows in this domain (typically 5-50 residues)
-                            tp_d = tp_mask[is_d]             # (n_d, n_features)
+                            tp_d = tp_mask[is_d]  # (n_d, n_features)
                             if tp_d.shape[0] > 0:
-                                hit = tp_d.any(axis=0)       # (n_features,)
+                                hit = tp_d.any(axis=0)  # (n_features,)
                                 domains_hit[concept][:, t_idx] += hit.astype(np.int64)
 
             del acts_full
@@ -291,16 +305,18 @@ def compute_f1_scores(
 
         for feat_idx in range(n_features):
             if best_f1_domain[feat_idx] > 0:
-                results.append(F1Result(
-                    feature_idx=feat_idx,
-                    concept=concept,
-                    f1=float(best_f1[feat_idx]),
-                    precision=float(best_precision[feat_idx]),
-                    recall=float(best_recall[feat_idx]),
-                    threshold=float(best_thresh[feat_idx]),
-                    f1_domain=float(best_f1_domain[feat_idx]),
-                    recall_domain=float(best_recall_domain[feat_idx]),
-                ))
+                results.append(
+                    F1Result(
+                        feature_idx=feat_idx,
+                        concept=concept,
+                        f1=float(best_f1[feat_idx]),
+                        precision=float(best_precision[feat_idx]),
+                        recall=float(best_recall[feat_idx]),
+                        threshold=float(best_thresh[feat_idx]),
+                        f1_domain=float(best_f1_domain[feat_idx]),
+                        recall_domain=float(best_recall_domain[feat_idx]),
+                    )
+                )
 
     return results
 

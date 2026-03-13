@@ -25,17 +25,19 @@ from sae import launch_dashboard
 launch_dashboard(
     features_json="path/to/features.json",
     atlas_parquet="path/to/features_atlas.parquet",
-    port=5173
+    port=5173,
 )
 ```
 
 ### Manual Setup
 
 1. Copy your data files to the `public/` directory:
+
    - `features.json` - Feature metadata with examples
    - `features_atlas.parquet` - UMAP coordinates and stats
 
 2. Install dependencies and run:
+
    ```bash
    npm install
    npm run dev
@@ -74,6 +76,7 @@ launch_dashboard(
 ### features_atlas.parquet
 
 Required columns:
+
 - `feature_id`: Integer feature ID
 - `x`, `y`: UMAP coordinates
 - `label` or `best_annotation`: Feature label for display
@@ -81,5 +84,6 @@ Required columns:
 - `max_activation`: Maximum activation value
 
 Optional columns for coloring:
-- Any VARCHAR column with <= 50 unique values (categorical)
+
+- Any VARCHAR column with \<= 50 unique values (categorical)
 - `cluster`, `category`, `group` integer columns (categorical)

@@ -1,5 +1,19 @@
-"""
-Step 1 (15B): Extract activations from ESM2-15B and save to disk.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+r"""Step 1 (15B): Extract activations from ESM2-15B and save to disk.
 
 Uses nvidia/esm2_t48_15B_UR50D with TransformerEngine for memory-efficient
 BF16 inference. No need to clone bionemo-framework -- the model code is
@@ -36,14 +50,14 @@ import time
 from pathlib import Path
 
 import torch
+from esm2_sae.data import download_swissprot, download_uniref50, read_fasta
+from sae.activation_store import ActivationStore, ActivationStoreConfig
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
 
-from sae.activation_store import ActivationStore, ActivationStoreConfig
-from esm2_sae.data import read_fasta, download_swissprot, download_uniref50
-
 
 def parse_args():
+    """Parse command-line arguments for activation extraction."""
     p = argparse.ArgumentParser(description="Extract ESM2-15B layer activations")
     # Data source: either --fasta or --source
     data = p.add_mutually_exclusive_group(required=True)
@@ -53,7 +67,9 @@ def parse_args():
     p.add_argument("--num-proteins", type=int, default=None, help="Number of proteins to extract")
 
     p.add_argument(
-        "--layer", type=int, required=True,
+        "--layer",
+        type=int,
+        required=True,
         help="Layer to extract (0 = embedding output, 1..48 = transformer layers)",
     )
     p.add_argument("--output", type=str, required=True, help="Output directory for activation shards")
@@ -64,8 +80,12 @@ def parse_args():
     p.add_argument("--dtype", choices=["bf16", "fp16", "fp32"], default="bf16")
     p.add_argument("--device-map", type=str, default=None, help="HF device_map (e.g. 'auto') for model parallelism")
     p.add_argument("--shard-size", type=int, default=100_000, help="Activations per parquet shard")
-    p.add_argument("--filter-length", action="store_true", default=False,
-                   help="Filter by --max-length during download so exactly --num-proteins short sequences are collected")
+    p.add_argument(
+        "--filter-length",
+        action="store_true",
+        default=False,
+        help="Filter by --max-length during download so exactly --num-proteins short sequences are collected",
+    )
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -135,6 +155,7 @@ def _merge_rank_stores(cache_path: Path, world_size: int, metadata: dict) -> Non
 
 
 def main():
+    """Extract ESM2 layer activations and save to disk."""
     args = parse_args()
     torch.manual_seed(args.seed)
 
@@ -143,8 +164,9 @@ def main():
     world_size = int(os.environ.get("WORLD_SIZE", 1))
 
     if world_size > 1:
-        import torch.distributed as dist
         from datetime import timedelta
+
+        import torch.distributed as dist
 
         if not dist.is_initialized():
             dist.init_process_group("nccl", timeout=timedelta(hours=48))
@@ -206,6 +228,7 @@ def main():
     # All ranks wait here — ensures download is complete before anyone reads
     if world_size > 1:
         import torch.distributed as dist
+
         dist.barrier()
 
     records = read_fasta(fasta_path, max_sequences=args.num_proteins, max_length=args.max_length)
@@ -312,28 +335,38 @@ def main():
 
                 # Progress logging for non-rank-0 processes
                 if rank != 0 and batches_done % log_interval == 0:
-                    print(f"[Rank {rank}] {batches_done}/{n_batches} batches "
-                          f"({100*batches_done/n_batches:.0f}%)", flush=True)
+                    print(
+                        f"[Rank {rank}] {batches_done}/{n_batches} batches ({100 * batches_done / n_batches:.0f}%)",
+                        flush=True,
+                    )
 
     except Exception as e:
         extraction_error = e
-        print(f"[Rank {rank}] EXTRACTION FAILED at batch {batches_done}/{n_batches}: "
-              f"{type(e).__name__}: {e}", flush=True)
+        print(
+            f"[Rank {rank}] EXTRACTION FAILED at batch {batches_done}/{n_batches}: {type(e).__name__}: {e}", flush=True
+        )
 
     if extraction_error is None:
-        store.finalize(metadata={
-            "model_name": args.model_name,
-            "layer": args.layer,
-            "n_sequences": len(my_sequences),
-            "dtype": args.dtype,
-        })
+        store.finalize(
+            metadata={
+                "model_name": args.model_name,
+                "layer": args.layer,
+                "n_sequences": len(my_sequences),
+                "dtype": args.dtype,
+            }
+        )
 
         elapsed = time.time() - t0
-        print(f"[Rank {rank}] {store.metadata['n_samples']:,} tokens from "
-              f"{len(my_sequences)} sequences in {elapsed:.1f}s", flush=True)
+        print(
+            f"[Rank {rank}] {store.metadata['n_samples']:,} tokens from "
+            f"{len(my_sequences)} sequences in {elapsed:.1f}s",
+            flush=True,
+        )
     else:
-        print(f"[Rank {rank}] Extraction incomplete: {batches_done}/{n_batches} batches. "
-              f"Store NOT finalized.", flush=True)
+        print(
+            f"[Rank {rank}] Extraction incomplete: {batches_done}/{n_batches} batches. Store NOT finalized.",
+            flush=True,
+        )
 
     del model
     if torch.cuda.is_available():
@@ -345,19 +378,23 @@ def main():
 
         dist.barrier()
         if rank == 0:
-            _merge_rank_stores(cache_path, world_size, {
-                "model_name": args.model_name,
-                "layer": args.layer,
-                "n_sequences": total_sequences,
-                "dtype": args.dtype,
-            })
+            _merge_rank_stores(
+                cache_path,
+                world_size,
+                {
+                    "model_name": args.model_name,
+                    "layer": args.layer,
+                    "n_sequences": total_sequences,
+                    "dtype": args.dtype,
+                },
+            )
         dist.barrier()
         dist.destroy_process_group()
 
     if rank == 0:
         with open(cache_path / "metadata.json") as f:
             meta = json.load(f)
-        print(f"\nExtraction complete:")
+        print("\nExtraction complete:")
         print(f"  Output:     {cache_path}")
         print(f"  Sequences:  {meta.get('n_sequences', '?')}")
         print(f"  Tokens:     {meta['n_samples']:,}")

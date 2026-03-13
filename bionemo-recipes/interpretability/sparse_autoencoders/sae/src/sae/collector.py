@@ -1,5 +1,19 @@
-"""
-Token-level activation collector for SAE features.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Token-level activation collector for SAE features.
 
 Replaces the memory-intensive compute_feature_stats() with a streaming
 approach that uses bounded min-heaps to track top-k token examples per
@@ -24,7 +38,7 @@ Example:
 
 import heapq
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional
 
 import torch
 
@@ -34,6 +48,7 @@ from .analysis import FeatureStats, _StatsAccumulator
 @dataclass
 class TokenExample:
     """A top-activating token example for a feature."""
+
     feature_id: int
     text_idx: int
     position: int
@@ -44,9 +59,10 @@ class TokenExample:
 @dataclass
 class CollectorResult:
     """Output from TokenActivationCollector.collect()."""
+
     feature_stats: List[FeatureStats]
-    text_codes: torch.Tensor                       # [n_texts, n_features]
-    token_examples: Dict[int, List[TokenExample]]   # per-feature top-k
+    text_codes: torch.Tensor  # [n_texts, n_features]
+    token_examples: Dict[int, List[TokenExample]]  # per-feature top-k
     total_tokens: int
     total_texts: int
     _text_labels: List[List[str]] = field(default_factory=list, repr=False)
@@ -85,6 +101,7 @@ class TokenActivationCollector:
         top_k_tokens: int = 50,
         store_token_codes: bool = False,
     ):
+        """Initialize the collector with an encoding function and feature count."""
         self.encode_fn = encode_fn
         self.n_features = n_features
         self.top_k_tokens = top_k_tokens
@@ -123,6 +140,7 @@ class TokenActivationCollector:
         if show_progress:
             try:
                 from tqdm.auto import tqdm
+
                 iterator = tqdm(inputs, desc="Collecting activations")
             except ImportError:
                 pass

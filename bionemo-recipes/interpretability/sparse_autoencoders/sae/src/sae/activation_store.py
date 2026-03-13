@@ -1,21 +1,38 @@
-"""
-Activation Store for SAE training.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Activation Store for SAE training.
 
 Provides disk-based storage for model activations when they don't fit in memory.
 Activations are saved as sharded Parquet files and can be loaded, shuffled,
 and served in batches during SAE training.
 """
 
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Iterator, Union, List
+from typing import Iterator, List, Optional, Union
+
 import numpy as np
 import torch
-from torch.utils.data import IterableDataset, DataLoader
-from dataclasses import dataclass
+from torch.utils.data import DataLoader, IterableDataset
+
 
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
+
     HAS_PARQUET = True
 except ImportError:
     HAS_PARQUET = False
@@ -29,8 +46,9 @@ class ActivationStoreConfig:
         shard_size: Number of activations per shard file
         compression: Parquet compression ('snappy', 'gzip', 'zstd', None)
     """
+
     shard_size: int = 100_000
-    compression: Optional[str] = 'snappy'
+    compression: Optional[str] = "snappy"
 
 
 class ActivationStore:
@@ -110,10 +128,10 @@ class ActivationStore:
 
         # Save metadata
         self._metadata = {
-            'n_samples': n_samples,
-            'hidden_dim': hidden_dim,
-            'n_shards': n_shards,
-            'shard_size': shard_size,
+            "n_samples": n_samples,
+            "hidden_dim": hidden_dim,
+            "n_shards": n_shards,
+            "shard_size": shard_size,
             **(metadata or {}),
         }
         self._save_metadata()
@@ -160,9 +178,7 @@ class ActivationStore:
         if self._append_hidden_dim is None:
             self._append_hidden_dim = hidden_dim
         elif self._append_hidden_dim != hidden_dim:
-            raise ValueError(
-                f"Hidden dim mismatch: expected {self._append_hidden_dim}, got {hidden_dim}"
-            )
+            raise ValueError(f"Hidden dim mismatch: expected {self._append_hidden_dim}, got {hidden_dim}")
 
         # Add to buffer
         if self._append_buffer is None:
@@ -201,10 +217,10 @@ class ActivationStore:
 
         # Save metadata
         self._metadata = {
-            'n_samples': self._append_n_samples,
-            'hidden_dim': self._append_hidden_dim,
-            'n_shards': self._append_n_shards,
-            'shard_size': self.config.shard_size,
+            "n_samples": self._append_n_samples,
+            "hidden_dim": self._append_hidden_dim,
+            "n_shards": self._append_n_shards,
+            "shard_size": self.config.shard_size,
             **(metadata or {}),
         }
         self._save_metadata()
@@ -225,7 +241,7 @@ class ActivationStore:
         """Save a single shard to Parquet."""
         # Store as a table with one column per dimension
         # This is more efficient for columnar reads
-        columns = {f'dim_{i}': data[:, i] for i in range(data.shape[1])}
+        columns = {f"dim_{i}": data[:, i] for i in range(data.shape[1])}
         table = pa.table(columns)
 
         shard_path = self.path / f"shard_{shard_idx:05d}.parquet"
@@ -238,17 +254,19 @@ class ActivationStore:
     def _save_metadata(self) -> None:
         """Save metadata to JSON file."""
         import json
+
         metadata_path = self.path / "metadata.json"
-        with open(metadata_path, 'w') as f:
+        with open(metadata_path, "w") as f:
             json.dump(self._metadata, f, indent=2)
 
     def _load_metadata(self) -> dict:
         """Load metadata from JSON file."""
         import json
+
         metadata_path = self.path / "metadata.json"
         if not metadata_path.exists():
             raise FileNotFoundError(f"No metadata found at {metadata_path}")
-        with open(metadata_path, 'r') as f:
+        with open(metadata_path, "r") as f:
             return json.load(f)
 
     @property
@@ -261,17 +279,17 @@ class ActivationStore:
     @property
     def n_samples(self) -> int:
         """Total number of samples in the store."""
-        return self.metadata['n_samples']
+        return self.metadata["n_samples"]
 
     @property
     def hidden_dim(self) -> int:
         """Dimensionality of stored activations."""
-        return self.metadata['hidden_dim']
+        return self.metadata["hidden_dim"]
 
     @property
     def n_shards(self) -> int:
         """Number of shard files."""
-        return self.metadata['n_shards']
+        return self.metadata["n_shards"]
 
     def _load_shard(self, shard_idx: int) -> np.ndarray:
         """Load a single shard from Parquet."""
@@ -280,7 +298,7 @@ class ActivationStore:
 
         # Reconstruct array from columns
         hidden_dim = self.hidden_dim
-        arrays = [table.column(f'dim_{i}').to_numpy() for i in range(hidden_dim)]
+        arrays = [table.column(f"dim_{i}").to_numpy() for i in range(hidden_dim)]
         return np.stack(arrays, axis=1)
 
     def iter_shards(
@@ -504,8 +522,8 @@ class _StreamingBatchDataset(IterableDataset):
             while len(buffer) >= self.batch_size:
                 if self.max_batches is not None and n_yielded >= self.max_batches:
                     return
-                yield buffer[:self.batch_size]
-                buffer = buffer[self.batch_size:]
+                yield buffer[: self.batch_size]
+                buffer = buffer[self.batch_size :]
                 n_yielded += 1
 
         # Yield remainder as a partial batch (skip if capped)
@@ -522,7 +540,7 @@ def save_activations(
     activations: Union[torch.Tensor, np.ndarray],
     path: Union[str, Path],
     shard_size: int = 100_000,
-    compression: Optional[str] = 'snappy',
+    compression: Optional[str] = "snappy",
     metadata: Optional[dict] = None,
 ) -> ActivationStore:
     """Convenience function to save activations to disk.

@@ -1,5 +1,19 @@
-"""
-Feature steering via SAE interventions at inference time.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Feature steering via SAE interventions at inference time.
 
 Intercepts a model's residual stream at a target layer, modifies specific
 SAE feature activations (amplify, suppress, or clamp), and re-injects the
@@ -15,7 +29,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -24,6 +38,8 @@ from .architectures.base import SparseAutoencoder
 
 
 class InterventionMode(str, Enum):
+    """Modes for SAE feature interventions."""
+
     ADDITIVE_CODE = "additive_code"
     MULTIPLICATIVE_CODE = "multiplicative_code"
     DIRECT = "direct"
@@ -32,6 +48,7 @@ class InterventionMode(str, Enum):
 @dataclass
 class Intervention:
     """A single feature intervention."""
+
     feature_id: int
     weight: float
     mode: InterventionMode = InterventionMode.ADDITIVE_CODE
@@ -66,6 +83,7 @@ class SteeredModel:
         layer: int,
         device: Optional[torch.device] = None,
     ):
+        """Initialize the steered model with a language model, SAE, and target layer."""
         self.model = model
         self.sae = sae
         self.layer = layer
@@ -127,9 +145,7 @@ class SteeredModel:
             self.set_interventions(prev)
 
     def _register_hook(self) -> None:
-        self._hook_handle = self._target_module.register_forward_hook(
-            self._hook_fn
-        )
+        self._hook_handle = self._target_module.register_forward_hook(self._hook_fn)
 
     def _unregister_hook(self) -> None:
         if self._hook_handle is not None:
@@ -148,12 +164,8 @@ class SteeredModel:
             rest = None
 
         # Separate interventions by type
-        direct_interventions = [
-            iv for iv in self._interventions if iv.mode == InterventionMode.DIRECT
-        ]
-        code_interventions = [
-            iv for iv in self._interventions if iv.mode != InterventionMode.DIRECT
-        ]
+        direct_interventions = [iv for iv in self._interventions if iv.mode == InterventionMode.DIRECT]
+        code_interventions = [iv for iv in self._interventions if iv.mode != InterventionMode.DIRECT]
 
         # Apply direct interventions: activations += weight * W_dec[feature_id]
         if direct_interventions:
@@ -214,4 +226,5 @@ class SteeredModel:
         )
 
     def __del__(self):
+        """Clean up by unregistering the forward hook."""
         self._unregister_hook()

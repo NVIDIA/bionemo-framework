@@ -1,29 +1,44 @@
-"""
-Training utilities for Sparse Autoencoders.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Training utilities for Sparse Autoencoders.
 
 This module provides a Trainer class that handles all training-related concerns,
 separating training logic from the SAE model architecture.
 """
 
 import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional, Union
+
+import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import torch.distributed as dist
+import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
-from typing import Optional, Dict, Any, Union, List, Callable
-from dataclasses import dataclass, field
-from pathlib import Path
-from .perf_logger import PerfLogger
-from .eval import DeadLatentTracker
 
-import time
-import numpy as np
+from .eval import DeadLatentTracker
+from .perf_logger import PerfLogger
+
 
 try:
     import wandb
+
     HAS_WANDB = True
 except ImportError:
     HAS_WANDB = False
@@ -48,10 +63,11 @@ class TrainingConfig:
         lr_reference_hidden_dim: Reference hidden_dim for LR scaling (default 2048)
         warmup_steps: Number of steps for linear LR warmup (0 = no warmup)
     """
+
     lr: float = 3e-4
     n_epochs: int = 10
     batch_size: int = 4096
-    device: str = 'cuda'
+    device: str = "cuda"
     log_interval: int = 100
     shuffle: bool = True
     num_workers: int = 0
@@ -76,8 +92,9 @@ class WandbConfig:
         config: Additional config dict to log
         log_interval: Log to W&B every N batches
     """
+
     enabled: bool = False
-    project: str = 'biosae'
+    project: str = "biosae"
     run_name: Optional[str] = None
     group: Optional[str] = None
     job_type: Optional[str] = None
@@ -92,6 +109,7 @@ class ParallelConfig:
     Attributes:
         dp_size: Data parallel size (number of GPUs). 1 = single GPU, >1 = DDP.
     """
+
     dp_size: int = 1
 
 
@@ -131,8 +149,7 @@ class Trainer:
         perf_logger: Optional[PerfLogger] = None,
         parallel_config: Optional[ParallelConfig] = None,
     ):
-        """
-        Initialize the trainer.
+        """Initialize the trainer.
 
         Args:
             model: SAE model to train
@@ -165,10 +182,7 @@ class Trainer:
         self.current_epoch: int = 0
         self._target_lr: float = config.lr if config else 3e-4
 
-    def _setup_dataloader(
-        self,
-        data: Union[torch.Tensor, DataLoader]
-    ) -> DataLoader:
+    def _setup_dataloader(self, data: Union[torch.Tensor, DataLoader]) -> DataLoader:
         """Setup dataloader from tensor or existing dataloader."""
         if isinstance(data, torch.Tensor):
             dataset = TensorDataset(data)
@@ -191,7 +205,7 @@ class Trainer:
                 shuffle=shuffle,
                 sampler=sampler,
                 num_workers=self.config.num_workers,
-                pin_memory=self.config.pin_memory
+                pin_memory=self.config.pin_memory,
             )
         elif isinstance(data, DataLoader):
             return data
@@ -217,6 +231,7 @@ class Trainer:
         # Scale: lr ∝ 1/sqrt(hidden_dim)
         # effective_lr = base_lr * sqrt(reference_dim / hidden_dim)
         import math
+
         scale_factor = math.sqrt(reference_dim / hidden_dim)
         effective_lr = base_lr * scale_factor
 
@@ -248,7 +263,7 @@ class Trainer:
         """Update learning rate based on warmup schedule."""
         lr = self._get_warmup_lr(step)
         for param_group in optimizer.param_groups:
-            param_group['lr'] = lr
+            param_group["lr"] = lr
         return lr
 
     def _setup_loss_fn(self) -> Callable:
@@ -301,7 +316,7 @@ class Trainer:
             return
 
         model = self._get_model()
-        if hasattr(model, 'stats_last_nonzero'):
+        if hasattr(model, "stats_last_nonzero"):
             # MIN reduction: if ANY GPU saw it fire, mark it active (counter=0)
             dist.all_reduce(model.stats_last_nonzero, op=dist.ReduceOp.MIN)
 
@@ -323,21 +338,21 @@ class Trainer:
 
         # Build config
         config = {
-            'model_class': model.__class__.__name__,
-            'lr': self.config.lr,
-            'n_epochs': self.config.n_epochs,
-            'batch_size': self.config.batch_size,
-            'device': self.config.device,
-            'dp_size': self.parallel_config.dp_size,
-            'global_batch_size': self.config.batch_size * self.parallel_config.dp_size,
+            "model_class": model.__class__.__name__,
+            "lr": self.config.lr,
+            "n_epochs": self.config.n_epochs,
+            "batch_size": self.config.batch_size,
+            "device": self.config.device,
+            "dp_size": self.parallel_config.dp_size,
+            "global_batch_size": self.config.batch_size * self.parallel_config.dp_size,
         }
 
         # Add model-specific config if available
-        if hasattr(model, 'input_dim'):
-            config['input_dim'] = model.input_dim
-        if hasattr(model, 'hidden_dim'):
-            config['hidden_dim'] = model.hidden_dim
-        if hasattr(model, '_get_config'):
+        if hasattr(model, "input_dim"):
+            config["input_dim"] = model.input_dim
+        if hasattr(model, "hidden_dim"):
+            config["hidden_dim"] = model.hidden_dim
+        if hasattr(model, "_get_config"):
             config.update(model._get_config())
 
         # Add user config
@@ -366,36 +381,35 @@ class Trainer:
         path: Union[str, Path],
         optimizer: Optional[torch.optim.Optimizer] = None,
     ) -> None:
-        """
-        Save a training checkpoint.
+        """Save a training checkpoint.
 
         Args:
             path: Path to save checkpoint file.
             optimizer: Optimizer to save state from (optional).
         """
         checkpoint = {
-            'model_state_dict': self.model.state_dict(),
-            'global_step': self.global_step,
-            'epoch': self.current_epoch,
-            'config': {
-                'lr': self.config.lr,
-                'n_epochs': self.config.n_epochs,
-                'batch_size': self.config.batch_size,
+            "model_state_dict": self.model.state_dict(),
+            "global_step": self.global_step,
+            "epoch": self.current_epoch,
+            "config": {
+                "lr": self.config.lr,
+                "n_epochs": self.config.n_epochs,
+                "batch_size": self.config.batch_size,
             },
         }
 
         if optimizer is not None:
-            checkpoint['optimizer_state_dict'] = optimizer.state_dict()
+            checkpoint["optimizer_state_dict"] = optimizer.state_dict()
 
         # Save model architecture info if available
         # Unwrap DDP/FSDP to access the underlying model attributes
-        raw_model = getattr(self.model, 'module', self.model)
-        if hasattr(raw_model, 'input_dim'):
-            checkpoint['input_dim'] = raw_model.input_dim
-        if hasattr(raw_model, 'hidden_dim'):
-            checkpoint['hidden_dim'] = raw_model.hidden_dim
-        if hasattr(raw_model, '_get_config'):
-            checkpoint['model_config'] = raw_model._get_config()
+        raw_model = getattr(self.model, "module", self.model)
+        if hasattr(raw_model, "input_dim"):
+            checkpoint["input_dim"] = raw_model.input_dim
+        if hasattr(raw_model, "hidden_dim"):
+            checkpoint["hidden_dim"] = raw_model.hidden_dim
+        if hasattr(raw_model, "_get_config"):
+            checkpoint["model_config"] = raw_model._get_config()
 
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -406,8 +420,7 @@ class Trainer:
         path: Union[str, Path],
         optimizer: Optional[torch.optim.Optimizer] = None,
     ) -> Dict[str, Any]:
-        """
-        Load a training checkpoint.
+        """Load a training checkpoint.
 
         Args:
             path: Path to checkpoint file.
@@ -419,17 +432,17 @@ class Trainer:
         checkpoint = torch.load(path, map_location=self.config.device, weights_only=False)
 
         # Handle DDP checkpoints (keys prefixed with 'module.') loaded without DDP wrapper
-        state_dict = checkpoint['model_state_dict']
-        if any(k.startswith('module.') for k in state_dict) and not any(
-            k.startswith('module.') for k in self.model.state_dict()
+        state_dict = checkpoint["model_state_dict"]
+        if any(k.startswith("module.") for k in state_dict) and not any(
+            k.startswith("module.") for k in self.model.state_dict()
         ):
-            state_dict = {k.removeprefix('module.'): v for k, v in state_dict.items()}
+            state_dict = {k.removeprefix("module."): v for k, v in state_dict.items()}
         self.model.load_state_dict(state_dict)
-        self.global_step = checkpoint.get('global_step', 0)
-        self.current_epoch = checkpoint.get('epoch', 0)
+        self.global_step = checkpoint.get("global_step", 0)
+        self.current_epoch = checkpoint.get("epoch", 0)
 
-        if optimizer is not None and 'optimizer_state_dict' in checkpoint:
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if optimizer is not None and "optimizer_state_dict" in checkpoint:
+            optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
         return checkpoint
 
@@ -439,10 +452,9 @@ class Trainer:
         max_grad_norm: Optional[float] = None,
         resume_from: Optional[Union[str, Path]] = None,
         data_sharded: bool = False,
-        **loss_kwargs
+        **loss_kwargs,
     ) -> float:
-        """
-        Train the SAE model.
+        """Train the SAE model.
 
         Args:
             data: Training data (tensor or dataloader)
@@ -482,10 +494,7 @@ class Trainer:
             self.perf_logger.reset()
 
         model = self._get_model()
-        self.dead_latent_tracker = DeadLatentTracker(
-            model.hidden_dim,
-            device=self.config.device
-        )
+        self.dead_latent_tracker = DeadLatentTracker(model.hidden_dim, device=self.config.device)
 
         # Compute global batch size
         global_batch_size = self.config.batch_size * self.parallel_config.dp_size
@@ -497,7 +506,7 @@ class Trainer:
         try:
             self._print_rank0(f"Batches per epoch: ~{len(self.dataloader)}")
         except TypeError:
-            self._print_rank0(f"Batches per epoch: unknown (streaming)")
+            self._print_rank0("Batches per epoch: unknown (streaming)")
         self._print_rank0(f"Batch size per GPU: {self.config.batch_size}")
         self._print_rank0(f"Global batch size: {global_batch_size}")
         if self.config.warmup_steps > 0:
@@ -518,7 +527,7 @@ class Trainer:
             batch_losses = []
 
             # Set epoch for distributed sampler (ensures different shuffling each epoch)
-            if self.is_distributed and hasattr(self.dataloader.sampler, 'set_epoch'):
+            if self.is_distributed and hasattr(self.dataloader.sampler, "set_epoch"):
                 self.dataloader.sampler.set_epoch(epoch)
 
             for batch_idx, batch in enumerate(self.dataloader):
@@ -528,11 +537,11 @@ class Trainer:
                 batch = batch.to(self.config.device)
 
                 # Update learning rate (handles warmup)
-                current_lr = self._update_lr(optimizer, self.global_step)
+                self._update_lr(optimizer, self.global_step)
 
                 # Forward pass
                 loss_dict = loss_fn(batch, **loss_kwargs)
-                loss = loss_dict['total']
+                loss = loss_dict["total"]
 
                 # Backward pass
                 optimizer.zero_grad()
@@ -544,9 +553,7 @@ class Trainer:
                 # Gradient clipping and norm computation
                 grad_norm = None
                 if max_grad_norm is not None:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), max_grad_norm
-                    )
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
                 else:
                     # Compute grad norm without clipping for logging
                     grad_norm = self._compute_grad_norm()
@@ -554,7 +561,7 @@ class Trainer:
                 optimizer.step()
 
                 # Post-step hook (e.g., normalize decoder)
-                if hasattr(model, 'post_step'):
+                if hasattr(model, "post_step"):
                     model.post_step()
 
                 # Track losses
@@ -563,16 +570,16 @@ class Trainer:
                 # Log with PerfLogger if provided (only on rank 0)
                 if self.perf_logger is not None and self.rank == 0:
                     extra_metrics = {
-                        'global_batch_size': global_batch_size,
+                        "global_batch_size": global_batch_size,
                     }
 
                     # Dead latents tracking - prefer SAE's internal counter (what auxk uses)
-                    if hasattr(model, 'stats_last_nonzero') and hasattr(model, 'dead_tokens_threshold'):
+                    if hasattr(model, "stats_last_nonzero") and hasattr(model, "dead_tokens_threshold"):
                         dead_by_auxk = (model.stats_last_nonzero > model.dead_tokens_threshold).float().mean() * 100
-                        extra_metrics['dead_latents'] = dead_by_auxk.item()
+                        extra_metrics["dead_latents"] = dead_by_auxk.item()
                     elif self.dead_latent_tracker:
                         dead_stats = self.dead_latent_tracker.get_stats()
-                        extra_metrics['dead_latents'] = dead_stats['dead_pct']
+                        extra_metrics["dead_latents"] = dead_stats["dead_pct"]
 
                     # Reconstruction metrics come from loss_dict (no extra forward pass needed)
 
@@ -586,27 +593,29 @@ class Trainer:
                         batch=batch,
                         loss_dict=loss_dict,
                         grad_norm=grad_norm,
-                        lr=optimizer.param_groups[0]['lr'],
+                        lr=optimizer.param_groups[0]["lr"],
                         extra_metrics=extra_metrics,
                     )
                 # Fallback to basic wandb logging if no perf_logger (only on rank 0)
                 elif self.wandb_run and self.rank == 0 and (self.global_step % self.wandb_config.log_interval == 0):
                     log_dict = {
-                        'train/loss': loss.item(),
-                        'train/step': self.global_step,
-                        'train/global_batch_size': global_batch_size,
+                        "train/loss": loss.item(),
+                        "train/step": self.global_step,
+                        "train/global_batch_size": global_batch_size,
                     }
                     for key, value in loss_dict.items():
-                        if key != 'total':
-                            log_dict[f'train/{key}'] = value.item() if torch.is_tensor(value) else value
+                        if key != "total":
+                            log_dict[f"train/{key}"] = value.item() if torch.is_tensor(value) else value
                     self._log_wandb(log_dict, self.global_step)
 
                 # Checkpointing (only on rank 0)
-                if (self.rank == 0
+                if (
+                    self.rank == 0
                     and self.config.checkpoint_dir is not None
                     and self.config.checkpoint_steps is not None
                     and self.global_step > 0
-                    and self.global_step % self.config.checkpoint_steps == 0):
+                    and self.global_step % self.config.checkpoint_steps == 0
+                ):
                     ckpt_path = Path(self.config.checkpoint_dir) / f"checkpoint_step_{self.global_step}.pt"
                     self.save_checkpoint(ckpt_path, optimizer)
                     self._print_rank0(f"Saved checkpoint: {ckpt_path}")
@@ -637,7 +646,7 @@ class Trainer:
             dist.destroy_process_group()
 
         # Training complete
-        final_loss = epoch_losses[-1] if epoch_losses else float('nan')
+        final_loss = epoch_losses[-1] if epoch_losses else float("nan")
         self._print_rank0(f"Training complete! Final loss: {final_loss:.6f}")
 
         self.model.eval()
@@ -650,7 +659,7 @@ class Trainer:
             if p.grad is not None:
                 param_norm = p.grad.data.norm(2)
                 total_norm += param_norm.item() ** 2
-        return total_norm ** 0.5
+        return total_norm**0.5
 
 
 def train_sae(
@@ -659,13 +668,12 @@ def train_sae(
     lr: float = 3e-4,
     n_epochs: int = 10,
     batch_size: int = 4096,
-    device: str = 'cuda',
+    device: str = "cuda",
     log_interval: int = 1,
     warmup_steps: int = 0,
-    **loss_kwargs
+    **loss_kwargs,
 ) -> float:
-    """
-    Convenience function to train an SAE model.
+    """Convenience function to train an SAE model.
 
     This is a simpler interface than using the Trainer class directly.
 

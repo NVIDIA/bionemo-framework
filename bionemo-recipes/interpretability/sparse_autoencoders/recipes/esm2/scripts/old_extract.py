@@ -1,10 +1,24 @@
-"""
-Step 1: Extract activations from ESM2 and save to disk.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Step 1: Extract activations from ESM2 and save to disk.
 
 Extracts layer activations from an ESM2 model for a set of protein sequences
 and writes them as sharded Parquet files via ActivationStore.
 
-Supports multi-GPU extraction via torchrun for N× speedup:
+Supports multi-GPU extraction via torchrun for Nx speedup:
     torchrun --nproc_per_node=4 scripts/step1_extract.py ...
 
 Single-GPU usage:
@@ -14,19 +28,18 @@ Single-GPU usage:
         activations.cache_dir=.cache/activations/esm2_650m_layer25
 """
 
-import os
 import json
+import os
 import shutil
 import time
+from pathlib import Path
 
 import hydra
-from omegaconf import DictConfig, OmegaConf
-from pathlib import Path
 import torch
-
-from sae.utils import set_seed, get_device
-from esm2_sae.data import read_fasta, download_swissprot, download_uniref50
+from esm2_sae.data import download_swissprot, download_uniref50, read_fasta
 from esm2_sae.models import ESM2Model
+from omegaconf import DictConfig, OmegaConf
+from sae.utils import get_device, set_seed
 
 
 def resolve_data_path(cfg: DictConfig, data_dir: Path, rank: int) -> Path:
@@ -110,6 +123,7 @@ def _merge_rank_stores(cache_path: Path, world_size: int, metadata: dict) -> Non
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")
 def main(cfg: DictConfig) -> None:
+    """Extract ESM2 layer activations using Hydra configuration."""
     print(OmegaConf.to_yaml(cfg))
 
     set_seed(cfg.seed)
@@ -119,8 +133,10 @@ def main(cfg: DictConfig) -> None:
     world_size = int(os.environ.get("WORLD_SIZE", 1))
 
     if world_size > 1:
-        import torch.distributed as dist
         from datetime import timedelta
+
+        import torch.distributed as dist
+
         if not dist.is_initialized():
             dist.init_process_group("nccl", timeout=timedelta(hours=48))
         torch.cuda.set_device(rank)
@@ -145,6 +161,7 @@ def main(cfg: DictConfig) -> None:
             print(f"  {meta['n_samples']:,} tokens, {meta['n_shards']} shards, dim={meta['hidden_dim']}")
         if world_size > 1:
             import torch.distributed as dist
+
             dist.barrier()
             dist.destroy_process_group()
         return
@@ -161,6 +178,7 @@ def main(cfg: DictConfig) -> None:
     # Wait for download to finish on all ranks
     if world_size > 1:
         import torch.distributed as dist
+
         dist.barrier()
 
     num_proteins = cfg.data.get("num_proteins", None)
@@ -207,7 +225,7 @@ def main(cfg: DictConfig) -> None:
     padding = cfg.activations.get("tokenizer_padding", "longest")
 
     n_batches = (len(my_sequences) + batch_size - 1) // batch_size
-    show_progress = (rank == 0)
+    show_progress = rank == 0
 
     iterator = range(0, len(my_sequences), batch_size)
     if show_progress:
@@ -215,7 +233,7 @@ def main(cfg: DictConfig) -> None:
 
     t0 = time.time()
     for i in iterator:
-        batch_seqs = my_sequences[i:i + batch_size]
+        batch_seqs = my_sequences[i : i + batch_size]
         batch_emb, batch_masks = esm2.generate_activations(
             sequences=batch_seqs,
             batch_size=len(batch_seqs),
@@ -226,15 +244,19 @@ def main(cfg: DictConfig) -> None:
         batch_flat = batch_emb[batch_masks.bool()]
         store.append(batch_flat)
 
-    store.finalize(metadata={
-        "model_name": cfg.activations.model_name,
-        "layer": cfg.activations.layer,
-        "n_sequences": len(my_sequences),
-    })
+    store.finalize(
+        metadata={
+            "model_name": cfg.activations.model_name,
+            "layer": cfg.activations.layer,
+            "n_sequences": len(my_sequences),
+        }
+    )
 
     elapsed = time.time() - t0
-    print(f"[Rank {rank}] Extracted {store.metadata['n_samples']:,} tokens "
-          f"from {len(my_sequences)} proteins in {elapsed:.1f}s")
+    print(
+        f"[Rank {rank}] Extracted {store.metadata['n_samples']:,} tokens "
+        f"from {len(my_sequences)} proteins in {elapsed:.1f}s"
+    )
 
     # Free GPU memory
     del esm2
@@ -243,14 +265,19 @@ def main(cfg: DictConfig) -> None:
     # Multi-GPU: merge rank stores
     if world_size > 1:
         import torch.distributed as dist
+
         dist.barrier()
 
         if rank == 0:
-            _merge_rank_stores(cache_path, world_size, metadata={
-                "model_name": cfg.activations.model_name,
-                "layer": cfg.activations.layer,
-                "n_sequences": total_sequences,
-            })
+            _merge_rank_stores(
+                cache_path,
+                world_size,
+                metadata={
+                    "model_name": cfg.activations.model_name,
+                    "layer": cfg.activations.layer,
+                    "n_sequences": total_sequences,
+                },
+            )
 
         dist.barrier()
         dist.destroy_process_group()
@@ -259,7 +286,7 @@ def main(cfg: DictConfig) -> None:
     if rank == 0:
         with open(cache_path / "metadata.json") as f:
             meta = json.load(f)
-        print(f"\nExtraction complete:")
+        print("\nExtraction complete:")
         print(f"  Cache: {cache_path}")
         print(f"  Sequences: {meta.get('n_sequences', '?')}")
         print(f"  Tokens: {meta['n_samples']:,}")
