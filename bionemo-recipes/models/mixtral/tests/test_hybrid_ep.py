@@ -332,14 +332,16 @@ def _run_backward_test():
 
         assert len(ref_grads) > 0, "AllToAll model produced no gradients"
         assert len(test_grads) > 0, "FusedTokenRouter model produced no gradients"
+
+        # Both AllToAll (via _DifferentiableAllToAll) and FusedTokenRouter provide
+        # differentiable dispatch/combine, so all parameters should have gradients.
         assert ref_grads.keys() == test_grads.keys(), (
             f"Gradient key mismatch: "
-            f"only in ref={ref_grads.keys() - test_grads.keys()}, "
-            f"only in test={test_grads.keys() - ref_grads.keys()}"
+            f"AllToAll-only={ref_grads.keys() - test_grads.keys()}, "
+            f"Fused-only={test_grads.keys() - ref_grads.keys()}"
         )
 
         for name in ref_grads:
-            assert name in test_grads, f"FusedTokenRouter missing gradient for parameter: {name}"
             torch.testing.assert_close(
                 test_grads[name],
                 ref_grads[name],

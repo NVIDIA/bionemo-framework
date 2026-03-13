@@ -949,6 +949,54 @@ class _AllToAllHandle:
     output_split_sizes: list[int] | None = None
 
 
+class _DifferentiableAllToAll(torch.autograd.Function):
+    """Differentiable wrapper around dist.all_to_all_single.
+
+    The forward pass performs the standard all-to-all communication.
+    The backward pass reverses the communication direction (swapping
+    input/output split sizes) so that gradients flow correctly.
+    """
+
+    @staticmethod
+    def forward(
+        ctx,
+        input: torch.Tensor,
+        output_split_sizes: list[int],
+        input_split_sizes: list[int],
+        group: dist.ProcessGroup,
+    ) -> torch.Tensor:
+        """Perform all-to-all forward and save sizes for backward."""
+        ctx.input_split_sizes = input_split_sizes
+        ctx.output_split_sizes = output_split_sizes
+        ctx.group = group
+        output = torch.empty(
+            sum(output_split_sizes),
+            input.shape[1],
+            device=input.device,
+            dtype=input.dtype,
+        )
+        dist.all_to_all_single(output, input.contiguous(), output_split_sizes, input_split_sizes, group=group)
+        return output
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor) -> tuple[torch.Tensor, None, None, None]:
+        """Reverse all-to-all: swap input and output split sizes."""
+        grad_input = torch.empty(
+            sum(ctx.input_split_sizes),
+            grad_output.shape[1],
+            device=grad_output.device,
+            dtype=grad_output.dtype,
+        )
+        dist.all_to_all_single(
+            grad_input,
+            grad_output.contiguous(),
+            ctx.input_split_sizes,
+            ctx.output_split_sizes,
+            group=ctx.group,
+        )
+        return grad_input, None, None, None
+
+
 class AllToAllTokenDispatcher:
     """TokenDispatcher using NCCL all-to-all for expert-parallel communication.
 
@@ -998,10 +1046,7 @@ class AllToAllTokenDispatcher:
         # Compute m_splits: number of tokens per expert
         m_splits_tensor = torch.bincount(selected_experts.reshape(-1), minlength=self.num_experts).int()
 
-        if self.ep_size > 1:
-            assert self._ep_group is not None, (
-                "EP group must be set via set_ep_group() before dispatch when ep_size > 1"
-            )
+        if self._ep_group is not None:
             ep_group = self._ep_group
 
             # Token counts per expert, reshaped to [ep_size, num_local_experts]
@@ -1016,14 +1061,10 @@ class AllToAllTokenDispatcher:
             output_split_sizes = recv_counts.sum(dim=1).tolist()
             local_m_splits = recv_counts.sum(dim=0).int().tolist()
 
-            # Dispatch tokens to expert-owning ranks
-            recv_tokens = torch.empty(
-                sum(output_split_sizes),
-                self.hidden_size,
-                device=permuted_hidden.device,
-                dtype=permuted_hidden.dtype,
+            # Dispatch tokens to expert-owning ranks (differentiable)
+            recv_tokens = _DifferentiableAllToAll.apply(
+                permuted_hidden, output_split_sizes, input_split_sizes, ep_group
             )
-            dist.all_to_all_single(recv_tokens, permuted_hidden, output_split_sizes, input_split_sizes, group=ep_group)
 
             # Sort received tokens by local expert index.
             # After all_to_all layout is [src0_exp0..src0_expL, src1_exp0..src1_expL, ...].
@@ -1060,21 +1101,14 @@ class AllToAllTokenDispatcher:
         Returns:
             Combined output tensor of shape ``[N, H]`` with routing weights applied.
         """
-        if self.ep_size > 1:
+        if self._ep_group is not None:
             assert handle.unsort_indices is not None
-            # Unsort back to source-rank-grouped order and reverse all_to_all
-            combined = torch.empty(
-                sum(handle.input_split_sizes),
-                self.hidden_size,
-                device=expert_output.device,
-                dtype=expert_output.dtype,
-            )
-            dist.all_to_all_single(
-                combined,
+            # Unsort back to source-rank-grouped order and reverse all_to_all (differentiable)
+            combined = _DifferentiableAllToAll.apply(
                 expert_output[handle.unsort_indices],
                 handle.input_split_sizes,
                 handle.output_split_sizes,
-                group=self._ep_group,
+                self._ep_group,
             )
         else:
             combined = expert_output

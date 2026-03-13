@@ -62,18 +62,22 @@ def _distribute_state_dict(full_state_dict: dict, model: torch.nn.Module, device
     from torch.distributed.tensor import DTensor, distribute_tensor
 
     distributed_state: dict = {}
-    for key, value in model.state_dict().items():
-        if key not in full_state_dict:
+    # model.state_dict() filters _extra_state keys via the NVMixtralPreTrainedModel
+    # override, so use nn.Module.state_dict to get the unfiltered dict that includes
+    # TransformerEngine _extra_state entries required by load_state_dict(strict=True).
+    for key, value in torch.nn.Module.state_dict(model).items():
+        if key.endswith("_extra_state"):
+            distributed_state[key] = value
+        elif key not in full_state_dict:
             continue
-        full_value = full_state_dict[key]
-        if isinstance(value, DTensor):
+        elif isinstance(value, DTensor):
             distributed_state[key] = distribute_tensor(
-                full_value.to(device),
+                full_state_dict[key].to(device),
                 value.device_mesh,
                 list(value.placements),
             )
         else:
-            distributed_state[key] = full_value
+            distributed_state[key] = full_state_dict[key]
     return distributed_state
 
 
