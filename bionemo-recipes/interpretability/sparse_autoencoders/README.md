@@ -21,7 +21,6 @@ sparse_autoencoders/
 │   │   ├── scripts/      # extract, train, eval, dashboard launchers
 │   │   ├── configs/      # Hydra configs for 650M, 3B, 15B models
 │   │   └── src/esm2_sae/ # ESM2-specific data, eval, and viz
-│   └── codonfm/          # CodonFM recipe
 └── pyproject.toml        # UV workspace configuration
 ```
 
@@ -73,7 +72,7 @@ Each recipe includes an interactive exploration UI built on [Mosaic](https://git
 
 ## Applicability Beyond Biology
 
-While the included recipes target biological foundation models (ESM2, CodonFM), the core `sae` library is entirely domain-agnostic. Sparse autoencoders are a general-purpose interpretability technique and work equally well on natural language and vision transformer activations. To apply SAEs to a new domain, create a recipe that handles embedding extraction and domain-specific evaluation while reusing the shared training and architecture code.
+While the included recipes target biological foundation models such as ESM2, the core `sae` library is entirely domain-agnostic. Sparse autoencoders are a general-purpose interpretability technique and work equally well on natural language and vision transformer activations. To apply SAEs to a new domain, create a recipe that handles embedding extraction and domain-specific evaluation while reusing the shared training and architecture code.
 
 ## Roadmap
 

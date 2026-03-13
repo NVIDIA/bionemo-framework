@@ -1,6 +1,0 @@
-## How to run
-
-The `download_cds.ipynb` is the main entrypoint. It provides details regarding how to obtain the data and provides functionality to process the metadata and downloaded data.
-
-
-

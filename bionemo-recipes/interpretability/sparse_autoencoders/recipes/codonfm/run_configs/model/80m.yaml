@@ -1,6 +1,0 @@
-# @package _global_
-# CodonFM Encodon 80M: 6 layers, hidden_size=1024
-model_path: ../../data/jwilber/checkpoints/encodon_80m
-run_name: encodon_80m
-num_sequences: 5000
-batch_size: 32
