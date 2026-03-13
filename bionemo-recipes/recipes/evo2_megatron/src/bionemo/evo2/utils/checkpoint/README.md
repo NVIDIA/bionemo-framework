@@ -1,7 +1,7 @@
 # Evo2 Checkpoint Conversion Library
 
-This library provides CLI tools and utilities for converting checkpoints
-between formats used by Evo2 (Hyena) and Eden (Llama) models. All
+This library provides CLI tools and utilities for converting Evo2 (Hyena)
+checkpoints between different formats. All
 conversions go through the **MBridge** (Megatron Bridge) checkpoint format,
 which is the native format used for training and inference in this recipe.
 
@@ -44,8 +44,6 @@ directory (e.g. for export), point it at `evo2_7b_mbridge/iter_0000001/`.
 | `evo2_convert_nemo2_to_mbridge`   | Convert a NeMo2 checkpoint to MBridge format          |
 | `evo2_convert_savanna_to_mbridge` | Convert a Savanna checkpoint to MBridge format        |
 | `evo2_export_mbridge_to_vortex`   | Export an MBridge checkpoint to ARC Vortex `.pt` file |
-| `eden_export_mbridge_to_hf`       | Export an Eden MBridge checkpoint to HuggingFace      |
-| `eden_convert_hf_to_mbridge`      | Import a HuggingFace Llama checkpoint to MBridge      |
 
 Run any tool with `--help` for full usage details.
 
@@ -101,26 +99,9 @@ evo2_export_mbridge_to_vortex \
   --model-size evo2_7b
 ```
 
-### Exporting / importing Eden (Llama) checkpoints
-
-```bash
-# MBridge → HuggingFace
-eden_export_mbridge_to_hf \
-  --mbridge-ckpt-dir eden_7b_mbridge/iter_0000001 \
-  --hf-output-dir eden_7b_hf \
-  --model-size eden_7b
-
-# HuggingFace → MBridge
-eden_convert_hf_to_mbridge \
-  --hf-model-dir eden_7b_hf \
-  --mbridge-ckpt-dir eden_7b_mbridge \
-  --model-size eden_7b
-```
-
 ### Common options
 
-- `--model-size` — model key such as `evo2_1b_base`, `evo2_7b`, `evo2_40b`,
-  `eden_7b`, etc.
+- `--model-size` — model key such as `evo2_1b_base`, `evo2_7b`, `evo2_40b`, etc.
 - `--no-te` — disable Transformer Engine fused layernorm key mapping.
 - `--verbose` / `-v` — enable debug logging.
 

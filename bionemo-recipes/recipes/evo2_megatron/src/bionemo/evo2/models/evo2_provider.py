@@ -47,7 +47,6 @@ from megatron.core.pipeline_parallel.utils import is_pp_first_stage, is_pp_last_
 from megatron.core.transformer.enums import AttnBackend
 from megatron.core.utils import get_batch_on_this_cp_rank, get_model_config
 
-from bionemo.evo2.models.eden_provider import EDEN_MODEL_OPTIONS
 from bionemo.evo2.models.megatron.hyena.hyena_config import HyenaConfig as _HyenaConfigForFlops
 from bionemo.evo2.models.megatron.hyena.hyena_layer_specs import get_hyena_stack_spec
 from bionemo.evo2.models.megatron.hyena.hyena_model import HyenaModel as MCoreHyenaModel
@@ -738,36 +737,27 @@ HYENA_MODEL_OPTIONS: dict[str, Type[HyenaModelProvider]] = {
 }
 
 
-_collisions = set(HYENA_MODEL_OPTIONS) & set(EDEN_MODEL_OPTIONS)
-if _collisions:
-    raise ValueError(f"HYENA_MODEL_OPTIONS and EDEN_MODEL_OPTIONS have colliding keys: {sorted(_collisions)}")
-
-MODEL_OPTIONS: dict[str, object] = {**HYENA_MODEL_OPTIONS, **EDEN_MODEL_OPTIONS}
+MODEL_OPTIONS = HYENA_MODEL_OPTIONS
 
 
 def infer_model_type(model_size: str) -> str:
     """Infer the model architecture type from the model size key.
 
     Args:
-        model_size: A model size key such as ``"evo2_1b_base"`` or ``"eden_7b"``.
+        model_size: A model size key such as ``"evo2_1b_base"``.
 
     Returns:
-        ``"hyena"`` if *model_size* is in :data:`HYENA_MODEL_OPTIONS`,
-        ``"eden"`` if in :data:`EDEN_MODEL_OPTIONS`.
+        ``"hyena"`` if *model_size* is in :data:`HYENA_MODEL_OPTIONS`.
 
     Raises:
         ValueError: If the key is not found in any model options dict.
     """
     if model_size in HYENA_MODEL_OPTIONS:
         return "hyena"
-    elif model_size in EDEN_MODEL_OPTIONS:
-        return "eden"
-    else:
-        raise ValueError(f"Unknown model size: {model_size!r}. Valid options: {sorted(MODEL_OPTIONS.keys())}")
+    raise ValueError(f"Unknown model size: {model_size!r}. Valid options: {sorted(MODEL_OPTIONS.keys())}")
 
 
 __all__ = [
-    "EDEN_MODEL_OPTIONS",
     "HYENA_MODEL_OPTIONS",
     "MODEL_OPTIONS",
     "Hyena1bModelProvider",

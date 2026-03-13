@@ -356,7 +356,7 @@ def convert_zero1_model_parallel_checkpoint(
         raise ValueError(f"No parameter files found in {source_dir}")
 
     # Load all shards from the ZeRo1 checkpoint.
-    input_data_shards = [torch.load(path, map_location=DEVICE) for path in parameter_paths]
+    input_data_shards = [torch.load(path, map_location=DEVICE, weights_only=True) for path in parameter_paths]
     buffers = {buf for x in input_data_shards for buf in x.get("buffer_names", [])}
 
     # Initialize output MP shards.

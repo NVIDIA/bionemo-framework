@@ -28,11 +28,11 @@ handle this format.
 import pytest
 import torch
 
-from bionemo.evo2.utils.checkpoint.eden_mbridge_hf import (
+from bionemo.eden.utils.checkpoint.eden_mbridge_hf import (
     hf_to_mbridge_state_dict,
     mbridge_to_hf_state_dict,
 )
-from bionemo.evo2.utils.checkpoint.mbridge_to_vortex import load_mbridge_state_dict
+from bionemo.eden.utils.checkpoint.mbridge_checkpoint_utils import load_mbridge_state_dict
 
 
 NUM_LAYERS = 2

@@ -18,7 +18,6 @@
 import pytest
 import torch
 
-from bionemo.evo2.models.eden_provider import EDEN_MODEL_OPTIONS, EdenModelProvider, patch_eden_tokenizer
 from bionemo.evo2.models.evo2_provider import (
     HYENA_MODEL_OPTIONS,
     MODEL_OPTIONS,
@@ -47,42 +46,9 @@ def test_old_keys_removed():
         assert key not in HYENA_MODEL_OPTIONS, f"Old key '{key}' still present"
 
 
-def test_no_key_collisions_between_hyena_and_eden():
-    """Verify HYENA_MODEL_OPTIONS and EDEN_MODEL_OPTIONS have no overlapping keys."""
-    overlap = set(HYENA_MODEL_OPTIONS.keys()) & set(EDEN_MODEL_OPTIONS.keys())
-    assert len(overlap) == 0, f"Key collisions: {overlap}"
-
-
-def test_model_options_is_union():
-    """Verify MODEL_OPTIONS is the union of HYENA and EDEN model options."""
-    assert set(MODEL_OPTIONS.keys()) == set(HYENA_MODEL_OPTIONS.keys()) | set(EDEN_MODEL_OPTIONS.keys())
-
-
-def test_all_eden_options_instantiate():
-    """Verify every EDEN model option can be instantiated with valid architecture params."""
-    for cls in EDEN_MODEL_OPTIONS.values():
-        provider = cls()
-        assert provider.num_layers > 0
-        assert provider.hidden_size > 0
-        assert provider.num_attention_heads > 0
-        assert provider.ffn_hidden_size > 0
-
-
-def test_eden_base_provider():
-    """Verify EdenModelProvider returns expected base architecture parameters."""
-    provider = EdenModelProvider()
-    assert provider.num_layers == 32
-    assert provider.hidden_size == 4096
-    assert provider.ffn_hidden_size == 14336
-    assert provider.num_attention_heads == 32
-    assert provider.seq_length == 8192
-    assert provider.init_method_std == 0.02
-
-
-def test_eden_naming():
-    """Verify all EDEN model keys start with the eden_ prefix."""
-    for key in EDEN_MODEL_OPTIONS:
-        assert key.startswith("eden_"), f"Eden key '{key}' doesn't start with 'eden_'"
+def test_model_options_equals_hyena():
+    """Verify MODEL_OPTIONS equals HYENA_MODEL_OPTIONS (Eden removed)."""
+    assert set(MODEL_OPTIONS.keys()) == set(HYENA_MODEL_OPTIONS.keys())
 
 
 def test_infer_model_type_hyena():
@@ -91,30 +57,10 @@ def test_infer_model_type_hyena():
         assert infer_model_type(key) == "hyena"
 
 
-def test_infer_model_type_eden():
-    """Verify infer_model_type returns 'eden' for all EDEN model keys."""
-    for key in EDEN_MODEL_OPTIONS:
-        assert infer_model_type(key) == "eden"
-
-
 def test_infer_model_type_unknown():
     """Verify infer_model_type raises ValueError for unknown model keys."""
     with pytest.raises(ValueError, match="Unknown model size"):
         infer_model_type("nonexistent_model")
-
-
-def test_patch_eden_tokenizer():
-    """Verify patch_eden_tokenizer sets bos, eos, sep, and pad ids on the tokenizer."""
-
-    class MockTokenizer:
-        pass
-
-    tok = MockTokenizer()
-    patch_eden_tokenizer(tok)
-    assert tok._bos_id == 1
-    assert tok._eos_id == 2
-    assert tok._sep_id == 3
-    assert tok._pad_id == 0
 
 
 def _make_mock_savanna_sd(pattern: str) -> dict[str, torch.Tensor]:

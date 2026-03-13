@@ -1,10 +1,9 @@
 # Evo2 Recipe
 
 A self-contained training, inference, and checkpoint conversion recipe for
-**Evo2** and **Eden** genomic foundation models built on Megatron Bridge.
-This recipe supports both Evo2 (Striped Hyena) and Eden (Llama) architectures
-through a unified training and inference CLI, along with import and export tools
-for use in other packages.
+**Evo2** genomic foundation models built on Megatron Bridge. This recipe
+supports the Evo2 (Striped Hyena) architecture through a unified training and
+inference CLI, along with import and export tools for use in other packages.
 
 ## Evo2
 
@@ -15,14 +14,6 @@ trained on the OpenGenome2 dataset and scale from 1B to 40B parameters with
 context lengths up to 1M+ nucleotides. They achieve state-of-the-art
 performance on gene essentiality prediction, variant effect prediction, and
 *de novo* sequence generation across prokaryotic and eukaryotic genomes.
-
-## Eden
-
-[**Eden**](https://www.biorxiv.org/content/10.64898/2026.01.12.699009v2) is a
-complementary family of genomic models that use the Llama 3.1 architecture
-instead of Striped Hyena. Developed by Basecamp Research, Eden
-models range from 7B to 35B parameters and can be fine-tuned and exported to
-standard HuggingFace Llama checkpoints.
 
 ## Installation
 
@@ -37,7 +28,7 @@ All CLI tools are defined in `pyproject.toml` under `[project.scripts]`.
 
 | Command                           | Description                                           |
 | --------------------------------- | ----------------------------------------------------- |
-| `train_evo2`                      | Train or fine-tune Hyena and Eden models              |
+| `train_evo2`                      | Train or fine-tune Hyena models                       |
 | `infer_evo2`                      | Autoregressive text generation (greedy/sampling)      |
 | `predict_evo2`                    | Batch log-likelihood scoring on FASTA sequences       |
 | `preprocess_evo2`                 | Convert FASTA files to Megatron indexed binary format |
@@ -45,8 +36,8 @@ All CLI tools are defined in `pyproject.toml` under `[project.scripts]`.
 | `evo2_convert_nemo2_to_mbridge`   | Convert NeMo2 checkpoints to MBridge DCP format       |
 | `evo2_convert_savanna_to_mbridge` | Convert Savanna checkpoints to MBridge DCP format     |
 | `evo2_export_mbridge_to_vortex`   | Export MBridge checkpoint to Vortex `.pt` format      |
-| `eden_export_mbridge_to_hf`       | Export Eden MBridge checkpoint to HuggingFace Llama   |
-| `eden_convert_hf_to_mbridge`      | Convert HuggingFace Llama checkpoint to Eden MBridge  |
+| `evo2_remove_optimizer`           | Strip optimizer state from an MBridge checkpoint      |
+| `bionemo_fasta_to_jsonl`          | Convert FASTA files to JSONL format                   |
 
 Run any tool with `--help` for full usage details.
 
@@ -72,27 +63,16 @@ torchrun --nproc-per-node 2 --no-python \
   --attention-dropout 0.001 --hidden-dropout 0.001 \
   --eod-pad-in-loss-mask --enable-preemption \
   --log-interval 5 --debug-ddp-parity-freq 10 \
-  --result-dir tmpfp8 --no-renormalize-loss
+  --result-dir tmpfp8 --no-renormalize-loss \
+  --use-subquadratic-ops
 ```
 
-### Training with mock data (Eden / Llama)
-
-```bash
-torchrun --nproc-per-node 1 --no-python \
-  train_evo2 \
-  --hf-tokenizer-model-path tokenizers/nucleotide_fast_tokenizer_512 \
-  --model-size eden_7b --num-layers 2 --max-steps 5 --eval-interval 5 \
-  --eval-iters 1 --mock-data \
-  --micro-batch-size 4 --global-batch-size 4 --seq-length 64 \
-  --tensor-model-parallel 1 --pipeline-model-parallel 1 --context-parallel 1 \
-  --mixed-precision-recipe bf16_mixed \
-  --no-activation-checkpointing \
-  --decay-steps 1000 --warmup-steps 10 \
-  --log-interval 1 --seed 41 --dataset-seed 33 \
-  --result-dir eden_test
-```
-
-Eden models automatically set `fp32_residual_connection = False` during training.
+> **Tip:** The `--use-subquadratic-ops` flag enables a fused back-to-back
+> causal convolution CUDA kernel for the Hyena short-conv layers. This
+> provides a meaningful speed-up for training and prediction and is
+> recommended for all production runs. It does not apply to autoregressive
+> inference (`infer_evo2`). There is a one-time compilation cost on first
+> use.
 
 ### Autoregressive generation (`infer_evo2`)
 
@@ -129,7 +109,8 @@ torchrun --nproc_per_node 1 --no-python \
   --ckpt-dir /path/to/mbridge/checkpoint \
   --output-dir predictions/ \
   --micro-batch-size 4 \
-  --write-interval epoch
+  --write-interval epoch \
+  --use-subquadratic-ops
 ```
 
 Options:
@@ -142,6 +123,8 @@ Options:
 - `--embedding-layer` — extract embeddings from a specific layer instead of logits
   (supports negative indexing, e.g., `-1` for last layer).
 - `--mask-phylogenetic-tags` — mask phylogenetic tags in loss computation.
+- `--use-subquadratic-ops` — enable fused Hyena convolution kernels for faster
+  scoring (recommended for larger datasets; has a one-time compilation cost).
 
 ### Data preprocessing (`preprocess_evo2`)
 
@@ -173,6 +156,23 @@ Options:
 - `--stitched-promoter` — bp to include from promoter region (default: 1024).
 - `--stitched-intron` — bp from neighboring introns (default: 32).
 - `--only-longest-transcript` — keep only the longest transcript per gene.
+
+## Removing optimizer state from a checkpoint
+
+Training checkpoints include optimizer state (Adam moments, LR scheduler, RNG state)
+which roughly triples checkpoint size. Use `evo2_remove_optimizer` to produce a
+smaller weights-only checkpoint suitable for release or fine-tuning:
+
+```bash
+evo2_remove_optimizer \
+  --src-ckpt-dir /path/to/training/checkpoints \
+  --dst-ckpt-dir /path/to/weights_only_checkpoint
+```
+
+The tool automatically finds the latest `iter_*` directory, strips optimizer and
+scheduler state from the DCP files, and copies model weights, tokenizer, and
+config files to the destination. The resulting checkpoint is directly usable
+with `--finetune-ckpt-dir` or the export tools.
 
 ## Fine-tuning from an existing checkpoint
 
@@ -229,6 +229,7 @@ torchrun --nproc-per-node 2 --no-python \
   --eod-pad-in-loss-mask --enable-preemption \
   --log-interval 5 --debug-ddp-parity-freq 10 \
   --result-dir tmpfp8-ft-example --no-renormalize-loss \
+  --use-subquadratic-ops \
   --finetune-ckpt-dir $CKPT_OUT_DIR
 ```
 
@@ -307,46 +308,6 @@ evo2_export_mbridge_to_vortex \
   --model-size evo2_1b_base
 ```
 
-## Exporting / importing Eden (Llama) checkpoints
-
-Eden models use the standard Llama 3.1 architecture, so MBridge checkpoints
-can be exported to HuggingFace format for use with the `transformers` library
-and imported back. No GPU or distributed setup is required — these tools
-perform pure state-dict conversion on CPU.
-
-### Export: MBridge → HuggingFace
-
-```bash
-eden_export_mbridge_to_hf \
-  --mbridge-ckpt-dir /path/to/eden_mbridge/iter_0000001 \
-  --hf-output-dir /path/to/eden_hf \
-  --model-size eden_7b
-```
-
-This produces a standard HuggingFace directory with `config.json` and
-safetensors weight files, loadable via:
-
-```python
-from transformers import LlamaForCausalLM
-
-model = LlamaForCausalLM.from_pretrained("/path/to/eden_hf")
-```
-
-### Import: HuggingFace → MBridge
-
-```bash
-eden_convert_hf_to_mbridge \
-  --hf-model-dir /path/to/eden_hf \
-  --mbridge-ckpt-dir /path/to/eden_mbridge_reimported \
-  --model-size eden_7b
-```
-
-Options for both tools:
-
-- `--model-size` — one of the `eden_*` model keys (see table below).
-- `--no-te` — disable Transformer Engine fused layernorm key mapping.
-- `--verbose` / `-v` — enable debug logging.
-
 ## Model naming convention
 
 Model sizes are specified via `--model-size` and follow a naming convention that
@@ -374,23 +335,6 @@ suffix denotes the 8K-context variant; without it, the model uses the
 long (1M) context length. Models prefixed with `striped_hyena_` are
 NVIDIA-modified variants that do not have a corresponding public ARC
 checkpoint.
-
-### Eden (Llama 3.1) models
-
-| Key        | Description             |
-| ---------- | ----------------------- |
-| `eden_7b`  | Eden base (~8B params)  |
-| `eden_11b` | Eden ~11B               |
-| `eden_18b` | Eden ~18B               |
-| `eden_21b` | Eden ~21B               |
-| `eden_24b` | Eden ~24B (32K context) |
-| `eden_27b` | Eden ~27B (32K context) |
-| `eden_28b` | Eden ~28B               |
-| `eden_35b` | Eden ~35B               |
-
-Eden models use the Llama 3.1 architecture. They are supported by
-`train_evo2`, `infer_evo2`, and `predict_evo2`. During training,
-`fp32_residual_connection` is automatically set to `False` for Eden models.
 
 ## Examples
 
@@ -500,7 +444,7 @@ Note, in the following two sections, the model described as `ft1(step199)` is th
 |   b300 |      7b-1m |       FALSE |           None |                                     fp8 |       8192 |      0.9951 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 |   h200 |      7b-1m |       FALSE |           None |                                    bf16 |       8192 |    0.995109 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 |   b300 |      7b-1m |       FALSE |           None |                                    bf16 |       8192 |     0.99535 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-|   a100 |     40b-1m |       FALSE |           None |                                    bf16 |       8192 |    1.702023 | 40b model got unlucky in training. It is sensitive to fp8 and within that appears to have memorized the known difference in hopper that leads to lower accuracy when using standard fp8 computations. (see Deepseek V3 paper where they point out the hopper difference in the “Increasing Accumulation Precision” sub-section where hopper uses 14 bits to accumulate partials rather than the typical 32 bits). It does not work well on bf16 and that seems to carry over to ampere as expected. Note if we set (use_split_accumulator=True) to True by setting https://github.com/NVIDIA/TransformerEngine/blob/bd55e7ba5f0235a80eaa63d49adaa8fb7c6ced50/transformer_engine/pytorch/module/base.py#L56 to True then the fp8 is more accurate which breaks fp8 on hopper, making it seem more like blackwell.                              |
+|   a100 |     40b-1m |       FALSE |           None |                                    bf16 |       8192 |    1.702023 | 40b model got unlucky in training. It is sensitive to fp8 and within that appears to have memorized the known difference in hopper that leads to lower accuracy when using standard fp8 computations. (see Deepseek V3 paper where they point out the hopper difference in the "Increasing Accumulation Precision" sub-section where hopper uses 14 bits to accumulate partials rather than the typical 32 bits). It does not work well on bf16 and that seems to carry over to ampere as expected. Note if we set (use_split_accumulator=True) to True by setting https://github.com/NVIDIA/TransformerEngine/blob/bd55e7ba5f0235a80eaa63d49adaa8fb7c6ced50/transformer_engine/pytorch/module/base.py#L56 to True then the fp8 is more accurate which breaks fp8 on hopper, making it seem more like blackwell.                              |
 |   h200 |     40b-1m |       FALSE |           None |                                     fp8 |       8192 |    0.922422 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 |   b300 |     40b-1m |       FALSE |           None |                                     fp8 |       8192 |       1.789 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 |   h200 |     40b-1m |       FALSE |           None | fp8-delayed(use_split_accumulator=True) |       8192 |    1.791161 |                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
