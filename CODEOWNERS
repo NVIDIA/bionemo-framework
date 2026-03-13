@@ -73,5 +73,5 @@ sub-packages/bionemo-noodles @skothenhill-nv @jstjohn @cspades
 sub-packages/bionemo-moco @nvdreidenbach @DejunL @dorotat-nv @jstjohn @pstjohn @zcao0420 @youhanl-nvidia
 
 # BioNeMo-Recipes
-.devcontainer/recipes/ @dorotat-nv @jstjohn @pstjohn @trvachov @jwilber @cspades @jomitchellnv
+.devcontainer/ @dorotat-nv @jstjohn @pstjohn @trvachov @jwilber @cspades @jomitchellnv
 bionemo-recipes @dorotat-nv @jstjohn @pstjohn @trvachov @jwilber @cspades @jomitchellnv @savitha-eng

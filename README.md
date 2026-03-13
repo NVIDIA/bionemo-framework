@@ -129,7 +129,7 @@ If you see an error message like `No file descriptors available (os error 24)`, 
 #### VSCode Devcontainer for Interactive Debugging
 
 We distribute a [development container](https://devcontainers.github.io/) configuration for vscode
-(`.devcontainer/recipes/devcontainer.json`) that simplifies the process of local testing and development for both `bionemo-recipes` and `sub-packages`. Opening the
+(`.devcontainer/devcontainer.json`) that simplifies the process of local testing and development for both `bionemo-recipes` and `sub-packages`. Opening the
 bionemo-framework folder with VSCode should prompt you to re-open the folder inside the devcontainer environment.
 
 Packages under `sub-packages` are not installed into that environment automatically. When working on one of them, install it into the active environment with an editable install, for example:

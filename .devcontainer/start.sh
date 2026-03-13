@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Launch the recipes devcontainer headlessly (no VS Code / Cursor required).
+# Launch the devcontainer headlessly (no VS Code / Cursor required).
 # All mounts, runArgs, containerEnv, and lifecycle commands are parsed at
 # runtime from devcontainer.json so the two definitions never drift apart.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DEVCONTAINER_JSON="${SCRIPT_DIR}/devcontainer.json"
-CONTAINER_NAME="${BIONEMO_CONTAINER_NAME:-bionemo-recipes-devcontainer}"
-IMAGE_NAME="${BIONEMO_IMAGE_NAME:-bionemo-recipes-devcontainer:latest}"
+CONTAINER_NAME="${BIONEMO_CONTAINER_NAME:-bionemo-devcontainer}"
+IMAGE_NAME="${BIONEMO_IMAGE_NAME:-bionemo-devcontainer:latest}"
 
 # ---------------------------------------------------------------------------
 # Helpers
