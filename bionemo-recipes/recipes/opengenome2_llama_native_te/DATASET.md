@@ -29,6 +29,7 @@ huggingface-cli download arcinstitute/opengenome2 \
   --repo-type dataset \
   --include "pretraining_or_both_phases/metagenomes/data_metagenomics_valid_*.jsonl.gz" \
   --local-dir /data/opengenome2
+
 # Download metagenome test file
 huggingface-cli download arcinstitute/opengenome2 \
   --repo-type dataset \
