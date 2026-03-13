@@ -135,7 +135,7 @@ jobs:
           python3 - <<'PY'
           import json, os
 
-          changed = json.loads(os.environ.get("CHANGED_JSON", "[]"))
+          changed = json.loads(os.environ.get("CHANGED_JSON") or "[]")
           any_changed = os.environ.get("ANY_CHANGED", "false") == "true"
           is_schedule = os.environ.get("IS_SCHEDULE", "false") == "true"
 
