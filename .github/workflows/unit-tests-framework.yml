@@ -1,6 +1,8 @@
 # BioNeMo Framework CI Workflow
 #
-# This workflow runs comprehensive tests for the BioNeMo framework on various triggers:
+# This workflow runs tests for BioNeMo framework sub-packages using a matrix
+# strategy where each sub-package runs in its own container -- matching the
+# pattern used by unit-tests-recipes.yml.
 #
 # TRIGGERS:
 # - Push to main branch, pull-request branches, or dependabot branches
@@ -8,18 +10,12 @@
 # - Scheduled runs (daily at 7 AM UTC)
 #
 # WORKFLOW OVERVIEW:
-# 1. changed-files: Detects whether framework-relevant files have changed compared to main branch
+# 1. changed-files: Detects which sub-packages have changed compared to main
 # 2. pre-commit: Runs static code checks and linting
 # 3. get-pr-labels: Retrieves PR labels for conditional job execution
-# 4. run-tests: Uses the shared recipes base image, installs all framework packages editable, and runs unit tests
-# 5. run-tests-slow: Uses the same environment and runs slow tests when requested
-# 6. run-tests-notebooks: Uses the same environment and runs notebook tests when requested
-# 7. verify-tests-status: Verifies all test jobs completed successfully
-#
-# CONDITIONAL EXECUTION:
-# - run-tests runs on: schedule, ciflow:all label, or framework-relevant file changes (unless ciflow:skip)
-# - run-tests-slow runs when run-tests conditions are met AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
-# - run-tests-notebooks runs when run-tests conditions are met AND (schedule OR merge_group OR ciflow:all OR ciflow:notebooks)
+# 4. compute-matrix: Expands changed packages to include reverse dependencies
+# 5. run-tests / run-tests-slow / run-tests-notebooks: Per-sub-package matrix jobs
+# 6. verify-tests-status: Verifies all test jobs completed successfully
 
 name: "BioNeMo Framework CI"
 
@@ -47,6 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       any_changed: ${{ steps.changed-files.outputs.any_changed }}
+      all_changed_files: ${{ steps.changed-files.outputs.all_changed_files }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,29 +52,25 @@ jobs:
       - name: Get merge-base commit
         id: merge-base
         run: |
-          # Get the merge-base between current branch and main
           MERGE_BASE=$(git merge-base HEAD origin/main)
           echo "merge-base=$MERGE_BASE" >> $GITHUB_OUTPUT
-          echo "Merge-base commit: $MERGE_BASE"
 
       - uses: step-security/changed-files@v46
         id: changed-files
         with:
+          json: true
           base_sha: ${{ steps.merge-base.outputs.merge-base }}
+          dir_names: true
+          dir_names_max_depth: 2
           files: |
             sub-packages/**
-            ci/scripts/**
             pyproject.toml
-            requirements-cve.txt
-            requirements-test.txt
             .github/workflows/unit-tests-framework.yml
 
       - name: Show output
         run: |
           echo '${{ toJSON(steps.changed-files.outputs) }}'
-        shell:
-          bash
-
+        shell: bash
 
   pre-commit:
     runs-on: ubuntu-latest
@@ -119,28 +112,102 @@ jobs:
         run: |
           LABELS=$(gh api repos/${{ github.repository }}/pulls/${{ steps.get-pr-num.outputs.pr_num }} --jq '[.labels[].name]' || echo "[]")
           echo "labels=$LABELS" >> $GITHUB_OUTPUT
-          echo "Retrieved labels: $LABELS"
 
       - name: Set empty labels for non-PR branches
         if: ${{ !startsWith(github.ref, 'refs/heads/pull-request/') }}
         id: get-labels-empty
         run: |
           echo "labels=[]" >> $GITHUB_OUTPUT
-          echo "Set empty labels for non-PR branch"
+
+  compute-matrix:
+    needs: changed-files
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Compute test matrix from changed files
+        id: matrix
+        env:
+          CHANGED_JSON: ${{ needs.changed-files.outputs.all_changed_files }}
+          ANY_CHANGED: ${{ needs.changed-files.outputs.any_changed }}
+          IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          changed = json.loads(os.environ.get("CHANGED_JSON", "[]"))
+          any_changed = os.environ.get("ANY_CHANGED", "false") == "true"
+          is_schedule = os.environ.get("IS_SCHEDULE", "false") == "true"
+
+          # All sub-packages with their internal deps (for install ordering).
+          # The dependency graph is a star: most packages depend only on core.
+          PACKAGES = {
+              "bionemo-core":               {"deps": []},
+              "bionemo-moco":               {"deps": []},
+              "bionemo-noodles":            {"deps": ["bionemo-core"]},
+              "bionemo-recipeutils":        {"deps": []},
+              "bionemo-scdl":               {"deps": []},
+              "bionemo-scspeedtest":        {"deps": ["bionemo-scdl"]},
+              "bionemo-size-aware-batching": {"deps": ["bionemo-core"]},
+              "bionemo-webdatamodule":      {"deps": ["bionemo-core"]},
+          }
+
+          # Reverse dependency map: package -> list of packages that depend on it.
+          reverse_deps = {name: [] for name in PACKAGES}
+          for name, info in PACKAGES.items():
+              for dep in info["deps"]:
+                  reverse_deps[dep].append(name)
+
+          # Determine which packages to test.
+          if is_schedule:
+              to_test = set(PACKAGES.keys())
+          elif any_changed:
+              # Check if a non-sub-package file changed (pyproject.toml, workflow, etc.)
+              infra_changed = any(not c.startswith("sub-packages/") for c in changed)
+              if infra_changed:
+                  to_test = set(PACKAGES.keys())
+              else:
+                  directly_changed = set()
+                  for c in changed:
+                      parts = c.split("/")
+                      if len(parts) >= 2 and parts[0] == "sub-packages":
+                          pkg = parts[1]
+                          if pkg in PACKAGES:
+                              directly_changed.add(pkg)
+
+                  # Expand with reverse (downstream) dependencies.
+                  to_test = set(directly_changed)
+                  queue = list(directly_changed)
+                  while queue:
+                      pkg = queue.pop()
+                      for rdep in reverse_deps.get(pkg, []):
+                          if rdep not in to_test:
+                              to_test.add(rdep)
+                              queue.append(rdep)
+          else:
+              to_test = set()
+
+          matrix = []
+          for name in sorted(to_test):
+              matrix.append({
+                  "name": name,
+                  "dir": f"sub-packages/{name}",
+                  "deps": [f"sub-packages/{d}" for d in PACKAGES[name]["deps"]],
+              })
+
+          result = json.dumps(matrix)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"matrix={result}\n")
+          print(f"Matrix ({len(matrix)} packages): {result}")
+          PY
 
   run-tests:
     needs:
       - pre-commit
       - changed-files
       - get-pr-labels
+      - compute-matrix
     runs-on: linux-amd64-gpu-l4-latest-1
-    container:
-      image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
-      options: --shm-size=16G
-      env:
-        CI: true
-        HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        HF_HOME: /cache/huggingface
     if: |
       (github.event_name == 'schedule') ||
       contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
@@ -148,6 +215,20 @@ jobs:
         !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
         (needs.changed-files.outputs.any_changed == 'true')
       )
+    name: "unit-tests (${{ matrix.pkg.name }})"
+    container:
+      image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
+      options: --shm-size=16G
+      env:
+        CI: true
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HF_HOME: /cache/huggingface
+        BIONEMO_DATA_SOURCE: ngc
+    strategy:
+      matrix:
+        pkg: ${{ fromJson(needs.compute-matrix.outputs.matrix) }}
+      fail-fast: false
+
     steps:
       - name: Show GPU info
         run: nvidia-smi
@@ -157,29 +238,48 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: "sub-packages"
+          sparse-checkout-cone-mode: true
 
-      - name: Install framework test environment
-        run: bash ./ci/scripts/install_framework_test_env.sh
+      - name: Install dependencies and package
+        working-directory: ${{ matrix.pkg.dir }}
+        env:
+          DEPS: ${{ toJson(matrix.pkg.deps) }}
+        run: |
+          # Install internal dependencies from local checkout first.
+          for dep in $(echo "$DEPS" | jq -r '.[]'); do
+            PIP_CONSTRAINT= pip install -e "../../$dep"
+          done
+
+          # Install the target sub-package.
+          if [ -f .ci_build.sh ]; then
+            bash .ci_build.sh
+          else
+            PIP_CONSTRAINT= pip install -e .
+          fi
+
+          # Install test dependencies if declared.
+          PIP_CONSTRAINT= pip install pytest pytest-cov pytest-timeout || true
+          PIP_CONSTRAINT= pip install -e ".[test]" 2>/dev/null || true
 
       - name: Run tests
-        # Tests in this stage generate code coverage metrics for the repository
-        # Coverage data is uploaded to Codecov in subsequent stages
-        env:
-          BIONEMO_DATA_SOURCE: ngc
+        working-directory: ${{ matrix.pkg.dir }}
         run: |
-          bash ./ci/scripts/run_pytest_unittests.sh
+          pytest -v \
+            --cov=bionemo \
+            --cov-report=xml:coverage.xml \
+            --junitxml=results.junit.xml \
+            -o junit_family=legacy \
+            .
 
       - name: Upload coverage to Codecov
-        # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
-        # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
         if: github.event_name != 'merge_group' && github.event_name != 'schedule'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test results to Codecov
-        # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
-        # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
         if: ${{ !cancelled() && github.event_name != 'merge_group' && github.event_name != 'schedule' }}
         uses: codecov/test-results-action@v1
         with:
@@ -190,14 +290,8 @@ jobs:
       - pre-commit
       - changed-files
       - get-pr-labels
+      - compute-matrix
     runs-on: linux-amd64-gpu-l4-latest-1
-    container:
-      image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
-      options: --shm-size=16G
-      env:
-        CI: true
-        HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        HF_HOME: /cache/huggingface
     if: |
         (
           (github.event_name == 'schedule') ||
@@ -213,6 +307,20 @@ jobs:
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
         )
+    name: "slow-tests (${{ matrix.pkg.name }})"
+    container:
+      image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
+      options: --shm-size=16G
+      env:
+        CI: true
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HF_HOME: /cache/huggingface
+        BIONEMO_DATA_SOURCE: ngc
+    strategy:
+      matrix:
+        pkg: ${{ fromJson(needs.compute-matrix.outputs.matrix) }}
+      fail-fast: false
+
     steps:
       - name: Show GPU info
         run: nvidia-smi
@@ -222,27 +330,43 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: "sub-packages"
+          sparse-checkout-cone-mode: true
 
-      - name: Install framework test environment
-        run: bash ./ci/scripts/install_framework_test_env.sh
+      - name: Install dependencies and package
+        working-directory: ${{ matrix.pkg.dir }}
+        env:
+          DEPS: ${{ toJson(matrix.pkg.deps) }}
+        run: |
+          for dep in $(echo "$DEPS" | jq -r '.[]'); do
+            PIP_CONSTRAINT= pip install -e "../../$dep"
+          done
+
+          if [ -f .ci_build.sh ]; then
+            bash .ci_build.sh
+          else
+            PIP_CONSTRAINT= pip install -e .
+          fi
+
+          PIP_CONSTRAINT= pip install pytest pytest-cov pytest-timeout || true
+          PIP_CONSTRAINT= pip install -e ".[test]" 2>/dev/null || true
 
       - name: Run slow tests
-
-        env:
-          BIONEMO_DATA_SOURCE: ngc
-        # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
-        #  to run package by package like we do with the fast tests.
+        working-directory: ${{ matrix.pkg.dir }}
         run: |
-          bash ./ci/scripts/run_pytest_slow.sh
-
+          pytest -v -m slow \
+            --junitxml=results-slow.junit.xml \
+            -o junit_family=legacy \
+            . || test $? -eq 5  # exit 5 = no tests collected, which is OK
 
   run-tests-notebooks:
     needs:
       - pre-commit
       - changed-files
       - get-pr-labels
+      - compute-matrix
     runs-on: linux-amd64-gpu-l4-latest-1
-
     if: |
         (
           (github.event_name == 'schedule') ||
@@ -258,6 +382,7 @@ jobs:
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:notebooks')
         )
+    name: "notebook-tests (${{ matrix.pkg.name }})"
     container:
       image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
       options: --shm-size=16G
@@ -265,6 +390,12 @@ jobs:
         CI: true
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
         HF_HOME: /cache/huggingface
+        BIONEMO_DATA_SOURCE: ngc
+    strategy:
+      matrix:
+        pkg: ${{ fromJson(needs.compute-matrix.outputs.matrix) }}
+      fail-fast: false
+
     steps:
       - name: Show GPU info
         run: nvidia-smi
@@ -274,30 +405,44 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: "sub-packages"
+          sparse-checkout-cone-mode: true
 
-      - name: Install framework test environment
-        run: bash ./ci/scripts/install_framework_test_env.sh
+      - name: Install dependencies and package
+        working-directory: ${{ matrix.pkg.dir }}
+        env:
+          DEPS: ${{ toJson(matrix.pkg.deps) }}
+        run: |
+          for dep in $(echo "$DEPS" | jq -r '.[]'); do
+            PIP_CONSTRAINT= pip install -e "../../$dep"
+          done
+
+          if [ -f .ci_build.sh ]; then
+            bash .ci_build.sh
+          else
+            PIP_CONSTRAINT= pip install -e .
+          fi
+
+          PIP_CONSTRAINT= pip install nbval testbook || true
+          PIP_CONSTRAINT= pip install -e ".[test]" 2>/dev/null || true
 
       - name: Run notebook tests
-        env:
-          BIONEMO_DATA_SOURCE: ngc
+        working-directory: ${{ matrix.pkg.dir }}
         run: |
-          bash ./ci/scripts/run_pytest_notebooks.sh
+          FAST_CI_MODE=true pytest -v --nbval-lax -x -p no:python . \
+            || test $? -eq 5  # exit 5 = no notebooks found, which is OK
 
   verify-tests-status:
-    # Base on the status of this job, the unit-tests workflow succeeds or fails
-    # This steps checks the status of all test jobs and fails if any of them failed or were cancelled.
-    # It is a workaround for the lack of a built-in feature to finalize a pipeline by checking the status of multiple jobs
-    needs: # List all your run-*-test jobs
+    needs:
       - pre-commit
       - changed-files
       - get-pr-labels
       - run-tests
       - run-tests-slow
       - run-tests-notebooks
-      # Add all other run-*-test jobs
     runs-on: ubuntu-latest
-    if: always() # This ensures the job runs even if previous jobs fail
+    if: always()
     steps:
       - name: Check test job statuses
         run: |
