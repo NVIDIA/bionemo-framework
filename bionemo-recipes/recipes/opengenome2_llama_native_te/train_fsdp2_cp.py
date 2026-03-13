@@ -51,8 +51,6 @@ except ImportError:
     HAS_NVDLFW_INSPECT = False
 import random
 
-import transformer_engine
-import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
@@ -129,9 +127,11 @@ def main(args: DictConfig) -> float | None:
     logger.info("Created device mesh: %s", device_mesh)
 
     # --- Model Configuration ---
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-    )
+    fp8_recipe = None
+    if args.fp8_config.enabled:
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
 
     # Validate config: meta-device init breaks custom initialization
     if getattr(args, "use_meta_device", False):
@@ -162,6 +162,16 @@ def main(args: DictConfig) -> float | None:
 
     config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
 
+    # Build layer_precision from backward-compatible fp8_first_last_bf16 config
+    if args.fp8_config.enabled:
+        n = config.num_hidden_layers
+        if getattr(config, "fp8_first_last_bf16", False):
+            n_start = getattr(config, "num_layers_at_start_in_bf16", 1)
+            n_end = getattr(config, "num_layers_at_end_in_bf16", 1)
+            config.layer_precision = [None] * n_start + ["fp8"] * (n - n_start - n_end) + [None] * n_end
+        else:
+            config.layer_precision = ["fp8"] * n
+
     # Log initialization settings
     std = getattr(config, "initializer_range", 0.02)
     num_layers = getattr(config, "num_hidden_layers", 32)
@@ -174,13 +184,8 @@ def main(args: DictConfig) -> float | None:
     )
 
     # --- Model Initialization ---
-    with (
-        torch.device("meta") if args.use_meta_device else nullcontext(),
-        transformer_engine.pytorch.quantized_model_init(
-            recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
-        ),
-    ):
-        model = NVLlamaForCausalLM(config)
+    with torch.device("meta") if args.use_meta_device else nullcontext():
+        model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe)
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -316,8 +321,7 @@ def main(args: DictConfig) -> float | None:
 
             # Forward pass with mixed precision.
             with nvtx.annotate("Forward pass", color="green"):
-                with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
-                    outputs = model(**batch)
+                outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
