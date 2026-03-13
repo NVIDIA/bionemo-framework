@@ -48,7 +48,7 @@ for the list of dependencies.
 ### Performance Benchmarks
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/docs/docs/assets/images/recipes/70b-cp-benchmarks.png" alt="Llama 3 Context Parallelism Benchmarks" width="100%" />
+  <img src="../../../docs/docs/assets/images/recipes/70b-cp-benchmarks.png" alt="Llama 3 Context Parallelism Benchmarks" width="100%" />
 </p>
 
 Scaling Llama 3 70B with Context Parallelism (CP) on 32x NVIDIA GB300 GPUs (NVL32) with synthetic data of increasing
@@ -67,8 +67,8 @@ def compute_model_pflops(seq_len, global_batch_size, step_time_s):
 ### Convergence Benchmarks
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/docs/docs/assets/images/recipes/lingua-1b-loss-curve.png" alt="Llama 3 Lingua 1B Loss Curve" width="49%" />
-  <img src="https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/docs/docs/assets/images/recipes/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
+  <img src="../../../docs/docs/assets/images/recipes/lingua-1b-loss-curve.png" alt="Llama 3 Lingua 1B Loss Curve" width="49%" />
+  <img src="../../../docs/docs/assets/images/recipes/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
 </p>
 
 We compared the convergence of this Llama3 recipe (with FSDP2) against

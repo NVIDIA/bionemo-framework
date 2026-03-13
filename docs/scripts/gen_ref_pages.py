@@ -16,6 +16,8 @@
 
 import json
 import logging
+import os
+import re
 from pathlib import Path
 
 import mkdocs_gen_files
@@ -60,21 +62,143 @@ SUPPORT_FILE_NAMES = {"Dockerfile", "LICENSE", "Makefile", "requirements.txt"}
 SKIP_SUPPORT_DIRS = {"assets", "examples", "notebooks", ".venv", "__pycache__", ".pytest_cache"}
 
 
-def _sanitize_imported_text(source: Path, text: str) -> str:
-    """Apply small docs-specific cleanups to imported Markdown files.
+def _rewrite_relative_links(source: Path, dest: Path, root: Path, text: str) -> str:
+    """Rewrite relative links so they resolve correctly from the docs-tree destination.
+
+    Handles two path families that commonly appear in imported recipe READMEs:
+
+    * Paths resolving under ``docs/docs/`` (shared assets, images) are rewritten
+      relative to the docs-tree root so they reach the correct asset.
+    * Paths resolving under ``bionemo-recipes/`` are rewritten relative to the
+      ``main/recipes/`` subtree so cross-recipe links keep working.
+
+    All other relative links (e.g. to ``ci/scripts/``) are left untouched.
 
     Args:
-        source (Path): Source Markdown file path.
-        text (str): Source file contents.
+        source: Absolute source file path in the repository.
+        dest: Destination path in the generated docs tree (relative to docs root).
+        root: Repository root directory (absolute).
+        text: Markdown content to process.
 
     Returns:
-        str: Sanitized Markdown content.
+        Markdown text with rewritten relative links.
+    """
+    source_dir = source.parent
+    # Mkdocs rewrites relative paths in markdown syntax (![](path), [](path))
+    # when converting foo.md -> foo/index.html (use_directory_urls).  For those,
+    # compute paths relative to the markdown file's parent directory.
+    dest_dir_md = str(dest.parent)
+
+    # Mkdocs does NOT rewrite paths inside raw HTML tags (<img src>, <a href>).
+    # Those resolve from the final HTML location, which is one level deeper for
+    # non-index files (foo.md -> foo/index.html).
+    if dest.name == "index.md":
+        dest_dir_html = dest_dir_md
+    else:
+        dest_dir_html = str(dest.parent / dest.stem)
+
+    docs_docs_dir = root / "docs" / "docs"
+    recipes_dir = root / "bionemo-recipes"
+
+    def _make_rewriter(ref_dir: str):
+        """Return a rewrite function that computes paths relative to *ref_dir*."""
+
+        def _rewrite(rel_path: str) -> str:
+            if not rel_path or rel_path.startswith(
+                ("#", "http://", "https://", "mailto:", "data:", "tel:", "javascript:")
+            ):
+                return rel_path
+
+            clean = rel_path
+            suffix = ""
+            if "#" in clean:
+                clean, frag = clean.split("#", 1)
+                suffix = "#" + frag
+            if "?" in clean:
+                clean, qs = clean.split("?", 1)
+                suffix = "?" + qs + suffix
+
+            if not clean:
+                return rel_path
+
+            trailing_slash = clean.endswith("/")
+
+            try:
+                resolved = (source_dir / clean).resolve()
+            except (ValueError, OSError):
+                return rel_path
+
+            # docs/docs/... -> docs tree root
+            try:
+                rel_to_docs = resolved.relative_to(docs_docs_dir)
+                target = rel_to_docs.as_posix()
+                new_rel = Path(os.path.relpath(target, ref_dir)).as_posix()
+                return new_rel + ("/" if trailing_slash else "") + suffix
+            except ValueError:
+                pass
+
+            # bionemo-recipes/... -> main/recipes/...
+            try:
+                rel_to_recipes = resolved.relative_to(recipes_dir)
+                target = "main/recipes/" + rel_to_recipes.as_posix()
+                new_rel = Path(os.path.relpath(target, ref_dir)).as_posix()
+                return new_rel + ("/" if trailing_slash else "") + suffix
+            except ValueError:
+                pass
+
+            return rel_path
+
+        return _rewrite
+
+    rewrite_md = _make_rewriter(dest_dir_md)
+    rewrite_html = _make_rewriter(dest_dir_html)
+
+    # Markdown images and links: ![alt](path) and [text](path)
+    text = re.sub(
+        r'(!?\[[^\]]*\]\()([^)\s"]+)((?:\s+"[^"]*")?\))',
+        lambda m: m.group(1) + rewrite_md(m.group(2)) + m.group(3),
+        text,
+    )
+    # HTML <img src="..."> — needs the deeper reference directory
+    text = re.sub(
+        r'(<img\s[^>]*?src=")([^"]+)(")',
+        lambda m: m.group(1) + rewrite_html(m.group(2)) + m.group(3),
+        text,
+    )
+    # HTML <a href="..."> — same
+    text = re.sub(
+        r'(<a\s[^>]*?href=")([^"]+)(")',
+        lambda m: m.group(1) + rewrite_html(m.group(2)) + m.group(3),
+        text,
+    )
+
+    return text
+
+
+def _sanitize_imported_text(source: Path, dest: Path, root: Path, text: str) -> str:
+    """Apply docs-specific cleanups and link rewriting to imported Markdown files.
+
+    Args:
+        source: Absolute source file path in the repository.
+        dest: Destination path in the generated docs tree.
+        root: Repository root directory.
+        text: Source file contents.
+
+    Returns:
+        Sanitized Markdown content with correct relative links.
     """
     source_str = source.as_posix()
     if source_str.endswith("bionemo-recipes/recipes/geneformer_native_te_mfsdp_fp8/README.md"):
         heading_idx = text.find("# Geneformer Pretraining")
         if heading_idx != -1:
-            return text[heading_idx:]
+            text = text[heading_idx:]
+
+    recipes_dir = root / "bionemo-recipes"
+    try:
+        source.resolve().relative_to(recipes_dir.resolve())
+        text = _rewrite_relative_links(source, dest, root, text)
+    except ValueError:
+        pass
 
     return text
 
@@ -89,7 +213,7 @@ def copy_text_file(source: Path, dest: Path, root: Path, log_message: str) -> No
         log_message (str): Message to log after copying.
     """
     with mkdocs_gen_files.open(dest, "w") as fd:
-        fd.write(_sanitize_imported_text(source, source.read_text()))
+        fd.write(_sanitize_imported_text(source, dest, root, source.read_text()))
     logger.info(log_message)
     mkdocs_gen_files.set_edit_path(dest, source.relative_to(root))
 
