@@ -7,7 +7,7 @@ metagenome dataset.
 > **Recommended approach:** Download the metagenome JSONL files, reshard them into globally
 > shuffled Parquet with DuckDB (see [Reshuffling and resharding](#reshuffling-and-resharding-with-duckdb)),
 > and use the `og2_7b_thd_gqa_global_shuffle` config. This gives better shuffle quality and
-> smoother step times than streaming the original JSONL files directly.
+> smoother and faster step times than streaming the original JSONL files directly.
 
 ## Downloading the dataset
 
@@ -32,7 +32,7 @@ huggingface-cli download arcinstitute/opengenome2 \
 ```
 
 After downloading, we recommend resharding the data with DuckDB for better training performance
-(see [below](#reshuffling-and-resharding-with-duckdb)) and datset shuffling quality.
+(see [below](#reshuffling-and-resharding-with-duckdb)) and dataset shuffling quality.
 
 ## The OpenGenome2 metagenome dataset
 
