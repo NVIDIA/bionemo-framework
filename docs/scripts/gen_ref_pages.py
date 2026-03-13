@@ -21,9 +21,62 @@ from pathlib import Path
 import mkdocs_gen_files
 
 
+class _IgnoreNotebookAltWarnings(logging.Filter):
+    """Filter out nbconvert warnings for auto-filled image alt text."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Return False for the specific warning we intentionally suppress."""
+        return "Alternative text is missing on" not in record.getMessage()
+
+
 # log stuff
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
+logging.getLogger("traitlets").addFilter(_IgnoreNotebookAltWarnings())
+
+SUPPORT_FILE_SUFFIXES = {
+    ".cfg",
+    ".conf",
+    ".csv",
+    ".gif",
+    ".ini",
+    ".jpeg",
+    ".jpg",
+    ".json",
+    ".png",
+    ".py",
+    ".rst",
+    ".sh",
+    ".sql",
+    ".svg",
+    ".toml",
+    ".txt",
+    ".tsv",
+    ".webp",
+    ".yaml",
+    ".yml",
+}
+SUPPORT_FILE_NAMES = {"Dockerfile", "LICENSE", "Makefile", "requirements.txt"}
+SKIP_SUPPORT_DIRS = {"assets", "examples", "notebooks", ".venv", "__pycache__", ".pytest_cache"}
+
+
+def _sanitize_imported_text(source: Path, text: str) -> str:
+    """Apply small docs-specific cleanups to imported Markdown files.
+
+    Args:
+        source (Path): Source Markdown file path.
+        text (str): Source file contents.
+
+    Returns:
+        str: Sanitized Markdown content.
+    """
+    source_str = source.as_posix()
+    if source_str.endswith("bionemo-recipes/recipes/geneformer_native_te_mfsdp_fp8/README.md"):
+        heading_idx = text.find("# Geneformer Pretraining")
+        if heading_idx != -1:
+            return text[heading_idx:]
+
+    return text
 
 
 def copy_text_file(source: Path, dest: Path, root: Path, log_message: str) -> None:
@@ -36,7 +89,7 @@ def copy_text_file(source: Path, dest: Path, root: Path, log_message: str) -> No
         log_message (str): Message to log after copying.
     """
     with mkdocs_gen_files.open(dest, "w") as fd:
-        fd.write(source.read_text())
+        fd.write(_sanitize_imported_text(source, source.read_text()))
     logger.info(log_message)
     mkdocs_gen_files.set_edit_path(dest, source.relative_to(root))
 
@@ -114,6 +167,70 @@ def copy_docs_from_dir(source_dir: Path, dest_dir: Path, root: Path, log_prefix:
             copy_text_file(path, dest_file, root, f"{log_prefix}: {dest_file}")
 
 
+def copy_assets_dir(source_dir: Path, dest_dir: Path, log_prefix: str) -> None:
+    """Copy static assets into the generated docs tree.
+
+    Args:
+        source_dir (Path): Directory containing assets.
+        dest_dir (Path): Destination assets directory in the generated docs tree.
+        log_prefix (str): Prefix used in log messages.
+    """
+    if not source_dir.exists():
+        return
+
+    for asset_path in source_dir.rglob("*"):
+        if asset_path.is_file():
+            relative_path = asset_path.relative_to(source_dir)
+            dest_asset = dest_dir / relative_path
+            copy_binary_file(asset_path, dest_asset, f"{log_prefix}: {dest_asset}")
+
+
+def _should_copy_support_file(path: Path) -> bool:
+    """Return whether a file should be mirrored as a support asset.
+
+    Args:
+        path (Path): Relative path within an imported directory.
+
+    Returns:
+        bool: True if the file should be copied into the generated docs tree.
+    """
+    if any(part in SKIP_SUPPORT_DIRS for part in path.parts[:-1]):
+        return False
+
+    if path.name == "README.md" or path.suffix in {".ipynb", ".md"}:
+        return False
+
+    if path.name.startswith("."):
+        return False
+
+    return (
+        path.suffix in SUPPORT_FILE_SUFFIXES or path.name in SUPPORT_FILE_NAMES or path.name.startswith("Dockerfile")
+    )
+
+
+def copy_support_files(source_dir: Path, dest_dir: Path, log_prefix: str) -> None:
+    """Mirror linked support files into the generated docs tree.
+
+    This keeps repo-relative links to scripts, configs, and tests working after
+    imported READMEs are rendered inside the documentation site.
+
+    Args:
+        source_dir (Path): Directory to mirror from.
+        dest_dir (Path): Destination directory in the generated docs tree.
+        log_prefix (str): Prefix used in log messages.
+    """
+    for path in sorted(source_dir.rglob("*")):
+        if not path.is_file():
+            continue
+
+        relative_path = path.relative_to(source_dir)
+        if not _should_copy_support_file(relative_path):
+            continue
+
+        dest_file = dest_dir / relative_path
+        copy_binary_file(path, dest_file, f"{log_prefix}: {dest_file}")
+
+
 def generate_api_reference() -> None:
     """Generate API reference documentation for a given source directory.
 
@@ -160,10 +277,13 @@ def get_subpackage_notebooks(sub_package: Path, root: Path) -> None:
     Returns:
         None
     """
+    dest_root = Path("main/examples") / sub_package.name
+    copy_assets_dir(sub_package / "assets", dest_root / "assets", "Added sub-package tutorial asset")
+
     for docs_dir_name in ("examples", "notebooks"):
         docs_dir = sub_package / docs_dir_name
         if docs_dir.exists():
-            dest_dir = Path("main/examples") / sub_package.name
+            dest_dir = dest_root / docs_dir_name
             copy_docs_from_dir(docs_dir, dest_dir, root, "Added sub-package example")
 
 
@@ -199,6 +319,8 @@ def get_recipes_readmes(recipes_dir: Path, root: Path) -> None:
     if main_readme.exists():
         dest_file = Path("main/recipes/index.md")
         copy_text_file(main_readme, dest_file, root, f"Added recipes README: {dest_file}")
+        alias_file = Path("main/recipes/README.md")
+        copy_text_file(main_readme, alias_file, root, f"Added recipes README alias: {alias_file}")
 
     # Process both models and recipes subdirectories
     for subdir in ["models", "recipes"]:
@@ -211,6 +333,8 @@ def get_recipes_readmes(recipes_dir: Path, root: Path) -> None:
         if subdir_readme.exists():
             dest_file = Path("main/recipes") / subdir / "index.md"
             copy_text_file(subdir_readme, dest_file, root, f"Added recipes {subdir} README: {dest_file}")
+            alias_file = Path("main/recipes") / subdir / "README.md"
+            copy_text_file(subdir_readme, alias_file, root, f"Added recipes {subdir} README alias: {alias_file}")
 
         # Copy collection-level markdown docs such as context guides.
         for extra_doc in sorted(subdir_path.glob("*.md")):
@@ -230,6 +354,8 @@ def get_recipes_readmes(recipes_dir: Path, root: Path) -> None:
                 dest_dir = Path("main/recipes") / subdir / item.name
                 dest_file = dest_dir / f"{item.name}.md"
                 copy_text_file(readme_file, dest_file, root, f"Added {subdir} README: {dest_file}")
+                alias_file = dest_dir / "README.md"
+                copy_text_file(readme_file, alias_file, root, f"Added {subdir} README alias: {alias_file}")
 
 
 def get_recipe_docs(recipe_item: Path, section: str, root: Path) -> None:
@@ -243,7 +369,11 @@ def get_recipe_docs(recipe_item: Path, section: str, root: Path) -> None:
     dest_dir = Path("main/recipes") / section / recipe_item.name
 
     for extra_doc in sorted(recipe_item.glob("*.md")):
-        if extra_doc.name == "README.md" or extra_doc.name.startswith("AGENT_"):
+        if (
+            extra_doc.name == "README.md"
+            or extra_doc.name.startswith("AGENT_")
+            or extra_doc.name == "AI_DOCUMENTATION.md"
+        ):
             continue
 
         dest_file = dest_dir / extra_doc.name
@@ -263,12 +393,13 @@ def get_recipe_examples(recipe_item: Path, root: Path) -> None:
         root (Path): Repository root for edit-path calculation.
     """
     dest_name = "bionemo-evo2" if recipe_item.name == "evo2_megatron" else recipe_item.name
-    dest_dir = Path("main/examples") / dest_name
+    dest_root = Path("main/examples") / dest_name
+    copy_assets_dir(recipe_item / "assets", dest_root / "assets", "Added recipe tutorial asset")
 
     for docs_dir_name in ("examples", "notebooks"):
         docs_dir = recipe_item / docs_dir_name
         if docs_dir.exists():
-            copy_docs_from_dir(docs_dir, dest_dir, root, "Added recipe tutorial")
+            copy_docs_from_dir(docs_dir, dest_root / docs_dir_name, root, "Added recipe tutorial")
 
 
 def get_third_party_examples(third_party_item: Path, root: Path) -> None:
@@ -278,12 +409,13 @@ def get_third_party_examples(third_party_item: Path, root: Path) -> None:
         third_party_item (Path): Path to a third-party workspace member.
         root (Path): Repository root for edit-path calculation.
     """
-    dest_dir = Path("main/examples") / third_party_item.name
+    dest_root = Path("main/examples") / third_party_item.name
+    copy_assets_dir(third_party_item / "assets", dest_root / "assets", "Added third-party tutorial asset")
 
     for docs_dir_name in ("examples", "notebooks"):
         docs_dir = third_party_item / docs_dir_name
         if docs_dir.exists():
-            copy_docs_from_dir(docs_dir, dest_dir, root, "Added third-party tutorial")
+            copy_docs_from_dir(docs_dir, dest_root / docs_dir_name, root, "Added third-party tutorial")
 
 
 def get_subpackage_assets(sub_package: Path, root: Path) -> None:
@@ -299,16 +431,8 @@ def get_subpackage_assets(sub_package: Path, root: Path) -> None:
     Returns:
         None
     """
-    assets_dir = sub_package / "assets"
-    if not assets_dir.exists():
-        return
-
     dest_dir = Path("main/developer-guide") / sub_package.name
-    for asset_path in assets_dir.rglob("*"):
-        if asset_path.is_file():
-            relative_path = asset_path.relative_to(assets_dir)
-            dest_asset = dest_dir / "assets" / relative_path
-            copy_binary_file(asset_path, dest_asset, f"Added asset: {dest_asset}")
+    copy_assets_dir(sub_package / "assets", dest_dir / "assets", "Added asset")
 
 
 def get_recipes_assets(recipes_dir: Path, root: Path) -> None:
@@ -325,13 +449,7 @@ def get_recipes_assets(recipes_dir: Path, root: Path) -> None:
         return
 
     # Handle root-level assets directory
-    root_assets_dir = recipes_dir / "assets"
-    if root_assets_dir.exists():
-        for asset_path in root_assets_dir.rglob("*"):
-            if asset_path.is_file():
-                relative_path = asset_path.relative_to(root_assets_dir)
-                dest_asset = Path("main/recipes/assets") / relative_path
-                copy_binary_file(asset_path, dest_asset, f"Added root recipe asset: {dest_asset}")
+    copy_assets_dir(recipes_dir / "assets", Path("main/recipes/assets"), "Added root recipe asset")
 
     # Process both models and recipes subdirectories
     for subdir in ["models", "recipes"]:
@@ -343,14 +461,9 @@ def get_recipes_assets(recipes_dir: Path, root: Path) -> None:
             if not item.is_dir():
                 continue
 
-            assets_dir = item / "assets"
-            if assets_dir.exists():
-                dest_dir = Path("main/recipes") / subdir / item.name
-                for asset_path in assets_dir.rglob("*"):
-                    if asset_path.is_file():
-                        relative_path = asset_path.relative_to(assets_dir)
-                        dest_asset = dest_dir / "assets" / relative_path
-                        copy_binary_file(asset_path, dest_asset, f"Added recipe asset: {dest_asset}")
+            dest_dir = Path("main/recipes") / subdir / item.name
+            copy_assets_dir(item / "assets", dest_dir / "assets", "Added recipe asset")
+            copy_support_files(item, dest_dir, "Added recipe support file")
 
 
 def generate_pages() -> None:

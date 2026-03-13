@@ -2,7 +2,7 @@
 
 Pre-trained checkpoints for ESM-2 are available at the 8M, 650M, and 3B model sizes. These models were trained by the
 BioNeMo Framework team to reproduce the original training results from Lin et al., Science (2023), with more recent
-UniProt data and leveraging the BioNeMo training infrastructure. The full [pre-training data](../../datasets/uniprot.md)
+UniProt data and leveraging the BioNeMo training infrastructure. The full [pre-training data](../../main/datasets/uniprot.md)
 and train/test splits are available.
 
 ## Model Convergence

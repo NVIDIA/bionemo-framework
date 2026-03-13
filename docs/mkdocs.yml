@@ -68,6 +68,11 @@ plugins:
             - ../sub-packages/*/src
             - ../bionemo-recipes/models/*/src
             - ../bionemo-recipes/recipes/*/src
+          options:
+            docstring_options:
+              warnings: false
+              warn_missing_types: false
+              warn_unknown_params: false
   - mkdocs-jupyter:
       theme: auto
       highlight_extra_classes: "jupyter-notebook"

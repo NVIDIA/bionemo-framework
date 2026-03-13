@@ -67,7 +67,7 @@ docker run -it --gpus all --network host --ipc=host --rm -v ${PWD}:/workspace/bi
 
 ### Performance Benchmarks
 
-![Performance Benchmarks](../../../docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg)
+![Performance Benchmarks](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg)
 
 Note: "compiled" refers to `torch.compile`. "fa2" is [FlashAttention2](https://github.com/Dao-AILab/flash-attention).
 Recently, we measured 2800 tokens/second/GPU training speed on H100 with HuggingFace Transformers's ESM-2 implementation
@@ -76,7 +76,7 @@ still in progress.
 
 ### Low precision performance benchmarks
 
-![Performance Benchmarks Low Precision](../../../docs/docs/assets/images/esm2/esm2_low_precision/esm2_8gpu_tflops.png)
+![Performance Benchmarks Low Precision](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/docs/docs/assets/images/esm2/esm2_low_precision/esm2_8gpu_tflops.png)
 In the above plot, we can see that as we increase the scale of our models, the benefits of low precision training are apparent.
 This is because at smaller parameter models (such as 650M, 3B) etc, the cost to quantize activations from high precision to low
 precision outweights the benefits of performing matrix multiplication with low precision. However, as our models scale up in
@@ -88,13 +88,13 @@ Note: these plots were using our [fsdp2](./train_fsdp2.py) script.
 
 #### MXFP8
 
-![Convergence Benchmarks MXFP8](../../../docs/docs/assets/images/esm2/esm2_low_precision/esm2-15b-b300-mxfp8-10node-conv.svg)
+![Convergence Benchmarks MXFP8](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/docs/docs/assets/images/esm2/esm2_low_precision/esm2-15b-b300-mxfp8-10node-conv.svg)
 In the above plot, for our ESM2-15B model that was trained with FSDP2 using 80 B300 GPUs nodes for 10 hours. We can clearly see that
 our MXFP8 run and our BF16 baseline run have the same results. A perfect match in convergence.
 
 #### NVFP4
 
-![Convergence Benchmarks NVFP4](../../../docs/docs/assets/images/esm2/esm2_low_precision/esm2-15b-b300-nvfp4-10node-conv.svg)
+![Convergence Benchmarks NVFP4](https://raw.githubusercontent.com/NVIDIA/bionemo-framework/main/docs/docs/assets/images/esm2/esm2_low_precision/esm2-15b-b300-nvfp4-10node-conv.svg)
 In the above plot, for our ESM2-15B model, we show several lines. Each experiment shows a unique configuration using a custom
 amount of `fp4_layers` per run (more info on how to enable this below). Moreover, the experiments can be read as
 `esm2-15b-b300-mxfp8-fp4_layer_start-fp4_layer_end-N-10-mbs-26-b300` which denotes at which point we start and end the fp4 layers.
