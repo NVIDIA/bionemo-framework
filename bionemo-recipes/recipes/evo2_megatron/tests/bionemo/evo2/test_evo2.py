@@ -102,61 +102,61 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: 
         [
             {
                 "test_name": "test_forward",
-                "model_size": "1b",
+                "model_size": "evo2_1b_base",
                 "seq_len_cap": 6000,
                 "memory_needed_by_test": 18,
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward",
-                "model_size": "7b",
+                "model_size": "evo2_7b_base",
                 "seq_len_cap": 4000,
                 "memory_needed_by_test": 33,
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward_manual",
-                "model_size": "1b",
+                "model_size": "evo2_1b_base",
                 "seq_len_cap": 6000,
                 "memory_needed_by_test": 18,
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward_manual",
-                "model_size": "7b",
+                "model_size": "evo2_7b_base",
                 "seq_len_cap": 4000,
                 "memory_needed_by_test": 21,
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward_ckpt_conversion",
-                "model_size": "1b",
+                "model_size": "evo2_1b_base",
                 "seq_len_cap": 6000,
                 "memory_needed_by_test": 18,
             },  # checked both variants in isolation
             {
                 "test_name": "test_forward_ckpt_conversion",
-                "model_size": "7b",
+                "model_size": "evo2_7b_base",
                 "seq_len_cap": 4000,
                 "memory_needed_by_test": 21,
             },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate_mbridge",
-                "model_size": "1b",
+                "model_size": "evo2_1b_base",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 16,
             },  # checked both variants in isolation - needs ~21GB peak on L4
             {
                 "test_name": "test_batch_generate_mbridge",
-                "model_size": "7b",
+                "model_size": "evo2_7b_base",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 43,
             },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate_coding_sequences",
-                "model_size": "1b",
+                "model_size": "evo2_1b_base",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 12,
             },  # checked both variants in isolation
             {
                 "test_name": "test_batch_generate_coding_sequences",
-                "model_size": "7b",
+                "model_size": "evo2_7b_base",
                 "seq_len_cap": -1,
                 "memory_needed_by_test": 28,
             },  # checked both variants in isolation
@@ -166,9 +166,9 @@ def determine_memory_requirement_and_skip_if_not_met(ckpt_name: str, test_name: 
     memory_needed_df_wi_index = memory_needed_df.set_index(["test_name", "model_size"])
 
     if "1b" in ckpt_name:
-        model_size = "1b"
+        model_size = "evo2_1b_base"
     elif "7b" in ckpt_name:
-        model_size = "7b"
+        model_size = "evo2_7b_base"
     else:
         raise ValueError(f"{ckpt_name=} is not supported for testing")
 
@@ -449,7 +449,7 @@ def test_forward_ckpt_conversion(
             nemo2_ckpt_dir=ckpt_path,
             tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
             mbridge_ckpt_dir=tmp_path / "mbridge_checkpoint",
-            model_size="1b" if "1b" in ckpt_name else "7b" if "7b-8k" in ckpt_name else "7b_arc_longcontext",
+            model_size="evo2_1b_base" if "1b" in ckpt_name else "evo2_7b_base" if "7b-8k" in ckpt_name else "evo2_7b",
             seq_length=1048576 if "1m" in ckpt_name else 8192,
             mixed_precision_recipe="bf16_mixed" if not is_fp8_supported else "bf16_with_fp8_current_scaling_mixed",
             # The checkpoints from the original evo2 training that are "fp8 sensitive" require vortex_style_fp8=True
@@ -615,7 +615,7 @@ def test_batch_generate_coding_sequences(
             nemo2_ckpt_dir=nemo2_ckpt_path,
             tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
             mbridge_ckpt_dir=tmp_path / "mbridge_checkpoint",
-            model_size="1b" if "1b" in ckpt_name else "7b_arc_longcontext" if "7b-1m" in ckpt_name else "7b",
+            model_size="evo2_1b_base" if "1b" in ckpt_name else "evo2_7b" if "7b-1m" in ckpt_name else "evo2_7b_base",
             seq_length=8192,
             mixed_precision_recipe=mixed_precision_recipe,
             vortex_style_fp8=vortex_style_fp8,
@@ -778,7 +778,7 @@ def test_batch_generate_mbridge(
             nemo2_ckpt_dir=nemo2_ckpt_path,
             tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
             mbridge_ckpt_dir=tmp_path / "mbridge_checkpoint",
-            model_size="1b" if "1b" in ckpt_name else "7b_arc_longcontext" if "7b-1m" in ckpt_name else "7b",
+            model_size="evo2_1b_base" if "1b" in ckpt_name else "evo2_7b" if "7b-1m" in ckpt_name else "evo2_7b_base",
             seq_length=8192,
             mixed_precision_recipe=mixed_precision_recipe,
             vortex_style_fp8=vortex_style_fp8,

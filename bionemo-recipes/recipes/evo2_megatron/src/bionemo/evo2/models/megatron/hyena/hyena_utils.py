@@ -17,7 +17,7 @@
 # limitations under the License.
 
 import math
-from functools import partial
+from functools import lru_cache, partial
 from typing import Literal
 
 import torch
@@ -1656,18 +1656,27 @@ class B2BCausalConv1dModule(nn.Module):
 class ParallelCausalDepthwiseConv1dWithState(ParallelCausalDepthwiseConv1d):
     """A class for the ParallelCausalDepthwiseConv1dWithState."""
 
+    def __init__(self, *args, **kwargs):
+        """Initialize and set up cached weight computation."""
+        super().__init__(*args, **kwargs)
+        self.get_weight = lru_cache(maxsize=1)(self._get_weight)
+
+    def _get_weight(self):
+        """Expand and cache the convolution weight, freeing the raw parameter."""
+        weight = self.short_conv_weight
+        if len(weight.shape) == 2:
+            weight = weight.unsqueeze(1)
+        weight = weight.repeat_interleave(self.group_dim, dim=0).to(torch.float32)
+        del self._parameters["short_conv_weight"]
+        return weight
+
     def forward(self, x, inference_context=None, _use_cp=True):  # noqa: D102
         # If not in inference mode, use the original implementation
         if inference_context is None:
             return super().forward(x, _use_cp=_use_cp)
         features_BLD = rearrange(x, "b d l -> b l d").contiguous()  # noqa: N806
         u = features_BLD
-        weight = self.short_conv_weight
-
-        if len(weight.shape) == 2:
-            weight = rearrange(weight, "hidden_size3 filter_len -> hidden_size3 1 filter_len")
-
-        weight = weight.repeat_interleave(self.group_dim, dim=0)
+        weight = self.get_weight()
 
         import bionemo.evo2.models.megatron.hyena.engine as engine
 

@@ -16,10 +16,15 @@
 
 # conftest.py
 import gc
+import os
 from pathlib import Path
 
 import pytest
 import torch
+
+from bionemo.core.data.load import load as bionemo_load
+from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
+from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
 
 
 def get_device_and_memory_allocated() -> str:
@@ -63,8 +68,16 @@ def pytest_sessionfinish(session, exitstatus):
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
-    """Clean up GPU memory and reset state after each test."""
+    """Clean up GPU memory, reset state, and restore env vars after each test.
+
+    Megatron Core's LanguageModule._set_attention_backend() mutates os.environ
+    (e.g. NVTE_FUSED_ATTN, NVTE_FLASH_ATTN) when models are constructed in-process.
+    Capturing and restoring the full environment prevents cross-test pollution.
+    """
+    saved_environ = os.environ.copy()
     yield
+    os.environ.clear()
+    os.environ.update(saved_environ)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         gc.collect()
@@ -91,12 +104,8 @@ def mbridge_checkpoint_1b_8k_bf16(tmp_path_factory) -> Path:
     Returns:
         Path to the MBridge checkpoint iteration directory (e.g., .../iter_0000001)
     """
-    from bionemo.core.data.load import load
-    from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH_512
-    from bionemo.evo2.utils.checkpoint.nemo2_to_mbridge import run_nemo2_to_mbridge
-
     try:
-        nemo2_ckpt_path = load("evo2/1b-8k-bf16:1.0")
+        nemo2_ckpt_path = bionemo_load("evo2/1b-8k-bf16:1.0")
     except ValueError as e:
         if e.args[0].endswith("does not have an NGC URL."):
             pytest.skip(
@@ -111,7 +120,7 @@ def mbridge_checkpoint_1b_8k_bf16(tmp_path_factory) -> Path:
         nemo2_ckpt_dir=nemo2_ckpt_path,
         tokenizer_path=DEFAULT_HF_TOKENIZER_MODEL_PATH_512,
         mbridge_ckpt_dir=output_dir / "evo2_1b_mbridge",
-        model_size="1b",
+        model_size="evo2_1b_base",
         seq_length=8192,
         mixed_precision_recipe="bf16_mixed",
         vortex_style_fp8=False,

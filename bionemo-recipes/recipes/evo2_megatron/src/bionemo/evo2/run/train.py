@@ -31,24 +31,20 @@ from megatron.bridge.training.comm_overlap import (
     userbuffers_fp8_h100_h8192_tp4_mbs1_seqlen8192,
 )
 from megatron.bridge.training.config import ConfigContainer, FaultToleranceConfig
+from megatron.bridge.training.gpt_step import forward_step as gpt_forward_step
 from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES
 from megatron.bridge.training.post_training.checkpointing import has_modelopt_state
 from megatron.bridge.training.pretrain import pretrain
 from megatron.bridge.utils.common_utils import get_rank_safe
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
-from bionemo.evo2.models.evo2_provider import HYENA_MODEL_OPTIONS, hyena_forward_step
+from bionemo.evo2.models.evo2_provider import MODEL_OPTIONS, hyena_forward_step, infer_model_type
 from bionemo.evo2.recipes.evo2 import evo2_1b_pretrain_config as pretrain_config
 
 
 logger: logging.Logger = logging.getLogger(__name__)
 
 torch._dynamo.config.suppress_errors = True
-
-# Force first batch to run with CUDA_LAUNCH_BLOCKING enabled to avoid CUDA asynchronous initialization
-# race condition in TE LayerNormLinear. This is unset after the first batch.
-# See https://github.com/NVIDIA/bionemo-framework/issues/1301 for more details.
-# os.environ.setdefault("CUDA_LAUNCH_BLOCKING", "1")
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
@@ -304,10 +300,8 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--model-size",
         type=str,
-        choices=sorted(
-            HYENA_MODEL_OPTIONS.keys()  # + list(MAMBA_MODEL_OPTIONS.keys()) + list(LLAMA_MODEL_OPTIONS.keys())
-        ),
-        default="1b",
+        choices=sorted(MODEL_OPTIONS.keys()),
+        default="evo2_1b_base",
         help="Model size/configuration to use. Options depend on the selected model-type.",
     )  # DONE
     parser.add_argument(
@@ -680,6 +674,45 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(args=args)
 
 
+def _validate_finetune_ckpt_dir(ckpt_dir: str) -> Path:
+    """Validate that a finetune checkpoint directory exists and looks like a valid MBridge checkpoint.
+
+    Args:
+        ckpt_dir: Path to the checkpoint directory (may contain ``iter_XXXXXXX`` subdirs
+            or be a direct checkpoint directory with ``run_config.yaml``).
+
+    Returns:
+        Resolved absolute path to the checkpoint directory.
+
+    Raises:
+        FileNotFoundError: If the directory does not exist or is not a valid checkpoint.
+    """
+    ckpt_path = Path(ckpt_dir).resolve()
+    if not ckpt_path.exists():
+        raise FileNotFoundError(
+            f"Finetune checkpoint directory does not exist: {ckpt_path}\n"
+            f"  (original path: {ckpt_dir})\n"
+            "Please verify the --finetune-ckpt-dir path. If running from a notebook,\n"
+            "ensure the path is absolute or relative to the working directory."
+        )
+    if not ckpt_path.is_dir():
+        raise FileNotFoundError(f"Finetune checkpoint path is not a directory: {ckpt_path}")
+
+    has_iter_dirs = any(ckpt_path.glob("iter_*"))
+    has_run_config = (ckpt_path / "run_config.yaml").exists()
+    has_latest_txt = (ckpt_path / "latest_checkpointed_iteration.txt").exists()
+
+    if not (has_iter_dirs or has_run_config or has_latest_txt):
+        raise FileNotFoundError(
+            f"Finetune checkpoint directory does not look like a valid MBridge checkpoint: {ckpt_path}\n"
+            "Expected to find at least one of:\n"
+            "  - iter_XXXXXXX/ subdirectories\n"
+            "  - run_config.yaml\n"
+            "  - latest_checkpointed_iteration.txt"
+        )
+    return ckpt_path
+
+
 def main():
     """Parsing args and running evo2 training."""
     args = parse_args()
@@ -696,7 +729,7 @@ def train(args: argparse.Namespace) -> None:
     recipe_kwargs = {}
 
     # Model
-    model_provider = HYENA_MODEL_OPTIONS[args.model_size]
+    model_provider = MODEL_OPTIONS[args.model_size]
     recipe_kwargs["model_provider"] = model_provider
     logger.info(f"Selected model size: {args.model_size} ({model_provider.__name__})")
 
@@ -793,7 +826,12 @@ def train(args: argparse.Namespace) -> None:
     if args.seq_len_interpolation_factor is not None:
         cfg.model.seq_len_interpolation_factor = args.seq_len_interpolation_factor
     cfg.model.calculate_per_token_loss = not args.no_calculate_per_token_loss
-    cfg.model.fp32_residual_connection = not args.no_fp32_residual_connection
+    model_type = infer_model_type(args.model_size)
+    if model_type != "hyena" and not args.no_fp32_residual_connection:
+        logger.info("Disabling fp32_residual_connection for non-Hyena model (not compatible with TE layers)")
+        cfg.model.fp32_residual_connection = False
+    else:
+        cfg.model.fp32_residual_connection = not args.no_fp32_residual_connection
     cfg.model.cross_entropy_loss_fusion = args.cross_entropy_loss_fusion
     # cfg.model.cuda_graph_impl = "local" # or "transformer_engine"
     # cfg.model.cuda_graph_scope = "full_iteration"
@@ -937,8 +975,9 @@ def train(args: argparse.Namespace) -> None:
     cfg.checkpoint.most_recent_k = args.most_recent_k
 
     if args.finetune_ckpt_dir:
+        validated_ckpt_dir = _validate_finetune_ckpt_dir(args.finetune_ckpt_dir)
         cfg.checkpoint.finetune = True
-        cfg.checkpoint.pretrained_checkpoint = args.finetune_ckpt_dir
+        cfg.checkpoint.pretrained_checkpoint = str(validated_ckpt_dir)
         cfg.checkpoint.dist_ckpt_strictness = "ignore_all"  # necessary unfortunately to avoid extra_state issues.
     if args.nvidia_fault_tolerance:
         cfg.ft = FaultToleranceConfig(
@@ -971,8 +1010,13 @@ def train(args: argparse.Namespace) -> None:
         logger.info("--- Final Configuration ---")
         cfg.print_yaml()
 
-    logger.info("Starting pretraining...")
-    pretrain(cfg, hyena_forward_step)
+    if model_type == "eden":
+        forward_step_fn = gpt_forward_step
+    else:
+        forward_step_fn = hyena_forward_step
+
+    logger.info(f"Starting pretraining (model_type={model_type})...")
+    pretrain(cfg, forward_step_fn)
 
     if not args.ckpt_async_save:
         # Async checkpoint saving will lazily destroy the process group when the last checkpoint is saved.

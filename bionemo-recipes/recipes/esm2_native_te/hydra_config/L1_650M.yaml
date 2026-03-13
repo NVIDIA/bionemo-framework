@@ -3,7 +3,7 @@ defaults:
   - _self_
 
 # Training config
-model_tag: nvidia/esm2_t33_650M_UR50D
+config_name_or_path: nvidia/esm2_t33_650M_UR50D
 num_train_steps: 200
 
 dataset:

@@ -55,6 +55,7 @@ jobs:
           files: |
             bionemo-recipes/models/**
             bionemo-recipes/recipes/**
+            !bionemo-recipes/recipes/*megatron/**
 
       - id: set-dirs
         name: Determine which directories to run
