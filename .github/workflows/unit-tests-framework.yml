@@ -58,6 +58,7 @@ jobs:
         id: changed-files
         with:
           json: true
+          matrix: true
           base_sha: ${{ steps.merge-base.outputs.merge-base }}
           dir_names: true
           dir_names_max_depth: 2
@@ -81,7 +82,13 @@ jobs:
           import json, os
 
           raw = (os.environ.get("CHANGED_JSON") or "").strip()
-          changed = json.loads(raw) if raw else []
+          if raw:
+              try:
+                  changed = json.loads(raw)
+              except json.JSONDecodeError:
+                  changed = json.loads(raw.replace('\\"', '"'))
+          else:
+              changed = []
           any_changed = os.environ.get("ANY_CHANGED", "false") == "true"
           is_schedule = os.environ.get("IS_SCHEDULE", "false") == "true"
 
