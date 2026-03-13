@@ -30,16 +30,13 @@ mapping = {
     "model.layers.*.self_attn.o_proj.weight": "model.layers.*.self_attention.proj.weight",
     "model.layers.*.post_attention_layernorm.weight": "model.layers.*.post_attention_layernorm.weight",
     "model.layers.*.mlp.gate.weight": "model.layers.*.mlp.gate.weight",
+    "model.layers.*.mlp.experts.gate_up_proj": "model.layers.*.mlp.experts_gate_up_weight",
+    "model.layers.*.mlp.experts.down_proj": "model.layers.*.mlp.experts_down_weight",
     "model.norm.weight": "model.norm.weight",
     "lm_head.weight": "lm_head.weight",
 }
 
 reverse_mapping = {v: k for k, v in mapping.items()}
-
-
-def _identity(x: torch.Tensor) -> torch.Tensor:
-    """Identity transform — passes the tensor through unchanged."""
-    return x
 
 
 def convert_mixtral_hf_to_te(model_hf: MixtralForCausalLM, **config_kwargs) -> NVMixtralForCausalLM:
@@ -69,18 +66,6 @@ def convert_mixtral_hf_to_te(model_hf: MixtralForCausalLM, **config_kwargs) -> N
                 ),
                 target_key="model.layers.*.self_attention.layernorm_qkv.weight",
                 fn=state.TransformFns.merge_qkv,
-            ),
-            # HF stores experts as [num_experts, out, in] stacked tensors;
-            # TE now also uses a single stacked parameter per projection.
-            state.state_transform(
-                source_key="model.layers.*.mlp.experts.gate_up_proj",
-                target_key="model.layers.*.mlp.experts_gate_up_weight",
-                fn=_identity,
-            ),
-            state.state_transform(
-                source_key="model.layers.*.mlp.experts.down_proj",
-                target_key="model.layers.*.mlp.experts_down_weight",
-                fn=_identity,
             ),
         ],
     )
@@ -121,18 +106,6 @@ def convert_mixtral_te_to_hf(model_te: NVMixtralForCausalLM, **config_kwargs) ->
                     "model.layers.*.self_attn.v_proj.weight",
                 ),
                 fn=state.TransformFns.split_qkv,
-            ),
-            # TE now stores experts as [num_experts, out, in] stacked tensors;
-            # HF also uses the same stacked format.
-            state.state_transform(
-                source_key="model.layers.*.mlp.experts_gate_up_weight",
-                target_key="model.layers.*.mlp.experts.gate_up_proj",
-                fn=_identity,
-            ),
-            state.state_transform(
-                source_key="model.layers.*.mlp.experts_down_weight",
-                target_key="model.layers.*.mlp.experts.down_proj",
-                fn=_identity,
             ),
         ],
     )
