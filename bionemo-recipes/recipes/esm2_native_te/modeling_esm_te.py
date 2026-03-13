@@ -16,6 +16,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# --- BEGIN COPIED FILE NOTICE ---
+# This file is copied from: bionemo-recipes/models/esm2/modeling_esm_te.py
+# Do not modify this file directly. Instead, modify the source and run:
+#     python ci/scripts/check_copied_files.py --fix
+# --- END COPIED FILE NOTICE ---
+
 
 """TransformerEngine-optimized ESM model.
 

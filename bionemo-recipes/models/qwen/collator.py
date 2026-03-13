@@ -13,6 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# --- BEGIN COPIED FILE NOTICE ---
+# This file is copied from: bionemo-recipes/models/esm2/collator.py
+# Do not modify this file directly. Instead, modify the source and run:
+#     python ci/scripts/check_copied_files.py --fix
+# --- END COPIED FILE NOTICE ---
+
 """Data collators for sequence packing and context parallel training.
 
 This should eventually get moved to a separate package, or possibly upstreamed into `transformers`.

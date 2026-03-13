@@ -13,6 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# --- BEGIN COPIED FILE NOTICE ---
+# This file is copied from: bionemo-recipes/models/esm2/state.py
+# Do not modify this file directly. Instead, modify the source and run:
+#     python ci/scripts/check_copied_files.py --fix
+# --- END COPIED FILE NOTICE ---
+
 """State dict conversion utilities adapted from nemo.lightning.io.state.
 
 This module provides the transform system used by convert.py to map state dicts between model formats:
