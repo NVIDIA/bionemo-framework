@@ -130,9 +130,7 @@
       }
     }
   },
-  "decoder": {
-    "type": "Fuse"
-  },
+  "decoder": null,
   "model": {
     "type": "WordLevel",
     "vocab": {
