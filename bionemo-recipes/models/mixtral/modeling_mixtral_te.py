@@ -19,7 +19,6 @@ import logging
 import os
 import warnings
 from collections import OrderedDict
-from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, ClassVar, ContextManager, Protocol, Unpack
@@ -539,16 +538,6 @@ class NVMixtralModel(NVMixtralPreTrainedModel):
         """
         for layer in self.layers:
             layer.mlp.set_ep_group(ep_group, ep_mesh)
-
-    def set_dispatchers(self, make_dispatcher: Callable[[], TokenDispatcher]) -> None:
-        """Replace the token dispatcher on every MoE block.
-
-        Args:
-            make_dispatcher: A factory callable that creates a new ``TokenDispatcher``
-                instance for each layer (e.g. ``lambda: AllToAllTokenDispatcher(...)``).
-        """
-        for layer in self.layers:
-            layer.mlp.set_dispatcher(make_dispatcher())
 
     def forward(
         self,
