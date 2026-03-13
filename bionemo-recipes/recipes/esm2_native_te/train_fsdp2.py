@@ -28,6 +28,7 @@ from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
 from transformers.models.esm.configuration_esm import EsmConfig
 from transformers.models.esm.modeling_esm import EsmForMaskedLM
+from transformer_engine.pytorch.optimizers import FusedAdam
 
 from checkpoint import load_checkpoint_fsdp2, save_checkpoint_fsdp2, save_final_model_fsdp2, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
@@ -117,18 +118,9 @@ def main(args: DictConfig) -> float | None:
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
     transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
 
-    if args.use_fp32_master_weights:
-        mp_policy = MixedPrecisionPolicy(
-            param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward
-            reduce_dtype=torch.float32,  # Gradient reductions in FP32
-            output_dtype=torch.bfloat16,  # Forward output dtype
-            cast_forward_inputs=False,
-        )
-    else:
-        mp_policy = MixedPrecisionPolicy()
     for layer in transformer_stack:
-        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
-    fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
+        fully_shard(layer, mesh=device_mesh["dp"])
+    fully_shard(model, mesh=device_mesh["dp"])
 
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     # Note, this should happen before we create the optimizer.
@@ -145,7 +137,13 @@ def main(args: DictConfig) -> float | None:
         debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer. Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    optimizer = FusedAdam(
+        model.parameters(),
+        lr=1e-3,
+        master_weights=True,
+        master_weight_dtype=torch.float32,
+        store_param_remainders=True,
+        )
     # Note: Got an error about mixed torch.Tensor and DTensor here, so using AdamW instead.
     scheduler = get_linear_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
