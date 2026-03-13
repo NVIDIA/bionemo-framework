@@ -37,18 +37,25 @@ echo ""
 # ---------------------------------------------------------------------------
 echo "[2/3] Detecting GPU architecture ..."
 
+FORCE_ARCH="${FORCE_ARCH:-}"
 GPU_ARCH="$(python3 -c "
-import torch, sys
+import torch, sys, os
+force = os.environ.get('FORCE_ARCH', '')
+if force:
+    print(force)
+    sys.exit(0)
 if not torch.cuda.is_available():
     print('10.0')                       # safe default (Blackwell datacenter)
     sys.exit(0)
 cap = torch.cuda.get_device_capability(0)
-arch = f'{cap[0]}.{cap[1]}'
-# DeepEP hybrid-ep kernels target Blackwell (10.0+).  If the detected arch
-# is older than 10.0 we still try 10.0 and rely on PTX forward-compat.
 major, minor = cap
+arch = f'{major}.{minor}'
 if major < 10:
-    arch = '10.0'
+    print(f'ERROR: Detected GPU compute capability {arch} (sm_{major}{minor}), '
+          f'but DeepEP hybrid-ep kernels require Blackwell (sm_100+).', file=sys.stderr)
+    print(f'To force a target architecture anyway, set FORCE_ARCH=10.0 '
+          f'and re-run.', file=sys.stderr)
+    sys.exit(1)
 print(arch)
 ")"
 echo "       Target TORCH_CUDA_ARCH_LIST=${GPU_ARCH}"

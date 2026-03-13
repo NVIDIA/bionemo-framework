@@ -25,7 +25,7 @@ import torch.distributed as dist
 import transformer_engine.pytorch
 
 from fused_a2a import fused_combine, fused_dispatch
-from fused_indices_converter import fused_indices_to_multihot
+from fused_indices_converter import HAVE_TRITON, fused_indices_to_multihot
 from modeling_mixtral_te import DispatchOutput
 
 
@@ -63,6 +63,11 @@ class FusedTokenRouter:
         """Initialize the FusedTokenRouter."""
         if fused_dispatch is None or fused_combine is None:
             raise ImportError("deep_ep is required for FusedTokenRouter. Install it with: pip install deep_ep")
+        if not HAVE_TRITON:
+            raise ImportError(
+                "Triton is required for FusedTokenRouter (used by fused_indices_to_multihot). "
+                "Install it with: pip install triton"
+            )
         self.num_experts = num_experts
         self.num_local_experts = num_local_experts
         self.hidden_size = hidden_size

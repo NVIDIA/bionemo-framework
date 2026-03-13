@@ -20,19 +20,19 @@ AllToAllTokenDispatcher when running with EP=2. Also verifies that the
 backward pass produces matching gradients.
 """
 
-import os
 import subprocess
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 import pytest
 import torch
+from distributed_helpers import DistributedConfig, create_small_mixtral_config, get_dummy_batch
 
-from modeling_mixtral_te import NVMixtralConfig, NVMixtralForCausalLM
+from modeling_mixtral_te import NVMixtralForCausalLM
 
 
 requires_multi_gpu = pytest.mark.skipif(
@@ -68,50 +68,6 @@ requires_peer_access = pytest.mark.skipif(
     not _cuda_peer_access_available(),
     reason="CUDA peer access (NVLink IPC) not supported between GPUs",
 )
-
-
-def _create_small_mixtral_config(**overrides) -> NVMixtralConfig:
-    """Create a small Mixtral config suitable for testing."""
-    defaults = {
-        "hidden_size": 128,
-        "intermediate_size": 256,
-        "num_hidden_layers": 2,
-        "num_attention_heads": 4,
-        "num_key_value_heads": 2,
-        "num_local_experts": 4,
-        "num_experts_per_tok": 2,
-        "max_position_embeddings": 128,
-        "vocab_size": 1000,
-        "attn_input_format": "bshd",
-        "self_attn_mask_type": "causal",
-        "router_jitter_noise": 0.0,
-    }
-    defaults.update(overrides)
-    return NVMixtralConfig(**defaults)
-
-
-def _get_dummy_batch(vocab_size: int, seq_len: int = 32, batch_size: int = 2, device: str = "cuda"):
-    """Create a simple dummy batch for testing."""
-    torch.manual_seed(42)
-    input_ids = torch.randint(0, vocab_size, (batch_size, seq_len), device=device)
-    attention_mask = torch.ones_like(input_ids)
-    labels = input_ids.clone()
-    return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
-
-
-@dataclass(frozen=True)
-class DistributedConfig:
-    """Distributed environment configuration."""
-
-    rank: int = field(default_factory=lambda: int(os.environ.setdefault("RANK", "0")))
-    local_rank: int = field(default_factory=lambda: int(os.environ.setdefault("LOCAL_RANK", "0")))
-    world_size: int = field(default_factory=lambda: int(os.environ.setdefault("WORLD_SIZE", "1")))
-    _master_addr: str = field(default_factory=lambda: os.environ.setdefault("MASTER_ADDR", "localhost"))
-    _master_port: str = field(default_factory=lambda: os.environ.setdefault("MASTER_PORT", "12355"))
-
-    def is_main_process(self) -> bool:
-        """Return True if this is the global rank 0 process."""
-        return self.rank == 0
 
 
 def _shard_expert_weights(full_state_dict: dict, ep_rank: int, ep_size: int, num_experts: int) -> dict:
@@ -208,18 +164,18 @@ def _run_equivalence_test():
     ep_size = dist_config.world_size
 
     # --- Phase 1: Create EP=1 model for reference weights ---
-    config_ep1 = _create_small_mixtral_config(expert_parallel_size=1)
+    config_ep1 = create_small_mixtral_config(expert_parallel_size=1)
     torch.manual_seed(0)
     model_ep1 = NVMixtralForCausalLM(config_ep1).to(dtype=torch.bfloat16, device=device)
     full_state_dict = {k: v.clone().cpu() for k, v in model_ep1.state_dict().items()}
     del model_ep1
     torch.cuda.empty_cache()
 
-    batch = _get_dummy_batch(config_ep1.vocab_size, seq_len=32, batch_size=2, device=device)
+    batch = get_dummy_batch(config_ep1.vocab_size, seq_len=32, batch_size=2, device=device)
     num_experts = config_ep1.num_local_experts
 
     # --- Phase 2: EP=2 + AllToAll dispatcher -> reference logits/loss ---
-    config_ep2 = _create_small_mixtral_config(expert_parallel_size=ep_size)
+    config_ep2 = create_small_mixtral_config(expert_parallel_size=ep_size)
     torch.manual_seed(0)
     model_alltoall = NVMixtralForCausalLM(config_ep2).to(dtype=torch.bfloat16, device=device)
 
@@ -304,18 +260,18 @@ def _run_backward_test():
     ep_size = dist_config.world_size
 
     # --- Phase 1: Create EP=1 model for reference weights ---
-    config_ep1 = _create_small_mixtral_config(expert_parallel_size=1)
+    config_ep1 = create_small_mixtral_config(expert_parallel_size=1)
     torch.manual_seed(0)
     model_ep1 = NVMixtralForCausalLM(config_ep1).to(dtype=torch.bfloat16, device=device)
     full_state_dict = {k: v.clone().cpu() for k, v in model_ep1.state_dict().items()}
     del model_ep1
     torch.cuda.empty_cache()
 
-    batch = _get_dummy_batch(config_ep1.vocab_size, seq_len=32, batch_size=2, device=device)
+    batch = get_dummy_batch(config_ep1.vocab_size, seq_len=32, batch_size=2, device=device)
     num_experts = config_ep1.num_local_experts
 
     # --- Phase 2: EP=2 + AllToAll dispatcher -> reference loss + gradients ---
-    config_ep2 = _create_small_mixtral_config(expert_parallel_size=ep_size)
+    config_ep2 = create_small_mixtral_config(expert_parallel_size=ep_size)
     torch.manual_seed(0)
     model_alltoall = NVMixtralForCausalLM(config_ep2).to(dtype=torch.bfloat16, device=device)
 
@@ -376,6 +332,11 @@ def _run_backward_test():
 
         assert len(ref_grads) > 0, "AllToAll model produced no gradients"
         assert len(test_grads) > 0, "FusedTokenRouter model produced no gradients"
+        assert ref_grads.keys() == test_grads.keys(), (
+            f"Gradient key mismatch: "
+            f"only in ref={ref_grads.keys() - test_grads.keys()}, "
+            f"only in test={test_grads.keys() - ref_grads.keys()}"
+        )
 
         for name in ref_grads:
             assert name in test_grads, f"FusedTokenRouter missing gradient for parameter: {name}"

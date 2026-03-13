@@ -19,54 +19,25 @@ Verifies that running with EP=2 (experts sharded across 2 GPUs) produces
 the same logits and loss as EP=1 (all experts on a single GPU).
 """
 
-import os
 import subprocess
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 import pytest
 import torch
+from distributed_helpers import DistributedConfig, create_small_mixtral_config, get_dummy_batch
 
-from modeling_mixtral_te import NVMixtralConfig, NVMixtralForCausalLM
+from modeling_mixtral_te import NVMixtralForCausalLM
 
 
 requires_multi_gpu = pytest.mark.skipif(
     not torch.cuda.is_available() or torch.cuda.device_count() < 2,
     reason="Test requires at least 2 GPUs",
 )
-
-
-def _create_small_mixtral_config(**overrides) -> NVMixtralConfig:
-    """Create a small Mixtral config suitable for testing."""
-    defaults = {
-        "hidden_size": 128,
-        "intermediate_size": 256,
-        "num_hidden_layers": 2,
-        "num_attention_heads": 4,
-        "num_key_value_heads": 2,
-        "num_local_experts": 4,
-        "num_experts_per_tok": 2,
-        "max_position_embeddings": 128,
-        "vocab_size": 1000,
-        "attn_input_format": "bshd",
-        "self_attn_mask_type": "causal",
-        "router_jitter_noise": 0.0,
-    }
-    defaults.update(overrides)
-    return NVMixtralConfig(**defaults)
-
-
-def _get_dummy_batch(vocab_size: int, seq_len: int = 32, batch_size: int = 2, device: str = "cuda"):
-    """Create a simple dummy batch for testing."""
-    torch.manual_seed(42)
-    input_ids = torch.randint(0, vocab_size, (batch_size, seq_len), device=device)
-    attention_mask = torch.ones_like(input_ids)
-    labels = input_ids.clone()
-    return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
 
 
 @requires_multi_gpu
@@ -77,7 +48,7 @@ def test_ep2_matches_ep1(unused_tcp_port):
         "--nproc_per_node=2",
         "--rdzv-backend=c10d",
         f"--rdzv-endpoint=localhost:{unused_tcp_port}",
-        os.path.relpath(__file__),
+        str(Path(__file__).resolve()),
     ]
     result = subprocess.run(
         cmd,
@@ -97,21 +68,6 @@ def test_ep2_matches_ep1(unused_tcp_port):
 # ---------------------------------------------------------------------------
 # Distributed worker executed via torchrun
 # ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class DistributedConfig:
-    """Distributed environment configuration."""
-
-    rank: int = field(default_factory=lambda: int(os.environ.setdefault("RANK", "0")))
-    local_rank: int = field(default_factory=lambda: int(os.environ.setdefault("LOCAL_RANK", "0")))
-    world_size: int = field(default_factory=lambda: int(os.environ.setdefault("WORLD_SIZE", "1")))
-    _master_addr: str = field(default_factory=lambda: os.environ.setdefault("MASTER_ADDR", "localhost"))
-    _master_port: str = field(default_factory=lambda: os.environ.setdefault("MASTER_PORT", "12355"))
-
-    def is_main_process(self) -> bool:
-        """Return True if this is the global rank 0 process."""
-        return self.rank == 0
 
 
 def _distribute_state_dict(full_state_dict: dict, model: torch.nn.Module, device: torch.device) -> dict:
@@ -161,12 +117,12 @@ def _run_ep_equivalence_test():
     ep_size = dist_config.world_size
 
     # --- Phase 1: EP=1 reference (every rank computes independently) ---
-    config_ep1 = _create_small_mixtral_config(expert_parallel_size=1)
+    config_ep1 = create_small_mixtral_config(expert_parallel_size=1)
     torch.manual_seed(0)
     model_ep1 = NVMixtralForCausalLM(config_ep1).to(dtype=torch.bfloat16, device=device)
     model_ep1.eval()
 
-    batch = _get_dummy_batch(config_ep1.vocab_size, seq_len=32, batch_size=2, device=device)
+    batch = get_dummy_batch(config_ep1.vocab_size, seq_len=32, batch_size=2, device=device)
 
     with torch.no_grad():
         outputs_ep1 = model_ep1(**batch)
@@ -181,7 +137,7 @@ def _run_ep_equivalence_test():
     torch.cuda.empty_cache()
 
     # --- Phase 2: EP=2 distributed run ---
-    config_ep2 = _create_small_mixtral_config(expert_parallel_size=ep_size)
+    config_ep2 = create_small_mixtral_config(expert_parallel_size=ep_size)
     torch.manual_seed(0)
     model_ep2 = NVMixtralForCausalLM(config_ep2).to(dtype=torch.bfloat16, device=device)
 
@@ -192,7 +148,7 @@ def _run_ep_equivalence_test():
 
     # Load EP=1 weights — distribute_tensor handles expert sharding automatically
     distributed_state = _distribute_state_dict(full_state_dict, model_ep2, device)
-    model_ep2.load_state_dict(distributed_state, strict=False)
+    model_ep2.load_state_dict(distributed_state, strict=True)
     model_ep2.eval()
 
     # Same batch on all ranks (EP dispatches tokens, input is replicated)

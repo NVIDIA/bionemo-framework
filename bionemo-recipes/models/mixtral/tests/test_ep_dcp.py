@@ -24,66 +24,23 @@ Verifies:
 import os
 import subprocess
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 import pytest
 import torch
+from distributed_helpers import DistributedConfig, create_small_mixtral_config, get_dummy_batch
 
-from modeling_mixtral_te import NVMixtralConfig, NVMixtralForCausalLM
+from modeling_mixtral_te import NVMixtralForCausalLM
 
 
 requires_multi_gpu = pytest.mark.skipif(
     not torch.cuda.is_available() or torch.cuda.device_count() < 2,
     reason="Test requires at least 2 GPUs",
 )
-
-
-def _create_small_mixtral_config(**overrides) -> NVMixtralConfig:
-    """Create a small Mixtral config suitable for testing."""
-    defaults = {
-        "hidden_size": 128,
-        "intermediate_size": 256,
-        "num_hidden_layers": 2,
-        "num_attention_heads": 4,
-        "num_key_value_heads": 2,
-        "num_local_experts": 4,
-        "num_experts_per_tok": 2,
-        "max_position_embeddings": 128,
-        "vocab_size": 1000,
-        "attn_input_format": "bshd",
-        "self_attn_mask_type": "causal",
-        "router_jitter_noise": 0.0,
-    }
-    defaults.update(overrides)
-    return NVMixtralConfig(**defaults)
-
-
-def _get_dummy_batch(vocab_size: int, seq_len: int = 32, batch_size: int = 2, device: str = "cuda"):
-    """Create a simple dummy batch for testing."""
-    torch.manual_seed(42)
-    input_ids = torch.randint(0, vocab_size, (batch_size, seq_len), device=device)
-    attention_mask = torch.ones_like(input_ids)
-    labels = input_ids.clone()
-    return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
-
-
-@dataclass(frozen=True)
-class DistributedConfig:
-    """Distributed environment configuration."""
-
-    rank: int = field(default_factory=lambda: int(os.environ.setdefault("RANK", "0")))
-    local_rank: int = field(default_factory=lambda: int(os.environ.setdefault("LOCAL_RANK", "0")))
-    world_size: int = field(default_factory=lambda: int(os.environ.setdefault("WORLD_SIZE", "1")))
-    _master_addr: str = field(default_factory=lambda: os.environ.setdefault("MASTER_ADDR", "localhost"))
-    _master_port: str = field(default_factory=lambda: os.environ.setdefault("MASTER_PORT", "12355"))
-
-    def is_main_process(self) -> bool:
-        """Return True if this is the global rank 0 process."""
-        return self.rank == 0
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +55,7 @@ def _run_torchrun(test_fn_name: str, port: int, tmp_dir: str):
         "--nproc_per_node=2",
         "--rdzv-backend=c10d",
         f"--rdzv-endpoint=localhost:{port}",
-        os.path.relpath(__file__),
+        str(Path(__file__).resolve()),
         test_fn_name,
         tmp_dir,
     ]
@@ -150,7 +107,7 @@ def _init_distributed():
 
 def _create_ep_model(device, ep_mesh, ep_group, ep_size, seed=0):
     """Create a small EP model with DTensor expert weights."""
-    config = _create_small_mixtral_config(expert_parallel_size=ep_size)
+    config = create_small_mixtral_config(expert_parallel_size=ep_size)
     torch.manual_seed(seed)
     model = NVMixtralForCausalLM(config).to(dtype=torch.bfloat16, device=device)
     model.model.set_ep_groups(ep_group, ep_mesh)
@@ -195,7 +152,7 @@ def _worker_dcp_roundtrip(tmp_dir: str):
     dcp_save({"model": model_state_dict}, checkpoint_id=ckpt_dir)
 
     # Reference forward
-    batch = _get_dummy_batch(model_ref.config.vocab_size, device=str(device))
+    batch = get_dummy_batch(model_ref.config.vocab_size, device=str(device))
     with torch.no_grad():
         ref_logits = model_ref(**batch).logits.detach().cpu()
 
@@ -261,7 +218,7 @@ def _worker_save_final_model(tmp_dir: str):
     model_ep2 = _create_ep_model(device, ep_mesh, ep_group, ep_size, seed=0)
     model_ep2.eval()
 
-    batch = _get_dummy_batch(model_ep2.config.vocab_size, device=str(device))
+    batch = get_dummy_batch(model_ep2.config.vocab_size, device=str(device))
     with torch.no_grad():
         ref_logits = model_ep2(**batch).logits.detach().cpu()
 
@@ -287,7 +244,7 @@ def _worker_save_final_model(tmp_dir: str):
                 )
 
         # Load into EP=1 model and compare logits
-        config_ep1 = _create_small_mixtral_config(expert_parallel_size=1)
+        config_ep1 = create_small_mixtral_config(expert_parallel_size=1)
         torch.manual_seed(0)
         model_ep1 = NVMixtralForCausalLM(config_ep1).to(dtype=torch.bfloat16, device=device)
         model_ep1.load_state_dict(gathered_state, strict=False)

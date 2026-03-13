@@ -206,6 +206,7 @@ class NVMixtralSparseMoeBlock(nn.Module):
         self.num_local_experts = self.num_experts // self.ep_size
         self.moe_aux_loss_coeff = getattr(config, "moe_aux_loss_coeff", 0.0)
         self._aux_loss: torch.Tensor = torch.tensor(0.0)
+        self.initializer_range = config.initializer_range
 
         self.dispatcher: TokenDispatcher = dispatcher or AllToAllTokenDispatcher(
             self.num_experts,
@@ -279,7 +280,7 @@ class NVMixtralSparseMoeBlock(nn.Module):
         for attr_name in ("experts_gate_up_weight", "experts_down_weight"):
             old_param = getattr(self, attr_name)
             new_data = torch.empty_like(old_param, device=device)
-            torch.nn.init.normal_(new_data, mean=0.0, std=0.02)
+            torch.nn.init.normal_(new_data, mean=0.0, std=self.initializer_range)
             setattr(self, attr_name, nn.Parameter(new_data))
 
         # Re-sync views to point to the new stacked parameter
@@ -319,12 +320,15 @@ class NVMixtralSparseMoeBlock(nn.Module):
         self.dispatcher.set_ep_group(ep_group)
         # Convert stacked parameters to DTensors with Shard(0) on the expert dimension.
         # Global shape is [num_experts, ...]; each rank stores [num_local_experts, ...].
-        self.experts_gate_up_weight = nn.Parameter(
-            DTensor.from_local(self.experts_gate_up_weight.data, device_mesh=ep_mesh, placements=[Shard(0)])
-        )
-        self.experts_down_weight = nn.Parameter(
-            DTensor.from_local(self.experts_down_weight.data, device_mesh=ep_mesh, placements=[Shard(0)])
-        )
+        # Guard: only wrap plain tensors; skip if already DTensors (e.g. repeated calls).
+        if not isinstance(self.experts_gate_up_weight.data, DTensor):
+            self.experts_gate_up_weight = nn.Parameter(
+                DTensor.from_local(self.experts_gate_up_weight.data, device_mesh=ep_mesh, placements=[Shard(0)])
+            )
+        if not isinstance(self.experts_down_weight.data, DTensor):
+            self.experts_down_weight = nn.Parameter(
+                DTensor.from_local(self.experts_down_weight.data, device_mesh=ep_mesh, placements=[Shard(0)])
+            )
 
     def _expert_ffn(self, tokens: torch.Tensor, m_splits: list[int]) -> torch.Tensor:
         """Run the expert SwiGLU FFN (gate_up -> silu -> down).

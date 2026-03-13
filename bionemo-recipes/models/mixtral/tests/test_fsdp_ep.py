@@ -21,19 +21,19 @@ Verifies that FSDP2 and EP can be composed together:
 - FSDP=2, EP=2 (4 GPUs): Both data and expert parallelism (skipped on 2-GPU machines).
 """
 
-import os
 import subprocess
 import sys
-from dataclasses import dataclass, field
 from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent))
 
 import pytest
 import torch
+from distributed_helpers import DistributedConfig, create_small_mixtral_config, get_dummy_batch
 
-from modeling_mixtral_te import NVMixtralConfig, NVMixtralForCausalLM
+from modeling_mixtral_te import NVMixtralForCausalLM
 
 
 requires_2_gpus = pytest.mark.skipif(
@@ -45,50 +45,6 @@ requires_4_gpus = pytest.mark.skipif(
     not torch.cuda.is_available() or torch.cuda.device_count() < 4,
     reason="Test requires at least 4 GPUs",
 )
-
-
-def _create_small_mixtral_config(**overrides) -> NVMixtralConfig:
-    """Create a small Mixtral config suitable for testing."""
-    defaults = {
-        "hidden_size": 128,
-        "intermediate_size": 256,
-        "num_hidden_layers": 2,
-        "num_attention_heads": 4,
-        "num_key_value_heads": 2,
-        "num_local_experts": 4,
-        "num_experts_per_tok": 2,
-        "max_position_embeddings": 128,
-        "vocab_size": 1000,
-        "attn_input_format": "bshd",
-        "self_attn_mask_type": "causal",
-        "router_jitter_noise": 0.0,
-    }
-    defaults.update(overrides)
-    return NVMixtralConfig(**defaults)
-
-
-def _get_dummy_batch(vocab_size: int, seq_len: int = 32, batch_size: int = 2, device: str = "cuda"):
-    """Create a simple dummy batch for testing."""
-    torch.manual_seed(42)
-    input_ids = torch.randint(0, vocab_size, (batch_size, seq_len), device=device)
-    attention_mask = torch.ones_like(input_ids)
-    labels = input_ids.clone()
-    return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
-
-
-@dataclass(frozen=True)
-class DistributedConfig:
-    """Distributed environment configuration."""
-
-    rank: int = field(default_factory=lambda: int(os.environ.setdefault("RANK", "0")))
-    local_rank: int = field(default_factory=lambda: int(os.environ.setdefault("LOCAL_RANK", "0")))
-    world_size: int = field(default_factory=lambda: int(os.environ.setdefault("WORLD_SIZE", "1")))
-    _master_addr: str = field(default_factory=lambda: os.environ.setdefault("MASTER_ADDR", "localhost"))
-    _master_port: str = field(default_factory=lambda: os.environ.setdefault("MASTER_PORT", "12355"))
-
-    def is_main_process(self) -> bool:
-        """Return True if this is the global rank 0 process."""
-        return self.rank == 0
 
 
 def _distribute_state_dict(full_state_dict: dict, model: torch.nn.Module, device: torch.device) -> dict:
@@ -239,7 +195,7 @@ def _worker_fsdp2_ep1():
     dp_size = dist_config.world_size
     device_mesh = init_device_mesh("cuda", mesh_shape=(dp_size, ep_size), mesh_dim_names=("dp", "ep"))
 
-    config = _create_small_mixtral_config(expert_parallel_size=ep_size)
+    config = create_small_mixtral_config(expert_parallel_size=ep_size)
     torch.manual_seed(0)
     model = NVMixtralForCausalLM(config).to(dtype=torch.bfloat16, device=device)
 
@@ -254,7 +210,7 @@ def _worker_fsdp2_ep1():
     fully_shard(model, mesh=device_mesh["dp"])
 
     model.train()
-    batch = _get_dummy_batch(config.vocab_size, device=str(device))
+    batch = get_dummy_batch(config.vocab_size, device=str(device))
 
     loss_val, grad_norms, weight_changes = _train_step(model, batch)
 
@@ -295,14 +251,14 @@ def _worker_fsdp1_ep2():
     ep_group = ep_mesh.get_group()
 
     # Get reference weights from a full EP=1 model
-    config_full = _create_small_mixtral_config(expert_parallel_size=1)
+    config_full = create_small_mixtral_config(expert_parallel_size=1)
     torch.manual_seed(0)
     full_model = NVMixtralForCausalLM(config_full).to(dtype=torch.bfloat16, device="cpu")
     full_state_dict = {k: v.clone() for k, v in full_model.state_dict().items()}
     del full_model
 
     # Create EP=2 model, set EP groups to create DTensor annotations, then load weights
-    config_ep = _create_small_mixtral_config(expert_parallel_size=ep_size)
+    config_ep = create_small_mixtral_config(expert_parallel_size=ep_size)
     torch.manual_seed(0)
     model = NVMixtralForCausalLM(config_ep).to(dtype=torch.bfloat16, device=device)
 
@@ -311,7 +267,7 @@ def _worker_fsdp1_ep2():
 
     # Load EP=1 weights — distribute_tensor handles expert sharding automatically
     distributed_state = _distribute_state_dict(full_state_dict, model, device)
-    model.load_state_dict(distributed_state, strict=False)
+    model.load_state_dict(distributed_state, strict=True)
 
     # FSDP2 wrapping on trivial (size-1) DP sub-mesh
     for layer in model.model.layers:
@@ -319,7 +275,7 @@ def _worker_fsdp1_ep2():
     fully_shard(model, mesh=device_mesh["dp"])
 
     model.train()
-    batch = _get_dummy_batch(config_ep.vocab_size, device=str(device))
+    batch = get_dummy_batch(config_ep.vocab_size, device=str(device))
 
     loss_val, grad_norms, weight_changes = _train_step(model, batch)
 
@@ -358,14 +314,14 @@ def _worker_fsdp2_ep2():
     ep_group = ep_mesh.get_group()
 
     # Get reference weights from a full EP=1 model
-    config_full = _create_small_mixtral_config(expert_parallel_size=1)
+    config_full = create_small_mixtral_config(expert_parallel_size=1)
     torch.manual_seed(0)
     full_model = NVMixtralForCausalLM(config_full).to(dtype=torch.bfloat16, device="cpu")
     full_state_dict = {k: v.clone() for k, v in full_model.state_dict().items()}
     del full_model
 
     # Create EP=2 model, set EP groups to create DTensor annotations, then load weights
-    config_ep = _create_small_mixtral_config(expert_parallel_size=ep_size)
+    config_ep = create_small_mixtral_config(expert_parallel_size=ep_size)
     torch.manual_seed(0)
     model = NVMixtralForCausalLM(config_ep).to(dtype=torch.bfloat16, device=device)
 
@@ -374,7 +330,7 @@ def _worker_fsdp2_ep2():
 
     # Load EP=1 weights — distribute_tensor handles expert sharding automatically
     distributed_state = _distribute_state_dict(full_state_dict, model, device)
-    model.load_state_dict(distributed_state, strict=False)
+    model.load_state_dict(distributed_state, strict=True)
 
     # FSDP2 wrapping on DP sub-mesh
     for layer in model.model.layers:
@@ -382,7 +338,7 @@ def _worker_fsdp2_ep2():
     fully_shard(model, mesh=device_mesh["dp"])
 
     model.train()
-    batch = _get_dummy_batch(config_ep.vocab_size, device=str(device))
+    batch = get_dummy_batch(config_ep.vocab_size, device=str(device))
 
     loss_val, grad_norms, weight_changes = _train_step(model, batch)
 

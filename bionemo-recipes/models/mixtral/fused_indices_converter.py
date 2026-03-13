@@ -14,14 +14,18 @@
 # limitations under the License.
 
 import math
-from functools import partial
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import torch
 
 
-null_decorator = partial(lambda x: x)
+def _identity_decorator(fn):
+    """Return the decorated callable unchanged (no-op decorator fallback)."""
+    return fn
+
+
+null_decorator = _identity_decorator
 
 try:
     import triton
@@ -220,13 +224,14 @@ class IndicesToMultihot(torch.autograd.Function):
         num_of_tokens = indices.shape[0]
         assert indices.shape == probs_indices.shape, "indices and probs_indices must have the same shape"
         topk = indices.shape[1]
-        multihot_indices = torch.empty((num_of_tokens, num_of_local_experts), dtype=torch.bool, device="cuda")
+        device = indices.device
+        multihot_indices = torch.empty((num_of_tokens, num_of_local_experts), dtype=torch.bool, device=device)
         probs_in_multihot = torch.empty(
             (num_of_tokens, num_of_local_experts),
             dtype=probs_indices.dtype,
-            device="cuda",
+            device=device,
         )
-        position_map = torch.empty((num_of_tokens, num_of_local_experts), dtype=torch.int32, device="cuda")
+        position_map = torch.empty((num_of_tokens, num_of_local_experts), dtype=torch.int32, device=device)
         # Compute the next power of 2 for the topk and num_of_local_experts
         topk_next_power_of_2 = 2 ** math.ceil(math.log2(topk))
         num_of_local_experts_next_power_of_2 = 2 ** math.ceil(math.log2(num_of_local_experts))
@@ -271,7 +276,9 @@ class IndicesToMultihot(torch.autograd.Function):
         topk = ctx.topk
 
         # Initialize the gradient of the indices and probs_indices
-        grad_probs_indices = torch.empty((num_of_tokens, topk), dtype=grad_probs_in_multihot.dtype, device="cuda")
+        grad_probs_indices = torch.empty(
+            (num_of_tokens, topk), dtype=grad_probs_in_multihot.dtype, device=grad_probs_in_multihot.device
+        )
         # Compute the next power of 2 for the topk and num_of_local_experts
         topk_next_power_of_2 = 2 ** math.ceil(math.log2(topk))
         num_of_local_experts_next_power_of_2 = 2 ** math.ceil(math.log2(num_of_local_experts))
@@ -290,7 +297,7 @@ class IndicesToMultihot(torch.autograd.Function):
             BLOCK_SIZE=32,  # use only 1 warp per block
             num_warps=1,
         )
-        return None, grad_probs_indices, None, None
+        return None, grad_probs_indices, None
 
 
 def fused_indices_to_multihot(indices, probs_indices, num_of_local_experts):
