@@ -293,11 +293,37 @@ def load_model_from_checkpoint(
     dist_config: DistributedConfig,
     device_mesh,
 ) -> NVLlamaForCausalLM:
-    """Create, FSDP2-shard, and load weights from *ckpt_path*."""
+    """Create, FSDP2-shard, and load weights from *ckpt_path*.
+
+    For safetensors/DDP checkpoints (full state dicts of plain Tensors), weights
+    are loaded *before* FSDP2 wrapping to avoid DTensor/Tensor mixing errors in
+    newer PyTorch.  DCP checkpoints are loaded *after* wrapping because DCP
+    handles DTensor resharding internally.
+    """
     model = NVLlamaForCausalLM(config)
     if dist_config.rank == 0:
         logger.info("Model created (%s parameters)", f"{sum(p.numel() for p in model.parameters()):,}")
 
+    # --- Load full state dicts BEFORE FSDP2 wrapping (plain Tensor → plain Parameter) ---
+    if ckpt_type == "safetensors":
+        if dist_config.rank == 0:
+            logger.info("Loading safetensors from %s …", ckpt_path)
+        from safetensors.torch import load_file
+
+        weights = load_file(str(ckpt_path / "model.safetensors"))
+        model.load_state_dict(weights, strict=False)
+        if dist_config.rank == 0:
+            logger.info("Safetensors loaded")
+
+    elif ckpt_type == "ddp":
+        if dist_config.rank == 0:
+            logger.info("Loading DDP checkpoint from %s …", ckpt_path)
+        ckpt = torch.load(ckpt_path / "checkpoint.pt", map_location="cpu", weights_only=True)
+        model.load_state_dict(ckpt["model"], strict=False)
+        if dist_config.rank == 0:
+            logger.info("DDP checkpoint loaded (step=%d)", ckpt.get("step", -1))
+
+    # --- FSDP2 wrapping ---
     mp_policy = MixedPrecisionPolicy(
         param_dtype=torch.bfloat16,
         reduce_dtype=torch.float32,
@@ -308,6 +334,7 @@ def load_model_from_checkpoint(
         fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
     fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
 
+    # --- Load DCP checkpoints AFTER FSDP2 wrapping (DCP handles DTensor resharding) ---
     if ckpt_type == "dcp":
         if dist_config.rank == 0:
             logger.info("Loading FSDP2 DCP checkpoint from %s …", ckpt_path)
@@ -325,28 +352,7 @@ def load_model_from_checkpoint(
         if dist_config.rank == 0:
             logger.info("DCP checkpoint loaded (step=%d, epoch=%d)", app_state.step, app_state.epoch)
 
-    elif ckpt_type == "ddp":
-        if dist_config.rank == 0:
-            logger.info("Loading DDP checkpoint from %s …", ckpt_path)
-        ckpt = torch.load(ckpt_path / "checkpoint.pt", map_location="cpu", weights_only=True)
-        from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
-
-        set_model_state_dict(model, model_state_dict=ckpt["model"], options=StateDictOptions(strict=False))
-        if dist_config.rank == 0:
-            logger.info("DDP checkpoint loaded (step=%d)", ckpt.get("step", -1))
-
-    elif ckpt_type == "safetensors":
-        if dist_config.rank == 0:
-            logger.info("Loading safetensors from %s …", ckpt_path)
-        from safetensors.torch import load_file
-        from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
-
-        weights = load_file(str(ckpt_path / "model.safetensors"))
-        set_model_state_dict(model, model_state_dict=weights, options=StateDictOptions(strict=False))
-        if dist_config.rank == 0:
-            logger.info("Safetensors loaded")
-
-    else:
+    elif ckpt_type not in ("safetensors", "ddp"):
         raise ValueError(f"Unknown checkpoint type: {ckpt_type}")
 
     model.eval()
