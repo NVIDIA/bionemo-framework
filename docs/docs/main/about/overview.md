@@ -1,12 +1,21 @@
 # Overview of BioNeMo
 
-BioNeMo is a software ecosystem produced by NVIDIA for the development and deployment of life sciences-oriented artificial intelligence models. BioNeMo provides a set of tools to help researchers build, train, and deploy AI models for various biological applications. The main components of BioNeMo are:
+BioNeMo is a software ecosystem produced by NVIDIA for the development and deployment of life sciences-oriented artificial intelligence models. The main components of BioNeMo are:
 
-- **BioNeMo Framework**: A free-to-use collection of programming tools and packages offering access to optimized, pre-trained biomolecular models and workflows. The framework enables building and customizing models, including training and fine-tuning. Capabilities span various workloads and therapeutic modalities, such as molecular generation, protein structure prediction, protein-ligand, and representation learning.
+- **BioNeMo Recipes**: Self-contained, reproducible training recipes for biomolecular and language models. Each recipe bundles a HuggingFace-compatible model definition, training scripts, configuration, and sample data into a single directory that can be run independently. Recipes cover protein representation learning (ESM-2, AMPLIFY, Geneformer), DNA sequence modeling (Evo2), molecular generation, and general-purpose language models (Llama 3, Mixtral, Qwen). See the [recipes section](../recipes/) for details.
+
+- **BioNeMo Sub-package Utilities**: Lightweight, pip-installable Python packages that provide reusable building blocks for training and data processing. Key utilities include:
+
+  - **bionemo-core** -- shared interfaces, data-loading helpers, and checkpoint management
+  - **bionemo-moco** -- modular components for building diffusion and flow-matching generative models
+  - **bionemo-noodles** -- fast FASTA/FASTQ parsing via a Python wrapper around the Rust [noodles](https://github.com/zaeleus/noodles) library
+  - **bionemo-scdl** -- dataset classes optimized for single-cell data
+  - **bionemo-size-aware-batching** -- memory-aware mini-batch construction for variable-length inputs
+  - **bionemo-webdatamodule** -- a PyTorch Lightning DataModule for streaming WebDataset files
 
 - **BioNeMo NIMs**: Easy-to-use, enterprise-ready _inference_ microservices with built-in API endpoints. NIMs are engineered for scalable, self- or cloud-hosted deployment of optimized, production-grade biomolecular foundation models. Check out the growing list of BioNeMo NIMs [here](https://build.nvidia.com/explore/biology).
 
-When choosing between the BioNeMo Framework and BioNeMo NIMs, consider your project's specific requirements. The Framework is ideal for scenarios that require model training, fine-tuning, or customization, offering a comprehensive suite of tools and packages. In contrast, NIMs are optimized for inference-only workflows, providing easy-to-use, enterprise-ready microservices with built-in API endpoints. As a rule, use the Framework for custom model development or high-control modeling, and NIMs for inference against existing models.
+Use the **recipes** and **sub-packages** when you need to train, fine-tune, or customize models. Use **NIMs** when you need production-ready inference against existing models.
 
 Get notified of new releases, bug fixes, critical security updates, and more for biopharma. [Subscribe.](https://www.nvidia.com/en-us/clara/biopharma/product-updates/)
 
