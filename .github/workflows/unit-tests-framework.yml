@@ -79,8 +79,39 @@ jobs:
           IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
         run: |
           python3 - <<'PY'
-          import json, os
+          import json, os, tomllib
 
+          # --- Parse tach.toml for the dependency graph ---
+          with open("tach.toml", "rb") as f:
+              tach = tomllib.load(f)
+
+          # Map each module to its sub-package by checking which source root
+          # actually contains the module directory on disk.
+          mod_to_pkg = {}
+          for mod in tach.get("modules", []):
+              mod_dir = mod["path"].replace(".", "/")
+              for sr in tach.get("source_roots", []):
+                  parts = sr.split("/")
+                  if len(parts) >= 2 and parts[0] == "sub-packages" and os.path.isdir(os.path.join(sr, mod_dir)):
+                      mod_to_pkg[mod["path"]] = parts[1]
+                      break
+
+          # Build the package dependency dict from tach modules.
+          packages = {}
+          for mod in tach.get("modules", []):
+              pkg = mod_to_pkg.get(mod["path"])
+              if pkg is None:
+                  continue
+              deps = []
+              for dep_mod in mod.get("depends_on", []):
+                  dep_pkg = mod_to_pkg.get(dep_mod)
+                  if dep_pkg and dep_pkg != pkg:
+                      deps.append(dep_pkg)
+              packages[pkg] = sorted(set(deps))
+
+          print(f"Packages from tach.toml: { {k: v for k, v in sorted(packages.items())} }")
+
+          # --- Determine which packages changed ---
           raw = (os.environ.get("CHANGED_JSON") or "").strip()
           if raw:
               try:
@@ -89,38 +120,29 @@ jobs:
                   changed = json.loads(raw.replace('\\"', '"'))
           else:
               changed = []
+
           any_changed = os.environ.get("ANY_CHANGED", "false") == "true"
           is_schedule = os.environ.get("IS_SCHEDULE", "false") == "true"
 
-          PACKAGES = {
-              "bionemo-core":               {"deps": []},
-              "bionemo-moco":               {"deps": []},
-              "bionemo-noodles":            {"deps": ["bionemo-core"]},
-              "bionemo-recipeutils":        {"deps": []},
-              "bionemo-scdl":               {"deps": []},
-              "bionemo-scspeedtest":        {"deps": ["bionemo-scdl"]},
-              "bionemo-size-aware-batching": {"deps": ["bionemo-core"]},
-              "bionemo-webdatamodule":      {"deps": ["bionemo-core"]},
-          }
-
-          reverse_deps = {name: [] for name in PACKAGES}
-          for name, info in PACKAGES.items():
-              for dep in info["deps"]:
-                  reverse_deps[dep].append(name)
+          # Reverse dependency map: package -> downstream dependents.
+          reverse_deps = {name: [] for name in packages}
+          for name, deps in packages.items():
+              for dep in deps:
+                  reverse_deps.setdefault(dep, []).append(name)
 
           if is_schedule:
-              to_test = set(PACKAGES.keys())
+              to_test = set(packages.keys())
           elif any_changed:
               infra_changed = any(not c.startswith("sub-packages/") for c in changed)
               if infra_changed:
-                  to_test = set(PACKAGES.keys())
+                  to_test = set(packages.keys())
               else:
                   directly_changed = set()
                   for c in changed:
                       parts = c.split("/")
                       if len(parts) >= 2 and parts[0] == "sub-packages":
                           pkg = parts[1]
-                          if pkg in PACKAGES:
+                          if pkg in packages:
                               directly_changed.add(pkg)
 
                   to_test = set(directly_changed)
@@ -134,12 +156,13 @@ jobs:
           else:
               to_test = set()
 
+          # --- Build matrix output ---
           matrix = []
           for name in sorted(to_test):
               matrix.append({
                   "name": name,
                   "dir": f"sub-packages/{name}",
-                  "deps": [f"sub-packages/{d}" for d in PACKAGES[name]["deps"]],
+                  "deps": [f"sub-packages/{d}" for d in packages[name]],
               })
 
           result = json.dumps(matrix)
