@@ -280,8 +280,6 @@ def _run_equivalence_test():
             msg="FusedTokenRouter loss does not match AllToAll loss",
         )
 
-        print("FusedTokenRouter forward equivalence test PASSED: logits and loss match AllToAll")
-
     torch.distributed.destroy_process_group()
 
 
@@ -388,8 +386,6 @@ def _run_backward_test():
                 rtol=3e-2,
                 msg=f"FusedTokenRouter gradient mismatch for {name}",
             )
-
-        print("FusedTokenRouter backward test PASSED: loss and gradients match AllToAll")
 
     torch.distributed.destroy_process_group()
 

@@ -264,9 +264,6 @@ def _worker_fsdp2_ep1():
         assert torch.isfinite(torch.tensor(gnorm)), f"Gradient for {name} is not finite: {gnorm}"
     assert any(wc > 0 for wc in weight_changes.values()), "No weights updated after optimizer step"
 
-    if dist_config.is_main_process():
-        print(f"FSDP=2 EP=1 PASSED: loss={loss_val:.4f}, num_grads={len(grad_norms)}")
-
     torch.distributed.destroy_process_group()
 
 
@@ -332,9 +329,6 @@ def _worker_fsdp1_ep2():
         assert torch.isfinite(torch.tensor(gnorm)), f"Gradient for {name} is not finite: {gnorm}"
     assert any(wc > 0 for wc in weight_changes.values()), "No weights updated after optimizer step"
 
-    if dist_config.is_main_process():
-        print(f"FSDP=1 EP=2 PASSED: loss={loss_val:.4f}, num_grads={len(grad_norms)}")
-
     torch.distributed.destroy_process_group()
 
 
@@ -397,9 +391,6 @@ def _worker_fsdp2_ep2():
     for name, gnorm in grad_norms.items():
         assert torch.isfinite(torch.tensor(gnorm)), f"Gradient for {name} is not finite: {gnorm}"
     assert any(wc > 0 for wc in weight_changes.values()), "No weights updated after optimizer step"
-
-    if dist_config.is_main_process():
-        print(f"FSDP=2 EP=2 PASSED: loss={loss_val:.4f}, num_grads={len(grad_norms)}")
 
     torch.distributed.destroy_process_group()
 
