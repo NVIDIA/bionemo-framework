@@ -28,7 +28,7 @@ from bionemo.eden.data.test_utils.create_fasta_file import create_fasta_file
 
 
 # Tokenizer path from recipe root
-_REPO_BASE_DIR = Path(__file__).resolve().parents[6]
+_REPO_BASE_DIR = Path(__file__).resolve().parents[4]
 DEFAULT_HF_TOKENIZER_MODEL_PATH = str(_REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_256")
 
 

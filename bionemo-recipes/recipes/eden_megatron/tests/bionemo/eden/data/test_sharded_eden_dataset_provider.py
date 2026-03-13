@@ -35,7 +35,7 @@ from bionemo.eden.data.sharded_eden_dataset_provider import (
 
 
 # Tokenizer paths from recipe root (relative to test file)
-_REPO_BASE_DIR = Path(__file__).resolve().parents[6]
+_REPO_BASE_DIR = Path(__file__).resolve().parents[4]
 DEFAULT_HF_TOKENIZER_MODEL_PATH = str(_REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_256")
 DEFAULT_HF_TOKENIZER_MODEL_PATH_512 = str(_REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_512")
 

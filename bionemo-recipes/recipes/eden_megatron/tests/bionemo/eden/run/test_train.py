@@ -26,7 +26,7 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 from ..utils import find_free_network_port, is_a6000_gpu
 
 
-_REPO_BASE_DIR = Path(__file__).resolve().parents[5]
+_REPO_BASE_DIR = Path(__file__).resolve().parents[4]
 DEFAULT_HF_TOKENIZER_MODEL_PATH = str(_REPO_BASE_DIR / "tokenizers" / "nucleotide_fast_tokenizer_256")
 
 
@@ -62,9 +62,9 @@ def test_eden_fine_tuning(
         --max-steps 5 --eval-interval 5 \
         --eval-iters 1 --mock-data --result-dir {run_dir} \
         --micro-batch-size {mbs} --global-batch-size {gbs} --seq-length 64 \
-        --tensor-model-parallel 1 \
-        --pipeline-model-parallel 1 \
-        --context-parallel 1 \
+        --tensor-model-parallel-size 1 \
+        --pipeline-model-parallel-size 1 \
+        --context-parallel-size 1 \
         --mixed-precision-recipe {precision_recipe} \
         --no-activation-checkpointing \
         --decay-steps 1000 --warmup-steps 10 \
