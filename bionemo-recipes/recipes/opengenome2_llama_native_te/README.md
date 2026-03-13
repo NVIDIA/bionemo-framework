@@ -20,10 +20,8 @@ Both runs use FP32 master weights; the Megatron baseline uses FP8 training and w
 results use GBS 384 on 6× H100 nodes (48 GPUs). Note that we also use bf16/fp32 training while the Megatron baseline uses fp8/fp32 training
 which may also contribute to its lower test performance.
 
-[TODO: Fill with final results/replace with final image as available]
-
 <p align="center">
-  <img src="../../../docs/docs/assets/images/recipes/og2_convergence_vs_megatron.png" alt="OpenGenome2 7B convergence vs Megatron" width="80%" />
+  <img src="assets/og2_convergence_vs_megatron.png" alt="OpenGenome2 7B convergence vs Megatron" width="80%" />
 </p>
 
 | Model                      | Step / checkpoint | Train loss | Mean Test loss | Mean Test Perplexity |
@@ -38,6 +36,24 @@ which may also contribute to its lower test performance.
 > `log_softmax` → `gather` log-probabilities, masks non-ACGT (degenerate) bases, and reports per-sequence
 > mean NLL. The Megatron baseline was evaluated on the same FASTA file using an equivalent
 > per-sequence log-probability script, so metrics are directly comparable.
+
+### Tokenizer: BOS/EOS handling
+
+The nucleotide tokenizer adds `<BOS>` and `<EOS>` to every window. During windowed tokenization,
+each chunk of `max_seq_length` tokens is wrapped as `<BOS>...<EOS>`. Both BOS and EOS are excluded
+from the loss by the genomic masking (they are not DNA tokens, so their labels are set to -100).
+
+**Known difference from Megatron baseline:** The Megatron/ShardedEden dataloader places `<BOS>` and
+`<EOS>` only at true sequence boundaries, whereas this recipe adds them to every window — including
+interior windows of a long sequence. Since both tokens are masked from the loss, the impact on
+training is minimal (especially for this dataset where most sequences are shorter than one window).
+A future improvement could add special tokens only at true sequence start/end using
+`add_special_tokens=False` with manual BOS/EOS insertion; HuggingFace does not support this
+natively with strided tokenization.
+
+For inference, use `add_special_tokens=True` to match training conditions. For sequences longer
+than 8192 tokens, use a sliding window with 200-token overlap to match training, or use context
+parallelism.
 
 ## Performance Benchmarks
 
@@ -76,7 +92,7 @@ As seen in the table and chart below, using THD with our recipe provides ~80-85%
 | BSHD (this recipe) | 3,145,728                    | 5,380                   |
 
 <p align="center">
-  <img src="../../../docs/docs/assets/images/recipes/og2_throughput_comparison.png" alt="BSHD vs THD throughput comparison" width="80%" />
+  <img src="assets/throughput_comparison.png" alt="BSHD vs THD throughput comparison" width="80%" />
 </p>
 
 ## How to use this recipe
@@ -152,15 +168,6 @@ weights are kept in FP32. Training uses BF16 parameters with FP32 gradient all-r
 default (`True`) would downcast RoPE embeddings — which are computed in FP32 in the model — to
 BF16 at FSDP module boundaries, causing numerical issues in long-context attention. See
 [train_fsdp2.py](train_fsdp2.py) for the policy setup.
-
-### Tokenizer: BOS/EOS handling
-
-The nucleotide tokenizer adds `<BOS>` and `<EOS>` to every window. During windowed tokenization,
-each chunk of `max_seq_length` tokens is wrapped as `<BOS>...<EOS>`. Both BOS and EOS are excluded
-from the loss by the genomic masking (they are not DNA tokens, so their labels are set to -100).
-For inference, use `add_special_tokens=True` — the model expects `<BOS>` as the first input token.
-For sequences longer than 8192 tokens, use a sliding window with 200-token overlap to match
-training, or use context parallelism.
 
 ## Distributed Training
 
@@ -314,7 +321,9 @@ documentation](https://docs.nvidia.com/nsight-systems/).
 Models can be loaded from the final checkpoint directory using `AutoModelForCausalLM` or
 `NVLlamaForCausalLM` from this recipe. Standard Hugging Face loading works if `config.json` is
 updated to include an `auto_map` entry for `opengenome_modeling_llama_te.NVLlamaForCausalLM` and
-the custom forward pass is packaged in the checkpoint directory.
+the custom forward pass is packaged in the checkpoint directory. Use
+`add_special_tokens=True` when tokenizing input sequences to match training (the model was
+trained with `<BOS>` and `<EOS>` on every window).
 
 If you trained with TE layers (which is the default), use `NVLlamaForCausalLM` for inference with
 TE’s `InferenceParams` key-value cache:
