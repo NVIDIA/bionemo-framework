@@ -10,12 +10,11 @@
 # - Scheduled runs (daily at 7 AM UTC)
 #
 # WORKFLOW OVERVIEW:
-# 1. changed-files: Detects which sub-packages have changed compared to main
+# 1. changed-files: Detects which sub-packages changed and computes the test matrix
 # 2. pre-commit: Runs static code checks and linting
 # 3. get-pr-labels: Retrieves PR labels for conditional job execution
-# 4. compute-matrix: Expands changed packages to include reverse dependencies
-# 5. run-tests / run-tests-slow / run-tests-notebooks: Per-sub-package matrix jobs
-# 6. verify-tests-status: Verifies all test jobs completed successfully
+# 4. run-tests / run-tests-slow / run-tests-notebooks: Per-sub-package matrix jobs
+# 5. verify-tests-status: Verifies all test jobs completed successfully
 
 name: "BioNeMo Framework CI"
 
@@ -43,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       any_changed: ${{ steps.changed-files.outputs.any_changed }}
-      all_changed_files: ${{ steps.changed-files.outputs.all_changed_files }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,6 +70,77 @@ jobs:
           echo '${{ toJSON(steps.changed-files.outputs) }}'
         shell: bash
 
+      - name: Compute test matrix from changed files
+        id: matrix
+        env:
+          CHANGED_JSON: ${{ steps.changed-files.outputs.all_changed_files }}
+          ANY_CHANGED: ${{ steps.changed-files.outputs.any_changed }}
+          IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          raw = (os.environ.get("CHANGED_JSON") or "").strip()
+          changed = json.loads(raw) if raw else []
+          any_changed = os.environ.get("ANY_CHANGED", "false") == "true"
+          is_schedule = os.environ.get("IS_SCHEDULE", "false") == "true"
+
+          PACKAGES = {
+              "bionemo-core":               {"deps": []},
+              "bionemo-moco":               {"deps": []},
+              "bionemo-noodles":            {"deps": ["bionemo-core"]},
+              "bionemo-recipeutils":        {"deps": []},
+              "bionemo-scdl":               {"deps": []},
+              "bionemo-scspeedtest":        {"deps": ["bionemo-scdl"]},
+              "bionemo-size-aware-batching": {"deps": ["bionemo-core"]},
+              "bionemo-webdatamodule":      {"deps": ["bionemo-core"]},
+          }
+
+          reverse_deps = {name: [] for name in PACKAGES}
+          for name, info in PACKAGES.items():
+              for dep in info["deps"]:
+                  reverse_deps[dep].append(name)
+
+          if is_schedule:
+              to_test = set(PACKAGES.keys())
+          elif any_changed:
+              infra_changed = any(not c.startswith("sub-packages/") for c in changed)
+              if infra_changed:
+                  to_test = set(PACKAGES.keys())
+              else:
+                  directly_changed = set()
+                  for c in changed:
+                      parts = c.split("/")
+                      if len(parts) >= 2 and parts[0] == "sub-packages":
+                          pkg = parts[1]
+                          if pkg in PACKAGES:
+                              directly_changed.add(pkg)
+
+                  to_test = set(directly_changed)
+                  queue = list(directly_changed)
+                  while queue:
+                      pkg = queue.pop()
+                      for rdep in reverse_deps.get(pkg, []):
+                          if rdep not in to_test:
+                              to_test.add(rdep)
+                              queue.append(rdep)
+          else:
+              to_test = set()
+
+          matrix = []
+          for name in sorted(to_test):
+              matrix.append({
+                  "name": name,
+                  "dir": f"sub-packages/{name}",
+                  "deps": [f"sub-packages/{d}" for d in PACKAGES[name]["deps"]],
+              })
+
+          result = json.dumps(matrix)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"matrix={result}\n")
+          print(f"Matrix ({len(matrix)} packages): {result}")
+          PY
+
   pre-commit:
     runs-on: ubuntu-latest
     steps:
@@ -90,7 +160,6 @@ jobs:
           uv tool update-shell
       - run: ./ci/scripts/static_checks.sh
 
-  # With copy-pr-bot, we need to get the PR labels from the PR API rather than from the event metadata.
   get-pr-labels:
     runs-on: ubuntu-latest
     outputs:
@@ -118,94 +187,11 @@ jobs:
         run: |
           echo "labels=[]" >> $GITHUB_OUTPUT
 
-  compute-matrix:
-    needs: changed-files
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
-    steps:
-      - name: Compute test matrix from changed files
-        id: matrix
-        env:
-          CHANGED_JSON: ${{ needs.changed-files.outputs.all_changed_files }}
-          ANY_CHANGED: ${{ needs.changed-files.outputs.any_changed }}
-          IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
-        run: |
-          python3 - <<'PY'
-          import json, os
-
-          changed = json.loads(os.environ.get("CHANGED_JSON") or "[]")
-          any_changed = os.environ.get("ANY_CHANGED", "false") == "true"
-          is_schedule = os.environ.get("IS_SCHEDULE", "false") == "true"
-
-          # All sub-packages with their internal deps (for install ordering).
-          # The dependency graph is a star: most packages depend only on core.
-          PACKAGES = {
-              "bionemo-core":               {"deps": []},
-              "bionemo-moco":               {"deps": []},
-              "bionemo-noodles":            {"deps": ["bionemo-core"]},
-              "bionemo-recipeutils":        {"deps": []},
-              "bionemo-scdl":               {"deps": []},
-              "bionemo-scspeedtest":        {"deps": ["bionemo-scdl"]},
-              "bionemo-size-aware-batching": {"deps": ["bionemo-core"]},
-              "bionemo-webdatamodule":      {"deps": ["bionemo-core"]},
-          }
-
-          # Reverse dependency map: package -> list of packages that depend on it.
-          reverse_deps = {name: [] for name in PACKAGES}
-          for name, info in PACKAGES.items():
-              for dep in info["deps"]:
-                  reverse_deps[dep].append(name)
-
-          # Determine which packages to test.
-          if is_schedule:
-              to_test = set(PACKAGES.keys())
-          elif any_changed:
-              # Check if a non-sub-package file changed (pyproject.toml, workflow, etc.)
-              infra_changed = any(not c.startswith("sub-packages/") for c in changed)
-              if infra_changed:
-                  to_test = set(PACKAGES.keys())
-              else:
-                  directly_changed = set()
-                  for c in changed:
-                      parts = c.split("/")
-                      if len(parts) >= 2 and parts[0] == "sub-packages":
-                          pkg = parts[1]
-                          if pkg in PACKAGES:
-                              directly_changed.add(pkg)
-
-                  # Expand with reverse (downstream) dependencies.
-                  to_test = set(directly_changed)
-                  queue = list(directly_changed)
-                  while queue:
-                      pkg = queue.pop()
-                      for rdep in reverse_deps.get(pkg, []):
-                          if rdep not in to_test:
-                              to_test.add(rdep)
-                              queue.append(rdep)
-          else:
-              to_test = set()
-
-          matrix = []
-          for name in sorted(to_test):
-              matrix.append({
-                  "name": name,
-                  "dir": f"sub-packages/{name}",
-                  "deps": [f"sub-packages/{d}" for d in PACKAGES[name]["deps"]],
-              })
-
-          result = json.dumps(matrix)
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"matrix={result}\n")
-          print(f"Matrix ({len(matrix)} packages): {result}")
-          PY
-
   run-tests:
     needs:
       - pre-commit
       - changed-files
       - get-pr-labels
-      - compute-matrix
     runs-on: linux-amd64-gpu-l4-latest-1
     if: |
       (github.event_name == 'schedule') ||
@@ -225,7 +211,7 @@ jobs:
         BIONEMO_DATA_SOURCE: ngc
     strategy:
       matrix:
-        pkg: ${{ fromJson(needs.compute-matrix.outputs.matrix) }}
+        pkg: ${{ fromJson(needs.changed-files.outputs.matrix) }}
       fail-fast: false
 
     steps:
@@ -289,7 +275,6 @@ jobs:
       - pre-commit
       - changed-files
       - get-pr-labels
-      - compute-matrix
     runs-on: linux-amd64-gpu-l4-latest-1
     if: |
         (
@@ -317,7 +302,7 @@ jobs:
         BIONEMO_DATA_SOURCE: ngc
     strategy:
       matrix:
-        pkg: ${{ fromJson(needs.compute-matrix.outputs.matrix) }}
+        pkg: ${{ fromJson(needs.changed-files.outputs.matrix) }}
       fail-fast: false
 
     steps:
@@ -364,7 +349,6 @@ jobs:
       - pre-commit
       - changed-files
       - get-pr-labels
-      - compute-matrix
     runs-on: linux-amd64-gpu-l4-latest-1
     if: |
         (
@@ -392,7 +376,7 @@ jobs:
         BIONEMO_DATA_SOURCE: ngc
     strategy:
       matrix:
-        pkg: ${{ fromJson(needs.compute-matrix.outputs.matrix) }}
+        pkg: ${{ fromJson(needs.changed-files.outputs.matrix) }}
       fail-fast: false
 
     steps:
