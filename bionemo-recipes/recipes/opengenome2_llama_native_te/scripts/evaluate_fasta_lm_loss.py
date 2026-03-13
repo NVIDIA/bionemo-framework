@@ -277,7 +277,7 @@ def _build_model_config(config_name_or_path: str, num_kv_heads: int = 8) -> NVLl
         self_attn_mask_type="causal",
         rope_theta=500000,
         rope_scaling={
-            "type": "llama3",
+            "rope_type": "llama3",
             "factor": 1,
             "low_freq_factor": 1,
             "high_freq_factor": 4,
