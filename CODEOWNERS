@@ -68,7 +68,7 @@ sub-packages/bionemo-example_model @jstjohn @skothenhill-nv
 
 sub-packages/bionemo-scdl @jstjohn @polinabinder1 @skothenhill-nv
 
-sub-packages/bionemo-noodles @skothenhill-nv @jstjohn @edawson @cspades
+sub-packages/bionemo-noodles @skothenhill-nv @jstjohn @cspades
 
 sub-packages/bionemo-moco @nvdreidenbach @DejunL @dorotat-nv @jstjohn @pstjohn @zcao0420 @youhanl-nvidia
 
