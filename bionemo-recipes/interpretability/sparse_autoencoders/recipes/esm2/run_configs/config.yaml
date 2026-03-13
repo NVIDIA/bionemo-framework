@@ -1,0 +1,65 @@
+# Base config for the ESM2 SAE pipeline (extract -> train -> eval)
+# Usage: python run.py model=3b
+#        python run.py model=650m steps.extract=false
+
+defaults:
+  - model: 650m
+  - _self_
+
+# Steps to run
+steps:
+  extract: true
+  train: true
+  eval: true
+
+# Model-specific (overridden by model/*.yaml)
+model_name: ???
+run_name: ???
+num_proteins: ???
+batch_size: ???
+
+# Shared params
+seed: 42
+layer: 24
+data_dir: ./data
+source: uniref50
+max_length: 1024
+filter_length: true
+output_base: ./outputs
+
+# Extraction
+extract:
+  dtype: bf16
+  shard_size: 100000
+  remove_special_tokens: true
+
+# Training
+train:
+  model_type: topk
+  expansion_factor: 8
+  top_k: 32
+  auxk: 64
+  auxk_coef: 0.03125
+  init_pre_bias: true
+  normalize_input: false
+  dead_tokens_threshold: 10000000
+  lr: 3e-4
+  n_epochs: 3
+  batch_size: 4096
+  log_interval: 50
+  checkpoint_steps: 999999
+  wandb_enabled: false
+  wandb_project: sae_esm2_recipe
+
+# Eval
+eval:
+  num_proteins: 1000
+  dtype: bf16
+
+# Infrastructure
+nproc: 4
+dp_size: 4
+
+hydra:
+  run:
+    dir: .
