@@ -14,9 +14,85 @@ The Mixtral implementation natively supports the following TransformerEngine-pro
 | **MXFP8**                               | ✅ Supported on compute capacity 10.0 and 10.3 (Blackwell), 12.0 support pending |
 | **Sequence Packing / THD input format** | ✅ Supported                                                                     |
 | **FP8 with THD input format**           | ✅ Supported where FP8 is supported                                              |
+| **Expert Parallelism (EP)**             | ✅ Supported via DTensor sharding, composable with FSDP2                         |
 | **Import from HuggingFace checkpoints** | ✅ Supported                                                                     |
 | **Export to HuggingFace checkpoints**   | ✅ Supported                                                                     |
 | **KV-cache inference**                  | ✅ Supported                                                                     |
+
+## Expert Parallelism (EP)
+
+Expert parallelism shards MoE experts across GPUs so that each rank owns a subset of experts.
+This reduces per-GPU memory and allows scaling to larger expert counts. EP is implemented with
+PyTorch `DTensor` (`Shard(0)` on the expert dimension) and composes with FSDP2 on a 2D
+`(dp, ep)` device mesh.
+
+### Enabling EP
+
+Set `expert_parallel_size` in the config, then call `set_ep_groups` after model creation:
+
+```python
+from torch.distributed.device_mesh import init_device_mesh
+
+from modeling_mixtral_te import NVMixtralConfig, NVMixtralForCausalLM
+
+config = NVMixtralConfig(expert_parallel_size=ep_size, ...)
+model = NVMixtralForCausalLM(config).to(dtype=torch.bfloat16, device=device)
+
+# Create a 2D mesh and activate EP
+device_mesh = init_device_mesh("cuda", (dp_size, ep_size), mesh_dim_names=("dp", "ep"))
+ep_mesh = device_mesh["ep"]
+model.model.set_ep_groups(ep_mesh.get_group(), ep_mesh)
+```
+
+`set_ep_groups` wraps each expert weight tensor as a `DTensor` with `Shard(0)` placement, and
+configures the active token dispatcher for inter-rank communication. After this call, FSDP2 can
+be applied on the `"dp"` sub-mesh as usual.
+
+### Token dispatchers
+
+The MoE block delegates token routing to a pluggable `TokenDispatcher`. Two implementations are
+provided:
+
+**`AllToAllTokenDispatcher`** (default) -- Uses NCCL `all_to_all_single` to exchange tokens
+between EP ranks, with TE `moe_permute`/`moe_unpermute` for local expert sorting. This is the
+safe default that works on any multi-GPU setup with NCCL support.
+
+**`FusedTokenRouter`** -- Uses DeepEP fused all-to-all kernels for dispatch/combine with a Triton
+kernel for index conversion. This is a higher-performance alternative that requires installing
+[`deep_ep`](https://github.com/deepseek-ai/DeepEP) and NVLink peer access between GPUs. Use this
+when training at scale where the all-to-all communication is a bottleneck. Install DeepEP with the
+provided helper script:
+
+```bash
+bash install_hybridep.sh
+```
+
+To use the fused dispatcher, pass it to the model constructor:
+
+```python
+from fused_token_router import FusedTokenRouter
+
+dispatcher = FusedTokenRouter(
+    num_experts=num_experts,
+    num_local_experts=num_local_experts,
+    hidden_size=hidden_size,
+    ep_size=ep_size,
+)
+model = NVMixtralForCausalLM(config, dispatcher=dispatcher)
+```
+
+### Checkpointing with EP
+
+EP models use `DTensor`-based state dicts and are compatible with `torch.distributed.checkpoint`
+(DCP) for save/load. To export a fully gathered checkpoint (e.g., for sharing or loading into an
+EP=1 model), use `save_final_model_ep`, which gathers all expert shards into a single safetensors
+file.
+
+### Attribution
+
+`fused_a2a.py` and `fused_indices_converter.py` are adapted from
+[NVIDIA/Megatron-LM](https://github.com/NVIDIA/Megatron-LM). `fused_a2a.py` additionally contains
+portions from the [DeepSeek DeepEP project](https://github.com/deepseek-ai/DeepEP) (MIT License).
 
 ## Inference Examples
 

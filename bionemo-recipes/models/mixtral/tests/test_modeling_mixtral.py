@@ -162,3 +162,139 @@ class TestMixtralModel(BaseModelTest):
         for layer_number in range(1, config.num_hidden_layers + 1):
             past_key_values.allocate_memory(layer_number)
         return past_key_values
+
+
+# ---------------------------------------------------------------------------
+# Single-GPU tests for the AllToAll dispatch/combine code path
+#
+# By initialising a single-rank NCCL process group and setting an EP group on
+# the model, we force the AllToAllTokenDispatcher to take the all-to-all path
+# (differentiable all-to-all, expert sort/unsort, etc.) even on one GPU.
+# This ensures CI coverage of that code without requiring multiple GPUs.
+# ---------------------------------------------------------------------------
+
+requires_cuda = pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
+
+
+@pytest.fixture
+def dist_process_group():
+    """Initialize and tear down a single-rank NCCL process group."""
+    if torch.distributed.is_initialized():
+        pytest.skip("Distributed already initialized")
+    torch.cuda.set_device(0)
+    store = torch.distributed.HashStore()
+    torch.distributed.init_process_group(backend="nccl", store=store, rank=0, world_size=1)
+    yield
+    torch.distributed.destroy_process_group()
+
+
+def _small_config():
+    """Create a small Mixtral config for single-GPU EP tests."""
+    return NVMixtralConfig(
+        hidden_size=128,
+        intermediate_size=256,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        num_local_experts=4,
+        num_experts_per_tok=2,
+        max_position_embeddings=128,
+        vocab_size=1000,
+        attn_input_format="bshd",
+        self_attn_mask_type="causal",
+        router_jitter_noise=0.0,
+    )
+
+
+def _dummy_batch(vocab_size, device="cuda"):
+    """Create a deterministic dummy batch."""
+    torch.manual_seed(42)
+    input_ids = torch.randint(0, vocab_size, (2, 32), device=device)
+    attention_mask = torch.ones_like(input_ids)
+    labels = input_ids.clone()
+    return {"input_ids": input_ids, "attention_mask": attention_mask, "labels": labels}
+
+
+@requires_cuda
+def test_alltoall_forward_matches_local(dist_process_group):
+    """All-to-all code path produces the same output as the local-only path."""
+    from torch.distributed.tensor.device_mesh import DeviceMesh
+
+    config = _small_config()
+    batch = _dummy_batch(config.vocab_size)
+
+    # Reference: local-only path (no EP group set)
+    torch.manual_seed(0)
+    model_local = NVMixtralForCausalLM(config).to(dtype=torch.bfloat16, device="cuda")
+    model_local.eval()
+    with torch.no_grad():
+        out_local = model_local(**batch)
+
+    # Test: all-to-all path (EP group set on a single-rank mesh)
+    torch.manual_seed(0)
+    model_ep = NVMixtralForCausalLM(config).to(dtype=torch.bfloat16, device="cuda")
+    ep_mesh = DeviceMesh("cuda", [0])
+    model_ep.model.set_ep_groups(ep_mesh.get_group(), ep_mesh)
+    model_ep.eval()
+    with torch.no_grad():
+        out_ep = model_ep(**batch)
+
+    torch.testing.assert_close(out_ep.logits, out_local.logits, atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(out_ep.loss, out_local.loss, atol=1e-5, rtol=1e-5)
+
+
+@requires_cuda
+def test_alltoall_backward_all_params_have_gradients(dist_process_group):
+    """All trainable parameters receive gradients through the all-to-all code path."""
+    from torch.distributed.tensor.device_mesh import DeviceMesh
+
+    config = _small_config()
+    batch = _dummy_batch(config.vocab_size)
+
+    torch.manual_seed(0)
+    model = NVMixtralForCausalLM(config).to(dtype=torch.bfloat16, device="cuda")
+    ep_mesh = DeviceMesh("cuda", [0])
+    model.model.set_ep_groups(ep_mesh.get_group(), ep_mesh)
+
+    outputs = model(**batch)
+    outputs.loss.backward()
+
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            assert param.grad is not None, f"Parameter {name} has no gradient with all-to-all code path"
+
+
+@requires_cuda
+def test_alltoall_backward_gradients_match_local(dist_process_group):
+    """All-to-all backward produces the same gradients as the local-only path."""
+    from torch.distributed.tensor.device_mesh import DeviceMesh
+
+    config = _small_config()
+    batch = _dummy_batch(config.vocab_size)
+
+    # Reference: local-only path
+    torch.manual_seed(0)
+    model_local = NVMixtralForCausalLM(config).to(dtype=torch.bfloat16, device="cuda")
+    model_local(**batch).loss.backward()
+    ref_grads = {name: p.grad.detach().clone() for name, p in model_local.named_parameters() if p.grad is not None}
+
+    # Test: all-to-all path
+    torch.manual_seed(0)
+    model_ep = NVMixtralForCausalLM(config).to(dtype=torch.bfloat16, device="cuda")
+    ep_mesh = DeviceMesh("cuda", [0])
+    model_ep.model.set_ep_groups(ep_mesh.get_group(), ep_mesh)
+    model_ep(**batch).loss.backward()
+
+    for name, param in model_ep.named_parameters():
+        if param.requires_grad:
+            g = param.grad
+            if hasattr(g, "full_tensor"):
+                g = g.full_tensor()
+            assert name in ref_grads, f"Unexpected gradient for {name}"
+            torch.testing.assert_close(
+                g,
+                ref_grads[name],
+                atol=1e-5,
+                rtol=1e-5,
+                msg=f"All-to-all gradient mismatch for {name}",
+            )
