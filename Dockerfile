@@ -31,7 +31,7 @@ COPY --from=rust-env /usr/local/rustup /usr/local/rustup
 ENV PATH="/usr/local/cargo/bin:/usr/local/rustup/bin:${PATH}" \
   RUSTUP_HOME="/usr/local/rustup"
 
-WORKDIR /workspace/bionemo2
+WORKDIR /workspace/bionemo
 
 COPY ./LICENSE ./LICENSE
 COPY ./README.md ./README.md
@@ -66,7 +66,7 @@ EOF
 
 RUN --mount=type=cache,target=/root/.cache <<EOF
 set -eo pipefail
-uv pip install --system -r /workspace/bionemo2/requirements-dev.txt
+uv pip install --system -r /workspace/bionemo/requirements-dev.txt
 rm -rf /tmp/*
 EOF
 
@@ -88,7 +88,7 @@ EOF
 ARG USERNAME=ubuntu
 RUN echo $USERNAME ALL=\(root\) NOPASSWD:ALL > /etc/sudoers.d/$USERNAME && \
   chmod 0440 /etc/sudoers.d/$USERNAME && \
-  chown -R $USERNAME:$USERNAME /workspace/bionemo2
+  chown -R $USERNAME:$USERNAME /workspace/bionemo
 
 USER $USERNAME
 
@@ -96,6 +96,6 @@ FROM dev AS development
 
 FROM framework-base AS release
 
-RUN mkdir -p /workspace/bionemo2/.cache/ && \
+RUN mkdir -p /workspace/bionemo/.cache/ && \
   uv pip install --system h11==0.16.0 && \
-  chmod 777 -R /workspace/bionemo2/
+  chmod 777 -R /workspace/bionemo/

@@ -526,22 +526,6 @@ def get_recipe_examples(recipe_item: Path, root: Path) -> None:
             copy_docs_from_dir(docs_dir, dest_root / docs_dir_name, root, "Added recipe tutorial")
 
 
-def get_third_party_examples(third_party_item: Path, root: Path) -> None:
-    """Copy third-party examples into the tutorials tree when present.
-
-    Args:
-        third_party_item (Path): Path to a third-party workspace member.
-        root (Path): Repository root for edit-path calculation.
-    """
-    dest_root = Path("main/examples") / third_party_item.name
-    copy_assets_dir(third_party_item / "assets", dest_root / "assets", "Added third-party tutorial asset")
-
-    for docs_dir_name in ("examples", "notebooks"):
-        docs_dir = third_party_item / docs_dir_name
-        if docs_dir.exists():
-            copy_docs_from_dir(docs_dir, dest_root / docs_dir_name, root, "Added third-party tutorial")
-
-
 def get_subpackage_assets(sub_package: Path, root: Path) -> None:
     """Copy assets dir from a sub-package to the user guide's developer guide directory.
 
@@ -602,7 +586,6 @@ def generate_pages() -> None:
     root = Path(__file__).parent.parent.parent
     sub_packages_dir = root / "sub-packages"
     recipes_dir = root / "bionemo-recipes"
-    third_party_dir = root / "3rdparty"
 
     # Generate api docs for sub-packages
     generate_api_reference()
@@ -629,12 +612,6 @@ def generate_pages() -> None:
 
             get_recipe_docs(recipe_item, section, root)
             get_recipe_examples(recipe_item, root)
-
-    # Process optional third-party examples.
-    if third_party_dir.exists():
-        for third_party_item in sorted(third_party_dir.iterdir()):
-            if third_party_item.is_dir():
-                get_third_party_examples(third_party_item, root)
 
 
 if __name__ in {"__main__", "<run_path>"}:
