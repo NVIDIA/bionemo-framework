@@ -92,7 +92,7 @@ def _rewrite_relative_links(source: Path, dest: Path, root: Path, text: str) -> 
     # Mkdocs does NOT rewrite paths inside raw HTML tags (<img src>, <a href>).
     # Those resolve from the final HTML location, which is one level deeper for
     # non-index files (foo.md -> foo/index.html).
-    if dest.name == "index.md":
+    if dest.name in ("index.md", "README.md"):
         dest_dir_html = dest_dir_md
     else:
         dest_dir_html = str(dest.parent / dest.stem)
