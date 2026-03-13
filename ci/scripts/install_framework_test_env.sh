@@ -41,7 +41,7 @@ if [[ -f "$HOME/.cargo/env" ]]; then
     source "$HOME/.cargo/env"
 fi
 
-python -m pip install --upgrade pip setuptools wheel uv maturin
+python -m pip install --ignore-installed pip setuptools wheel uv maturin
 
 uv pip install --system --no-build-isolation \
     -r requirements-cve.txt \
