@@ -63,8 +63,16 @@ torchrun --nproc-per-node 2 --no-python \
   --attention-dropout 0.001 --hidden-dropout 0.001 \
   --eod-pad-in-loss-mask --enable-preemption \
   --log-interval 5 --debug-ddp-parity-freq 10 \
-  --result-dir tmpfp8 --no-renormalize-loss
+  --result-dir tmpfp8 --no-renormalize-loss \
+  --use-subquadratic-ops
 ```
+
+> **Tip:** The `--use-subquadratic-ops` flag enables a fused back-to-back
+> causal convolution CUDA kernel for the Hyena short-conv layers. This
+> provides a meaningful speed-up for training and prediction and is
+> recommended for all production runs. It does not apply to autoregressive
+> inference (`infer_evo2`). There is a one-time compilation cost on first
+> use.
 
 ### Autoregressive generation (`infer_evo2`)
 
@@ -101,7 +109,8 @@ torchrun --nproc_per_node 1 --no-python \
   --ckpt-dir /path/to/mbridge/checkpoint \
   --output-dir predictions/ \
   --micro-batch-size 4 \
-  --write-interval epoch
+  --write-interval epoch \
+  --use-subquadratic-ops
 ```
 
 Options:
@@ -114,6 +123,8 @@ Options:
 - `--embedding-layer` — extract embeddings from a specific layer instead of logits
   (supports negative indexing, e.g., `-1` for last layer).
 - `--mask-phylogenetic-tags` — mask phylogenetic tags in loss computation.
+- `--use-subquadratic-ops` — enable fused Hyena convolution kernels for faster
+  scoring (recommended for larger datasets; has a one-time compilation cost).
 
 ### Data preprocessing (`preprocess_evo2`)
 
@@ -218,6 +229,7 @@ torchrun --nproc-per-node 2 --no-python \
   --eod-pad-in-loss-mask --enable-preemption \
   --log-interval 5 --debug-ddp-parity-freq 10 \
   --result-dir tmpfp8-ft-example --no-renormalize-loss \
+  --use-subquadratic-ops \
   --finetune-ckpt-dir $CKPT_OUT_DIR
 ```
 
