@@ -254,7 +254,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          sparse-checkout: "sub-packages"
+          sparse-checkout: |
+            sub-packages
+            LICENSE
           sparse-checkout-cone-mode: true
 
       - name: Install dependencies and package
@@ -345,7 +347,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          sparse-checkout: "sub-packages"
+          sparse-checkout: |
+            sub-packages
+            LICENSE
           sparse-checkout-cone-mode: true
 
       - name: Install dependencies and package
@@ -419,7 +423,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          sparse-checkout: "sub-packages"
+          sparse-checkout: |
+            sub-packages
+            LICENSE
           sparse-checkout-cone-mode: true
 
       - name: Install dependencies and package
