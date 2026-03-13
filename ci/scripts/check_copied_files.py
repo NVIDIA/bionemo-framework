@@ -17,6 +17,9 @@
 
 # Script to re-copy files from a given source filepath to destination filepaths, used as a pre-commit hook to ensure
 # that copied files between recipe folders stay up-to-date.
+#
+# Destination files that support comments (e.g. .py) get a banner inserted after the license block indicating they are
+# copies and linking back to the source file.
 
 import argparse
 import functools
@@ -27,6 +30,124 @@ from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
+
+BANNER_START_MARKER = "--- BEGIN COPIED FILE NOTICE ---"
+BANNER_END_MARKER = "--- END COPIED FILE NOTICE ---"
+
+# File extensions that support single-line comments, mapped to their comment prefix.
+COMMENT_PREFIXES: dict[str, str] = {
+    ".py": "#",
+}
+
+
+def get_comment_prefix(filepath: Path) -> str | None:
+    """Return the single-line comment prefix for a file, or None if unsupported."""
+    return COMMENT_PREFIXES.get(filepath.suffix)
+
+
+def make_banner_lines(source_path: str, comment_prefix: str) -> list[str]:
+    """Build the banner lines (without surrounding blank lines)."""
+    return [
+        f"{comment_prefix} {BANNER_START_MARKER}",
+        f"{comment_prefix} This file is copied from: {source_path}",
+        f"{comment_prefix} Do not modify this file directly. Instead, modify the source and run:",
+        f"{comment_prefix}     python ci/scripts/check_copied_files.py --fix",
+        f"{comment_prefix} {BANNER_END_MARKER}",
+    ]
+
+
+def _find_license_block_end(lines: list[str]) -> int:
+    """Return the index of the first non-comment line after the leading comment block.
+
+    Skips an optional shebang (``#!``) and the blank line that follows it.
+    """
+    start = 0
+    if lines and lines[0].startswith("#!"):
+        start = 2  # shebang + blank line
+    i = start
+    while i < len(lines) and lines[i].startswith("#"):
+        i += 1
+    return i
+
+
+def add_banner_to_content(content: str, source_path: str, comment_prefix: str) -> str:
+    """Insert a copied-file banner after the license block.
+
+    A single blank line is added before the banner.  Any existing blank lines between the license
+    block and the code are preserved after the banner so that
+    ``strip_banner_from_content(add_banner_to_content(c, ...)) == c``.
+    """
+    lines = content.splitlines()
+    license_end = _find_license_block_end(lines)
+
+    banner = make_banner_lines(source_path, comment_prefix)
+    # Insert: one blank line + banner, then keep whatever was already there (blank lines, code, …).
+    new_lines = lines[:license_end] + [""] + banner + lines[license_end:]
+    result = "\n".join(new_lines)
+    if content.endswith("\n"):
+        result += "\n"
+    return result
+
+
+def strip_banner_from_content(content: str) -> str:
+    """Remove a copied-file banner from *content*.
+
+    Only the blank line *before* the banner is consumed (the one ``add_banner_to_content``
+    inserted).  Blank lines after the banner are left intact so that the original content is
+    faithfully restored.
+    """
+    lines = content.splitlines()
+    start = end = None
+    for i, line in enumerate(lines):
+        if BANNER_START_MARKER in line:
+            start = i
+        if BANNER_END_MARKER in line:
+            end = i
+            break
+    if start is None or end is None:
+        return content
+
+    # Consume the single blank line that add_banner_to_content inserted before the banner.
+    if start > 0 and lines[start - 1].strip() == "":
+        start -= 1
+
+    result = "\n".join(lines[:start] + lines[end + 1 :])
+    if content.endswith("\n"):
+        result += "\n"
+    return result
+
+
+def _add_banner_to_file(filepath: Path, source_path: str) -> None:
+    """Add a banner to *filepath* if it supports comments."""
+    prefix = get_comment_prefix(filepath)
+    if prefix is None:
+        return
+    content = filepath.read_text()
+    filepath.write_text(add_banner_to_content(content, source_path, prefix))
+
+
+def _compare_file_contents(source_file: Path, dest_file: Path, source_display: str) -> None:
+    """Compare *source_file* and *dest_file*, raising on mismatch.
+
+    For files that support banners, the banner is stripped from the destination before comparing.
+    """
+    prefix = get_comment_prefix(dest_file)
+    if prefix is not None:
+        source_content = source_file.read_text()
+        dest_content = dest_file.read_text()
+        dest_stripped = strip_banner_from_content(dest_content)
+        if source_content != dest_stripped:
+            raise ValueError(
+                f"Files {source_file} and {dest_file} do not match (ignoring banner). Run "
+                f"{Path(__file__).relative_to(Path.cwd())} --fix to fix."
+            )
+    else:
+        with open(source_file, "rb") as f1, open(dest_file, "rb") as f2:
+            if f1.read() != f2.read():
+                raise ValueError(
+                    f"Files {source_file} and {dest_file} do not match. Run "
+                    f"{Path(__file__).relative_to(Path.cwd())} --fix to fix."
+                )
 
 
 SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
@@ -100,8 +221,14 @@ def main():
             if args.fix:
                 if source_path.is_dir():
                     shutil.copytree(source, destination, dirs_exist_ok=True)
+                    for file in source_path.glob("*"):
+                        if file.is_dir():
+                            continue
+                        source_rel = str(Path(source) / file.name)
+                        _add_banner_to_file(destination_path / file.name, source_rel)
                 else:
                     shutil.copy(source, destination)
+                    _add_banner_to_file(destination_path, source)
                 logger.info(f"Copied {source} to {destination}")
 
             else:
@@ -110,19 +237,9 @@ def main():
                         # Skip directories when checking - they're copied recursively with copytree
                         if file.is_dir():
                             continue
-                        with open(file, "rb") as f1, open(destination_path / file.name, "rb") as f2:
-                            if f1.read() != f2.read():
-                                raise ValueError(
-                                    f"Files {file} and {destination_path / file.name} do not match. Run "
-                                    f"{Path(__file__).relative_to(Path.cwd())} --fix to fix."
-                                )
+                        _compare_file_contents(file, destination_path / file.name, source)
                 else:
-                    with open(source, "rb") as f1, open(destination, "rb") as f2:
-                        if f1.read() != f2.read():
-                            raise ValueError(
-                                f"Files {source} and {destination} do not match. Run "
-                                f"{Path(__file__).relative_to(Path.cwd())} --fix to fix."
-                            )
+                    _compare_file_contents(source_path, destination_path, source)
 
 
 if __name__ == "__main__":
