@@ -44,6 +44,74 @@ torchrun --nproc-per-node 1 --no-python \
 
 Note: fp32_residual_connection is automatically set to False for Eden/TE layers.
 
+### Training with sharded Eden data
+
+For production training, use `--sharded-eden-data` with pre-sharded SQLite sequence
+databases and precomputed window databases. See
+[`src/bionemo/eden/data/sharded_eden_dataloader.md`](src/bionemo/eden/data/sharded_eden_dataloader.md)
+for the full data schema, directory structure, and pre-processing workflow.
+
+```bash
+torchrun --nproc-per-node 8 --no-python \
+  train_eden \
+  --hf-tokenizer-model-path tokenizers/nucleotide_fast_tokenizer_256 \
+  --model-size eden_7b --max-steps 100000 --eval-interval 500 \
+  --eval-iters 32 \
+  --sharded-eden-data \
+  --sequence-db-dir /path/to/sequence_dbs \
+  --train-window-db /path/to/train_windows.db \
+  --val-window-db /path/to/val_windows.db \
+  --test-window-db /path/to/test_windows.db \
+  --micro-batch-size 1 --global-batch-size 64 --seq-length 8192 \
+  --tensor-model-parallel-size 4 --pipeline-model-parallel-size 1 --context-parallel-size 1 \
+  --mixed-precision-recipe bf16_mixed \
+  --warmup-steps 2500 --decay-steps 97500 \
+  --log-interval 10 --seed 41 --dataset-seed 33 \
+  --result-dir /path/to/results
+```
+
+The `--stride` (default 7992) and `--window-min-length-threshold` (default 0) flags
+control how windows are sampled. Use `--rc-aug` to enable reverse-complement augmentation.
+
+### Fine-tuning from a checkpoint
+
+Resume training from an existing MBridge checkpoint using `--finetune-ckpt-dir`:
+
+```bash
+torchrun --nproc-per-node 8 --no-python \
+  train_eden \
+  --hf-tokenizer-model-path tokenizers/nucleotide_fast_tokenizer_256 \
+  --model-size eden_7b --max-steps 10000 --eval-interval 500 \
+  --eval-iters 32 --mock-data \
+  --finetune-ckpt-dir /path/to/mbridge/checkpoint \
+  --micro-batch-size 1 --global-batch-size 64 --seq-length 8192 \
+  --tensor-model-parallel-size 4 --pipeline-model-parallel-size 1 --context-parallel-size 1 \
+  --mixed-precision-recipe bf16_mixed \
+  --warmup-steps 500 --decay-steps 9500 \
+  --lr 1e-4 --min-lr 1e-5 \
+  --log-interval 10 --seed 41 \
+  --result-dir /path/to/finetune_results
+```
+
+The checkpoint directory can contain `iter_*` subdirectories or be a direct checkpoint
+directory with `run_config.yaml`. Use `eden_remove_optimizer` first if you only need
+the model weights.
+
+### Convert: NeMo2 to MBridge
+
+Convert a NeMo2 DCP checkpoint to MBridge format for use with `train_eden`,
+`infer_eden`, and the other MBridge-based tools:
+
+```bash
+eden_convert_nemo2_to_mbridge \
+  --nemo2-ckpt-dir /path/to/nemo2/checkpoint \
+  --tokenizer-path tokenizers/nucleotide_fast_tokenizer_256 \
+  --mbridge-ckpt-dir /path/to/eden_mbridge \
+  --model-size eden_7b \
+  --seq-length 8192 \
+  --mixed-precision-recipe bf16_mixed
+```
+
 ### Autoregressive generation (infer_eden)
 
 ```bash
