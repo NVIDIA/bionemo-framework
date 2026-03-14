@@ -2,18 +2,38 @@
 
 BioNeMo is a software ecosystem produced by NVIDIA for the development and deployment of life sciences-oriented artificial intelligence models. The main components of BioNeMo are:
 
-- **BioNeMo Recipes**: Self-contained, reproducible training recipes for biomolecular and language models. Each recipe bundles a HuggingFace-compatible model definition, training scripts, configuration, and sample data into a single directory that can be run independently. Recipes cover protein representation learning (ESM-2, AMPLIFY, Geneformer), DNA sequence modeling (Evo2), molecular generation, and general-purpose language models (Llama 3, Mixtral, Qwen). See the [recipes section](../recipes/index.md) for details.
+- [**BioNeMo Recipes**](../recipes/index.md) -- Self-contained, reproducible training recipes for biomolecular and language models. Each recipe bundles a HuggingFace-compatible model definition, training scripts, configuration, and sample data into a single directory that can be run independently.
 
-- **BioNeMo Sub-package Utilities**: Lightweight, pip-installable Python packages that provide reusable building blocks for training and data processing. Key utilities include:
+  **Models** -- HuggingFace-compatible model definitions with TransformerEngine layers:
 
-  - **bionemo-core** -- shared interfaces, data-loading helpers, and checkpoint management
-  - **bionemo-moco** -- modular components for building diffusion and flow-matching generative models
-  - **bionemo-noodles** -- fast FASTA/FASTQ parsing via a Python wrapper around the Rust [noodles](https://github.com/zaeleus/noodles) library
-  - **bionemo-scdl** -- dataset classes optimized for single-cell data
-  - **bionemo-size-aware-batching** -- memory-aware mini-batch construction for variable-length inputs
-  - **bionemo-webdatamodule** -- a PyTorch Lightning DataModule for streaming WebDataset files
+  - [AMPLIFY](../recipes/models/amplify/index.md) -- protein representation learning
+  - [ESM-2](../recipes/models/esm2/index.md) -- protein representation learning
+  - [Geneformer](../recipes/models/geneformer/index.md) -- single-cell gene expression
+  - [Llama 3](../recipes/models/llama3/index.md) -- general-purpose language model
+  - [Mixtral](../recipes/models/mixtral/index.md) -- mixture-of-experts language model
+  - [Qwen](../recipes/models/qwen/index.md) -- general-purpose language model
 
-- **BioNeMo NIMs**: Easy-to-use, enterprise-ready _inference_ microservices with built-in API endpoints. NIMs are engineered for scalable, self- or cloud-hosted deployment of optimized, production-grade biomolecular foundation models. Check out the growing list of BioNeMo NIMs [here](https://build.nvidia.com/explore/biology).
+  **Training Recipes** -- complete training environments with scripts, configs, and sample data:
+
+  - [esm2_native_te](../recipes/recipes/esm2_native_te/index.md) -- ESM-2 pretraining with native FSDP + TransformerEngine
+  - [esm2_accelerate_te](../recipes/recipes/esm2_accelerate_te/index.md) -- ESM-2 pretraining with HF Accelerate + TransformerEngine
+  - [esm2_peft_te](../recipes/recipes/esm2_peft_te/index.md) -- ESM-2 parameter-efficient fine-tuning
+  - [geneformer_native_te_mfsdp_fp8](../recipes/recipes/geneformer_native_te_mfsdp_fp8/index.md) -- Geneformer pretraining with FP8
+  - [llama3_native_te](../recipes/recipes/llama3_native_te/index.md) -- Llama 3 pretraining with native FSDP
+  - [evo2_megatron](../recipes/recipes/evo2_megatron/index.md) -- Evo2 DNA model with Megatron-LM
+  - [fp8_analysis](../recipes/recipes/fp8_analysis/index.md) -- FP8 precision analysis tools
+  - [vit](../recipes/recipes/vit/index.md) -- Vision Transformer reference recipe
+
+- [**BioNeMo Sub-package Utilities**](../developer-guide/SUMMARY.md) -- Lightweight, pip-installable Python packages that provide reusable building blocks for training and data processing:
+
+  - [bionemo-core](../developer-guide/bionemo-core/bionemo-core-Overview.md) -- shared interfaces, data-loading helpers, and checkpoint management
+  - [bionemo-moco](../developer-guide/bionemo-moco/bionemo-moco-Overview.md) -- modular components for building diffusion and flow-matching generative models
+  - [bionemo-noodles](../developer-guide/bionemo-noodles/bionemo-noodles-Overview.md) -- fast FASTA/FASTQ parsing via a Python wrapper around the Rust [noodles](https://github.com/zaeleus/noodles) library
+  - [bionemo-scdl](../developer-guide/bionemo-scdl/bionemo-scdl-Overview.md) -- dataset classes optimized for single-cell data
+  - [bionemo-size-aware-batching](../developer-guide/bionemo-size-aware-batching/bionemo-size-aware-batching-Overview.md) -- memory-aware mini-batch construction for variable-length inputs
+  - [bionemo-webdatamodule](../developer-guide/bionemo-webdatamodule/bionemo-webdatamodule-Overview.md) -- a PyTorch Lightning DataModule for streaming WebDataset files
+
+- [**BioNeMo NIMs**](https://build.nvidia.com/explore/biology) -- Easy-to-use, enterprise-ready _inference_ microservices with built-in API endpoints. NIMs are engineered for scalable, self- or cloud-hosted deployment of optimized, production-grade biomolecular foundation models.
 
 Use the **recipes** and **sub-packages** when you need to train, fine-tune, or customize models. Use **NIMs** when you need production-ready inference against existing models.
 
