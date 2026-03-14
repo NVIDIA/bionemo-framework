@@ -37,14 +37,27 @@ logger = logging.getLogger(__name__)
 logging.getLogger("traitlets").addFilter(_IgnoreNotebookAltWarnings())
 
 SUPPORT_FILE_SUFFIXES = {
+    ".cfg",
+    ".conf",
+    ".csv",
     ".gif",
+    ".ini",
     ".jpeg",
     ".jpg",
+    ".json",
     ".png",
+    ".py",
+    ".sh",
+    ".sql",
     ".svg",
+    ".toml",
+    ".txt",
+    ".tsv",
     ".webp",
+    ".yaml",
+    ".yml",
 }
-SUPPORT_FILE_NAMES: set[str] = set()
+SUPPORT_FILE_NAMES = {"Dockerfile", "LICENSE", "Makefile", "requirements.txt"}
 SKIP_SUPPORT_DIRS = {"assets", "examples", "notebooks", ".venv", "__pycache__", ".pytest_cache"}
 
 
