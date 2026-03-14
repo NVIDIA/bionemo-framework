@@ -55,7 +55,6 @@ class PerfLogger:
 
         metrics_dict = {
             "train/loss": torchmetrics.MeanMetric(),
-            "train/grad_norm": torchmetrics.MeanMetric(),
             "train/learning_rate": torchmetrics.MeanMetric(),
             "train/step_time": torchmetrics.MeanMetric(),
             "train/tokens_per_second_per_gpu": torchmetrics.MeanMetric(),
@@ -118,7 +117,6 @@ class PerfLogger:
 
                 self.metrics["train/loss"].update(outputs.loss)
                 self.metrics["train/learning_rate"].update(lr)
-                self.metrics["train/grad_norm"].update(grad_norm)
                 self.metrics["train/step_time"].update(step_time)
                 self.metrics["train/tokens_per_second_per_gpu"].update(num_tokens / step_time)
                 self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(num_unpadded_tokens / step_time)
