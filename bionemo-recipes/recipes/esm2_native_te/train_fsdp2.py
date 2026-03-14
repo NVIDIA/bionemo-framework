@@ -115,7 +115,8 @@ def main(args: DictConfig) -> float | None:
     logger.info("Initialized Model:\n%s", model)
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
-    transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
+    base = model.model if hasattr(model, "model") else model.esm
+    transformer_stack = base.encoder.layers if hasattr(base.encoder, "layers") else base.encoder.layer
 
     if args.use_fp32_master_weights:
         mp_policy = MixedPrecisionPolicy(

@@ -68,6 +68,8 @@ Training recipes are available in the `bionemo-recipes/recipes/` directory:
   loop.
 - **[esm2_accelerate_te](../../recipes/esm2_accelerate_te/)** - Trains the model using HuggingFace
   [Accelerate](https://huggingface.co/docs/accelerate/index).
+- **[vllm_inference/esm2](../../recipes/vllm_inference/esm2/)** - Demonstrates inference with
+  [vLLM](https://github.com/vllm-project/vllm).
 
 ## Running with Low Precision (FP8/FP4)
 

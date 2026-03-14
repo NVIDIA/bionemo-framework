@@ -29,7 +29,33 @@ repos:
       - id: ruff
         # 1. Attempt to automatically fix any lint issues.
         args: ["--fix"]
+        # Exclude check_copied_files destinations; they are verbatim copies
+        # of source files and must not be reformatted independently.
+        exclude: |
+          (?x)^(
+            bionemo-recipes/recipes/esm2_native_te/example_8m_checkpoint/esm_nv\.py|
+            bionemo-recipes/recipes/esm2_peft_te/example_8m_checkpoint/esm_nv\.py|
+            bionemo-recipes/recipes/esm2_accelerate_te/example_8m_checkpoint/esm_nv\.py|
+            bionemo-recipes/recipes/vllm_inference/esm2/(modeling_esm_te|convert|export|state)\.py|
+            bionemo-recipes/recipes/(esm2_native_te|llama3_native_te|esm2_peft_te)/collator\.py|
+            bionemo-recipes/recipes/llama3_native_te/modeling_llama_te\.py|
+            bionemo-recipes/models/(llama3|mixtral)/collator\.py|
+            bionemo-recipes/models/(amplify/src/amplify|llama3|mixtral)/state\.py|
+            bionemo-recipes/models/(llama3|mixtral)/tests/common/
+          )$
       - id: ruff-format
+        exclude: |
+          (?x)^(
+            bionemo-recipes/recipes/esm2_native_te/example_8m_checkpoint/esm_nv\.py|
+            bionemo-recipes/recipes/esm2_peft_te/example_8m_checkpoint/esm_nv\.py|
+            bionemo-recipes/recipes/esm2_accelerate_te/example_8m_checkpoint/esm_nv\.py|
+            bionemo-recipes/recipes/vllm_inference/esm2/(modeling_esm_te|convert|export|state)\.py|
+            bionemo-recipes/recipes/(esm2_native_te|llama3_native_te|esm2_peft_te)/collator\.py|
+            bionemo-recipes/recipes/llama3_native_te/modeling_llama_te\.py|
+            bionemo-recipes/models/(llama3|mixtral)/collator\.py|
+            bionemo-recipes/models/(amplify/src/amplify|llama3|mixtral)/state\.py|
+            bionemo-recipes/models/(llama3|mixtral)/tests/common/
+          )$
   - repo: https://github.com/executablebooks/mdformat
     rev: 0.7.22             # Use the latest stable version
     hooks:
