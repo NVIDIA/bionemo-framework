@@ -1,3 +1,3 @@
 - [Home](index.md)
-- [Models](models/)
-- [Recipes](recipes/)
+- [Models](models/index.md)
+- [Recipes](recipes/index.md)

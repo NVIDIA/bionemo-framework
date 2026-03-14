@@ -75,6 +75,7 @@ plugins:
               warn_unknown_params: false
   - mkdocs-jupyter:
       theme: auto
+      include: ["*.ipynb"]
       highlight_extra_classes: "jupyter-notebook"
       remove_tag_config:
         remove_input_tags:

@@ -2,7 +2,7 @@
 
 BioNeMo is a software ecosystem produced by NVIDIA for the development and deployment of life sciences-oriented artificial intelligence models. The main components of BioNeMo are:
 
-- **BioNeMo Recipes**: Self-contained, reproducible training recipes for biomolecular and language models. Each recipe bundles a HuggingFace-compatible model definition, training scripts, configuration, and sample data into a single directory that can be run independently. Recipes cover protein representation learning (ESM-2, AMPLIFY, Geneformer), DNA sequence modeling (Evo2), molecular generation, and general-purpose language models (Llama 3, Mixtral, Qwen). See the [recipes section](../recipes/) for details.
+- **BioNeMo Recipes**: Self-contained, reproducible training recipes for biomolecular and language models. Each recipe bundles a HuggingFace-compatible model definition, training scripts, configuration, and sample data into a single directory that can be run independently. Recipes cover protein representation learning (ESM-2, AMPLIFY, Geneformer), DNA sequence modeling (Evo2), molecular generation, and general-purpose language models (Llama 3, Mixtral, Qwen). See the [recipes section](../recipes/index.md) for details.
 
 - **BioNeMo Sub-package Utilities**: Lightweight, pip-installable Python packages that provide reusable building blocks for training and data processing. Key utilities include:
 

@@ -37,28 +37,14 @@ logger = logging.getLogger(__name__)
 logging.getLogger("traitlets").addFilter(_IgnoreNotebookAltWarnings())
 
 SUPPORT_FILE_SUFFIXES = {
-    ".cfg",
-    ".conf",
-    ".csv",
     ".gif",
-    ".ini",
     ".jpeg",
     ".jpg",
-    ".json",
     ".png",
-    ".py",
-    ".rst",
-    ".sh",
-    ".sql",
     ".svg",
-    ".toml",
-    ".txt",
-    ".tsv",
     ".webp",
-    ".yaml",
-    ".yml",
 }
-SUPPORT_FILE_NAMES = {"Dockerfile", "LICENSE", "Makefile", "requirements.txt"}
+SUPPORT_FILE_NAMES: set[str] = set()
 SKIP_SUPPORT_DIRS = {"assets", "examples", "notebooks", ".venv", "__pycache__", ".pytest_cache"}
 
 
@@ -478,8 +464,9 @@ def get_recipes_readmes(recipes_dir: Path, root: Path) -> None:
                 dest_dir = Path("main/recipes") / subdir / item.name
                 dest_file = dest_dir / f"{item.name}.md"
                 copy_text_file(readme_file, dest_file, root, f"Added {subdir} README: {dest_file}")
-                alias_file = dest_dir / "README.md"
-                copy_text_file(readme_file, alias_file, root, f"Added {subdir} README alias: {alias_file}")
+                for alias_name in ("README.md", "index.md"):
+                    alias_file = dest_dir / alias_name
+                    copy_text_file(readme_file, alias_file, root, f"Added {subdir} README alias: {alias_file}")
 
 
 def get_recipe_docs(recipe_item: Path, section: str, root: Path) -> None:
