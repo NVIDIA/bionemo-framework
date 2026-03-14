@@ -36,7 +36,7 @@ Megatron training recipes are for models that benefit from larger scale 5D paral
 - [evo2_megatron](../recipes/recipes/evo2_megatron/index.md) -- Evo2 DNA model with Megatron-Bridge based training for 5D parallelism support
 - [eden_megatron](../recipes/recipes/eden_megatron/index.md) -- Eden DNA model with Megatron-Bridge based training for 5D parallelism support
 
-## [BioNeMo Sub-package Utilities](../developer-guide/SUMMARY.md)
+## [BioNeMo Sub-packages](../developer-guide/SUMMARY.md)
 
 Lightweight, pip-installable Python packages that provide reusable building blocks for training and data processing:
 
