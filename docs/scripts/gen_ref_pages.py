@@ -140,6 +140,8 @@ def _rewrite_relative_links(source: Path, dest: Path, root: Path, text: str) -> 
             try:
                 rel_to_recipes = resolved.relative_to(recipes_dir)
                 target = "main/recipes/" + rel_to_recipes.as_posix()
+                if target.endswith("/README.md"):
+                    target = target[:-10] + "/index.md"
                 new_rel = Path(os.path.relpath(target, ref_dir)).as_posix()
                 return new_rel + ("/" if trailing_slash else "") + suffix
             except ValueError:
@@ -475,11 +477,8 @@ def get_recipes_readmes(recipes_dir: Path, root: Path) -> None:
             readme_file = item / "README.md"
             if readme_file.exists():
                 dest_dir = Path("main/recipes") / subdir / item.name
-                dest_file = dest_dir / f"{item.name}.md"
+                dest_file = dest_dir / "index.md"
                 copy_text_file(readme_file, dest_file, root, f"Added {subdir} README: {dest_file}")
-                for alias_name in ("README.md", "index.md"):
-                    alias_file = dest_dir / alias_name
-                    copy_text_file(readme_file, alias_file, root, f"Added {subdir} README alias: {alias_file}")
 
 
 def get_recipe_docs(recipe_item: Path, section: str, root: Path) -> None:
@@ -586,6 +585,11 @@ def generate_pages() -> None:
     root = Path(__file__).parent.parent.parent
     sub_packages_dir = root / "sub-packages"
     recipes_dir = root / "bionemo-recipes"
+
+    # Provide a stub versions.json so mike's version-selector JS doesn't
+    # flood the console with 404 retries during local `mkdocs serve`.
+    with mkdocs_gen_files.open("versions.json", "w") as f:
+        json.dump([{"version": "main", "title": "main", "aliases": ["latest"]}], f)
 
     # Generate api docs for sub-packages
     generate_api_reference()
