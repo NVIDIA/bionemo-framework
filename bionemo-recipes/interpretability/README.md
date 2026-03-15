@@ -1,6 +1,6 @@
 # BioNeMo Interpretability
 
-This directory contains recipes for applying interpretability techniques to BioNeMo models. The goal is to provide practical, reproducible workflows that help researchers understand what biological foundation models learn — from individual neurons to emergent representations.
+This directory contains packages and recipes for applying interpretability techniques to BioNeMo models. These packages provide practical, reproducible workflows that help researchers understand what biological foundation models learn — from individual neurons to emergent representations.
 
 ## Overview
 
@@ -15,7 +15,6 @@ Sparse autoencoders (SAEs) are a mechanistic interpretability technique for deco
 - **`sae/`** — A reusable SAE implementation designed to work with BioNeMo model activations
 - **`recipes/`** — End-to-end training and analysis recipes for applying SAEs to specific models:
   - **`esm2/`** — SAE recipes for ESM-2 protein language model representations
-  - **`codonfm/`** — SAE recipes for CodonFM codon-level representations
 
 ## Structure
 
@@ -25,7 +24,6 @@ interpretability/
         sae/               # Core SAE implementation
         recipes/
             esm2/          # Recipes for ESM-2
-            codonfm/       # Recipes for CodonFM
 ```
 
 ## Getting Started
