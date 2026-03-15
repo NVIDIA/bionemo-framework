@@ -129,9 +129,6 @@ def compute_vocab_logits(sae, model_name, model_dtype, device="cuda"):
 
         tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t33_650M_UR50D")
 
-    # Build vocab list indexed by token ID
-    vocab = [tokenizer.decode([i]).strip() if i < len(tokenizer) else f"<{i}>" for i in range(tokenizer.vocab_size)]
-
     # Get the LM head
     lm_head = lm_model.lm_head if hasattr(lm_model, "lm_head") else lm_model.cls
 
@@ -139,26 +136,35 @@ def compute_vocab_logits(sae, model_name, model_dtype, device="cuda"):
     W_dec = sae.decoder.weight.to(device).to(model_dtype)
 
     with torch.no_grad():
-        logits = lm_head(W_dec.T).float()  # (n_features, vocab_size)
+        logits = lm_head(W_dec.T).float()  # (n_features, output_vocab_size)
 
     # Subtract mean logit vector (baseline) so values reflect
     # feature-specific effects rather than the LM head's global bias.
     mean_logits = logits.mean(dim=0, keepdim=True)
     logits = logits - mean_logits
 
+    # Build vocab list matching the LM head output dimension
+    # (ESM2 pads output beyond tokenizer.vocab_size)
+    output_vocab_size = logits.shape[1]
+    vocab = []
+    for i in range(output_vocab_size):
+        if i < len(tokenizer):
+            vocab.append(tokenizer.decode([i]).strip())
+        else:
+            vocab.append(f"<pad_{i}>")
+
     # Special tokens to exclude from top lists
     special_tokens = {"<cls>", "<pad>", "<eos>", "<unk>", "<mask>", "<sep>", "<null_1>"}
+
+    valid_mask = torch.ones(output_vocab_size, dtype=torch.bool)
+    for i, tok in enumerate(vocab):
+        if tok.lower() in special_tokens or tok.startswith("<"):
+            valid_mask[i] = False
 
     n_features = logits.shape[0]
     results = {}
     for f in range(n_features):
         feat_logits = logits[f].cpu()
-
-        # Mask out special tokens for ranking
-        valid_mask = torch.ones(len(vocab), dtype=torch.bool)
-        for i, tok in enumerate(vocab):
-            if tok.lower() in special_tokens or tok.startswith("<"):
-                valid_mask[i] = False
 
         masked_logits = feat_logits.clone()
         masked_logits[~valid_mask] = float("-inf")
