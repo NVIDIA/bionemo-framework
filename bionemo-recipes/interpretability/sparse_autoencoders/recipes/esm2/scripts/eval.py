@@ -86,6 +86,12 @@ def parse_args():
     # Loss recovered
     p.add_argument("--loss-recovered-n-sequences", type=int, default=100)
 
+    # Dashboard / UMAP
+    p.add_argument("--umap-n-neighbors", type=int, default=50, help="UMAP n_neighbors parameter")
+    p.add_argument("--umap-min-dist", type=float, default=0.0, help="UMAP min_dist parameter")
+    p.add_argument("--hdbscan-min-cluster-size", type=int, default=20, help="HDBSCAN min_cluster_size parameter")
+    p.add_argument("--n-examples", type=int, default=6, help="Top proteins per feature for dashboard")
+
     # Skip flags
     p.add_argument("--skip-f1", action="store_true", help="Skip F1 evaluation")
     p.add_argument("--skip-loss-recovered", action="store_true", help="Skip loss recovered evaluation")
@@ -94,6 +100,88 @@ def parse_args():
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default=None)
     return p.parse_args()
+
+
+# ── Vocabulary logit analysis ─────────────────────────────────────────
+
+
+def compute_vocab_logits(sae, model_name, model_dtype, device="cuda"):
+    """Project SAE decoder through the ESM2 LM head to get per-feature token logits.
+
+    Returns dict mapping feature_id -> {top_positive, top_negative} with
+    mean-centered logit values (baseline subtracted).
+    """
+    from transformers import AutoModelForMaskedLM
+
+    print("Loading LM head model for vocab logits...")
+    lm_kwargs = {"trust_remote_code": True}
+    if model_dtype != torch.float32:
+        lm_kwargs["dtype"] = model_dtype
+    lm_model = AutoModelForMaskedLM.from_pretrained(model_name, **lm_kwargs).to(device).eval()
+
+    tokenizer = None
+    try:
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+    except Exception:
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t33_650M_UR50D")
+
+    # Build vocab list indexed by token ID
+    vocab = [tokenizer.decode([i]).strip() if i < len(tokenizer) else f"<{i}>" for i in range(tokenizer.vocab_size)]
+
+    # Get the LM head
+    lm_head = lm_model.lm_head if hasattr(lm_model, "lm_head") else lm_model.cls
+
+    # Decoder weights: (input_dim, n_features)
+    W_dec = sae.decoder.weight.to(device).to(model_dtype)
+
+    with torch.no_grad():
+        logits = lm_head(W_dec.T).float()  # (n_features, vocab_size)
+
+    # Subtract mean logit vector (baseline) so values reflect
+    # feature-specific effects rather than the LM head's global bias.
+    mean_logits = logits.mean(dim=0, keepdim=True)
+    logits = logits - mean_logits
+
+    # Special tokens to exclude from top lists
+    special_tokens = {"<cls>", "<pad>", "<eos>", "<unk>", "<mask>", "<sep>", "<null_1>"}
+
+    n_features = logits.shape[0]
+    results = {}
+    for f in range(n_features):
+        feat_logits = logits[f].cpu()
+
+        # Mask out special tokens for ranking
+        valid_mask = torch.ones(len(vocab), dtype=torch.bool)
+        for i, tok in enumerate(vocab):
+            if tok.lower() in special_tokens or tok.startswith("<"):
+                valid_mask[i] = False
+
+        masked_logits = feat_logits.clone()
+        masked_logits[~valid_mask] = float("-inf")
+
+        top_pos_idx = masked_logits.topk(10).indices.tolist()
+
+        masked_logits_neg = feat_logits.clone()
+        masked_logits_neg[~valid_mask] = float("inf")
+        top_neg_idx = masked_logits_neg.topk(10, largest=False).indices.tolist()
+
+        top_positive = [(vocab[i], round(feat_logits[i].item(), 3)) for i in top_pos_idx]
+        top_negative = [(vocab[i], round(feat_logits[i].item(), 3)) for i in top_neg_idx]
+
+        results[f] = {
+            "top_positive": top_positive,
+            "top_negative": top_negative,
+        }
+
+    del lm_model
+    torch.cuda.empty_cache()
+
+    print(f"  Computed mean-centered vocab logits for {n_features} features")
+    return results
 
 
 def load_sae_from_checkpoint(checkpoint_path: str, top_k: int) -> TopKSAE:
@@ -593,26 +681,32 @@ def main():
         print(f"  {activations_flat.shape[0]:,} residues, dim={activations_flat.shape[1]}")
 
         # Step 1: Feature statistics
-        print("\n[1/4] Computing feature statistics...")
+        print("\n[1/5] Computing feature statistics...")
         t0 = time.time()
         stats, _ = compute_feature_stats(sae, activations_flat, device=device)
         print(f"       Done in {time.time() - t0:.1f}s")
 
         # Step 2: UMAP from decoder weights
-        print("[2/4] Computing UMAP from decoder weights...")
+        print("[2/5] Computing UMAP from decoder weights...")
         t0 = time.time()
-        geometry = compute_feature_umap(sae, random_state=42)
+        geometry = compute_feature_umap(
+            sae,
+            n_neighbors=args.umap_n_neighbors,
+            min_dist=args.umap_min_dist,
+            random_state=args.seed,
+            hdbscan_min_cluster_size=args.hdbscan_min_cluster_size,
+        )
         print(f"       Done in {time.time() - t0:.1f}s")
 
         # Step 3: Save feature atlas with F1 labels
-        print("[3/4] Saving feature atlas...")
+        print("[3/5] Saving feature atlas...")
         t0 = time.time()
         atlas_path = dashboard_dir / "features_atlas.parquet"
         save_feature_atlas(stats, geometry, atlas_path, labels=f1_labels)
         print(f"       Saved to {atlas_path} in {time.time() - t0:.1f}s")
 
         # Step 4: Export protein examples with F1 annotations
-        print("[4/4] Exporting protein examples...")
+        print("[4/5] Exporting protein examples...")
         t0 = time.time()
         export_protein_features_parquet(
             sae=sae,
@@ -621,16 +715,26 @@ def main():
             protein_ids=protein_ids,
             output_dir=dashboard_dir,
             masks=masks,
-            n_examples=6,
+            n_examples=args.n_examples,
             device=device,
             feature_stats=feature_stats_for_dashboard,
         )
         print(f"       Done in {time.time() - t0:.1f}s")
 
+        # Step 5: Compute vocab logits (decoder -> LM head projection)
+        print("[5/5] Computing vocab logits...")
+        t0 = time.time()
+        vocab_logits = compute_vocab_logits(sae, args.model_name, model_dtype, device=device)
+        logits_path = dashboard_dir / "vocab_logits.json"
+        with open(logits_path, "w") as f:
+            json.dump(vocab_logits, f)
+        print(f"       Saved to {logits_path} in {time.time() - t0:.1f}s")
+
         print(f"\nDashboard data saved to: {dashboard_dir}")
         print(f"  Atlas:    {atlas_path}")
         print(f"  Features: {dashboard_dir}/feature_metadata.parquet")
         print(f"  Examples: {dashboard_dir}/feature_examples.parquet")
+        print(f"  Logits:   {logits_path}")
         print("\nTo view locally:")
         print(f"  scp -r cluster:{dashboard_dir} ./dashboard")
         print(

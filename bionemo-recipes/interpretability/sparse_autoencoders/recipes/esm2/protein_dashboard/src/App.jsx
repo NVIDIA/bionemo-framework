@@ -32,10 +32,10 @@ function InfoButton({ text }) {
           width: '15px',
           height: '15px',
           borderRadius: '50%',
-          border: '1px solid #bbb',
+          border: '1px solid var(--border-input)',
           fontSize: '10px',
           fontWeight: '600',
-          color: '#888',
+          color: 'var(--text-tertiary)',
           cursor: 'pointer',
           userSelect: 'none',
           lineHeight: 1,
@@ -50,15 +50,15 @@ function InfoButton({ text }) {
           left: '50%',
           transform: 'translateX(-50%)',
           width: '240px',
-          background: '#fff',
-          border: '1px solid #ddd',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-input)',
           borderRadius: '6px',
           padding: '10px 12px',
           fontSize: '12px',
           fontWeight: 'normal',
-          color: '#444',
+          color: 'var(--text-secondary)',
           lineHeight: '1.5',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
           zIndex: 10,
         }}>
           {text}
@@ -74,8 +74,10 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     padding: '16px',
-    gap: '12px',
+    gap: '4px',
     overflow: 'hidden',
+    background: 'var(--bg)',
+    color: 'var(--text)',
   },
   header: {
     flexShrink: 0,
@@ -84,15 +86,17 @@ const styles = {
     fontSize: '22px',
     fontWeight: '600',
     marginBottom: '2px',
+    color: 'var(--text-heading)',
   },
   subtitle: {
-    color: '#666',
+    color: 'var(--text-secondary)',
     fontSize: '13px',
+    margin: 0,
   },
   mainContent: {
     flex: 1,
     display: 'grid',
-    gridTemplateColumns: '60% 40%',
+    gridTemplateColumns: '3fr 2fr',
     gap: '16px',
     minHeight: 0,
     overflow: 'hidden',
@@ -102,17 +106,19 @@ const styles = {
     flexDirection: 'column',
     gap: '12px',
     minHeight: 0,
+    minWidth: 0,
     overflow: 'hidden',
   },
   embeddingPanel: {
     flex: 1,
-    background: '#fff',
+    background: 'var(--bg-card)',
     borderRadius: '8px',
-    border: '1px solid #e0e0e0',
+    border: '1px solid var(--border)',
     padding: '12px',
     display: 'flex',
     flexDirection: 'column',
     minHeight: '300px',
+    minWidth: 0,
     overflow: 'hidden',
   },
   panelHeader: {
@@ -136,12 +142,15 @@ const styles = {
     gridTemplateColumns: '1fr 1fr',
     gap: '12px',
     flexShrink: 0,
+    minHeight: '100px',
+    marginBottom: '4px',
   },
   histogramPanel: {
-    background: '#fff',
+    background: 'var(--bg-card)',
     borderRadius: '8px',
-    border: '1px solid #e0e0e0',
-    padding: '12px',
+    border: '1px solid var(--border)',
+    padding: '8px',
+    overflow: 'hidden',
   },
   rightPanel: {
     display: 'flex',
@@ -149,6 +158,7 @@ const styles = {
     gap: '10px',
     minHeight: 0,
     height: '100%',
+    overflow: 'hidden',
   },
   searchBar: {
     display: 'flex',
@@ -156,25 +166,28 @@ const styles = {
     flexShrink: 0,
   },
   searchInput: {
-    flex: 1,
+    flex: 0.81,
     padding: '8px 12px',
     fontSize: '13px',
-    border: '1px solid #ddd',
+    border: '1px solid var(--border-input)',
     borderRadius: '6px',
     outline: 'none',
+    background: 'var(--bg-input)',
+    color: 'var(--text)',
   },
   sortSelect: {
     padding: '8px 12px',
     fontSize: '13px',
-    border: '1px solid #ddd',
+    border: '1px solid var(--border-input)',
     borderRadius: '6px',
-    background: 'white',
+    background: 'var(--bg-input)',
+    color: 'var(--text)',
     cursor: 'pointer',
   },
   stats: {
     padding: '4px 0',
     fontSize: '12px',
-    color: '#666',
+    color: 'var(--text-secondary)',
     flexShrink: 0,
   },
   featureList: {
@@ -190,7 +203,7 @@ const styles = {
   loading: {
     textAlign: 'center',
     padding: '40px',
-    color: '#666',
+    color: 'var(--text-secondary)',
   },
   error: {
     textAlign: 'center',
@@ -200,24 +213,38 @@ const styles = {
   colorSelect: {
     padding: '4px 8px',
     fontSize: '12px',
-    border: '1px solid #ddd',
+    border: '1px solid var(--border-input)',
     borderRadius: '4px',
-    background: 'white',
+    background: 'var(--bg-input)',
+    color: 'var(--text)',
     cursor: 'pointer',
   },
   clearButton: {
     padding: '4px 12px',
     fontSize: '12px',
-    border: '2px solid #76b900',
+    border: '2px solid var(--accent)',
     borderRadius: '4px',
-    background: 'white',
-    color: '#76b900',
+    background: 'transparent',
+    color: 'var(--accent)',
     fontWeight: '600',
     cursor: 'pointer',
   },
+  darkModeBtn: {
+    padding: '4px 10px',
+    fontSize: '16px',
+    border: '1px solid var(--border-input)',
+    borderRadius: '6px',
+    background: 'var(--bg-input)',
+    color: 'var(--text)',
+    cursor: 'pointer',
+    lineHeight: 1,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 }
 
-export default function App({ title = "SAE Feature Explorer", subtitle = "Explore sparse autoencoder features with UMAP embedding and crossfiltering" }) {
+export default function App({ title = "ESM2 Sparse Autoencoder Feature Explorer", subtitle = "Explore sparse autoencoder features with UMAP embedding and crossfiltering" }) {
   const [features, setFeatures] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadingProgress, setLoadingProgress] = useState({ step: 0, total: 4, message: 'Starting up...' })
@@ -229,8 +256,13 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
   const [selectedCategory, setSelectedCategory] = useState('none')
   const [clickedFeatureId, setClickedFeatureId] = useState(null)
   const [clusterLabels, setClusterLabels] = useState(null)
+  const [vocabLogits, setVocabLogits] = useState(null)
+  const [darkMode, setDarkMode] = useState(true)
+  const [histMetric1, setHistMetric1] = useState('log_frequency')
+  const [histMetric2, setHistMetric2] = useState('max_activation')
 
   const brushRef = useRef(null)
+
   const [searchTerm, setSearchTerm] = useState('')
   const [cardResetKey, setCardResetKey] = useState(0)
   const [plotResetKey, setPlotResetKey] = useState(0)
@@ -238,6 +270,18 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
   const featureRefs = useRef({})
   const featureListRef = useRef(null)
   const searchSource = useRef({ source: 'search' })
+
+  // Dark mode toggle
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', darkMode)
+  }, [darkMode])
+
+  // Sync second histogram with color-by selection
+  useEffect(() => {
+    if (selectedCategory && selectedCategory !== 'none') {
+      setHistMetric2(selectedCategory)
+    }
+  }, [selectedCategory])
 
   // Lazy-load examples for a single feature from DuckDB (feature_examples VIEW)
   const loadExamplesForFeature = useCallback(async (featureId) => {
@@ -254,155 +298,18 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
     }))
   }, [])
 
-  // Handle click on a feature in the UMAP (or null for empty canvas click)
-  const animationRef = useRef(null)
   const currentViewportRef = useRef(null)
-  const initialViewportRef = useRef(null)
 
   // Handle viewport changes from the UMAP component
   const handleViewportChange = useCallback((vp) => {
-    // Capture initial viewport on first report
-    if (!initialViewportRef.current && vp) {
-      initialViewportRef.current = { ...vp }
-    }
-    // Always track current viewport (but not during our own animations)
-    if (!animationRef.current) {
-      currentViewportRef.current = vp
-    }
+    currentViewportRef.current = vp
   }, [])
 
-  // Easing functions
-  const easeOutQuart = (t) => 1 - Math.pow(1 - t, 4)
-  const easeInOutCubic = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
-  const easeInOutQuad = (t) => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
-
-  // Smooth zoom-in with "fly-to" trajectory (zoom out -> pan -> zoom in)
-  const zoomToPoint = useCallback((x, y) => {
-    if (x == null || y == null) return
-
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current)
-      animationRef.current = null
-    }
-
-    const start = currentViewportRef.current || initialViewportRef.current || { x: 0, y: 0, scale: 1 }
-    const targetScale = 4
-    const duration = 800
-    const startTime = performance.now()
-
-    // Calculate how far we need to pan (in data space)
-    const panDistance = Math.sqrt(Math.pow(x - start.x, 2) + Math.pow(y - start.y, 2))
-
-    // Determine the "cruise altitude" - how much to zoom out during the pan
-    // Zoom out more for longer distances, less for short distances
-    const minScale = Math.min(start.scale, 0.8) // Never zoom out below 0.8
-    const maxZoomOut = Math.max(0, start.scale - minScale)
-    const zoomOutAmount = Math.min(maxZoomOut, panDistance * 0.1) // Scale zoom-out with distance
-    const cruiseScale = start.scale - zoomOutAmount
-
-    const animate = (currentTime) => {
-      const elapsed = currentTime - startTime
-      const t = Math.min(elapsed / duration, 1)
-
-      // Use smooth ease-in-out for the overall progress
-      const smoothT = easeInOutCubic(t)
-
-      // Pan follows the smooth progress
-      const panT = smoothT
-
-      // Zoom follows a "U-shaped" profile:
-      // - First half: ease from start.scale down to cruiseScale (or stay flat if already low)
-      // - Second half: ease from cruiseScale up to targetScale
-      let zoomScale
-      if (t < 0.4) {
-        // First 40%: zoom out slightly (ease-out)
-        const zoomOutT = t / 0.4
-        const easeOut = 1 - Math.pow(1 - zoomOutT, 2)
-        zoomScale = start.scale + (cruiseScale - start.scale) * easeOut
-      } else if (t < 0.6) {
-        // Middle 20%: hold at cruise altitude
-        zoomScale = cruiseScale
-      } else {
-        // Last 40%: zoom in to target (ease-in then ease-out)
-        const zoomInT = (t - 0.6) / 0.4
-        const easeInOut = easeInOutQuad(zoomInT)
-        zoomScale = cruiseScale + (targetScale - cruiseScale) * easeInOut
-      }
-
-      const newViewport = {
-        x: start.x + (x - start.x) * panT,
-        y: start.y + (y - start.y) * panT,
-        scale: zoomScale
-      }
-
-      setViewportState(newViewport)
-
-      if (t < 1) {
-        animationRef.current = requestAnimationFrame(animate)
-      } else {
-        currentViewportRef.current = { x, y, scale: targetScale }
-        animationRef.current = null
-      }
-    }
-
-    animationRef.current = requestAnimationFrame(animate)
-  }, [])
-
-  // Smooth zoom-out: zoom out first, then pan back
-  const resetViewport = useCallback(() => {
-    if (animationRef.current) {
-      cancelAnimationFrame(animationRef.current)
-      animationRef.current = null
-    }
-
-    const start = currentViewportRef.current || { x: 0, y: 0, scale: 1 }
-    const target = initialViewportRef.current || { x: 0, y: 0, scale: 1 }
-    const duration = 600
-    const startTime = performance.now()
-
-    const animate = (currentTime) => {
-      const elapsed = currentTime - startTime
-      const t = Math.min(elapsed / duration, 1)
-
-      // Zoom out fast at start (ease-out)
-      const zoomT = easeOutQuart(t)
-
-      // Pan eases in-out
-      const panT = easeInOutCubic(t)
-
-      const newViewport = {
-        x: start.x + (target.x - start.x) * panT,
-        y: start.y + (target.y - start.y) * panT,
-        scale: start.scale + (target.scale - start.scale) * zoomT
-      }
-
-      setViewportState(newViewport)
-
-      if (t < 1) {
-        animationRef.current = requestAnimationFrame(animate)
-      } else {
-        currentViewportRef.current = { ...target }
-        animationRef.current = null
-      }
-    }
-
-    animationRef.current = requestAnimationFrame(animate)
-  }, [])
-
-  // Handle click on a feature in the UMAP (with coordinates for zooming)
+  // Handle click on a feature in the UMAP (highlight + scroll, no zoom)
   const handleFeatureClick = useCallback((featureId, x, y) => {
-    console.log('Feature clicked in UMAP:', featureId, x, y)
-
     setClickedFeatureId(featureId)
 
-    // If clicking on empty canvas (featureId is null), reset viewport and return
-    if (featureId == null) {
-      resetViewport()
-      return
-    }
-
-    // Zoom to the clicked point
-    zoomToPoint(x, y)
+    if (featureId == null) return
 
     // Scroll to the feature card after a short delay to allow render
     setTimeout(() => {
@@ -411,35 +318,17 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
         ref.scrollIntoView({ behavior: 'smooth', block: 'center' })
       }
     }, 50)
-  }, [zoomToPoint, resetViewport])
+  }, [])
 
-  // Handle click on a feature card (highlights point in UMAP and zooms to it)
-  const handleCardClick = useCallback(async (featureId, isExpanding) => {
-    console.log('Feature card clicked:', featureId, isExpanding ? 'expanding' : 'collapsing')
-
-    // If collapsing, zoom back out and clear highlight
+  // Handle click on a feature card (highlights point in UMAP)
+  const handleCardClick = useCallback((featureId, isExpanding) => {
     if (!isExpanding) {
       setClickedFeatureId(null)
-      resetViewport()
       return
     }
 
     setClickedFeatureId(featureId)
-
-    // Query for the feature's coordinates and zoom to it
-    try {
-      const result = await vg.coordinator().query(`
-        SELECT x, y FROM features WHERE feature_id = ${featureId} LIMIT 1
-      `)
-      const rows = result.toArray()
-      if (rows.length > 0) {
-        const { x, y } = rows[0]
-        zoomToPoint(x, y)
-      }
-    } catch (err) {
-      console.warn('Could not get feature coordinates:', err)
-    }
-  }, [zoomToPoint, resetViewport])
+  }, [])
 
   // Initialize Mosaic and load data
   useEffect(() => {
@@ -581,6 +470,40 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
         }))
         setFeatures(loadedFeatures)
 
+        // Derive annotation_type (top-level category) from best_annotation
+        try {
+          await vg.coordinator().exec(`
+            CREATE OR REPLACE TABLE features AS
+            SELECT f.*,
+                   CASE
+                     WHEN m.best_annotation IS NULL OR m.best_annotation = '' OR m.best_annotation = 'None' THEN 'unlabeled'
+                     WHEN CONTAINS(m.best_annotation, ':') THEN SPLIT_PART(m.best_annotation, ':', 1)
+                     ELSE m.best_annotation
+                   END AS annotation_type
+            FROM features f
+            LEFT JOIN feature_metadata m ON f.feature_id = m.feature_id
+          `)
+          // Add integer-encoded version for embedding-atlas
+          await vg.coordinator().exec(`
+            CREATE OR REPLACE TABLE features AS
+            SELECT *,
+                   DENSE_RANK() OVER (ORDER BY annotation_type) - 1 AS annotation_type_cat
+            FROM features
+          `)
+          const cardResult = await vg.coordinator().query(`
+            SELECT COUNT(DISTINCT annotation_type) as n_unique FROM features WHERE annotation_type IS NOT NULL
+          `)
+          const nUnique = cardResult.toArray()[0]?.n_unique ?? 0
+          if (nUnique > 0 && nUnique <= 50) {
+            detectedCategories.push({ name: 'annotation_type', type: 'string', nUnique })
+            setCategoryColumns([...detectedCategories])
+            // Default color-by to annotation_type
+            setSelectedCategory('annotation_type')
+          }
+        } catch (err) {
+          console.warn('Could not create annotation_type column:', err)
+        }
+
         // Load cluster labels (non-fatal if missing)
         try {
           const labelsRes = await fetch('./cluster_labels.json')
@@ -593,6 +516,19 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
           console.log('No cluster labels found (optional)')
         }
 
+        // Load vocab logits (non-fatal if missing)
+        try {
+          const logitsRes = await fetch('./vocab_logits.json')
+          if (logitsRes.ok) {
+            const logitsData = await logitsRes.json()
+            setVocabLogits(logitsData)
+            console.log(`Loaded vocab logits for ${Object.keys(logitsData).length} features`)
+          }
+        } catch (e) {
+          console.log('No vocab logits found (optional)')
+        }
+
+        // Pre-cache feature coordinates for instant zoom
         setMosaicReady(true)
         setLoading(false)
 
@@ -718,8 +654,6 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
     setClickedFeatureId(null)
     // Reset viewport - will be handled by remount with plotResetKey
     setViewportState(null)
-    // Clear initial viewport ref so it gets recaptured after remount
-    initialViewportRef.current = null
     currentViewportRef.current = null
     // Reset all cards to collapsed state
     setCardResetKey(k => k + 1)
@@ -800,7 +734,7 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
         <div style={{
           width: '280px',
           height: '6px',
-          background: '#e0e0e0',
+          background: 'var(--loading-bar-bg)',
           borderRadius: '3px',
           overflow: 'hidden',
           margin: '0 auto 12px',
@@ -808,12 +742,12 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
           <div style={{
             width: `${pct}%`,
             height: '100%',
-            background: '#76b900',
+            background: 'var(--accent)',
             borderRadius: '3px',
             transition: 'width 0.3s ease',
           }} />
         </div>
-        <div style={{ fontSize: '13px', color: '#888' }}>{loadingProgress.message}</div>
+        <div style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>{loadingProgress.message}</div>
       </div>
     )
   }
@@ -831,9 +765,18 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
-        <h1 style={styles.title}>{title}</h1>
-        <p style={styles.subtitle}>{subtitle}</p>
+      <div style={{ ...styles.header, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h1 style={styles.title}>{title}</h1>
+          <p style={styles.subtitle}>{subtitle}</p>
+        </div>
+        <button
+          onClick={() => setDarkMode(d => !d)}
+          style={styles.darkModeBtn}
+          title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {darkMode ? '\u2600' : '\u263E'}
+        </button>
       </div>
 
       <div style={styles.mainContent}>
@@ -841,20 +784,20 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
           <div style={styles.embeddingPanel}>
             <div style={styles.panelHeader}>
               <span style={styles.panelTitle}>
-                UMAP Embedding
+                Decoder UMAP
                 <InfoButton text="Each point is a learned SAE feature, positioned by its decoder weight vector projected into 2D via UMAP. Features that are close together respond to similar patterns in the input space. Clusters reveal the structure of the representation the model has learned." />
               </span>
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <label style={{ fontSize: '12px', color: '#666' }}>Color by:</label>
+                <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Color by:</label>
                 <select
                   value={selectedCategory}
                   onChange={e => setSelectedCategory(e.target.value)}
                   style={styles.colorSelect}
                 >
-                  <option value="none">None (uniform)</option>
+                  <option value="none">None</option>
                   {categoryColumns.map(col => (
                     <option key={col.name} value={col.name}>
-                      {col.name} {col.type === 'sequential' ? '(sequential)' : `(${col.nUnique} values)`}
+                      {col.name.replace(/_/g, ' ')}
                     </option>
                   ))}
                 </select>
@@ -863,7 +806,7 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
                 </button>
               </div>
             </div>
-            <div style={styles.embeddingContainer}>
+            <div style={{ ...styles.embeddingContainer, position: 'relative' }}>
               {mosaicReady && (
                 <EmbeddingView
                   key={`umap-${plotResetKey}`}
@@ -875,40 +818,149 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
                   viewportState={viewportState}
                   onViewportChange={handleViewportChange}
                   labels={clusterLabels}
+                  darkMode={darkMode}
                 />
               )}
+              {selectedCategory && selectedCategory !== 'none' && (() => {
+                const colInfo = categoryColumns.find(c => c.name === selectedCategory)
+                if (!colInfo) return null
+
+                if (colInfo.type === 'sequential') {
+                  const colors = [
+                    "#c359ef", "#9525C6", "#0046a4", "#0074DF", "#3f8500",
+                    "#76B900", "#ef9100", "#F9C500", "#ff8181", "#EF2020"
+                  ]
+                  const vals = features
+                    .map(f => f[selectedCategory])
+                    .filter(v => v != null && !isNaN(v))
+                  const minVal = vals.length > 0 ? Math.min(...vals) : 0
+                  const maxVal = vals.length > 0 ? Math.max(...vals) : 1
+                  const fmt = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(1) : v.toFixed(3)
+                  return (
+                    <div style={{
+                      position: 'absolute', right: '12px', top: '12%', bottom: '12%',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center',
+                      gap: '2px', pointerEvents: 'none',
+                    }}>
+                      <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: '600' }}>{fmt(maxVal)}</span>
+                      <div style={{
+                        flex: 1, width: '12px', borderRadius: '3px',
+                        background: `linear-gradient(to bottom, ${[...colors].reverse().join(', ')})`,
+                      }} />
+                      <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: '600' }}>{fmt(minVal)}</span>
+                      <span style={{
+                        fontSize: '8px', color: 'var(--text-muted)', maxWidth: '60px', textAlign: 'center',
+                        lineHeight: '1.2', marginTop: '2px',
+                      }}>
+                        {selectedCategory.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                  )
+                }
+
+                // Categorical legend (string or integer types)
+                const catColors = [
+                  "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+                  "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+                  "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+                  "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5"
+                ]
+                // Get distinct values sorted alphabetically (matches DENSE_RANK ORDER BY)
+                const distinctVals = [...new Set(
+                  features.map(f => f.best_annotation)
+                )]
+                // Derive category labels the same way as SQL
+                const categoryLabels = [...new Set(
+                  distinctVals.map(v => {
+                    if (v == null || v === '' || v === 'None') return 'unlabeled'
+                    if (v.includes(':')) return v.split(':')[0]
+                    return v
+                  })
+                )].sort()
+
+                return (
+                  <div style={{
+                    position: 'absolute', right: '10px', top: '8px',
+                    display: 'flex', flexDirection: 'column',
+                    gap: '3px', pointerEvents: 'none',
+                    background: 'var(--bg-card)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '6px',
+                    padding: '8px 10px',
+                    opacity: 0.9,
+                  }}>
+                    <span style={{
+                      fontSize: '9px', color: 'var(--text-muted)', textTransform: 'uppercase',
+                      fontWeight: '600', marginBottom: '2px',
+                    }}>
+                      {selectedCategory.replace(/_/g, ' ')}
+                    </span>
+                    {categoryLabels.map((label, i) => (
+                      <div key={label} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                        <div style={{
+                          width: '8px', height: '8px', borderRadius: '50%',
+                          background: catColors[i % catColors.length], flexShrink: 0,
+                        }} />
+                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)', lineHeight: '1.2' }}>
+                          {label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
           </div>
 
           <div style={styles.histogramRow}>
-            <div style={styles.histogramPanel}>
-              <span style={styles.panelTitle}>
-                Log Frequency
-                <InfoButton text="Distribution of feature activation frequencies on a log scale. A good SAE typically looks log-normal here. Features on the left fire rarely; features on the right fire often. Drag to brush and filter the UMAP and feature list." />
-              </span>
-              <div style={{ fontSize: '11px', color: '#999', marginTop: '1px' }}>How often each feature fires across inputs</div>
-              {mosaicReady && (
-                <Histogram
-                  key={`hist-freq-${plotResetKey}`}
-                  brush={brushRef.current}
-                  column="log_frequency"
-                />
-              )}
-            </div>
-            <div style={styles.histogramPanel}>
-              <span style={styles.panelTitle}>
-                Max Activation
-                <InfoButton text="Distribution of peak activation values across features. Higher values mean the feature responds more strongly to its preferred input. Drag to brush and filter the UMAP and feature list." />
-              </span>
-              <div style={{ fontSize: '11px', color: '#999', marginTop: '1px' }}>Strongest activation observed per feature</div>
-              {mosaicReady && (
-                <Histogram
-                  key={`hist-max-${plotResetKey}`}
-                  brush={brushRef.current}
-                  column="max_activation"
-                />
-              )}
-            </div>
+            {[
+              { value: histMetric1, setter: setHistMetric1 },
+              { value: histMetric2, setter: setHistMetric2 },
+            ].map(({ value, setter }, i) => (
+              <div key={i} style={styles.histogramPanel}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                  <select
+                    value={value}
+                    onChange={e => setter(e.target.value)}
+                    style={{
+                      padding: '2px 6px',
+                      fontSize: '11px',
+                      border: '1px solid var(--border-input)',
+                      borderRadius: '4px',
+                      background: 'var(--bg-input)',
+                      color: 'var(--text)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <option value="log_frequency">Log Frequency</option>
+                    <option value="max_activation">Max Activation</option>
+                    <option value="activation_freq">Activation Frequency</option>
+                    {categoryColumns
+                      .filter(c => c.type === 'sequential')
+                      .map(col => (
+                        <option key={col.name} value={col.name}>
+                          {col.name.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    {categoryColumns
+                      .filter(c => c.type === 'string' || c.type === 'integer')
+                      .map(col => (
+                        <option key={col.name} value={col.name}>
+                          {col.name.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                {mosaicReady && value && value !== 'none' && (
+                  <Histogram
+                    key={`hist-${i}-${value}-${plotResetKey}`}
+                    brush={brushRef.current}
+                    column={value}
+                    categoryColumns={categoryColumns}
+                  />
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -958,6 +1010,8 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
                       forceExpanded={true}
                       onClick={handleCardClick}
                       loadExamples={loadExamplesForFeature}
+                      vocabLogits={vocabLogits}
+                      darkMode={darkMode}
                     />
                   )}
                   {visibleFeatures.map(feature => (
@@ -969,18 +1023,20 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
                       forceExpanded={Number(clickedFeatureId) === Number(feature.feature_id)}
                       onClick={handleCardClick}
                       loadExamples={loadExamplesForFeature}
+                      vocabLogits={vocabLogits}
+                      darkMode={darkMode}
                     />
                   ))}
                 </>
               )
             })()}
             {filteredFeatures.length > 100 && (
-              <div style={{ textAlign: 'center', padding: '12px', color: '#666', fontSize: '13px' }}>
+              <div style={{ textAlign: 'center', padding: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
                 Showing first 100 results. Refine your selection to see more.
               </div>
             )}
             {filteredFeatures.length === 0 && clickedFeatureId == null && (
-              <div style={{ textAlign: 'center', padding: '20px', color: '#666' }}>
+              <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)' }}>
                 No features match your selection.
               </div>
             )}

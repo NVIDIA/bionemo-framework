@@ -9,10 +9,10 @@ const CATEGORY_COLORS = [
   "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5"
 ]
 
-// Sequential color palette (viridis-like)
+// Sequential color palette (NVIDIA brand)
 const SEQUENTIAL_COLORS = [
-  "#440154", "#482878", "#3e4a89", "#31688e", "#26838f",
-  "#1f9e89", "#35b779", "#6ece58", "#b5de2b", "#fde725"
+  "#c359ef", "#9525C6", "#0046a4", "#0074DF", "#3f8500",
+  "#76B900", "#ef9100", "#F9C500", "#ff8181", "#EF2020"
 ]
 
 // Default color for uniform coloring (NVIDIA green)
@@ -24,14 +24,15 @@ class FeatureTooltip {
     this.node = node
     this.inner = document.createElement("div")
     this.inner.style.cssText = `
-      background: white;
-      border: 1px solid #ddd;
+      background: var(--bg-card);
+      border: 1px solid var(--border-input);
       border-radius: 4px;
       padding: 8px 12px;
       font-family: 'NVIDIA Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 13px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
       max-width: 300px;
+      color: var(--text);
     `
     this.node.appendChild(this.inner)
     this.update(props)
@@ -50,11 +51,11 @@ class FeatureTooltip {
     const colorField = tooltip.fields?.color_field
 
     this.inner.innerHTML = `
-      <div style="font-weight: bold; margin-bottom: 4px; color: #333;">Feature #${featureId}</div>
-      <div style="color: #666; margin-bottom: 4px; font-size: 12px;">${label}</div>
-      ${colorField ? `<div style="color: #888; font-size: 11px;">Category: ${colorField}</div>` : ""}
-      ${logFreq !== undefined ? `<div style="color: #888; font-size: 11px;">Log Frequency: ${logFreq.toFixed(3)}</div>` : ""}
-      ${maxAct !== undefined ? `<div style="color: #888; font-size: 11px;">Max Activation: ${maxAct.toFixed(2)}</div>` : ""}
+      <div style="font-weight: bold; margin-bottom: 4px; color: var(--text-heading);">Feature #${featureId}</div>
+      <div style="color: var(--text-secondary); margin-bottom: 4px; font-size: 12px;">${label}</div>
+      ${colorField ? `<div style="color: var(--text-tertiary); font-size: 11px;">Category: ${colorField}</div>` : ""}
+      ${logFreq !== undefined ? `<div style="color: var(--text-tertiary); font-size: 11px;">Log Frequency: ${logFreq.toFixed(3)}</div>` : ""}
+      ${maxAct !== undefined ? `<div style="color: var(--text-tertiary); font-size: 11px;">Max Activation: ${maxAct.toFixed(2)}</div>` : ""}
     `
   }
 
@@ -63,7 +64,7 @@ class FeatureTooltip {
   }
 }
 
-export default function EmbeddingView({ brush, categoryColumn, categoryColumns, onFeatureClick, highlightedFeatureId, viewportState, onViewportChange, labels }) {
+export default function EmbeddingView({ brush, categoryColumn, categoryColumns, onFeatureClick, highlightedFeatureId, viewportState, onViewportChange, labels, darkMode }) {
   const containerRef = useRef(null)
   const viewRef = useRef(null)
   const onFeatureClickRef = useRef(onFeatureClick)
@@ -166,7 +167,7 @@ export default function EmbeddingView({ brush, categoryColumn, categoryColumns, 
           labels: labels || null,
           config: {
             mode: "points",
-            colorScheme: "light",
+            colorScheme: darkMode ? "dark" : "light",
             autoLabelEnabled: false,
           },
           theme: {
@@ -211,7 +212,7 @@ export default function EmbeddingView({ brush, categoryColumn, categoryColumns, 
         containerRef.current.innerHTML = ''
       }
     }
-  }, [brush, categoryColumn, categoryColumns])
+  }, [brush, categoryColumn, categoryColumns, darkMode])
 
   // Handle resize
   useEffect(() => {
