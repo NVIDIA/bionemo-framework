@@ -82,12 +82,15 @@ def main(args: DictConfig) -> float | None:
         )
         config.layer_precision = layer_precision
         if args.quant_stats_config.enabled:
+            wandb_logger = None
+            if args.quant_stats_config.log_to_wandb and dist_config.is_main_process():
+                wandb_logger = WandBQuantLogger()
             initialize_quant_stats_logging(
                 quant_stats_file=args.quant_stats_config.quant_stats_file,
                 quant_log_dir=args.quant_stats_config.quant_log_dir,
                 rank=dist_config.rank,
                 layer_precision=layer_precision,
-                statistics_logger=WandBQuantLogger() if dist_config.is_main_process() else None,
+                statistics_logger=wandb_logger,
             )
 
         # Create quantization recipes -- these are only used if FP8/FP4 is enabled in the config.
