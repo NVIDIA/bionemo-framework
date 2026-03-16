@@ -34,7 +34,7 @@ from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 from perf_logger import PerfLogger
-from quantization import initialize_quant_stats_logging, resolve_layer_precision
+from quantization import WandBQuantLogger, initialize_quant_stats_logging, resolve_layer_precision
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -87,6 +87,7 @@ def main(args: DictConfig) -> float | None:
                 quant_log_dir=args.quant_stats_config.quant_log_dir,
                 rank=dist_config.rank,
                 layer_precision=layer_precision,
+                statistics_logger=WandBQuantLogger() if dist_config.is_main_process() else None,
             )
 
         # Create quantization recipes -- these are only used if FP8/FP4 is enabled in the config.
