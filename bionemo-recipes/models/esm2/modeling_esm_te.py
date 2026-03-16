@@ -404,7 +404,7 @@ class NVEsmModel(NVEsmPreTrainedModel):
         Args:
             config (NVEsmConfig): The configuration of the model.
             add_pooling_layer (bool): Whether to add a pooling layer.  If ``None``,
-                reads ``config.add_pooling_layer`` (defaults to ``True``).
+                reads ``config.add_pooling_layer`` (defaults to ``False``).
             fp8_recipe: The FP8 recipe for the encoder.
             fp4_recipe: The FP4 recipe for the encoder.
         """
@@ -412,7 +412,7 @@ class NVEsmModel(NVEsmPreTrainedModel):
         self.config = config
 
         if add_pooling_layer is None:
-            add_pooling_layer = getattr(config, "add_pooling_layer", True)
+            add_pooling_layer = getattr(config, "add_pooling_layer", False)
 
         # Ensure pad_token_id is set properly, defaulting to 0 if not specified
         if not hasattr(config, "pad_token_id") or config.pad_token_id is None:
