@@ -40,6 +40,8 @@ except ImportError:
 from export import export_hf_checkpoint
 
 
+pytestmark = pytest.mark.skipif(not torch.cuda.is_available(), reason="requires CUDA")
+
 EXPORT_TAG = "esm2_t6_8M_UR50D"
 REFERENCE_MODEL_ID = "nvidia/esm2_t6_8M_UR50D"
 ESM2_MODEL_DIR = Path(__file__).resolve().parent.parent
