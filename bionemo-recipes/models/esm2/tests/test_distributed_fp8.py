@@ -34,9 +34,7 @@ requires_multi_gpu = pytest.mark.skipif(
 )
 
 
-@pytest.mark.parametrize(
-    "strategy", ["ddp", "fsdp2", pytest.param("mfsdp", marks=pytest.mark.xfail(reason="BIONEMO-2999"))]
-)
+@pytest.mark.parametrize("strategy", ["ddp", "fsdp2", "mfsdp"])
 @requires_fp8
 def test_single_process_attaches_correct_fp8_recipe(strategy, unused_tcp_port):
     cmd = [
@@ -63,9 +61,7 @@ def test_single_process_attaches_correct_fp8_recipe(strategy, unused_tcp_port):
         pytest.fail(f"Command failed with exit code {result.returncode}")
 
 
-@pytest.mark.parametrize(
-    "strategy", ["ddp", "fsdp2", pytest.param("mfsdp", marks=pytest.mark.xfail(reason="BIONEMO-2999"))]
-)
+@pytest.mark.parametrize("strategy", ["ddp", "fsdp2", "mfsdp"])
 @requires_fp8
 @requires_multi_gpu
 def test_multi_process_fp8_recipes_are_synced(strategy, unused_tcp_port):

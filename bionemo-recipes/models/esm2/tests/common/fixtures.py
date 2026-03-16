@@ -102,6 +102,26 @@ def fp8_recipe(request):
     return request.param
 
 
+RECIPE_NAME_TO_FACTORY = {
+    "DelayedScaling": recipe_module.DelayedScaling,
+    "Float8CurrentScaling": recipe_module.Float8CurrentScaling,
+    "Float8BlockScaling": recipe_module.Float8BlockScaling,
+    "MXFP8BlockScaling": recipe_module.MXFP8BlockScaling,
+    "NVFP4BlockScaling": lambda: recipe_module.NVFP4BlockScaling(disable_rht=True, disable_stochastic_rounding=True),
+}
+
+
+def recipe_to_name(recipe):
+    """Convert a recipe instance to its CLI-passable string name."""
+    return type(recipe).__name__
+
+
+def recipe_from_name(name):
+    """Reconstruct a recipe instance from its CLI-passable string name."""
+    factory = RECIPE_NAME_TO_FACTORY[name]
+    return factory()
+
+
 @pytest.fixture(params=["bshd", "thd"])
 def input_format(request):
     """Fixture to parametrize the input format."""
