@@ -206,6 +206,7 @@ class Trainer:
                 sampler=sampler,
                 num_workers=self.config.num_workers,
                 pin_memory=self.config.pin_memory,
+                drop_last=self.is_distributed,
             )
         elif isinstance(data, DataLoader):
             return data
