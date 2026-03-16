@@ -384,6 +384,20 @@ def build_f1_labels(val_results, n_features, f1_threshold):
 
     n_labeled = sum(1 for l in labels if not l.startswith("Feature "))
     print(f"  {n_labeled}/{n_features} features labeled (F1 >= {f1_threshold})")
+
+    # Show all matched annotation categories
+    from collections import Counter
+
+    category_counts = Counter()
+    for i, stats in feature_stats.items():
+        concept = stats["best_annotation"]
+        category = concept.split(":")[0] if ":" in concept else concept
+        category_counts[category] += 1
+    if category_counts:
+        print(f"  Annotation categories matched ({len(category_counts)} types):")
+        for cat, count in category_counts.most_common():
+            print(f"    {cat}: {count} features")
+
     return labels, feature_stats
 
 
