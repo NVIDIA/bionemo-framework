@@ -76,8 +76,9 @@ still in progress.
 
 ### Low precision performance benchmarks
 
+![Performance Benchmarks Low Precision](../../../docs/docs/assets/images/esm2/esm2_low_precision/esm2_8gpu_speedup.png)
 ![Performance Benchmarks Low Precision](../../../docs/docs/assets/images/esm2/esm2_low_precision/esm2_8gpu_tflops.png)
-In the above plot, we can see that as we increase the scale of our models, the benefits of low precision training are apparent.
+In the above plots, we can see both the speedup over BF16 training as well as TFLOPS per gpu for the various GPU SKUs. Moreover, as we increase the scale of our models, the benefits of low precision training are apparent.
 This is because at smaller parameter models (such as 650M, 3B) etc, the cost to quantize activations from high precision to low
 precision outweights the benefits of performing matrix multiplication with low precision. However, as our models scale up in
 parameter count, the fixed quantization cost is lower than our GEMM operational savings.

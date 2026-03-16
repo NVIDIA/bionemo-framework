@@ -16,7 +16,7 @@
 NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for digital biology. It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized model recipes and tooling that are easily integrated into GPU-based computational resources with state-of-the-art performance.
 
 <p align="center">
-  <img src="docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg" width="600">
+  <img src="docs/docs/assets/images/esm2/esm2_low_precision/esm2_15b_grouped_bars.png" width="600">
   <br>
   <em> Training benchmarks for ESM-2, a well known protein sequence model using the BERT architecture.</em>
 </p>
