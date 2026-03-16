@@ -470,14 +470,13 @@ export default function App({ title = "ESM2 Sparse Autoencoder Feature Explorer"
         }))
         setFeatures(loadedFeatures)
 
-        // Derive annotation_type (top-level category) from best_annotation
+        // Derive annotation_type from best_annotation (use full annotation as category)
         try {
           await vg.coordinator().exec(`
             CREATE OR REPLACE TABLE features AS
             SELECT f.*,
                    CASE
                      WHEN m.best_annotation IS NULL OR m.best_annotation = '' OR m.best_annotation = 'None' THEN 'unlabeled'
-                     WHEN CONTAINS(m.best_annotation, ':') THEN SPLIT_PART(m.best_annotation, ':', 1)
                      ELSE m.best_annotation
                    END AS annotation_type
             FROM features f
@@ -719,6 +718,8 @@ export default function App({ title = "ESM2 Sparse Autoencoder Feature Explorer"
       result = [...result].sort((a, b) => (b.activation_freq || 0) - (a.activation_freq || 0))
     } else if (sortBy === 'max_activation') {
       result = [...result].sort((a, b) => (b.max_activation || 0) - (a.max_activation || 0))
+    } else if (sortBy === 'best_f1') {
+      result = [...result].sort((a, b) => (b.best_f1 || 0) - (a.best_f1 || 0))
     } else if (sortBy === 'feature_id') {
       result = [...result].sort((a, b) => a.feature_id - b.feature_id)
     }

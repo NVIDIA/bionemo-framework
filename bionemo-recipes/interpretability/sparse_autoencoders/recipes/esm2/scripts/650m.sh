@@ -56,9 +56,9 @@ python scripts/eval.py \
     --batch-size 16 \
     --dtype bf16 \
     --num-proteins 2000 \
-    --f1-max-proteins 8000 \
-    --f1-min-positives 10 \
-    --f1-threshold 0.3 \
+    --f1-max-proteins 50000 \
+    --f1-min-positives 5 \
+    --f1-threshold 0.2 \
     --normalization-n-proteins 3000 \
     --umap-n-neighbors 50 \
     --umap-min-dist 0.0 \

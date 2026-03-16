@@ -221,6 +221,7 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
 
   const freq = feature.activation_freq || 0
   const maxAct = feature.max_activation || 0
+  const bestF1 = feature.best_f1 || 0
   const description = feature.description || `Feature ${feature.feature_id}`
 
   const handleClick = () => {
@@ -235,7 +236,22 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
     <div ref={ref} style={isHighlighted ? styles.cardHighlighted : styles.card}>
       <div style={styles.header} onClick={handleClick}>
         <div style={styles.headerLeft}>
-          <div style={styles.featureId}>Feature #{feature.feature_id}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div style={styles.featureId}>Feature #{feature.feature_id}</div>
+            {bestF1 > 0 && (
+              <span style={{
+                fontSize: '9px',
+                fontWeight: '600',
+                padding: '1px 5px',
+                borderRadius: '3px',
+                background: bestF1 >= 0.5 ? 'rgba(118, 185, 0, 0.15)' : 'rgba(255, 165, 0, 0.15)',
+                color: bestF1 >= 0.5 ? '#76b900' : '#ef9100',
+                whiteSpace: 'nowrap',
+              }}>
+                F1: {bestF1.toFixed(2)}
+              </span>
+            )}
+          </div>
           <div style={styles.description}>{description}</div>
         </div>
         <div style={styles.stats}>
