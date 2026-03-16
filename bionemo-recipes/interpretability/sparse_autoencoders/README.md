@@ -1,6 +1,8 @@
 # Sparse Autoencoders for Model Interpretability
 
-Sparse Autoencoders (SAEs) decompose model activations into interpretable features. This directory provides a generic SAE library and model-specific recipes for training and analyzing SAEs on BioNeMo models.
+The Sparse Autoencoder(SAE) package provides a domain-agnostic implementation of SAE designed for mechanistic model interpretability. This tool provides a generic SAE library with various SAE architectures, as well as comprehensive training and analysis tools. Model-specific recipes are included to guide researchers on applying SAEs to any chosen model.
+
+[Check out CodonFM's extracted features on this interactive dashboard built with this SAE library.](https://research.nvidia.com/labs/dbr/blog/sae) *CodonFM recipe coming soon!*
 
 > **Early Release** -- This project is under active development. APIs and interfaces may change between versions. Feedback and contributions are welcome.
 
