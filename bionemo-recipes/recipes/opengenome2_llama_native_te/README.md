@@ -177,7 +177,7 @@ two separate training entrypoints:
 - [Fully Sharded Data Parallel 2
   (FSDP2)](https://docs.pytorch.org/docs/stable/distributed.fsdp.fully_shard.html), shown in
   `train_fsdp2.py`
-- FSDP2 with Context Parallelism, shown in `train_fsdp2_cp.py`
+- FSDP2 with Context Parallelism, shown in `train_fsdp2_nd_parallel.py`
 
 ## Commands to Launch Training
 
@@ -242,12 +242,12 @@ python train_fsdp2.py --config-name L0_sanity use_sequence_packing=true
 ### Context Parallel Training
 
 Context parallelism splits each sequence across multiple GPUs along the sequence dimension, enabling
-training with very long sequences. Use `train_fsdp2_cp.py` with the `L0_sanity_cp` configuration and
+training with very long sequences. Use `train_fsdp2_nd_parallel.py` with the `L0_sanity_cp` configuration and
 set `cp_size` to the number of context parallelism ranks. Works with both BSHD (no padding) and
 THD (padding) input formats. Only TE models are supported.
 
 ```bash
-torchrun --nproc_per_node=4 train_fsdp2_cp.py --config-name L0_sanity_cp cp_size=2
+torchrun --nproc_per_node=4 train_fsdp2_nd_parallel.py --config-name L0_sanity_cp cp_size=2
 ```
 
 ## Downloading Pre-Training Data

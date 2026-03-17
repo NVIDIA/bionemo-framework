@@ -87,7 +87,7 @@ def main(args: DictConfig) -> float | None:
         )
 
     if args.use_fp32_master_weights:
-        raise ValueError("FP32 master weights are not supported with DDP+CP. Use train_fsdp2_cp.py instead.")
+        raise ValueError("FP32 master weights are not supported with DDP+CP. Use train_fsdp2_nd_parallel.py instead.")
 
     # Create an empty ESM-2 model with a masked language model head, e.g. "nvidia/esm2_t6_8M_UR50D".
     # Note: token_dropout is set to False because it's not compatible with context parallelism.

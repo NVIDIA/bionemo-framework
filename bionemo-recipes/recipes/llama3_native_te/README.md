@@ -94,7 +94,7 @@ This recipe supports distributed training using DDP, FSDP2, and FSDP2 with Conte
 
 - [Distributed Data Parallel (DDP)](https://docs.pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html), shown in `train_ddp.py`
 - [Fully Sharded Data Parallel 2 (FSDP2)](https://docs.pytorch.org/docs/stable/distributed.fsdp.fully_shard.html), shown in `train_fsdp2.py`
-- FSDP2 with Context Parallelism, shown in `train_fsdp2_cp.py`
+- FSDP2 with Context Parallelism, shown in `train_fsdp2_nd_parallel.py`
 
 ## Commands to Launch Training
 
@@ -193,12 +193,29 @@ python train_fsdp2.py --config-name L0_sanity \
 ### Context Parallel Training
 
 Context parallelism splits each sequence across multiple GPUs along the sequence dimension, enabling training with very
-long sequences. Use `train_fsdp2_cp.py` with the `L0_sanity_cp` configuration and set `cp_size` to the number of context
+long sequences. Use `train_fsdp2_nd_parallel.py` with the `L0_sanity_cp` configuration and set `cp_size` to the number of context
 parallelism ranks. Works with both BSHD (no padding) and THD (padding) input formats. Only TE models are supported.
 
 ```bash
-torchrun --nproc_per_node=4 train_fsdp2_cp.py --config-name L0_sanity_cp cp_size=2
+torchrun --nproc_per_node=4 train_fsdp2_nd_parallel.py --config-name L0_sanity_cp cp_size=2
 ```
+
+### Tensor Parallel Training
+
+Tensor parallelism shards model activations and weights along the hidden dimension across multiple GPUs, and is compatible with
+context parallelism and FSDP2 in TransformerEngine. Use `train_fsdp2_nd_parallel` with the `L2_sanity_nd` config and optionally
+set `tp_size` and `cp_size` such that the product of these sizes is less than or equal to the number of GPUs. When the FSDP and
+TP sharding dimensions coincide, FSDP2 will automatically create `_StridedShard` placements to ensure that TP shards are the
+result of the all-gather during training. Only TE models are supported, and refer to the `set_device_mesh` API on TE modules for
+more information about how `DeviceMesh` and `DTensor` interact with TransformerEngine.
+
+```bash
+torchrun --nproc_per_node=4 train_fsdp2_nd_parallel.py --config-name L2_sanity_nd cp_size=2 tp_size=2
+```
+
+Note that TransformerEngine TP is compatible with DTensor-based TP. For instance, the `torch.nn.Embedding` is weight-tied to the
+Llama LM Head, but the embedding layer is tensor-parallelized with `parallelize_module` while the head is tensor-parallelized with
+TransformerEngine.
 
 ## Downloading Pre-Training Data For Offline Training
 

@@ -87,7 +87,7 @@ products:
     job_name: "llama3-native-L0-sanity"
   # L0 sanity test with context parallelism
   - config: L0_sanity_cp
-    task_cmd: train_fsdp2_cp
+    task_cmd: train_fsdp2_nd_parallel
     cp_enabled: true
     wandb_name: "llama3_native__L0_sanity_cp__${now:%Y%m%d-%H%M%S}__${gitsha:}"
     job_name: "llama3-native-L0-sanity-cp"
