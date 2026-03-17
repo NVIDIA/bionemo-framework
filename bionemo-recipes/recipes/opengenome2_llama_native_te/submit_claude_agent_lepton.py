@@ -15,10 +15,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Lepton job submission script that runs Claude Code as an autonomous training agent.
+"""Lepton job submission script that runs Claude Code as an autonomous FP8 Precision Agent.
 
-Claude Code is installed in the container, given a prompt describing the training job,
-and runs torchrun autonomously. It saves a JSON state summary to NFS on completion.
+On rank 0, Claude Code is installed and given the OG2 FP8 Agent Guide. Claude autonomously
+manages the training loop: launching torchrun, monitoring metrics, adjusting layer precision,
+and producing reports. On other ranks, nodes wait for torchrun commands from rank 0.
+
+Usage:
+    # MVP demo (single node, tiny model)
+    python submit_claude_agent_lepton.py --config-name=claude_agent_demo
+
+    # Full FP8 agent (multi-node, OG2-7B)
+    python submit_claude_agent_lepton.py --config-name=og2_fp8_agent
+
+    # Override strategy
+    python submit_claude_agent_lepton.py --config-name=og2_fp8_agent promotion_strategy=tail_in
 """
 
 import hydra
@@ -57,128 +68,158 @@ def _build_agent_prompt(cfg: DictConfig) -> str:
 
     return template.format(
         code_path=cfg.code_path,
-        train_script=cfg.train_script,
-        hydra_config=cfg.hydra_config,
+        num_nodes=cfg.num_nodes,
+        gpus_per_node=cfg.gpus_per_node,
         num_train_steps=cfg.num_train_steps,
-        checkpoint_dir=cfg.checkpoint_dir,
-        save_every_n_steps=cfg.save_every_n_steps,
-        wandb_project=cfg.wandb_project,
-        wandb_name=cfg.wandb_name,
-        agent_state_dir=cfg.agent_state_dir,
+        checkin_interval=cfg.get("checkin_interval", 100),
+        promotion_strategy=cfg.get("promotion_strategy", "ends_in"),
+        workspace_root=cfg.get("workspace_root", "/data/savithas/agent_runs"),
+        wandb_project=cfg.get("wandb_project", "opengenome2-7b"),
     )
 
 
 def launch_claude_agent_job(client, cfg: DictConfig):
-    """Launch a single-node job that runs Claude Code as the training agent."""
+    """Launch a multi-node job where rank 0 runs Claude Code as the FP8 Precision Agent."""
     chosen_group, valid_node_ids, resource_shape = _resolve_scheduling_target(client, cfg)
 
     agent_prompt = _build_agent_prompt(cfg)
+    num_nodes = cfg.get("num_nodes", 1)
+    workspace_root = cfg.get("workspace_root", "/data/savithas/agent_runs")
 
-    # Git branch checkout logic (rank 0 only, but single-node so always rank 0)
+    # Git branch checkout logic (rank 0 only for NFS safety)
     git_branch = cfg.get("git_branch", "")
     repo_root = cfg.get("repo_root", "/data/savithas/bionemo-framework")
 
     git_sync_script = ""
     if git_branch:
         git_sync_script = f"""
-echo "=========================================="
-echo "Syncing to branch: {git_branch}"
-echo "=========================================="
-cd {repo_root}
-find .git -name "*.lock" -delete 2>/dev/null || true
-git fetch origin
-git checkout {git_branch}
-git pull origin {git_branch}
-echo "Git sync complete! Commit: $(git rev-parse HEAD)"
-echo "=========================================="
+# Git sync to specified branch (only on rank 0 to avoid NFS race conditions)
+if [ "$NODE_RANK" = "0" ]; then
+  echo "=========================================="
+  echo "[Rank 0] Syncing to branch: {git_branch}"
+  echo "=========================================="
+  cd {repo_root}
+  find .git -name "*.lock" -delete 2>/dev/null || true
+  git fetch origin
+  git checkout {git_branch}
+  git pull origin {git_branch}
+  echo "Git sync complete! Commit: $(git rev-parse HEAD)"
+  echo "=========================================="
+else
+  echo "[Rank $NODE_RANK] Waiting for rank 0 to complete git sync..."
+  sleep 30
+  cd {repo_root}
+  echo "[Rank $NODE_RANK] Current commit: $(git rev-parse HEAD)"
+fi
 """
 
-    # Escape the prompt for embedding in bash (use a heredoc)
     container_script = f"""#!/bin/bash
 set -e
 
 echo "=========================================="
-echo "Claude Code Agent - Lepton GPU Node"
+echo "Claude Code FP8 Precision Agent - Lepton"
+echo "Node rank: $NODE_RANK / $NNODES"
 echo "GPUs: {cfg.gpus_per_node}x H100"
 echo "=========================================="
 
-# 1. Initialize Lepton environment
+# 1. Initialize Lepton environment (sets MASTER_ADDR, MASTER_PORT, NODE_RANK, NNODES)
 wget -O init.sh https://raw.githubusercontent.com/leptonai/scripts/main/lepton_env_to_pytorch.sh
 chmod +x init.sh
 source init.sh
 
+export MASTER_PORT=29400
+export NCCL_TIMEOUT_MS=1800000
+export NCCL_DEBUG=WARN
 export HF_HOME=/data/savithas/cache
 {git_sync_script}
-# 2. Install Node.js 22 LTS
-echo "Installing Node.js 22 LTS..."
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-apt-get install -y nodejs
-echo "Node.js version: $(node --version)"
-echo "npm version: $(npm --version)"
 
-# 3. Install Claude Code CLI
-echo "Installing Claude Code..."
-npm install -g @anthropic-ai/claude-code
-echo "Claude Code installed: $(claude --version)"
-
-# 4. Install Python training requirements
+# 2. Install Python training requirements (all nodes)
 cd {cfg.code_path}
 pip install -r requirements.txt
 
-# 5. Login to wandb
+# 3. Login to wandb (all nodes, needed for distributed logging)
 wandb login ${{WANDB_API_KEY}}
 
-# 6. Create agent state directory
-mkdir -p {cfg.agent_state_dir}
+# 4. Create workspace directories
+mkdir -p {workspace_root}
 
-# 7. Ensure checkpoint directory exists
-mkdir -p {cfg.checkpoint_dir}
+# ============================================================
+# RANK 0: Run Claude Code as the FP8 Precision Agent
+# OTHER RANKS: Sleep and wait for torchrun connections from rank 0
+# ============================================================
 
-# 8. Create non-root user (Claude Code refuses --dangerously-skip-permissions as root)
-echo "Creating non-root user for Claude Code..."
-useradd -m -s /bin/bash claude-agent
-# Give the user access to code, checkpoints, and agent state dirs
-chown -R claude-agent:claude-agent {cfg.agent_state_dir}
-chown -R claude-agent:claude-agent {cfg.checkpoint_dir}
+if [ "$NODE_RANK" = "0" ]; then
+  echo "=========================================="
+  echo "[Rank 0] Setting up Claude Code agent..."
+  echo "=========================================="
 
-# 9. Write the agent prompt to a file
-cat > /tmp/agent_prompt.txt << 'AGENT_PROMPT_EOF'
+  # Install Node.js 22 LTS
+  echo "Installing Node.js 22 LTS..."
+  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  apt-get install -y nodejs
+  echo "Node.js version: $(node --version)"
+  echo "npm version: $(npm --version)"
+
+  # Install Claude Code CLI
+  echo "Installing Claude Code..."
+  npm install -g @anthropic-ai/claude-code
+  echo "Claude Code installed: $(claude --version)"
+
+  # Create non-root user (Claude Code refuses --dangerously-skip-permissions as root)
+  echo "Creating non-root user for Claude Code..."
+  useradd -m -s /bin/bash claude-agent
+  chown -R claude-agent:claude-agent {workspace_root}
+
+  # Write the agent prompt to a file
+  cat > /tmp/agent_prompt.txt << 'AGENT_PROMPT_EOF'
 {agent_prompt}
 AGENT_PROMPT_EOF
-chmod 644 /tmp/agent_prompt.txt
+  chmod 644 /tmp/agent_prompt.txt
 
-# 10. Write a wrapper script for the non-root user
-cat > /tmp/run_claude.sh << 'WRAPPER_EOF'
+  # Write a wrapper script for the non-root user
+  cat > /tmp/run_claude.sh << 'WRAPPER_EOF'
 #!/bin/bash
 set -e
-# Environment is inherited from root via 'su' (no dash), so CUDA, NCCL,
-# HPC-X, LD_LIBRARY_PATH, etc. are all already set.
-
 cd {cfg.code_path}
 
 echo "Testing Claude Code authentication..."
-claude --dangerously-skip-permissions \
-  --model {cfg.claude_model} \
+claude --dangerously-skip-permissions \\
+  --model {cfg.claude_model} \\
   -p "Say OK if you can read this." 2>&1 | head -5
 echo "Auth check complete."
 
 echo "=========================================="
-echo "Starting Claude Code agent..."
+echo "Starting FP8 Precision Agent..."
+echo "Strategy: {cfg.get("promotion_strategy", "ends_in")}"
 echo "=========================================="
 
 PROMPT=$(cat /tmp/agent_prompt.txt)
-claude --dangerously-skip-permissions \
-  --model {cfg.claude_model} \
+claude --dangerously-skip-permissions \\
+  --model {cfg.claude_model} \\
   -p "$PROMPT"
 
 echo "=========================================="
-echo "Claude Code agent finished."
+echo "FP8 Precision Agent finished."
 echo "=========================================="
 WRAPPER_EOF
-chmod 755 /tmp/run_claude.sh
+  chmod 755 /tmp/run_claude.sh
 
-# 11. Run as non-root user, preserving full environment (no dash = keep env)
-su claude-agent -c "bash /tmp/run_claude.sh"
+  # Run as non-root user, preserving full environment (no dash = keep env)
+  su claude-agent -c "bash /tmp/run_claude.sh"
+
+else
+  echo "=========================================="
+  echo "[Rank $NODE_RANK] Worker node — waiting for torchrun from rank 0"
+  echo "=========================================="
+  # Worker nodes just need to stay alive so torchrun can connect.
+  # They will be launched by torchrun from rank 0 via rdzv.
+  # Sleep indefinitely until the job is terminated.
+  echo "Listening on MASTER_ADDR=$MASTER_ADDR MASTER_PORT=$MASTER_PORT"
+  while true; do
+    sleep 60
+    echo "[Rank $NODE_RANK] Worker still alive at $(date)"
+  done
+fi
 """
 
     command = ["bash", "-c", container_script]
@@ -211,8 +252,8 @@ su claude-agent -c "bash /tmp/run_claude.sh"
             image=cfg.container.image,
             command=command,
         ),
-        completions=1,
-        parallelism=1,
+        completions=num_nodes,
+        parallelism=num_nodes,
         envs=env_vars,
         image_pull_secrets=[cfg.container.registry_auth],
         mounts=mounts,
@@ -235,17 +276,18 @@ su claude-agent -c "bash /tmp/run_claude.sh"
         return False
 
 
-@hydra.main(version_base=None, config_path="lepton_configs", config_name="claude_agent_demo")
+@hydra.main(version_base=None, config_path="lepton_configs", config_name="og2_fp8_agent")
 def main(cfg: DictConfig):
-    """Submit a Lepton job that runs Claude Code as an autonomous training agent."""
+    """Submit a Lepton job that runs Claude Code as the FP8 Precision Agent."""
     print("=" * 60)
-    print(f"Claude Code Agent Demo - Job: {cfg.job_name}")
+    print(f"FP8 Precision Agent - Job: {cfg.job_name}")
     print("=" * 60)
-    print(f"  Model: {cfg.claude_model}")
-    print(f"  Training config: {cfg.hydra_config}")
-    print(f"  Steps: {cfg.num_train_steps}")
-    print(f"  Checkpoint dir: {cfg.checkpoint_dir}")
-    print(f"  Agent state dir: {cfg.agent_state_dir}")
+    print(f"  Claude model: {cfg.claude_model}")
+    print(f"  Nodes: {cfg.num_nodes} x {cfg.gpus_per_node} GPUs")
+    print(f"  Training config: {cfg.get('hydra_config', 'N/A')}")
+    print(f"  Steps: {cfg.num_train_steps:,}")
+    print(f"  Strategy: {cfg.get('promotion_strategy', 'ends_in')}")
+    print(f"  Workspace: {cfg.get('workspace_root', 'N/A')}")
 
     if cfg.get("git_branch"):
         print(f"  Git branch: {cfg.git_branch}")
@@ -260,8 +302,8 @@ def main(cfg: DictConfig):
         print("\nJob submission failed!")
         exit(1)
 
-    print("\nClaude agent job submitted successfully!")
-    print(f"Check {cfg.agent_state_dir}/run_summary.json for results after completion.")
+    print("\nFP8 Precision Agent job submitted successfully!")
+    print(f"Check {cfg.get('workspace_root', '')}/*/report.md for results after completion.")
 
 
 if __name__ == "__main__":
