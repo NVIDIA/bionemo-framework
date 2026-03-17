@@ -1,0 +1,639 @@
+# OpenGenome2 7B FP8 Precision Agent — Milestones 1 & 2
+
+## Run Variables
+
+These can be edited by the user before each run.
+
+```
+TOLERANCE_PCT          = 5.0                           # max allowed perplexity difference as % of baseline (e.g. 5.0 = 5%)
+BASELINE_LOGFILE       = <NFS_PATH>/baseline_bf16.json # BF16 baseline metrics logfile
+NUM_TRAIN_STEPS        = ???                           # total training steps; agent stops here
+CHECKIN_INTERVAL       = 100                           # steps between check-ins (must align with baseline logfile steps)
+LAYERS_PER_PROMOTION   = 2                             # layers demoted to BF16 per failed check-in
+NUM_LAYERS             = 32                            # transformer block layers (OG2-7B has layers 1-32)
+INITIAL_PRECISION      = fp8                           # starting precision for all transformer block layers
+PROMOTION_STRATEGY     = ends_in                       # "ends_in", "tail_in", or "research_guided" (see Promotion Strategies below)
+WORKSPACE_ROOT         = <NFS_PATH>/agent_runs         # root for all agent output
+RESULTS_FOLDER         = <NFS_PATH>/agent_runs/results/$PROMOTION_STRATEGY  # final reports, scoped by strategy
+
+# Training script & model
+TRAINING_SCRIPT        = train_fsdp2.py
+CONFIG_NAME            = og2_7b_thd_gqa_fp8            # Hydra config name (inherits og2_7b_thd_gqa)
+NPROC_PER_NODE         = 8                             # GPUs per node
+NNODES                 = 6                             # Number of Lepton nodes
+TOKENIZER              = ./tokenizers/nucleotide_fast_tokenizer
+MICRO_BATCH_SIZE       = 1                             # per-GPU micro batch size
+GRAD_ACC_STEPS         = 8                             # gradient accumulation steps
+DATASET_PATH           = /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_train_*.jsonl.gz
+WANDB_PROJECT          = opengenome2-7b                # WandB project name for all runs
+```
+
+______________________________________________________________________
+
+## Project Overview
+
+We are building an agent that manages a pretraining loop for an OpenGenome2 7B Llama3 model using TransformerEngine with FP8 Block Scaling. The agent's objective is to **maximize the number of layers running in FP8** while keeping pretraining accuracy within tolerance of a BF16 baseline. The agent does this by controlling a per-layer precision schedule and monitoring training metrics at regular intervals. Training runs for a fixed number of steps (`--num_train_steps=$NUM_TRAIN_STEPS`).
+
+### Key Differences from ESM2/NVFP4 Guide
+
+| Aspect            | ESM2 NVFP4 Guide                | OG2 FP8 Guide                                                                        |
+| ----------------- | ------------------------------- | ------------------------------------------------------------------------------------ |
+| Model             | ESM2-3B (36 layers)             | OG2 Llama3-7B (32 layers)                                                            |
+| Precision levels  | NVFP4 → MXFP8 → BF16 (3 levels) | **FP8 → BF16 (2 levels)**                                                            |
+| FP8 recipe        | MXFP8BlockScaling               | **Float8BlockScaling**                                                               |
+| FP4 support       | Yes (NVFP4BlockScaling)         | **No** — FP4 is not used                                                             |
+| Infrastructure    | Single node                     | **Lepton multi-node** (6+ nodes)                                                     |
+| Model features    | Standard                        | Spike-No-More init, Megatron scaled init, weight decay grouping, FP32 master weights |
+| Sequence handling | Packing                         | THD sequence packing with genomic masking                                            |
+
+### Reference Materials
+
+All reference materials are co-located with this guide:
+
+- **Strategy documents**: [OG2_STRATEGY_ENDS_IN.md](OG2_STRATEGY_ENDS_IN.md), [OG2_STRATEGY_TAIL_IN.md](OG2_STRATEGY_TAIL_IN.md) — full pseudocode, demotion tables, and worked examples for each strategy
+- **BF16 baseline**: [baseline_bf16.json](baseline_bf16.json) — extracted from WandB run `8mfsb27t` via [extract_baseline_metrics.py](extract_baseline_metrics.py)
+- **Quant stats config**: [fp8_debugging_stats.yaml](fp8_debugging_stats.yaml) — TE debug feature config for `research_guided` strategy
+- **Research paper**: [references/NVIDIA-Nemotron-3-Super-Technical-Report.pdf](references/NVIDIA-Nemotron-3-Super-Technical-Report.pdf) — Nemotron-3 Super Technical Report describing the low-precision training agent approach this guide is adapted from
+
+______________________________________________________________________
+
+## Architecture Summary
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Milestone 2: Model Persistence & Recovery               │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │ Milestone 1: Pretraining Agent Loop               │  │
+│  │                                                   │  │
+│  │  Agent → Change Layer Precision → Pretrain        │  │
+│  │    ↑         ↓                                    │  │
+│  │    ←── Checkin (Training) ←── Baseline BF16       │  │
+│  └───────────────────────────────────────────────────┘  │
+│                                                         │
+│  Checkin (Training) ── Save ──→ Models (disk)           │
+│  Models ── Reload LKG (on failure) ──→ Agent            │
+└─────────────────────────────────────────────────────────┘
+```
+
+______________________________________________________________________
+
+## Metrics
+
+### Accuracy Metric: Perplexity (lower is better)
+
+Perplexity is the primary accuracy metric: `perplexity = exp(loss)`. At every check-in, the agent compares current perplexity against the BF16 baseline perplexity at the same step using a relative tolerance. A check-in passes if: `current_perplexity - baseline_perplexity <= baseline_perplexity * (TOLERANCE_PCT / 100)`. This means the tolerance adapts to the scale of the perplexity — it is more lenient early in training when perplexity is high and volatile, and tighter later when perplexity has settled. Only perplexity failures trigger rollbacks.
+
+**Important**: The OG2 training script logs `loss` to stdout and WandB but does NOT log perplexity directly. The agent must compute perplexity from the loss value: `perplexity = exp(loss)`.
+
+### Performance Metric: Unpadded Tokens Per Second (higher is better)
+
+Measures actual training throughput excluding padding tokens. The agent should log this at every check-in to confirm FP8 is yielding a throughput benefit. Throughput drops do NOT trigger rollbacks — they are logged for informational purposes only.
+
+### Metric Retrieval (WandB Local Files)
+
+The agent launches training as a background process with `num_train_steps=$NUM_TRAIN_STEPS` (the full target). Training runs continuously — the agent does NOT stop/restart at each check-in. Instead, it monitors WandB's local log files to read per-step metrics in near-real-time.
+
+WandB writes run data to a local directory during training. The path is printed to stdout at launch:
+
+```
+wandb: Run data is saved locally in <training_script_dir>/wandb/run-<timestamp>-<run_id>
+```
+
+A symlink `<training_script_dir>/wandb/latest-run` always points to the active run.
+
+The per-step metrics file is:
+
+```
+<training_script_dir>/wandb/latest-run/files/wandb-history.jsonl
+```
+
+Each line is a JSON object with all metrics logged at that step:
+
+```json
+{"train/global_step": 100, "train/loss": 2.72, "train/unpadded_tokens_per_second_per_gpu": 10035.6, ...}
+```
+
+**Agent monitoring loop:**
+
+1. Launch training as a background process.
+2. Poll `wandb-history.jsonl` periodically (e.g. every 30 seconds).
+3. When a new line appears where `train/global_step` matches a check-in step (`$CHECKIN_INTERVAL` multiple), parse the metrics. Key WandB fields:
+   - `train/global_step` — step number
+   - `train/loss` — compute `perplexity = exp(loss)` (compare against baseline `"perplexity"`)
+   - `train/unpadded_tokens_per_second_per_gpu` — throughput per GPU
+4. Compare perplexity against baseline (see Check-ins below).
+5. Pass → do nothing, let training continue.
+6. Fail → kill the training process, perform LKG recovery (see Milestone 2), and relaunch with updated precision schedule.
+
+Since the agent `cd`'s into `$(dirname $TRAINING_SCRIPT)` before launching, the wandb directory is relative to that working directory.
+
+### Stdout Metric Format
+
+The OG2 `perf_logger.py` also outputs metrics at every `logger.frequency` steps to stdout in this format:
+
+```
+loss: 2.94, learning_rate: 3e-05, grad_norm: 1.23, step_time: 0.456, tokens_per_second_per_gpu: 4.85e+04, unpadded_tokens_per_second_per_gpu: 4.5e+04, total_unpadded_tokens_per_batch: 12345, gpu_memory_allocated_max_gb: 65.3, gpu_memory_allocated_mean_gb: 65.3, global_step: 100
+```
+
+Key fields to parse:
+
+- `loss` — compute `perplexity = exp(loss)`
+- `unpadded_tokens_per_second_per_gpu` — throughput metric
+- `global_step` — current training step
+
+______________________________________________________________________
+
+## CLI Reference
+
+### Base Training Command (OG2-7B on Lepton)
+
+The agent constructs each training launch from this template. First `cd` into the training script directory, then run torchrun. Fields marked `← AGENT CONTROLS` are modified between launches; everything else stays fixed.
+
+```bash
+cd $(dirname $TRAINING_SCRIPT)
+torchrun \
+  --nproc_per_node=$NPROC_PER_NODE \
+  --nnodes=$NNODES \
+  --rdzv_backend=c10d \
+  --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
+  $(basename $TRAINING_SCRIPT) \
+  --config-name $CONFIG_NAME \
+  num_train_steps=$NUM_TRAIN_STEPS \                              # ← AGENT CONTROLS
+  fp8_config.enabled=True \
+  fp8_config.fp8_recipe=transformer_engine.common.recipe.Float8BlockScaling \
+  fp8_config.fp8_format=E4M3 \
+  fp8_layers='[2,3,4,...,31]' \                                   # ← AGENT CONTROLS
+  quant_stats_config.enabled=<true|false> \                       # ← AGENT CONTROLS (see below)
+  quant_stats_config.quant_stats_file=./fp8_debugging_stats.yaml \
+  quant_stats_config.quant_log_dir=$WORKSPACE_ROOT/<run_name>/quant_stats \
+  checkpoint.ckpt_dir=$WORKSPACE_ROOT/<run_name>/checkpoints \    # ← AGENT CONTROLS
+  checkpoint.save_every_n_steps=$CHECKIN_INTERVAL \
+  checkpoint.resume_from_checkpoint=true \                        # ← AGENT CONTROLS
+  checkpoint.max_checkpoints=5 \
+  checkpoint.save_final_model=true \
+  logger.frequency=$CHECKIN_INTERVAL \
+  wandb.project=$WANDB_PROJECT \                                  # ← FIXED
+  +wandb.group=<run_name> \                                       # ← FIXED per session
+  wandb.name=<see naming convention below>                        # ← AGENT CONTROLS
+```
+
+**Notes on OG2 vs ESM2 differences:**
+
+- **No `fp4_config` or `fp4_layers`** — FP4 is not used for OG2 FP8 Block Scaling
+- **Only `fp8_layers`** controls which layers run in FP8; layers absent from the list default to BF16
+- The `og2_7b_thd_gqa_fp8` config already sets: `use_sequence_packing=true`, `use_fp32_master_weights=true`, `spike_no_more_embedding_init=true`, `use_megatron_scaled_init=true`, `dataset.*`, `adamw_kwargs.*`, `lr_scheduler_kwargs.*`
+- Multi-node Lepton: `MASTER_ADDR`/`MASTER_PORT` are provided by the Lepton environment
+
+The agent modifies these fields between launches:
+
+- `fp8_layers` — updated based on the current precision schedule
+- `num_train_steps` — always set to `$NUM_TRAIN_STEPS` (absolute target)
+- `checkpoint.ckpt_dir` — points to the run's checkpoint directory (or LKG dir on recovery)
+- `checkpoint.resume_from_checkpoint` — `true` on recovery/continuation, `false` only for the very first launch
+- `wandb.name` — updated to reflect the current precision schedule (see naming convention below)
+- `quant_stats_config.enabled` — `true` for `research_guided` only; `false` for `ends_in` and `tail_in`
+
+### Layer Precision Control
+
+Precision is controlled via a single list:
+
+- `fp8_layers=[2,3,...,31]` — layers running in FP8 Block Scaling
+- Layers NOT in `fp8_layers` default to BF16
+
+Embedding and lm_head are always in BF16 (not addressable via `fp8_layers`). The agent only manages transformer block layer indices 1-32 (1-indexed). A layer cannot appear in `fp8_layers` and also be in BF16 — its presence or absence in the list is the control.
+
+When using FP8, the recipe config must also be passed:
+
+```
+fp8_config.enabled=True
+fp8_config.fp8_recipe=transformer_engine.common.recipe.Float8BlockScaling
+fp8_config.fp8_format=E4M3
+fp8_layers=[...]
+```
+
+### WandB Run Naming Convention
+
+The agent must set `wandb.name` dynamically on each launch to reflect the current precision schedule. Format:
+
+```
+og2-7b-fp8-<fp8_range>-strat-<strategy>
+```
+
+Examples:
+
+- All 32 layers in FP8: `og2-7b-fp8-1-32-strat-ends_in`
+- Layers 3-30 in FP8: `og2-7b-fp8-3-30-strat-ends_in`
+- No FP8 (all BF16): `og2-7b-fp8-none-strat-ends_in`
+- Non-contiguous: `og2-7b-fp8-28layers-strat-research_guided`
+
+Each new training launch (after demotion/recovery) gets a new wandb run name reflecting the updated schedule.
+
+### WandB Run Grouping
+
+All launches within a single agent session share the same `+wandb.group` (set to `<run_name>`). This groups all the fragmented runs together in the WandB dashboard so you can:
+
+- Filter by group to see only runs from one agent session
+- Overlay all runs from a session on a single panel to see the full training trajectory (including rollbacks and demotions)
+
+In WandB, go to the Runs table → Group by "Group" → expand a group to see the individual segments overlaid on shared axes.
+
+### Checkpointing & Resume
+
+The training script has built-in checkpoint support. To enable:
+
+```
+checkpoint.ckpt_dir=$WORKSPACE_ROOT/<run_name>/checkpoints
+checkpoint.save_every_n_steps=$CHECKIN_INTERVAL
+checkpoint.resume_from_checkpoint=true
+```
+
+To resume after a stop or crash, re-run the exact same command. The script automatically finds the latest `step_*` checkpoint in `checkpoint.ckpt_dir`, restores state, and resumes from step + 1.
+
+**What gets restored on resume:**
+
+- Model weights, optimizer state (AdamW moments), LR scheduler, step counter, epoch counter
+
+**NOT restored:**
+
+- Dataloader position (`use_stateful_dataloader` currently disabled)
+
+**Key behavior:**
+
+- `num_train_steps` is an absolute target, not relative. Resuming at step 400 with `num_train_steps=$NUM_TRAIN_STEPS` trains steps 401–`$NUM_TRAIN_STEPS`.
+- `checkpoint.resume_from_checkpoint=false` forces a fresh start even if checkpoints exist.
+- Checkpoints are saved as `<ckpt_dir>/train_fsdp2/step_<N>/`.
+
+Additional checkpoint flags:
+
+```
+checkpoint.max_checkpoints=5         # keep only N most recent (saves disk)
+checkpoint.save_final_model=true     # save .safetensors at end of training
+```
+
+This is how the agent implements LKG recovery: it sets `checkpoint.ckpt_dir` to the LKG checkpoint directory, sets `checkpoint.resume_from_checkpoint=true`, and relaunches with updated `fp8_layers`.
+
+### Quantization Stats Logging
+
+TransformerEngine provides per-layer quantization statistics (underflow %, scale_inv_min, scale_inv_max, MSE). These are **only used by the `research_guided` strategy**.
+
+When enabled (`research_guided` only), these flags apply:
+
+```
+quant_stats_config.enabled=true
+quant_stats_config.quant_stats_file=./fp8_debugging_stats.yaml
+quant_stats_config.quant_log_dir=$WORKSPACE_ROOT/<run_name>/quant_stats
+```
+
+Stats are logged to `<quant_log_dir>/rank_*/nvdlfw_inspect_statistics_logs/`. Logging frequency is controlled via the `freq` parameter in the stats YAML config. Available stats for FP8 Block Scaling:
+
+- `underflows%` — percentage of non-zero elements rounded to zero after quantization
+- `scale_inv_min` / `scale_inv_max` — range of inverse scaling factors across blocks
+- `mse` — mean squared error between quantized and original tensor
+
+These are collected per layer, per tensor type (activation, gradient, weight).
+
+For `ends_in` and `tail_in`: set `quant_stats_config.enabled=false`. These strategies use deterministic demotion orders and do not need runtime quant signals.
+
+Reference implementation: `quantization.py` in this recipe directory.
+
+______________________________________________________________________
+
+## Precision Levels
+
+For OG2 FP8 Block Scaling, there are only **two precision levels**:
+
+```
+FP8 (Float8BlockScaling E4M3)  →  BF16
+```
+
+Demotion is always FP8 → BF16. There is no intermediate level.
+
+______________________________________________________________________
+
+## Promotion Strategies
+
+The agent uses `PROMOTION_STRATEGY` to decide which layers to **demote from FP8 to BF16** when a check-in fails. Three strategies are available:
+
+### Strategy 1: `ends_in` (default)
+
+Demote `LAYERS_PER_PROMOTION` layers per failed check-in, working inward from both ends simultaneously:
+
+```
+Failure 1: demote layers 1, 32    (outermost pair)
+Failure 2: demote layers 2, 31
+Failure 3: demote layers 3, 30
+Failure 4: demote layers 4, 29
+...continuing inward...
+Last: layers 16, 17              (very center, last to be demoted)
+```
+
+**Rationale**: Edge layers (closest to embedding input and projection output) are more sensitive to quantization error. Middle layers are most tolerant. Never demote from the middle outward.
+
+See [OG2_STRATEGY_ENDS_IN.md](OG2_STRATEGY_ENDS_IN.md) for full pseudocode, demotion table, and worked example.
+
+### Strategy 2: `tail_in`
+
+Demote `LAYERS_PER_PROMOTION` layers per failed check-in, starting from the last layer and working toward the first. The agent decides how many total layers to demote — there is no fixed cap.
+
+```
+Failure 1: demote layers 32, 31   (last 2 layers)
+Failure 2: demote layers 30, 29   (next 2 toward head)
+Failure 3: demote layers 28, 27
+...continuing toward layer 1...
+```
+
+**Rationale**: The final layers of a transformer (closest to the output projection) are typically most sensitive to quantization error. Demoting from the tail inward addresses the most sensitive layers first.
+
+See [OG2_STRATEGY_TAIL_IN.md](OG2_STRATEGY_TAIL_IN.md) for full pseudocode, demotion table, and worked example.
+
+### Strategy 3: `research_guided`
+
+This is the **only strategy that enables quant stats logging**. Set `quant_stats_config.enabled=true` in the training command.
+
+Use the quant stats (underflow %, scale_inv_min, scale_inv_max, MSE) to collect per-layer sensitivity signals at runtime. The agent should:
+
+1. Run an initial segment (e.g. first `CHECKIN_INTERVAL` steps) with all layers in FP8 and quant stats enabled.
+2. Collect quant stats and identify which layers show the highest underflow/MSE.
+3. When a check-in fails, demote the layers with the worst quant stats first (rather than following a fixed geometric pattern).
+4. Document in `report.md` how the demotion order was derived from the runtime quant stats, and how it differs from `ends_in` / `tail_in`.
+
+This strategy is exploratory. The agent has freedom to define the demotion order based on runtime quant stats, but must still respect the check-in / rollback loop and log all decisions to `history.json` and `report.md`.
+
+______________________________________________________________________
+
+## Check-ins
+
+Every `CHECKIN_INTERVAL` training steps, the agent performs a check-in:
+
+1. **Record** the current perplexity: `current_perplexity = exp(loss)`.
+2. **Look up** the BF16 baseline perplexity for this step from `BASELINE_LOGFILE`.
+3. **Compute tolerance** for this step: `allowed_delta = baseline_perplexity * (TOLERANCE_PCT / 100)`.
+4. **Pass** if: `current_perplexity - baseline_perplexity <= allowed_delta`.
+5. **Log** current `unpadded_tokens_per_second_per_gpu` for performance tracking.
+6. **Pass** → do nothing, let training continue.
+7. **Fail** → kill the training process, update precision schedule (demote `LAYERS_PER_PROMOTION` layers using `PROMOTION_STRATEGY`), and trigger recovery (Milestone 2).
+
+**IMPORTANT**: `CHECKIN_INTERVAL` must align with the baseline logfile step intervals (both are 100 steps). If the agent attempts a check-in at a step that does not exist in the baseline logfile, it must immediately stop and report the error to the user (e.g. "Baseline logfile has no entry for step\_\<N>. Check that CHECKIN_INTERVAL aligns with the baseline step intervals."). Do not interpolate or skip — fail hard.
+
+### Configuration
+
+All tunable values are defined in the "Run Variables" block at the top of this document. The agent must read those values at startup. The two metrics are fixed:
+
+- **Accuracy metric**: perplexity (lower is better)
+- **Performance metric**: unpadded_tokens_per_sec (higher is better)
+
+______________________________________________________________________
+
+## Baseline Reference Logfile
+
+Before any agent-managed training begins, a full BF16 baseline run must be completed. The baseline logfile contains per-step metrics at 100-step intervals:
+
+```json
+{
+  "step_100":  {"perplexity": 6.04, "loss": 1.80, "unpadded_tokens_per_sec": 9013},
+  "step_200":  {"perplexity": 4.16, "loss": 1.42, "unpadded_tokens_per_sec": 10047},
+  "step_300":  {"perplexity": 4.09, "loss": 1.41, "unpadded_tokens_per_sec": 10075},
+  ...
+}
+```
+
+The agent loads this file at startup. At every check-in it looks up the baseline perplexity for the current step and logs both baseline and current values. The logfile path is provided via config — do not generate baseline values within the agent loop.
+
+______________________________________________________________________
+
+## Milestone 1: Pretraining Agent Loop
+
+### Agent Objective
+
+Run as many layers as possible in FP8 while keeping perplexity within tolerance of the BF16 baseline. Start with all 32 transformer block layers in `$INITIAL_PRECISION`. Demote layers to BF16 only when check-ins fail. Stop after `$NUM_TRAIN_STEPS` steps.
+
+### Layer Precision Schedule
+
+The agent maintains a per-layer precision map for transformer block layers only:
+
+```python
+# OG2-7B: 32 transformer block layers (1-32, 1-indexed)
+layer_precision = {i: "fp8" for i in range(1, 33)}
+```
+
+This map translates directly to the `fp8_layers` CLI argument:
+
+```python
+fp8_layers = sorted(k for k, v in layer_precision.items() if v == "fp8")
+# Layers not in fp8_layers default to BF16
+```
+
+### Precision Levels & Demotion Mechanics
+
+Demotion is always FP8 → BF16. When a check-in fails, the agent removes the selected layers from `fp8_layers` (layers absent from the list default to BF16). Example: `fp8_layers=[1,2,3,...,32]` becomes `fp8_layers=[2,3,...,31]` after demoting layers 1 and 32.
+
+______________________________________________________________________
+
+## Milestone 2: Model Persistence & Recovery
+
+### Saving Checkpoints
+
+The agent uses the built-in checkpoint system (see "Checkpointing & Resume" above). Set `checkpoint.save_every_n_steps` to match `$CHECKIN_INTERVAL` so that a checkpoint exists at every check-in step. The most recent checkpoint that passed a check-in is the "last known good" (LKG).
+
+The agent must also persist alongside each checkpoint:
+
+- The current `fp8_layers` list (the layer precision schedule)
+
+(Model weights, optimizer state, LR scheduler, step counter, and RNG states are handled by the built-in checkpoint system. Each new training launch creates a new WandB run — runs are grouped via `+wandb.group`.)
+
+### Recovery on Failed Check-in
+
+1. Stop the current training run.
+2. Identify the LKG checkpoint directory (`<ckpt_dir>/train_fsdp2/step_<N>/`).
+3. Demote `LAYERS_PER_PROMOTION` layers using `PROMOTION_STRATEGY`. Update `fp8_layers` accordingly.
+4. Relaunch training with `checkpoint.resume_from_checkpoint=true` pointing at the LKG checkpoint, with the updated precision schedule.
+
+The agent discards all training progress since the last successful check-in. The assumption is that divergence started after the LKG point and the updated schedule will prevent it from recurring.
+
+### Recovery Flow Example
+
+```
+Check-in fails at step 200 (current_ppl - baseline_ppl > allowed_delta)
+→ Load LKG checkpoint (step 100)
+→ Demote layers 1, 32: FP8 → BF16 (ends_in, first demotion)
+→ Update fp8_layers to exclude [1, 32]
+→ Resume training from step 100 with new schedule
+→ Next check-in at step 200 (re-do this interval)
+
+Check-in fails again at step 200
+→ Load LKG checkpoint (step 100 again)
+→ Demote layers 2, 31: FP8 → BF16 (second demotion)
+→ Update fp8_layers to exclude [1, 2, 31, 32]
+→ Resume training from step 100
+→ ...
+```
+
+______________________________________________________________________
+
+## Milestone 3: Code Intervention Mode (Optional)
+
+Beyond adjusting the layer precision schedule, the agent can optionally be granted permission to **edit the training and model code itself** to fix precision/casting issues it discovers during training. This mode is opt-in — by default the agent must ONLY control behavior via CLI arguments.
+
+### When to Intervene
+
+The agent should consider code intervention when:
+
+- **NaN/Inf loss detected** — likely a casting or autocast bug
+- **Loss spikes that don't correlate with precision schedule changes** — may indicate a code-level issue
+- **Quant stats show anomalous patterns** across all layers (not just specific ones) — suggests a systematic bug
+- **Training crashes** with CUDA errors, dtype mismatches, or TE assertion failures
+
+### What the Agent Can Edit
+
+Files the agent is allowed to modify:
+
+- `opengenome_modeling_llama_te.py` — autocast contexts, `get_layer_autocast()`, `set_recipes()`
+- `train_fsdp2.py` — recipe creation, FSDP wrapping, precision schedule application
+- `quantization.py` — layer precision resolution logic
+
+### Example Interventions
+
+1. **Fix autocast nesting**: If the agent detects that FP8 layers have a double-nested autocast (outer FP8 + inner FP8), it can fix `get_layer_autocast()` to return `nullcontext()` for FP8 layers.
+
+2. **Fix recipe serialization**: If recipes are lost after FSDP wrapping, the agent can add/fix the `set_recipes()` call.
+
+3. **Fix dtype casting**: If embeddings or the lm_head are accidentally running in FP8, the agent can verify and fix the `te.autocast(enabled=False)` wrappers.
+
+4. **Fix loss computation precision**: If loss is computed in FP8 (causing NaN), the agent can ensure the loss function runs in BF16/FP32.
+
+### Guardrails
+
+- The agent must **log every code change** to `history.json` with a diff and rationale.
+- Code changes must be **committed to a branch** (not just edited in place) so they can be reviewed.
+- The agent should **never modify the dataset, tokenizer, or optimizer code** — only precision-related code paths.
+- After any code edit, the agent must **restart training from the LKG checkpoint** (not continue from current state).
+
+______________________________________________________________________
+
+## Agent Workspace & Artifacts
+
+All agent output must be saved under: `$WORKSPACE_ROOT/<run_name>/`
+
+The agent creates `<run_name>` at startup using the format: `<strategy>_<YYYYMMDD_HHMMSS>`
+Examples:
+
+- `ends_in_20260317_143000`
+- `tail_in_20260317_160000`
+- `research_guided_20260318_091500`
+
+The directory layout:
+
+```
+$WORKSPACE_ROOT/<run_name>/
+  checkpoints/                  # model checkpoints (set checkpoint.ckpt_dir here)
+  logs/                         # training stdout/stderr logs from each launch
+  quant_stats/                  # quantization stats output (research_guided only)
+  configs/                      # copy of every config/CLI invocation used per segment
+  graphs/                       # any plots the agent generates (perplexity vs baseline, throughput over time, etc.)
+  history.json                  # structured log of all agent decisions:
+                                #   - every check-in result (step, baseline ppl, current ppl, pass/fail)
+                                #   - every demotion event (which layers, reason)
+                                #   - every recovery event (rolled back to which step, new schedule)
+                                #   - throughput at each check-in
+  state.json                    # agent state for crash recovery
+  report.md                     # human-readable summary maintained by the agent (see below)
+```
+
+### history.json
+
+```json
+[
+  {
+    "step": 100,
+    "current_loss": 1.82,
+    "baseline_loss": 1.80,
+    "current_ppl": 6.15,
+    "baseline_ppl": 6.04,
+    "diff": 0.11,
+    "allowed_delta": 0.302,
+    "passed": true,
+    "action": "continue",
+    "fp8_layers": [1,2,3,...,32],
+    "throughput": 62000.0,
+    "timestamp": "2026-03-17T14:35:00"
+  },
+  {
+    "step": 200,
+    "current_loss": 1.49,
+    "baseline_loss": 1.42,
+    "current_ppl": 4.45,
+    "baseline_ppl": 4.16,
+    "diff": 0.29,
+    "allowed_delta": 0.208,
+    "passed": false,
+    "action": "demote_layers",
+    "demoted": [1, 32],
+    "fp8_layers": [2,3,...,31],
+    "rollback_to_step": 100,
+    "throughput": 61500.0,
+    "timestamp": "2026-03-17T15:10:00"
+  }
+]
+```
+
+### state.json (crash recovery)
+
+```json
+{
+  "current_step": 200,
+  "lkg_step": 100,
+  "promotion_round": 1,
+  "layer_precision": {"1": "bf16", "2": "fp8", ..., "31": "fp8", "32": "bf16"},
+  "fp8_layers": [2,3,4,...,31],
+  "run_name": "ends_in_20260317_143000",
+  "wandb_group": "ends_in_20260317_143000"
+}
+```
+
+### report.md
+
+The agent must maintain a `report.md` in the run directory. Update it after every check-in and at the end of training. It should contain:
+
+- Run metadata: model name, num_layers, num_train_steps, tolerance, start time
+- Final precision schedule: which layers ended in FP8 vs BF16
+- Summary of all check-in results (table or list: step, baseline ppl, current ppl, pass/fail)
+- Summary of all demotions and rollbacks
+- Throughput comparison: average unpadded tokens/sec across the run vs. the BF16 baseline average
+- Any observations from quant stats (research_guided only: layers with high underflow/overflow)
+- Conclusion: how many layers stayed in FP8, overall accuracy vs baseline, throughput gain/loss
+
+### Final Report
+
+At the end of your session (or when training completes), you MUST produce a full markdown-based final report. Create a folder inside `$RESULTS_FOLDER` with the strategy name and date, and save all deliverables there:
+
+```
+$RESULTS_FOLDER/<strategy>_<YYYYMMDD_HHMMSS>/
+  report.md                     # the final polished report
+  graphs/                       # copies of all graphs referenced in the report
+  history.json                  # copy of the run's history.json for reference
+```
+
+The folder name must be unique (strategy + timestamp) because these experiments will be run multiple times and results must not overwrite each other.
+
+The final report should be a polished, self-contained document that includes everything from the run's `report.md` plus:
+
+- A high-level executive summary (2-3 paragraphs) suitable for sharing with the team
+- Graphs and visualizations (saved to graphs/ and referenced in the report), including at minimum:
+  - **Perplexity over training steps**: baseline BF16 perplexity vs. this run's perplexity plotted on the same axes, with the tolerance band shaded. Mark any check-in failure points and demotion events on the plot.
+  - **Throughput over training steps**: unpadded tokens/sec for this run vs. the BF16 baseline.
+- Comparison against the BF16 baseline with concrete numbers
+- Recommendations for next steps (e.g. try a different strategy, adjust tolerance, change layers_per_promotion)
+- Any lessons learned or surprising findings during the run
+
+The run-level `report.md` (inside the run directory) is a living document updated during training. The final report in `$RESULTS_FOLDER` is the cleaned-up deliverable produced at the end.
+
+______________________________________________________________________
+
+## Key Constraints
+
+1. The agent is an **outer loop** around the training script. It configures precision, launches training, evaluates, and decides what to do next. Unless Milestone 3 (Code Intervention Mode) is explicitly enabled, the agent must ONLY control behavior via CLI arguments — do NOT modify the training script, config files, or any other source code.
+2. All config (tolerance_pct, interval, baseline logfile path, layers_per_promotion) must be **passed via config** — not hardcoded.
+3. All artifacts (checkpoints, logs, configs, graphs, history, report) go under `$WORKSPACE_ROOT/<run_name>/`. Final deliverables go under `$RESULTS_FOLDER/<strategy>_<YYYYMMDD_HHMMSS>/`.
+4. WandB logging is desirable: training metrics should be published to WandB when available, but WandB failures should not block the agent loop.
+5. The agent stops after reaching `$NUM_TRAIN_STEPS`. If all layers have been demoted to BF16 before that point, continue training in full BF16 for the remaining steps.
+6. **Lepton-specific**: The agent must handle multi-node torchrun setup, NFS paths for checkpoints/data, and Lepton environment variables for distributed training.
