@@ -88,6 +88,8 @@ checkpoint:
 
 logger:
   frequency: 100
+  metrics_json_path: null
+  metrics_json_frequency: 100
 
 # Validation config
 validation:

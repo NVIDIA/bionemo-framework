@@ -13,7 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
+import math
 import os
 import time
 
@@ -35,6 +37,7 @@ from torch.distributed.tensor import DTensor
 from tqdm import tqdm
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
+from agent_metrics import AgentMetricWriter
 from distributed_config import DistributedConfig
 
 
@@ -61,6 +64,20 @@ class PerfLogger:
         self.min_loss = torch.tensor(float("inf"), device=self._device)
 
         self.logging_frequency = args.logger.frequency
+
+        # Optional JSON metrics file for baseline comparison (e.g., for Claude agent optimization)
+        self._metrics_json_path = getattr(args.logger, "metrics_json_path", None)
+        self._metrics_json_frequency = getattr(args.logger, "metrics_json_frequency", 100)
+        self._metrics_json_data = {}
+
+        agent_cfg = getattr(args, "agent", None)
+        self._agent_writer = AgentMetricWriter(
+            output_path=getattr(agent_cfg, "metrics_file", "/data/agent/metrics.jsonl")
+            if agent_cfg
+            else "/data/agent/metrics.jsonl",
+            enabled=agent_cfg is not None and getattr(agent_cfg, "enabled", False),
+            is_main_process=dist_config.is_main_process(),
+        )
 
         metrics_dict = {
             "train/loss": torchmetrics.MeanMetric(),
@@ -197,6 +214,27 @@ class PerfLogger:
                     wandb.log(metrics, step=step)
                     self._progress_bar.update(self.logging_frequency)
                     self._progress_bar.set_postfix({"loss": avg_loss.item()})
+
+                    self._agent_writer.write_step(
+                        step=step,
+                        loss=avg_loss.item(),
+                        grad_norm=metrics.get("train/grad_norm", 0.0),
+                        lr=lr,
+                        step_time=step_time,
+                        tokens_per_sec=metrics.get("train/tokens_per_second_per_gpu", 0.0),
+                        gpu_mem_gb=memory_allocated,
+                    )
+
+                    # Write metrics to JSON file for baseline comparison
+                    if self._metrics_json_path and step % self._metrics_json_frequency == 0:
+                        loss_val = avg_loss.item()
+                        self._metrics_json_data[f"step_{step}"] = {
+                            "perplexity": math.exp(loss_val) if loss_val < 20 else float("inf"),
+                            "loss": loss_val,
+                            "unpadded_tokens_per_sec": metrics.get("train/unpadded_tokens_per_second_per_gpu", 0.0),
+                        }
+                        with open(self._metrics_json_path, "w") as f:
+                            json.dump(self._metrics_json_data, f, indent=2)
 
                 if self._dist_config.local_rank == 0:
                     logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))

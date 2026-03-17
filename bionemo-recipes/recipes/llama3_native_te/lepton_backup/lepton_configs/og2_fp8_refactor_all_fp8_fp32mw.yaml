@@ -1,7 +1,7 @@
 # OpenGenome2 7B - FP8 Refactor Branch Test
 # Same settings as og2-7b-fp32mw-pq2-cfi-false-lf100 but:
 #   - On savitha/og2-fp8-refactor branch (FP8 logic moved into model)
-#   - FP8 enabled on ALL layers (including first/last, no BF16 override)
+#   - FP8 with first/last 2 layers in BF16
 #   - FP32 master weights
 #   - No CP (standard FSDP2 only)
 #
@@ -11,7 +11,7 @@
 defaults:
   - _self_
 
-job_name: "og2-7b-fp8-refactor-all-fp8-fp32mw"
+job_name: "og2-7b-fp8-refactor-bf16-fl2-fp32mw"
 node_group: "yo-bom-lepton-001"
 resource_shape: "gpu.8xh100-sxm"
 
@@ -41,20 +41,25 @@ use_megatron_scaled_init: true
 use_weight_decay_grouping: true
 use_meta_device: false
 
-# FP8 enabled on ALL layers (fp8_first_last_bf16 stays false in base config)
+# FP8 with first/last 2 layers in BF16
 fp8_enabled: true
 fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
 fp8_format: E4M3
 use_fp32_master_weights: true
 
-logger_frequency: 100
+extra_hydra_overrides:
+  - "++config_kwargs.fp8_first_last_bf16=true"
+  - "++config_kwargs.num_layers_at_start_in_bf16=2"
+  - "++config_kwargs.num_layers_at_end_in_bf16=2"
 
-checkpoint_dir: "/data/savithas/checkpoints/og2-7b-fp8-refactor-all-fp8-fp32mw"  # pragma: allowlist secret
+logger_frequency: 1
+
+checkpoint_dir: "/data/savithas/checkpoints/og2-7b-fp8-refactor-bf16-fl2-fp32mw"  # pragma: allowlist secret
 save_every_n_steps: 5000
 async_save: false
 
 wandb_project: "llama3-metagenome-7b"
-wandb_name: "og2-7b-fp8-refactor-all-fp8-fp32mw"
+wandb_name: "og2-7b-fp8-refactor-bf16-fl2-fp32mw"
 wandb_secret: "wandb.savithas"  # pragma: allowlist secret
 
 hf_secret: "HUGGING_FACE_HUB_TOKEN.savithas"  # pragma: allowlist secret
