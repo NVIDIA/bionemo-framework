@@ -182,7 +182,7 @@ chmod 755 /tmp/run_claude.sh
 
 # 11. Run as non-root user, passing env vars through
 su - claude-agent -w ANTHROPIC_AUTH_TOKEN,ANTHROPIC_BASE_URL,WANDB_API_KEY \
-  bash /tmp/run_claude.sh
+  -c "bash /tmp/run_claude.sh"
 """
 
     command = ["bash", "-c", container_script]
