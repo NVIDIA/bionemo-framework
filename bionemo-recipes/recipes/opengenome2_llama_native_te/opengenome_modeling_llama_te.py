@@ -18,7 +18,7 @@
 Extends the base NVLlama model (modeling_llama_te.py) with OG2-specific features:
 - Megatron-style scaled initialization for residual output layers (proj/fc2)
 - Spike-No-More embedding initialization (std=1.0)
-- FP8 training with configurable first/last layer BF16 override
+- Layer-wise FP8/FP4 quantization with per-layer autocast
 - RoPE theta fix for transformers >=5.0 compatibility
 
 The base modeling_llama_te.py is kept as an exact CI-synced copy of models/llama3/modeling_llama_te.py.
@@ -76,19 +76,12 @@ class NVLlamaConfig(LlamaConfig):
         use_megatron_scaled_init: Whether to use Megatron's scaled initialization
             for residual output layers (attention proj, MLP fc2).
             Scaled init uses std / sqrt(2 * num_layers) for these layers.
-        fp8_first_last_bf16: When True, keeps first and last N transformer layers
-            in bf16 for FP8 numerical stability. The lm_head is always kept in bf16.
-        num_layers_at_start_in_bf16: Number of layers at the start to keep in BF16.
-        num_layers_at_end_in_bf16: Number of layers at the end to keep in BF16.
     """
 
     attn_input_format: str = "thd"
     self_attn_mask_type: str = "padding_causal"
     embedding_init_std: float | None = None  # None means use initializer_range
     use_megatron_scaled_init: bool = False  # Use scaled init for proj/fc2 (std/sqrt(2*n))
-    fp8_first_last_bf16: bool = False  # Keep first/last transformer layers in bf16 for FP8 stability
-    num_layers_at_start_in_bf16: int = 1  # Number of layers at start to keep in BF16
-    num_layers_at_end_in_bf16: int = 1  # Number of layers at end to keep in BF16
 
     def __init__(
         self,
@@ -100,7 +93,7 @@ class NVLlamaConfig(LlamaConfig):
 
         Args:
             layer_precision: Per-layer quantization precision, a list of length ``num_hidden_layers``
-                where each element is ``"fp8"`` or ``None`` (BF16 fallback). ``None``
+                where each element is ``"fp8"``, ``"fp4"``, or ``None`` (BF16 fallback). ``None``
                 (the default) means no quantization is configured.
             use_quantized_model_init: Whether to use `quantized_model_init` for layer initialization.
             **kwargs: Additional config options to pass to LlamaConfig.
@@ -113,8 +106,8 @@ class NVLlamaConfig(LlamaConfig):
             if len(layer_precision) != self.num_hidden_layers:
                 raise ValueError(f"layer_precision must be a list of length {self.num_hidden_layers}")
             for precision in layer_precision:
-                if precision not in {"fp8", None}:
-                    raise ValueError(f'layer_precision element must be "fp8" or None, got {precision!r}')
+                if precision not in {"fp8", "fp4", None}:
+                    raise ValueError(f'layer_precision element must be "fp8", "fp4", or None, got {precision!r}')
 
 
 class NVLlamaPreTrainedModel(PreTrainedModel):
@@ -277,18 +270,21 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         self,
         config: LlamaConfig,
         fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
     ):
         """Initialize the OG2 NVLlama model.
 
         Args:
             config: The configuration of the model.
-            fp8_recipe: The FP8 recipe for the model.
+            fp8_recipe: The FP8 recipe for the model (used during init for quantized_model_init).
+            fp4_recipe: The FP4 recipe for the model (used during init for quantized_model_init).
         """
         super().__init__(config)
         self.config = config
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
         self._fp8_recipe: transformer_engine.common.recipe.Recipe | None = fp8_recipe
+        self._fp4_recipe: transformer_engine.common.recipe.Recipe | None = fp4_recipe
 
         if self.config.layer_precision is None and fp8_recipe is not None:
             warnings.warn("No layer precision provided, using FP8 recipe for all layers.", UserWarning)
@@ -347,6 +343,23 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
+    def set_recipes(
+        self,
+        fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+    ) -> None:
+        """Set quantization recipes after FSDP wrapping.
+
+        Recipes are not serializable, so they cannot be passed through FSDP's ``__init__``.
+        Call this after ``fully_shard()`` to attach recipes for the forward pass.
+
+        Args:
+            fp8_recipe: The FP8 recipe for the model.
+            fp4_recipe: The FP4 recipe for the model.
+        """
+        self._fp8_recipe = fp8_recipe
+        self._fp4_recipe = fp4_recipe
+
     def get_autocast_context(self, layer_number: int | None, init: bool = False) -> ContextManager:
         """Return the appropriate TE context manager for layer initialization.
 
@@ -362,6 +375,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         if init and self.config.use_quantized_model_init:
             if precision == "fp8":
                 return transformer_engine.pytorch.quantized_model_init(recipe=self._fp8_recipe)
+            if precision == "fp4":
+                return transformer_engine.pytorch.quantized_model_init(recipe=self._fp4_recipe)
             return nullcontext()
 
         return nullcontext()
@@ -371,6 +386,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         The context interacts with the outer FP8 autocast in the forward method:
         - FP8 layer: nullcontext() -- lets the outer FP8 autocast take effect.
+        - FP4 layer: te.autocast(enabled=True, recipe=fp4_recipe) -- enables FP4 compute.
         - BF16 layer: te.autocast(enabled=False) -- disables quantized compute.
 
         Args:
@@ -382,6 +398,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         precision = self.config.layer_precision[layer_number] if self.config.layer_precision is not None else None
         if precision == "fp8":
             return nullcontext()
+        if precision == "fp4":
+            return transformer_engine.pytorch.autocast(enabled=True, recipe=self._fp4_recipe)
         return transformer_engine.pytorch.autocast(enabled=False)
 
     def forward(
@@ -496,15 +514,17 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         self,
         config,
         fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
     ):
         """Initialize the OG2 NVLlamaForCausalLM model.
 
         Args:
             config: The configuration of the model.
             fp8_recipe: The FP8 recipe for the model.
+            fp4_recipe: The FP4 recipe for the model.
         """
         super().__init__(config)
-        self.model = NVLlamaModel(config, fp8_recipe=fp8_recipe)
+        self.model = NVLlamaModel(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
         self.vocab_size = config.vocab_size
         with transformer_engine.pytorch.quantized_model_init(enabled=False):
             self.lm_head = transformer_engine.pytorch.Linear(

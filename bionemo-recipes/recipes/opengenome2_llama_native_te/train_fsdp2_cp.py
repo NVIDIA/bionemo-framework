@@ -67,10 +67,10 @@ from checkpoint import (
 from collator import ContextParallelDataLoaderWrapper, DataCollatorForContextParallel
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
-from fp8_debugging import initialize_fp8_debugging
 from opengenome_modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from optimizer import get_parameter_groups_with_weight_decay
 from perf_logger import PerfLogger
+from quantization import initialize_quant_stats_logging, resolve_layer_precision
 from scheduler import get_cosine_annealing_schedule_with_warmup
 
 
@@ -115,9 +115,7 @@ def main(args: DictConfig) -> float | None:
     seed = getattr(args, "seed", 42)
     set_seed(seed)
 
-    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
-    if args.fp8_stats_config.enabled:
-        initialize_fp8_debugging(dist_config, **args.fp8_stats_config, fp8_enabled=args.fp8_config.enabled)
+    # Quant stats logging is initialized later, after layer_precision is resolved.
 
     device_mesh = init_device_mesh(
         "cuda",
@@ -131,6 +129,15 @@ def main(args: DictConfig) -> float | None:
     if args.fp8_config.enabled:
         fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
             fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
+
+    # Create FP4 recipe -- only used if FP4 is enabled in the config.
+    fp4_recipe = None
+    fp4_config = getattr(args, "fp4_config", None)
+    fp4_enabled = fp4_config is not None and getattr(fp4_config, "enabled", False)
+    if fp4_enabled:
+        fp4_recipe = hydra.utils.get_class(fp4_config.fp4_recipe)(
+            **OmegaConf.to_container(fp4_config.fp4_recipe_kwargs, resolve=True)
         )
 
     # Validate config: meta-device init breaks custom initialization
@@ -160,17 +167,26 @@ def main(args: DictConfig) -> float | None:
         config_kwargs["use_megatron_scaled_init"] = True
         logger.info("Megatron scaled init enabled: proj/fc2 use std/sqrt(2*num_layers)")
 
+    # Handle quantized model init for FP8 layers
+    quantized_init_cfg = getattr(args.fp8_config, "quantized_model_init_kwargs", None)
+    if quantized_init_cfg is not None and getattr(quantized_init_cfg, "enabled", False):
+        config_kwargs["use_quantized_model_init"] = True
+        logger.info("Quantized model init enabled for FP8 layers")
+
     config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
 
-    # Build layer_precision from backward-compatible fp8_first_last_bf16 config
-    if args.fp8_config.enabled:
-        n = config.num_hidden_layers
-        if getattr(config, "fp8_first_last_bf16", False):
-            n_start = getattr(config, "num_layers_at_start_in_bf16", 1)
-            n_end = getattr(config, "num_layers_at_end_in_bf16", 1)
-            config.layer_precision = [None] * n_start + ["fp8"] * (n - n_start - n_end) + [None] * n_end
-        else:
-            config.layer_precision = ["fp8"] * n
+    # Resolve layer-wise quantization precision (FP8/FP4/BF16) from config
+    fp8_layers_cfg = getattr(args, "fp8_layers", None)
+    fp4_layers_cfg = getattr(args, "fp4_layers", None)
+    layer_precision = resolve_layer_precision(
+        num_layers=config.num_hidden_layers,
+        fp8_enabled=args.fp8_config.enabled,
+        fp4_enabled=fp4_enabled,
+        fp8_layers=OmegaConf.to_container(fp8_layers_cfg, resolve=True) if fp8_layers_cfg is not None else None,
+        fp4_layers=OmegaConf.to_container(fp4_layers_cfg, resolve=True) if fp4_layers_cfg is not None else None,
+    )
+    config.layer_precision = layer_precision
+    logger.info(f"Layer precision: {layer_precision}")
 
     # Log initialization settings
     std = getattr(config, "initializer_range", 0.02)
@@ -185,7 +201,7 @@ def main(args: DictConfig) -> float | None:
 
     # --- Model Initialization ---
     with torch.device("meta") if args.use_meta_device else nullcontext():
-        model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe)
+        model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -222,15 +238,28 @@ def main(args: DictConfig) -> float | None:
             torch.cuda.Stream(),
         )
 
+    # Set recipes after FSDP wrapping (recipes are not serializable through FSDP init)
+    model.model.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+
     # If using meta device, move sharded weights to cuda and initialize parameters.
     # WARNING: meta-device init breaks Megatron-style scaled init for proj/fc2.
     # Use use_meta_device=false when using use_megatron_scaled_init or spike_no_more_embedding_init.
     if args.use_meta_device:
         model.init_empty_weights()
 
-    # Assign names to layers so debug API can identify them
-    if args.fp8_stats_config.enabled and HAS_NVDLFW_INSPECT:
-        debug_api.infer_and_assign_layer_names(model)
+    # Initialize quant stats logging (debug API) if enabled
+    quant_stats_config = getattr(args, "quant_stats_config", None)
+    if quant_stats_config is not None and getattr(quant_stats_config, "enabled", False):
+        if HAS_NVDLFW_INSPECT:
+            initialize_quant_stats_logging(
+                quant_stats_file=quant_stats_config.quant_stats_file,
+                quant_log_dir=quant_stats_config.quant_log_dir,
+                rank=dist_config.rank,
+                layer_precision=layer_precision,
+            )
+            debug_api.infer_and_assign_layer_names(model)
+        else:
+            logger.warning("quant_stats_config.enabled=True but nvdlfw_inspect is not installed, skipping")
 
     # --- Optimizer & Scheduler ---
     adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
