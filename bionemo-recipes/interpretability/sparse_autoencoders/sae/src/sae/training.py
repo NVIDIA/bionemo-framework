@@ -635,16 +635,17 @@ class Trainer:
         if self.perf_logger is not None and self.rank == 0:
             self.perf_logger.finish()
 
-        # Save final checkpoint (only on rank 0)
+        # Sync all ranks and tear down process group BEFORE checkpoint save,
+        # so rank 0's potentially slow I/O doesn't cause NCCL timeout on other ranks
+        if self.world_size > 1 and dist.is_initialized():
+            dist.barrier()
+            dist.destroy_process_group()
+
+        # Save final checkpoint (only on rank 0, after process group teardown)
         if self.rank == 0 and self.config.checkpoint_dir is not None:
             ckpt_path = Path(self.config.checkpoint_dir) / "checkpoint_final.pt"
             self.save_checkpoint(ckpt_path, optimizer)
             self._print_rank0(f"Saved final checkpoint: {ckpt_path}")
-
-        # Sync all ranks and tear down process group (prevents NCCL timeout during cleanup)
-        if self.world_size > 1 and dist.is_initialized():
-            dist.barrier()
-            dist.destroy_process_group()
 
         # Training complete
         final_loss = epoch_losses[-1] if epoch_losses else float("nan")
