@@ -124,7 +124,9 @@ Each line is a JSON object with all metrics logged at that step:
    - `train/unpadded_tokens_per_second_per_gpu` — throughput per GPU
 4. Compare perplexity against baseline (see Check-ins below).
 5. Pass → do nothing, let training continue.
-6. Fail → kill the training process, perform LKG recovery (see Milestone 2), and relaunch with updated precision schedule.
+6. Fail → kill the training process **IMMEDIATELY**, then perform LKG recovery (see Milestone 2), and relaunch with updated precision schedule.
+
+If multiple new check-in steps appear between polls, process them in order (lowest step first). Kill on the **FIRST** failure — do not continue evaluating later steps. This ensures the LKG checkpoint hasn't been auto-deleted by `max_checkpoints` before the agent acts.
 
 Since the agent `cd`'s into `$(dirname $TRAINING_SCRIPT)` before launching, the wandb directory is relative to that working directory.
 
@@ -171,8 +173,9 @@ torchrun \
   checkpoint.ckpt_dir=$CHECKPOINT_ROOT/<run_name> \               # ← FIXED (same dir for entire session)
   checkpoint.save_every_n_steps=$CHECKIN_INTERVAL \
   checkpoint.resume_from_checkpoint=true \                        # ← FIXED (always true; auto-finds latest checkpoint)
-  checkpoint.max_checkpoints=2 \
+  checkpoint.max_checkpoints=4 \
   checkpoint.save_final_model=true \
+  hydra.run.dir=$WORKSPACE_ROOT/<run_name>/hydra_outputs \
   wandb.project=$WANDB_PROJECT \                                  # ← FIXED
   +wandb.group=<run_name> \                                       # ← FIXED (computed once at session start, never changes)
   wandb.name=<see naming convention below>                        # ← AGENT CONTROLS
@@ -280,7 +283,7 @@ To resume after a stop or crash, re-run the exact same command. The script autom
 Additional checkpoint flags:
 
 ```
-checkpoint.max_checkpoints=2         # keep only 2 most recent (LKG + current)
+checkpoint.max_checkpoints=4         # keep 4 most recent (buffer so LKG isn't auto-deleted before agent can act)
 checkpoint.save_final_model=true     # save .safetensors at end of training
 ```
 
@@ -460,7 +463,7 @@ The agent must also persist alongside each checkpoint:
 1. Kill the current training process.
 2. Delete any checkpoint newer than the LKG from the checkpoint directory (e.g. if LKG is `step_400` and `step_500` exists, delete `step_500`). This ensures the script resumes from the LKG on relaunch.
 3. Demote `LAYERS_PER_PROMOTION` layers using `PROMOTION_STRATEGY`. Update `fp8_layers` accordingly.
-4. Relaunch training with the updated precision schedule. `checkpoint.ckpt_dir` stays the same — the script auto-finds the latest remaining checkpoint (the LKG).
+4. Relaunch training with the updated precision schedule. Do NOT change `num_train_steps` — keep it at `$NUM_TRAIN_STEPS`. The checkpoint stores the step counter; the script automatically loads the LKG, reads the step from it, and resumes toward the same target. `checkpoint.ckpt_dir` stays the same — the script auto-finds the latest remaining checkpoint (the LKG).
 
 The agent discards all training progress since the last successful check-in. The assumption is that divergence started after the LKG point and the updated schedule will prevent it from recurring.
 
