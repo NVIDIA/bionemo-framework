@@ -526,9 +526,10 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         if self.config.tensor_parallel:
             # If using TP, shard your activation across the TP group,
             # to support row-wise tensor parallelism in the LM head.
+            # Use ... to support both BSHD (3D) and THD (2D) hidden states.
             tp_rank = self.tp_mesh.get_local_rank()
             tp_stride = hidden_states.shape[-1] // self.config.tp_size
-            hidden_states = hidden_states[:, :, tp_rank * tp_stride : (tp_rank + 1) * tp_stride]
+            hidden_states = hidden_states[..., tp_rank * tp_stride : (tp_rank + 1) * tp_stride]
 
         with transformer_engine.pytorch.autocast(enabled=False):
             if hidden_states.ndim == 3:
