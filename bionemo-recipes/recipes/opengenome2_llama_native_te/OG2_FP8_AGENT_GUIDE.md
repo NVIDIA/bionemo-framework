@@ -6,15 +6,15 @@ These can be edited by the user before each run.
 
 ```
 TOLERANCE_PCT          = 5.0                           # max allowed perplexity difference as % of baseline (e.g. 5.0 = 5%)
-BASELINE_LOGFILE       = <NFS_PATH>/baseline_bf16.json # BF16 baseline metrics logfile
+BASELINE_LOGFILE       = ./baseline_bf16.json          # BF16 baseline (co-located with this guide)
 NUM_TRAIN_STEPS        = ???                           # total training steps; agent stops here
 CHECKIN_INTERVAL       = 100                           # steps between check-ins (must align with baseline logfile steps)
 LAYERS_PER_PROMOTION   = 2                             # layers demoted to BF16 per failed check-in
 NUM_LAYERS             = 32                            # transformer block layers (OG2-7B has layers 1-32)
 INITIAL_PRECISION      = fp8                           # starting precision for all transformer block layers
 PROMOTION_STRATEGY     = ends_in                       # "ends_in", "tail_in", or "research_guided" (see Promotion Strategies below)
-WORKSPACE_ROOT         = <NFS_PATH>/agent_runs         # root for all agent output
-RESULTS_FOLDER         = <NFS_PATH>/agent_runs/results/$PROMOTION_STRATEGY  # final reports, scoped by strategy
+WORKSPACE_ROOT         = /data/savithas/agent_runs      # root for all agent output (NFS)
+RESULTS_FOLDER         = /data/savithas/agent_runs/results/$PROMOTION_STRATEGY  # final reports, scoped by strategy
 
 # Training script & model
 TRAINING_SCRIPT        = train_fsdp2.py
