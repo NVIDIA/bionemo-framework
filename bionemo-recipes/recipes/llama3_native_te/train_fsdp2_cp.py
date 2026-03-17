@@ -127,7 +127,7 @@ def main(args: DictConfig) -> float | None:
             recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
         ),
     ):
-        model = NVLlamaForCausalLM(config)
+        model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     logger.info("Initialized Model:\n%s", model)
 

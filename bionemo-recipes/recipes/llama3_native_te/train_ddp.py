@@ -119,7 +119,11 @@ def main(args: DictConfig) -> float | None:
     with transformer_engine.pytorch.quantized_model_init(
         recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
     ):
-        model = model_class(config)
+        model = (
+            model_class(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+            if model_class is NVLlamaForCausalLM
+            else model_class(config)
+        )
 
     logger.info("Initialized Model:\n%s", model)
 
