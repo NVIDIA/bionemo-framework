@@ -347,28 +347,15 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-    def get_autocast_context(
-        self, layer_number: int | None, init: bool = False, outer: bool = False
-    ) -> ContextManager:
-        """Return the appropriate TE autocast context manager for a given layer.
-
-        This function handles both the quantized_model_init during layer creation and the te.autocast() during layer
-        forward pass.
+    def get_autocast_context(self, layer_number: int | None, init: bool = False) -> ContextManager:
+        """Return the appropriate TE context manager for layer initialization.
 
         Args:
             layer_number: The 0-indexed layer number.
             init: Whether to return a `quantized_model_init` context for layer initialization.
-            outer: Whether to return a global te.autocast() context to wrap the entire model stack.
         """
         if self.config.layer_precision is None:
             return nullcontext()
-
-        if outer:
-            if "fp8" not in self.config.layer_precision:
-                return nullcontext()
-            if self._fp8_recipe is None:
-                warnings.warn("No FP8 recipe provided, using default recipe.", UserWarning)
-            return transformer_engine.pytorch.autocast(enabled=True, recipe=self._fp8_recipe)
 
         precision = self.config.layer_precision[layer_number]
 
@@ -377,10 +364,24 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                 return transformer_engine.pytorch.quantized_model_init(recipe=self._fp8_recipe)
             return nullcontext()
 
+        return nullcontext()
+
+    def get_layer_autocast(self, layer_number: int) -> ContextManager:
+        """Return the appropriate TE autocast context manager for a given layer.
+
+        The context interacts with the outer FP8 autocast in the forward method:
+        - FP8 layer: nullcontext() -- lets the outer FP8 autocast take effect.
+        - BF16 layer: te.autocast(enabled=False) -- disables quantized compute.
+
+        Args:
+            layer_number: The 0-indexed layer number.
+
+        Returns:
+            A context manager for the layer's quantization mode.
+        """
+        precision = self.config.layer_precision[layer_number] if self.config.layer_precision is not None else None
         if precision == "fp8":
-            if self._fp8_recipe is None:
-                warnings.warn("No FP8 recipe provided, using default recipe.", UserWarning)
-            return transformer_engine.pytorch.autocast(enabled=True, recipe=self._fp8_recipe)
+            return nullcontext()
         return transformer_engine.pytorch.autocast(enabled=False)
 
     def forward(
@@ -449,12 +450,14 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             te_rope_emb = self.rotary_emb(max_seq_len=self.config.max_position_embeddings)
             assert te_rope_emb.dtype == torch.float32, "RoPE embeddings should be float32 for optimal performance"
 
-        with self.get_autocast_context(None, outer=True):
+        # Outer FP8 autocast enables FP8 compute for the decoder stack. Per-layer overrides (BF16) are handled
+        # by get_layer_autocast(), which nests inside this context.
+        with transformer_engine.pytorch.autocast(enabled=self._fp8_recipe is not None, recipe=self._fp8_recipe):
             for layer_idx, decoder_layer in enumerate(self.layers[: self.config.num_hidden_layers]):
                 if output_hidden_states:
                     all_hidden_states = (*all_hidden_states, hidden_states)
 
-                with self.get_autocast_context(layer_idx):
+                with self.get_layer_autocast(layer_idx):
                     hidden_states = decoder_layer(
                         hidden_states,
                         attention_mask=None if self.config.attn_input_format == "thd" else attention_mask,
