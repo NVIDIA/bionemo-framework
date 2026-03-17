@@ -58,7 +58,6 @@ from checkpoint import (
     save_final_model_fsdp2,
     should_save_checkpoint,
 )
-from control_plane import ControlPlane, ControlPlaneConfig
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from fp8_debugging import initialize_fp8_debugging
@@ -269,19 +268,6 @@ def main(args: DictConfig) -> float | None:
 
     perf_logger = PerfLogger(dist_config, args)
 
-    # Setup agent control plane for live hot-reload interventions
-    agent_cfg = getattr(args, "agent", None)
-    cp_config = ControlPlaneConfig(
-        enabled=agent_cfg is not None and getattr(agent_cfg, "enabled", False),
-        control_file=getattr(agent_cfg, "control_file", "/data/agent/control.yaml")
-        if agent_cfg
-        else "/data/agent/control.yaml",
-        poll_every_n_steps=getattr(agent_cfg, "poll_every_n_steps", 1) if agent_cfg else 1,
-        cooldown_steps=getattr(agent_cfg, "cooldown_steps", 500) if agent_cfg else 500,
-    )
-    control_plane = ControlPlane(cp_config, rank=dist_config.rank)
-    current_grad_clip = 1.0
-
     # Setup validation if enabled
     val_config = getattr(args, "validation", None)
     val_enabled = val_config is not None and getattr(val_config, "enabled", False)
@@ -344,7 +330,7 @@ def main(args: DictConfig) -> float | None:
             if micro_step % args.grad_acc_steps == 0:
                 micro_step = 0
 
-                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=current_grad_clip)
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
                 optimizer.step()
                 scheduler.step()
@@ -355,38 +341,6 @@ def main(args: DictConfig) -> float | None:
                     grad_norm=total_norm,
                     lr=optimizer.param_groups[0]["lr"],
                 )
-
-                # Agent control plane: poll for hot-reload interventions
-                control_plane.poll(step)
-                if control_plane.has_update():
-                    interventions = control_plane.consume()
-                    if "learning_rate" in interventions:
-                        for pg in optimizer.param_groups:
-                            pg["lr"] = interventions["learning_rate"]
-                        logger.info("Agent intervention: LR → %s", interventions["learning_rate"])
-                    if "grad_clip_norm" in interventions:
-                        current_grad_clip = interventions["grad_clip_norm"]
-                        logger.info("Agent intervention: grad_clip → %s", current_grad_clip)
-                    if "logging_frequency" in interventions:
-                        perf_logger.logging_frequency = int(interventions["logging_frequency"])
-                        logger.info("Agent intervention: logging_frequency → %s", perf_logger.logging_frequency)
-                    if interventions.get("request_checkpoint_and_stop"):
-                        logger.info("Agent requested checkpoint-and-stop at step %d", step)
-                        if ckpt_path:
-                            save_checkpoint_fsdp2(
-                                model=model,
-                                optimizer=optimizer,
-                                scheduler=scheduler,
-                                ckpt_path=ckpt_path,
-                                step=step,
-                                epoch=epoch,
-                                dist_config=dist_config,
-                                dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                                process_group=device_mesh.get_group("dp"),
-                                max_checkpoints=args.checkpoint.max_checkpoints,
-                                async_save=False,
-                            )
-                        break
 
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                     save_checkpoint_fsdp2(
