@@ -358,6 +358,7 @@ class AppState(Stateful):
         default_factory=lambda: StateDictOptions(
             full_state_dict=False,
             cpu_offload=True,
+            strict=False,
         )
     )
 
