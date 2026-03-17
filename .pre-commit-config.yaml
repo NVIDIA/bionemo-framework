@@ -44,5 +44,3 @@ repos:
     rev: v8.24.2
     hooks:
       - id: gitleaks
-        entry: ./ci/scripts/run_gitleaks.sh
-        pass_filenames: true
