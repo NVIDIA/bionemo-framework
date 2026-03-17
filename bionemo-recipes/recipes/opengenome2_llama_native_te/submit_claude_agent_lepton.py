@@ -68,10 +68,15 @@ def _build_warm_start_section(cfg: DictConfig) -> str:
     fp8_layers = list(OmegaConf.to_container(warm_start.fp8_layers, resolve=True))
     strategy = cfg.get("promotion_strategy", "ends_in")
 
+    # Compute which layers are BF16 (not in fp8_layers)
+    num_layers = 32  # OG2-7B has 32 transformer layers
+    bf16_layers = sorted(set(range(1, num_layers + 1)) - set(fp8_layers))
+
     lines = [
         "## Warm Start from Existing Checkpoint",
         "",
         "This run resumes from an existing checkpoint with a pre-configured precision schedule.",
+        f"Layers {bf16_layers} are already in BF16; layers {fp8_layers} are in FP8.",
         "Do NOT start from scratch. Follow the warm-start procedure below.",
         "",
         "```",
@@ -143,6 +148,7 @@ def _build_agent_prompt(cfg: DictConfig) -> str:
         gpus_per_node=cfg.gpus_per_node,
         num_train_steps=cfg.num_train_steps,
         checkin_interval=cfg.get("checkin_interval", 100),
+        tolerance_pct=cfg.get("tolerance_pct", 5.0),
         promotion_strategy=cfg.get("promotion_strategy", "ends_in"),
         workspace_root=cfg.get("workspace_root", "/data/savithas/agent_runs"),
         checkpoint_root=cfg.get("checkpoint_root", "/data/savithas/checkpoints"),

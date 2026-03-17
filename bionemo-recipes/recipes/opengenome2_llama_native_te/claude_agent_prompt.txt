@@ -29,6 +29,7 @@ Apply these values to the Run Variables section of the guide:
 BASELINE_LOGFILE       = {code_path}/baseline_bf16.json
 NUM_TRAIN_STEPS        = {num_train_steps}
 CHECKIN_INTERVAL       = {checkin_interval}
+TOLERANCE_PCT          = {tolerance_pct}
 PROMOTION_STRATEGY     = {promotion_strategy}
 WORKSPACE_ROOT         = {workspace_root}
 CHECKPOINT_ROOT        = {checkpoint_root}
@@ -38,7 +39,7 @@ NPROC_PER_NODE         = {gpus_per_node}
 NNODES                 = {num_nodes}
 ```
 
-All other Run Variables (TOLERANCE_PCT, LAYERS_PER_PROMOTION, NUM_LAYERS, etc.) use the guide defaults.
+All other Run Variables (LAYERS_PER_PROMOTION, NUM_LAYERS, etc.) use the guide defaults.
 
 {warm_start_section}
 
