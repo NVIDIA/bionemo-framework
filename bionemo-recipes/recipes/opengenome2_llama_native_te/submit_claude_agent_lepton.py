@@ -151,12 +151,8 @@ chmod 644 /tmp/agent_prompt.txt
 cat > /tmp/run_claude.sh << 'WRAPPER_EOF'
 #!/bin/bash
 set -e
-export ANTHROPIC_AUTH_TOKEN="${{ANTHROPIC_AUTH_TOKEN}}"
-export ANTHROPIC_BASE_URL="${{ANTHROPIC_BASE_URL}}"
-export WANDB_API_KEY="${{WANDB_API_KEY}}"
-export HF_HOME=/data/savithas/cache
-export PATH=/usr/local/cuda/bin:/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH
-export LD_LIBRARY_PATH=/usr/local/cuda/lib64:${{LD_LIBRARY_PATH:-}}
+# Environment is inherited from root via 'su' (no dash), so CUDA, NCCL,
+# HPC-X, LD_LIBRARY_PATH, etc. are all already set.
 
 cd {cfg.code_path}
 
@@ -181,9 +177,8 @@ echo "=========================================="
 WRAPPER_EOF
 chmod 755 /tmp/run_claude.sh
 
-# 11. Run as non-root user, passing env vars through
-su - claude-agent -w ANTHROPIC_AUTH_TOKEN,ANTHROPIC_BASE_URL,WANDB_API_KEY \
-  -c "bash /tmp/run_claude.sh"
+# 11. Run as non-root user, preserving full environment (no dash = keep env)
+su claude-agent -c "bash /tmp/run_claude.sh"
 """
 
     command = ["bash", "-c", container_script]
