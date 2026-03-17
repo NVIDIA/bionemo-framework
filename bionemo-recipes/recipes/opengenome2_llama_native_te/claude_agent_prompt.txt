@@ -31,6 +31,7 @@ NUM_TRAIN_STEPS        = {num_train_steps}
 CHECKIN_INTERVAL       = {checkin_interval}
 PROMOTION_STRATEGY     = {promotion_strategy}
 WORKSPACE_ROOT         = {workspace_root}
+CHECKPOINT_ROOT        = {checkpoint_root}
 RESULTS_FOLDER         = {workspace_root}/results/{promotion_strategy}
 WANDB_PROJECT          = {wandb_project}
 NPROC_PER_NODE         = {gpus_per_node}
@@ -38,6 +39,8 @@ NNODES                 = {num_nodes}
 ```
 
 All other Run Variables (TOLERANCE_PCT, LAYERS_PER_PROMOTION, NUM_LAYERS, etc.) use the guide defaults.
+
+{warm_start_section}
 
 ## Instructions
 

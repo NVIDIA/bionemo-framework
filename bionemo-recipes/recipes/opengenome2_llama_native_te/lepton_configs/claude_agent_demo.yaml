@@ -22,6 +22,7 @@ num_train_steps: 250
 checkin_interval: 50
 promotion_strategy: "ends_in"
 workspace_root: "/data/savithas/agent_runs/demo"
+checkpoint_root: "/data/savithas/checkpoints"
 
 # Claude Code config
 claude_model: "aws/anthropic/bedrock-claude-opus-4-6"

@@ -14,6 +14,7 @@ NUM_LAYERS             = 32                            # transformer block layer
 INITIAL_PRECISION      = fp8                           # starting precision for all transformer block layers
 PROMOTION_STRATEGY     = ends_in                       # "ends_in", "tail_in", or "research_guided" (see Promotion Strategies below)
 WORKSPACE_ROOT         = /data/savithas/agent_runs      # root for all agent output (NFS)
+CHECKPOINT_ROOT        = /data/savithas/checkpoints     # root for model checkpoints (NFS)
 RESULTS_FOLDER         = /data/savithas/agent_runs/results/$PROMOTION_STRATEGY  # final reports, scoped by strategy
 
 # Training script & model
@@ -166,10 +167,10 @@ torchrun \
   quant_stats_config.enabled=<true|false> \                       # ← AGENT CONTROLS (see below)
   quant_stats_config.quant_stats_file=./fp8_debugging_stats.yaml \
   quant_stats_config.quant_log_dir=$WORKSPACE_ROOT/<run_name>/quant_stats \
-  checkpoint.ckpt_dir=$WORKSPACE_ROOT/<run_name>/checkpoints \    # ← AGENT CONTROLS
+  checkpoint.ckpt_dir=$CHECKPOINT_ROOT/<run_name> \               # ← FIXED (same dir for entire session)
   checkpoint.save_every_n_steps=$CHECKIN_INTERVAL \
-  checkpoint.resume_from_checkpoint=true \                        # ← AGENT CONTROLS
-  checkpoint.max_checkpoints=5 \
+  checkpoint.resume_from_checkpoint=true \                        # ← FIXED (always true; auto-finds latest checkpoint)
+  checkpoint.max_checkpoints=2 \
   checkpoint.save_final_model=true \
   logger.frequency=$CHECKIN_INTERVAL \
   wandb.project=$WANDB_PROJECT \                                  # ← FIXED
@@ -187,11 +188,15 @@ torchrun \
 The agent modifies these fields between launches:
 
 - `fp8_layers` — updated based on the current precision schedule
-- `num_train_steps` — always set to `$NUM_TRAIN_STEPS` (absolute target)
-- `checkpoint.ckpt_dir` — points to the run's checkpoint directory (or LKG dir on recovery)
-- `checkpoint.resume_from_checkpoint` — `true` on recovery/continuation, `false` only for the very first launch
 - `wandb.name` — updated to reflect the current precision schedule (see naming convention below)
 - `quant_stats_config.enabled` — `true` for `research_guided` only; `false` for `ends_in` and `tail_in`
+
+These fields are FIXED for the entire session (never change between launches):
+
+- `checkpoint.ckpt_dir` — always `$CHECKPOINT_ROOT/<run_name>` (same directory for the entire session; matches Lepton job name and wandb group)
+- `num_train_steps` — always `$NUM_TRAIN_STEPS` (absolute target)
+- `checkpoint.resume_from_checkpoint` — always `true` (the script auto-finds the latest checkpoint; on first launch with no checkpoints it starts fresh automatically)
+- `+wandb.group` — always `<run_name>` (computed once at session start, never changes)
 
 ### Layer Precision Control
 
@@ -242,7 +247,7 @@ In WandB, go to the Runs table → Group by "Group" → expand a group to see th
 The training script has built-in checkpoint support. To enable:
 
 ```
-checkpoint.ckpt_dir=$WORKSPACE_ROOT/<run_name>/checkpoints
+checkpoint.ckpt_dir=$CHECKPOINT_ROOT/<run_name>
 checkpoint.save_every_n_steps=$CHECKIN_INTERVAL
 checkpoint.resume_from_checkpoint=true
 ```
@@ -266,11 +271,11 @@ To resume after a stop or crash, re-run the exact same command. The script autom
 Additional checkpoint flags:
 
 ```
-checkpoint.max_checkpoints=5         # keep only N most recent (saves disk)
+checkpoint.max_checkpoints=2         # keep only 2 most recent (LKG + current)
 checkpoint.save_final_model=true     # save .safetensors at end of training
 ```
 
-This is how the agent implements LKG recovery: it sets `checkpoint.ckpt_dir` to the LKG checkpoint directory, sets `checkpoint.resume_from_checkpoint=true`, and relaunches with updated `fp8_layers`.
+LKG recovery: the agent deletes any checkpoint newer than the LKG from `$CHECKPOINT_ROOT/<run_name>/train_fsdp2/`. Since `checkpoint.resume_from_checkpoint=true` always, the training script auto-finds the latest remaining checkpoint (the LKG) and resumes from there. The `checkpoint.ckpt_dir` never changes.
 
 ### Quantization Stats Logging
 
@@ -443,10 +448,10 @@ The agent must also persist alongside each checkpoint:
 
 ### Recovery on Failed Check-in
 
-1. Stop the current training run.
-2. Identify the LKG checkpoint directory (`<ckpt_dir>/train_fsdp2/step_<N>/`).
+1. Kill the current training process.
+2. Delete any checkpoint newer than the LKG from the checkpoint directory (e.g. if LKG is `step_400` and `step_500` exists, delete `step_500`). This ensures the script resumes from the LKG on relaunch.
 3. Demote `LAYERS_PER_PROMOTION` layers using `PROMOTION_STRATEGY`. Update `fp8_layers` accordingly.
-4. Relaunch training with `checkpoint.resume_from_checkpoint=true` pointing at the LKG checkpoint, with the updated precision schedule.
+4. Relaunch training with the updated precision schedule. `checkpoint.ckpt_dir` stays the same — the script auto-finds the latest remaining checkpoint (the LKG).
 
 The agent discards all training progress since the last successful check-in. The assumption is that divergence started after the LKG point and the updated schedule will prevent it from recurring.
 
@@ -454,17 +459,19 @@ The agent discards all training progress since the last successful check-in. The
 
 ```
 Check-in fails at step 200 (current_ppl - baseline_ppl > allowed_delta)
-→ Load LKG checkpoint (step 100)
+→ Kill training
+→ Delete step_200 checkpoint
 → Demote layers 1, 32: FP8 → BF16 (ends_in, first demotion)
 → Update fp8_layers to exclude [1, 32]
-→ Resume training from step 100 with new schedule
+→ Relaunch (script auto-resumes from step_100)
 → Next check-in at step 200 (re-do this interval)
 
 Check-in fails again at step 200
-→ Load LKG checkpoint (step 100 again)
+→ Kill training
+→ Delete step_200 checkpoint
 → Demote layers 2, 31: FP8 → BF16 (second demotion)
 → Update fp8_layers to exclude [1, 2, 31, 32]
-→ Resume training from step 100
+→ Relaunch from step_100
 → ...
 ```
 
@@ -515,7 +522,7 @@ ______________________________________________________________________
 All agent output must be saved under: `$WORKSPACE_ROOT/<run_name>/`
 
 The agent creates `<run_name>` ONCE at startup using the format: `<strategy>_<YYYYMMDD_HHMMSS>`
-This value is computed once and stored — it does NOT change across relaunches within the same session. It is used for the workspace directory, WandB group name, and results folder.
+This value is computed once and stored — it does NOT change across relaunches within the same session. It is used for the checkpoint directory name, workspace directory, WandB group name, Lepton job name, and results folder — all the same value for easy cross-referencing.
 Examples:
 
 - `ends_in_20260317_143000`
@@ -525,8 +532,10 @@ Examples:
 The directory layout:
 
 ```
+$CHECKPOINT_ROOT/<run_name>/    # model checkpoints (set checkpoint.ckpt_dir here)
+  train_fsdp2/step_<N>/         # auto-created by the training script
+
 $WORKSPACE_ROOT/<run_name>/
-  checkpoints/                  # model checkpoints (set checkpoint.ckpt_dir here)
   logs/                         # training stdout/stderr logs from each launch
   quant_stats/                  # quantization stats output (research_guided only)
   configs/                      # copy of every config/CLI invocation used per segment

@@ -59,12 +59,83 @@ def _resolve_scheduling_target(client, cfg: DictConfig):
     return chosen_group, valid_node_ids, resource_shape
 
 
+def _build_warm_start_section(cfg: DictConfig) -> str:
+    """Build the warm-start section of the agent prompt, or a fresh-start message."""
+    warm_start = cfg.get("warm_start", None)
+    if warm_start is None or not getattr(warm_start, "enabled", False):
+        return "## Start Mode\n\nFresh start — begin from scratch with all layers in $INITIAL_PRECISION."
+
+    fp8_layers = list(OmegaConf.to_container(warm_start.fp8_layers, resolve=True))
+    strategy = cfg.get("promotion_strategy", "ends_in")
+
+    lines = [
+        "## Warm Start from Existing Checkpoint",
+        "",
+        "This run resumes from an existing checkpoint with a pre-configured precision schedule.",
+        "Do NOT start from scratch. Follow the warm-start procedure below.",
+        "",
+        "```",
+        f"EXTERNAL_CHECKPOINT    = {warm_start.external_checkpoint}",
+        f"LKG_STEP               = {warm_start.lkg_step}",
+        f"INITIAL_FP8_LAYERS     = {fp8_layers}",
+        f"DEMOTION_ROUND         = {warm_start.demotion_round}",
+    ]
+
+    if strategy == "ends_in":
+        lines += [
+            f"BOTTOM_PTR             = {warm_start.bottom_ptr}",
+            f"TOP_PTR                = {warm_start.top_ptr}",
+        ]
+    elif strategy == "tail_in":
+        lines += [
+            f"TAIL_PTR               = {warm_start.tail_ptr}",
+        ]
+
+    lines += [
+        "```",
+        "",
+        "### Warm-Start Procedure",
+        "",
+        "Before your first training launch:",
+        "",
+        "1. Create your checkpoint directory:",
+        "   ```",
+        "   mkdir -p $CHECKPOINT_ROOT/<run_name>/train_fsdp2",
+        "   ```",
+        "2. Symlink the external checkpoint into your checkpoint directory:",
+        "   ```",
+        f"   ln -s {warm_start.external_checkpoint}/train_fsdp2/step_{warm_start.lkg_step}"
+        f" $CHECKPOINT_ROOT/<run_name>/train_fsdp2/step_{warm_start.lkg_step}",
+        "   ```",
+        f"3. Set `fp8_layers` to `{fp8_layers}` for the first launch.",
+        f"4. Initialize `state.json` with `demotion_round={warm_start.demotion_round}`, "
+        f"`lkg_step={warm_start.lkg_step}`, and the pointer values above.",
+        "",
+        f"The agent picks up at round {warm_start.demotion_round + 1} of `{strategy}`.",
+        f"On the first check-in (step {warm_start.lkg_step + cfg.get('checkin_interval', 100)}), "
+        "compare against the BF16 baseline at that step.",
+        "If the check-in passes, training continues. If it fails, demote the next layers per the strategy.",
+        "",
+        "### Important",
+        "",
+        "- The external checkpoint was trained with a DIFFERENT precision schedule. "
+        "The optimizer state is matched to that schedule. Only further demotions (FP8 -> BF16) are safe. "
+        "Do NOT promote layers back to FP8 that were already in BF16.",
+        "- `checkpoint.ckpt_dir` stays FIXED at `$CHECKPOINT_ROOT/<run_name>` for the entire session "
+        "(same rule as fresh start).",
+    ]
+
+    return "\n".join(lines)
+
+
 def _build_agent_prompt(cfg: DictConfig) -> str:
     """Read claude_agent_prompt.txt and fill in config values."""
     import pathlib
 
     prompt_path = pathlib.Path(__file__).parent / "claude_agent_prompt.txt"
     template = prompt_path.read_text()
+
+    warm_start_section = _build_warm_start_section(cfg)
 
     return template.format(
         code_path=cfg.code_path,
@@ -74,7 +145,9 @@ def _build_agent_prompt(cfg: DictConfig) -> str:
         checkin_interval=cfg.get("checkin_interval", 100),
         promotion_strategy=cfg.get("promotion_strategy", "ends_in"),
         workspace_root=cfg.get("workspace_root", "/data/savithas/agent_runs"),
+        checkpoint_root=cfg.get("checkpoint_root", "/data/savithas/checkpoints"),
         wandb_project=cfg.get("wandb_project", "opengenome2-7b"),
+        warm_start_section=warm_start_section,
     )
 
 
