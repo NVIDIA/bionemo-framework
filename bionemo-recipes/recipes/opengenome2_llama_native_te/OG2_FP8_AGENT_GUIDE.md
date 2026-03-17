@@ -173,7 +173,7 @@ torchrun \
   checkpoint.save_final_model=true \
   logger.frequency=$CHECKIN_INTERVAL \
   wandb.project=$WANDB_PROJECT \                                  # ← FIXED
-  +wandb.group=<run_name> \                                       # ← FIXED per session
+  +wandb.group=<run_name> \                                       # ← FIXED (computed once at session start, never changes)
   wandb.name=<see naming convention below>                        # ← AGENT CONTROLS
 ```
 
@@ -230,7 +230,7 @@ Each new training launch (after demotion/recovery) gets a new wandb run name ref
 
 ### WandB Run Grouping
 
-All launches within a single agent session share the same `+wandb.group` (set to `<run_name>`). This groups all the fragmented runs together in the WandB dashboard so you can:
+`+wandb.group` is set to `<run_name>` (e.g. `ends_in_20260317_143000`). This is computed ONCE at session start and NEVER changes — every relaunch within the session uses the same group value. Only `wandb.name` changes between launches. This groups all the fragmented runs together in the WandB dashboard so you can:
 
 - Filter by group to see only runs from one agent session
 - Overlay all runs from a session on a single panel to see the full training trajectory (including rollbacks and demotions)
@@ -514,7 +514,8 @@ ______________________________________________________________________
 
 All agent output must be saved under: `$WORKSPACE_ROOT/<run_name>/`
 
-The agent creates `<run_name>` at startup using the format: `<strategy>_<YYYYMMDD_HHMMSS>`
+The agent creates `<run_name>` ONCE at startup using the format: `<strategy>_<YYYYMMDD_HHMMSS>`
+This value is computed once and stored — it does NOT change across relaunches within the same session. It is used for the workspace directory, WandB group name, and results folder.
 Examples:
 
 - `ends_in_20260317_143000`
