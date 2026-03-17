@@ -87,6 +87,7 @@ quant_stats_config:
   enabled: false
   quant_stats_file: ./fp8_debugging_stats.yaml
   quant_log_dir: ./log_quant_stats
+  log_to_wandb: false
 
 # Note: The layers are going to come in 1 indexed and we convert them to be 0 indexed at runtime.
 fp8_layers: null
