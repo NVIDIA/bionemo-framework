@@ -20,11 +20,11 @@ import random
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
+from train_fsdp2_nd_parallel import main as main_fsdp2_cp
 
 from opengenome_modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from optimizer import get_parameter_groups_with_weight_decay
 from train_fsdp2 import main as main_fsdp2
-from train_fsdp2_nd_parallel import main as main_fsdp2_cp
 
 
 @pytest.fixture(autouse=True)

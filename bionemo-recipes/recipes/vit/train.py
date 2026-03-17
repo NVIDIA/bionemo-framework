@@ -22,7 +22,6 @@ import hydra
 import torch
 import wandb
 from hydra.core.hydra_config import HydraConfig
-from megatron_fsdp import fully_shard
 from omegaconf import OmegaConf
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
@@ -32,6 +31,7 @@ from tqdm import tqdm
 from beans import BeansDataset, infinite_dataloader
 from checkpoint import load_auto_resume_checkpoint, save_auto_resumable_checkpoint
 from distributed import initialize_distributed
+from megatron_fsdp import fully_shard
 from vit import build_vit_model
 
 

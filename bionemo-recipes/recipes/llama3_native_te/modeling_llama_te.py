@@ -193,14 +193,10 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         # Tensor-parallelize torch.nn.Embedding. Combines DTensor-based TP with TE-based TP.
         if config.tensor_parallel:
-            assert (
-                self.tp_mesh is not None,
-                "[NVLlamaModel] Tensor parallelism requires a NVLlamaConfig.tp_mesh."
-            )
-            assert (
-                self.tp_mesh.size() == config.tp_size,
+            assert self.tp_mesh is not None, "[NVLlamaModel] Tensor parallelism requires a NVLlamaConfig.tp_mesh."
+            assert self.tp_mesh.size() == config.tp_size, (
                 f"[NVLlamaModel] DeviceMesh TP size ({self.tp_mesh.size()}) "
-                f"does not match configured TP size ({config.tp_size})."
+                f"does not match configured TP size ({config.tp_size}).",
             )
             # NOTE(@cspades): Because the TELinear head is weight-tied to torch.nn.Embedding
             # during HuggingFace post-init, this will automatically convert the TELinear head
@@ -213,7 +209,7 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                 # NOTE(@cspades): ColwiseParallel -> torch.nn.Embedding -> Shard(dim=1)
                 # RowwiseParallel doesn't support output_layouts=Replicate() with
                 # torch.compile: https://github.com/pytorch/torchtitan/issues/534
-                ColwiseParallel(input_layouts=Replicate(), output_layouts=Replicate())
+                ColwiseParallel(input_layouts=Replicate(), output_layouts=Replicate()),
             )
 
         def _init_method(x):
@@ -538,7 +534,7 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             # to support row-wise tensor parallelism in the LM head.
             tp_rank = self.tp_mesh.get_local_rank()
             tp_stride = hidden_states.shape[-1] // self.config.tp_size
-            hidden_states = hidden_states[:, :, tp_rank*tp_stride:(tp_rank + 1)*tp_stride]
+            hidden_states = hidden_states[:, :, tp_rank * tp_stride : (tp_rank + 1) * tp_stride]
 
         with transformer_engine.pytorch.autocast(enabled=False):
             if hidden_states.ndim == 3:

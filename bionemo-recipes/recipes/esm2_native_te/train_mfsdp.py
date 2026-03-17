@@ -20,7 +20,6 @@ import hydra
 import torch
 import transformer_engine.pytorch
 import transformers
-from megatron_fsdp.fully_shard import fully_shard
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
@@ -31,6 +30,7 @@ from transformers.models.esm.modeling_esm import EsmForMaskedLM
 from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
+from megatron_fsdp.fully_shard import fully_shard
 from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 from perf_logger import PerfLogger
 from quantization import resolve_layer_precision
