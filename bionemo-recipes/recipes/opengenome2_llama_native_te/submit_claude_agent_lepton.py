@@ -155,7 +155,8 @@ export ANTHROPIC_AUTH_TOKEN="${{ANTHROPIC_AUTH_TOKEN}}"
 export ANTHROPIC_BASE_URL="${{ANTHROPIC_BASE_URL}}"
 export WANDB_API_KEY="${{WANDB_API_KEY}}"
 export HF_HOME=/data/savithas/cache
-export PATH=/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH
+export PATH=/usr/local/cuda/bin:/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64:${{LD_LIBRARY_PATH:-}}
 
 cd {cfg.code_path}
 
