@@ -32,9 +32,9 @@ from bionemo.evo2.utils.checkpoint.savanna_to_mbridge import load_savanna_state_
 
 
 SAVANNA_1B_REPO = "arcinstitute/savanna_evo2_1b_base"
-SAVANNA_1B_REVISION = "7217626d9f843e1830a5de1f5209c046570b6856"  # pragma: allowlist secret
+SAVANNA_1B_REVISION = "7217626d9f843e1830a5de1f5209c046570b6856"
 VORTEX_1B_REPO = "arcinstitute/evo2_1b_base"
-VORTEX_1B_REVISION = "2279e1df422c991037470302360edd40d0d2ea1e"  # pragma: allowlist secret
+VORTEX_1B_REVISION = "2279e1df422c991037470302360edd40d0d2ea1e"
 MODEL_SIZE = "evo2_1b_base"
 
 

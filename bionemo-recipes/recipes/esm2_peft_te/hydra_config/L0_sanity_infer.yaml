@@ -3,7 +3,7 @@ defaults:
 - _self_
 
 model_tag: "nvidia/esm2_t6_8M_UR50D"
-base_model_config_dir: "<checkpoint.ckpt_dir>/train_ddp/final_model" # pragma: allowlist secret
+base_model_config_dir: "<checkpoint.ckpt_dir>/train_ddp/final_model"
 
 output_file: preds.csv
 

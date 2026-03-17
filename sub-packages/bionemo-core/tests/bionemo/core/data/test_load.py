@@ -270,7 +270,7 @@ def test_default_pbss_client():
 
 @patch("ngcbase.api.authentication.Authentication.validate_api_key")
 def test_default_ngc_client_raises_when_api_key_invalid(mocked_validate_api_key, monkeypatch):
-    monkeypatch.setattr(ngcbase.environ, "NGC_CLI_API_KEY", "invalidapikey")  # pragma: allowlist secret
+    monkeypatch.setattr(ngcbase.environ, "NGC_CLI_API_KEY", "invalidapikey")
     mocked_validate_api_key.return_value = False
     with pytest.raises(ValueError, match="Invalid apikey for NGC service location"):
         default_ngc_client(use_guest_if_api_key_invalid=False)
@@ -278,10 +278,10 @@ def test_default_ngc_client_raises_when_api_key_invalid(mocked_validate_api_key,
 
 @patch("ngcbase.api.authentication.Authentication.validate_api_key")
 def test_default_ngc_client_returns_guest_key_when_api_key_invalid(mocked_validate_api_key, monkeypatch):
-    monkeypatch.setattr(ngcbase.environ, "NGC_CLI_API_KEY", "invalidapikey")  # pragma: allowlist secret
+    monkeypatch.setattr(ngcbase.environ, "NGC_CLI_API_KEY", "invalidapikey")
     mocked_validate_api_key.return_value = False
     client = default_ngc_client()
-    assert client.api_key == "no-apikey"  # pragma: allowlist secret
+    assert client.api_key == "no-apikey"
 
 
 @patch("bionemo.core.data.load.default_ngc_client")
