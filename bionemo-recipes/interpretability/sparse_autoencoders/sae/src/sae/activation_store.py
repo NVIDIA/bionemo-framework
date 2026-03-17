@@ -370,12 +370,6 @@ class ActivationStore:
             seed=seed,
         )
 
-        # Cap all ranks to the same batch count so DDP stays in sync.
-        # Shard sizes can vary slightly, so use the conservative estimate
-        # (per_rank * nominal shard_size // batch_size) which is identical on every rank.
-        if world_size > 1:
-            dataset.max_batches = dataset._approx_len
-
         # batch_size=None: dataset already yields pre-formed batches
         return DataLoader(dataset, batch_size=None, num_workers=0)
 
