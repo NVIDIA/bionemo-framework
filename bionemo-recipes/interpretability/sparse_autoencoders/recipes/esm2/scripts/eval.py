@@ -86,6 +86,10 @@ def parse_args():
     # Loss recovered
     p.add_argument("--loss-recovered-n-sequences", type=int, default=100)
 
+    # Annotation download
+    p.add_argument("--annotation-score", type=int, default=None,
+                   help="UniProt annotation score filter (1-5, None=no filter). Default None for max coverage.")
+
     # Dashboard / UMAP
     p.add_argument("--umap-n-neighbors", type=int, default=50, help="UMAP n_neighbors parameter")
     p.add_argument("--umap-min-dist", type=float, default=0.0, help="UMAP min_dist parameter")
@@ -468,7 +472,7 @@ def main():
                 output_path=annotations_path,
                 max_length=args.max_seq_len,
                 reviewed_only=True,
-                annotation_score=5,
+                annotation_score=args.annotation_score,
                 max_results=args.f1_max_proteins,
             )
 
