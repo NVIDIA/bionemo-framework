@@ -134,29 +134,55 @@ mkdir -p {cfg.agent_state_dir}
 # 7. Ensure checkpoint directory exists
 mkdir -p {cfg.checkpoint_dir}
 
-# 8. Quick auth sanity check
+# 8. Create non-root user (Claude Code refuses --dangerously-skip-permissions as root)
+echo "Creating non-root user for Claude Code..."
+useradd -m -s /bin/bash claude-agent
+# Give the user access to code, checkpoints, and agent state dirs
+chown -R claude-agent:claude-agent {cfg.agent_state_dir}
+chown -R claude-agent:claude-agent {cfg.checkpoint_dir}
+
+# 9. Write the agent prompt to a file
+cat > /tmp/agent_prompt.txt << 'AGENT_PROMPT_EOF'
+{agent_prompt}
+AGENT_PROMPT_EOF
+chmod 644 /tmp/agent_prompt.txt
+
+# 10. Write a wrapper script for the non-root user
+cat > /tmp/run_claude.sh << 'WRAPPER_EOF'
+#!/bin/bash
+set -e
+export ANTHROPIC_AUTH_TOKEN="${{ANTHROPIC_AUTH_TOKEN}}"
+export ANTHROPIC_BASE_URL="${{ANTHROPIC_BASE_URL}}"
+export WANDB_API_KEY="${{WANDB_API_KEY}}"
+export HF_HOME=/data/savithas/cache
+export PATH=/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH
+
+cd {cfg.code_path}
+
 echo "Testing Claude Code authentication..."
-claude --dangerously-skip-permissions \\
-  --model {cfg.claude_model} \\
+claude --dangerously-skip-permissions \
+  --model {cfg.claude_model} \
   -p "Say OK if you can read this." 2>&1 | head -5
 echo "Auth check complete."
 
-# 9. Run Claude Code headless with the agent prompt
 echo "=========================================="
 echo "Starting Claude Code agent..."
 echo "=========================================="
-cd {cfg.code_path}
 
-claude --dangerously-skip-permissions \\
-  --model {cfg.claude_model} \\
-  -p "$(cat <<'AGENT_PROMPT_EOF'
-{agent_prompt}
-AGENT_PROMPT_EOF
-)"
+PROMPT=$(cat /tmp/agent_prompt.txt)
+claude --dangerously-skip-permissions \
+  --model {cfg.claude_model} \
+  -p "$PROMPT"
 
 echo "=========================================="
 echo "Claude Code agent finished."
 echo "=========================================="
+WRAPPER_EOF
+chmod 755 /tmp/run_claude.sh
+
+# 11. Run as non-root user, passing env vars through
+su - claude-agent -w ANTHROPIC_AUTH_TOKEN,ANTHROPIC_BASE_URL,WANDB_API_KEY \
+  bash /tmp/run_claude.sh
 """
 
     command = ["bash", "-c", container_script]
