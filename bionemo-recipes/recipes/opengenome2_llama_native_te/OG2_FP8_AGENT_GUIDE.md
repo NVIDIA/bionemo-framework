@@ -159,7 +159,8 @@ torchrun \
   --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
   $(basename $TRAINING_SCRIPT) \
   --config-name $CONFIG_NAME \
-  num_train_steps=$NUM_TRAIN_STEPS \                              # ← AGENT CONTROLS
+  num_train_steps=$NUM_TRAIN_STEPS \
+  grad_acc_steps=$GRAD_ACC_STEPS \                                # ← FIXED (do NOT change)
   fp8_config.enabled=True \
   fp8_config.fp8_recipe=transformer_engine.common.recipe.Float8BlockScaling \
   fp8_config.fp8_format=E4M3 \
@@ -172,17 +173,24 @@ torchrun \
   checkpoint.resume_from_checkpoint=true \                        # ← FIXED (always true; auto-finds latest checkpoint)
   checkpoint.max_checkpoints=2 \
   checkpoint.save_final_model=true \
-  logger.frequency=$CHECKIN_INTERVAL \
   wandb.project=$WANDB_PROJECT \                                  # ← FIXED
   +wandb.group=<run_name> \                                       # ← FIXED (computed once at session start, never changes)
   wandb.name=<see naming convention below>                        # ← AGENT CONTROLS
 ```
 
+**CRITICAL**: The agent must use this command template EXACTLY. Do NOT add, remove, or modify any parameters not marked `← AGENT CONTROLS`. In particular:
+
+- Do NOT change `grad_acc_steps` — it is set in the Hydra config and must stay at $GRAD_ACC_STEPS
+- Do NOT add `dataset.*`, `adamw_kwargs.*`, or `lr_scheduler_kwargs.*` overrides — these are already set in the Hydra config
+- Do NOT scale any parameter by the number of nodes or GPUs
+- `logger.frequency` is set in the Hydra config (every step) — do NOT override it
+
 **Notes on OG2 vs ESM2 differences:**
 
 - **No `fp4_config` or `fp4_layers`** — FP4 is not used for OG2 FP8 Block Scaling
 - **Only `fp8_layers`** controls which layers run in FP8; layers absent from the list default to BF16
-- The `og2_7b_thd_gqa_fp8` config already sets: `use_sequence_packing=true`, `use_fp32_master_weights=true`, `spike_no_more_embedding_init=true`, `use_megatron_scaled_init=true`, `dataset.*`, `adamw_kwargs.*`, `lr_scheduler_kwargs.*`
+- The `og2_7b_thd_gqa_fp8` config already sets: `use_sequence_packing=true`, `use_fp32_master_weights=true`, `spike_no_more_embedding_init=true`, `use_megatron_scaled_init=true`, `dataset.*`, `adamw_kwargs.*`, `lr_scheduler_kwargs.*`, `logger.frequency=1`, `grad_acc_steps=8`
+- **Do NOT override** any Hydra config values that are not in the template above — the config is carefully tuned
 - Multi-node Lepton: `MASTER_ADDR`/`MASTER_PORT` are provided by the Lepton environment
 
 The agent modifies these fields between launches:
@@ -193,6 +201,7 @@ The agent modifies these fields between launches:
 
 These fields are FIXED for the entire session (never change between launches):
 
+- `grad_acc_steps` — always `$GRAD_ACC_STEPS` (do NOT scale by nodes/GPUs — FSDP handles distributed scaling)
 - `checkpoint.ckpt_dir` — always `$CHECKPOINT_ROOT/<run_name>` (same directory for the entire session; matches Lepton job name and wandb group)
 - `num_train_steps` — always `$NUM_TRAIN_STEPS` (absolute target)
 - `checkpoint.resume_from_checkpoint` — always `true` (the script auto-finds the latest checkpoint; on first launch with no checkpoints it starts fresh automatically)
