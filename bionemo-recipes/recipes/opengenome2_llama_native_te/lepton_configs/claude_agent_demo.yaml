@@ -1,0 +1,41 @@
+defaults:
+  - _self_
+
+job_name: "claude-agent-demo"
+node_group: "yo-bom-lepton-001"
+resource_shape: "gpu.8xh100-sxm"
+
+num_nodes: 1
+gpus_per_node: 8
+
+# Code paths on NFS
+repo_root: "/data/savithas/bionemo-framework"
+code_path: "/data/savithas/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_native_te"
+git_branch: "savitha/claude-lepton-dev-experiment"
+
+# Training config (tiny model for demo)
+hydra_config: "L0_sanity"
+train_script: "train_fsdp2.py"
+num_train_steps: 100
+
+# Checkpoint
+checkpoint_dir: "/data/savithas/checkpoints/claude-agent-demo"
+save_every_n_steps: 50
+
+# Agent state directory (Claude writes run_summary.json here)
+agent_state_dir: "/data/savithas/agent-state/claude-agent-demo"
+
+# Claude Code config
+claude_model: "us/aws/anthropic/bedrock-claude-opus-4-6"
+anthropic_secret: "anthropic.nim.savithas"  # pragma: allowlist secret
+anthropic_base_url: "https://inference-api.nvidia.com"
+
+# WandB
+wandb_project: "claude-agent-demo"
+wandb_name: "claude-agent-demo"
+wandb_secret: "wandb.savithas"  # pragma: allowlist secret
+
+# Container
+container:
+  image: "nvcr.io/nvidia/pytorch:26.02-py3"
+  registry_auth: "lepton-nvidia-cvai-bnmo-trng"
