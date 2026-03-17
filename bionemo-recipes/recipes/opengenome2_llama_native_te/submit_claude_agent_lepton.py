@@ -162,7 +162,7 @@ echo "=========================================="
     command = ["bash", "-c", container_script]
 
     env_vars = [
-        EnvVar(name="ANTHROPIC_API_KEY", value_from=EnvValue(secret_name_ref=cfg.anthropic_secret)),
+        EnvVar(name="ANTHROPIC_AUTH_TOKEN", value_from=EnvValue(secret_name_ref=cfg.anthropic_secret)),
         EnvVar(name="ANTHROPIC_BASE_URL", value=cfg.anthropic_base_url),
         EnvVar(name="WANDB_API_KEY", value_from=EnvValue(secret_name_ref=cfg.wandb_secret)),
     ]
