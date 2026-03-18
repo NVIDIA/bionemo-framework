@@ -27,6 +27,7 @@ MICRO_BATCH_SIZE       = 1                             # per-GPU micro batch siz
 GRAD_ACC_STEPS         = 8                             # gradient accumulation steps
 DATASET_PATH           = /data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_train_*.jsonl.gz
 WANDB_PROJECT          = opengenome2-7b                # WandB project name for all runs
+LAUNCH_DIR             = ???                           # NFS directory for multi-node launch coordination (set by prompt)
 ```
 
 ______________________________________________________________________
@@ -210,6 +211,43 @@ These fields are FIXED for the entire session (never change between launches):
 - `num_train_steps` — always `$NUM_TRAIN_STEPS` (absolute target)
 - `checkpoint.resume_from_checkpoint` — always `true` (the script auto-finds the latest checkpoint; on first launch with no checkpoints it starts fresh automatically)
 - `+wandb.group` — always `<run_name>` (computed once at session start, never changes)
+
+### Multi-Node Launch Protocol
+
+Training runs on `$NNODES` nodes. This agent runs on rank 0 only. Worker nodes (ranks 1 through NNODES-1) poll a shared NFS directory for numbered launch scripts and execute them automatically.
+
+**Before EVERY `torchrun` launch, you MUST:**
+
+1. Increment your launch counter (start from 1 for the first launch in this session).
+2. Write a complete bash script to `$LAUNCH_DIR/<N>.sh` containing:
+   - `cd` into the training script directory
+   - The full `torchrun` command with ALL arguments (same command you will run on rank 0)
+3. Then execute the SAME `torchrun` command on rank 0.
+
+Example (first launch):
+
+```bash
+# Write launch script for workers
+cat > $LAUNCH_DIR/1.sh << 'LAUNCH_EOF'
+#!/bin/bash
+cd /path/to/training/dir
+torchrun --nproc_per_node=8 --nnodes=6 --rdzv_backend=c10d \
+  --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
+  train_fsdp2.py --config-name og2_7b_thd_gqa_fp8 ...
+LAUNCH_EOF
+
+# Then run the same command on rank 0
+cd /path/to/training/dir
+torchrun --nproc_per_node=8 --nnodes=6 --rdzv_backend=c10d ...
+```
+
+**CRITICAL rules:**
+
+- Write the launch script BEFORE starting torchrun on rank 0. Workers poll every 5 seconds. Torchrun waits for all nodes at the rendezvous point, so workers joining a few seconds later is fine.
+- The launch script must contain the EXACT same torchrun command you run on rank 0 (same arguments, same working directory).
+- When killing training: just kill the torchrun process on rank 0. Workers detect the disconnection (NCCL timeout) and their processes exit automatically. Workers then poll for the next numbered script.
+- Each relaunch (after demotion/recovery) uses the next number: `1.sh`, `2.sh`, `3.sh`, etc.
+- Track the launch counter in `state.json` so you can resume correctly after a crash.
 
 ### Layer Precision Control
 

@@ -37,6 +37,7 @@ RESULTS_FOLDER         = {workspace_root}/results/{promotion_strategy}
 WANDB_PROJECT          = {wandb_project}
 NPROC_PER_NODE         = {gpus_per_node}
 NNODES                 = {num_nodes}
+LAUNCH_DIR             = {launch_dir}
 ```
 
 All other Run Variables (LAYERS_PER_PROMOTION, NUM_LAYERS, etc.) use the guide defaults.

@@ -142,6 +142,9 @@ def _build_agent_prompt(cfg: DictConfig) -> str:
 
     warm_start_section = _build_warm_start_section(cfg)
 
+    workspace_root = cfg.get("workspace_root", "/data/savithas/agent_runs")
+    launch_dir = f"{workspace_root}/.launches/{cfg.job_name}"
+
     return template.format(
         code_path=cfg.code_path,
         num_nodes=cfg.num_nodes,
@@ -150,9 +153,10 @@ def _build_agent_prompt(cfg: DictConfig) -> str:
         checkin_interval=cfg.get("checkin_interval", 100),
         tolerance_pct=cfg.get("tolerance_pct", 5.0),
         promotion_strategy=cfg.get("promotion_strategy", "ends_in"),
-        workspace_root=cfg.get("workspace_root", "/data/savithas/agent_runs"),
+        workspace_root=workspace_root,
         checkpoint_root=cfg.get("checkpoint_root", "/data/savithas/checkpoints"),
         wandb_project=cfg.get("wandb_project", "opengenome2-7b"),
+        launch_dir=launch_dir,
         warm_start_section=warm_start_section,
     )
 
@@ -164,6 +168,7 @@ def launch_claude_agent_job(client, cfg: DictConfig):
     agent_prompt = _build_agent_prompt(cfg)
     num_nodes = cfg.get("num_nodes", 1)
     workspace_root = cfg.get("workspace_root", "/data/savithas/agent_runs")
+    launch_dir = f"{workspace_root}/.launches/{cfg.job_name}"
 
     # Git branch checkout logic (rank 0 only for NFS safety)
     git_branch = cfg.get("git_branch", "")
@@ -219,12 +224,13 @@ pip install -r requirements.txt
 # 3. Login to wandb (all nodes, needed for distributed logging)
 wandb login ${{WANDB_API_KEY}}
 
-# 4. Create workspace directories
+# 4. Create workspace and launch coordination directories
 mkdir -p {workspace_root}
+mkdir -p {launch_dir}
 
 # ============================================================
 # RANK 0: Run Claude Code as the FP8 Precision Agent
-# OTHER RANKS: Sleep and wait for torchrun connections from rank 0
+# OTHER RANKS: Poll for launch scripts and run torchrun
 # ============================================================
 
 if [ "$NODE_RANK" = "0" ]; then
@@ -288,15 +294,29 @@ WRAPPER_EOF
 
 else
   echo "=========================================="
-  echo "[Rank $NODE_RANK] Worker node — waiting for torchrun from rank 0"
+  echo "[Rank $NODE_RANK] Worker node — polling for launch scripts"
+  echo "Launch dir: {launch_dir}"
+  echo "MASTER_ADDR=$MASTER_ADDR MASTER_PORT=$MASTER_PORT"
   echo "=========================================="
-  # Worker nodes just need to stay alive so torchrun can connect.
-  # They will be launched by torchrun from rank 0 via rdzv.
-  # Sleep indefinitely until the job is terminated.
-  echo "Listening on MASTER_ADDR=$MASTER_ADDR MASTER_PORT=$MASTER_PORT"
+
+  # Worker nodes poll NFS for numbered launch scripts written by the agent on rank 0.
+  # Each launch script contains the full torchrun command. Workers execute it, and when
+  # the process exits (e.g., training completes or rank 0 is killed), they poll for the next one.
+  LAST_LAUNCH=0
   while true; do
-    sleep 60
-    echo "[Rank $NODE_RANK] Worker still alive at $(date)"
+    NEXT=$((LAST_LAUNCH + 1))
+    SCRIPT="{launch_dir}/${{NEXT}}.sh"
+    if [ -f "$SCRIPT" ]; then
+      echo "=========================================="
+      echo "[Rank $NODE_RANK] Found launch script ${{NEXT}}, executing..."
+      echo "=========================================="
+      cat "$SCRIPT"
+      echo "=========================================="
+      bash "$SCRIPT" || true
+      echo "[Rank $NODE_RANK] Process exited (launch ${{NEXT}}), waiting for next launch..."
+      LAST_LAUNCH=$NEXT
+    fi
+    sleep 5
   done
 fi
 """
