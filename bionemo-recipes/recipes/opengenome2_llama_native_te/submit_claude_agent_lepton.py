@@ -285,6 +285,19 @@ if [ "$NODE_RANK" = "0" ]; then
   useradd -m -s /bin/bash claude-agent
   chown -R claude-agent:claude-agent {workspace_root}
 
+  # Ensure claude-agent can access CUDA devices, NCCL, and shared memory
+  # Without this, torchrun launched by Claude fails at init_process_group
+  echo "Setting CUDA/NCCL device permissions for claude-agent..."
+  chmod a+rw /dev/nvidia* 2>/dev/null || true
+  chmod a+rw /dev/infiniband/* 2>/dev/null || true
+  # Add claude-agent to video group (for GPU access)
+  usermod -aG video claude-agent 2>/dev/null || true
+  # Ensure checkpoint directory is writable
+  mkdir -p {cfg.get("checkpoint_root", "/data/savithas/checkpoints")}
+  chown -R claude-agent:claude-agent {cfg.get("checkpoint_root", "/data/savithas/checkpoints")}
+  # Ensure NFS code path is readable/writable
+  chmod -R a+rw {cfg.code_path} 2>/dev/null || true
+
   # Write the agent prompt to a file
   cat > /tmp/agent_prompt.txt << 'AGENT_PROMPT_EOF'
 {agent_prompt}
@@ -302,6 +315,11 @@ echo "Env check: MASTER_ADDR=$MASTER_ADDR NODE_RANK=$NODE_RANK NNODES=$NNODES"
 
 cd {cfg.code_path}
 
+# Verify CUDA access as claude-agent user
+echo "CUDA sanity check (as claude-agent)..."
+python3 -c "import torch; print('CUDA available:', torch.cuda.is_available(), 'devices:', torch.cuda.device_count())" || echo "WARNING: CUDA not accessible!"
+echo ""
+
 echo "Testing Claude Code authentication..."
 claude --dangerously-skip-permissions \\
   --model {cfg.claude_model} \\
@@ -313,10 +331,13 @@ echo "Starting FP8 Precision Agent..."
 echo "Strategy: {cfg.get("promotion_strategy", "ends_in")}"
 echo "=========================================="
 
+AGENT_LOG="{workspace_root}/claude_agent_output.log"
+echo "Agent output will be logged to: $AGENT_LOG"
+
 PROMPT=$(cat /tmp/agent_prompt.txt)
 claude --dangerously-skip-permissions \\
   --model {cfg.claude_model} \\
-  -p "$PROMPT"
+  -p "$PROMPT" 2>&1 | tee "$AGENT_LOG"
 
 echo "=========================================="
 echo "FP8 Precision Agent finished."
