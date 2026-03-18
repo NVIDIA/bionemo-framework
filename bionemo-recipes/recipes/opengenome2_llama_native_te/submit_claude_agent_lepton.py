@@ -258,6 +258,16 @@ wandb login ${{WANDB_API_KEY}}
 mkdir -p {workspace_root}
 mkdir -p {launch_dir}
 
+# Clean stale round files from previous job runs (same job_name reuses the launch dir on NFS).
+# Without this, workers immediately pick up old round_1_ready and start torchrun before rank 0 is ready.
+if [ "$NODE_RANK" = "0" ]; then
+  echo "Cleaning stale launch files from {launch_dir}..."
+  rm -f {launch_dir}/round_* {launch_dir}/done 2>/dev/null || true
+  echo "Launch dir cleaned."
+fi
+# Workers wait for rank 0 to finish cleanup before polling
+sleep 5
+
 # ============================================================
 # RANK 0: Run Claude Code as the FP8 Precision Agent
 # OTHER RANKS: Poll for barrier-based round files and run torchrun
