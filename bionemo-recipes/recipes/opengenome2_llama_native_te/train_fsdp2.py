@@ -173,12 +173,23 @@ def main(args: DictConfig) -> float | None:
     # Resolve layer-wise quantization precision (FP8/FP4/BF16) from config
     fp8_layers_cfg = getattr(args, "fp8_layers", None)
     fp4_layers_cfg = getattr(args, "fp4_layers", None)
+
+    def _parse_layers_cfg(cfg):
+        """Parse layer config from OmegaConf list or CLI string like '[1,2,3]'."""
+        if cfg is None:
+            return None
+        if isinstance(cfg, str):
+            import ast
+
+            return ast.literal_eval(cfg.strip("'\""))
+        return OmegaConf.to_container(cfg, resolve=True)
+
     layer_precision = resolve_layer_precision(
         num_layers=config.num_hidden_layers,
         fp8_enabled=args.fp8_config.enabled,
         fp4_enabled=fp4_enabled,
-        fp8_layers=OmegaConf.to_container(fp8_layers_cfg, resolve=True) if fp8_layers_cfg is not None else None,
-        fp4_layers=OmegaConf.to_container(fp4_layers_cfg, resolve=True) if fp4_layers_cfg is not None else None,
+        fp8_layers=_parse_layers_cfg(fp8_layers_cfg),
+        fp4_layers=_parse_layers_cfg(fp4_layers_cfg),
     )
     config.layer_precision = layer_precision
     logger.info(f"Layer precision: {layer_precision}")
