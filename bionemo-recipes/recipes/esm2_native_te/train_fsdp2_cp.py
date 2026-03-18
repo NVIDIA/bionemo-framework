@@ -179,49 +179,56 @@ def main(args: DictConfig) -> float | None:
 
     # Training loop
     step = start_step
+    micro_step = 0
     while step < args.num_train_steps:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
+            micro_step += 1
 
             # Forward pass.
             outputs = model(**batch)
 
-            # Backward pass.
-            loss = outputs.loss
+            # Backward pass - scale loss by grad_acc_steps for proper gradient averaging.
+            loss = outputs.loss / args.grad_acc_steps
             loss.backward()
 
-            # Compute and clip gradient norms.
-            total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
+            # Log microbatch step data for accumulation metrics.
+            perf_logger.log_micro_step(step=step, batch=batch, outputs=outputs)
 
-            # Step optimizer.
-            optimizer.step()
-            scheduler.step()
-            optimizer.zero_grad()
+            # The end of a "full" step (i.e. after possibly multiple gradient accumulation steps).
+            if micro_step % args.grad_acc_steps == 0:
+                micro_step = 0
 
-            perf_logger.log_step(
-                step=step,
-                batch=batch,
-                outputs=outputs,
-                grad_norm=total_norm,
-                lr=optimizer.param_groups[0]["lr"],
-            )
+                # Compute and clip gradient norms.
+                total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
-            if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
-                save_checkpoint_fsdp2(
-                    model=model,
-                    optimizer=optimizer,
-                    scheduler=scheduler,
-                    ckpt_path=ckpt_path,
+                # Step optimizer.
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+
+                perf_logger.log_step(
                     step=step,
-                    epoch=epoch,
-                    dist_config=dist_config,
-                    dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                    max_checkpoints=args.checkpoint.max_checkpoints,
+                    grad_norm=total_norm,
+                    lr=optimizer.param_groups[0]["lr"],
                 )
 
-            step += 1
-            if step >= args.num_train_steps:
-                break
+                if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
+                    save_checkpoint_fsdp2(
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        ckpt_path=ckpt_path,
+                        step=step,
+                        epoch=epoch,
+                        dist_config=dist_config,
+                        dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
+                        max_checkpoints=args.checkpoint.max_checkpoints,
+                    )
+
+                step += 1
+                if step >= args.num_train_steps:
+                    break
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1

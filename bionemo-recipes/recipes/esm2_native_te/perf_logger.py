@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import logging
 import time
 
@@ -51,6 +52,11 @@ class PerfLogger:
         self.min_loss = torch.tensor(float("inf"), device=torch.device(f"cuda:{dist_config.local_rank}"))
 
         self.logging_frequency = args.logger.frequency
+
+        # Baseline file for writing per-step metrics as JSON (only on main process).
+        self._bf16_baseline_file = getattr(args, "bf16_baseline_file", None)
+        self._baseline_data: dict[str, dict[str, float]] = {}
+
         # Track whether to collect memory stats (disabled by default for max performance)
 
         metrics_dict = {
@@ -79,20 +85,56 @@ class PerfLogger:
         # Whether to step debug_api.step() after each step
         self.quant_stats_config = args.quant_stats_config.enabled
 
-    def log_step(
+        # Gradient accumulation tracking: these accumulate across micro-steps within a single optimizer step.
+        self._running_loss = torch.tensor(0.0, device=torch.device(f"cuda:{dist_config.local_rank}"))
+        self._grad_acc_step_count = 0
+        self._num_tokens = 0
+        self._num_unpadded_tokens = 0
+
+    def log_micro_step(
         self,
         step: int,
         batch: dict[str, torch.Tensor],
         outputs: MaskedLMOutput,
-        grad_norm: torch.Tensor | DTensor,
-        lr: float,
     ):
-        """Log a step to the logger and wandb.
+        """Log a micro-step (single forward+backward pass) during gradient accumulation.
+
+        Called after every micro-step. Accumulates loss and token counts. At logging intervals, also accumulates
+        perplexity from logits/labels.
 
         Args:
-            step: The step number.
-            batch: The batch of data for the step.
-            outputs: The outputs of the step.
+            step: The optimizer step number (not micro-step).
+            batch: The batch of data for the micro-step.
+            outputs: The outputs of the micro-step.
+        """
+        with torch.no_grad():
+            self._grad_acc_step_count += 1
+            self._running_loss += outputs.loss.detach()
+
+            if step % self.logging_frequency == 0 and step > 0:
+                self._num_tokens += batch["input_ids"].numel()
+                # 1 is the padding token for ESM-2.
+                self._num_unpadded_tokens += batch["input_ids"][batch["input_ids"] != 1].numel()
+
+                # Handle sequence packing for torchmetrics calculation.
+                logits = outputs.logits
+                if logits.dim() < 3:
+                    logits = logits.unsqueeze(0)
+                self.metrics["train/perplexity"].update(logits, batch["labels"])
+
+    def log_step(
+        self,
+        step: int,
+        grad_norm: torch.Tensor | DTensor | float,
+        lr: float,
+    ):
+        """Log an optimizer step to the logger and wandb.
+
+        Called after each optimizer step (i.e., after all gradient accumulation micro-steps). Uses metrics accumulated
+        by prior ``log_micro_step`` calls.
+
+        Args:
+            step: The optimizer step number.
             grad_norm: The gradient norm of the step.
             lr: The learning rate of the step.
         """
@@ -104,31 +146,27 @@ class PerfLogger:
             if self.quant_stats_config:
                 debug_api.step()
 
-            if step % self.logging_frequency == 0 and step > 0:
-                num_tokens = batch["input_ids"].numel()
-                # 1 is the padding token for ESM-2.
-                num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != 1].numel()
+            assert self._grad_acc_step_count > 0, "log_micro_step() must be called before log_step()."
 
-                self.min_loss = torch.minimum(self.min_loss, outputs.loss)
+            if step % self.logging_frequency == 0 and step > 0:
+                avg_loss = self._running_loss / self._grad_acc_step_count
+                self.min_loss = torch.minimum(self.min_loss, avg_loss)
+
                 elapsed_time, self.previous_step_time = (
                     time.perf_counter() - self.previous_step_time,
                     time.perf_counter(),
                 )
                 step_time = elapsed_time / self.logging_frequency
 
-                self.metrics["train/loss"].update(outputs.loss)
+                self.metrics["train/loss"].update(avg_loss)
                 self.metrics["train/learning_rate"].update(lr)
                 self.metrics["train/grad_norm"].update(grad_norm)
                 self.metrics["train/step_time"].update(step_time)
-                self.metrics["train/tokens_per_second_per_gpu"].update(num_tokens / step_time)
-                self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(num_unpadded_tokens / step_time)
-                self.metrics["train/total_unpadded_tokens_per_batch"].update(num_unpadded_tokens)
+                self.metrics["train/tokens_per_second_per_gpu"].update(self._num_tokens / step_time)
+                self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(self._num_unpadded_tokens / step_time)
+                self.metrics["train/total_unpadded_tokens_per_batch"].update(self._num_unpadded_tokens)
 
-                # Handle sequence packing for torchmetrics calculation.
-                if outputs.logits.dim() < 3:
-                    outputs.logits = outputs.logits.unsqueeze(0)
-
-                self.metrics["train/perplexity"].update(outputs.logits, batch["labels"])
+                # perplexity already updated in log_micro_step
 
                 memory_allocated = torch.cuda.memory_allocated() / (1024**3)
                 self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)
@@ -145,10 +183,23 @@ class PerfLogger:
                 if self._dist_config.is_main_process():
                     wandb.log(metrics, step=step)
                     self._progress_bar.update(self.logging_frequency)
-                    self._progress_bar.set_postfix({"loss": outputs.loss.item()})
+                    self._progress_bar.set_postfix({"loss": avg_loss.item()})
+
+                    if self._bf16_baseline_file:
+                        self._baseline_data[f"step_{step}"] = {
+                            "perplexity": metrics["train/perplexity"],
+                            "loss": metrics["train/loss"],
+                            "unpadded_tokens_per_sec": metrics["train/unpadded_tokens_per_second_per_gpu"],
+                        }
 
                 if self._dist_config.local_rank == 0:
                     logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
+
+            # Reset accumulation tracking for the next optimizer step.
+            self._running_loss.zero_()
+            self._grad_acc_step_count = 0
+            self._num_tokens = 0
+            self._num_unpadded_tokens = 0
 
     def finish(self):
         """Finish the logger and close the progress bar."""
@@ -157,6 +208,11 @@ class PerfLogger:
 
         if not self._dist_config.is_main_process():
             return
+
+        if self._bf16_baseline_file and self._baseline_data:
+            with open(self._bf16_baseline_file, "w") as f:
+                json.dump(self._baseline_data, f, indent=2)
+            logger.info("Wrote baseline metrics to %s", self._bf16_baseline_file)
 
         wandb.finish()
         self._progress_bar.close()

@@ -3,6 +3,7 @@ use_te: true # Whether to use TransformerEngine layers through NVEsmForMaskedLM 
 config_name_or_path: ??? # E.g., nvidia/esm2_t6_8M_UR50D, facebook/esm2_t6_8M_UR50D, or a local path (e.g ./model_configs/nvidia/esm2_t6_8M_UR50D)
 config_kwargs: {}
 num_train_steps: ???
+grad_acc_steps: 1 # Gradient accumulation steps - effective batch = micro_batch_size * num_gpus * grad_acc_steps
 
 use_meta_device: true
 
@@ -81,6 +82,10 @@ checkpoint:
 
 logger:
   frequency: 100
+
+# Path to write a JSON file with per-step baseline metrics (perplexity, loss, unpadded_tokens_per_sec).
+# Set via --bf16-baseline-file=<path> or bf16_baseline_file=<path> on the command line.
+bf16_baseline_file: null
 
 
 quant_stats_config:
