@@ -160,9 +160,12 @@ class AppState(Stateful):
 
     def load_state_dict(self, state_dict: dict):
         """Load the state dict for the model, optimizer, scheduler, and step."""
-        # Use strict=False to handle checkpoints saved without TransformerEngine
-        # _extra_state keys (FP8 metadata). These keys are registered by newer TE
-        # versions even when FP8 is disabled, and are safe to skip.
+        # Save optimizer param group hyperparameters before set_state_dict,
+        # which can strip them in certain PyTorch versions.
+        saved_hyperparams = [
+            {k: v for k, v in group.items() if k != "params"} for group in self.optimizer.param_groups
+        ]
+
         incompatible = set_state_dict(
             self.model,
             self.optimizer,
@@ -175,12 +178,12 @@ class AppState(Stateful):
                 logger.warning(f"Missing keys when loading checkpoint: {incompatible.missing_keys}")
             if incompatible.unexpected_keys:
                 logger.warning(f"Unexpected keys when loading checkpoint: {incompatible.unexpected_keys}")
-        for group in self.optimizer.param_groups:
-            if "betas" not in group and "beta1" in group and "beta2" in group:
-                group["betas"] = (group["beta1"], group["beta2"])
-            elif "betas" not in group:
-                group["betas"] = (0.9, 0.95)
-                logger.warning("Optimizer param group missing 'betas', using default (0.9, 0.95)")
+
+        for group, saved in zip(self.optimizer.param_groups, saved_hyperparams):
+            for key, value in saved.items():
+                if key not in group:
+                    group[key] = value
+
         self.scheduler.load_state_dict(state_dict["scheduler"])
         self.step = state_dict["step"]
         self.epoch = state_dict["epoch"]
