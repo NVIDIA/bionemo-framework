@@ -175,6 +175,7 @@ torchrun \
   checkpoint.resume_from_checkpoint=true \                        # ← FIXED (always true; auto-finds latest checkpoint)
   checkpoint.max_checkpoints=4 \
   checkpoint.save_final_model=true \
+  validation.enabled=false \                                         # ← FIXED (disabled for agent runs)
   hydra.run.dir=$WORKSPACE_ROOT/<run_name>/hydra_outputs \
   wandb.project=$WANDB_PROJECT \                                  # ← FIXED
   +wandb.group=<run_name> \                                       # ← FIXED (computed once at session start, never changes)
