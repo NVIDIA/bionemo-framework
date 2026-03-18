@@ -86,6 +86,7 @@ def parse_args():
     train_group.add_argument("--max-grad-norm", type=float, default=None)
     train_group.add_argument("--lr-scale-with-latents", action=argparse.BooleanOptionalAction, default=False)
     train_group.add_argument("--lr-reference-hidden-dim", type=int, default=2048)
+    train_group.add_argument("--grad-accumulation-steps", type=int, default=1, help="Gradient accumulation steps")
 
     # W&B
     wb_group = p.add_argument_group("Weights & Biases")
@@ -155,6 +156,7 @@ def build_training_config(args, device: str) -> TrainingConfig:
         checkpoint_steps=args.checkpoint_steps,
         lr_scale_with_latents=args.lr_scale_with_latents,
         lr_reference_hidden_dim=args.lr_reference_hidden_dim,
+        grad_accumulation_steps=args.grad_accumulation_steps,
     )
 
 
