@@ -158,8 +158,9 @@ cd $(dirname $TRAINING_SCRIPT)
 torchrun \
   --nproc_per_node=$NPROC_PER_NODE \
   --nnodes=$NNODES \
-  --rdzv_backend=c10d \
-  --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
+  --node_rank=$NODE_RANK \
+  --master_addr=$MASTER_ADDR \
+  --master_port=$MASTER_PORT \
   $(basename $TRAINING_SCRIPT) \
   --config-name $CONFIG_NAME \
   num_train_steps=$NUM_TRAIN_STEPS \
@@ -227,23 +228,38 @@ Training runs on `$NNODES` nodes. This agent runs on rank 0 only. Worker nodes (
 Example (first launch):
 
 ```bash
-# Write launch script for workers
+# Step 1: Write launch script for workers (use single-quoted heredoc to preserve $variables)
 cat > $LAUNCH_DIR/1.sh << 'LAUNCH_EOF'
 #!/bin/bash
 cd /path/to/training/dir
-torchrun --nproc_per_node=8 --nnodes=6 --rdzv_backend=c10d \
-  --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT \
-  train_fsdp2.py --config-name og2_7b_thd_gqa_fp8 ...
+torchrun \
+  --nproc_per_node=8 \
+  --nnodes=6 \
+  --node_rank=$NODE_RANK \
+  --master_addr=$MASTER_ADDR \
+  --master_port=$MASTER_PORT \
+  train_fsdp2.py --config-name og2_7b_thd_gqa_fp8 \
+  fp8_layers='[3,4,...,30]' \
+  ... all other args ...
 LAUNCH_EOF
 
-# Then run the same command on rank 0
+# Step 2: Run the same torchrun command on rank 0
 cd /path/to/training/dir
-torchrun --nproc_per_node=8 --nnodes=6 --rdzv_backend=c10d ...
+torchrun \
+  --nproc_per_node=8 \
+  --nnodes=6 \
+  --node_rank=$NODE_RANK \
+  --master_addr=$MASTER_ADDR \
+  --master_port=$MASTER_PORT \
+  train_fsdp2.py --config-name og2_7b_thd_gqa_fp8 \
+  fp8_layers='[3,4,...,30]' \
+  ... all other args ...
 ```
 
 **CRITICAL rules:**
 
-- Write the launch script BEFORE starting torchrun on rank 0. Workers poll every 5 seconds. Torchrun waits for all nodes at the rendezvous point, so workers joining a few seconds later is fine.
+- **Use single-quoted heredoc** (`<< 'LAUNCH_EOF'`) when writing the script. This preserves `$NODE_RANK`, `$MASTER_ADDR`, and `$MASTER_PORT` as literal variables. Each worker node has these set to its own values by the Lepton environment. If you expand them, all workers will think they are rank 0.
+- Write the launch script BEFORE starting torchrun on rank 0. Workers poll every 5 seconds. Torchrun waits for all nodes to connect, so workers joining a few seconds later is fine.
 - The launch script must contain the EXACT same torchrun command you run on rank 0 (same arguments, same working directory).
 - When killing training: just kill the torchrun process on rank 0. Workers detect the disconnection (NCCL timeout) and their processes exit automatically. Workers then poll for the next numbered script.
 - Each relaunch (after demotion/recovery) uses the next number: `1.sh`, `2.sh`, `3.sh`, etc.
