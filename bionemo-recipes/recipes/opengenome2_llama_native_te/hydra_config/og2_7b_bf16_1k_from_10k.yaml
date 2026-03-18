@@ -1,0 +1,51 @@
+# OpenGenome2 7B - BF16 baseline, 1000 steps from 10k checkpoint
+#
+# Resumes from the existing 10k BF16 checkpoint and trains for 1000 more steps
+# (steps 10001-11000) using HuggingFace streaming metagenomes dataset.
+# All layers in BF16 (no FP8). Single-node B300.
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_bf16_1k_from_10k \
+#     checkpoint.ckpt_dir=/path/to/checkpoints/bf16_1k_from_10k
+
+defaults:
+  - og2_7b_thd_gqa
+  - _self_
+
+# Override dataset to use HuggingFace streaming (no local NFS files needed)
+dataset:
+  micro_batch_size: 1
+  buffer_size: 500_000
+  load_dataset_kwargs:
+    path: "arcinstitute/opengenome2"
+    data_dir: "json/pretraining_or_both_phases/metagenomes"
+    split: "train"
+    streaming: true
+
+# Train for 11000 total steps (resumes from 10001, runs 1000 new steps)
+num_train_steps: 11000
+grad_acc_steps: 8
+
+# FP8 disabled (all BF16)
+fp8_config:
+  enabled: false
+
+# Checkpoint: resume from existing 10k checkpoint
+checkpoint:
+  ckpt_dir: ???
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 200
+  max_checkpoints: 3
+  async_save: true
+
+# Validation disabled for this short run
+validation:
+  enabled: false
+
+logger:
+  frequency: 1
+
+wandb:
+  name: og2-7b-bf16-1k-from-10k
+  project: opengenome2-7b
