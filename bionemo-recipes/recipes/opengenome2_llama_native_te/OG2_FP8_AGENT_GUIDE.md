@@ -219,6 +219,8 @@ These fields are FIXED for the entire session (never change between launches):
 
 Training runs on `$NNODES` nodes. This agent runs on rank 0 only. Worker nodes (ranks 1 through NNODES-1) poll a shared NFS directory for barrier-based round files and execute the same torchrun command.
 
+**IMPORTANT: `$TORCHRUN_PREFIX` is pre-configured in your environment.** It contains the correct `torchrun --nproc_per_node=... --nnodes=... --node_rank=... --master_addr=... --master_port=...` flags for THIS node. You MUST use `$TORCHRUN_PREFIX` for ALL training launches. Do NOT construct your own torchrun command — the prefix has the correct multi-node flags that you cannot easily determine yourself.
+
 **Before EVERY `torchrun` launch, you MUST:**
 
 1. Increment your round counter (start from 1 for the first launch in this session).
@@ -230,7 +232,7 @@ Training runs on `$NNODES` nodes. This agent runs on rank 0 only. Worker nodes (
      ... all other args ..."
    ```
 3. Touch `$LAUNCH_DIR/round_N_ready` to signal workers to start.
-4. Then run the SAME torchrun command on rank 0.
+4. Then run `$TORCHRUN_PREFIX $TRAIN_CMD` on rank 0 (using the SAME TRAIN_CMD you wrote to the file).
 
 Example (first launch):
 
@@ -247,16 +249,11 @@ ARGS_EOF
 # Step 2: Signal workers to start (MUST come AFTER writing args)
 touch $LAUNCH_DIR/round_1_ready
 
-# Step 3: Run torchrun on rank 0
-cd $(dirname $TRAINING_SCRIPT)
-torchrun \
-  --nproc_per_node=$NPROC_PER_NODE \
-  --nnodes=$NNODES \
-  --node_rank=$NODE_RANK \
-  --master_addr=$MASTER_ADDR \
-  --master_port=$MASTER_PORT \
-  train_fsdp2.py --config-name og2_7b_thd_gqa_fp8 \
+# Step 3: Run torchrun on rank 0 using $TORCHRUN_PREFIX (NEVER construct your own torchrun flags)
+cd /data/savithas/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_native_te
+$TORCHRUN_PREFIX train_fsdp2.py --config-name og2_7b_thd_gqa_fp8 \
   fp8_layers='[3,4,...,30]' \
+  num_train_steps=182300 \
   ... all other args ...
 ```
 
@@ -265,12 +262,13 @@ torchrun \
 1. Write the next round's `round_N_args.env` immediately.
 2. Wait at least 2 minutes for workers to finish dying and reach the polling loop.
 3. Touch `round_N_ready` to signal workers.
-4. Start torchrun on rank 0. C10D rendezvous waits for all nodes (retry logic handles any stragglers).
+4. Run `$TORCHRUN_PREFIX $TRAIN_CMD` on rank 0. C10D rendezvous waits for all nodes (retry logic handles any stragglers).
 
 **To signal completion:** `touch $LAUNCH_DIR/done` — all workers exit cleanly.
 
 **CRITICAL rules:**
 
+- **ALWAYS use `$TORCHRUN_PREFIX`** to launch training. NEVER write your own `torchrun --nproc_per_node=... --nnodes=...` command. The prefix already contains the correct multi-node flags (nnodes, node_rank, master_addr, master_port). If you construct your own torchrun command, you WILL get single-node training (8 GPUs instead of 48).
 - **Use single-quoted heredoc** (`<< 'ARGS_EOF'`) when writing `round_N_args.env`. This preserves `$NODE_RANK`, `$MASTER_ADDR`, and `$MASTER_PORT` as literal variables. Each worker node has these set to its own values by the Lepton environment. If you expand them, all workers will think they are rank 0.
 - Write `round_N_args.env` BEFORE touching `round_N_ready`. Workers source the args file immediately after detecting the ready file.
 - The `TRAIN_CMD` must NOT include `torchrun` or its flags — only the Python script and its Hydra arguments. Workers prepend the torchrun prefix themselves (with their own `$NODE_RANK`, `$MASTER_ADDR`, etc.).

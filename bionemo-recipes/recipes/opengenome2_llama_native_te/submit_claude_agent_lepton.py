@@ -241,10 +241,15 @@ export WANDB_API_KEY=$WANDB_API_KEY
 export PATH=$PATH
 export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-}}
 export CUDA_HOME=${{CUDA_HOME:-}}
+
+# Pre-built torchrun prefix — Claude MUST use this instead of constructing its own.
+# This ensures correct --nnodes, --node_rank, --master_addr for multi-node training.
+export TORCHRUN_PREFIX="torchrun --nproc_per_node={cfg.gpus_per_node} --nnodes=$NNODES --node_rank=$NODE_RANK --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT"
 ENV_EOF
 chmod 644 /tmp/training_env.sh
 echo "Env vars written to /tmp/training_env.sh"
 echo "  MASTER_ADDR=$MASTER_ADDR NODE_RANK=$NODE_RANK NNODES=$NNODES"
+echo "  TORCHRUN_PREFIX will be: torchrun --nproc_per_node={cfg.gpus_per_node} --nnodes=$NNODES --node_rank=$NODE_RANK --master_addr=$MASTER_ADDR --master_port=$MASTER_PORT"
 {git_sync_script}
 
 # 2. Install Python training requirements (all nodes)
@@ -319,9 +324,10 @@ AGENT_PROMPT_EOF
 #!/bin/bash
 set -e
 
-# Source env vars from root shell (MASTER_ADDR, NODE_RANK, NNODES, etc.)
+# Source env vars from root shell (MASTER_ADDR, NODE_RANK, NNODES, TORCHRUN_PREFIX, etc.)
 source /tmp/training_env.sh
 echo "Env check: MASTER_ADDR=$MASTER_ADDR NODE_RANK=$NODE_RANK NNODES=$NNODES"
+echo "TORCHRUN_PREFIX=$TORCHRUN_PREFIX"
 
 cd {cfg.code_path}
 
