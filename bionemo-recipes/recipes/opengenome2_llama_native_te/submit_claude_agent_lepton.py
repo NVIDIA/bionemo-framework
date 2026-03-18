@@ -215,6 +215,25 @@ export MASTER_PORT=29400
 export NCCL_TIMEOUT_MS=1800000
 export NCCL_DEBUG=WARN
 export HF_HOME=/data/savithas/cache
+
+# Write env vars to a file so they survive the `su` to claude-agent on rank 0.
+# Without this, Claude Code's torchrun would get empty MASTER_ADDR/NODE_RANK/NNODES.
+cat > /tmp/training_env.sh << ENV_EOF
+export MASTER_ADDR=$MASTER_ADDR
+export MASTER_PORT=$MASTER_PORT
+export NODE_RANK=$NODE_RANK
+export NNODES=$NNODES
+export NCCL_TIMEOUT_MS=$NCCL_TIMEOUT_MS
+export NCCL_DEBUG=$NCCL_DEBUG
+export HF_HOME=$HF_HOME
+export WANDB_API_KEY=$WANDB_API_KEY
+export PATH=$PATH
+export LD_LIBRARY_PATH=${{LD_LIBRARY_PATH:-}}
+export CUDA_HOME=${{CUDA_HOME:-}}
+ENV_EOF
+chmod 644 /tmp/training_env.sh
+echo "Env vars written to /tmp/training_env.sh"
+echo "  MASTER_ADDR=$MASTER_ADDR NODE_RANK=$NODE_RANK NNODES=$NNODES"
 {git_sync_script}
 
 # 2. Install Python training requirements (all nodes)
@@ -230,7 +249,7 @@ mkdir -p {launch_dir}
 
 # ============================================================
 # RANK 0: Run Claude Code as the FP8 Precision Agent
-# OTHER RANKS: Poll for launch scripts and run torchrun
+# OTHER RANKS: Poll for barrier-based round files and run torchrun
 # ============================================================
 
 if [ "$NODE_RANK" = "0" ]; then
@@ -265,6 +284,11 @@ AGENT_PROMPT_EOF
   cat > /tmp/run_claude.sh << 'WRAPPER_EOF'
 #!/bin/bash
 set -e
+
+# Source env vars from root shell (MASTER_ADDR, NODE_RANK, NNODES, etc.)
+source /tmp/training_env.sh
+echo "Env check: MASTER_ADDR=$MASTER_ADDR NODE_RANK=$NODE_RANK NNODES=$NNODES"
+
 cd {cfg.code_path}
 
 echo "Testing Claude Code authentication..."
@@ -294,30 +318,50 @@ WRAPPER_EOF
 
 else
   echo "=========================================="
-  echo "[Rank $NODE_RANK] Worker node — polling for launch scripts"
+  echo "[Rank $NODE_RANK] Worker node — barrier-based round polling"
   echo "Launch dir: {launch_dir}"
   echo "MASTER_ADDR=$MASTER_ADDR MASTER_PORT=$MASTER_PORT"
   echo "=========================================="
 
-  # Worker nodes poll NFS for numbered launch scripts written by the agent on rank 0.
-  # Each launch script contains the full torchrun command. Workers execute it, and when
-  # the process exits (e.g., training completes or rank 0 is killed), they poll for the next one.
-  LAST_LAUNCH=0
+  # Worker nodes poll NFS for barrier files written by the Claude agent on rank 0.
+  # All workers block on the SAME round_N_ready file, ensuring they start torchrun together.
+  # This prevents the desync bug where independent counters caused workers to be on different rounds.
+  ROUND=1
   while true; do
-    NEXT=$((LAST_LAUNCH + 1))
-    SCRIPT="{launch_dir}/${{NEXT}}.sh"
-    if [ -f "$SCRIPT" ]; then
-      echo "=========================================="
-      echo "[Rank $NODE_RANK] Found launch script ${{NEXT}}, executing..."
-      echo "=========================================="
-      cat "$SCRIPT"
-      echo "=========================================="
-      bash "$SCRIPT" || true
-      echo "[Rank $NODE_RANK] Process exited (launch ${{NEXT}}), waiting for next launch..."
-      LAST_LAUNCH=$NEXT
+    echo "[Rank $NODE_RANK] Waiting for round $ROUND (polling for round_${{ROUND}}_ready)..."
+    while [ ! -f "{launch_dir}/round_${{ROUND}}_ready" ] && \
+          [ ! -f "{launch_dir}/done" ]; do
+      sleep 5
+    done
+
+    # Check for completion signal
+    if [ -f "{launch_dir}/done" ]; then
+      echo "[Rank $NODE_RANK] Done signal received. Exiting."
+      break
     fi
-    sleep 5
+
+    # Source training args written by Claude (contains TRAIN_CMD variable)
+    source "{launch_dir}/round_${{ROUND}}_args.env"
+    echo "=========================================="
+    echo "[Rank $NODE_RANK] Starting round $ROUND"
+    echo "TRAIN_CMD=$TRAIN_CMD"
+    echo "=========================================="
+
+    # Run torchrun (exits when rank 0 dies/kills or training completes)
+    cd {cfg.code_path}
+    torchrun \\
+      --nproc_per_node={cfg.gpus_per_node} \\
+      --nnodes=$NNODES \\
+      --node_rank=$NODE_RANK \\
+      --master_addr=$MASTER_ADDR \\
+      --master_port=$MASTER_PORT \\
+      $TRAIN_CMD || true
+
+    echo "[Rank $NODE_RANK] Round $ROUND finished"
+    ROUND=$((ROUND + 1))
   done
+
+  echo "[Rank $NODE_RANK] All rounds complete. Exiting."
 fi
 """
 

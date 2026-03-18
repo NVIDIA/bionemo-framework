@@ -217,39 +217,41 @@ These fields are FIXED for the entire session (never change between launches):
 
 ### Multi-Node Launch Protocol
 
-Training runs on `$NNODES` nodes. This agent runs on rank 0 only. Worker nodes (ranks 1 through NNODES-1) poll a shared NFS directory for numbered launch scripts and execute them automatically.
+Training runs on `$NNODES` nodes. This agent runs on rank 0 only. Worker nodes (ranks 1 through NNODES-1) poll a shared NFS directory for barrier-based round files and execute the same torchrun command.
 
 **Before EVERY `torchrun` launch, you MUST:**
 
-1. Increment your launch counter (start from 1 for the first launch in this session).
-2. Write a complete bash script to `$LAUNCH_DIR/<N>.sh` containing:
-   - `cd` into the training script directory
-   - The full `torchrun` command with ALL arguments (same command you will run on rank 0)
-3. Then execute the SAME `torchrun` command on rank 0.
+1. Increment your round counter (start from 1 for the first launch in this session).
+2. Write a `round_N_args.env` file to `$LAUNCH_DIR/` containing a `TRAIN_CMD` variable with all Python script arguments (NOT the torchrun prefix — workers prepend that themselves):
+   ```bash
+   TRAIN_CMD="train_fsdp2.py \
+     --config-name og2_7b_thd_gqa_fp8 \
+     fp8_layers='[3,4,...,30]' \
+     ... all other args ..."
+   ```
+3. Touch `$LAUNCH_DIR/round_N_ready` to signal workers to start.
+4. Then run the SAME torchrun command on rank 0.
 
 Example (first launch):
 
 ```bash
-# Step 1: Write launch script for workers (use single-quoted heredoc to preserve $variables)
-cat > $LAUNCH_DIR/1.sh << 'LAUNCH_EOF'
-#!/bin/bash
-cd /path/to/training/dir
-torchrun \
-  --nproc_per_node=8 \
-  --nnodes=6 \
-  --node_rank=$NODE_RANK \
-  --master_addr=$MASTER_ADDR \
-  --master_port=$MASTER_PORT \
-  train_fsdp2.py --config-name og2_7b_thd_gqa_fp8 \
+# Step 1: Write training args for workers (use single-quoted heredoc to preserve $variables)
+cat > $LAUNCH_DIR/round_1_args.env << 'ARGS_EOF'
+TRAIN_CMD="train_fsdp2.py \
+  --config-name og2_7b_thd_gqa_fp8 \
   fp8_layers='[3,4,...,30]' \
-  ... all other args ...
-LAUNCH_EOF
+  num_train_steps=182300 \
+  ... all other args ..."
+ARGS_EOF
 
-# Step 2: Run the same torchrun command on rank 0
-cd /path/to/training/dir
+# Step 2: Signal workers to start (MUST come AFTER writing args)
+touch $LAUNCH_DIR/round_1_ready
+
+# Step 3: Run torchrun on rank 0
+cd $(dirname $TRAINING_SCRIPT)
 torchrun \
-  --nproc_per_node=8 \
-  --nnodes=6 \
+  --nproc_per_node=$NPROC_PER_NODE \
+  --nnodes=$NNODES \
   --node_rank=$NODE_RANK \
   --master_addr=$MASTER_ADDR \
   --master_port=$MASTER_PORT \
@@ -258,14 +260,22 @@ torchrun \
   ... all other args ...
 ```
 
+**When killing training:** Kill the torchrun process on rank 0. Workers detect the disconnection (NCCL timeout, up to 30 minutes) and their processes exit automatically. Workers then poll for the next round's ready file. After killing:
+
+1. Write the next round's `round_N_args.env` immediately.
+2. Wait at least 2 minutes for workers to finish dying and reach the polling loop.
+3. Touch `round_N_ready` to signal workers.
+4. Start torchrun on rank 0. C10D rendezvous waits for all nodes (retry logic handles any stragglers).
+
+**To signal completion:** `touch $LAUNCH_DIR/done` — all workers exit cleanly.
+
 **CRITICAL rules:**
 
-- **Use single-quoted heredoc** (`<< 'LAUNCH_EOF'`) when writing the script. This preserves `$NODE_RANK`, `$MASTER_ADDR`, and `$MASTER_PORT` as literal variables. Each worker node has these set to its own values by the Lepton environment. If you expand them, all workers will think they are rank 0.
-- Write the launch script BEFORE starting torchrun on rank 0. Workers poll every 5 seconds. Torchrun waits for all nodes to connect, so workers joining a few seconds later is fine.
-- The launch script must contain the EXACT same torchrun command you run on rank 0 (same arguments, same working directory).
-- When killing training: just kill the torchrun process on rank 0. Workers detect the disconnection (NCCL timeout) and their processes exit automatically. Workers then poll for the next numbered script.
-- Each relaunch (after demotion/recovery) uses the next number: `1.sh`, `2.sh`, `3.sh`, etc.
-- Track the launch counter in `state.json` so you can resume correctly after a crash.
+- **Use single-quoted heredoc** (`<< 'ARGS_EOF'`) when writing `round_N_args.env`. This preserves `$NODE_RANK`, `$MASTER_ADDR`, and `$MASTER_PORT` as literal variables. Each worker node has these set to its own values by the Lepton environment. If you expand them, all workers will think they are rank 0.
+- Write `round_N_args.env` BEFORE touching `round_N_ready`. Workers source the args file immediately after detecting the ready file.
+- The `TRAIN_CMD` must NOT include `torchrun` or its flags — only the Python script and its Hydra arguments. Workers prepend the torchrun prefix themselves (with their own `$NODE_RANK`, `$MASTER_ADDR`, etc.).
+- When killing training: just kill the torchrun process on rank 0. Workers detect the disconnection (NCCL timeout) and exit automatically. Workers then block on the next round's ready file.
+- Track the round counter in `state.json` so you can resume correctly after a crash.
 
 ### Post-Launch Verification (MANDATORY)
 
