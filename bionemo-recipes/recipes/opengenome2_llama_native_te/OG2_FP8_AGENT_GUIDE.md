@@ -177,7 +177,9 @@ torchrun \
   checkpoint.resume_from_checkpoint=true \                        # ← FIXED (always true; auto-finds latest checkpoint)
   checkpoint.max_checkpoints=4 \
   checkpoint.save_final_model=true \
-  validation.enabled=false \                                         # ← FIXED (disabled for agent runs)
+  validation.enabled=true \                                          # ← FIXED
+  validation.eval_interval=1000 \                                    # ← FIXED (every 1000 steps)
+  validation.num_batches=40 \                                        # ← FIXED
   hydra.run.dir=$WORKSPACE_ROOT/<run_name>/hydra_outputs \
   wandb.project=$WANDB_PROJECT \                                  # ← FIXED
   +wandb.group=<run_name> \                                       # ← FIXED (computed once at session start, never changes)
@@ -264,6 +266,29 @@ torchrun \
 - When killing training: just kill the torchrun process on rank 0. Workers detect the disconnection (NCCL timeout) and their processes exit automatically. Workers then poll for the next numbered script.
 - Each relaunch (after demotion/recovery) uses the next number: `1.sh`, `2.sh`, `3.sh`, etc.
 - Track the launch counter in `state.json` so you can resume correctly after a crash.
+
+### Post-Launch Verification (MANDATORY)
+
+After the **first** torchrun launch in this session, verify the training setup is correct before proceeding. Check the stdout/WandB output for:
+
+1. **GPU count**: Must show `GPU count: {NPROC_PER_NODE * NNODES}` (e.g., 48 for 6 nodes × 8 GPUs). If it shows only `NPROC_PER_NODE` (e.g., 8), multi-node is broken — kill immediately and debug.
+2. **grad_acc_steps**: Must be `$GRAD_ACC_STEPS` (e.g., 8). If it shows any other value, kill immediately and fix.
+3. **Effective batch size**: Should be `$MICRO_BATCH_SIZE × $NPROC_PER_NODE × $NNODES × $GRAD_ACC_STEPS` (e.g., 1 × 8 × 6 × 8 = 384).
+4. **Resume step**: For warm-start, must show `Starting training loop from step <LKG_STEP + 1>`.
+
+If ANY of these are wrong, kill training immediately, diagnose the issue, fix it, and relaunch. Do NOT let incorrect training continue — it wastes GPU time and produces unusable results.
+
+### Validation as Downstream Signal
+
+Validation is enabled in the training command (`validation.enabled=true`). The training script automatically runs validation every 1000 steps and logs `val/loss` and `val/ppl` to WandB. This provides a downstream-like signal: the FP8 paper (Nemotron-3 Super) notes that training loss can diverge slightly under low-precision without hurting downstream task quality.
+
+**How the agent uses validation metrics:**
+
+- At each check-in, also read `val/loss` and `val/ppl` from `wandb-history.jsonl` (if a validation step has occurred since the last check-in).
+- Log validation metrics to `history.json` alongside training metrics.
+- Validation metrics are **informational only** — they do NOT trigger rollbacks. Only training perplexity triggers rollbacks.
+- In `report.md`, include a comparison of validation perplexity between this FP8 run and the BF16 baseline. This helps determine if FP8 precision loss affects downstream quality.
+- If validation fails with an error (e.g., data loading issue), the training script already handles this with try/except — training continues uninterrupted. The agent should log the failure but NOT take any action.
 
 ### Layer Precision Control
 
