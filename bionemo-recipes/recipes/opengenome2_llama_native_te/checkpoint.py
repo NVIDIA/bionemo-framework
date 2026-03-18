@@ -200,10 +200,28 @@ def load_checkpoint_fsdp2(
         dataloader: The dataloader to load.
         process_group: The process group to use for checkpointing.
     """
-    checkpoint_path, _ = get_latest_checkpoint(ckpt_path)
+    checkpoint_path, step = get_latest_checkpoint(ckpt_path)
     if not checkpoint_path:
         logger.info("No FSDP2 checkpoint found, starting from scratch")
         return CheckpointOutput(model, optimizer, scheduler, dataloader, 0, 0)
+
+    # Validate checkpoint before attempting distributed load
+    logger.info(f"Found checkpoint at {checkpoint_path} (step {step})")
+    resolved = checkpoint_path.resolve()
+    if checkpoint_path.is_symlink():
+        logger.info(f"Checkpoint is a symlink -> {resolved}")
+    if not resolved.is_dir():
+        raise FileNotFoundError(
+            f"Checkpoint path {checkpoint_path} does not resolve to a directory "
+            f"(resolved: {resolved}). If this is a symlink, ensure the target exists."
+        )
+    metadata_file = resolved / ".metadata"
+    if not metadata_file.exists():
+        raise FileNotFoundError(
+            f"Checkpoint at {resolved} is missing .metadata file. "
+            f"Contents: {list(resolved.iterdir()) if resolved.is_dir() else 'N/A'}"
+        )
+    logger.info(f"Checkpoint validated: {resolved} has .metadata and {len(list(resolved.iterdir()))} files")
 
     app_state = AppState(
         model=model,

@@ -96,6 +96,8 @@ def _build_warm_start_section(cfg: DictConfig) -> str:
             f"TAIL_PTR               = {warm_start.tail_ptr}",
         ]
 
+    checkpoint_root = cfg.get("checkpoint_root", "/data/savithas/checkpoints")
+
     lines += [
         "```",
         "",
@@ -103,17 +105,26 @@ def _build_warm_start_section(cfg: DictConfig) -> str:
         "",
         "Before your first training launch:",
         "",
+        f"**IMPORTANT**: Use `CHECKPOINT_ROOT={checkpoint_root}` for checkpoint paths,",
+        "NOT `WORKSPACE_ROOT`. The `checkpoint.ckpt_dir` CLI argument must be",
+        f"`{checkpoint_root}/<run_name>` (e.g., `{checkpoint_root}/ends_in_20260318_143000`).",
+        "",
         "1. Create your checkpoint directory:",
         "   ```",
-        "   mkdir -p $CHECKPOINT_ROOT/<run_name>/train_fsdp2",
+        f"   mkdir -p {checkpoint_root}/<run_name>/train_fsdp2",
         "   ```",
         "2. Symlink the external checkpoint into your checkpoint directory:",
         "   ```",
         f"   ln -s {warm_start.external_checkpoint}/train_fsdp2/step_{warm_start.lkg_step}"
-        f" $CHECKPOINT_ROOT/<run_name>/train_fsdp2/step_{warm_start.lkg_step}",
+        f" {checkpoint_root}/<run_name>/train_fsdp2/step_{warm_start.lkg_step}",
         "   ```",
-        f"3. Set `fp8_layers` to `{fp8_layers}` for the first launch.",
-        f"4. Initialize `state.json` with `demotion_round={warm_start.demotion_round}`, "
+        "3. Verify the symlink resolves correctly:",
+        "   ```",
+        f"   ls -la {checkpoint_root}/<run_name>/train_fsdp2/step_{warm_start.lkg_step}/",
+        f"   ls {checkpoint_root}/<run_name>/train_fsdp2/step_{warm_start.lkg_step}/.metadata",
+        "   ```",
+        f"4. Set `fp8_layers` to `{fp8_layers}` for the first launch.",
+        f"5. Initialize `state.json` with `demotion_round={warm_start.demotion_round}`, "
         f"`lkg_step={warm_start.lkg_step}`, and the pointer values above.",
         "",
         f"The agent picks up at round {warm_start.demotion_round + 1} of `{strategy}`.",
@@ -126,8 +137,8 @@ def _build_warm_start_section(cfg: DictConfig) -> str:
         "- The external checkpoint was trained with a DIFFERENT precision schedule. "
         "The optimizer state is matched to that schedule. Only further demotions (FP8 -> BF16) are safe. "
         "Do NOT promote layers back to FP8 that were already in BF16.",
-        "- `checkpoint.ckpt_dir` stays FIXED at `$CHECKPOINT_ROOT/<run_name>` for the entire session "
-        "(same rule as fresh start).",
+        f"- `checkpoint.ckpt_dir` stays FIXED at `{checkpoint_root}/<run_name>` for the entire session "
+        "(same rule as fresh start). NEVER use WORKSPACE_ROOT for checkpoint.ckpt_dir.",
     ]
 
     return "\n".join(lines)

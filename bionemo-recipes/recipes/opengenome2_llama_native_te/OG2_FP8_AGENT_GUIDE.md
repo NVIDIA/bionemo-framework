@@ -210,7 +210,7 @@ The agent modifies these fields between launches:
 These fields are FIXED for the entire session (never change between launches):
 
 - `grad_acc_steps` — always `$GRAD_ACC_STEPS` (do NOT scale by nodes/GPUs — FSDP handles distributed scaling)
-- `checkpoint.ckpt_dir` — always `$CHECKPOINT_ROOT/<run_name>` (same directory for the entire session; matches Lepton job name and wandb group)
+- `checkpoint.ckpt_dir` — always `$CHECKPOINT_ROOT/<run_name>` (**NOT** `$WORKSPACE_ROOT/...`). CHECKPOINT_ROOT and WORKSPACE_ROOT are different directories. Same directory for the entire session; matches Lepton job name and wandb group.
 - `num_train_steps` — always `$NUM_TRAIN_STEPS` (absolute target)
 - `checkpoint.resume_from_checkpoint` — always `true` (the script auto-finds the latest checkpoint; on first launch with no checkpoints it starts fresh automatically)
 - `+wandb.group` — always `<run_name>` (computed once at session start, never changes)

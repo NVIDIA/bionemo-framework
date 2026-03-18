@@ -42,6 +42,11 @@ LAUNCH_DIR             = {launch_dir}
 
 All other Run Variables (LAYERS_PER_PROMOTION, NUM_LAYERS, etc.) use the guide defaults.
 
+**CRITICAL PATH DISTINCTION**: `CHECKPOINT_ROOT` and `WORKSPACE_ROOT` are DIFFERENT directories:
+- `CHECKPOINT_ROOT = {checkpoint_root}` — for model checkpoints (`checkpoint.ckpt_dir=$CHECKPOINT_ROOT/<run_name>`)
+- `WORKSPACE_ROOT = {workspace_root}` — for agent artifacts (logs, history.json, state.json, report.md)
+Do NOT confuse them. The `checkpoint.ckpt_dir` CLI argument must ALWAYS use `$CHECKPOINT_ROOT/<run_name>`, never `$WORKSPACE_ROOT`.
+
 {warm_start_section}
 
 ## Instructions
