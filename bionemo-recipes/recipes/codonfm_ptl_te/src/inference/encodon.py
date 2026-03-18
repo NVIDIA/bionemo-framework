@@ -73,7 +73,7 @@ class EncodonInference(BaseInference):
                 broadcasted_objects = [None, None]
 
                 if dist.get_rank() == 0:
-                    ckpt = torch.load(self.model_path, map_location="cpu", weights_only=False)
+                    ckpt = torch.load(self.model_path, map_location="cpu")
                     hparams = ckpt.get("hyper_parameters")
                     state_dict = ckpt.get("state_dict")
                     broadcasted_objects = [state_dict, hparams]
@@ -81,7 +81,7 @@ class EncodonInference(BaseInference):
                 dist.broadcast_object_list(broadcasted_objects, src=0)
                 state_dict, hparams = broadcasted_objects
             else:
-                ckpt = torch.load(self.model_path, map_location="cpu", weights_only=False)
+                ckpt = torch.load(self.model_path, map_location="cpu")
                 hparams = ckpt.get("hyper_parameters")
                 state_dict = ckpt.get("state_dict")
 
