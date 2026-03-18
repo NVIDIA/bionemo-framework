@@ -36,7 +36,6 @@ from sae.analysis import compute_feature_stats, compute_feature_umap, save_featu
 from sae.utils import set_seed, get_device
 
 from codonfm_sae.data import read_codon_csv
-from codonfm_sae.data.uniprot import resolve_gene_to_alphafold
 
 
 def parse_args():
@@ -267,13 +266,6 @@ def export_codon_features_parquet(
     })
     pq.write_table(meta_table, output_dir / "feature_metadata.parquet", compression='snappy')
 
-    # Resolve gene names to AlphaFold IDs
-    print("  Resolving gene names to AlphaFold IDs...")
-    unique_ids = list(set(sequence_ids))
-    alphafold_map = resolve_gene_to_alphafold(unique_ids)
-    n_resolved = sum(1 for v in alphafold_map.values() if v)
-    print(f"  Resolved {n_resolved}/{len(unique_ids)} sequence IDs to AlphaFold structures")
-
     # Build feature_examples.parquet
     print("  Writing feature_examples.parquet...")
     example_rows = []
@@ -296,7 +288,6 @@ def export_codon_features_parquet(
                 "feature_id": feat_idx,
                 "example_rank": rank,
                 "protein_id": seq_id,
-                "alphafold_id": alphafold_map.get(seq_id, ""),
                 "sequence": codon_seq,
                 "activations": acts_list,
                 "max_activation": max(acts_list) if acts_list else 0.0,
@@ -329,7 +320,6 @@ def export_codon_features_parquet(
         "feature_id": pa.array([r["feature_id"] for r in example_rows], type=pa.int32()),
         "example_rank": pa.array([r["example_rank"] for r in example_rows], type=pa.int8()),
         "protein_id": pa.array([r["protein_id"] for r in example_rows]),
-        "alphafold_id": pa.array([r["alphafold_id"] for r in example_rows]),
         "sequence": pa.array([r["sequence"] for r in example_rows]),
         "activations": pa.array([r["activations"] for r in example_rows],
                                 type=pa.list_(pa.float32())),
