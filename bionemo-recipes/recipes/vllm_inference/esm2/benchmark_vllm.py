@@ -27,6 +27,8 @@ Usage:
 
 import argparse
 import itertools
+import json
+from pathlib import Path
 
 from transformers import AutoTokenizer
 from vllm import LLM
@@ -43,6 +45,13 @@ from benchmark_common import (
 )
 
 
+def _get_max_position_embeddings(checkpoint: str) -> int:
+    """Read max_position_embeddings from the checkpoint config."""
+    config_path = Path(checkpoint) / "config.json"
+    with open(config_path) as f:
+        return json.load(f)["max_position_embeddings"]
+
+
 def main() -> None:
     """Run the vLLM benchmark sweep."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -51,7 +60,13 @@ def main() -> None:
 
     checkpoint = ensure_exported(config.tag, config.export_dir, config.force_export)
 
-    max_batched = max(config.batch_sizes) * max(config.seq_lens)
+    # vLLM's Transformers fallback flattens all batch tokens into a single
+    # (1, total_tokens) sequence.  The TE model's fused RoPE pre-computes
+    # frequencies for max_position_embeddings, so total tokens per scheduler
+    # step cannot exceed that limit.  A native vLLM model class for ESM2
+    # would remove this constraint by using per-token positions with
+    # cu_seqlens-based packed attention.
+    max_batched_tokens = _get_max_position_embeddings(checkpoint)
 
     print(f"Loading model: {checkpoint}  (dtype={config.dtype})")
     engine = LLM(
@@ -60,7 +75,7 @@ def main() -> None:
         trust_remote_code=True,
         dtype=config.dtype,
         enforce_eager=True,
-        max_num_batched_tokens=max_batched + 2,
+        max_num_batched_tokens=max_batched_tokens,
     )
 
     tokenizer = AutoTokenizer.from_pretrained(checkpoint, trust_remote_code=True)
