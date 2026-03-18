@@ -185,8 +185,8 @@ if [ "$NODE_RANK" = "0" ]; then
   cd {repo_root}
   find .git -name "*.lock" -delete 2>/dev/null || true
   git fetch origin
-  git checkout {git_branch}
-  git pull origin {git_branch}
+  git checkout {git_branch} 2>/dev/null || git checkout -b {git_branch} origin/{git_branch}
+  git reset --hard origin/{git_branch}
   echo "Git sync complete! Commit: $(git rev-parse HEAD)"
   echo "=========================================="
 else
