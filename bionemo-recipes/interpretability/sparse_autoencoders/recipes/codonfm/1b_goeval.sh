@@ -5,7 +5,7 @@ set -e
 # Runs the SAE training pipeline and then evaluates features via gene-level GSEA
 # against GO, InterPro, and Pfam databases.
 
-MODEL_PATH=checkpoints/NV-CodonFM-Encodon-TE-Cdwt-1B-v1/model.safetensors
+MODEL_PATH=checkpoints/NV-CodonFM-Encodon-TE-Cdwt-1B-v1
 CSV_PATH=/data/jwilber/codonfm/data/sample_108k.csv
 LAYER=16
 NUM_SEQUENCES=10000
@@ -31,24 +31,24 @@ echo "STEP 2: Train SAE on cached activations"
 echo "============================================================"
 
 torchrun --nproc_per_node=4 scripts/train.py \
-    --cache-dir .cache/activations/primates_${NUM_SEQUENCES}_1b_layer${LAYER} \
+    --cache-dir .cache/activations/sample_438k_1b_layer${LAYER} \
     --model-path $MODEL_PATH \
     --layer $LAYER \
     --model-type topk \
     --expansion-factor 16 \
-    --top-k 32 \
+    --top-k 512 \
     --auxk 512 \
     --auxk-coef 0.03125 \
     --dead-tokens-threshold 500000 \
-    --n-epochs 40 \
+    --n-epochs 2 \
     --batch-size 4096 \
     --lr 3e-4 \
-    --log-interval 50 \
+    --log-interval 150 \
     --dp-size 4 \
     --seed 42 \
     --wandb \
     --wandb-project sae_codonfm_recipe \
-    --wandb-run-name "1b_layer${LAYER}_ef16_k32" \
+    --wandb-run-name "1b_layer${LAYER}_ef16_k512" \
     --output-dir ${OUTPUT_DIR} \
     --checkpoint-dir ${OUTPUT_DIR}/checkpoints
 
