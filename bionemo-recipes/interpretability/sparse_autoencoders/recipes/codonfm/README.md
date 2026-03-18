@@ -162,7 +162,7 @@ recipes/codonfm/
   src/codonfm_sae/          Recipe-specific code (CSV loader, eval)
   codon-fm/                 CodonFM model code (tokenizer, inference, models)
   codon_dashboard/          React/Vite interactive dashboard
-  notebooks/                Jupyter notebooks (steering demo, UMAP exploration)
+  notebooks/                Jupyter notebooks (UMAP exploration)
 ```
 
 ## Data Format
