@@ -343,14 +343,33 @@ echo "=========================================="
 
 AGENT_LOG="{workspace_root}/claude_agent_output.log"
 echo "Agent output will be logged to: $AGENT_LOG"
+echo "Timestamp before launch: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
 PROMPT=$(cat /tmp/agent_prompt.txt)
+echo "Prompt size: $(echo "$PROMPT" | wc -c) bytes"
+
+# Redirect directly to file (avoids pipe buffering from tee which blocks output for 10-20 min).
+# Then tail -f streams the file to container logs in real time.
 claude --dangerously-skip-permissions \\
   --model {cfg.claude_model} \\
-  -p "$PROMPT" 2>&1 | tee "$AGENT_LOG"
+  -p "$PROMPT" > "$AGENT_LOG" 2>&1 &
+CLAUDE_PID=$!
+echo "Claude Code launched (PID: $CLAUDE_PID)"
+
+# Give Claude a moment to start writing, then tail the log
+sleep 3
+tail -f "$AGENT_LOG" &
+TAIL_PID=$!
+
+# Wait for Claude to finish
+wait $CLAUDE_PID
+AGENT_EXIT=$?
+kill $TAIL_PID 2>/dev/null || true
 
 echo "=========================================="
-echo "FP8 Precision Agent finished."
+echo "FP8 Precision Agent finished (exit code: $AGENT_EXIT)."
+echo "Timestamp after exit: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+echo "Log file size: $(wc -c < "$AGENT_LOG") bytes"
 echo "=========================================="
 WRAPPER_EOF
   chmod 755 /tmp/run_claude.sh
