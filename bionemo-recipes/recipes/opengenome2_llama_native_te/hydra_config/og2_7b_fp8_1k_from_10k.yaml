@@ -1,12 +1,12 @@
-# OpenGenome2 7B - All FP8, 1000 steps from 10k checkpoint
+# OpenGenome2 7B - All FP8, 1000 steps from 5k checkpoint
 #
-# Resumes from the existing 10k BF16 checkpoint and trains for 1000 more steps
-# (steps 10001-11000) using HuggingFace streaming metagenomes dataset.
+# Resumes from the existing 5k BF16 checkpoint and trains for 1000 more steps
+# (steps 5001-6000) using HuggingFace streaming metagenomes dataset.
 # ALL layers in FP8 (including first and last). Single-node B300.
 #
 # Usage:
 #   torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_fp8_1k_from_10k \
-#     checkpoint.ckpt_dir=/path/to/checkpoints/fp8_1k_from_10k
+#     checkpoint.ckpt_dir=/path/to/checkpoints/fp8_1k_from_5k
 
 defaults:
   - og2_7b_thd_gqa
@@ -37,15 +37,16 @@ config_kwargs:
 # Override dataset to use HuggingFace streaming (no local NFS files needed)
 dataset:
   micro_batch_size: 1
-  buffer_size: 500_000
+  buffer_size: 10_000
+  num_workers: 8
   load_dataset_kwargs:
     path: "arcinstitute/opengenome2"
     data_dir: "json/pretraining_or_both_phases/metagenomes"
     split: "train"
     streaming: true
 
-# Train for 11000 total steps (resumes from 10001, runs 1000 new steps)
-num_train_steps: 11000
+# Train for 6000 total steps (resumes from 5001, runs 1000 new steps)
+num_train_steps: 6000
 grad_acc_steps: 8
 
 # FP8 enabled - all layers
@@ -55,7 +56,7 @@ fp8_config:
   fp8_format: E4M3
   fp8_recipe_kwargs: {}
 
-# Checkpoint: resume from existing 10k checkpoint
+# Checkpoint: resume from existing 5k checkpoint
 checkpoint:
   ckpt_dir: ???
   save_final_model: true
@@ -72,5 +73,5 @@ logger:
   frequency: 1
 
 wandb:
-  name: og2-7b-fp8-all-1k-from-10k
+  name: og2-7b-fp8-all-1k-from-5k
   project: opengenome2-7b
