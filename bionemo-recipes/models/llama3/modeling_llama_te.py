@@ -465,10 +465,16 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
                 tp_size=config.tp_size,
             )
             if config.tensor_parallel:
-                # If using tensor parallelism, the head weights have already been tied
-                # to the embedding weights. Just set the tensor parallel group for TE.
-                # No parameter quantization either, so no need for weight_mesh.
-                self.lm_head.set_tensor_parallel_group(self.tp_mesh.get_group())
+                if config.tie_word_embeddings:
+                    # Head weights have already been tied to the embedding weights.
+                    # Just set the tensor parallel group for TE.
+                    # No parameter quantization either, so no need for weight_mesh.
+                    self.lm_head.set_tensor_parallel_group(self.tp_mesh.get_group())
+                else:
+                    # Head weights are not tied to the embedding weights. Need to
+                    # wrap the LM head weight as a DTensor with TE.
+                    # No parameter quantization either, so no need for weight_mesh.
+                    self.lm_head.set_device_mesh(tp_mesh=self.tp_mesh)
 
         # Initialize weights and apply final processing. Ties weights.
         self.post_init()

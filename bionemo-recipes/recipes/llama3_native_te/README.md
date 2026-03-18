@@ -18,7 +18,7 @@ bionemo-framework repository. You can download a zipped directory of this folder
 
 | Model                                    | BF16 | FP8<sup>[1]</sup> | THD Input Format | FP8 with THD Input Format | MXFP8<sup>[2]</sup> | Context Parallelism | Tensor Parallelism |
 | ---------------------------------------- | ---- | ----------------- | ---------------- | ------------------------- | ------------------- | ------------------- | ------------------ |
-| [Llama 3](../../models/llama3/README.md) | ✅   | ✅                | ✅               | ✅                        | ✅                  | ✅                  | 🚧                 |
+| [Llama 3](../../models/llama3/README.md) | ✅   | ✅                | ✅               | ✅                        | ✅                  | ✅                  | ✅                 |
 
 ✅: Supported <br/>
 🚧: Under development <br/>
