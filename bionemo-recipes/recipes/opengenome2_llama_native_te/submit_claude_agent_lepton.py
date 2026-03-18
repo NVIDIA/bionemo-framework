@@ -319,6 +319,52 @@ if [ "$NODE_RANK" = "0" ]; then
 AGENT_PROMPT_EOF
   chmod 644 /tmp/agent_prompt.txt
 
+  # Create a torchrun wrapper that FORCES correct multi-node flags.
+  # This is a failsafe: even if Claude ignores $TORCHRUN_PREFIX and writes
+  # "torchrun --nnodes=1 ...", the wrapper strips wrong flags and injects correct ones.
+  # We replace the actual torchrun binary so it works regardless of PATH or .bashrc.
+  REAL_TORCHRUN=$(which torchrun)
+  cp "$REAL_TORCHRUN" "${{REAL_TORCHRUN}}.real"
+  cat > "$REAL_TORCHRUN" << TORCHRUN_WRAPPER_EOF
+#!/bin/bash
+# Torchrun wrapper: strips any --nnodes/--node_rank/--master_addr/--master_port/--nproc_per_node
+# flags and replaces them with the correct values from the environment.
+# This prevents Claude from accidentally launching single-node training.
+# Real torchrun is at: ${{REAL_TORCHRUN}}.real
+
+ARGS=()
+SKIP_NEXT=false
+for arg in "\\$@"; do
+  if \\$SKIP_NEXT; then
+    SKIP_NEXT=false
+    continue
+  fi
+  case "\\$arg" in
+    --nnodes=*|--node_rank=*|--master_addr=*|--master_port=*|--nproc_per_node=*)
+      echo "[torchrun-wrapper] Stripped flag: \\$arg" >&2
+      ;;
+    --nnodes|--node_rank|--master_addr|--master_port|--nproc_per_node)
+      echo "[torchrun-wrapper] Stripped flag: \\$arg (and next arg)" >&2
+      SKIP_NEXT=true
+      ;;
+    *)
+      ARGS+=("\\$arg")
+      ;;
+  esac
+done
+
+echo "[torchrun-wrapper] Injecting: --nproc_per_node={cfg.gpus_per_node} --nnodes=\\$NNODES --node_rank=\\$NODE_RANK --master_addr=\\$MASTER_ADDR --master_port=\\$MASTER_PORT" >&2
+exec ${{REAL_TORCHRUN}}.real \\
+  --nproc_per_node={cfg.gpus_per_node} \\
+  --nnodes=\\$NNODES \\
+  --node_rank=\\$NODE_RANK \\
+  --master_addr=\\$MASTER_ADDR \\
+  --master_port=\\$MASTER_PORT \\
+  "\\${{ARGS[@]}}"
+TORCHRUN_WRAPPER_EOF
+  chmod 755 "$REAL_TORCHRUN"
+  echo "Torchrun wrapper installed (replaced $REAL_TORCHRUN, original at ${{REAL_TORCHRUN}}.real)"
+
   # Write a wrapper script for the non-root user
   cat > /tmp/run_claude.sh << 'WRAPPER_EOF'
 #!/bin/bash
