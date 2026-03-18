@@ -278,8 +278,10 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
             const tokenLogitMap = {}
             for (const [tok, val] of (logits.top_positive || [])) tokenLogitMap[tok] = val
             for (const [tok, val] of (logits.top_negative || [])) tokenLogitMap[tok] = val
-            const allTokens = Object.keys(tokenLogitMap).sort((a, b) => tokenLogitMap[b] - tokenLogitMap[a])
-            const maxAbs = Math.max(...Object.values(tokenLogitMap).map(Math.abs), 0.001)
+            // Show all 20 standard amino acids in alphabetical order
+            const AMINO_ACIDS = ['A','C','D','E','F','G','H','I','K','L','M','N','P','Q','R','S','T','V','W','Y']
+            const allTokens = AMINO_ACIDS
+            const maxAbs = Math.max(...AMINO_ACIDS.map(aa => Math.abs(tokenLogitMap[aa] || 0)), 0.001)
             return (
               <div style={{ marginBottom: '12px' }}>
                 <div style={styles.sectionHeader}>Decoder Logits (mean-centered)</div>
