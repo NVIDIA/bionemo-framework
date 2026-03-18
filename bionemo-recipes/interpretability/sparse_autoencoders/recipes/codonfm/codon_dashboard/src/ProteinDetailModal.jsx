@@ -149,7 +149,7 @@ export default function ProteinDetailModal({ protein, onClose }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const accession = getAccession(protein.protein_id, protein.alphafold_id)
+  const accession = getAccession(protein.protein_id)
   const acts = protein.activations ? protein.activations.slice(0, (protein.sequence || '').length) : []
 
   // Close on ESC

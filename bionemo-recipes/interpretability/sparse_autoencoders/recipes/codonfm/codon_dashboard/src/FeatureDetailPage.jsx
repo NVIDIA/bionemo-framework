@@ -409,7 +409,7 @@ export default function FeatureDetailPage({ feature, examples, vocabLogits, feat
                     <span>
                       <strong style={{ color: 'var(--text-heading)' }}>{ex.protein_id}</strong>
                       <a
-                        href={uniprotUrl(getAccession(ex.protein_id, ex.alphafold_id))}
+                        href={uniprotUrl(getAccession(ex.protein_id))}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{ color: 'var(--link)', textDecoration: 'none', marginLeft: '4px', fontSize: '11px' }}

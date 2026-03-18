@@ -352,9 +352,9 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
     // Examples section
     if (examples && examples.length > 0) {
       lines.push('=== ACTIVATION EXAMPLES ===')
-      lines.push('Rank,Protein ID,AlphaFold ID,Max Activation,Sequence')
+      lines.push('Rank,Protein ID,Max Activation,Sequence')
       examples.forEach((ex, i) => {
-        lines.push(`${i + 1},${ex.protein_id || ''},${ex.alphafold_id || ''},${ex.max_activation?.toFixed(4) || ''},${ex.sequence || ''}`)
+        lines.push(`${i + 1},${ex.protein_id || ''},${ex.max_activation?.toFixed(4) || ''},${ex.sequence || ''}`)
       })
     }
 
@@ -701,7 +701,7 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
                       <span>
                         <span style={styles.proteinId}>{ex.protein_id}</span>
                         <a
-                          href={uniprotUrl(getAccession(ex.protein_id, ex.alphafold_id))}
+                          href={uniprotUrl(getAccession(ex.protein_id))}
                           target="_blank"
                           rel="noopener noreferrer"
                           style={styles.uniprotLink}

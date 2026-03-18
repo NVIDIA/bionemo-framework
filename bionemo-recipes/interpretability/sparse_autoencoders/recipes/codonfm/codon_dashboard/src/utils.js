@@ -1,8 +1,7 @@
 /**
- * Extract UniProt accession from a protein ID or AlphaFold ID.
+ * Extract UniProt accession from a protein ID.
  */
-export function getAccession(proteinId, alphafoldId) {
-  if (alphafoldId) return alphafoldId.replace('AF-', '').replace(/-F\d+$/, '')
+export function getAccession(proteinId) {
   if (proteinId && proteinId.includes('|')) return proteinId.split('|')[1]
   // Extract gene name from mutation IDs like "FLT3_2438_GCC-GCA" or "ABL1_ref"
   if (proteinId && proteinId.includes('_')) return proteinId.split('_')[0]

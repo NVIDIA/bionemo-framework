@@ -222,7 +222,6 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
     )
     return result.toArray().map(row => ({
       protein_id: row.protein_id,
-      alphafold_id: row.alphafold_id,
       sequence: row.sequence,
       activations: Array.from(row.activations),
       max_activation: row.max_activation,

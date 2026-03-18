@@ -78,7 +78,7 @@ const styles = {
   },
 }
 
-export default function MolstarThumbnail({ proteinId, alphafoldId, sequence, activations, maxActivation, onExpand }) {
+export default function MolstarThumbnail({ proteinId, sequence, activations, maxActivation, onExpand }) {
   const wrapperRef = useRef(null)
   const molContainerRef = useRef(null)
   const pluginRef = useRef(null)
@@ -86,7 +86,7 @@ export default function MolstarThumbnail({ proteinId, alphafoldId, sequence, act
   const [error, setError] = useState(null)
   const [hovered, setHovered] = useState(false)
 
-  const uniprotId = getAccession(proteinId, alphafoldId)
+  const uniprotId = getAccession(proteinId)
 
   // Trim activations to sequence length
   const acts = activations ? activations.slice(0, (sequence || '').length) : []
