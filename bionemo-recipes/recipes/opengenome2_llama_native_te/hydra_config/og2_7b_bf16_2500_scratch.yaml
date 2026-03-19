@@ -1,0 +1,55 @@
+# Experiment 1: BF16 from scratch, 1500 steps, GBS=192
+#
+# All layers in BF16 (no FP8/FP4). Single-node B300, 8 GPUs.
+# GBS = mbs(6) * grad_acc(4) * gpus(8) = 192
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_bf16_2500_scratch \
+#     checkpoint.ckpt_dir=/path/to/save/checkpoints
+
+defaults:
+  - og2_7b_thd_gqa
+  - _self_
+
+dataset:
+  micro_batch_size: 6
+  buffer_size: 10_000
+  num_workers: 8
+  load_dataset_kwargs:
+    path: "json"
+    data_files: "/data/data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_train_*.jsonl.gz"
+    data_dir: null
+    split: "train"
+    streaming: true
+
+num_train_steps: 1500
+grad_acc_steps: 4
+
+lr_scheduler_kwargs:
+  num_warmup_steps: 500
+  num_decay_steps: 1000
+  min_lr_ratio: 0.000001
+
+fp8_config:
+  enabled: false
+
+fp4_config:
+  enabled: false
+
+checkpoint:
+  ckpt_dir: ???
+  save_final_model: true
+  resume_from_checkpoint: false
+  save_every_n_steps: 500
+  max_checkpoints: 1
+  async_save: false
+
+validation:
+  enabled: false
+
+logger:
+  frequency: 10
+
+wandb:
+  name: og2-7b-bf16-1500-scratch
+  project: llama3-metagenome-7b

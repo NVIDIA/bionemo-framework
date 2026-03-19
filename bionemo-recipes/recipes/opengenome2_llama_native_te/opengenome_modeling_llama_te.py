@@ -521,15 +521,17 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         self,
         config,
         fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
     ):
         """Initialize the OG2 NVLlamaForCausalLM model.
 
         Args:
             config: The configuration of the model.
             fp8_recipe: The FP8 recipe for the model.
+            fp4_recipe: The FP4 recipe for the model.
         """
         super().__init__(config)
-        self.model = NVLlamaModel(config, fp8_recipe=fp8_recipe)
+        self.model = NVLlamaModel(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
         self.vocab_size = config.vocab_size
         with transformer_engine.pytorch.quantized_model_init(enabled=False):
             self.lm_head = transformer_engine.pytorch.Linear(
