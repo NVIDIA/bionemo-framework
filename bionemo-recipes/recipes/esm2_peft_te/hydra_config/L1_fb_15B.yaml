@@ -42,7 +42,7 @@ lr_scheduler_kwargs:
   num_training_steps: 1_000
 
 checkpoint:
-  ckpt_dir: "checkpoints/facebook_esm2_t48_15B_UR50D" # pragma: allowlist secret
+  ckpt_dir: "checkpoints/facebook_esm2_t48_15B_UR50D"
   save_final_model: false
 
 logger:
