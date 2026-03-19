@@ -1,7 +1,7 @@
 defaults:
   - _self_
 
-job_name: "og2-bf16-baseline-1node-from-5k"
+job_name: "og2-bf16-baseline-continuous"
 node_group: "yo-bom-lepton-001"
 resource_shape: "gpu.8xh100-sxm"
 
@@ -24,10 +24,11 @@ resume_from:
 
 # Hydra CLI overrides (passed after --config-name)
 hydra_overrides:
-  checkpoint.ckpt_dir: "/data/savithas/checkpoints/og2-7b-bf16-baseline-1node"
+  checkpoint.ckpt_dir: "/data/savithas/checkpoints/og2-7b-bf16-baseline-continuous"
   checkpoint.async_save: false
   checkpoint.save_every_n_steps: 0
   checkpoint.save_final_model: false
+  wandb.name: "og2-7b-bf16-baseline-continuous"
 
 # WandB
 wandb_secret: "wandb.savithas"  # pragma: allowlist secret
