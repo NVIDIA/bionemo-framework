@@ -446,19 +446,39 @@ def main():
     del inference
     torch.cuda.empty_cache()
 
-    # 5. Compute per-gene activation matrix
-    print("\n" + "=" * 60)
-    print("COMPUTING PER-GENE ACTIVATIONS")
-    print("=" * 60)
-    gene_activations = compute_gene_activations(sae, activations, masks, gene_names, device=device)
-    print(f"  {len(gene_activations)} features with non-zero gene activations")
+    # 5. Compute per-gene activation matrix (or load from cache)
+    gene_acts_cache = output_dir / "gene_activations_cache.json"
+    if gene_acts_cache.exists():
+        print("\n" + "=" * 60)
+        print("LOADING CACHED GENE ACTIVATIONS")
+        print("=" * 60)
+        with open(gene_acts_cache) as f:
+            raw = json.load(f)
+        gene_activations = {int(k): v for k, v in raw.items()}
+        print(f"  Loaded {len(gene_activations)} features from cache")
 
-    # Free activations memory
-    del activations, masks
-    torch.cuda.empty_cache()
+        # Free GPU resources we don't need
+        del activations, masks
+        torch.cuda.empty_cache()
+        sae = sae.cpu()
+    else:
+        print("\n" + "=" * 60)
+        print("COMPUTING PER-GENE ACTIVATIONS")
+        print("=" * 60)
+        gene_activations = compute_gene_activations(sae, activations, masks, gene_names, device=device)
+        print(f"  {len(gene_activations)} features with non-zero gene activations")
 
-    # Move SAE to CPU to free GPU
-    sae = sae.cpu()
+        # Free activations memory
+        del activations, masks
+        torch.cuda.empty_cache()
+
+        # Move SAE to CPU to free GPU
+        sae = sae.cpu()
+
+        # Cache gene activations so we can restart from here
+        print(f"  Caching gene activations to {gene_acts_cache}...")
+        with open(gene_acts_cache, "w") as f:
+            json.dump({str(k): v for k, v in gene_activations.items()}, f)
 
     # 6. Run GSEA
     print("\n" + "=" * 60)
@@ -479,7 +499,20 @@ def main():
     gsea_time = time.time() - t0
     print(f"\n  GSEA completed in {gsea_time:.1f}s")
 
-    # 7. Optional GO Slim rollup
+    # 7. Save results (before GO Slim so we don't lose GSEA work on failure)
+    print("\n" + "=" * 60)
+    print("SAVING RESULTS")
+    print("=" * 60)
+
+    report_path = output_dir / "gene_enrichment_report.json"
+    save_report_json(report, report_path)
+    print(f"  Saved report to {report_path}")
+
+    parquet_path = output_dir / "enrichment_results.parquet"
+    save_enrichment_parquet(report, parquet_path)
+    print(f"  Saved enrichment results to {parquet_path}")
+
+    # 8. Optional GO Slim rollup
     if not args.no_go_slim:
         print("\n" + "=" * 60)
         print("GO SLIM ROLLUP")
@@ -497,18 +530,9 @@ def main():
         slim_names = {fl.go_slim_name for fl in report.per_feature if fl.go_slim_name is not None}
         print(f"  {n_slim} features mapped to {len(slim_names)} GO Slim categories")
 
-    # 8. Save results
-    print("\n" + "=" * 60)
-    print("SAVING RESULTS")
-    print("=" * 60)
-
-    report_path = output_dir / "gene_enrichment_report.json"
-    save_report_json(report, report_path)
-    print(f"  Saved report to {report_path}")
-
-    parquet_path = output_dir / "enrichment_results.parquet"
-    save_enrichment_parquet(report, parquet_path)
-    print(f"  Saved enrichment results to {parquet_path}")
+        # Re-save with GO Slim data
+        save_report_json(report, report_path)
+        print(f"  Updated report with GO Slim labels")
 
     # 9. Update dashboard atlas if requested
     if args.dashboard_dir:
