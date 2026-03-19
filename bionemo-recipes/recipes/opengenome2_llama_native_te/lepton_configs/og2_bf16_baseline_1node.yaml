@@ -17,6 +17,11 @@ git_branch: "savitha/claude-lepton-dev-experiment"
 hydra_config: "og2_7b_bf16_1k_from_5k"
 train_script: "train_fsdp2.py"
 
+# Resume from external 5k checkpoint (symlinked into ckpt_dir)
+resume_from:
+  external_checkpoint: "/data/savithas/checkpoints/og2-7b-fp32mw-orig-ws-w1-b50k"  # pragma: allowlist secret
+  step: 5000
+
 # Hydra CLI overrides (passed after --config-name)
 hydra_overrides:
   checkpoint.ckpt_dir: "/data/savithas/checkpoints/og2-7b-bf16-baseline-1node"

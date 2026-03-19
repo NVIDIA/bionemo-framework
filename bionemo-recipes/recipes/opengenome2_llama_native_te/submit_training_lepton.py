@@ -71,6 +71,25 @@ git reset --hard origin/{git_branch}
 echo "Git sync complete! Commit: $(git rev-parse HEAD)"
 """
 
+    # Build checkpoint symlink setup if resuming from external checkpoint
+    resume_setup_script = ""
+    resume_from = cfg.get("resume_from", None)
+    if resume_from and resume_from.get("external_checkpoint"):
+        ckpt_dir = cfg.hydra_overrides.get("checkpoint.ckpt_dir", "")
+        ext_ckpt = resume_from.external_checkpoint
+        step = resume_from.step
+        resume_setup_script = f"""
+# Symlink external checkpoint for resume
+mkdir -p {ckpt_dir}/train_fsdp2
+if [ ! -e {ckpt_dir}/train_fsdp2/step_{step} ]; then
+    ln -s {ext_ckpt}/train_fsdp2/step_{step} {ckpt_dir}/train_fsdp2/step_{step}
+    echo "Symlinked checkpoint: {ext_ckpt}/train_fsdp2/step_{step}"
+else
+    echo "Checkpoint already exists at {ckpt_dir}/train_fsdp2/step_{step}"
+fi
+ls -la {ckpt_dir}/train_fsdp2/
+"""
+
     # Build the torchrun command from Hydra overrides
     hydra_overrides = OmegaConf.to_container(cfg.get("hydra_overrides", {}), resolve=True) or {}
     override_str = " \\\n  ".join(f"{k}={v}" for k, v in hydra_overrides.items())
@@ -106,7 +125,7 @@ echo "=========================================="
 echo "Launching torchrun training..."
 echo "Config: {cfg.hydra_config}"
 echo "=========================================="
-
+{resume_setup_script}
 cd {cfg.code_path}
 torchrun \\
   --nproc_per_node={cfg.gpus_per_node} \\
