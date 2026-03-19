@@ -71,6 +71,7 @@ from fp8_debugging import initialize_fp8_debugging
 from opengenome_modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from optimizer import get_parameter_groups_with_weight_decay
 from perf_logger import PerfLogger
+from quantization import resolve_layer_precision
 from scheduler import get_cosine_annealing_schedule_with_warmup
 
 
@@ -128,9 +129,14 @@ def main(args: DictConfig) -> float | None:
 
     # --- Model Configuration ---
     fp8_recipe = None
+    fp4_recipe = None
     if args.fp8_config.enabled:
         fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
             fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
+    if getattr(args, "fp4_config", None) and args.fp4_config.get("enabled", False):
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+            fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
         )
 
     # Validate config: meta-device init breaks custom initialization
@@ -162,15 +168,30 @@ def main(args: DictConfig) -> float | None:
 
     config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
 
-    # Build layer_precision from backward-compatible fp8_first_last_bf16 config
-    if args.fp8_config.enabled:
-        n = config.num_hidden_layers
-        if getattr(config, "fp8_first_last_bf16", False):
-            n_start = getattr(config, "num_layers_at_start_in_bf16", 1)
-            n_end = getattr(config, "num_layers_at_end_in_bf16", 1)
-            config.layer_precision = [None] * n_start + ["fp8"] * (n - n_start - n_end) + [None] * n_end
-        else:
-            config.layer_precision = ["fp8"] * n
+    # Resolve layer-wise quantization precision (FP8/FP4/BF16) from config
+    fp8_layers_cfg = getattr(args, "fp8_layers", None)
+    fp4_layers_cfg = getattr(args, "fp4_layers", None)
+    fp4_enabled = getattr(args, "fp4_config", {}).get("enabled", False) if hasattr(args, "fp4_config") else False
+
+    def _parse_layers_cfg(cfg):
+        """Parse layer config from OmegaConf list or CLI string like '[1,2,3]'."""
+        if cfg is None:
+            return None
+        if isinstance(cfg, str):
+            import ast
+
+            return ast.literal_eval(cfg.strip("'\""))
+        return OmegaConf.to_container(cfg, resolve=True)
+
+    layer_precision = resolve_layer_precision(
+        num_layers=config.num_hidden_layers,
+        fp8_enabled=args.fp8_config.enabled,
+        fp4_enabled=fp4_enabled,
+        fp8_layers=_parse_layers_cfg(fp8_layers_cfg),
+        fp4_layers=_parse_layers_cfg(fp4_layers_cfg),
+    )
+    config.layer_precision = layer_precision
+    logger.info(f"Layer precision: {layer_precision}")
 
     # Log initialization settings
     std = getattr(config, "initializer_range", 0.02)
@@ -185,7 +206,7 @@ def main(args: DictConfig) -> float | None:
 
     # --- Model Initialization ---
     with torch.device("meta") if args.use_meta_device else nullcontext():
-        model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe)
+        model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -213,6 +234,9 @@ def main(args: DictConfig) -> float | None:
     for layer in model.model.layers:
         fully_shard(layer, mesh=cp_dp_mesh, mp_policy=mp_policy)
     fully_shard(model, mesh=cp_dp_mesh, mp_policy=mp_policy)
+
+    # Set recipes after FSDP wrapping (recipes are not serializable through FSDP init)
+    model.model.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     # Attach the CP group to the model
     for layer in model.model.layers:

@@ -64,6 +64,7 @@ from fp8_debugging import initialize_fp8_debugging
 from opengenome_modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from optimizer import get_parameter_groups_with_weight_decay
 from perf_logger import PerfLogger
+from quantization import resolve_layer_precision
 from scheduler import get_cosine_annealing_schedule_with_warmup
 from validation import run_validation
 
@@ -114,11 +115,16 @@ def main(args: DictConfig) -> float | None:
 
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
 
-    # Create an FP8 recipe -- only used if FP8 is enabled in the config.
+    # Create quantization recipes -- only used if FP8/FP4 is enabled in the config.
     fp8_recipe = None
+    fp4_recipe = None
     if args.fp8_config.enabled:
         fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
             fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
+    if args.fp4_config.enabled:
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+            fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
         )
 
     if args.use_te:
@@ -157,15 +163,30 @@ def main(args: DictConfig) -> float | None:
 
     config = config_class.from_pretrained(args.config_name_or_path, dtype=model_dtype, **config_kwargs)
 
-    # Build layer_precision from backward-compatible fp8_first_last_bf16 config
-    if args.fp8_config.enabled and args.use_te:
-        n = config.num_hidden_layers
-        if getattr(config, "fp8_first_last_bf16", False):
-            n_start = getattr(config, "num_layers_at_start_in_bf16", 1)
-            n_end = getattr(config, "num_layers_at_end_in_bf16", 1)
-            config.layer_precision = [None] * n_start + ["fp8"] * (n - n_start - n_end) + [None] * n_end
-        else:
-            config.layer_precision = ["fp8"] * n
+    # Resolve layer-wise quantization precision (FP8/FP4/BF16) from config
+    fp8_layers_cfg = getattr(args, "fp8_layers", None)
+    fp4_layers_cfg = getattr(args, "fp4_layers", None)
+    fp4_enabled = args.fp4_config.enabled
+
+    def _parse_layers_cfg(cfg):
+        """Parse layer config from OmegaConf list or CLI string like '[1,2,3]'."""
+        if cfg is None:
+            return None
+        if isinstance(cfg, str):
+            import ast
+
+            return ast.literal_eval(cfg.strip("'\""))
+        return OmegaConf.to_container(cfg, resolve=True)
+
+    layer_precision = resolve_layer_precision(
+        num_layers=config.num_hidden_layers,
+        fp8_enabled=args.fp8_config.enabled,
+        fp4_enabled=fp4_enabled,
+        fp8_layers=_parse_layers_cfg(fp8_layers_cfg),
+        fp4_layers=_parse_layers_cfg(fp4_layers_cfg),
+    )
+    config.layer_precision = layer_precision
+    logger.info(f"Layer precision: {layer_precision}")
 
     # Log initialization settings
     std = getattr(config, "initializer_range", 0.02)
@@ -179,10 +200,11 @@ def main(args: DictConfig) -> float | None:
     )
 
     with torch.device("meta") if args.use_meta_device else nullcontext():
-        if args.use_te:
-            model = model_class(config, fp8_recipe=fp8_recipe)
-        else:
-            model = model_class(config)
+        model = (
+            model_class(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+            if model_class is NVLlamaForCausalLM
+            else model_class(config)
+        )
 
     logger.info("Initialized Model:\n%s", model)
 
@@ -205,6 +227,10 @@ def main(args: DictConfig) -> float | None:
     for layer in model.model.layers:
         fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
     fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
+
+    # Set recipes after FSDP wrapping (recipes are not serializable through FSDP init)
+    if args.use_te:
+        model.model.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     # If using meta device, move sharded weights to cuda and initialize parameters.
     # WARNING: meta-device init breaks Megatron-style scaled init for proj/fc2.
