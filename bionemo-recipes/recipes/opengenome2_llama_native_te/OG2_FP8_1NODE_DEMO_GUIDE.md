@@ -101,43 +101,55 @@ ______________________________________________________________________
 
 ## Base Training Command
 
+Every launch uses this exact template. Only the three AGENT CONTROLS fields
+change between launches — everything else is hardcoded.
+
 ```bash
 cd /data/savithas/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_native_te
 
 torchrun --nproc_per_node=8 train_fsdp2.py \
   --config-name og2_7b_bf16_1k_from_5k \
-  checkpoint.ckpt_dir=$CHECKPOINT_ROOT/<run_name> \
-  checkpoint.save_every_n_steps=$CHECKIN_INTERVAL \
+  dataset.micro_batch_size=2 \
+  dataset.buffer_size=10000 \
+  dataset.num_workers=8 \
+  num_train_steps=6000 \
+  grad_acc_steps=4 \
+  checkpoint.ckpt_dir=/data/savithas/checkpoints/<run_name> \
+  checkpoint.save_every_n_steps=100 \
   checkpoint.resume_from_checkpoint=true \
   checkpoint.max_checkpoints=4 \
   checkpoint.save_final_model=true \
   checkpoint.async_save=true \
-  num_train_steps=$NUM_TRAIN_STEPS \
   logger.frequency=1 \
-  fp8_config.enabled=<true|false> \                              ← AGENT CONTROLS
+  fp8_config.enabled=<true|false> \
   fp8_config.fp8_recipe=transformer_engine.common.recipe.Float8BlockScaling \
   fp8_config.fp8_format=E4M3 \
-  fp8_layers='[...]' \                                           ← AGENT CONTROLS
-  wandb.project=$WANDB_PROJECT \
-  +wandb.group=<run_name> \                                      ← FIXED (computed once)
-  wandb.name=<run_name> \                                        ← AGENT CONTROLS
-  hydra.run.dir=$WORKSPACE_ROOT/<run_name>/hydra_outputs
+  fp8_layers='<LAYER_LIST>' \
+  wandb.project=llama3-metagenome-7b \
+  +wandb.group=<run_name> \
+  wandb.name=<WANDB_RUN_NAME> \
+  hydra.run.dir=/data/savithas/agent_runs/demo_1node/<run_name>/hydra_outputs
 ```
 
-**Agent-controlled fields:**
+**AGENT CONTROLS (change between launches):**
 
 - `fp8_config.enabled` — `false` during BF16 warmup; `true` once any layers
   are in FP8
-- `fp8_layers` — `[]` during warmup; updated on expansion (pass) and demotion
-  (fail)
+- `fp8_layers` — `'[]'` during warmup; e.g. `'[16,17]'` after first expansion
 - `wandb.name` — updated to reflect current precision schedule
 
-**Fixed fields (never change between launches):**
+**HARDCODED (never change between launches):**
 
+- `dataset.micro_batch_size=2` — always 2
+- `dataset.buffer_size=10000` — always 10k
+- `dataset.num_workers=8` — always 8
+- `num_train_steps=6000` — always 6000
+- `grad_acc_steps=4` — always 4 (GBS = 2 × 4 × 8 GPUs = 64)
 - `checkpoint.ckpt_dir` — same directory for entire session
-- `num_train_steps` — always 6000
-- `checkpoint.resume_from_checkpoint` — always true
+- `checkpoint.save_every_n_steps=100` — matches CHECKIN_INTERVAL
+- `checkpoint.resume_from_checkpoint=true` — always true
 - `+wandb.group` — computed once at session start, never changes
+- `wandb.project=llama3-metagenome-7b` — fixed
 
 ______________________________________________________________________
 
