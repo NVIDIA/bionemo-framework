@@ -83,33 +83,33 @@ cd /workspace/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_native
 
 torchrun --nproc_per_node=8 train_fsdp2.py \
   --config-name og2_7b_bf16_1k_from_10k \
-  checkpoint.ckpt_dir=$WORKSPACE_ROOT/<run_name>/checkpoints \
-  checkpoint.save_every_n_steps=$CHECKIN_INTERVAL \
+  checkpoint.ckpt_dir=/checkpoints/og2_7b_agent \
+  checkpoint.save_every_n_steps=100 \
   checkpoint.resume_from_checkpoint=true \
   checkpoint.max_checkpoints=4 \
   checkpoint.save_final_model=true \
   checkpoint.async_save=false \
-  num_train_steps=$NUM_TRAIN_STEPS \
+  num_train_steps=6000 \
   dataset.micro_batch_size=6 \
   dataset.num_workers=8 \
   dataset.load_dataset_kwargs.path=json \
-  dataset.load_dataset_kwargs.data_files="$DATASET_DATA_FILES" \
+  dataset.load_dataset_kwargs.data_files="/data/data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_train_*.jsonl.gz" \
   dataset.load_dataset_kwargs.data_dir=null \
-  grad_acc_steps=$GRADIENT_ACCUMULATION \
-  logger.frequency=$CHECKIN_INTERVAL \
+  grad_acc_steps=4 \
+  logger.frequency=100 \
   fp8_config.enabled=False \
-  fp4_config.enabled=<true|false> \
+  fp4_config.enabled=<true|false> \                              ← AGENT CONTROLS
   fp4_config.fp4_recipe=transformer_engine.common.recipe.NVFP4BlockScaling \
   fp4_config.fp4_format=E2M1 \
-  fp4_layers=[...] \
+  fp4_layers=[...] \                                             ← AGENT CONTROLS
   use_sequence_packing=True \
   use_fp32_master_weights=True \
   lr_scheduler_kwargs.num_warmup_steps=2500 \
   lr_scheduler_kwargs.num_decay_steps=179814 \
   lr_scheduler_kwargs.min_lr_ratio=0.02 \
-  wandb.project=$WANDB_PROJECT \
+  wandb.project=llama3-metagenome-7b \
   wandb.name=<run_name> \
-  hydra.run.dir=$WORKSPACE_ROOT/<run_name>/hydra_outputs
+  hydra.run.dir=/workspace/claude_tasks/og2_7b/<run_name>/hydra_outputs
 ```
 
 **Agent-controlled fields:**
@@ -139,25 +139,24 @@ checkpoint.ckpt_dir=$WORKSPACE_ROOT/<run_name>/checkpoints
 
 The agent should copy the initial checkpoint to its workspace on the first launch, OR use the initial checkpoint dir for the first launch and switch to its own dir after the first save.
 
-## IMPORTANT: Checkpoint Directory Permissions
+## IMPORTANT: Pre-Launch Setup (run on login node before container)
 
-Checkpoint directories must be pre-created on the HOST (outside the container) before training starts. The container runs as root but NFS root-squash prevents creating new directories. Pre-create all needed step directories:
+The container runs as root but NFS root-squash prevents root from creating directories. All checkpoint step directories must be pre-created on the HOST before launching the container.
+
+Run this on the login node before launching the container:
 
 ```bash
-# On the host, before launching container:
-mkdir -p <checkpoint_path>/train_fsdp2/step_5100
-mkdir -p <checkpoint_path>/train_fsdp2/step_5200
-# ... for every CHECKIN_INTERVAL step
-mkdir -p <checkpoint_path>/train_fsdp2/final_model
+CKPT_BASE=/home/scratch.broland_sw_3/users/savithas/checkpoints/og2_7b_agent
+mkdir -p ${CKPT_BASE}/train_fsdp2/final_model
+for step in $(seq 5100 100 6000); do
+  mkdir -p ${CKPT_BASE}/train_fsdp2/step_${step}
+done
 ```
 
-Or create all possible step directories in advance:
+Inside the container, this maps to `/checkpoints/og2_7b_agent`. The training command should use:
 
-```bash
-for step in $(seq 5100 100 6000); do
-  mkdir -p <checkpoint_path>/train_fsdp2/step_${step}
-done
-mkdir -p <checkpoint_path>/train_fsdp2/final_model
+```
+checkpoint.ckpt_dir=/checkpoints/og2_7b_agent
 ```
 
 ## Layer Precision Schedule
