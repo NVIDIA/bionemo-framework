@@ -167,6 +167,7 @@ def main(args: DictConfig) -> float | None:
     fp8_layers_cfg = getattr(args, "fp8_layers", None)
     fp4_layers_cfg = getattr(args, "fp4_layers", None)
     fp4_enabled = args.fp4_config.enabled
+    fp4_after_warmup = getattr(args, "fp4_after_warmup_steps", None)
 
     def _parse_layers_cfg(cfg):
         """Parse layer config from OmegaConf list or CLI string like '[1,2,3]'."""
@@ -178,13 +179,17 @@ def main(args: DictConfig) -> float | None:
             return ast.literal_eval(cfg.strip("'\""))
         return OmegaConf.to_container(cfg, resolve=True)
 
-    layer_precision = resolve_layer_precision(
-        num_layers=config.num_hidden_layers,
-        fp8_enabled=args.fp8_config.enabled,
-        fp4_enabled=fp4_enabled,
-        fp8_layers=_parse_layers_cfg(fp8_layers_cfg),
-        fp4_layers=_parse_layers_cfg(fp4_layers_cfg),
-    )
+    if fp4_after_warmup is not None:
+        layer_precision = [None] * config.num_hidden_layers
+        logger.info(f"FP4 deferred: training in BF16 for {fp4_after_warmup} steps, then switching to FP4")
+    else:
+        layer_precision = resolve_layer_precision(
+            num_layers=config.num_hidden_layers,
+            fp8_enabled=args.fp8_config.enabled,
+            fp4_enabled=fp4_enabled,
+            fp8_layers=_parse_layers_cfg(fp8_layers_cfg),
+            fp4_layers=_parse_layers_cfg(fp4_layers_cfg),
+        )
     config.layer_precision = layer_precision
     logger.info(f"Layer precision: {layer_precision}")
 
@@ -367,6 +372,11 @@ def main(args: DictConfig) -> float | None:
                     grad_norm=total_norm,
                     lr=optimizer.param_groups[0]["lr"],
                 )
+
+                if fp4_after_warmup is not None and step == fp4_after_warmup:
+                    fp4_precision = ["fp4"] * config.num_hidden_layers
+                    config.layer_precision = fp4_precision
+                    logger.info(f"Step {step}: Switching layer precision from BF16 to FP4")
 
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                     save_checkpoint_fsdp2(
