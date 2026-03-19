@@ -60,7 +60,7 @@ def _filter_and_copy_parquet(src: Path, dst: Path, live_ids: set):
     return n_before, len(df)
 
 
-def main():
+def main():  # noqa: D103
     p = argparse.ArgumentParser(description="Launch codon SAE dashboard")
     p.add_argument(
         "--data-dir",

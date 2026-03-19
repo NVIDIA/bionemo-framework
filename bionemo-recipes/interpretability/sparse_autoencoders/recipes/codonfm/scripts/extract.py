@@ -48,13 +48,13 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 _CODONFM_TE_DIR = _REPO_ROOT / "recipes" / "codonfm_ptl_te"
 sys.path.insert(0, str(_CODONFM_TE_DIR))
 
-from codonfm_sae.data import read_codon_csv
-from sae.activation_store import ActivationStore, ActivationStoreConfig
-from src.data.preprocess.codon_sequence import process_item
-from src.inference.encodon import EncodonInference
+from codonfm_sae.data import read_codon_csv  # noqa: E402
+from sae.activation_store import ActivationStore, ActivationStoreConfig  # noqa: E402
+from src.data.preprocess.codon_sequence import process_item  # noqa: E402
+from src.inference.encodon import EncodonInference  # noqa: E402
 
 
-def parse_args():
+def parse_args():  # noqa: D103
     p = argparse.ArgumentParser(description="Extract CodonFM layer activations")
     p.add_argument(
         "--csv-path", type=str, required=True, help="Path to CSV with DNA sequences (auto-detects 'seq'/'cds' column)"
@@ -138,7 +138,7 @@ def _merge_rank_stores(cache_path: Path, world_size: int, metadata: dict) -> Non
         print(f"Merged {world_size} rank stores: {total_samples:,} tokens, {shard_idx} shards")
 
 
-def main():
+def main():  # noqa: D103
     args = parse_args()
     torch.manual_seed(args.seed)
 

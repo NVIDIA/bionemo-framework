@@ -41,14 +41,14 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 _CODONFM_TE_DIR = _REPO_ROOT / "recipes" / "codonfm_ptl_te"
 sys.path.insert(0, str(_CODONFM_TE_DIR))
 
-from codonfm_sae.data import read_codon_csv
-from codonfm_sae.eval import evaluate_codonfm_loss_recovered
-from sae.architectures import TopKSAE
-from sae.utils import get_device, set_seed
-from src.inference.encodon import EncodonInference
+from codonfm_sae.data import read_codon_csv  # noqa: E402
+from codonfm_sae.eval import evaluate_codonfm_loss_recovered  # noqa: E402
+from sae.architectures import TopKSAE  # noqa: E402
+from sae.utils import get_device, set_seed  # noqa: E402
+from src.inference.encodon import EncodonInference  # noqa: E402
 
 
-def parse_args():
+def parse_args():  # noqa: D103
     p = argparse.ArgumentParser(description="Evaluate CodonFM SAE")
 
     # Checkpoint
@@ -110,7 +110,7 @@ def load_sae_from_checkpoint(checkpoint_path: str, top_k_override: int | None = 
     return sae
 
 
-def main():
+def main():  # noqa: D103
     args = parse_args()
     set_seed(args.seed)
     device = args.device or get_device()

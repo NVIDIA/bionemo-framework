@@ -55,7 +55,7 @@ def _torchrun_prefix(nproc: int) -> list:
     return [sys.executable]
 
 
-def run_extract(cfg: DictConfig, cache_dir: Path) -> None:
+def run_extract(cfg: DictConfig, cache_dir: Path) -> None:  # noqa: D103
     cmd = [
         *_torchrun_prefix(cfg.nproc),
         str(SCRIPTS_DIR / "extract.py"),
@@ -82,7 +82,7 @@ def run_extract(cfg: DictConfig, cache_dir: Path) -> None:
     _run(cmd, f"STEP 1: Extract activations from {cfg.model_path}")
 
 
-def run_train(cfg: DictConfig, cache_dir: Path, output_dir: Path) -> None:
+def run_train(cfg: DictConfig, cache_dir: Path, output_dir: Path) -> None:  # noqa: D103
     checkpoint_dir = output_dir / "checkpoints"
     t = cfg.train
 
@@ -143,7 +143,7 @@ def run_train(cfg: DictConfig, cache_dir: Path, output_dir: Path) -> None:
     _run(cmd, "STEP 2: Train SAE")
 
 
-def run_eval(cfg: DictConfig, output_dir: Path) -> None:
+def run_eval(cfg: DictConfig, output_dir: Path) -> None:  # noqa: D103
     checkpoint = output_dir / "checkpoints" / "checkpoint_final.pt"
     eval_dir = output_dir / "eval"
 
@@ -176,7 +176,7 @@ def run_eval(cfg: DictConfig, output_dir: Path) -> None:
 
 
 @hydra.main(version_base=None, config_path="run_configs", config_name="config")
-def main(cfg: DictConfig) -> None:
+def main(cfg: DictConfig) -> None:  # noqa: D103
     os.chdir(hydra.utils.get_original_cwd())
 
     print(OmegaConf.to_yaml(cfg))

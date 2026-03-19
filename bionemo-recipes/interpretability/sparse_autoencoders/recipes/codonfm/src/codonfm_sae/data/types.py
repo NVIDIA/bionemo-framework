@@ -26,5 +26,5 @@ class CodonRecord:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
-    def num_codons(self) -> int:
+    def num_codons(self) -> int:  # noqa: D102
         return len(self.sequence) // 3

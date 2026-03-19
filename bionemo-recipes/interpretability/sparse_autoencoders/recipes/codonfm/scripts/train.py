@@ -45,7 +45,7 @@ from sae.training import ParallelConfig, Trainer, TrainingConfig, WandbConfig
 from sae.utils import get_device, set_seed
 
 
-def parse_args():
+def parse_args():  # noqa: D103
     p = argparse.ArgumentParser(
         description="Train SAE from cached CodonFM activations",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -110,7 +110,7 @@ def parse_args():
     return p.parse_args()
 
 
-def build_sae(args, input_dim: int) -> torch.nn.Module:
+def build_sae(args, input_dim: int) -> torch.nn.Module:  # noqa: D103
     hidden_dim = input_dim * args.expansion_factor
 
     if args.model_type == "topk":
@@ -133,7 +133,7 @@ def build_sae(args, input_dim: int) -> torch.nn.Module:
         raise ValueError(f"Unknown model type: {args.model_type}")
 
 
-def build_training_config(args, device: str) -> TrainingConfig:
+def build_training_config(args, device: str) -> TrainingConfig:  # noqa: D103
     return TrainingConfig(
         lr=args.lr,
         n_epochs=args.n_epochs,
@@ -150,7 +150,7 @@ def build_training_config(args, device: str) -> TrainingConfig:
     )
 
 
-def build_wandb_config(args) -> WandbConfig:
+def build_wandb_config(args) -> WandbConfig:  # noqa: D103
     return WandbConfig(
         enabled=args.wandb_enabled,
         project=args.wandb_project,
@@ -161,11 +161,11 @@ def build_wandb_config(args) -> WandbConfig:
     )
 
 
-def build_parallel_config(args) -> ParallelConfig:
+def build_parallel_config(args) -> ParallelConfig:  # noqa: D103
     return ParallelConfig(dp_size=args.dp_size)
 
 
-def main():
+def main():  # noqa: D103
     args = parse_args()
 
     set_seed(args.seed)

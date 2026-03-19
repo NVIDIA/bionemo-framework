@@ -51,10 +51,10 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 _CODONFM_TE_DIR = _REPO_ROOT / "recipes" / "codonfm_ptl_te"
 sys.path.insert(0, str(_CODONFM_TE_DIR))
 
-from sae.architectures import TopKSAE
-from sae.utils import get_device, set_seed
-from src.data.preprocess.codon_sequence import process_item
-from src.inference.encodon import EncodonInference
+from sae.architectures import TopKSAE  # noqa: E402
+from sae.utils import get_device, set_seed  # noqa: E402
+from src.data.preprocess.codon_sequence import process_item  # noqa: E402
+from src.inference.encodon import EncodonInference  # noqa: E402
 
 
 # ── Annotation parsing (adapted from esm2_sae) ─────────────────────────

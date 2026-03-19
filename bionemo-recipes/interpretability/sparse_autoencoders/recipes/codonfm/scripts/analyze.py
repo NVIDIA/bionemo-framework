@@ -45,11 +45,11 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 _CODONFM_TE_DIR = _REPO_ROOT / "recipes" / "codonfm_ptl_te"
 sys.path.insert(0, str(_CODONFM_TE_DIR))
 
-from codonfm_sae.data import read_codon_csv
-from sae.architectures import TopKSAE
-from sae.utils import get_device, set_seed
-from src.data.preprocess.codon_sequence import process_item
-from src.inference.encodon import EncodonInference
+from codonfm_sae.data import read_codon_csv  # noqa: E402
+from sae.architectures import TopKSAE  # noqa: E402
+from sae.utils import get_device, set_seed  # noqa: E402
+from src.data.preprocess.codon_sequence import process_item  # noqa: E402
+from src.inference.encodon import EncodonInference  # noqa: E402
 
 
 # ── Standard codon usage table (human, per 1000 codons) ──────────────
@@ -189,7 +189,7 @@ CODON_TO_AA = {
 }
 
 
-def parse_args():
+def parse_args():  # noqa: D103
     p = argparse.ArgumentParser(description="Analyze CodonFM SAE features")
     p.add_argument("--checkpoint", type=str, required=True)
     p.add_argument("--top-k", type=int, default=None, help="Override top-k (default: read from checkpoint)")
@@ -232,7 +232,7 @@ def parse_args():
     return p.parse_args()
 
 
-def load_sae(checkpoint_path: str, top_k_override: int | None = None) -> TopKSAE:
+def load_sae(checkpoint_path: str, top_k_override: int | None = None) -> TopKSAE:  # noqa: D103
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = ckpt["model_state_dict"]
     if any(k.startswith("module.") for k in state_dict):
@@ -533,7 +533,7 @@ def stream_annotations_and_topk(
 # ── 3. Auto-interpretation ───────────────────────────────────────────
 
 
-def get_llm_client(provider: str, model: str = None):
+def get_llm_client(provider: str, model: str | None = None):
     """Create LLM client based on provider."""
     from sae.autointerp import (
         AnthropicClient,
@@ -834,7 +834,7 @@ def build_feature_labels(
 # ── Main ─────────────────────────────────────────────────────────────
 
 
-def main():
+def main():  # noqa: D103
     args = parse_args()
     set_seed(args.seed)
     device = args.device or get_device()
