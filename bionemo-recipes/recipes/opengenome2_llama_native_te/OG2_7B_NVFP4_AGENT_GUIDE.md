@@ -103,12 +103,14 @@ torchrun --nproc_per_node=8 train_fsdp2.py \
   fp4_config.fp4_format=E2M1 \
   fp4_layers=[...] \                                             ← AGENT CONTROLS
   use_sequence_packing=True \
+  dataset.use_stateful_dataloader=true \
   use_fp32_master_weights=True \
   lr_scheduler_kwargs.num_warmup_steps=2500 \
   lr_scheduler_kwargs.num_decay_steps=179814 \
   lr_scheduler_kwargs.min_lr_ratio=0.02 \
   wandb.project=llama3-metagenome-7b \
-  wandb.name=<run_name> \
+  wandb.name=<run_name> \                                              ← FIXED (same name for entire session)
+  +wandb.resume=allow \                                                ← FIXED (resumes the same WandB run on relaunch)
   hydra.run.dir=/workspace/claude_tasks/og2_7b/<run_name>/hydra_outputs
 ```
 
@@ -122,6 +124,10 @@ torchrun --nproc_per_node=8 train_fsdp2.py \
 - `checkpoint.ckpt_dir` — same directory for entire session
 - `num_train_steps` — always 6000
 - `checkpoint.resume_from_checkpoint` — always true
+- `checkpoint.async_save=false` — sync saves for reliability
+- `dataset.use_stateful_dataloader=true` — always true (see Data Integrity section below)
+- `wandb.name` — computed once at session start, never changes
+- `+wandb.resume=allow` — resumes the same WandB run on relaunch
 
 ## IMPORTANT: Initial Checkpoint Setup
 
@@ -235,13 +241,20 @@ wandb sync <training_script_dir>/wandb/latest-run/
 
 Checkpoints saved at `<ckpt_dir>/train_fsdp2/step_<N>/`. Resume automatically finds the latest checkpoint.
 
-What gets restored: model weights, optimizer state, LR scheduler, step counter, epoch counter.
+What gets restored: model weights, optimizer state, LR scheduler, step counter, epoch counter, dataloader position (`use_stateful_dataloader=true`).
+
+All state — including where the dataloader left off in the dataset — is restored from checkpoint.
+
+**CRITICAL — Data Integrity on Relaunch:**
+
+The agent kills and relaunches training at every expansion (pass) and every rollback (fail). With `dataset.use_stateful_dataloader=true`, the dataloader position is saved in each checkpoint and restored on resume, so the model sees each training batch exactly once — the same as a continuous baseline run. If `use_stateful_dataloader` is NOT enabled, every relaunch resets the dataloader to the start of the dataset. This causes the model to re-train on early batches multiple times, artificially lowering training loss (overfitting to repeated data) and invalidating comparisons against the BF16 baseline. The agent MUST verify that `dataset.use_stateful_dataloader=true` is set in the training command.
 
 **CRITICAL — Checkpoint Safety Rules:**
 
-- NEVER delete the checkpoint directory itself
-- Only delete individual `step_<N>/` subdirectories
-- Before deleting, always list contents first
+- NEVER delete the checkpoint directory itself (`$WORKSPACE_ROOT/<run_name>/checkpoints/`). Only delete individual `step_<N>/` subdirectories inside it.
+- NEVER use `rm -rf` on any parent directory. Only `rm -rf` specific `step_<N>/` subdirectories that are newer than the LKG.
+- Before deleting, always list the contents of the checkpoint directory first to confirm which checkpoints exist and which is the LKG.
+- When in doubt, do NOT delete — relaunch and let the training script skip the corrupt checkpoint automatically.
 
 ## Recovery on Failed Check-in
 
