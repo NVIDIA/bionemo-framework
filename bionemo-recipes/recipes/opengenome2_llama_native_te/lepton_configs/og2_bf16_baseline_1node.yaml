@@ -26,6 +26,8 @@ resume_from:
 hydra_overrides:
   checkpoint.ckpt_dir: "/data/savithas/checkpoints/og2-7b-bf16-baseline-1node"
   checkpoint.async_save: false
+  checkpoint.save_every_n_steps: 0
+  checkpoint.save_final_model: false
 
 # WandB
 wandb_secret: "wandb.savithas"  # pragma: allowlist secret
