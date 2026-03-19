@@ -181,6 +181,7 @@ def _build_agent_prompt(cfg: DictConfig) -> str:
         launch_dir=launch_dir,
         warm_start_section=warm_start_section,
         guide_filename=guide_filename,
+        baseline_logfile=cfg.get("baseline_logfile", "baseline_bf16.json"),
     )
 
 

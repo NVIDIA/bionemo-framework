@@ -34,6 +34,9 @@ anthropic_base_url: "https://inference-api.nvidia.com"
 wandb_project: "llama3-metagenome-7b"
 wandb_secret: "wandb.savithas"  # pragma: allowlist secret
 
+# Baseline (1-node specific)
+baseline_logfile: "baseline_bf16_1node.json"
+
 # Warm start from the same 5k BF16 checkpoint
 # Agent starts all BF16 (warmup), then gradually adds FP8 from center outward
 warm_start:

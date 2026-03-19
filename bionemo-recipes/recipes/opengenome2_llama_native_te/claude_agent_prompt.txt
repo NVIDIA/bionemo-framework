@@ -28,7 +28,7 @@ This guide contains the complete specification for your agent loop. It tells you
 Apply these values to the Run Variables section of the guide:
 
 ```
-BASELINE_LOGFILE       = {code_path}/baseline_bf16.json
+BASELINE_LOGFILE       = {code_path}/{baseline_logfile}
 NUM_TRAIN_STEPS        = {num_train_steps}
 CHECKIN_INTERVAL       = {checkin_interval}
 TOLERANCE_PCT          = {tolerance_pct}
