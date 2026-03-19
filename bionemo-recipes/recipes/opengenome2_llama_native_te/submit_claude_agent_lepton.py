@@ -95,6 +95,11 @@ def _build_warm_start_section(cfg: DictConfig) -> str:
         lines += [
             f"TAIL_PTR               = {warm_start.tail_ptr}",
         ]
+    elif strategy == "gradual":
+        lines += [
+            f"CENTER_LOW             = {warm_start.get('center_low', 16)}",
+            f"CENTER_HIGH            = {warm_start.get('center_high', 17)}",
+        ]
 
     checkpoint_root = cfg.get("checkpoint_root", "/data/savithas/checkpoints")
 
@@ -156,6 +161,12 @@ def _build_agent_prompt(cfg: DictConfig) -> str:
     workspace_root = cfg.get("workspace_root", "/data/savithas/agent_runs")
     launch_dir = f"{workspace_root}/.launches/{cfg.job_name}"
 
+    # Choose guide based on strategy
+    strategy = cfg.get("promotion_strategy", "ends_in")
+    guide_filename = cfg.get("guide_filename", None)
+    if guide_filename is None:
+        guide_filename = "OG2_FP8_1NODE_DEMO_GUIDE.md" if strategy == "gradual" else "OG2_FP8_AGENT_GUIDE.md"
+
     return template.format(
         code_path=cfg.code_path,
         num_nodes=cfg.num_nodes,
@@ -163,12 +174,13 @@ def _build_agent_prompt(cfg: DictConfig) -> str:
         num_train_steps=cfg.num_train_steps,
         checkin_interval=cfg.get("checkin_interval", 100),
         tolerance_pct=cfg.get("tolerance_pct", 5.0),
-        promotion_strategy=cfg.get("promotion_strategy", "ends_in"),
+        promotion_strategy=strategy,
         workspace_root=workspace_root,
         checkpoint_root=cfg.get("checkpoint_root", "/data/savithas/checkpoints"),
         wandb_project=cfg.get("wandb_project", "opengenome2-7b"),
         launch_dir=launch_dir,
         warm_start_section=warm_start_section,
+        guide_filename=guide_filename,
     )
 
 
