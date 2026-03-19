@@ -177,13 +177,15 @@ torchrun \
   checkpoint.resume_from_checkpoint=true \                        # ← FIXED (always true; auto-finds latest checkpoint)
   checkpoint.max_checkpoints=4 \
   checkpoint.save_final_model=true \
+  checkpoint.async_save=false \                                      # ← FIXED (sync saves for reliability)
+  dataset.use_stateful_dataloader=true \                             # ← FIXED (CRITICAL: preserves dataloader position across relaunches)
   validation.enabled=true \                                          # ← FIXED
   validation.eval_interval=1000 \                                    # ← FIXED (every 1000 steps)
   validation.num_batches=40 \                                        # ← FIXED
   hydra.run.dir=$WORKSPACE_ROOT/<run_name>/hydra_outputs \
   wandb.project=$WANDB_PROJECT \                                  # ← FIXED
-  +wandb.group=<run_name> \                                       # ← FIXED (computed once at session start, never changes)
-  wandb.name=<see naming convention below>                        # ← AGENT CONTROLS
+  wandb.name=<run_name> \                                         # ← FIXED (same name for entire session — produces one continuous WandB curve)
+  +wandb.resume=allow                                             # ← FIXED (resumes the same WandB run on relaunch)
 ```
 
 **CRITICAL**: The agent must use this command template EXACTLY. Do NOT add, remove, or modify any parameters not marked `← AGENT CONTROLS`. In particular:
@@ -204,16 +206,17 @@ torchrun \
 The agent modifies these fields between launches:
 
 - `fp8_layers` — updated based on the current precision schedule
-- `wandb.name` — updated to reflect the current precision schedule (see naming convention below)
 - `quant_stats_config.enabled` — `true` for `research_guided` only; `false` for `ends_in` and `tail_in`
 
 These fields are FIXED for the entire session (never change between launches):
 
 - `grad_acc_steps` — always `$GRAD_ACC_STEPS` (do NOT scale by nodes/GPUs — FSDP handles distributed scaling)
-- `checkpoint.ckpt_dir` — always `$CHECKPOINT_ROOT/<run_name>` (**NOT** `$WORKSPACE_ROOT/...`). CHECKPOINT_ROOT and WORKSPACE_ROOT are different directories. Same directory for the entire session; matches Lepton job name and wandb group.
+- `checkpoint.ckpt_dir` — always `$CHECKPOINT_ROOT/<run_name>` (**NOT** `$WORKSPACE_ROOT/...`). CHECKPOINT_ROOT and WORKSPACE_ROOT are different directories. Same directory for the entire session; matches Lepton job name and wandb run name.
 - `num_train_steps` — always `$NUM_TRAIN_STEPS` (absolute target)
 - `checkpoint.resume_from_checkpoint` — always `true` (the script auto-finds the latest checkpoint; on first launch with no checkpoints it starts fresh automatically)
-- `+wandb.group` — always `<run_name>` (computed once at session start, never changes)
+- `dataset.use_stateful_dataloader` — always `true` (see Data Integrity section below)
+- `wandb.name` — always `<run_name>` (computed once at session start, never changes)
+- `+wandb.resume` — always `allow` (resumes the same WandB run on relaunch)
 
 ### Multi-Node Launch Protocol
 
@@ -316,31 +319,11 @@ fp8_config.fp8_format=E4M3
 fp8_layers=[...]
 ```
 
-### WandB Run Naming Convention
+### WandB Run Naming & Resume
 
-The agent must set `wandb.name` dynamically on each launch to reflect the current precision schedule. Format:
+`wandb.name` is set to `<run_name>` (e.g. `ends_in_20260317_143000`). This is computed ONCE at session start and NEVER changes. Combined with `+wandb.resume=allow`, every relaunch appends to the same WandB run, producing a single continuous curve in the dashboard. No grouping needed — there is only one run.
 
-```
-og2-7b-fp8-<fp8_range>-strat-<strategy>
-```
-
-Examples:
-
-- All 32 layers in FP8: `og2-7b-fp8-1-32-strat-ends_in`
-- Layers 3-30 in FP8: `og2-7b-fp8-3-30-strat-ends_in`
-- No FP8 (all BF16): `og2-7b-fp8-none-strat-ends_in`
-- Non-contiguous: `og2-7b-fp8-28layers-strat-research_guided`
-
-Each new training launch (after demotion/recovery) gets a new wandb run name reflecting the updated schedule.
-
-### WandB Run Grouping
-
-`+wandb.group` is set to `<run_name>` (e.g. `ends_in_20260317_143000`). This is computed ONCE at session start and NEVER changes — every relaunch within the session uses the same group value. Only `wandb.name` changes between launches. This groups all the fragmented runs together in the WandB dashboard so you can:
-
-- Filter by group to see only runs from one agent session
-- Overlay all runs from a session on a single panel to see the full training trajectory (including rollbacks and demotions)
-
-In WandB, go to the Runs table → Group by "Group" → expand a group to see the individual segments overlaid on shared axes.
+This means all training segments (warmup, expansions, rollbacks) appear as one continuous line in WandB, making it easy to see the full training trajectory including any loss spikes from precision changes.
 
 ### Checkpointing & Resume
 
@@ -356,11 +339,9 @@ To resume after a stop or crash, re-run the exact same command. The script autom
 
 **What gets restored on resume:**
 
-- Model weights, optimizer state (AdamW moments), LR scheduler, step counter, epoch counter
+- Model weights, optimizer state (AdamW moments), LR scheduler, step counter, epoch counter, dataloader position (`use_stateful_dataloader=true`)
 
-**NOT restored:**
-
-- Dataloader position (`use_stateful_dataloader` currently disabled)
+All state — including where the dataloader left off in the dataset — is restored from checkpoint.
 
 **Key behavior:**
 
@@ -376,6 +357,19 @@ checkpoint.save_final_model=true     # save .safetensors at end of training
 ```
 
 LKG recovery: the agent deletes any checkpoint newer than the LKG from `$CHECKPOINT_ROOT/<run_name>/train_fsdp2/`. Since `checkpoint.resume_from_checkpoint=true` always, the training script auto-finds the latest remaining checkpoint (the LKG) and resumes from there. The `checkpoint.ckpt_dir` never changes.
+
+**CRITICAL — Data Integrity on Relaunch:**
+
+The agent kills and relaunches training at every expansion (pass) and every rollback (fail). With `dataset.use_stateful_dataloader=true`, the dataloader position is saved in each checkpoint and restored on resume, so the model sees each training batch exactly once — the same as a continuous baseline run. If `use_stateful_dataloader` is NOT enabled, every relaunch resets the dataloader to the start of the dataset. This causes the model to re-train on early batches multiple times, artificially lowering training loss (overfitting to repeated data) and invalidating comparisons against the BF16 baseline. The agent MUST verify that `dataset.use_stateful_dataloader=true` is set in the training command.
+
+**CRITICAL — Checkpoint Safety Rules:**
+
+- NEVER delete the checkpoint directory itself (`$CHECKPOINT_ROOT/<run_name>/`). Only delete individual `step_<N>/` subdirectories inside it.
+- NEVER delete the run directory (`$WORKSPACE_ROOT/<run_name>/`). It contains checkpoints, logs, history, and configs that are irreplaceable.
+- NEVER use `rm -rf` on any parent directory. Only `rm -rf` specific `step_<N>/` subdirectories that are newer than the LKG.
+- If a checkpoint appears corrupt or incomplete, delete ONLY that specific `step_<N>/` subdirectory — not the entire checkpoints folder.
+- Before deleting, always list the contents of the checkpoint directory first to confirm which checkpoints exist and which is the LKG.
+- When in doubt, do NOT delete — relaunch and let the training script skip the corrupt checkpoint automatically.
 
 ### Quantization Stats Logging
 
@@ -544,7 +538,7 @@ The agent must also persist alongside each checkpoint:
 
 - The current `fp8_layers` list (the layer precision schedule)
 
-(Model weights, optimizer state, LR scheduler, step counter, and RNG states are handled by the built-in checkpoint system. Each new training launch creates a new WandB run — runs are grouped via `+wandb.group`.)
+(Model weights, optimizer state, LR scheduler, step counter, and RNG states are handled by the built-in checkpoint system. Each relaunch resumes the same WandB run via `+wandb.resume=allow`.)
 
 ### Recovery on Failed Check-in
 
@@ -695,8 +689,7 @@ $WORKSPACE_ROOT/<run_name>/
   "promotion_round": 1,
   "layer_precision": {"1": "bf16", "2": "fp8", ..., "31": "fp8", "32": "bf16"},
   "fp8_layers": [2,3,4,...,31],
-  "run_name": "ends_in_20260317_143000",
-  "wandb_group": "ends_in_20260317_143000"
+  "run_name": "ends_in_20260317_143000"
 }
 ```
 

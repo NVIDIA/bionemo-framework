@@ -112,6 +112,7 @@ torchrun --nproc_per_node=8 train_fsdp2.py \
   dataset.micro_batch_size=1 \
   dataset.buffer_size=10000 \
   dataset.num_workers=8 \
+  dataset.use_stateful_dataloader=true \
   num_train_steps=6000 \
   grad_acc_steps=8 \
   checkpoint.ckpt_dir=/data/savithas/checkpoints/<run_name> \
@@ -119,15 +120,15 @@ torchrun --nproc_per_node=8 train_fsdp2.py \
   checkpoint.resume_from_checkpoint=true \
   checkpoint.max_checkpoints=4 \
   checkpoint.save_final_model=true \
-  checkpoint.async_save=true \
+  checkpoint.async_save=false \
   logger.frequency=1 \
   fp8_config.enabled=<true|false> \
   fp8_config.fp8_recipe=transformer_engine.common.recipe.Float8BlockScaling \
   fp8_config.fp8_format=E4M3 \
   fp8_layers='<LAYER_LIST>' \
   wandb.project=llama3-metagenome-7b \
-  +wandb.group=<run_name> \
-  wandb.name=<WANDB_RUN_NAME> \
+  wandb.name=<run_name> \
+  +wandb.resume=allow \
   hydra.run.dir=/data/savithas/agent_runs/demo_1node/<run_name>/hydra_outputs
 ```
 
@@ -136,19 +137,21 @@ torchrun --nproc_per_node=8 train_fsdp2.py \
 - `fp8_config.enabled` — `false` during BF16 warmup; `true` once any layers
   are in FP8
 - `fp8_layers` — `'[]'` during warmup; e.g. `'[16,17]'` after first expansion
-- `wandb.name` — updated to reflect current precision schedule
 
-**HARDCODED (never change between launches):**
+**FIXED (never change between launches):**
 
 - `dataset.micro_batch_size=1` — always 1
 - `dataset.buffer_size=10000` — always 10k
 - `dataset.num_workers=8` — always 8
+- `dataset.use_stateful_dataloader=true` — always true (see Data Integrity section below)
 - `num_train_steps=6000` — always 6000
 - `grad_acc_steps=8` — always 8 (GBS = 1 × 8 × 8 GPUs = 64)
 - `checkpoint.ckpt_dir` — same directory for entire session
 - `checkpoint.save_every_n_steps=100` — matches CHECKIN_INTERVAL
 - `checkpoint.resume_from_checkpoint=true` — always true
-- `+wandb.group` — computed once at session start, never changes
+- `checkpoint.async_save=false` — sync saves for reliability
+- `wandb.name` — computed once at session start, never changes
+- `+wandb.resume=allow` — resumes the same WandB run on relaunch
 - `wandb.project=llama3-metagenome-7b` — fixed
 
 ______________________________________________________________________
@@ -279,13 +282,40 @@ Checkpoints saved at `<ckpt_dir>/train_fsdp2/step_<N>/`. The training script
 automatically finds the latest checkpoint and resumes.
 
 **What gets restored:** model weights, optimizer state, LR scheduler, step
-counter, epoch counter.
+counter, epoch counter, dataloader position (`use_stateful_dataloader=true`).
+
+All state — including where the dataloader left off in the dataset — is
+restored from checkpoint.
 
 **Key behavior:**
 
 - `num_train_steps` is an absolute target (6000), not relative.
 - Resuming at step 5400 with `num_train_steps=6000` trains steps 5401-6000.
 - `checkpoint.resume_from_checkpoint=true` always — auto-finds latest checkpoint.
+
+**CRITICAL — Data Integrity on Relaunch:**
+
+The agent kills and relaunches training at every expansion (pass) and every
+rollback (fail). With `dataset.use_stateful_dataloader=true`, the dataloader
+position is saved in each checkpoint and restored on resume, so the model sees
+each training batch exactly once — the same as a continuous baseline run. If
+`use_stateful_dataloader` is NOT enabled, every relaunch resets the dataloader
+to the start of the dataset. This causes the model to re-train on early batches
+multiple times, artificially lowering training loss (overfitting to repeated
+data) and invalidating comparisons against the BF16 baseline. The agent MUST
+verify that `dataset.use_stateful_dataloader=true` is set in the training
+command.
+
+**CRITICAL — Checkpoint Safety Rules:**
+
+- NEVER delete the checkpoint directory itself (`$CHECKPOINT_ROOT/<run_name>/`).
+  Only delete individual `step_<N>/` subdirectories inside it.
+- NEVER use `rm -rf` on any parent directory. Only `rm -rf` specific
+  `step_<N>/` subdirectories that are newer than the LKG.
+- Before deleting, always list the contents of the checkpoint directory first to
+  confirm which checkpoints exist and which is the LKG.
+- When in doubt, do NOT delete — relaunch and let the training script skip the
+  corrupt checkpoint automatically.
 
 ### Recovery on Failed Check-in
 
@@ -344,7 +374,6 @@ $WORKSPACE_ROOT/<run_name>/
   "expansion_round": 1,
   "fp8_layers": [16, 17],
   "run_name": "gradual_fp8_20260319_100000",
-  "wandb_group": "gradual_fp8_20260319_100000",
   "warmup_complete": true
 }
 ```
@@ -362,22 +391,17 @@ Update after every check-in and at end of training. Include:
 
 ______________________________________________________________________
 
-## WandB Run Naming & Grouping
+## WandB Run Naming & Resume
 
-**Run name format:**
+`wandb.name` is set to `<run_name>` (e.g. `gradual_fp8_20260319_100000`). This
+is computed ONCE at session start and NEVER changes. Combined with
+`+wandb.resume=allow`, every relaunch appends to the same WandB run, producing
+a single continuous curve in the dashboard. No grouping needed — there is only
+one run.
 
-```
-og2-7b-fp8-<fp8_range>-gradual
-```
-
-Examples:
-
-- All BF16 (warmup): `og2-7b-bf16-warmup-gradual`
-- Layers 16-17 in FP8: `og2-7b-fp8-16-17-gradual`
-- Layers 14-19 in FP8: `og2-7b-fp8-14-19-gradual`
-
-**Grouping**: `+wandb.group=<run_name>` is computed ONCE at session start and
-NEVER changes. All relaunches use the same group. Only `wandb.name` changes.
+This means all training segments (warmup, expansions, rollbacks) appear as one
+continuous line in WandB, making it easy to see the full training trajectory
+including any loss spikes from precision changes.
 
 ______________________________________________________________________
 
