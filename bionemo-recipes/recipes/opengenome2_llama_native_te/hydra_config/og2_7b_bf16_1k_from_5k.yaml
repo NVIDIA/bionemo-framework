@@ -14,7 +14,7 @@ defaults:
 
 # Dataset: JSON metagenomes on Lepton NFS, 10k buffer, 8 workers
 dataset:
-  micro_batch_size: 2
+  micro_batch_size: 1
   buffer_size: 10_000
   num_workers: 8
   load_dataset_kwargs:
@@ -26,7 +26,7 @@ dataset:
 
 # Train for 6000 total steps (resumes from 5001, runs 1000 new steps)
 num_train_steps: 6000
-grad_acc_steps: 4
+grad_acc_steps: 8
 
 # FP8 disabled (all BF16)
 fp8_config:

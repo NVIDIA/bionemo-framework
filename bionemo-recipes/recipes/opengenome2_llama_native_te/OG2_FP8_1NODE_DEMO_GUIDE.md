@@ -18,8 +18,8 @@ CHECKPOINT_ROOT        = /data/savithas/checkpoints
 TRAINING_SCRIPT        = train_fsdp2.py
 CONFIG_NAME            = og2_7b_bf16_1k_from_5k
 NPROC_PER_NODE         = 8
-MICRO_BATCH_SIZE       = 2
-GRAD_ACC_STEPS         = 4
+MICRO_BATCH_SIZE       = 1
+GRAD_ACC_STEPS         = 8
 WANDB_PROJECT          = llama3-metagenome-7b
 RESULTS_FOLDER         = /data/savithas/agent_runs/demo_1node/results
 WARMUP_STEPS           = 500
@@ -61,7 +61,7 @@ step 5001 to step 6000 (1000 steps total).
 - **Layers**: 32 transformer block layers (1-32, 1-indexed)
 - **Precision**: BF16 compute, FP32 master weights
 - **Dataset**: OpenGenome2 metagenomes (JSON files on NFS)
-- **GBS**: 64 (mbs=2 x grad_acc=4 x 8 GPUs)
+- **GBS**: 64 (mbs=1 x grad_acc=8 x 8 GPUs)
 - **Checkpoint**: Resumes from BF16 step 5000 at
   `/data/savithas/checkpoints/og2-7b-fp32mw-orig-ws-w1-b50k`
 
@@ -109,11 +109,11 @@ cd /data/savithas/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_na
 
 torchrun --nproc_per_node=8 train_fsdp2.py \
   --config-name og2_7b_bf16_1k_from_5k \
-  dataset.micro_batch_size=2 \
+  dataset.micro_batch_size=1 \
   dataset.buffer_size=10000 \
   dataset.num_workers=8 \
   num_train_steps=6000 \
-  grad_acc_steps=4 \
+  grad_acc_steps=8 \
   checkpoint.ckpt_dir=/data/savithas/checkpoints/<run_name> \
   checkpoint.save_every_n_steps=100 \
   checkpoint.resume_from_checkpoint=true \
@@ -140,11 +140,11 @@ torchrun --nproc_per_node=8 train_fsdp2.py \
 
 **HARDCODED (never change between launches):**
 
-- `dataset.micro_batch_size=2` — always 2
+- `dataset.micro_batch_size=1` — always 1
 - `dataset.buffer_size=10000` — always 10k
 - `dataset.num_workers=8` — always 8
 - `num_train_steps=6000` — always 6000
-- `grad_acc_steps=4` — always 4 (GBS = 2 × 4 × 8 GPUs = 64)
+- `grad_acc_steps=8` — always 8 (GBS = 1 × 8 × 8 GPUs = 64)
 - `checkpoint.ckpt_dir` — same directory for entire session
 - `checkpoint.save_every_n_steps=100` — matches CHECKIN_INTERVAL
 - `checkpoint.resume_from_checkpoint=true` — always true
