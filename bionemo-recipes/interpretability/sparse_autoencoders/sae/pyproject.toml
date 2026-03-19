@@ -23,10 +23,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-steering = [
-    "fastapi>=0.100",
-    "uvicorn>=0.20",
-]
 tracking = [
     "wandb>=0.15",
 ]
