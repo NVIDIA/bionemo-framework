@@ -128,6 +128,7 @@ torchrun --nproc_per_node=8 train_fsdp2.py \
   fp8_layers='<LAYER_LIST>' \
   wandb.project=llama3-metagenome-7b \
   wandb.name=<run_name> \
+  +wandb.id=<run_name> \
   +wandb.resume=allow \
   hydra.run.dir=/data/savithas/agent_runs/demo_1node/<run_name>/hydra_outputs
 ```
@@ -151,6 +152,7 @@ torchrun --nproc_per_node=8 train_fsdp2.py \
 - `checkpoint.resume_from_checkpoint=true` — always true
 - `checkpoint.async_save=false` — sync saves for reliability
 - `wandb.name` — computed once at session start, never changes
+- `+wandb.id` — same as `wandb.name` (WandB resumes by ID, not name)
 - `+wandb.resume=allow` — resumes the same WandB run on relaunch
 - `wandb.project=llama3-metagenome-7b` — fixed
 
@@ -393,11 +395,11 @@ ______________________________________________________________________
 
 ## WandB Run Naming & Resume
 
-`wandb.name` is set to `<run_name>` (e.g. `gradual_fp8_20260319_100000`). This
-is computed ONCE at session start and NEVER changes. Combined with
-`+wandb.resume=allow`, every relaunch appends to the same WandB run, producing
-a single continuous curve in the dashboard. No grouping needed — there is only
-one run.
+`wandb.name` and `+wandb.id` are both set to `<run_name>` (e.g.
+`gradual_fp8_20260319_100000`). These are computed ONCE at session start and
+NEVER change. WandB resumes by **run ID** (not name), so `+wandb.id` is
+required. Combined with `+wandb.resume=allow`, every relaunch appends to the
+same WandB run, producing a single continuous curve in the dashboard.
 
 This means all training segments (warmup, expansions, rollbacks) appear as one
 continuous line in WandB, making it easy to see the full training trajectory

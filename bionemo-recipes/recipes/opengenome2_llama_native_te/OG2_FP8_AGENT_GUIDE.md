@@ -185,6 +185,7 @@ torchrun \
   hydra.run.dir=$WORKSPACE_ROOT/<run_name>/hydra_outputs \
   wandb.project=$WANDB_PROJECT \                                  # ← FIXED
   wandb.name=<run_name> \                                         # ← FIXED (same name for entire session — produces one continuous WandB curve)
+  +wandb.id=<run_name> \                                          # ← FIXED (WandB resumes by ID, not name — must match across relaunches)
   +wandb.resume=allow                                             # ← FIXED (resumes the same WandB run on relaunch)
 ```
 
@@ -216,6 +217,7 @@ These fields are FIXED for the entire session (never change between launches):
 - `checkpoint.resume_from_checkpoint` — always `true` (the script auto-finds the latest checkpoint; on first launch with no checkpoints it starts fresh automatically)
 - `dataset.use_stateful_dataloader` — always `true` (see Data Integrity section below)
 - `wandb.name` — always `<run_name>` (computed once at session start, never changes)
+- `+wandb.id` — always `<run_name>` (WandB resumes by ID, not name — must match across relaunches)
 - `+wandb.resume` — always `allow` (resumes the same WandB run on relaunch)
 
 ### Multi-Node Launch Protocol
@@ -321,7 +323,7 @@ fp8_layers=[...]
 
 ### WandB Run Naming & Resume
 
-`wandb.name` is set to `<run_name>` (e.g. `ends_in_20260317_143000`). This is computed ONCE at session start and NEVER changes. Combined with `+wandb.resume=allow`, every relaunch appends to the same WandB run, producing a single continuous curve in the dashboard. No grouping needed — there is only one run.
+`wandb.name` and `+wandb.id` are both set to `<run_name>` (e.g. `ends_in_20260317_143000`). These are computed ONCE at session start and NEVER change. WandB resumes by **run ID** (not name), so `+wandb.id` is required. Combined with `+wandb.resume=allow`, every relaunch appends to the same WandB run, producing a single continuous curve in the dashboard.
 
 This means all training segments (warmup, expansions, rollbacks) appear as one continuous line in WandB, making it easy to see the full training trajectory including any loss spikes from precision changes.
 
@@ -538,7 +540,7 @@ The agent must also persist alongside each checkpoint:
 
 - The current `fp8_layers` list (the layer precision schedule)
 
-(Model weights, optimizer state, LR scheduler, step counter, and RNG states are handled by the built-in checkpoint system. Each relaunch resumes the same WandB run via `+wandb.resume=allow`.)
+(Model weights, optimizer state, LR scheduler, step counter, and RNG states are handled by the built-in checkpoint system. Each relaunch resumes the same WandB run via `+wandb.id=<run_name>` and `+wandb.resume=allow`.)
 
 ### Recovery on Failed Check-in
 
