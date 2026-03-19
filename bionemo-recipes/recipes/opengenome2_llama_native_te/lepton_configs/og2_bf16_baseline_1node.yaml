@@ -25,6 +25,7 @@ resume_from:
 # Hydra CLI overrides (passed after --config-name)
 hydra_overrides:
   checkpoint.ckpt_dir: "/data/savithas/checkpoints/og2-7b-bf16-baseline-1node"
+  checkpoint.async_save: false
 
 # WandB
 wandb_secret: "wandb.savithas"  # pragma: allowlist secret
