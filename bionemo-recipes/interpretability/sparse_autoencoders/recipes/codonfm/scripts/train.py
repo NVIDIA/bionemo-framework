@@ -13,26 +13,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Train SAE from cached activations.
+"""Step 2: Train SAE from cached CodonFM activations.
 
 Loads pre-extracted activations from an ActivationStore cache directory
-and trains a Sparse Autoencoder. Requires extract.py to have been run
-first to create the cache.
+and trains a Sparse Autoencoder. Requires extract.py to have been run first.
 
 Single-GPU:
     python scripts/train.py \
-        --cache-dir .cache/activations/3b_50k_layer24 \
-        --model-name nvidia/esm2_t36_3B_UR50D --layer 24 \
+        --cache-dir .cache/activations/encodon_1b_layer-2 \
+        --model-path path/to/encodon_1b --layer -2 \
         --expansion-factor 8 --top-k 32 --batch-size 4096 --n-epochs 3
 
 Multi-GPU DDP:
     torchrun --nproc_per_node=4 scripts/train.py \
-        --cache-dir .cache/activations/3b_50k_layer24 \
-        --model-name nvidia/esm2_t36_3B_UR50D --layer 24 \
+        --cache-dir .cache/activations/encodon_1b_layer-2 \
+        --model-path path/to/encodon_1b --layer -2 \
         --expansion-factor 8 --top-k 32 --batch-size 4096 --n-epochs 3 \
         --dp-size 4
-
-For evaluation, use scripts/eval.py separately.
 """
 
 import argparse
@@ -48,16 +45,15 @@ from sae.training import ParallelConfig, Trainer, TrainingConfig, WandbConfig
 from sae.utils import get_device, set_seed
 
 
-def parse_args():
-    """Parse command-line arguments for SAE training."""
+def parse_args():  # noqa: D103
     p = argparse.ArgumentParser(
-        description="Train SAE from cached activations",
+        description="Train SAE from cached CodonFM activations",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
     # Required
     p.add_argument("--cache-dir", type=str, required=True, help="Path to activation cache (from extract.py)")
-    p.add_argument("--model-name", type=str, required=True, help="ESM2 model name (for cache validation)")
+    p.add_argument("--model-path", type=str, required=True, help="Encodon model path (for cache validation)")
     p.add_argument("--layer", type=int, required=True, help="Layer index (for cache validation)")
 
     # SAE architecture
@@ -66,9 +62,7 @@ def parse_args():
     sae_group.add_argument("--expansion-factor", type=int, default=8)
     sae_group.add_argument("--top-k", type=int, default=32)
     sae_group.add_argument("--normalize-input", action=argparse.BooleanOptionalAction, default=False)
-    sae_group.add_argument(
-        "--auxk", type=int, default=None, help="Auxiliary latents for dead latent loss (None=disabled)"
-    )
+    sae_group.add_argument("--auxk", type=int, default=None)
     sae_group.add_argument("--auxk-coef", type=float, default=1 / 32)
     sae_group.add_argument("--dead-tokens-threshold", type=int, default=10_000_000)
     sae_group.add_argument("--init-pre-bias", action=argparse.BooleanOptionalAction, default=False)
@@ -86,12 +80,11 @@ def parse_args():
     train_group.add_argument("--max-grad-norm", type=float, default=None)
     train_group.add_argument("--lr-scale-with-latents", action=argparse.BooleanOptionalAction, default=False)
     train_group.add_argument("--lr-reference-hidden-dim", type=int, default=2048)
-    train_group.add_argument("--grad-accumulation-steps", type=int, default=1, help="Gradient accumulation steps")
 
     # W&B
     wb_group = p.add_argument_group("Weights & Biases")
     wb_group.add_argument("--wandb", action=argparse.BooleanOptionalAction, default=False, dest="wandb_enabled")
-    wb_group.add_argument("--wandb-project", type=str, default="sae_esm2_recipe")
+    wb_group.add_argument("--wandb-project", type=str, default="sae_codonfm_recipe")
     wb_group.add_argument("--wandb-run-name", type=str, default=None)
     wb_group.add_argument("--wandb-group", type=str, default=None)
     wb_group.add_argument("--wandb-job-type", type=str, default=None)
@@ -103,22 +96,21 @@ def parse_args():
     ckpt_group.add_argument("--resume-from", type=str, default=None)
 
     # Infrastructure
-    p.add_argument("--dp-size", type=int, default=1, help="Data parallel size (use with torchrun)")
+    p.add_argument("--dp-size", type=int, default=1)
     p.add_argument("--output-dir", type=str, default="./outputs")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default=None)
     p.add_argument(
-        "--num-proteins",
+        "--num-sequences",
         type=int,
         default=None,
-        help="Subset cached activations to this many proteins' worth of shards",
+        help="Subset cached activations to this many sequences' worth of shards",
     )
 
     return p.parse_args()
 
 
-def build_sae(args, input_dim: int) -> torch.nn.Module:
-    """Build an SAE model from command-line arguments."""
+def build_sae(args, input_dim: int) -> torch.nn.Module:  # noqa: D103
     hidden_dim = input_dim * args.expansion_factor
 
     if args.model_type == "topk":
@@ -141,8 +133,7 @@ def build_sae(args, input_dim: int) -> torch.nn.Module:
         raise ValueError(f"Unknown model type: {args.model_type}")
 
 
-def build_training_config(args, device: str) -> TrainingConfig:
-    """Build a TrainingConfig from command-line arguments."""
+def build_training_config(args, device: str) -> TrainingConfig:  # noqa: D103
     return TrainingConfig(
         lr=args.lr,
         n_epochs=args.n_epochs,
@@ -156,12 +147,10 @@ def build_training_config(args, device: str) -> TrainingConfig:
         checkpoint_steps=args.checkpoint_steps,
         lr_scale_with_latents=args.lr_scale_with_latents,
         lr_reference_hidden_dim=args.lr_reference_hidden_dim,
-        grad_accumulation_steps=args.grad_accumulation_steps,
     )
 
 
-def build_wandb_config(args) -> WandbConfig:
-    """Build a WandbConfig from command-line arguments."""
+def build_wandb_config(args) -> WandbConfig:  # noqa: D103
     return WandbConfig(
         enabled=args.wandb_enabled,
         project=args.wandb_project,
@@ -172,13 +161,11 @@ def build_wandb_config(args) -> WandbConfig:
     )
 
 
-def build_parallel_config(args) -> ParallelConfig:
-    """Build a ParallelConfig from command-line arguments."""
+def build_parallel_config(args) -> ParallelConfig:  # noqa: D103
     return ParallelConfig(dp_size=args.dp_size)
 
 
-def main():
-    """Train an SAE from cached activations."""
+def main():  # noqa: D103
     args = parse_args()
 
     set_seed(args.seed)
@@ -195,34 +182,35 @@ def main():
     meta = store.metadata
 
     # Validate cache matches config
-    if meta.get("model_name") != args.model_name:
-        raise ValueError(f"Cache model mismatch: {meta['model_name']} vs {args.model_name}")
+    cached_model = meta.get("model_path", meta.get("model_name", ""))
+    if cached_model and cached_model != args.model_path:
+        print(f"WARNING: Cache model '{cached_model}' != '{args.model_path}'")
     if meta.get("layer") != args.layer:
         raise ValueError(f"Cache layer mismatch: {meta['layer']} vs {args.layer}")
 
     # Compute subsetting
     cached_sequences = meta.get("n_sequences", None)
     max_shards = None
-    if args.num_proteins and cached_sequences and args.num_proteins < cached_sequences:
-        keep_ratio = args.num_proteins / cached_sequences
+    if args.num_sequences and cached_sequences and args.num_sequences < cached_sequences:
+        keep_ratio = args.num_sequences / cached_sequences
         max_shards = max(1, int(np.ceil(keep_ratio * meta["n_shards"])))
         print(
-            f"Subsetting: {args.num_proteins}/{cached_sequences} proteins "
+            f"Subsetting: {args.num_sequences}/{cached_sequences} sequences "
             f"-> using {max_shards}/{meta['n_shards']} shards (~{keep_ratio:.1%})"
         )
 
-    # Estimate memory needed to decide: stream vs load-all
+    # Estimate memory
     n_shards_to_use = max_shards or meta["n_shards"]
     shard_size = meta.get("shard_size", 100_000)
     est_tokens = n_shards_to_use * shard_size
     est_gb = est_tokens * meta["hidden_dim"] * 4 / (1024**3)
-    use_streaming = est_gb > 50  # stream if >50GB per process
+    use_streaming = est_gb > 50
 
     input_dim = meta["hidden_dim"]
     sae = build_sae(args, input_dim)
     print(f"SAE: {args.model_type}, input_dim={input_dim}, hidden_dim={sae.hidden_dim}")
 
-    # Initialize pre_bias from a single shard
+    # Initialize pre_bias
     if args.init_pre_bias and hasattr(sae, "init_pre_bias_from_data"):
         print("Initializing pre_bias from geometric median of data...")
         first_shard = torch.from_numpy(store._load_shard(0)).float()
@@ -256,7 +244,7 @@ def main():
         rank = int(os.environ.get("RANK", 0))
         world_size = int(os.environ.get("WORLD_SIZE", 1))
         print(
-            f"Streaming from disk (~{est_gb:.0f}GB too large for RAM). "
+            f"Streaming from disk (~{est_gb:.0f}GB). "
             f"Peak RAM: ~{shard_size * meta['hidden_dim'] * 4 / (1024**3):.1f}GB/process"
         )
 
@@ -275,6 +263,7 @@ def main():
 
             dataset = dataloader.dataset
             per_rank = len(dataset.shard_indices)
+            # Each rank got per_rank contiguous shards; compute batch count for each rank
             min_batches = None
             for r in range(world_size):
                 total_rows = sum(
@@ -293,7 +282,6 @@ def main():
             data_sharded=True,
         )
     else:
-        # Load all shards into memory
         shards = []
         for i, shard in enumerate(store.iter_shards(shuffle_shards=False)):
             if max_shards is not None and i >= max_shards:

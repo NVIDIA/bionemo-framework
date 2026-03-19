@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { codonToAA, parseCodons } from './utils'
 
-// White-to-NVIDIA-green (#76b900) gradient based on activation value
 function activationColorHex(value, maxValue) {
   if (maxValue <= 0 || value <= 0) return 'transparent'
   const n = Math.min(value / maxValue, 1)
-  const r = Math.round(255 - n * 137)  // 255 -> 118
-  const g = Math.round(255 - n * 70)   // 255 -> 185
-  const b = Math.round(255 * (1 - n))  // 255 -> 0
+  const r = Math.round(255 - n * 137)
+  const g = Math.round(255 - n * 70)
+  const b = Math.round(255 * (1 - n))
   const toHex = (c) => c.toString(16).padStart(2, '0')
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
+
+const CODON_WIDTH = 30
 
 const styles = {
   container: {
@@ -19,11 +21,11 @@ const styles = {
     overflowX: 'auto',
     position: 'relative',
   },
-  residueRow: {
+  codonRow: {
     display: 'inline-flex',
     whiteSpace: 'nowrap',
   },
-  residueBlock: {
+  codonBlock: {
     display: 'inline-flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -31,7 +33,7 @@ const styles = {
     borderRadius: '2px',
     padding: '1px 2px',
     marginRight: '1px',
-    minWidth: '14px',
+    minWidth: `${CODON_WIDTH - 1}px`,
   },
   padBlock: {
     display: 'inline-flex',
@@ -40,17 +42,22 @@ const styles = {
     borderRadius: '2px',
     padding: '1px 2px',
     marginRight: '1px',
-    minWidth: '14px',
+    minWidth: `${CODON_WIDTH - 1}px`,
     background: 'var(--density-bar-bg)',
   },
   padText: {
     fontSize: '10px',
     color: 'var(--text-muted)',
   },
-  residueText: {
+  codonText: {
     fontSize: '10px',
     letterSpacing: '0.5px',
     color: 'var(--text)',
+  },
+  aaText: {
+    fontSize: '9px',
+    color: 'var(--text-secondary)',
+    marginTop: '1px',
   },
   idxText: {
     fontSize: '7px',
@@ -62,6 +69,7 @@ const styles = {
     position: 'fixed',
     background: 'var(--bg-card)',
     color: 'var(--text)',
+    border: '1px solid var(--border)',
     padding: '4px 8px',
     borderRadius: '4px',
     fontSize: '10px',
@@ -69,10 +77,11 @@ const styles = {
     zIndex: 1000,
     pointerEvents: 'none',
     whiteSpace: 'nowrap',
-    border: '1px solid var(--border)',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
   },
 }
+
+// Show index under every codon
+const INDEX_INTERVAL = 1
 
 export default function ProteinSequence({
   sequence, activations, maxActivation,
@@ -83,8 +92,8 @@ export default function ProteinSequence({
   const scrollRef = useRef(null)
   const anchorRef = useRef(null)
 
-  const residues = sequence ? sequence.split('') : []
-  const acts = activations ? activations.slice(0, residues.length) : []
+  const codons = parseCodons(sequence)
+  const acts = activations ? activations.slice(0, codons.length) : []
   const maxAct = maxActivation || Math.max(...acts, 0.001)
 
   // Compute local anchor index
@@ -101,7 +110,7 @@ export default function ProteinSequence({
   const isAligned = alignMode && alignMode !== 'start' && alignAnchor != null
   const leftPad = isAligned ? Math.max(0, alignAnchor - localAnchor) : 0
   const rightPad = (totalLength != null)
-    ? Math.max(0, totalLength - leftPad - residues.length)
+    ? Math.max(0, totalLength - leftPad - codons.length)
     : 0
 
   // Scroll to anchor when alignMode changes
@@ -144,11 +153,11 @@ export default function ProteinSequence({
     return <span style={{ color: 'var(--text-muted)' }}>No sequence</span>
   }
 
-  const handleMouseEnter = (e, residue, idx, act) => {
+  const handleMouseEnter = (e, codon, aa, idx, act) => {
     setTooltip({
       x: e.clientX + 10,
       y: e.clientY - 25,
-      text: `${residue}${idx + 1} — activation: ${act.toFixed(4)}`,
+      text: `${codon} (${aa}) pos ${idx + 1} — activation: ${act.toFixed(4)}`,
     })
   }
 
@@ -162,39 +171,44 @@ export default function ProteinSequence({
     setTooltip(null)
   }
 
+  const shouldShowIdx = () => true
+
   return (
     <div style={styles.container} ref={scrollRef}>
-      <div style={styles.residueRow}>
+      <div style={styles.codonRow}>
         {/* Left padding */}
         {Array.from({ length: leftPad }, (_, i) => (
           <span key={`lpad-${i}`} style={styles.padBlock}>
             <span style={styles.padText}>&middot;</span>
+            <span style={{ ...styles.aaText, color: 'var(--text-muted)' }}>&middot;</span>
             <span style={styles.idxText}>&nbsp;</span>
           </span>
         ))}
 
-        {/* Actual residues */}
-        {residues.map((residue, idx) => {
+        {/* Actual codons */}
+        {codons.map((codon, idx) => {
           const act = acts[idx] || 0
           const bg = activationColorHex(act, maxAct)
+          const aa = codonToAA(codon)
+          const isAnchor = isAligned && idx === localAnchor
           const hasActivation = act > 0
           const activeTextColor = hasActivation ? '#000' : undefined
-          const isAnchor = isAligned && idx === localAnchor
           return (
             <span
               key={idx}
               ref={isAnchor ? anchorRef : null}
               style={{
-                ...styles.residueBlock,
+                ...styles.codonBlock,
                 backgroundColor: bg,
                 ...(isAnchor ? { outline: '2px solid #76b900', outlineOffset: '-1px' } : {}),
               }}
-              onMouseEnter={(e) => handleMouseEnter(e, residue, idx, act)}
+              onMouseEnter={(e) => handleMouseEnter(e, codon, aa, idx, act)}
               onMouseMove={handleMouseMove}
               onMouseLeave={handleMouseLeave}
             >
-              <span style={{ ...styles.residueText, ...(activeTextColor && { color: activeTextColor }) }}>{residue}</span>
-              <span style={{ ...styles.idxText, ...(activeTextColor && { color: '#333' }) }}>{idx + 1}</span>
+              <span style={{ ...styles.codonText, ...(activeTextColor && { color: activeTextColor }) }}>{codon}</span>
+              <span style={{ ...styles.aaText, ...(activeTextColor && { color: activeTextColor }) }}>{aa}</span>
+              <span style={{ ...styles.idxText, ...(activeTextColor && { color: '#333' }) }}>{shouldShowIdx(idx) ? idx + 1 : '\u00A0'}</span>
             </span>
           )
         })}
@@ -203,6 +217,7 @@ export default function ProteinSequence({
         {Array.from({ length: rightPad }, (_, i) => (
           <span key={`rpad-${i}`} style={styles.padBlock}>
             <span style={styles.padText}>&middot;</span>
+            <span style={{ ...styles.aaText, color: 'var(--text-muted)' }}>&middot;</span>
             <span style={styles.idxText}>&nbsp;</span>
           </span>
         ))}
@@ -223,6 +238,7 @@ export function computeAlignInfo(examples, alignMode) {
   if (!examples || examples.length === 0) return { anchor: 0, totalLength: 0 }
 
   if (alignMode === 'start') {
+    // No alignment padding, just pad to longest sequence
     const maxLen = Math.max(...examples.map(ex => (ex.activations || []).length))
     return { anchor: 0, totalLength: maxLen }
   }
@@ -241,6 +257,7 @@ export function computeAlignInfo(examples, alignMode) {
     if (anchor > maxAnchor) maxAnchor = anchor
   }
 
+  // Compute totalLength with final maxAnchor
   let totalLength = 0
   for (const ex of examples) {
     const acts = ex.activations || []

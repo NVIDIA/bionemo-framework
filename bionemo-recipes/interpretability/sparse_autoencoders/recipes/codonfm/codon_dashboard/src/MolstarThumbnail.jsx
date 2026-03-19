@@ -3,9 +3,9 @@ import { getAccession } from './utils'
 
 const styles = {
   container: {
-    background: 'var(--bg-card-expanded)',
+    background: '#fafafa',
     borderRadius: '6px',
-    border: '1px solid var(--border-light)',
+    border: '1px solid #eee',
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
@@ -21,8 +21,8 @@ const styles = {
     top: '6px',
     right: '6px',
     zIndex: 20,
-    background: 'var(--bg-card)',
-    border: '1px solid var(--border-input)',
+    background: 'rgba(255,255,255,0.85)',
+    border: '1px solid #ddd',
     borderRadius: '4px',
     width: '24px',
     height: '24px',
@@ -31,7 +31,7 @@ const styles = {
     justifyContent: 'center',
     cursor: 'pointer',
     fontSize: '12px',
-    color: 'var(--text-secondary)',
+    color: '#555',
     opacity: 0,
     transition: 'opacity 0.15s',
     pointerEvents: 'auto',
@@ -40,18 +40,18 @@ const styles = {
     padding: '4px 8px',
     fontSize: '10px',
     fontFamily: 'monospace',
-    color: 'var(--text-secondary)',
-    borderTop: '1px solid var(--border-light)',
+    color: '#555',
+    borderTop: '1px solid #eee',
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   proteinId: {
     fontWeight: '600',
-    color: 'var(--link)',
+    color: '#2563eb',
   },
   activation: {
-    color: 'var(--text-muted)',
+    color: '#999',
   },
   loading: {
     position: 'absolute',
@@ -59,11 +59,11 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'var(--bg-card-expanded)',
+    background: '#f9f9f9',
     zIndex: 10,
     pointerEvents: 'none',
     fontSize: '10px',
-    color: 'var(--text-muted)',
+    color: '#aaa',
   },
   error: {
     position: 'absolute',
@@ -71,14 +71,14 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'var(--bg-card-expanded)',
+    background: '#f9f9f9',
     zIndex: 10,
     fontSize: '10px',
     color: '#e57373',
   },
 }
 
-export default function MolstarThumbnail({ proteinId, alphafoldId, sequence, activations, maxActivation, onExpand, darkMode }) {
+export default function MolstarThumbnail({ proteinId, sequence, activations, maxActivation, onExpand }) {
   const wrapperRef = useRef(null)
   const molContainerRef = useRef(null)
   const pluginRef = useRef(null)
@@ -86,7 +86,7 @@ export default function MolstarThumbnail({ proteinId, alphafoldId, sequence, act
   const [error, setError] = useState(null)
   const [hovered, setHovered] = useState(false)
 
-  const uniprotId = getAccession(proteinId, alphafoldId)
+  const uniprotId = getAccession(proteinId)
 
   // Trim activations to sequence length
   const acts = activations ? activations.slice(0, (sequence || '').length) : []
@@ -147,14 +147,6 @@ export default function MolstarThumbnail({ proteinId, alphafoldId, sequence, act
           plugin.initViewer(canvas, molDiv)
         } catch { /* fallback for different Mol* versions */ }
 
-        // Set canvas background based on dark mode
-        try {
-          const bgColor = darkMode ? 0x000000 : 0xffffff
-          plugin.canvas3d?.setProps({
-            renderer: { backgroundColor: bgColor },
-          })
-        } catch { /* older Mol* versions may not support this */ }
-
         pluginRef.current = plugin
 
         // Custom activation color theme
@@ -181,7 +173,7 @@ export default function MolstarThumbnail({ proteinId, alphafoldId, sequence, act
               }
             }
           } catch { /* fallback */ }
-          return darkMode ? Color.fromRgb(80, 80, 80) : Color.fromRgb(200, 200, 200)
+          return Color.fromRgb(200, 200, 200)
         }
 
         const colorThemeProvider = {

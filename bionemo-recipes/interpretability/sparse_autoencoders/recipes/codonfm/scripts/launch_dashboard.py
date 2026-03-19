@@ -13,11 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Launch the ESM2 SAE dashboard locally.
+"""Launch the codon SAE dashboard locally.
 
 Usage:
     # After scp'ing dashboard data from server:
-    scp -r server:/path/to/outputs/650m_5k/eval/dashboard ./dash
+    scp -r server:/path/to/outputs/merged_1b/dashboard ./dash
 
     python scripts/launch_dashboard.py --data-dir ./dash
 """
@@ -51,6 +51,7 @@ def _filter_and_copy_parquet(src: Path, dst: Path, live_ids: set):
     table = pq.read_table(src)
     df = table.to_pandas()
     if "feature_id" not in df.columns:
+        # No feature_id column — copy as-is
         shutil.copy2(src, dst)
         return len(df), len(df)
     n_before = len(df)
@@ -60,7 +61,7 @@ def _filter_and_copy_parquet(src: Path, dst: Path, live_ids: set):
 
 
 def main():  # noqa: D103
-    p = argparse.ArgumentParser(description="Launch ESM2 SAE dashboard")
+    p = argparse.ArgumentParser(description="Launch codon SAE dashboard")
     p.add_argument(
         "--data-dir",
         type=str,
@@ -68,17 +69,19 @@ def main():  # noqa: D103
         help="Directory containing features_atlas.parquet, feature_metadata.parquet, feature_examples.parquet",
     )
     p.add_argument("--port", type=int, default=5176)
-    p.add_argument("--filter-dead", action="store_true", help="Filter out dead latents (activation_freq == 0)")
+    p.add_argument(
+        "--no-filter-dead", action="store_true", help="Don't filter out dead latents (activation_freq == 0)"
+    )
     args = p.parse_args()
 
     data_dir = Path(args.data_dir).resolve()
-    dashboard_dir = Path(__file__).resolve().parent.parent / "protein_dashboard"
+    dashboard_dir = Path(__file__).resolve().parent.parent / "codon_dashboard"
 
     if not (dashboard_dir / "package.json").exists():
         raise FileNotFoundError(f"Dashboard not found at {dashboard_dir}")
 
-    # Determine live features (opt-in)
-    filter_dead = args.filter_dead
+    # Determine live features
+    filter_dead = not args.no_filter_dead
     live_ids = None
     if filter_dead:
         live_ids = _get_live_feature_ids(data_dir)
@@ -93,7 +96,7 @@ def main():  # noqa: D103
     public_dir.mkdir(exist_ok=True)
 
     parquet_files = ["features_atlas.parquet", "feature_metadata.parquet", "feature_examples.parquet"]
-    json_files = ["vocab_logits.json", "cluster_labels.json"]
+    json_files = ["vocab_logits.json", "feature_labels.json", "feature_analysis.json"]
 
     for fname in parquet_files:
         src = data_dir / fname

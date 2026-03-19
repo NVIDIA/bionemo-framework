@@ -25,12 +25,12 @@ class FeatureTooltip {
     this.inner = document.createElement("div")
     this.inner.style.cssText = `
       background: var(--bg-card);
-      border: 1px solid var(--border-input);
+      border: 1px solid var(--border);
       border-radius: 4px;
       padding: 8px 12px;
       font-family: 'NVIDIA Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       font-size: 13px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
       max-width: 300px;
       color: var(--text);
     `
@@ -64,7 +64,7 @@ class FeatureTooltip {
   }
 }
 
-export default function EmbeddingView({ brush, categoryColumn, categoryColumns, onFeatureClick, highlightedFeatureId, viewportState, onViewportChange, labels, darkMode }) {
+export default function EmbeddingView({ brush, categoryColumn, categoryColumns, onFeatureClick, highlightedFeatureId, viewportState, onViewportChange, labels, features, selectedCategory, darkMode }) {
   const containerRef = useRef(null)
   const viewRef = useRef(null)
   const onFeatureClickRef = useRef(onFeatureClick)
@@ -81,28 +81,76 @@ export default function EmbeddingView({ brush, categoryColumn, categoryColumns, 
 
   // Update selection and tooltip when highlightedFeatureId changes
   useEffect(() => {
-    if (viewRef.current) {
+    if (viewRef.current && highlightedFeatureId != null) {
+      // Find the feature data
+      const feature = features?.find(f => f.feature_id === highlightedFeatureId)
+
+      // Build tooltip fields
+      const fields = {
+        label: feature?.label || `Feature ${highlightedFeatureId}`,
+        log_frequency: feature?.log_frequency || feature?.activation_freq || 0,
+        max_activation: feature?.max_activation || 0,
+        color_field: null
+      }
+
+      // Add selected category metric if available
+      if (selectedCategory && selectedCategory !== 'none' && feature) {
+        const metricName = selectedCategory.replace(/_/g, ' ')
+        const metricValue = feature[selectedCategory]
+        if (metricValue !== undefined && metricValue !== null) {
+          fields.color_field = `${metricName}: ${typeof metricValue === 'number' ? metricValue.toFixed(3) : metricValue}`
+        }
+      }
+
+      // Construct tooltip object with feature data
+      const tooltipObj = {
+        identifier: highlightedFeatureId,
+        text: `Feature #${highlightedFeatureId}`,
+        x: feature?.x,
+        y: feature?.y,
+        fields: fields
+      }
+      // Clear previous selection first to avoid animated transition
       viewRef.current.update({
-        selection: highlightedFeatureId != null ? [highlightedFeatureId] : null,
-        tooltip: highlightedFeatureId != null ? highlightedFeatureId : null
+        selection: null,
+        tooltip: null
+      })
+      viewRef.current.update({
+        selection: [highlightedFeatureId],
+        tooltip: tooltipObj
+      })
+    } else if (viewRef.current && highlightedFeatureId == null) {
+      viewRef.current.update({
+        selection: null,
+        tooltip: null
       })
     }
-  }, [highlightedFeatureId])
+  }, [highlightedFeatureId, features, selectedCategory])
 
-  // Update viewport when viewportState changes
+  // Update viewport when viewportState changes (skip null to let auto-fit persist)
   useEffect(() => {
-    if (viewRef.current) {
+    if (viewRef.current && viewportState != null) {
       viewRef.current.update({
         viewportState: viewportState
       })
     }
   }, [viewportState])
 
-  // Update labels when they change
+  // Update color scheme when dark mode changes
   useEffect(() => {
     if (viewRef.current) {
       viewRef.current.update({
-        labels: labels || null
+        config: { colorScheme: darkMode ? "dark" : "light" }
+      })
+    }
+  }, [darkMode])
+
+  // Update labels when they change
+  useEffect(() => {
+    if (viewRef.current && labels) {
+      console.log('[EmbeddingView] updating labels:', labels.length, labels.slice(0, 2))
+      viewRef.current.update({
+        labels: labels
       })
     }
   }, [labels])
@@ -167,7 +215,7 @@ export default function EmbeddingView({ brush, categoryColumn, categoryColumns, 
           labels: labels || null,
           config: {
             mode: "points",
-            colorScheme: darkMode ? "dark" : "light",
+            colorScheme: document.documentElement.classList.contains('dark') ? "dark" : "light",
             autoLabelEnabled: false,
           },
           theme: {
@@ -212,7 +260,38 @@ export default function EmbeddingView({ brush, categoryColumn, categoryColumns, 
         containerRef.current.innerHTML = ''
       }
     }
-  }, [brush, categoryColumn, categoryColumns, darkMode])
+  }, [brush])
+
+  // Update category coloring in-place (without recreating the view)
+  useEffect(() => {
+    if (!viewRef.current) return
+
+    let categoryColName = null
+    let colors = Array(50).fill(DEFAULT_COLOR)
+
+    if (categoryColumn && categoryColumn !== "none") {
+      const colInfo = categoryColumns?.find(c => c.name === categoryColumn)
+      if (colInfo) {
+        if (colInfo.type === 'sequential') {
+          categoryColName = `${categoryColumn}_bin`
+          colors = SEQUENTIAL_COLORS
+        } else if (colInfo.type === 'string') {
+          categoryColName = `${categoryColumn}_cat`
+          colors = CATEGORY_COLORS.slice(0, Math.max(colInfo.nUnique, 10))
+        } else {
+          categoryColName = categoryColumn
+          colors = CATEGORY_COLORS.slice(0, Math.max(colInfo.nUnique, 10))
+        }
+      }
+    }
+
+    viewRef.current.update({
+      category: categoryColName,
+      categoryColors: colors,
+      selection: null,
+      tooltip: null,
+    })
+  }, [categoryColumn, categoryColumns])
 
   // Handle resize
   useEffect(() => {

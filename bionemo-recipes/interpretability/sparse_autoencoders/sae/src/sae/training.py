@@ -19,6 +19,7 @@ This module provides a Trainer class that handles all training-related concerns,
 separating training logic from the SAE model architecture.
 """
 
+import contextlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -62,6 +63,7 @@ class TrainingConfig:
         lr_scale_with_latents: Scale LR by 1/sqrt(hidden_dim/reference_dim) per OpenAI paper
         lr_reference_hidden_dim: Reference hidden_dim for LR scaling (default 2048)
         warmup_steps: Number of steps for linear LR warmup (0 = no warmup)
+        grad_accumulation_steps: Number of microsteps to accumulate gradients before an optimizer step (1 = no accumulation)
     """
 
     lr: float = 3e-4
@@ -77,6 +79,7 @@ class TrainingConfig:
     lr_scale_with_latents: bool = False
     lr_reference_hidden_dim: int = 2048
     warmup_steps: int = 0
+    grad_accumulation_steps: int = 1
 
 
 @dataclass
@@ -206,6 +209,7 @@ class Trainer:
                 sampler=sampler,
                 num_workers=self.config.num_workers,
                 pin_memory=self.config.pin_memory,
+                drop_last=self.is_distributed,
             )
         elif isinstance(data, DataLoader):
             return data
@@ -496,8 +500,9 @@ class Trainer:
         model = self._get_model()
         self.dead_latent_tracker = DeadLatentTracker(model.hidden_dim, device=self.config.device)
 
-        # Compute global batch size
-        global_batch_size = self.config.batch_size * self.parallel_config.dp_size
+        # Compute global batch size (accounts for gradient accumulation)
+        accum_steps = self.config.grad_accumulation_steps
+        global_batch_size = self.config.batch_size * self.parallel_config.dp_size * accum_steps
 
         remaining_info = ""
         if resume_from is not None:
@@ -509,6 +514,8 @@ class Trainer:
             self._print_rank0("Batches per epoch: unknown (streaming)")
         self._print_rank0(f"Batch size per GPU: {self.config.batch_size}")
         self._print_rank0(f"Global batch size: {global_batch_size}")
+        if accum_steps > 1:
+            self._print_rank0(f"Gradient accumulation: {accum_steps} microsteps")
         if self.config.warmup_steps > 0:
             self._print_rank0(f"LR warmup: {self.config.warmup_steps} steps")
 
@@ -530,22 +537,41 @@ class Trainer:
             if self.is_distributed and hasattr(self.dataloader.sampler, "set_epoch"):
                 self.dataloader.sampler.set_epoch(epoch)
 
+            optimizer.zero_grad()
+
             for batch_idx, batch in enumerate(self.dataloader):
                 # Handle batch from TensorDataset
                 if isinstance(batch, (tuple, list)):
                     batch = batch[0]
                 batch = batch.to(self.config.device)
 
+                micro_step = batch_idx % accum_steps
+                is_accum_step = (micro_step == accum_steps - 1) or (
+                    batch_idx == len(self.dataloader) - 1 if hasattr(self.dataloader, "__len__") else False
+                )
+
+                # Skip DDP gradient allreduce on non-final accumulation microsteps
+                maybe_no_sync = (
+                    self.model.no_sync if (self.is_distributed and not is_accum_step) else contextlib.nullcontext
+                )
+                with maybe_no_sync():
+                    # Forward pass
+                    loss_dict = loss_fn(batch, **loss_kwargs)
+                    loss = loss_dict["total"] / accum_steps
+
+                    # Backward pass (DDP allreduce only fires on the final microstep)
+                    loss.backward()
+
+                # Track losses (unscaled for logging)
+                batch_losses.append(loss_dict["total"].item())
+
+                if not is_accum_step:
+                    continue
+
+                # --- Optimizer step (every accum_steps microsteps) ---
+
                 # Update learning rate (handles warmup)
                 self._update_lr(optimizer, self.global_step)
-
-                # Forward pass
-                loss_dict = loss_fn(batch, **loss_kwargs)
-                loss = loss_dict["total"]
-
-                # Backward pass
-                optimizer.zero_grad()
-                loss.backward()
 
                 # Sync dead latent stats across GPUs (for auxk loss)
                 self._sync_dead_latent_stats()
@@ -559,13 +585,11 @@ class Trainer:
                     grad_norm = self._compute_grad_norm()
 
                 optimizer.step()
+                optimizer.zero_grad()
 
                 # Post-step hook (e.g., normalize decoder)
                 if hasattr(model, "post_step"):
                     model.post_step()
-
-                # Track losses
-                batch_losses.append(loss.item())
 
                 # Log with PerfLogger if provided (only on rank 0)
                 if self.perf_logger is not None and self.rank == 0:
@@ -580,8 +604,6 @@ class Trainer:
                     elif self.dead_latent_tracker:
                         dead_stats = self.dead_latent_tracker.get_stats()
                         extra_metrics["dead_latents"] = dead_stats["dead_pct"]
-
-                    # Reconstruction metrics come from loss_dict (no extra forward pass needed)
 
                     # Reset external dead stats tracker periodically (only used as fallback)
                     if self.global_step % 1000 == 0 and self.dead_latent_tracker:
@@ -599,7 +621,7 @@ class Trainer:
                 # Fallback to basic wandb logging if no perf_logger (only on rank 0)
                 elif self.wandb_run and self.rank == 0 and (self.global_step % self.wandb_config.log_interval == 0):
                     log_dict = {
-                        "train/loss": loss.item(),
+                        "train/loss": loss.item() * accum_steps,
                         "train/step": self.global_step,
                         "train/global_batch_size": global_batch_size,
                     }

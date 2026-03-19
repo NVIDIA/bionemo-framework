@@ -7,15 +7,15 @@ const styles = {
   backdrop: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0,0,0,0.45)',
+    background: 'rgba(0,0,0,0.5)',
     zIndex: 9999,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
   },
   modal: {
-    background: 'var(--bg-card)',
-    borderRadius: '10px',
+    background: '#fff',
+    borderRadius: '12px',
     width: '90vw',
     maxWidth: '1200px',
     height: '80vh',
@@ -30,8 +30,8 @@ const styles = {
     top: '12px',
     right: '12px',
     zIndex: 10,
-    background: 'var(--bg-card)',
-    border: '1px solid var(--border-input)',
+    background: 'rgba(255,255,255,0.9)',
+    border: '1px solid #ddd',
     borderRadius: '50%',
     width: '32px',
     height: '32px',
@@ -40,13 +40,13 @@ const styles = {
     justifyContent: 'center',
     cursor: 'pointer',
     fontSize: '16px',
-    color: 'var(--text-secondary)',
+    color: '#555',
   },
   leftPanel: {
     flex: '0 0 60%',
     position: 'relative',
-    background: 'var(--bg)',
-    borderRight: '1px solid var(--border-light)',
+    background: '#f5f5f5',
+    borderRight: '1px solid #eee',
   },
   viewer: {
     width: '100%',
@@ -59,7 +59,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: 'var(--text-muted)',
+    color: '#aaa',
     fontSize: '13px',
   },
   viewerError: {
@@ -73,7 +73,7 @@ const styles = {
   },
   rightPanel: {
     flex: 1,
-    padding: '28px 32px',
+    padding: '24px',
     overflowY: 'auto',
     display: 'flex',
     flexDirection: 'column',
@@ -89,7 +89,7 @@ const styles = {
     fontSize: '18px',
     fontWeight: '700',
     fontFamily: 'monospace',
-    color: 'var(--text-heading)',
+    color: '#222',
   },
   uniprotBtn: {
     display: 'inline-flex',
@@ -97,9 +97,9 @@ const styles = {
     gap: '4px',
     padding: '4px 10px',
     fontSize: '12px',
-    color: 'var(--link)',
-    background: 'var(--bg-card-expanded)',
-    border: '1px solid var(--border)',
+    color: '#2563eb',
+    background: '#eff6ff',
+    border: '1px solid #bfdbfe',
     borderRadius: '6px',
     textDecoration: 'none',
     fontWeight: '500',
@@ -110,13 +110,13 @@ const styles = {
   },
   statBox: {
     padding: '10px 14px',
-    background: 'var(--bg-card-expanded)',
+    background: '#f9fafb',
     borderRadius: '8px',
-    border: '1px solid var(--border-light)',
+    border: '1px solid #eee',
   },
   statLabel: {
     fontSize: '10px',
-    color: 'var(--text-tertiary)',
+    color: '#888',
     textTransform: 'uppercase',
     marginBottom: '2px',
   },
@@ -124,17 +124,17 @@ const styles = {
     fontSize: '14px',
     fontWeight: '600',
     fontFamily: 'monospace',
-    color: 'var(--text)',
+    color: '#333',
   },
   sectionLabel: {
     fontSize: '11px',
-    color: 'var(--text-tertiary)',
+    color: '#888',
     textTransform: 'uppercase',
     fontWeight: '500',
   },
   sequenceBox: {
-    background: 'var(--bg-card-expanded)',
-    border: '1px solid var(--border-light)',
+    background: '#fafafa',
+    border: '1px solid #eee',
     borderRadius: '8px',
     padding: '12px',
     maxHeight: '300px',
@@ -142,14 +142,14 @@ const styles = {
   },
 }
 
-export default function ProteinDetailModal({ protein, onClose, darkMode }) {
+export default function ProteinDetailModal({ protein, onClose }) {
   const wrapperRef = useRef(null)
   const molContainerRef = useRef(null)
   const pluginRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const accession = getAccession(protein.protein_id, protein.alphafold_id)
+  const accession = getAccession(protein.protein_id)
   const acts = protein.activations ? protein.activations.slice(0, (protein.sequence || '').length) : []
 
   // Close on ESC
@@ -207,14 +207,6 @@ export default function ProteinDetailModal({ protein, onClose, darkMode }) {
 
         try { plugin.initViewer(canvas, molDiv) } catch {}
 
-        // Set canvas background based on dark mode
-        try {
-          const bgColor = darkMode ? 0x000000 : 0xffffff
-          plugin.canvas3d?.setProps({
-            renderer: { backgroundColor: bgColor },
-          })
-        } catch { /* older Mol* versions may not support this */ }
-
         pluginRef.current = plugin
 
         // Custom activation color theme
@@ -242,7 +234,7 @@ export default function ProteinDetailModal({ protein, onClose, darkMode }) {
               }
             }
           } catch {}
-          return darkMode ? Color.fromRgb(80, 80, 80) : Color.fromRgb(200, 200, 200)
+          return Color.fromRgb(200, 200, 200)
         }
 
         const colorThemeProvider = {

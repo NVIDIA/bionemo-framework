@@ -1,5 +1,5 @@
 {
-  "name": "sae-steering-ui",
+  "name": "protein-dashboard",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,6 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@uwdata/mosaic-core": "^0.21.1",
+    "@uwdata/mosaic-sql": "^0.21.1",
+    "@uwdata/vgplot": "^0.21.1",
+    "embedding-atlas": "^0.16.1",
+    "lucide-react": "^0.577.0",
+    "molstar": "^4.8.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

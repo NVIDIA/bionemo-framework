@@ -2,19 +2,19 @@
 set -e
 
 echo "============================================================"
-echo "STEP 1: Extract activations from ESM2-650M"
+echo "STEP 1: Extract activations from ESM2-15B"
 echo "============================================================"
 
 torchrun --nproc_per_node=4 scripts/extract.py \
     --source uniref50 \
-    --num-proteins 5000 \
+    --num-proteins 50000 \
     --data-dir ./data \
     --layer 24 \
-    --model-name nvidia/esm2_t33_650M_UR50D \
-    --batch-size 16 \
+    --model-name nvidia/esm2_t48_15B_UR50D \
+    --batch-size 1 \
     --max-length 1024 \
     --filter-length \
-    --output .cache/activations/650m_5k_layer24
+    --output .cache/activations/15b_50k_layer24
 
 echo ""
 echo "============================================================"
@@ -22,8 +22,8 @@ echo "STEP 2: Train SAE on cached activations"
 echo "============================================================"
 
 torchrun --nproc_per_node=4 scripts/train.py \
-    --cache-dir .cache/activations/650m_5k_layer24 \
-    --model-name nvidia/esm2_t33_650M_UR50D \
+    --cache-dir .cache/activations/15b_50k_layer24 \
+    --model-name nvidia/esm2_t48_15B_UR50D \
     --layer 24 \
     --model-type topk \
     --expansion-factor 8 \
@@ -38,9 +38,9 @@ torchrun --nproc_per_node=4 scripts/train.py \
     --no-wandb \
     --dp-size 4 \
     --seed 42 \
-    --num-proteins 5000 \
-    --output-dir "$(pwd)/outputs/650m_5k" \
-    --checkpoint-dir "$(pwd)/outputs/650m_5k/checkpoints" \
+    --num-proteins 50000 \
+    --output-dir "$(pwd)/outputs/15b_50k" \
+    --checkpoint-dir "$(pwd)/outputs/15b_50k/checkpoints" \
     --checkpoint-steps 999999
 
 echo ""
@@ -49,14 +49,17 @@ echo "STEP 3: Evaluate SAE + build dashboard"
 echo "============================================================"
 
 python scripts/eval.py \
-    --checkpoint ./outputs/650m_5k/checkpoints/checkpoint_final.pt \
+    --checkpoint ./outputs/15b_50k/checkpoints/checkpoint_final.pt \
     --top-k 32 \
-    --model-name nvidia/esm2_t33_650M_UR50D \
+    --model-name nvidia/esm2_t48_15B_UR50D \
     --layer 24 \
-    --batch-size 16 \
+    --batch-size 1 \
     --dtype bf16 \
     --num-proteins 1000 \
-    --output-dir ./outputs/650m_5k/eval
+    --umap-n-neighbors 50 \
+    --umap-min-dist 0.0 \
+    --hdbscan-min-cluster-size 20 \
+    --output-dir ./outputs/15b_50k/eval
 
 echo ""
 echo "============================================================"

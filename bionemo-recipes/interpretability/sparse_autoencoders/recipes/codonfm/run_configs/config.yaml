@@ -1,0 +1,57 @@
+defaults:
+  - model: 1b
+  - _self_
+
+steps:
+  extract: true
+  train: true
+  eval: true
+
+# Model-specific (overridden by model/*.yaml)
+model_path: ???
+run_name: ???
+num_sequences: ???
+batch_size: ???
+
+# Shared
+seed: 42
+layer: -2
+csv_path: ???
+context_length: 2048
+output_base: ./outputs
+
+# Extraction
+extract:
+  shard_size: 100000
+
+# Training
+train:
+  model_type: topk
+  expansion_factor: 8
+  top_k: 32
+  auxk: 64
+  auxk_coef: 0.03125
+  init_pre_bias: true
+  normalize_input: false
+  dead_tokens_threshold: 10000000
+  lr: 3e-4
+  n_epochs: 3
+  batch_size: 4096
+  log_interval: 50
+  checkpoint_steps: 999999
+  wandb_enabled: false
+  wandb_project: sae_codonfm_recipe
+  max_grad_norm: null
+
+# Eval
+eval:
+  num_sequences: 100
+  csv_path: ${csv_path}
+
+# Infrastructure
+nproc: 4
+dp_size: 4
+
+hydra:
+  run:
+    dir: .

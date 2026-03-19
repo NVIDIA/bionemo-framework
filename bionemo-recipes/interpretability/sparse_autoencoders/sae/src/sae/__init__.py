@@ -82,7 +82,6 @@ from .eval import (
 )
 from .perf_logger import PerfLogger
 from .process_group_manager import ProcessGroupManager
-from .steering import Intervention, InterventionMode, SteeredModel
 from .training import ParallelConfig, Trainer, TrainingConfig, WandbConfig
 from .utils import get_device, set_seed
 
@@ -106,8 +105,6 @@ __all__ = [
     "FeatureLogits",
     "FeatureSampler",
     "FeatureStats",
-    "Intervention",
-    "InterventionMode",
     "LLMClient",
     "LLMResponse",
     "LossRecoveredResult",
@@ -122,7 +119,6 @@ __all__ = [
     "ReLUSAE",
     "SparseAutoencoder",
     "SparsityMetrics",
-    "SteeredModel",
     "TokenActivationCollector",
     "TokenExample",
     "TopExample",
