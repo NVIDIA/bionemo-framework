@@ -54,34 +54,34 @@ The dashboard loads three Parquet files from the `public/` directory via DuckDB-
 
 One row per SAE feature. Drives the UMAP scatter plot and histograms.
 
-| Column              | Type    | Description                                             |
-| ------------------- | ------- | ------------------------------------------------------- |
-| `feature_id`        | INT32   | Feature index (0 to n_features-1)                       |
+| Column              | Type    | Description                                            |
+| ------------------- | ------- | ------------------------------------------------------ |
+| `feature_id`        | INT32   | Feature index (0 to n_features-1)                      |
 | `label`             | VARCHAR | Display label (e.g. "Kinase (F1:0.82)" or "Feature 5") |
-| `x`                 | FLOAT   | UMAP x coordinate (from decoder weights)                |
-| `y`                 | FLOAT   | UMAP y coordinate                                       |
-| `activation_freq`   | FLOAT   | Fraction of residues where feature fires (> 0)          |
-| `log_frequency`     | FLOAT   | log10(activation_freq), clamped to -10 when zero        |
-| `mean_activation`   | FLOAT   | Mean activation when active                             |
-| `max_activation`    | FLOAT   | Maximum activation observed                             |
-| `std_activation`    | FLOAT   | Std dev of activation when active                       |
-| `total_activations` | INT64   | Total count of firings                                  |
-| `cluster_id`        | INT32   | HDBSCAN cluster (NULL for noise points)                 |
+| `x`                 | FLOAT   | UMAP x coordinate (from decoder weights)               |
+| `y`                 | FLOAT   | UMAP y coordinate                                      |
+| `activation_freq`   | FLOAT   | Fraction of residues where feature fires (> 0)         |
+| `log_frequency`     | FLOAT   | log10(activation_freq), clamped to -10 when zero       |
+| `mean_activation`   | FLOAT   | Mean activation when active                            |
+| `max_activation`    | FLOAT   | Maximum activation observed                            |
+| `std_activation`    | FLOAT   | Std dev of activation when active                      |
+| `total_activations` | INT64   | Total count of firings                                 |
+| `cluster_id`        | INT32   | HDBSCAN cluster (NULL for noise points)                |
 
-Any additional VARCHAR column with <= 50 unique values is available as a coloring option.
+Any additional VARCHAR column with \<= 50 unique values is available as a coloring option.
 
 ### `feature_metadata.parquet`
 
 One row per SAE feature. Loaded into a DuckDB table for feature card display.
 
-| Column            | Type    | Description                                    |
-| ----------------- | ------- | ---------------------------------------------- |
-| `feature_id`      | INT32   | Feature index                                  |
-| `description`     | VARCHAR | Best annotation or "Feature {id}" if unlabeled |
-| `activation_freq` | FLOAT32 | Fraction of residues where feature fires        |
-| `max_activation`  | FLOAT32 | Global maximum activation                      |
+| Column            | Type    | Description                                       |
+| ----------------- | ------- | ------------------------------------------------- |
+| `feature_id`      | INT32   | Feature index                                     |
+| `description`     | VARCHAR | Best annotation or "Feature {id}" if unlabeled    |
+| `activation_freq` | FLOAT32 | Fraction of residues where feature fires          |
+| `max_activation`  | FLOAT32 | Global maximum activation                         |
 | `best_f1`         | FLOAT32 | F1 score for best SwissProt annotation (nullable) |
-| `best_annotation` | VARCHAR | Best SwissProt annotation string (nullable)    |
+| `best_annotation` | VARCHAR | Best SwissProt annotation string (nullable)       |
 
 ### `feature_examples.parquet`
 
@@ -91,7 +91,7 @@ Top activating protein examples per feature. Loaded as a DuckDB view and queried
 | ---------------- | -------------- | ---------------------------------------------------- |
 | `feature_id`     | INT32          | Feature index                                        |
 | `example_rank`   | INT8           | Rank within feature (0 = highest activation)         |
-| `protein_id`     | VARCHAR        | UniProt accession (e.g. "sp\|P12345\|...")            |
+| `protein_id`     | VARCHAR        | UniProt accession (e.g. "sp\|P12345\|...")           |
 | `alphafold_id`   | VARCHAR        | AlphaFold structure ID (e.g. "AF-P12345-F1")         |
 | `sequence`       | VARCHAR        | Amino acid sequence                                  |
 | `activations`    | LIST\<FLOAT32> | Per-residue activation values (same len as sequence) |

@@ -68,9 +68,7 @@ def main():
         help="Directory containing features_atlas.parquet, feature_metadata.parquet, feature_examples.parquet",
     )
     p.add_argument("--port", type=int, default=5176)
-    p.add_argument(
-        "--filter-dead", action="store_true", help="Filter out dead latents (activation_freq == 0)"
-    )
+    p.add_argument("--filter-dead", action="store_true", help="Filter out dead latents (activation_freq == 0)")
     args = p.parse_args()
 
     data_dir = Path(args.data_dir).resolve()

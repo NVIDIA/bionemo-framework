@@ -1,5 +1,19 @@
-"""
-Compute interpretability analysis for CodonFM SAE features.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Compute interpretability analysis for CodonFM SAE features.
 
 Generates:
   - Vocabulary logit analysis (which codons each feature promotes/suppresses)
@@ -20,98 +34,199 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import List
 
 import numpy as np
 import torch
 from tqdm import tqdm
+
 
 # Use codonfm_ptl_te recipe (has TransformerEngine support)
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 _CODONFM_TE_DIR = _REPO_ROOT / "recipes" / "codonfm_ptl_te"
 sys.path.insert(0, str(_CODONFM_TE_DIR))
 
-from src.inference.encodon import EncodonInference
-from src.data.preprocess.codon_sequence import process_item
-from src.tokenizer import Tokenizer
-
-from sae.architectures import TopKSAE
-from sae.analysis import compute_feature_logits
-from sae.utils import set_seed, get_device
-
 from codonfm_sae.data import read_codon_csv
+from sae.architectures import TopKSAE
+from sae.utils import get_device, set_seed
+from src.data.preprocess.codon_sequence import process_item
+from src.inference.encodon import EncodonInference
 
 
 # ── Standard codon usage table (human, per 1000 codons) ──────────────
 # Source: Kazusa Codon Usage Database, Homo sapiens
 HUMAN_CODON_USAGE = {
-    'TTT': 17.6, 'TTC': 20.3, 'TTA': 7.7, 'TTG': 12.9,
-    'CTT': 13.2, 'CTC': 19.6, 'CTA': 7.2, 'CTG': 39.6,
-    'ATT': 16.0, 'ATC': 20.8, 'ATA': 7.5, 'ATG': 22.0,
-    'GTT': 11.0, 'GTC': 14.5, 'GTA': 7.1, 'GTG': 28.1,
-    'TCT': 15.2, 'TCC': 17.7, 'TCA': 12.2, 'TCG': 4.4,
-    'CCT': 17.5, 'CCC': 19.8, 'CCA': 16.9, 'CCG': 6.9,
-    'ACT': 13.1, 'ACC': 18.9, 'ACA': 15.1, 'ACG': 6.1,
-    'GCT': 18.4, 'GCC': 27.7, 'GCA': 15.8, 'GCG': 7.4,
-    'TAT': 12.2, 'TAC': 15.3, 'TAA': 1.0, 'TAG': 0.8,
-    'CAT': 10.9, 'CAC': 15.1, 'CAA': 12.3, 'CAG': 34.2,
-    'AAT': 17.0, 'AAC': 19.1, 'AAA': 24.4, 'AAG': 31.9,
-    'GAT': 21.8, 'GAC': 25.1, 'GAA': 29.0, 'GAG': 39.6,
-    'TGT': 10.6, 'TGC': 12.6, 'TGA': 1.6, 'TGG': 13.2,
-    'CGT': 4.5, 'CGC': 10.4, 'CGA': 6.2, 'CGG': 11.4,
-    'AGT': 12.1, 'AGC': 19.5, 'AGA': 12.2, 'AGG': 12.0,
-    'GGT': 10.8, 'GGC': 22.2, 'GGA': 16.5, 'GGG': 16.5,
+    "TTT": 17.6,
+    "TTC": 20.3,
+    "TTA": 7.7,
+    "TTG": 12.9,
+    "CTT": 13.2,
+    "CTC": 19.6,
+    "CTA": 7.2,
+    "CTG": 39.6,
+    "ATT": 16.0,
+    "ATC": 20.8,
+    "ATA": 7.5,
+    "ATG": 22.0,
+    "GTT": 11.0,
+    "GTC": 14.5,
+    "GTA": 7.1,
+    "GTG": 28.1,
+    "TCT": 15.2,
+    "TCC": 17.7,
+    "TCA": 12.2,
+    "TCG": 4.4,
+    "CCT": 17.5,
+    "CCC": 19.8,
+    "CCA": 16.9,
+    "CCG": 6.9,
+    "ACT": 13.1,
+    "ACC": 18.9,
+    "ACA": 15.1,
+    "ACG": 6.1,
+    "GCT": 18.4,
+    "GCC": 27.7,
+    "GCA": 15.8,
+    "GCG": 7.4,
+    "TAT": 12.2,
+    "TAC": 15.3,
+    "TAA": 1.0,
+    "TAG": 0.8,
+    "CAT": 10.9,
+    "CAC": 15.1,
+    "CAA": 12.3,
+    "CAG": 34.2,
+    "AAT": 17.0,
+    "AAC": 19.1,
+    "AAA": 24.4,
+    "AAG": 31.9,
+    "GAT": 21.8,
+    "GAC": 25.1,
+    "GAA": 29.0,
+    "GAG": 39.6,
+    "TGT": 10.6,
+    "TGC": 12.6,
+    "TGA": 1.6,
+    "TGG": 13.2,
+    "CGT": 4.5,
+    "CGC": 10.4,
+    "CGA": 6.2,
+    "CGG": 11.4,
+    "AGT": 12.1,
+    "AGC": 19.5,
+    "AGA": 12.2,
+    "AGG": 12.0,
+    "GGT": 10.8,
+    "GGC": 22.2,
+    "GGA": 16.5,
+    "GGG": 16.5,
 }
 
 CODON_TO_AA = {
-    'TTT': 'F', 'TTC': 'F', 'TTA': 'L', 'TTG': 'L',
-    'CTT': 'L', 'CTC': 'L', 'CTA': 'L', 'CTG': 'L',
-    'ATT': 'I', 'ATC': 'I', 'ATA': 'I', 'ATG': 'M',
-    'GTT': 'V', 'GTC': 'V', 'GTA': 'V', 'GTG': 'V',
-    'TCT': 'S', 'TCC': 'S', 'TCA': 'S', 'TCG': 'S',
-    'CCT': 'P', 'CCC': 'P', 'CCA': 'P', 'CCG': 'P',
-    'ACT': 'T', 'ACC': 'T', 'ACA': 'T', 'ACG': 'T',
-    'GCT': 'A', 'GCC': 'A', 'GCA': 'A', 'GCG': 'A',
-    'TAT': 'Y', 'TAC': 'Y', 'TAA': '*', 'TAG': '*',
-    'CAT': 'H', 'CAC': 'H', 'CAA': 'Q', 'CAG': 'Q',
-    'AAT': 'N', 'AAC': 'N', 'AAA': 'K', 'AAG': 'K',
-    'GAT': 'D', 'GAC': 'D', 'GAA': 'E', 'GAG': 'E',
-    'TGT': 'C', 'TGC': 'C', 'TGA': '*', 'TGG': 'W',
-    'CGT': 'R', 'CGC': 'R', 'CGA': 'R', 'CGG': 'R',
-    'AGT': 'S', 'AGC': 'S', 'AGA': 'R', 'AGG': 'R',
-    'GGT': 'G', 'GGC': 'G', 'GGA': 'G', 'GGG': 'G',
+    "TTT": "F",
+    "TTC": "F",
+    "TTA": "L",
+    "TTG": "L",
+    "CTT": "L",
+    "CTC": "L",
+    "CTA": "L",
+    "CTG": "L",
+    "ATT": "I",
+    "ATC": "I",
+    "ATA": "I",
+    "ATG": "M",
+    "GTT": "V",
+    "GTC": "V",
+    "GTA": "V",
+    "GTG": "V",
+    "TCT": "S",
+    "TCC": "S",
+    "TCA": "S",
+    "TCG": "S",
+    "CCT": "P",
+    "CCC": "P",
+    "CCA": "P",
+    "CCG": "P",
+    "ACT": "T",
+    "ACC": "T",
+    "ACA": "T",
+    "ACG": "T",
+    "GCT": "A",
+    "GCC": "A",
+    "GCA": "A",
+    "GCG": "A",
+    "TAT": "Y",
+    "TAC": "Y",
+    "TAA": "*",
+    "TAG": "*",
+    "CAT": "H",
+    "CAC": "H",
+    "CAA": "Q",
+    "CAG": "Q",
+    "AAT": "N",
+    "AAC": "N",
+    "AAA": "K",
+    "AAG": "K",
+    "GAT": "D",
+    "GAC": "D",
+    "GAA": "E",
+    "GAG": "E",
+    "TGT": "C",
+    "TGC": "C",
+    "TGA": "*",
+    "TGG": "W",
+    "CGT": "R",
+    "CGC": "R",
+    "CGA": "R",
+    "CGG": "R",
+    "AGT": "S",
+    "AGC": "S",
+    "AGA": "R",
+    "AGG": "R",
+    "GGT": "G",
+    "GGC": "G",
+    "GGA": "G",
+    "GGG": "G",
 }
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Analyze CodonFM SAE features")
     p.add_argument("--checkpoint", type=str, required=True)
-    p.add_argument("--top-k", type=int, default=None,
-                   help="Override top-k (default: read from checkpoint)")
+    p.add_argument("--top-k", type=int, default=None, help="Override top-k (default: read from checkpoint)")
     p.add_argument("--model-path", type=str, required=True)
     p.add_argument("--layer", type=int, default=-2)
     p.add_argument("--context-length", type=int, default=2048)
     p.add_argument("--batch-size", type=int, default=8)
-    p.add_argument("--csv-path", type=str, required=True,
-                   help="CSV with codon sequences (e.g. Primates.csv)")
-    p.add_argument("--num-sequences", type=int, default=None,
-                   help="Max sequences to analyze (default: all)")
-    p.add_argument("--dashboard-dir", type=str, default=None,
-                   help="If provided, updates features_atlas.parquet with labels")
+    p.add_argument("--csv-path", type=str, required=True, help="CSV with codon sequences (e.g. Primates.csv)")
+    p.add_argument("--num-sequences", type=int, default=None, help="Max sequences to analyze (default: all)")
+    p.add_argument(
+        "--dashboard-dir", type=str, default=None, help="If provided, updates features_atlas.parquet with labels"
+    )
     p.add_argument("--output-dir", type=str, default="./outputs/analysis")
-    p.add_argument("--auto-interp", action="store_true",
-                   help="Run LLM auto-interpretation")
-    p.add_argument("--llm-provider", type=str, default="anthropic",
-                   choices=["anthropic", "openai", "nim", "nvidia-internal"],
-                   help="LLM provider for auto-interp (default: anthropic)")
-    p.add_argument("--llm-model", type=str, default=None,
-                   help="LLM model name (defaults: anthropic=claude-sonnet-4-20250514, openai=gpt-4o, nim=nvidia/llama-3.1-nemotron-70b-instruct, nvidia-internal=aws/anthropic/bedrock-claude-3-7-sonnet-v1)")
-    p.add_argument("--max-features", type=int, default=None,
-                   help="Limit number of features to analyze (for testing)")
-    p.add_argument("--max-auto-interp-features", type=int, default=None,
-                   help="Limit auto-interp to top N features by activation frequency (default: all with codon annotations)")
-    p.add_argument("--auto-interp-workers", type=int, default=1,
-                   help="Number of parallel workers for LLM calls (default: 1)")
+    p.add_argument("--auto-interp", action="store_true", help="Run LLM auto-interpretation")
+    p.add_argument(
+        "--llm-provider",
+        type=str,
+        default="anthropic",
+        choices=["anthropic", "openai", "nim", "nvidia-internal"],
+        help="LLM provider for auto-interp (default: anthropic)",
+    )
+    p.add_argument(
+        "--llm-model",
+        type=str,
+        default=None,
+        help="LLM model name (defaults: anthropic=claude-sonnet-4-20250514, openai=gpt-4o, nim=nvidia/llama-3.1-nemotron-70b-instruct, nvidia-internal=aws/anthropic/bedrock-claude-3-7-sonnet-v1)",
+    )
+    p.add_argument("--max-features", type=int, default=None, help="Limit number of features to analyze (for testing)")
+    p.add_argument(
+        "--max-auto-interp-features",
+        type=int,
+        default=None,
+        help="Limit auto-interp to top N features by activation frequency (default: all with codon annotations)",
+    )
+    p.add_argument(
+        "--auto-interp-workers", type=int, default=1, help="Number of parallel workers for LLM calls (default: 1)"
+    )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default=None)
     return p.parse_args()
@@ -131,7 +246,9 @@ def load_sae(checkpoint_path: str, top_k_override: int | None = None) -> TopKSAE
     if top_k_override and model_config.get("top_k") and top_k_override != model_config["top_k"]:
         print(f"  WARNING: overriding checkpoint top_k={model_config['top_k']} with --top-k={top_k_override}")
     sae = TopKSAE(
-        input_dim=input_dim, hidden_dim=hidden_dim, top_k=top_k,
+        input_dim=input_dim,
+        hidden_dim=hidden_dim,
+        top_k=top_k,
         normalize_input=model_config.get("normalize_input", False),
     )
     sae.load_state_dict(state_dict)
@@ -139,6 +256,7 @@ def load_sae(checkpoint_path: str, top_k_override: int | None = None) -> TopKSAE
 
 
 # ── 1. Vocabulary logit analysis ─────────────────────────────────────
+
 
 def compute_vocab_logits(sae, inference, device="cuda"):
     """Project SAE decoder through the Encodon LM head to get per-feature codon logits."""
@@ -194,10 +312,18 @@ def compute_vocab_logits(sae, inference, device="cuda"):
 
 # ── 2. Streaming codon annotations + top-K tracking ──────────────────
 
+
 def _summarize_codon_annotations(
-    n_features, aa_counts, rare_counts, common_counts,
-    cpg_counts, non_cpg_counts, wobble_gc_counts, wobble_at_counts,
-    first30_counts, rest_counts,
+    n_features,
+    aa_counts,
+    rare_counts,
+    common_counts,
+    cpg_counts,
+    non_cpg_counts,
+    wobble_gc_counts,
+    wobble_at_counts,
+    first30_counts,
+    rest_counts,
 ):
     """Summarize accumulated annotation counts into per-feature dicts."""
     all_aas = sorted(set(CODON_TO_AA.values()))
@@ -261,8 +387,14 @@ def _summarize_codon_annotations(
 
 
 def stream_annotations_and_topk(
-    sae, inference, sequences, layer, context_length, batch_size,
-    device="cuda", n_top_examples=5,
+    sae,
+    inference,
+    sequences,
+    layer,
+    context_length,
+    batch_size,
+    device="cuda",
+    n_top_examples=5,
 ):
     """Single-pass streaming: extract activations, run SAE, accumulate codon stats + top-K per feature.
 
@@ -301,7 +433,7 @@ def stream_annotations_and_topk(
     n_batches = (n_sequences + batch_size - 1) // batch_size
 
     for batch_start in tqdm(range(0, n_sequences, batch_size), total=n_batches, desc="  Streaming"):
-        batch_seqs = sequences[batch_start:batch_start + batch_size]
+        batch_seqs = sequences[batch_start : batch_start + batch_size]
         items = [process_item(s, context_length=context_length, tokenizer=inference.tokenizer) for s in batch_seqs]
 
         batch_input = {
@@ -348,7 +480,7 @@ def stream_annotations_and_topk(
             # ── Codon annotation stats ──
             codes_cpu = codes.cpu().numpy()
             seq = batch_seqs[b]
-            codons = [seq[j*3:(j+1)*3].upper() for j in range(vl)]
+            codons = [seq[j * 3 : (j + 1) * 3].upper() for j in range(vl)]
 
             aa_idx = np.array([aa_to_idx.get(CODON_TO_AA.get(c, "?"), 0) for c in codons], dtype=np.int32)
             is_rare = np.array([HUMAN_CODON_USAGE.get(c, 10.0) < 10.0 for c in codons])
@@ -358,8 +490,8 @@ def stream_annotations_and_topk(
 
             is_cpg = np.zeros(vl, dtype=bool)
             for j in range(vl - 1):
-                if len(codons[j]) == 3 and len(codons[j+1]) >= 1:
-                    is_cpg[j] = (codons[j][2] == "C" and codons[j+1][0] == "G")
+                if len(codons[j]) == 3 and len(codons[j + 1]) >= 1:
+                    is_cpg[j] = codons[j][2] == "C" and codons[j + 1][0] == "G"
 
             active = codes_cpu > 0
 
@@ -383,9 +515,16 @@ def stream_annotations_and_topk(
     # Summarize
     print("  Summarizing annotations...")
     codon_annotations = _summarize_codon_annotations(
-        n_features, aa_counts, rare_counts, common_counts,
-        cpg_counts, non_cpg_counts, wobble_gc_counts, wobble_at_counts,
-        first30_counts, rest_counts,
+        n_features,
+        aa_counts,
+        rare_counts,
+        common_counts,
+        cpg_counts,
+        non_cpg_counts,
+        wobble_gc_counts,
+        wobble_at_counts,
+        first30_counts,
+        rest_counts,
     )
 
     return codon_annotations, top_acts, top_indices
@@ -393,13 +532,14 @@ def stream_annotations_and_topk(
 
 # ── 3. Auto-interpretation ───────────────────────────────────────────
 
+
 def get_llm_client(provider: str, model: str = None):
     """Create LLM client based on provider."""
     from sae.autointerp import (
         AnthropicClient,
-        OpenAIClient,
         NIMClient,
         NVIDIAInternalClient,
+        OpenAIClient,
     )
 
     if provider == "anthropic":
@@ -415,10 +555,20 @@ def get_llm_client(provider: str, model: str = None):
 
 
 def run_auto_interp(
-    sae, vocab_logits, inference, sequences, records,
-    feature_indices, top_indices,
-    layer, context_length, batch_size,
-    device="cuda", llm_provider="anthropic", llm_model=None, num_workers=1,
+    sae,
+    vocab_logits,
+    inference,
+    sequences,
+    records,
+    feature_indices,
+    top_indices,
+    layer,
+    context_length,
+    batch_size,
+    device="cuda",
+    llm_provider="anthropic",
+    llm_model=None,
+    num_workers=1,
 ):
     """Run LLM auto-interpretation using precomputed top-K indices.
 
@@ -447,7 +597,7 @@ def run_auto_interp(
 
     n_batches = (len(unique_indices) + batch_size - 1) // batch_size
     for batch_start in tqdm(range(0, len(unique_indices), batch_size), total=n_batches, desc="  Re-extracting"):
-        batch_idx = unique_indices[batch_start:batch_start + batch_size]
+        batch_idx = unique_indices[batch_start : batch_start + batch_size]
         batch_seqs = [sequences[i] for i in batch_idx]
         items = [process_item(s, context_length=context_length, tokenizer=inference.tokenizer) for s in batch_seqs]
 
@@ -503,7 +653,7 @@ def run_auto_interp(
         for max_act, seq_idx, acts in entries:
             seq = sequences[seq_idx]
             vl = len(acts)
-            codons = [seq[j*3:(j+1)*3] for j in range(vl)]
+            codons = [seq[j * 3 : (j + 1) * 3] for j in range(vl)]
 
             # Mark top activating codons
             threshold = np.percentile(acts[acts > 0], 80) if (acts > 0).sum() > 0 else 0
@@ -521,17 +671,22 @@ def run_auto_interp(
                 m = records[seq_idx].metadata
                 meta_parts = []
                 gene = m.get("gene")
-                if gene: meta_parts.append(f"Gene: {gene}")
+                if gene:
+                    meta_parts.append(f"Gene: {gene}")
                 src = m.get("source")
-                if src: meta_parts.append(f"Source: {src}")
+                if src:
+                    meta_parts.append(f"Source: {src}")
                 ip = m.get("is_pathogenic")
-                if ip and str(ip).lower() not in ("", "unknown"): meta_parts.append(f"Pathogenic: {ip}")
+                if ip and str(ip).lower() not in ("", "unknown"):
+                    meta_parts.append(f"Pathogenic: {ip}")
                 pp = m.get("phylop")
-                if pp is not None: meta_parts.append(f"PhyloP: {pp:.2f}")
+                if pp is not None:
+                    meta_parts.append(f"PhyloP: {pp:.2f}")
                 ref = m.get("ref_codon")
                 alt = m.get("alt_codon")
                 vpo = m.get("var_pos_offset")
-                if ref and alt: meta_parts.append(f"Variant: {ref}>{alt} at pos {vpo}")
+                if ref and alt:
+                    meta_parts.append(f"Variant: {ref}>{alt} at pos {vpo}")
                 for score_col in ["1b_cdwt", "5b_cdwt", "1b", "5b"]:
                     sc = m.get(score_col)
                     if sc is not None:
@@ -555,7 +710,7 @@ def run_auto_interp(
         pos_str = ", ".join(f"{tok}({CODON_TO_AA.get(tok, '?')}): {v:.2f}" for tok, v in top_pos)
         neg_str = ", ".join(f"{tok}({CODON_TO_AA.get(tok, '?')}): {v:.2f}" for tok, v in top_neg)
 
-        examples_str = "\n".join(f"  Seq {i+1}: {ex}" for i, ex in enumerate(feature_examples.get(f, [])))
+        examples_str = "\n".join(f"  Seq {i + 1}: {ex}" for i, ex in enumerate(feature_examples.get(f, [])))
 
         prompt = f"""This is a feature from a sparse autoencoder trained on a DNA codon language model (CodonFM).
 Each token is a codon (3 nucleotides) that encodes an amino acid.
@@ -581,12 +736,12 @@ Confidence: <0.00 to 1.00>"""
             label = None
             confidence = 0.0
 
-            for line in text.split('\n'):
-                if line.startswith('Label:'):
-                    label = line.replace('Label:', '').strip()
-                elif line.startswith('Confidence:'):
+            for line in text.split("\n"):
+                if line.startswith("Label:"):
+                    label = line.replace("Label:", "").strip()
+                elif line.startswith("Confidence:"):
                     try:
-                        confidence = float(line.replace('Confidence:', '').strip())
+                        confidence = float(line.replace("Confidence:", "").strip())
                         confidence = max(0.0, min(1.0, confidence))
                     except ValueError:
                         confidence = 0.0
@@ -613,8 +768,12 @@ Confidence: <0.00 to 1.00>"""
 
 # ── Build summary labels ─────────────────────────────────────────────
 
+
 def build_feature_labels(
-    n_features, vocab_logits, codon_annotations, auto_interp_labels=None,
+    n_features,
+    vocab_logits,
+    codon_annotations,
+    auto_interp_labels=None,
 ):
     """Combine all analyses into a single label per feature."""
     labels = {}
@@ -674,6 +833,7 @@ def build_feature_labels(
 
 # ── Main ─────────────────────────────────────────────────────────────
 
+
 def main():
     args = parse_args()
     set_seed(args.seed)
@@ -690,7 +850,9 @@ def main():
 
     # Load model
     print(f"\nLoading Encodon from {args.model_path}...")
-    inference = EncodonInference(model_path=args.model_path, task_type="embedding_prediction", use_transformer_engine=True)
+    inference = EncodonInference(
+        model_path=args.model_path, task_type="embedding_prediction", use_transformer_engine=True
+    )
     inference.configure_model()
     inference.model.to(device).eval()
 
@@ -736,12 +898,14 @@ def main():
         print(f"  {len(codon_annotations)} features with codon annotations")
     else:
         codon_annotations, top_acts, top_indices = stream_annotations_and_topk(
-            sae, inference, sequences,
+            sae,
+            inference,
+            sequences,
             layer=args.layer,
             context_length=args.context_length,
             batch_size=args.batch_size,
             device=device,
-            n_top_examples=max(args.n_examples if hasattr(args, 'n_examples') else 5, 5),
+            n_top_examples=max(args.n_examples if hasattr(args, "n_examples") else 5, 5),
         )
         with open(codon_annotations_file, "w") as f:
             json.dump(codon_annotations, f, default=str)
@@ -772,16 +936,20 @@ def main():
             reverse=True,
         )
         if args.max_auto_interp_features:
-            alive_features_sorted = alive_features_sorted[:args.max_auto_interp_features]
+            alive_features_sorted = alive_features_sorted[: args.max_auto_interp_features]
 
         todo_features = [f for f in alive_features_sorted if f not in auto_interp_labels]
 
         if todo_features:
-            print(f"  Running auto-interp on {len(todo_features)} features "
-                  f"({len(auto_interp_labels)} already done)")
+            print(f"  Running auto-interp on {len(todo_features)} features ({len(auto_interp_labels)} already done)")
             new_labels, new_confidences = run_auto_interp(
-                sae, vocab_logits, inference, sequences, records,
-                todo_features, top_indices,
+                sae,
+                vocab_logits,
+                inference,
+                sequences,
+                records,
+                todo_features,
+                top_indices,
                 layer=args.layer,
                 context_length=args.context_length,
                 batch_size=args.batch_size,
@@ -805,7 +973,10 @@ def main():
     # Build labels
     print("\nBuilding feature labels...")
     labels, details, llm_confidences = build_feature_labels(
-        n_features, vocab_logits, codon_annotations, auto_interp_labels,
+        n_features,
+        vocab_logits,
+        codon_annotations,
+        auto_interp_labels,
     )
     n_labeled = sum(1 for v in labels.values() if not v.startswith("Feature "))
     print(f"  {n_labeled}/{n_features} features labeled")
@@ -836,8 +1007,8 @@ def main():
         dashboard_dir = Path(args.dashboard_dir)
         atlas_path = dashboard_dir / "features_atlas.parquet"
         if atlas_path.exists():
-            import pyarrow.parquet as pq
             import pyarrow as pa
+            import pyarrow.parquet as pq
 
             print(f"\nUpdating {atlas_path} with labels and confidence scores...")
             table = pq.read_table(atlas_path)
@@ -848,12 +1019,13 @@ def main():
             table = table.drop("llm_confidence") if "llm_confidence" in table.column_names else table
             table = table.append_column("label", pa.array(label_col))
             table = table.append_column("llm_confidence", pa.array(confidence_col, type=pa.float32()))
-            pq.write_table(table, atlas_path, compression='snappy')
+            pq.write_table(table, atlas_path, compression="snappy")
             print(f"  Updated {n} feature labels and confidence scores in atlas")
 
     # Copy analysis files to dashboard dir
     if args.dashboard_dir:
         import shutil
+
         dashboard_dir = Path(args.dashboard_dir)
         dashboard_dir.mkdir(parents=True, exist_ok=True)
         for fname in ["vocab_logits.json", "feature_labels.json", "feature_analysis.json"]:

@@ -1,5 +1,19 @@
-"""
-Generate dashboard data from a trained CodonFM SAE.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Generate dashboard data from a trained CodonFM SAE.
 
 Loads the SAE checkpoint + Encodon model, runs sequences through both,
 and exports feature statistics + per-sequence activation examples
@@ -23,43 +37,39 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+
 # Use codonfm_ptl_te recipe (has TransformerEngine support)
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 _CODONFM_TE_DIR = _REPO_ROOT / "recipes" / "codonfm_ptl_te"
 sys.path.insert(0, str(_CODONFM_TE_DIR))
 
-from src.inference.encodon import EncodonInference
-from src.data.preprocess.codon_sequence import process_item
-
-from sae.architectures import TopKSAE
-from sae.analysis import compute_feature_stats, compute_feature_umap, save_feature_atlas
-from sae.utils import set_seed, get_device
-
 from codonfm_sae.data import read_codon_csv
+from sae.analysis import compute_feature_stats, compute_feature_umap, save_feature_atlas
+from sae.architectures import TopKSAE
+from sae.utils import get_device, set_seed
+from src.data.preprocess.codon_sequence import process_item
+from src.inference.encodon import EncodonInference
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Generate CodonFM SAE dashboard data")
-    p.add_argument("--checkpoint", type=str, required=True,
-                   help="Path to SAE checkpoint .pt file")
-    p.add_argument("--top-k", type=int, default=None,
-                   help="Override top-k (default: read from checkpoint)")
-    p.add_argument("--model-path", type=str, required=True,
-                   help="Path to Encodon checkpoint (.safetensors)")
+    p.add_argument("--checkpoint", type=str, required=True, help="Path to SAE checkpoint .pt file")
+    p.add_argument("--top-k", type=int, default=None, help="Override top-k (default: read from checkpoint)")
+    p.add_argument("--model-path", type=str, required=True, help="Path to Encodon checkpoint (.safetensors)")
     p.add_argument("--layer", type=int, default=-2)
     p.add_argument("--context-length", type=int, default=2048)
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--csv-path", type=str, required=True)
     p.add_argument("--seq-column", type=str, default=None)
     p.add_argument("--num-sequences", type=int, default=2000)
-    p.add_argument("--n-examples", type=int, default=6,
-                   help="Top examples per feature")
+    p.add_argument("--n-examples", type=int, default=6, help="Top examples per feature")
     p.add_argument("--output-dir", type=str, default="./outputs/dashboard")
     p.add_argument("--umap-n-neighbors", type=int, default=15)
     p.add_argument("--umap-min-dist", type=float, default=0.1)
     p.add_argument("--hdbscan-min-cluster-size", type=int, default=20)
-    p.add_argument("--score-column", type=str, default=None,
-                   help="Model score column for variant analysis (auto-detect if None)")
+    p.add_argument(
+        "--score-column", type=str, default=None, help="Model score column for variant analysis (auto-detect if None)"
+    )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default=None)
     return p.parse_args()
@@ -84,10 +94,7 @@ def load_sae_from_checkpoint(checkpoint_path: str, top_k_override: int | None = 
     # Use checkpoint's top_k by default, allow CLI override
     top_k = top_k_override or model_config.get("top_k")
     if top_k is None:
-        raise ValueError(
-            "top_k not found in checkpoint model_config. "
-            "Pass --top-k explicitly."
-        )
+        raise ValueError("top_k not found in checkpoint model_config. Pass --top-k explicitly.")
     if top_k_override and model_config.get("top_k") and top_k_override != model_config["top_k"]:
         print(f"  WARNING: overriding checkpoint top_k={model_config['top_k']} with --top-k={top_k_override}")
 
@@ -118,16 +125,12 @@ def extract_activations_3d(
     all_masks = []
 
     n_batches = (len(sequences) + batch_size - 1) // batch_size
-    iterator = tqdm(range(0, len(sequences), batch_size), total=n_batches,
-                    desc="Extracting activations")
+    iterator = tqdm(range(0, len(sequences), batch_size), total=n_batches, desc="Extracting activations")
 
     with torch.no_grad():
         for i in iterator:
             batch_seqs = sequences[i : i + batch_size]
-            items = [
-                process_item(s, context_length=context_length, tokenizer=inference.tokenizer)
-                for s in batch_seqs
-            ]
+            items = [process_item(s, context_length=context_length, tokenizer=inference.tokenizer) for s in batch_seqs]
 
             batch = {
                 "input_ids": torch.tensor(np.stack([it["input_ids"] for it in items])).to(device),
@@ -251,20 +254,24 @@ def export_codon_features_parquet(
     for feat_idx in range(n_features):
         freq = (max_acts[:, feat_idx] > 0).float().mean().item()
         max_val = max_acts[:, feat_idx].max().item()
-        meta_rows.append({
-            "feature_id": feat_idx,
-            "description": f"Feature {feat_idx}",
-            "activation_freq": freq,
-            "max_activation": max_val,
-        })
+        meta_rows.append(
+            {
+                "feature_id": feat_idx,
+                "description": f"Feature {feat_idx}",
+                "activation_freq": freq,
+                "max_activation": max_val,
+            }
+        )
 
-    meta_table = pa.table({
-        "feature_id": pa.array([r["feature_id"] for r in meta_rows], type=pa.int32()),
-        "description": pa.array([r["description"] for r in meta_rows]),
-        "activation_freq": pa.array([r["activation_freq"] for r in meta_rows], type=pa.float32()),
-        "max_activation": pa.array([r["max_activation"] for r in meta_rows], type=pa.float32()),
-    })
-    pq.write_table(meta_table, output_dir / "feature_metadata.parquet", compression='snappy')
+    meta_table = pa.table(
+        {
+            "feature_id": pa.array([r["feature_id"] for r in meta_rows], type=pa.int32()),
+            "description": pa.array([r["description"] for r in meta_rows]),
+            "activation_freq": pa.array([r["activation_freq"] for r in meta_rows], type=pa.float32()),
+            "max_activation": pa.array([r["max_activation"] for r in meta_rows], type=pa.float32()),
+        }
+    )
+    pq.write_table(meta_table, output_dir / "feature_metadata.parquet", compression="snappy")
 
     # Build feature_examples.parquet
     print("  Writing feature_examples.parquet...")
@@ -279,7 +286,7 @@ def export_codon_features_parquet(
             # Get the codon sequence (triplets)
             raw_seq = sequences[seq_idx]
             n_codons = len(raw_seq) // 3
-            codon_seq = " ".join(raw_seq[i*3:(i+1)*3] for i in range(n_codons))
+            codon_seq = " ".join(raw_seq[i * 3 : (i + 1) * 3] for i in range(n_codons))
 
             acts_list = example_acts[key]
             seq_id = sequence_ids[seq_idx]
@@ -321,8 +328,7 @@ def export_codon_features_parquet(
         "example_rank": pa.array([r["example_rank"] for r in example_rows], type=pa.int8()),
         "protein_id": pa.array([r["protein_id"] for r in example_rows]),
         "sequence": pa.array([r["sequence"] for r in example_rows]),
-        "activations": pa.array([r["activations"] for r in example_rows],
-                                type=pa.list_(pa.float32())),
+        "activations": pa.array([r["activations"] for r in example_rows], type=pa.list_(pa.float32())),
         "max_activation": pa.array([r["max_activation"] for r in example_rows], type=pa.float32()),
     }
 
@@ -333,16 +339,15 @@ def export_codon_features_parquet(
         table_dict["ref_codon"] = pa.array([r.get("ref_codon", "") for r in example_rows])
         table_dict["alt_codon"] = pa.array([r.get("alt_codon", "") for r in example_rows])
         table_dict["source"] = pa.array([r.get("source", "") for r in example_rows])
-        table_dict["var_pos_offset"] = pa.array(
-            [r.get("var_pos_offset", -1) for r in example_rows], type=pa.int32())
-        table_dict["variant_delta"] = pa.array(
-            [r.get("variant_delta") for r in example_rows], type=pa.float32())
+        table_dict["var_pos_offset"] = pa.array([r.get("var_pos_offset", -1) for r in example_rows], type=pa.int32())
+        table_dict["variant_delta"] = pa.array([r.get("variant_delta") for r in example_rows], type=pa.float32())
 
     examples_table = pa.table(table_dict)
 
     row_group_size = n_examples * 100
-    pq.write_table(examples_table, output_dir / "feature_examples.parquet",
-                    row_group_size=row_group_size, compression='snappy')
+    pq.write_table(
+        examples_table, output_dir / "feature_examples.parquet", row_group_size=row_group_size, compression="snappy"
+    )
 
     print(f"  Wrote {len(meta_rows)} features, {len(example_rows)} examples")
 
@@ -387,8 +392,8 @@ def compute_variant_analysis(
     # ── Pass 1: max activations + site/window activations ────────────
     print("  Computing per-sequence max activations...")
     max_acts = torch.zeros(n_sequences, n_features)
-    site_acts = {}       # seq_idx -> [n_features] at var_pos
-    window_max_acts = {} # seq_idx -> [n_features] max over local window
+    site_acts = {}  # seq_idx -> [n_features] at var_pos
+    window_max_acts = {}  # seq_idx -> [n_features] max over local window
 
     for i in tqdm(range(n_sequences), desc="  Max activations"):
         vl = int(valid_lens[i].item())
@@ -548,7 +553,7 @@ def compute_variant_analysis(
         active = max_acts_np[i] > 0
         gc_val = gc_contents[i]
         gc_sum += active * gc_val
-        gc_sq_sum += active * gc_val ** 2
+        gc_sq_sum += active * gc_val**2
         gc_count += active
 
     gc_mean = np.where(gc_count > 0, gc_sum / gc_count, np.nan).astype(np.float32)
@@ -581,14 +586,12 @@ def compute_variant_analysis(
         valid = totals > 0
         probs = np.zeros_like(trinuc_counts)
         probs[valid] = trinuc_counts[valid] / totals[valid, None]
-        with np.errstate(divide='ignore', invalid='ignore'):
+        with np.errstate(divide="ignore", invalid="ignore"):
             log_probs = np.where(probs > 0, np.log2(probs), 0.0)
         trinuc_entropy_arr = -np.sum(probs * log_probs, axis=1)
         trinuc_entropy_arr[~valid] = np.nan
         trinuc_entropy = trinuc_entropy_arr.astype(np.float32)
-        trinuc_dominant_frac = np.where(
-            totals > 0, trinuc_counts.max(axis=1) / totals, np.nan
-        ).astype(np.float32)
+        trinuc_dominant_frac = np.where(totals > 0, trinuc_counts.max(axis=1) / totals, np.nan).astype(np.float32)
 
     # ── Gene distribution per feature ────────────────────────────────
     # Uses all sequences (every row has a gene)
@@ -616,15 +619,13 @@ def compute_variant_analysis(
         valid = totals > 0
         probs = np.zeros_like(gene_counts)
         probs[valid] = gene_counts[valid] / totals[valid, None]
-        with np.errstate(divide='ignore', invalid='ignore'):
+        with np.errstate(divide="ignore", invalid="ignore"):
             log_probs = np.where(probs > 0, np.log2(probs), 0.0)
         gene_entropy_arr = -np.sum(probs * log_probs, axis=1)
         gene_entropy_arr[~valid] = np.nan
         gene_entropy = gene_entropy_arr.astype(np.float32)
         gene_n_unique = (gene_counts > 0).sum(axis=1).astype(np.int32)
-        gene_dominant_frac = np.where(
-            totals > 0, gene_counts.max(axis=1) / totals, np.nan
-        ).astype(np.float32)
+        gene_dominant_frac = np.where(totals > 0, gene_counts.max(axis=1) / totals, np.nan).astype(np.float32)
 
     # ── Variant-ref deltas: global, site, and local window ───────────
     gene_groups = defaultdict(lambda: {"ref": None, "variants": []})
@@ -638,7 +639,7 @@ def compute_variant_analysis(
             gene_groups[g]["variants"].append(i)
 
     print("  Computing site-specific and local deltas...")
-    ref_site_cache = {}    # (ref_idx, pos) -> [n_features]
+    ref_site_cache = {}  # (ref_idx, pos) -> [n_features]
     ref_window_cache = {}  # (ref_idx, pos) -> [n_features] max over window
     all_deltas = []
 
@@ -667,9 +668,7 @@ def compute_variant_analysis(
                         ref_site_cache[(ref_idx, pos)] = ref_codes_cpu[pos].numpy()
                         w_start = max(0, pos - WINDOW_RADIUS)
                         w_end = min(vl, pos + WINDOW_RADIUS + 1)
-                        ref_window_cache[(ref_idx, pos)] = (
-                            ref_codes_cpu[w_start:w_end].max(dim=0).values.numpy()
-                        )
+                        ref_window_cache[(ref_idx, pos)] = ref_codes_cpu[w_start:w_end].max(dim=0).values.numpy()
                 del ref_codes_full, ref_codes_cpu
 
         for vi in group["variants"]:
@@ -721,8 +720,7 @@ def compute_variant_analysis(
         low_score_delta /= n_low
 
     n_genes_with_ref = sum(1 for g in gene_groups.values() if g["ref"] is not None)
-    print(f"  {n_genes_with_ref} genes with ref, {n_all} variant-ref pairs "
-          f"({n_site} site, {n_local} local window)")
+    print(f"  {n_genes_with_ref} genes with ref, {n_all} variant-ref pairs ({n_site} site, {n_local} local window)")
     print(f"  {n_high} high-score, {n_low} low-score, {n_all - n_high - n_low} unscored")
     n_clinvar = sum(1 for s in sources if s == "clinvar")
     n_cosmic = sum(1 for s in sources if s == "cosmic")
@@ -781,7 +779,9 @@ def main():
 
     # 2. Load Encodon
     print(f"\nLoading Encodon from {args.model_path}...")
-    inference = EncodonInference(model_path=args.model_path, task_type="embedding_prediction", use_transformer_engine=True)
+    inference = EncodonInference(
+        model_path=args.model_path, task_type="embedding_prediction", use_transformer_engine=True
+    )
     inference.configure_model()
     inference.model.to(device).eval()
 
@@ -800,7 +800,9 @@ def main():
     # 4. Extract 3D activations
     print("\nExtracting 3D activations...")
     activations, masks = extract_activations_3d(
-        inference, sequences, args.layer,
+        inference,
+        sequences,
+        args.layer,
         context_length=args.context_length,
         batch_size=args.batch_size,
         device=device,
@@ -818,8 +820,11 @@ def main():
     print("[2/4] Computing UMAP from decoder weights...")
     t0 = time.time()
     geometry = compute_feature_umap(
-        sae, n_neighbors=args.umap_n_neighbors, min_dist=args.umap_min_dist,
-        random_state=args.seed, compute_clusters=True,
+        sae,
+        n_neighbors=args.umap_n_neighbors,
+        min_dist=args.umap_min_dist,
+        random_state=args.seed,
+        compute_clusters=True,
         hdbscan_min_cluster_size=args.hdbscan_min_cluster_size,
     )
     print(f"       Done in {time.time() - t0:.1f}s")
@@ -828,7 +833,11 @@ def main():
     print("[3/5] Computing variant analysis...")
     t0 = time.time()
     variant_results = compute_variant_analysis(
-        sae, records, activations, masks, device=device,
+        sae,
+        records,
+        activations,
+        masks,
+        device=device,
         score_column=args.score_column,
     )
     print(f"       Done in {time.time() - t0:.1f}s")
@@ -837,8 +846,7 @@ def main():
     print("[4/5] Saving feature atlas...")
     t0 = time.time()
     atlas_path = output_dir / "features_atlas.parquet"
-    save_feature_atlas(stats, geometry, atlas_path,
-                       extra_columns=variant_results["extra_columns"])
+    save_feature_atlas(stats, geometry, atlas_path, extra_columns=variant_results["extra_columns"])
     print(f"       Saved to {atlas_path} in {time.time() - t0:.1f}s")
 
     # 9. Protein/codon examples

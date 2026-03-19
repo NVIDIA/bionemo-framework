@@ -87,8 +87,12 @@ def parse_args():
     p.add_argument("--loss-recovered-n-sequences", type=int, default=100)
 
     # Annotation download
-    p.add_argument("--annotation-score", type=int, default=None,
-                   help="UniProt annotation score filter (1-5, None=no filter). Default None for max coverage.")
+    p.add_argument(
+        "--annotation-score",
+        type=int,
+        default=None,
+        help="UniProt annotation score filter (1-5, None=no filter). Default None for max coverage.",
+    )
 
     # Dashboard / UMAP
     p.add_argument("--umap-n-neighbors", type=int, default=50, help="UMAP n_neighbors parameter")

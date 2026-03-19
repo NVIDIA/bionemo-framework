@@ -1,5 +1,19 @@
-"""
-Step 3: Evaluate CodonFM SAE (loss recovered).
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Step 3: Evaluate CodonFM SAE (loss recovered).
 
 Loads a trained SAE checkpoint and evaluates loss recovered against
 the Encodon model. F1 and dashboard generation are deferred to future work.
@@ -21,17 +35,16 @@ from pathlib import Path
 
 import torch
 
+
 # Use codonfm_ptl_te recipe (has TransformerEngine support)
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 _CODONFM_TE_DIR = _REPO_ROOT / "recipes" / "codonfm_ptl_te"
 sys.path.insert(0, str(_CODONFM_TE_DIR))
 
-from sae.architectures import TopKSAE
-from sae.utils import set_seed, get_device
-
 from codonfm_sae.data import read_codon_csv
 from codonfm_sae.eval import evaluate_codonfm_loss_recovered
-
+from sae.architectures import TopKSAE
+from sae.utils import get_device, set_seed
 from src.inference.encodon import EncodonInference
 
 
@@ -39,21 +52,17 @@ def parse_args():
     p = argparse.ArgumentParser(description="Evaluate CodonFM SAE")
 
     # Checkpoint
-    p.add_argument("--checkpoint", type=str, required=True,
-                   help="Path to SAE checkpoint .pt file")
-    p.add_argument("--top-k", type=int, default=None,
-                   help="Override top-k (default: read from checkpoint)")
+    p.add_argument("--checkpoint", type=str, required=True, help="Path to SAE checkpoint .pt file")
+    p.add_argument("--top-k", type=int, default=None, help="Override top-k (default: read from checkpoint)")
 
     # Model
-    p.add_argument("--model-path", type=str, required=True,
-                   help="Path to Encodon checkpoint")
+    p.add_argument("--model-path", type=str, required=True, help="Path to Encodon checkpoint")
     p.add_argument("--layer", type=int, default=-2)
     p.add_argument("--context-length", type=int, default=2048)
     p.add_argument("--batch-size", type=int, default=8)
 
     # Data
-    p.add_argument("--csv-path", type=str, required=True,
-                   help="CSV with DNA sequences for evaluation")
+    p.add_argument("--csv-path", type=str, required=True, help="CSV with DNA sequences for evaluation")
     p.add_argument("--seq-column", type=str, default=None)
     p.add_argument("--num-sequences", type=int, default=100)
 
@@ -97,8 +106,7 @@ def load_sae_from_checkpoint(checkpoint_path: str, top_k_override: int | None = 
     )
     sae.load_state_dict(state_dict)
 
-    print(f"Loaded SAE: {input_dim} -> {hidden_dim:,} latents "
-          f"(top-{top_k}, normalize_input={normalize_input})")
+    print(f"Loaded SAE: {input_dim} -> {hidden_dim:,} latents (top-{top_k}, normalize_input={normalize_input})")
     return sae
 
 
@@ -116,14 +124,15 @@ def main():
 
     # 2. Load Encodon model
     print(f"Loading Encodon from {args.model_path}...")
-    inference = EncodonInference(model_path=args.model_path, task_type="embedding_prediction", use_transformer_engine=True)
+    inference = EncodonInference(
+        model_path=args.model_path, task_type="embedding_prediction", use_transformer_engine=True
+    )
     inference.configure_model()
     inference.model.to(device).eval()
 
     num_layers = len(inference.model.model.layers)
     target_layer = args.layer if args.layer >= 0 else num_layers + args.layer
-    print(f"  Layers: {num_layers}, Target layer: {target_layer}, "
-          f"Hidden: {inference.model.model.config.hidden_size}")
+    print(f"  Layers: {num_layers}, Target layer: {target_layer}, Hidden: {inference.model.model.config.hidden_size}")
 
     # 3. Load sequences
     max_codons = args.context_length - 2
@@ -161,13 +170,17 @@ def main():
     # Save
     lr_path = output_dir / "loss_recovered.json"
     with open(lr_path, "w") as f:
-        json.dump({
-            "loss_recovered": result.loss_recovered,
-            "ce_original": result.ce_original,
-            "ce_sae": result.ce_sae,
-            "ce_zero": result.ce_zero,
-            "n_tokens": result.n_tokens,
-        }, f, indent=2)
+        json.dump(
+            {
+                "loss_recovered": result.loss_recovered,
+                "ce_original": result.ce_original,
+                "ce_sae": result.ce_sae,
+                "ce_zero": result.ce_zero,
+                "n_tokens": result.n_tokens,
+            },
+            f,
+            indent=2,
+        )
     print(f"Saved to {lr_path}")
 
     del inference

@@ -1,18 +1,31 @@
-"""
-Loss recovered evaluation for SAEs on CodonFM (Encodon).
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Loss recovered evaluation for SAEs on CodonFM (Encodon).
 
 CodonFM-specific wrapper around the general loss_recovered metric.
 CE is computed over all non-special codon tokens (positions 1..length-2),
 matching extract.py's CLS/SEP removal.
 """
 
-import torch
-import torch.nn.functional as F
 from typing import List, Tuple
 
 import numpy as np
-
-from sae.eval import evaluate_loss_recovered, LossRecoveredResult
+import torch
+import torch.nn.functional as F
+from sae.eval import LossRecoveredResult, evaluate_loss_recovered
 
 
 def evaluate_codonfm_loss_recovered(
@@ -57,10 +70,7 @@ def evaluate_codonfm_loss_recovered(
     batches = []
     for i in range(0, len(sequences), batch_size):
         batch_seqs = sequences[i : i + batch_size]
-        items = [
-            process_item(s, context_length=context_length, tokenizer=inference.tokenizer)
-            for s in batch_seqs
-        ]
+        items = [process_item(s, context_length=context_length, tokenizer=inference.tokenizer) for s in batch_seqs]
         batch = {
             "input_ids": torch.tensor(np.stack([it["input_ids"] for it in items])).to(device),
             "attention_mask": torch.tensor(np.stack([it["attention_mask"] for it in items])).to(device),
@@ -80,8 +90,12 @@ def evaluate_codonfm_loss_recovered(
             logits = out.logits
         else:
             logits = _forward_with_hidden(
-                encodon_model, encoder_layers, layer_idx,
-                input_ids, attention_mask, hidden_override,
+                encodon_model,
+                encoder_layers,
+                layer_idx,
+                input_ids,
+                attention_mask,
+                hidden_override,
             )
 
         return _codonfm_sequence_ce(logits, input_ids, attention_mask)
@@ -112,6 +126,7 @@ def _forward_with_hidden(
     EncoderLayer.forward returns a single tensor (not a tuple),
     so the hook simply returns the replacement.
     """
+
     def hook_fn(module, inputs, output):
         return hidden_override.to(dtype=output.dtype)
 

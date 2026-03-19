@@ -551,7 +551,9 @@ class Trainer:
                 )
 
                 # Skip DDP gradient allreduce on non-final accumulation microsteps
-                maybe_no_sync = self.model.no_sync if (self.is_distributed and not is_accum_step) else contextlib.nullcontext
+                maybe_no_sync = (
+                    self.model.no_sync if (self.is_distributed and not is_accum_step) else contextlib.nullcontext
+                )
                 with maybe_no_sync():
                     # Forward pass
                     loss_dict = loss_fn(batch, **loss_kwargs)

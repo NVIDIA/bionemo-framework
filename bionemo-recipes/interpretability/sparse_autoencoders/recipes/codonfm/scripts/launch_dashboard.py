@@ -1,5 +1,19 @@
-"""
-Launch the codon SAE dashboard locally.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Launch the codon SAE dashboard locally.
 
 Usage:
     # After scp'ing dashboard data from server:
@@ -11,14 +25,15 @@ Usage:
 import argparse
 import shutil
 import subprocess
-import webbrowser
 import time
+import webbrowser
 from pathlib import Path
 
 
 def _get_live_feature_ids(data_dir: Path):
     """Return set of feature_ids with activation_freq > 0."""
     import pyarrow.parquet as pq
+
     meta_path = data_dir / "feature_metadata.parquet"
     if not meta_path.exists():
         return None
@@ -32,6 +47,7 @@ def _filter_and_copy_parquet(src: Path, dst: Path, live_ids: set):
     """Filter a parquet file to only include live feature_ids."""
     import pyarrow as pa
     import pyarrow.parquet as pq
+
     table = pq.read_table(src)
     df = table.to_pandas()
     if "feature_id" not in df.columns:
@@ -46,11 +62,16 @@ def _filter_and_copy_parquet(src: Path, dst: Path, live_ids: set):
 
 def main():
     p = argparse.ArgumentParser(description="Launch codon SAE dashboard")
-    p.add_argument("--data-dir", type=str, required=True,
-                   help="Directory containing features_atlas.parquet, feature_metadata.parquet, feature_examples.parquet")
+    p.add_argument(
+        "--data-dir",
+        type=str,
+        required=True,
+        help="Directory containing features_atlas.parquet, feature_metadata.parquet, feature_examples.parquet",
+    )
     p.add_argument("--port", type=int, default=5176)
-    p.add_argument("--no-filter-dead", action="store_true",
-                   help="Don't filter out dead latents (activation_freq == 0)")
+    p.add_argument(
+        "--no-filter-dead", action="store_true", help="Don't filter out dead latents (activation_freq == 0)"
+    )
     args = p.parse_args()
 
     data_dir = Path(args.data_dir).resolve()

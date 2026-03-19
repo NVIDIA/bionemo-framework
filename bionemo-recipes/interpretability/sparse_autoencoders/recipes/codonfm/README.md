@@ -13,6 +13,7 @@ Extract activations -> Train SAE -> Evaluate -> Analyze (optional) -> Dashboard 
 ## Prerequisites
 
 1. Encodon checkpoint (`.safetensors` or `.ckpt` with accompanying `config.json`):
+
    ```bash
    huggingface-cli download nvidia/NV-CodonFM-Encodon-1B-v1 --local-dir ./checkpoints/encodon_1b
    ```
@@ -20,6 +21,7 @@ Extract activations -> Train SAE -> Evaluate -> Analyze (optional) -> Dashboard 
 2. DNA sequence data as a CSV with a coding sequence column (`cds`, `seq`, or `sequence` -- auto-detected).
 
 3. Install dependencies:
+
    ```bash
    # From repo root (UV workspace)
    uv sync
@@ -126,12 +128,12 @@ python scripts/launch_dashboard.py --data-dir ./outputs/encodon_1b/dashboard
 
 ## Model Sizes
 
-| Model | Params | Layers | Hidden Dim | Batch Size | Config |
-|-------|--------|--------|-----------|------------|--------|
-| Encodon 80M | 80M | 6 | 1024 | 32 | `model=80m` |
-| Encodon 600M | 600M | 12 | 2048 | 16 | `model=600m` |
-| Encodon 1B | 1B | 18 | 2048 | 8 | `model=1b` |
-| Encodon 5B | 5B | 24 | 4096 | 2 | `model=5b` |
+| Model        | Params | Layers | Hidden Dim | Batch Size | Config       |
+| ------------ | ------ | ------ | ---------- | ---------- | ------------ |
+| Encodon 80M  | 80M    | 6      | 1024       | 32         | `model=80m`  |
+| Encodon 600M | 600M   | 12     | 2048       | 16         | `model=600m` |
+| Encodon 1B   | 1B     | 18     | 2048       | 8          | `model=1b`   |
+| Encodon 5B   | 5B     | 24     | 4096       | 2          | `model=5b`   |
 
 ## Configuration
 

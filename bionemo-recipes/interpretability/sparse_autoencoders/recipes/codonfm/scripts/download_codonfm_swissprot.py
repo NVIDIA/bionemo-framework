@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Download SwissProt proteins with both amino acid annotations and nucleotide CDS sequences.
 
 For each well-annotated SwissProt protein, fetches the EMBL/ENA cross-reference
@@ -20,7 +35,6 @@ Output:
 import argparse
 import gzip
 import json
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -28,6 +42,7 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 from tqdm import tqdm
+
 
 # UniProt annotation feature fields (same as ESM2 pipeline)
 UNIPROT_FEATURE_FIELDS = [
@@ -51,22 +66,70 @@ UNIPROT_FEATURE_FIELDS = [
 ]
 
 CODON_TABLE = {
-    "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
-    "CTT": "L", "CTC": "L", "CTA": "L", "CTG": "L",
-    "ATT": "I", "ATC": "I", "ATA": "I", "ATG": "M",
-    "GTT": "V", "GTC": "V", "GTA": "V", "GTG": "V",
-    "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
-    "CCT": "P", "CCC": "P", "CCA": "P", "CCG": "P",
-    "ACT": "T", "ACC": "T", "ACA": "T", "ACG": "T",
-    "GCT": "A", "GCC": "A", "GCA": "A", "GCG": "A",
-    "TAT": "Y", "TAC": "Y", "TAA": "*", "TAG": "*",
-    "CAT": "H", "CAC": "H", "CAA": "Q", "CAG": "Q",
-    "AAT": "N", "AAC": "N", "AAA": "K", "AAG": "K",
-    "GAT": "D", "GAC": "D", "GAA": "E", "GAG": "E",
-    "TGT": "C", "TGC": "C", "TGA": "*", "TGG": "W",
-    "CGT": "R", "CGC": "R", "CGA": "R", "CGG": "R",
-    "AGT": "S", "AGC": "S", "AGA": "R", "AGG": "R",
-    "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G",
+    "TTT": "F",
+    "TTC": "F",
+    "TTA": "L",
+    "TTG": "L",
+    "CTT": "L",
+    "CTC": "L",
+    "CTA": "L",
+    "CTG": "L",
+    "ATT": "I",
+    "ATC": "I",
+    "ATA": "I",
+    "ATG": "M",
+    "GTT": "V",
+    "GTC": "V",
+    "GTA": "V",
+    "GTG": "V",
+    "TCT": "S",
+    "TCC": "S",
+    "TCA": "S",
+    "TCG": "S",
+    "CCT": "P",
+    "CCC": "P",
+    "CCA": "P",
+    "CCG": "P",
+    "ACT": "T",
+    "ACC": "T",
+    "ACA": "T",
+    "ACG": "T",
+    "GCT": "A",
+    "GCC": "A",
+    "GCA": "A",
+    "GCG": "A",
+    "TAT": "Y",
+    "TAC": "Y",
+    "TAA": "*",
+    "TAG": "*",
+    "CAT": "H",
+    "CAC": "H",
+    "CAA": "Q",
+    "CAG": "Q",
+    "AAT": "N",
+    "AAC": "N",
+    "AAA": "K",
+    "AAG": "K",
+    "GAT": "D",
+    "GAC": "D",
+    "GAA": "E",
+    "GAG": "E",
+    "TGT": "C",
+    "TGC": "C",
+    "TGA": "*",
+    "TGG": "W",
+    "CGT": "R",
+    "CGC": "R",
+    "CGA": "R",
+    "CGG": "R",
+    "AGT": "S",
+    "AGC": "S",
+    "AGA": "R",
+    "AGG": "R",
+    "GGT": "G",
+    "GGC": "G",
+    "GGA": "G",
+    "GGG": "G",
 }
 
 
@@ -102,12 +165,14 @@ def fetch_embl_cds_ids(accession: str, session: requests.Session) -> List[Dict]:
         status = properties.get("Status", "")
         # Skip entries without a valid protein sequence ID
         if protein_id and protein_id != "-" and mol_type != "Genomic_DNA":
-            cds_refs.append({
-                "embl_id": xref.get("id", ""),
-                "protein_id": protein_id,
-                "molecule_type": mol_type,
-                "status": status,
-            })
+            cds_refs.append(
+                {
+                    "embl_id": xref.get("id", ""),
+                    "protein_id": protein_id,
+                    "molecule_type": mol_type,
+                    "status": status,
+                }
+            )
     return cds_refs
 
 
@@ -350,11 +415,11 @@ def main():
 
     print(f"\nSummary saved to {summary_path}")
     print(f"  Coverage: {summary['coverage_pct']}% ({summary['cds_found']}/{summary['total_uniprot_proteins']})")
-    print(f"\nTo use with CodoNFM eval:")
+    print("\nTo use with CodoNFM eval:")
     print(f"  - Load {output_path}")
-    print(f"  - 'Codon sequence' column has the nucleotide CDS")
-    print(f"  - All annotation columns are identical to the ESM2 SwissProt format")
-    print(f"  - Codon position i maps to amino acid position i (codon = nts 3i..3i+2)")
+    print("  - 'Codon sequence' column has the nucleotide CDS")
+    print("  - All annotation columns are identical to the ESM2 SwissProt format")
+    print("  - Codon position i maps to amino acid position i (codon = nts 3i..3i+2)")
 
 
 if __name__ == "__main__":

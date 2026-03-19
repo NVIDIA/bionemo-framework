@@ -1,3 +1,18 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Evaluate CodoNFM SAE features against SwissProt annotations via F1 scores.
 
 Uses the codonfm_swissprot dataset (produced by download_codonfm_swissprot.py)
@@ -29,6 +44,7 @@ import numpy as np
 import pandas as pd
 import torch
 from tqdm import tqdm
+
 
 # Use codonfm_ptl_te recipe (has TransformerEngine support)
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
@@ -266,10 +282,7 @@ def extract_activations_3d(
     with torch.no_grad():
         for i in iterator:
             batch_seqs = sequences[i : i + batch_size]
-            items = [
-                process_item(s, context_length=context_length, tokenizer=inference.tokenizer)
-                for s in batch_seqs
-            ]
+            items = [process_item(s, context_length=context_length, tokenizer=inference.tokenizer) for s in batch_seqs]
 
             batch = {
                 "input_ids": torch.tensor(np.stack([it["input_ids"] for it in items])).to(device),
@@ -662,7 +675,9 @@ def parse_args():
 
     # Data
     p.add_argument(
-        "--swissprot-tsv", type=str, required=True,
+        "--swissprot-tsv",
+        type=str,
+        required=True,
         help="Path to codonfm_swissprot.tsv.gz (from download_codonfm_swissprot.py)",
     )
 
@@ -724,7 +739,9 @@ def main():
 
     # 3. Load CodoNFM model
     print(f"\nLoading Encodon from {args.model_path}...")
-    inference = EncodonInference(model_path=args.model_path, task_type="embedding_prediction", use_transformer_engine=True)
+    inference = EncodonInference(
+        model_path=args.model_path, task_type="embedding_prediction", use_transformer_engine=True
+    )
     inference.configure_model()
     inference.model.to(device).eval()
 
@@ -739,21 +756,32 @@ def main():
 
     print("Extracting val embeddings...")
     val_embeddings, val_masks = extract_activations_3d(
-        inference, val_sequences, args.layer,
-        context_length=args.context_length, batch_size=args.batch_size, device=device,
+        inference,
+        val_sequences,
+        args.layer,
+        context_length=args.context_length,
+        batch_size=args.batch_size,
+        device=device,
     )
 
     print("Extracting test embeddings...")
     test_embeddings, test_masks = extract_activations_3d(
-        inference, test_sequences, args.layer,
-        context_length=args.context_length, batch_size=args.batch_size, device=device,
+        inference,
+        test_sequences,
+        args.layer,
+        context_length=args.context_length,
+        batch_size=args.batch_size,
+        device=device,
     )
 
     # Compute activation_max for normalization
     norm_n = min(args.normalization_n_proteins, val_embeddings.shape[0])
     print(f"Computing activation_max from {norm_n} proteins...")
     activation_max = compute_activation_max(
-        sae, val_embeddings[:norm_n], val_masks[:norm_n], device=device,
+        sae,
+        val_embeddings[:norm_n],
+        val_masks[:norm_n],
+        device=device,
     )
     print(f"  activation_max range: [{activation_max.min():.4f}, {activation_max.max():.4f}]")
 

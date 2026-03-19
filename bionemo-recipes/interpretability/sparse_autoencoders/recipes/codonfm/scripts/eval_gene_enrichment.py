@@ -532,7 +532,7 @@ def main():
 
         # Re-save with GO Slim data
         save_report_json(report, report_path)
-        print(f"  Updated report with GO Slim labels")
+        print("  Updated report with GO Slim labels")
 
     # 9. Update dashboard atlas if requested
     if args.dashboard_dir:

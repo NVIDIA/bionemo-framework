@@ -1,5 +1,19 @@
-"""
-Unified CodonFM SAE pipeline: extract -> train -> eval.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Unified CodonFM SAE pipeline: extract -> train -> eval.
 
 Usage:
     # Full pipeline for 1B model:
@@ -45,14 +59,22 @@ def run_extract(cfg: DictConfig, cache_dir: Path) -> None:
     cmd = [
         *_torchrun_prefix(cfg.nproc),
         str(SCRIPTS_DIR / "extract.py"),
-        "--csv-path", cfg.csv_path,
-        "--num-sequences", str(cfg.num_sequences),
-        "--layer", str(cfg.layer),
-        "--model-path", cfg.model_path,
-        "--batch-size", str(cfg.batch_size),
-        "--context-length", str(cfg.context_length),
-        "--seed", str(cfg.seed),
-        "--output", str(cache_dir),
+        "--csv-path",
+        cfg.csv_path,
+        "--num-sequences",
+        str(cfg.num_sequences),
+        "--layer",
+        str(cfg.layer),
+        "--model-path",
+        cfg.model_path,
+        "--batch-size",
+        str(cfg.batch_size),
+        "--context-length",
+        str(cfg.context_length),
+        "--seed",
+        str(cfg.seed),
+        "--output",
+        str(cache_dir),
     ]
     if cfg.extract.get("shard_size"):
         cmd.extend(["--shard-size", str(cfg.extract.shard_size)])
@@ -67,22 +89,38 @@ def run_train(cfg: DictConfig, cache_dir: Path, output_dir: Path) -> None:
     cmd = [
         *_torchrun_prefix(cfg.nproc),
         str(SCRIPTS_DIR / "train.py"),
-        "--cache-dir", str(cache_dir),
-        "--model-path", cfg.model_path,
-        "--layer", str(cfg.layer),
-        "--model-type", t.model_type,
-        "--expansion-factor", str(t.expansion_factor),
-        "--top-k", str(t.top_k),
-        "--lr", str(t.lr),
-        "--n-epochs", str(t.n_epochs),
-        "--batch-size", str(t.batch_size),
-        "--log-interval", str(t.log_interval),
-        "--dp-size", str(cfg.dp_size),
-        "--checkpoint-dir", str(checkpoint_dir),
-        "--checkpoint-steps", str(t.checkpoint_steps),
-        "--output-dir", str(output_dir),
-        "--seed", str(cfg.seed),
-        "--num-sequences", str(cfg.num_sequences),
+        "--cache-dir",
+        str(cache_dir),
+        "--model-path",
+        cfg.model_path,
+        "--layer",
+        str(cfg.layer),
+        "--model-type",
+        t.model_type,
+        "--expansion-factor",
+        str(t.expansion_factor),
+        "--top-k",
+        str(t.top_k),
+        "--lr",
+        str(t.lr),
+        "--n-epochs",
+        str(t.n_epochs),
+        "--batch-size",
+        str(t.batch_size),
+        "--log-interval",
+        str(t.log_interval),
+        "--dp-size",
+        str(cfg.dp_size),
+        "--checkpoint-dir",
+        str(checkpoint_dir),
+        "--checkpoint-steps",
+        str(t.checkpoint_steps),
+        "--output-dir",
+        str(output_dir),
+        "--seed",
+        str(cfg.seed),
+        "--num-sequences",
+        str(cfg.num_sequences),
     ]
 
     if t.auxk:
@@ -112,16 +150,26 @@ def run_eval(cfg: DictConfig, output_dir: Path) -> None:
     cmd = [
         sys.executable,
         str(SCRIPTS_DIR / "eval.py"),
-        "--checkpoint", str(checkpoint),
-        "--top-k", str(cfg.train.top_k),
-        "--model-path", cfg.model_path,
-        "--layer", str(cfg.layer),
-        "--context-length", str(cfg.context_length),
-        "--batch-size", str(cfg.batch_size),
-        "--csv-path", cfg.eval.csv_path,
-        "--num-sequences", str(cfg.eval.num_sequences),
-        "--output-dir", str(eval_dir),
-        "--seed", str(cfg.seed),
+        "--checkpoint",
+        str(checkpoint),
+        "--top-k",
+        str(cfg.train.top_k),
+        "--model-path",
+        cfg.model_path,
+        "--layer",
+        str(cfg.layer),
+        "--context-length",
+        str(cfg.context_length),
+        "--batch-size",
+        str(cfg.batch_size),
+        "--csv-path",
+        cfg.eval.csv_path,
+        "--num-sequences",
+        str(cfg.eval.num_sequences),
+        "--output-dir",
+        str(eval_dir),
+        "--seed",
+        str(cfg.seed),
     ]
 
     _run(cmd, "STEP 3: Evaluate SAE (loss recovered)")

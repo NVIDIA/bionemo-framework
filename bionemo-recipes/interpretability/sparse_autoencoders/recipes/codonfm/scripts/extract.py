@@ -1,5 +1,19 @@
-"""
-Step 1: Extract activations from CodonFM (Encodon) and save to disk.
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: LicenseRef-Apache2
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Step 1: Extract activations from CodonFM (Encodon) and save to disk.
 
 Single-GPU:
     python scripts/extract.py \
@@ -28,38 +42,39 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+
 # Use codonfm_ptl_te recipe (has TransformerEngine support)
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 _CODONFM_TE_DIR = _REPO_ROOT / "recipes" / "codonfm_ptl_te"
 sys.path.insert(0, str(_CODONFM_TE_DIR))
 
-from src.inference.encodon import EncodonInference
-from src.data.preprocess.codon_sequence import process_item
-
-from sae.activation_store import ActivationStore, ActivationStoreConfig
 from codonfm_sae.data import read_codon_csv
+from sae.activation_store import ActivationStore, ActivationStoreConfig
+from src.data.preprocess.codon_sequence import process_item
+from src.inference.encodon import EncodonInference
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Extract CodonFM layer activations")
-    p.add_argument("--csv-path", type=str, required=True,
-                   help="Path to CSV with DNA sequences (auto-detects 'seq'/'cds' column)")
-    p.add_argument("--seq-column", type=str, default=None,
-                   help="Column name for sequences (auto-detect if omitted)")
-    p.add_argument("--num-sequences", type=int, default=None,
-                   help="Max sequences to extract")
-    p.add_argument("--model-path", type=str, required=True,
-                   help="Path to Encodon checkpoint (.ckpt, .safetensors, or directory)")
-    p.add_argument("--layer", type=int, required=True,
-                   help="Layer index (negative = from end, e.g. -2 = penultimate)")
-    p.add_argument("--context-length", type=int, default=2048,
-                   help="Max context length in codons (default: 2048)")
-    p.add_argument("--output", type=str, required=True,
-                   help="Output directory for activation shards")
+    p.add_argument(
+        "--csv-path", type=str, required=True, help="Path to CSV with DNA sequences (auto-detects 'seq'/'cds' column)"
+    )
+    p.add_argument("--seq-column", type=str, default=None, help="Column name for sequences (auto-detect if omitted)")
+    p.add_argument("--num-sequences", type=int, default=None, help="Max sequences to extract")
+    p.add_argument(
+        "--model-path", type=str, required=True, help="Path to Encodon checkpoint (.ckpt, .safetensors, or directory)"
+    )
+    p.add_argument("--layer", type=int, required=True, help="Layer index (negative = from end, e.g. -2 = penultimate)")
+    p.add_argument("--context-length", type=int, default=2048, help="Max context length in codons (default: 2048)")
+    p.add_argument("--output", type=str, required=True, help="Output directory for activation shards")
     p.add_argument("--batch-size", type=int, default=8)
     p.add_argument("--shard-size", type=int, default=100_000)
-    p.add_argument("--use-transformer-engine", action="store_true", default=True,
-                   help="Use TransformerEngine model (default: True, for TE checkpoints)")
+    p.add_argument(
+        "--use-transformer-engine",
+        action="store_true",
+        default=True,
+        help="Use TransformerEngine model (default: True, for TE checkpoints)",
+    )
     p.add_argument("--seed", type=int, default=42)
     return p.parse_args()
 
@@ -132,8 +147,9 @@ def main():
     world_size = int(os.environ.get("WORLD_SIZE", 1))
 
     if world_size > 1:
-        import torch.distributed as dist
         from datetime import timedelta
+
+        import torch.distributed as dist
 
         if not dist.is_initialized():
             dist.init_process_group("nccl", timeout=timedelta(hours=48))
@@ -224,8 +240,7 @@ def main():
             for i in iterator:
                 batch_seqs = my_sequences[i : i + args.batch_size]
                 items = [
-                    process_item(s, context_length=args.context_length, tokenizer=inf.tokenizer)
-                    for s in batch_seqs
+                    process_item(s, context_length=args.context_length, tokenizer=inf.tokenizer) for s in batch_seqs
                 ]
 
                 batch = {
@@ -239,7 +254,7 @@ def main():
                 # Strip CLS (pos 0) and SEP (last real pos), keep only codon positions
                 for j, it in enumerate(items):
                     seq_len = it["attention_mask"].sum()
-                    acts = layer_acts[j, 1:seq_len - 1, :].float().cpu()  # [num_codons, hidden_dim]
+                    acts = layer_acts[j, 1 : seq_len - 1, :].float().cpu()  # [num_codons, hidden_dim]
                     store.append(acts)
 
                 batches_done += 1
@@ -247,27 +262,35 @@ def main():
                 torch.cuda.empty_cache()
 
                 if rank != 0 and batches_done % log_interval == 0:
-                    print(f"[Rank {rank}] {batches_done}/{n_batches} batches "
-                          f"({100 * batches_done / n_batches:.0f}%)", flush=True)
+                    print(
+                        f"[Rank {rank}] {batches_done}/{n_batches} batches ({100 * batches_done / n_batches:.0f}%)",
+                        flush=True,
+                    )
 
     except Exception as e:
         extraction_error = e
-        print(f"[Rank {rank}] EXTRACTION FAILED at batch {batches_done}/{n_batches}: "
-              f"{type(e).__name__}: {e}", flush=True)
+        print(
+            f"[Rank {rank}] EXTRACTION FAILED at batch {batches_done}/{n_batches}: {type(e).__name__}: {e}", flush=True
+        )
 
     if extraction_error is None:
-        store.finalize(metadata={
-            "model_path": args.model_path,
-            "layer": args.layer,
-            "target_layer": target_layer,
-            "num_layers": num_layers,
-            "n_sequences": len(my_sequences),
-            "context_length": args.context_length,
-        })
+        store.finalize(
+            metadata={
+                "model_path": args.model_path,
+                "layer": args.layer,
+                "target_layer": target_layer,
+                "num_layers": num_layers,
+                "n_sequences": len(my_sequences),
+                "context_length": args.context_length,
+            }
+        )
 
         elapsed = time.time() - t0
-        print(f"[Rank {rank}] {store.metadata['n_samples']:,} tokens from "
-              f"{len(my_sequences)} sequences in {elapsed:.1f}s", flush=True)
+        print(
+            f"[Rank {rank}] {store.metadata['n_samples']:,} tokens from "
+            f"{len(my_sequences)} sequences in {elapsed:.1f}s",
+            flush=True,
+        )
     else:
         print(f"[Rank {rank}] Extraction incomplete. Store NOT finalized.", flush=True)
 
@@ -281,21 +304,25 @@ def main():
 
         dist.barrier()
         if rank == 0:
-            _merge_rank_stores(cache_path, world_size, {
-                "model_path": args.model_path,
-                "layer": args.layer,
-                "target_layer": target_layer,
-                "num_layers": num_layers,
-                "n_sequences": total_sequences,
-                "context_length": args.context_length,
-            })
+            _merge_rank_stores(
+                cache_path,
+                world_size,
+                {
+                    "model_path": args.model_path,
+                    "layer": args.layer,
+                    "target_layer": target_layer,
+                    "num_layers": num_layers,
+                    "n_sequences": total_sequences,
+                    "context_length": args.context_length,
+                },
+            )
         dist.barrier()
         dist.destroy_process_group()
 
     if rank == 0:
         with open(cache_path / "metadata.json") as f:
             meta = json.load(f)
-        print(f"\nExtraction complete:")
+        print("\nExtraction complete:")
         print(f"  Output:     {cache_path}")
         print(f"  Sequences:  {meta.get('n_sequences', '?')}")
         print(f"  Tokens:     {meta['n_samples']:,}")
