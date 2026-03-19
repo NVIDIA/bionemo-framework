@@ -33,8 +33,8 @@ log_to_wandb: true
 log_to_kratos: true
 
 # Secret name overrides (users can point to their own Lepton secrets)
-wandb_secret: SHARED_WANDB_API_KEY  # pragma: allowlist secret
-hf_token_secret: SHARED_HF_TOKEN  # pragma: allowlist secret
+wandb_secret: SHARED_WANDB_API_KEY
+hf_token_secret: SHARED_HF_TOKEN
 
 environment_variables:
   - name: WANDB_API_KEY
@@ -44,7 +44,7 @@ environment_variables:
   - name: KRATOS_SSA_CLIENT_ID
     value_from: SHARED_KRATOS_SSA_CLIENT_ID
   - name: KRATOS_SSA_SECRET
-    value_from: SHARED_KRATOS_SSA_SECRET  # pragma: allowlist secret
+    value_from: SHARED_KRATOS_SSA_SECRET
   - name: LEP_LOGIN_CREDENTIALS
     value_from: SHARED_LEP_LOGIN_CREDENTIALS
   - name: HF_HOME
