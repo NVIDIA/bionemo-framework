@@ -110,6 +110,7 @@ torchrun --nproc_per_node=8 train_fsdp2.py \
   lr_scheduler_kwargs.min_lr_ratio=0.02 \
   wandb.project=llama3-metagenome-7b \
   wandb.name=<run_name> \                                              ← FIXED (same name for entire session)
+  +wandb.id=<run_name> \                                               ← FIXED (WandB resumes by ID, not name)
   +wandb.resume=allow \                                                ← FIXED (resumes the same WandB run on relaunch)
   hydra.run.dir=/workspace/claude_tasks/og2_7b/<run_name>/hydra_outputs
 ```
@@ -127,6 +128,7 @@ torchrun --nproc_per_node=8 train_fsdp2.py \
 - `checkpoint.async_save=false` — sync saves for reliability
 - `dataset.use_stateful_dataloader=true` — always true (see Data Integrity section below)
 - `wandb.name` — computed once at session start, never changes
+- `+wandb.id` — same as `wandb.name` (WandB resumes by ID, not name)
 - `+wandb.resume=allow` — resumes the same WandB run on relaunch
 
 ## IMPORTANT: Initial Checkpoint Setup
