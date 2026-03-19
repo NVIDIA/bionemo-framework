@@ -43,15 +43,15 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent.parent
 _CODONFM_TE_DIR = _REPO_ROOT / "recipes" / "codonfm_ptl_te"
 sys.path.insert(0, str(_CODONFM_TE_DIR))
 
-from codonfm_sae.data import read_codon_csv
-from sae.analysis import compute_feature_stats, compute_feature_umap, save_feature_atlas
-from sae.architectures import TopKSAE
-from sae.utils import get_device, set_seed
-from src.data.preprocess.codon_sequence import process_item
-from src.inference.encodon import EncodonInference
+from codonfm_sae.data import read_codon_csv  # noqa: E402
+from sae.analysis import compute_feature_stats, compute_feature_umap, save_feature_atlas  # noqa: E402
+from sae.architectures import TopKSAE  # noqa: E402
+from sae.utils import get_device, set_seed  # noqa: E402
+from src.data.preprocess.codon_sequence import process_item  # noqa: E402
+from src.inference.encodon import EncodonInference  # noqa: E402
 
 
-def parse_args():
+def parse_args():  # noqa: D103
     p = argparse.ArgumentParser(description="Generate CodonFM SAE dashboard data")
     p.add_argument("--checkpoint", type=str, required=True, help="Path to SAE checkpoint .pt file")
     p.add_argument("--top-k", type=int, default=None, help="Override top-k (default: read from checkpoint)")
@@ -75,7 +75,7 @@ def parse_args():
     return p.parse_args()
 
 
-def load_sae_from_checkpoint(checkpoint_path: str, top_k_override: int | None = None) -> TopKSAE:
+def load_sae_from_checkpoint(checkpoint_path: str, top_k_override: int | None = None) -> TopKSAE:  # noqa: D103
     ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
     state_dict = ckpt["model_state_dict"]
     if any(k.startswith("module.") for k in state_dict):
@@ -158,7 +158,6 @@ def extract_activations_3d(
 
     # Pad to same seq_len across batches
     max_len = max(e.shape[1] for e in all_embeddings)
-    hidden_dim = all_embeddings[0].shape[2]
 
     padded_emb = []
     padded_masks = []
@@ -182,9 +181,9 @@ def export_codon_features_parquet(
     output_dir: Path,
     n_examples: int = 6,
     device: str = "cuda",
-    records: list = None,
-    variant_delta_map: dict = None,
-    precomputed_max_acts: torch.Tensor = None,
+    records: list | None = None,
+    variant_delta_map: dict | None = None,
+    precomputed_max_acts: torch.Tensor | None = None,
 ):
     """Export per-codon feature activations for dashboard.
 
@@ -358,7 +357,7 @@ def compute_variant_analysis(
     activations: torch.Tensor,
     masks: torch.Tensor,
     device: str = "cuda",
-    score_column: str = None,
+    score_column: str | None = None,
 ) -> dict:
     """Compute per-feature variant analysis with multi-score, local deltas, and distribution metrics.
 
@@ -562,7 +561,7 @@ def compute_variant_analysis(
 
     # ── Trinuc context distribution per feature ──────────────────────
     # Only variant rows (ref rows have no trinuc_context)
-    unique_trinucs = sorted(set(t for t in trinuc_contexts if t))
+    unique_trinucs = sorted({t for t in trinuc_contexts if t})
     trinuc_to_idx = {t: i for i, t in enumerate(unique_trinucs)}
     n_trinucs = len(unique_trinucs)
     print(f"  {n_trinucs} unique trinucleotide contexts")
@@ -595,7 +594,7 @@ def compute_variant_analysis(
 
     # ── Gene distribution per feature ────────────────────────────────
     # Uses all sequences (every row has a gene)
-    unique_genes = sorted(set(g for g in genes if g))
+    unique_genes = sorted({g for g in genes if g})
     gene_to_idx = {g: i for i, g in enumerate(unique_genes)}
     n_genes_total = len(unique_genes)
     print(f"  {n_genes_total} unique genes")
@@ -764,7 +763,7 @@ def compute_variant_analysis(
     }
 
 
-def main():
+def main():  # noqa: D103
     args = parse_args()
     set_seed(args.seed)
     device = args.device or get_device()
@@ -775,7 +774,6 @@ def main():
 
     # 1. Load SAE
     sae = load_sae_from_checkpoint(args.checkpoint, top_k_override=args.top_k)
-    n_features = sae.hidden_dim
 
     # 2. Load Encodon
     print(f"\nLoading Encodon from {args.model_path}...")
