@@ -1,0 +1,5 @@
+# Precision schedule template for Llama 3 1B (25 transformer block layers).
+# Copy this file to your workspace and pass it via precision_schedule_file=<path>.
+# The agent appends new entries during training to adjust per-layer precision online.
+# Valid values: "fp8", "fp4", or null (BF16). List length must match num_hidden_layers.
+{"step": 0, "layer_precision": [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null]}
