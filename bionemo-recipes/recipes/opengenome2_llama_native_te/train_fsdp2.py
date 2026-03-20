@@ -194,6 +194,21 @@ def main(args: DictConfig) -> float | None:
     config.layer_precision = layer_precision
     logger.info(f"Layer precision: {layer_precision}")
 
+    # Initialize quant stats logging (debug API) BEFORE model creation.
+    # TEDebugState.initialize() is called during TE module __init__ and checks if debug_api
+    # is already initialized. If not, it sets debug_enabled=False permanently.
+    quant_stats_config = getattr(args, "quant_stats_config", None)
+    if quant_stats_config is not None and getattr(quant_stats_config, "enabled", False):
+        if HAS_NVDLFW_INSPECT:
+            initialize_quant_stats_logging(
+                quant_stats_file=quant_stats_config.quant_stats_file,
+                quant_log_dir=quant_stats_config.quant_log_dir,
+                rank=dist_config.rank,
+                layer_precision=layer_precision,
+            )
+        else:
+            logger.warning("quant_stats_config.enabled=True but nvdlfw_inspect is not installed, skipping")
+
     # Log initialization settings
     std = getattr(config, "initializer_range", 0.02)
     num_layers = getattr(config, "num_hidden_layers", 32)
@@ -246,19 +261,9 @@ def main(args: DictConfig) -> float | None:
         model.to_empty(device=device)
         model.apply(model._init_weights)
 
-    # Initialize quant stats logging (debug API) if enabled
-    quant_stats_config = getattr(args, "quant_stats_config", None)
-    if quant_stats_config is not None and getattr(quant_stats_config, "enabled", False):
-        if HAS_NVDLFW_INSPECT:
-            initialize_quant_stats_logging(
-                quant_stats_file=quant_stats_config.quant_stats_file,
-                quant_log_dir=quant_stats_config.quant_log_dir,
-                rank=dist_config.rank,
-                layer_precision=layer_precision,
-            )
-            debug_api.infer_and_assign_layer_names(model)
-        else:
-            logger.warning("quant_stats_config.enabled=True but nvdlfw_inspect is not installed, skipping")
+    # Assign layer names for debug API (must happen after model creation)
+    if quant_stats_config is not None and getattr(quant_stats_config, "enabled", False) and HAS_NVDLFW_INSPECT:
+        debug_api.infer_and_assign_layer_names(model)
 
     # Create optimizer
     adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
