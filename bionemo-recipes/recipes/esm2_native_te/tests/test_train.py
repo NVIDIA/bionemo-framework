@@ -293,9 +293,20 @@ def test_sanity_fsdp2_fp8_stats_logging(tmp_path, recipe_path):
     main_fsdp2(sanity_config)
 
     # Verify log structure (same assertions as above)
-    assert fp8_log_dir.exists()
-    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs" / "nvdlfw_inspect_globalrank-0.log").exists()
-    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs" / "nvdlfw_inspect_globalrank-0.log").exists()
+    assert fp8_log_dir.exists(), "FP8 log directory was not created"
+    assert (fp8_log_dir / "rank_0").exists(), "rank_0 directory was not created"
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs").exists(), "nvdlfw_inspect_logs directory was not created"
+    assert (fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs").exists(), (
+        "nvdlfw_inspect_statistics_logs directory was not created"
+    )
+
+    metadata_log = fp8_log_dir / "rank_0" / "nvdlfw_inspect_logs" / "nvdlfw_inspect_globalrank-0.log"
+    stats_log = fp8_log_dir / "rank_0" / "nvdlfw_inspect_statistics_logs" / "nvdlfw_inspect_globalrank-0.log"
+
+    assert metadata_log.exists(), "Metadata log file was not created"
+    assert stats_log.exists(), "Statistics log file was not created"
+    assert metadata_log.stat().st_size > 0, "Metadata log file is empty"
+    assert stats_log.stat().st_size > 0, "Statistics log file is empty"
 
 
 @requires_fp8

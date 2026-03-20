@@ -155,6 +155,7 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
         "bionemo-recipes/recipes/esm2_native_te/modeling_esm_te.py",
         "bionemo-recipes/recipes/esm2_peft_te/example_8m_checkpoint/esm_nv.py",
         "bionemo-recipes/recipes/esm2_accelerate_te/example_8m_checkpoint/esm_nv.py",
+        "bionemo-recipes/recipes/vllm_inference/esm2/modeling_esm_te.py",
     ],
     "bionemo-recipes/models/esm2/collator.py": [
         "bionemo-recipes/models/llama3/collator.py",
@@ -170,6 +171,7 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
         "bionemo-recipes/models/llama3/state.py",
         "bionemo-recipes/models/mixtral/state.py",
         "bionemo-recipes/models/qwen/state.py",
+        "bionemo-recipes/recipes/vllm_inference/esm2/state.py",
     ],
     "bionemo-recipes/models/llama3/modeling_llama_te.py": [
         "bionemo-recipes/recipes/llama3_native_te/modeling_llama_te.py",
@@ -177,6 +179,21 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     ],
     "bionemo-recipes/models/llama3/nucleotide_fast_tokenizer": [
         "bionemo-recipes/recipes/llama3_native_te/tokenizers/nucleotide_fast_tokenizer",
+    ],
+    "bionemo-recipes/models/esm2/convert.py": [
+        "bionemo-recipes/recipes/vllm_inference/esm2/convert.py",
+    ],
+    "bionemo-recipes/models/esm2/export.py": [
+        "bionemo-recipes/recipes/vllm_inference/esm2/export.py",
+    ],
+    "bionemo-recipes/models/esm2/esm_fast_tokenizer": [
+        "bionemo-recipes/recipes/vllm_inference/esm2/esm_fast_tokenizer",
+    ],
+    "bionemo-recipes/models/esm2/model_readme.template": [
+        "bionemo-recipes/recipes/vllm_inference/esm2/model_readme.template",
+    ],
+    "bionemo-recipes/models/esm2/LICENSE": [
+        "bionemo-recipes/recipes/vllm_inference/esm2/LICENSE",
     ],
     # Common test library - synced between models
     "bionemo-recipes/models/esm2/tests/common": [

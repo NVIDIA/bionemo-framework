@@ -53,9 +53,9 @@ def generate_layer_regex(layer_numbers: list[int] | None) -> str:
         Regex pattern string for matching those layers' linear sublayers.
     """
     if not layer_numbers:
-        return r"model\.esm\.encoder\.layers\.DISABLED_NO_LAYERS_SPECIFIED"
+        return r"model\.model\.encoder\.layers\.DISABLED_NO_LAYERS_SPECIFIED"
     layer_pattern = "|".join(str(n) for n in sorted(layer_numbers))
-    return rf"model\.esm\.encoder\.layers\.({layer_pattern})\..*(layernorm_qkv|proj|fc1|fc2)"
+    return rf"model\.model\.encoder\.layers\.({layer_pattern})\..*(layernorm_qkv|proj|fc1|fc2)"
 
 
 def update_quant_stats_config(

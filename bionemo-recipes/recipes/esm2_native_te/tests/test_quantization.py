@@ -144,35 +144,35 @@ def test_returns_correct_length():
 def test_single_layer():
     """Single layer should produce a simple regex."""
     regex = generate_layer_regex([3])
-    assert re.search(regex, "model.esm.encoder.layers.3.self_attention.layernorm_qkv")
-    assert not re.search(regex, "model.esm.encoder.layers.2.self_attention.layernorm_qkv")
+    assert re.search(regex, "model.model.encoder.layers.3.self_attention.layernorm_qkv")
+    assert not re.search(regex, "model.model.encoder.layers.2.self_attention.layernorm_qkv")
 
 
 def test_multiple_layers():
     """Multiple layers should match any of them."""
     regex = generate_layer_regex([1, 2, 3])
-    assert re.search(regex, "model.esm.encoder.layers.1.self_attention.layernorm_qkv")
-    assert re.search(regex, "model.esm.encoder.layers.2.layernorm_mlp.fc1")
-    assert re.search(regex, "model.esm.encoder.layers.3.layernorm_mlp.fc2")
-    assert not re.search(regex, "model.esm.encoder.layers.4.self_attention.proj")
+    assert re.search(regex, "model.model.encoder.layers.1.self_attention.layernorm_qkv")
+    assert re.search(regex, "model.model.encoder.layers.2.layernorm_mlp.fc1")
+    assert re.search(regex, "model.model.encoder.layers.3.layernorm_mlp.fc2")
+    assert not re.search(regex, "model.model.encoder.layers.4.self_attention.proj")
 
 
 def test_matches_correct_sublayers():
     """Regex should only match layernorm_qkv, proj, fc1, fc2."""
     regex = generate_layer_regex([1])
-    assert re.search(regex, "model.esm.encoder.layers.1.self_attention.layernorm_qkv_something")
-    assert re.search(regex, "model.esm.encoder.layers.1.self_attention.proj_something")
-    assert re.search(regex, "model.esm.encoder.layers.1.layernorm_mlp.fc1_something")
-    assert re.search(regex, "model.esm.encoder.layers.1.layernorm_mlp.fc2_something")
+    assert re.search(regex, "model.model.encoder.layers.1.self_attention.layernorm_qkv_something")
+    assert re.search(regex, "model.model.encoder.layers.1.self_attention.proj_something")
+    assert re.search(regex, "model.model.encoder.layers.1.layernorm_mlp.fc1_something")
+    assert re.search(regex, "model.model.encoder.layers.1.layernorm_mlp.fc2_something")
     # Should not match unrelated sublayer names
-    assert not re.search(regex, "model.esm.encoder.layers.1.self_attention.some_other_thing")
+    assert not re.search(regex, "model.model.encoder.layers.1.self_attention.some_other_thing")
 
 
 def test_none_returns_disabled_pattern():
     """None should return a pattern that matches nothing."""
     regex = generate_layer_regex(None)
     assert "DISABLED" in regex
-    assert not re.search(regex, "model.esm.encoder.layers.1.self_attention.layernorm_qkv")
+    assert not re.search(regex, "model.model.encoder.layers.1.self_attention.layernorm_qkv")
 
 
 def test_empty_list_returns_disabled_pattern():
@@ -185,9 +185,9 @@ def test_1indexed_layer_names():
     """Regex should use 1-indexed layer numbers (matching debug API naming)."""
     regex = generate_layer_regex([1])
     # Should match layers.1 (1-indexed first layer)
-    assert re.search(regex, "model.esm.encoder.layers.1.self_attention.layernorm_qkv")
+    assert re.search(regex, "model.model.encoder.layers.1.self_attention.layernorm_qkv")
     # Should NOT match layers.0 (0-indexed first layer)
-    assert not re.search(regex, "model.esm.encoder.layers.0.self_attention.layernorm_qkv")
+    assert not re.search(regex, "model.model.encoder.layers.0.self_attention.layernorm_qkv")
 
 
 # -- update_quant_stats_config --
@@ -251,9 +251,9 @@ def test_fp8_layers_updates_regex(fp8_only_config):
     with open(output_path) as f:
         result = yaml.safe_load(f)
     regex = result["example_fp8_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"]
-    assert re.search(regex, "model.esm.encoder.layers.1.self_attention.layernorm_qkv")
-    assert re.search(regex, "model.esm.encoder.layers.3.layernorm_mlp.fc2")
-    assert not re.search(regex, "model.esm.encoder.layers.4.self_attention.proj")
+    assert re.search(regex, "model.model.encoder.layers.1.self_attention.layernorm_qkv")
+    assert re.search(regex, "model.model.encoder.layers.3.layernorm_mlp.fc2")
+    assert not re.search(regex, "model.model.encoder.layers.4.self_attention.proj")
 
 
 def test_none_layers_disables_matching(fp8_only_config):
@@ -276,8 +276,8 @@ def test_fp4_section_disabled_fp8_still_updated(fp4_fp8_config):
 
     # FP8 regex should still match layers 4-6
     fp8_regex = result["example_fp8_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"]
-    assert re.search(fp8_regex, "model.esm.encoder.layers.5.self_attention.proj")
-    assert not re.search(fp8_regex, "model.esm.encoder.layers.2.self_attention.proj")
+    assert re.search(fp8_regex, "model.model.encoder.layers.5.self_attention.proj")
+    assert not re.search(fp8_regex, "model.model.encoder.layers.2.self_attention.proj")
 
 
 def test_original_file_not_modified(fp8_only_config):
@@ -310,7 +310,7 @@ def test_missing_section_is_skipped(fp8_only_config):
     # Only FP8 section should exist and be updated
     assert "example_fp4_tensor_stat_collection" not in result
     regex = result["example_fp8_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"]
-    assert re.search(regex, "model.esm.encoder.layers.3.self_attention.layernorm_qkv")
+    assert re.search(regex, "model.model.encoder.layers.3.self_attention.layernorm_qkv")
 
 
 def test_with_real_fp4_config():
@@ -328,5 +328,5 @@ def test_with_real_fp4_config():
 
     # FP8 section should still be updated and working
     fp8_regex = result["example_fp8_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"]
-    assert re.search(fp8_regex, "model.esm.encoder.layers.5.self_attention.proj")
-    assert not re.search(fp8_regex, "model.esm.encoder.layers.2.self_attention.proj")
+    assert re.search(fp8_regex, "model.model.encoder.layers.5.self_attention.proj")
+    assert not re.search(fp8_regex, "model.model.encoder.layers.2.self_attention.proj")
