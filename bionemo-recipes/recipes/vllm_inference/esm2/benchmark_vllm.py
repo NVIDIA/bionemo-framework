@@ -79,6 +79,7 @@ def main() -> None:
         dtype=config.dtype,
         enforce_eager=True,
         max_num_batched_tokens=max_batched_tokens,
+        max_num_seqs=1,
     )
 
     tokenizer = AutoTokenizer.from_pretrained(checkpoint, trust_remote_code=True)
