@@ -63,6 +63,7 @@ class BenchmarkConfig:
     dtype: str
     export_dir: str
     force_export: bool
+    embeddings_path: str | None
 
 
 @dataclass
@@ -74,6 +75,8 @@ class BenchmarkResult:
     e2e_ms: float
     throughput_tok_s: float
     throughput_seq_s: float
+    gpu_mem_mb: float
+    gpu_util_pct: float
 
 
 def ensure_exported(tag: str, export_dir: str, force: bool = False) -> str:
@@ -135,10 +138,24 @@ def build_sequences(
     return sequence_strings, input_ids
 
 
+def sample_gpu_metrics(device: int = 0) -> tuple[float, float]:
+    """Return (gpu_memory_used_mb, gpu_utilization_pct) via torch.cuda.
+
+    Uses ``mem_get_info`` (driver-level, captures all processes) and
+    ``utilization`` (NVML-backed).
+    """
+    free, total = torch.cuda.mem_get_info(device)
+    mem_mb = (total - free) / 1e6
+    util = torch.cuda.utilization(device)
+    return mem_mb, float(util)
+
+
 def compute_metrics(
     e2e_seconds: float,
     batch_size: int,
     seq_len: int,
+    gpu_mem_mb: float = 0.0,
+    gpu_util_pct: float = 0.0,
 ) -> BenchmarkResult:
     """Derive throughput from raw wall-clock timing."""
     e2e_ms = e2e_seconds * 1000.0
@@ -151,6 +168,8 @@ def compute_metrics(
         e2e_ms=e2e_ms,
         throughput_tok_s=throughput_tok,
         throughput_seq_s=throughput_seq,
+        gpu_mem_mb=gpu_mem_mb,
+        gpu_util_pct=gpu_util_pct,
     )
 
 
@@ -164,7 +183,7 @@ def median_timing(fn, repeats: int) -> float:
     return statistics.median(times)
 
 
-_HEADER = ["batch_size", "seq_len", "e2e_ms", "throughput_tok_s", "throughput_seq_s"]
+_HEADER = ["batch_size", "seq_len", "e2e_ms", "throughput_tok_s", "throughput_seq_s", "gpu_mem_mb", "gpu_util_pct"]
 
 
 def print_results(results: list[BenchmarkResult]) -> None:
@@ -180,6 +199,8 @@ def print_results(results: list[BenchmarkResult]) -> None:
             f"{r.e2e_ms:.1f}",
             f"{r.throughput_tok_s:.1f}",
             f"{r.throughput_seq_s:.1f}",
+            f"{r.gpu_mem_mb:.0f}",
+            f"{r.gpu_util_pct:.1f}",
         ]
         print("  ".join(v.rjust(w) for v, w in zip(vals, col_widths)))
 
@@ -190,7 +211,17 @@ def write_csv(results: list[BenchmarkResult], path: str) -> None:
         writer = csv.writer(f)
         writer.writerow([field.name for field in fields(BenchmarkResult)])
         for r in results:
-            writer.writerow([r.batch_size, r.seq_len, r.e2e_ms, r.throughput_tok_s, r.throughput_seq_s])
+            writer.writerow(
+                [
+                    r.batch_size,
+                    r.seq_len,
+                    r.e2e_ms,
+                    r.throughput_tok_s,
+                    r.throughput_seq_s,
+                    r.gpu_mem_mb,
+                    r.gpu_util_pct,
+                ]
+            )
     print(f"Results written to {path}")
 
 
@@ -226,6 +257,12 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         help="Directory to cache exported TE checkpoints.",
     )
     parser.add_argument("--force-export", action="store_true", help="Re-export even if cached checkpoint exists.")
+    parser.add_argument(
+        "--embeddings-path",
+        type=str,
+        default=None,
+        help="Save sample embeddings to this .pt file for cross-backend comparison.",
+    )
 
 
 def parse_config(args: argparse.Namespace) -> BenchmarkConfig:
@@ -240,6 +277,7 @@ def parse_config(args: argparse.Namespace) -> BenchmarkConfig:
         dtype=args.dtype,
         export_dir=args.export_dir,
         force_export=args.force_export,
+        embeddings_path=args.embeddings_path,
     )
 
 

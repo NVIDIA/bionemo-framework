@@ -28,8 +28,10 @@ Usage:
 import argparse
 import itertools
 import json
+import statistics
 from pathlib import Path
 
+import torch
 from transformers import AutoTokenizer
 from vllm import LLM
 
@@ -41,6 +43,7 @@ from benchmark_common import (
     median_timing,
     parse_config,
     print_results,
+    sample_gpu_metrics,
     write_csv,
 )
 
@@ -89,26 +92,44 @@ def main() -> None:
 
         sequences, _ = build_sequences(tokenizer, batch_size, seq_len)
 
+        gpu_samples: list[tuple[float, float]] = []
+
         def _embed() -> None:
             engine.embed(sequences)
+
+        def _embed_with_metrics() -> None:
+            _embed()
+            gpu_samples.append(sample_gpu_metrics())
 
         for _ in range(config.warmup):
             _embed()
 
-        e2e_s = median_timing(_embed, config.repeats)
+        e2e_s = median_timing(_embed_with_metrics, config.repeats)
+        avg_mem = statistics.mean(s[0] for s in gpu_samples)
+        avg_util = statistics.mean(s[1] for s in gpu_samples)
 
-        result = compute_metrics(e2e_s, batch_size, seq_len)
+        result = compute_metrics(e2e_s, batch_size, seq_len, avg_mem, avg_util)
         results.append(result)
         print(
             f"  e2e={result.e2e_ms:.1f}ms  "
             f"throughput={result.throughput_tok_s:.1f} tok/s  "
-            f"{result.throughput_seq_s:.1f} seq/s"
+            f"{result.throughput_seq_s:.1f} seq/s  "
+            f"gpu_mem={result.gpu_mem_mb:.0f}MB  "
+            f"gpu_util={result.gpu_util_pct:.1f}%"
         )
 
     print("\n" + "=" * 60)
     print_results(results)
     if config.csv_path:
         write_csv(results, config.csv_path)
+
+    if config.embeddings_path:
+        print("\nCollecting sample embeddings ...")
+        sequences, _ = build_sequences(tokenizer, config.batch_sizes[0], config.seq_lens[0])
+        outputs = engine.embed(sequences)
+        vecs = torch.stack([torch.tensor(o.outputs.embedding) for o in outputs])
+        torch.save(vecs.cpu(), config.embeddings_path)
+        print(f"Embeddings saved to {config.embeddings_path}  shape={tuple(vecs.shape)}")
 
 
 if __name__ == "__main__":

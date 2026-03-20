@@ -30,6 +30,7 @@ Usage:
 
 import argparse
 import itertools
+import statistics
 
 import torch
 from transformers import AutoModel, AutoTokenizer
@@ -43,6 +44,7 @@ from benchmark_common import (
     parse_config,
     print_results,
     resolve_dtype,
+    sample_gpu_metrics,
     write_csv,
 )
 
@@ -85,28 +87,50 @@ def main() -> None:
         _, input_ids = build_sequences(tokenizer, batch_size, seq_len)
         inputs = {"input_ids": input_ids.to("cuda"), "attention_mask": torch.ones_like(input_ids).to("cuda")}
 
+        gpu_samples: list[tuple[float, float]] = []
+
         def _forward() -> None:
             with torch.no_grad():
                 model(**inputs)
             torch.cuda.synchronize()
 
+        def _forward_with_metrics() -> None:
+            _forward()
+            gpu_samples.append(sample_gpu_metrics())
+
         for _ in range(config.warmup):
             _forward()
 
-        e2e_s = median_timing(_forward, config.repeats)
+        e2e_s = median_timing(_forward_with_metrics, config.repeats)
+        avg_mem = statistics.mean(s[0] for s in gpu_samples)
+        avg_util = statistics.mean(s[1] for s in gpu_samples)
 
-        result = compute_metrics(e2e_s, batch_size, seq_len)
+        result = compute_metrics(e2e_s, batch_size, seq_len, avg_mem, avg_util)
         results.append(result)
         print(
             f"  e2e={result.e2e_ms:.1f}ms  "
             f"throughput={result.throughput_tok_s:.1f} tok/s  "
-            f"{result.throughput_seq_s:.1f} seq/s"
+            f"{result.throughput_seq_s:.1f} seq/s  "
+            f"gpu_mem={result.gpu_mem_mb:.0f}MB  "
+            f"gpu_util={result.gpu_util_pct:.1f}%"
         )
 
     print("\n" + "=" * 60)
     print_results(results)
     if config.csv_path:
         write_csv(results, config.csv_path)
+
+    if config.embeddings_path:
+        print("\nCollecting sample embeddings ...")
+        _, input_ids = build_sequences(tokenizer, config.batch_sizes[0], config.seq_lens[0])
+        inputs = {"input_ids": input_ids.to("cuda"), "attention_mask": torch.ones_like(input_ids).to("cuda")}
+        with torch.no_grad():
+            out = model(**inputs)
+        hidden = out.last_hidden_state
+        vecs = hidden[:, -1, :]
+        vecs = vecs / vecs.norm(dim=-1, keepdim=True).clamp(min=1e-9)
+        torch.save(vecs.cpu(), config.embeddings_path)
+        print(f"Embeddings saved to {config.embeddings_path}  shape={tuple(vecs.shape)}")
 
 
 if __name__ == "__main__":
