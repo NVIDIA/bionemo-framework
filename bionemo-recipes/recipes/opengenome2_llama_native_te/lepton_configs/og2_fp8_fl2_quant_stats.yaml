@@ -17,7 +17,8 @@ num_train_steps: 182314
 micro_batch_size: 1
 grad_acc_steps: 8
 
-dataset_path: "/data/opengenome2/parquet2"
+# Match original fl2 run: jsonl.gz metagenome files (not parquet2)
+dataset_path: "json"
 data_dir: ""
 num_workers: 8
 buffer_size: 10000
@@ -47,14 +48,19 @@ extra_hydra_overrides:
   - "++quant_stats_config.enabled=true"
   - "++quant_stats_config.quant_stats_file=./fp8_debugging_stats.yaml"
   - "++quant_stats_config.quant_log_dir=/data/savithas/checkpoints/og2-7b-fp8-fl2-quant-stats/quant_logs"
+  - 'dataset.load_dataset_kwargs.data_files="/data/opengenome2/json/pretraining_or_both_phases/metagenomes/data_metagenomics_train_*.jsonl.gz"'
 
 logger_frequency: 1
 
-# Resume from the fl2 checkpoint - saves will go here too
-checkpoint_dir: "/data/savithas/checkpoints/og2-7b-fp8-refactor-bf16-fl2-fp32mw"  # pragma: allowlist secret
+# New checkpoint dir for this run's saves and logs
+checkpoint_dir: "/data/savithas/checkpoints/og2-7b-fp8-fl2-quant-stats"  # pragma: allowlist secret
 save_every_n_steps: 5000
 resume_from_checkpoint: true
 async_save: false
+
+# Copy step_25000 from original fl2 run into new dir so it resumes from there
+pre_training_commands:
+  - 'if [ ! -d /data/savithas/checkpoints/og2-7b-fp8-fl2-quant-stats/train_fsdp2/step_25000 ]; then echo "Copying step_25000 checkpoint..."; cp -a /data/savithas/checkpoints/og2-7b-fp8-refactor-bf16-fl2-fp32mw/train_fsdp2/step_25000 /data/savithas/checkpoints/og2-7b-fp8-fl2-quant-stats/train_fsdp2/step_25000; echo "Done."; fi'
 
 wandb_project: "llama3-metagenome-7b"
 wandb_name: "og2-7b-fp8-fl2-quant-stats-25k"
