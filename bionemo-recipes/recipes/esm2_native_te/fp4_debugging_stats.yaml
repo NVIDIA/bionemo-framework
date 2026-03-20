@@ -2,8 +2,8 @@ example_fp4_tensor_stat_collection:
     enabled: True
     layers:
         # Use regex to select layers 0-4 (1-indexed as layers.1 through layers.5 in the naming)
-        # This matches: model.esm.encoder.layers.[1-5].*.(layernorm_qkv|proj|fc1|fc2)
-        layer_name_regex_pattern: 'model\.esm\.encoder\.layers\.[1-5]\..*(layernorm_qkv|proj|fc1|fc2)'
+        # This matches: model.model.encoder.layers.[1-5].*.(layernorm_qkv|proj|fc1|fc2)
+        layer_name_regex_pattern: 'model\.model\.encoder\.layers\.[1-5]\..*(layernorm_qkv|proj|fc1|fc2)'
     transformer_engine:
         LogNvfp4TensorStats:
             enabled: True
@@ -18,9 +18,9 @@ example_fp4_tensor_stat_collection:
 example_fp8_tensor_stat_collection:
     enabled: True
     layers:
-        # Use regex to select layers 0-4 (1-indexed as layers.1 through layers.5 in the naming)
-        # This matches: model.esm.encoder.layers.[1-5].*.(layernorm_qkv|proj|fc1|fc2)
-        layer_name_regex_pattern: 'model\.esm\.encoder\.layers\.([6-9]|10)\..*(layernorm_qkv|proj|fc1|fc2)'
+        # Use regex to select layers 5-9 (1-indexed as layers.6 through layers.10 in the naming)
+        # This matches: model.model.encoder.layers.[6-10].*.(layernorm_qkv|proj|fc1|fc2)
+        layer_name_regex_pattern: 'model\.model\.encoder\.layers\.([6-9]|10)\..*(layernorm_qkv|proj|fc1|fc2)'
     transformer_engine:
         LogFp8TensorStats:
             enabled: True
