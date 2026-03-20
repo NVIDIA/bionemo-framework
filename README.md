@@ -43,6 +43,13 @@ cd bionemo-framework/bionemo-recipes/recipes/esm2_native_te/
 
 ## Recent News
 
+<p align="center">
+  <img src="docs/docs/assets/images/sae.png" width="600">
+  <br>
+  <em><a href="https://research.nvidia.com/labs/dbr/blog/sae/">Sparse autoencoder feature dashboard for CodonFM 1B</a>, showing learned latent features and their activations on protein sequences.</em>
+</p>
+
+- 03/13/2026 [Sparse Autoencoders for model interpretability](bionemo-recipes/interpretability/sparse_autoencoders/) — train and analyze SAEs on biological foundation models. Includes recipes for ESM2 and CodonFM with interactive feature dashboards.
 - 03/09/2026 [Qwen2.5 / Qwen3 model](bionemo-recipes/models/qwen/) with TE acceleration, FP8/MXFP8, KV-cache inference, and bidirectional HF checkpoint conversion.
 - 03/05/2026 [ESM2 NVFP4 and MXFP8](bionemo-recipes/recipes/esm2_native_te/README.md#low-precision-performance-benchmarks) low-precision training — up to **2,367 TFLOPS/GPU** on NVIDIA B300 at 15B scale with per-layer precision control.
 - 02/23/2026 [Mixtral MoE model](bionemo-recipes/models/mixtral/) with TE `GroupedLinear` for efficient parallel expert computation, FP8/FP4 support, and HF conversion.
