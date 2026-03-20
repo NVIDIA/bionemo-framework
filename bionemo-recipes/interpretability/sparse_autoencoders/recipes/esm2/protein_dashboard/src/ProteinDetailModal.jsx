@@ -7,15 +7,15 @@ const styles = {
   backdrop: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(0,0,0,0.5)',
+    background: 'rgba(0,0,0,0.45)',
     zIndex: 9999,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
   },
   modal: {
-    background: '#fff',
-    borderRadius: '12px',
+    background: 'var(--bg-card)',
+    borderRadius: '10px',
     width: '90vw',
     maxWidth: '1200px',
     height: '80vh',
@@ -30,8 +30,8 @@ const styles = {
     top: '12px',
     right: '12px',
     zIndex: 10,
-    background: 'rgba(255,255,255,0.9)',
-    border: '1px solid #ddd',
+    background: 'var(--bg-card)',
+    border: '1px solid var(--border-input)',
     borderRadius: '50%',
     width: '32px',
     height: '32px',
@@ -40,13 +40,13 @@ const styles = {
     justifyContent: 'center',
     cursor: 'pointer',
     fontSize: '16px',
-    color: '#555',
+    color: 'var(--text-secondary)',
   },
   leftPanel: {
     flex: '0 0 60%',
     position: 'relative',
-    background: '#f5f5f5',
-    borderRight: '1px solid #eee',
+    background: 'var(--bg)',
+    borderRight: '1px solid var(--border-light)',
   },
   viewer: {
     width: '100%',
@@ -59,7 +59,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    color: '#aaa',
+    color: 'var(--text-muted)',
     fontSize: '13px',
   },
   viewerError: {
@@ -73,7 +73,7 @@ const styles = {
   },
   rightPanel: {
     flex: 1,
-    padding: '24px',
+    padding: '28px 32px',
     overflowY: 'auto',
     display: 'flex',
     flexDirection: 'column',
@@ -89,7 +89,7 @@ const styles = {
     fontSize: '18px',
     fontWeight: '700',
     fontFamily: 'monospace',
-    color: '#222',
+    color: 'var(--text-heading)',
   },
   uniprotBtn: {
     display: 'inline-flex',
@@ -97,9 +97,9 @@ const styles = {
     gap: '4px',
     padding: '4px 10px',
     fontSize: '12px',
-    color: '#2563eb',
-    background: '#eff6ff',
-    border: '1px solid #bfdbfe',
+    color: 'var(--link)',
+    background: 'var(--bg-card-expanded)',
+    border: '1px solid var(--border)',
     borderRadius: '6px',
     textDecoration: 'none',
     fontWeight: '500',
@@ -110,13 +110,13 @@ const styles = {
   },
   statBox: {
     padding: '10px 14px',
-    background: '#f9fafb',
+    background: 'var(--bg-card-expanded)',
     borderRadius: '8px',
-    border: '1px solid #eee',
+    border: '1px solid var(--border-light)',
   },
   statLabel: {
     fontSize: '10px',
-    color: '#888',
+    color: 'var(--text-tertiary)',
     textTransform: 'uppercase',
     marginBottom: '2px',
   },
@@ -124,17 +124,17 @@ const styles = {
     fontSize: '14px',
     fontWeight: '600',
     fontFamily: 'monospace',
-    color: '#333',
+    color: 'var(--text)',
   },
   sectionLabel: {
     fontSize: '11px',
-    color: '#888',
+    color: 'var(--text-tertiary)',
     textTransform: 'uppercase',
     fontWeight: '500',
   },
   sequenceBox: {
-    background: '#fafafa',
-    border: '1px solid #eee',
+    background: 'var(--bg-card-expanded)',
+    border: '1px solid var(--border-light)',
     borderRadius: '8px',
     padding: '12px',
     maxHeight: '300px',
@@ -142,7 +142,7 @@ const styles = {
   },
 }
 
-export default function ProteinDetailModal({ protein, onClose }) {
+export default function ProteinDetailModal({ protein, onClose, darkMode }) {
   const wrapperRef = useRef(null)
   const molContainerRef = useRef(null)
   const pluginRef = useRef(null)
@@ -207,6 +207,14 @@ export default function ProteinDetailModal({ protein, onClose }) {
 
         try { plugin.initViewer(canvas, molDiv) } catch {}
 
+        // Set canvas background based on dark mode
+        try {
+          const bgColor = darkMode ? 0x000000 : 0xffffff
+          plugin.canvas3d?.setProps({
+            renderer: { backgroundColor: bgColor },
+          })
+        } catch { /* older Mol* versions may not support this */ }
+
         pluginRef.current = plugin
 
         // Custom activation color theme
@@ -234,7 +242,7 @@ export default function ProteinDetailModal({ protein, onClose }) {
               }
             }
           } catch {}
-          return Color.fromRgb(200, 200, 200)
+          return darkMode ? Color.fromRgb(80, 80, 80) : Color.fromRgb(200, 200, 200)
         }
 
         const colorThemeProvider = {

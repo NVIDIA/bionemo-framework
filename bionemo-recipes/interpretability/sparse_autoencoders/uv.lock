@@ -12,7 +12,6 @@ resolution-markers = [
 [manifest]
 members = [
     "biosae-workspace",
-    "codonfm-sae",
     "esm2-sae",
     "sae",
 ]
@@ -142,7 +141,7 @@ wheels = [
 [[package]]
 name = "biosae-workspace"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "duckdb" },
     { name = "huggingface-hub" },
@@ -283,63 +282,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/3d/fa/656b739db8587d7b5dfa22e22ed02566950fbfbcdc20311993483657a5c0/click-8.3.1.tar.gz", hash = "sha256:12ff4785d337a1bb490bb7e9c2b1ee5da3112e94a8622f26a6c77f5d2fc6842a", size = 295065 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/98/78/01c019cdb5d6498122777c1a43056ebb3ebfeef2076d9d026bfe15583b2b/click-8.3.1-py3-none-any.whl", hash = "sha256:981153a64e25f12d547d3426c367a4857371575ee7ad18df2a6183ab0545b2a6", size = 108274 },
-]
-
-[[package]]
-name = "codonfm-sae"
-version = "0.1.0"
-source = { editable = "recipes/codonfm" }
-dependencies = [
-    { name = "hydra-core" },
-    { name = "numpy" },
-    { name = "omegaconf" },
-    { name = "pandas" },
-    { name = "sae" },
-    { name = "safetensors" },
-    { name = "torch" },
-    { name = "tqdm" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-export = [
-    { name = "duckdb" },
-    { name = "pandas" },
-    { name = "pyarrow" },
-]
-tracking = [
-    { name = "wandb" },
-]
-viz = [
-    { name = "duckdb" },
-    { name = "hdbscan" },
-    { name = "pyarrow" },
-    { name = "umap-learn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "duckdb", marker = "extra == 'export'", specifier = ">=0.9" },
-    { name = "duckdb", marker = "extra == 'viz'", specifier = ">=0.9" },
-    { name = "hdbscan", marker = "extra == 'viz'", specifier = ">=0.8" },
-    { name = "hydra-core", specifier = ">=1.3" },
-    { name = "numpy", specifier = ">=1.20" },
-    { name = "omegaconf", specifier = ">=2.3" },
-    { name = "pandas", specifier = ">=1.5" },
-    { name = "pandas", marker = "extra == 'export'", specifier = ">=1.5" },
-    { name = "pyarrow", marker = "extra == 'export'", specifier = ">=10.0" },
-    { name = "pyarrow", marker = "extra == 'viz'", specifier = ">=10.0" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1" },
-    { name = "sae", editable = "sae" },
-    { name = "safetensors", specifier = ">=0.3" },
-    { name = "torch", specifier = ">=2.0" },
-    { name = "tqdm", specifier = ">=4.60" },
-    { name = "umap-learn", marker = "extra == 'viz'", specifier = ">=0.5" },
-    { name = "wandb", marker = "extra == 'tracking'", specifier = ">=0.15" },
 ]
 
 [[package]]

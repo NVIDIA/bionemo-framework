@@ -31,11 +31,11 @@ SCRIPT_DATA_DIR = Path(__file__).resolve().parent
 DATASET_FILES = {
     "dataset_train55k_80%.txt": {
         "output": "porter6_train_dataset_55k.parquet",
-        "sha256": "4b1c011d8cea0b892743053eb4234db80344b8d9c90243f19b4637781ce8922b",  # pragma: allowlist secret
+        "sha256": "4b1c011d8cea0b892743053eb4234db80344b8d9c90243f19b4637781ce8922b",
     },
     "2024Testset_692.adataset": {
         "output": "porter6_val_dataset_2024_692.parquet",
-        "sha256": "b4a1b69f2003a66a62eb106aded784f9938fc734e876458223459fd9a10f1ca2",  # pragma: allowlist secret
+        "sha256": "b4a1b69f2003a66a62eb106aded784f9938fc734e876458223459fd9a10f1ca2",
     },
 }
 
