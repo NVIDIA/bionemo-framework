@@ -187,6 +187,8 @@ def run_gsea_for_feature(
                 res = gseapy.prerank(
                     rnk=series,
                     gene_sets=db,
+                    min_size=5,
+                    max_size=1000,
                     no_plot=True,
                     outdir=None,
                     verbose=False,
@@ -201,8 +203,6 @@ def run_gsea_for_feature(
             fdr_col = "FDR q-val" if "FDR q-val" in df.columns else "fdr"
             es_col = "NES" if "NES" in df.columns else "nes"
             pval_col = "NOM p-val" if "NOM p-val" in df.columns else "pval"
-            geneset_size_col = "Gene %" if "Gene %" in df.columns else "geneset_size"
-
             df[fdr_col] = pd.to_numeric(df[fdr_col], errors="coerce")
             df = df.dropna(subset=[fdr_col])
 
@@ -221,7 +221,15 @@ def run_gsea_for_feature(
             fdr_val = float(best_row[fdr_col])
             es_val = float(best_row.get(es_col, 0.0))
             pval = float(best_row.get(pval_col, 1.0))
-            n_genes = int(best_row.get(geneset_size_col, 0)) if geneset_size_col in df.columns else 0
+
+            # Parse n_genes from "Tag %" column (format: "6/200") or fall back to 0
+            n_genes = 0
+            tag_pct = str(best_row.get("Tag %", ""))
+            if "/" in tag_pct:
+                try:
+                    n_genes = int(tag_pct.split("/")[1])
+                except (ValueError, IndexError):
+                    pass
 
             result = EnrichmentResult(
                 feature_idx=feature_idx,
@@ -248,6 +256,13 @@ def run_gsea_for_feature(
                     continue  # Already added the best
                 t_id = _parse_go_id(t_raw) if is_go else t_raw
                 t_name = _parse_term_name(t_raw) if is_go else t_raw
+                row_n_genes = 0
+                row_tag = str(row.get("Tag %", ""))
+                if "/" in row_tag:
+                    try:
+                        row_n_genes = int(row_tag.split("/")[1])
+                    except (ValueError, IndexError):
+                        pass
                 all_significant.append(
                     EnrichmentResult(
                         feature_idx=feature_idx,
@@ -257,7 +272,7 @@ def run_gsea_for_feature(
                         enrichment_score=float(row.get(es_col, 0.0)),
                         pvalue=float(row.get(pval_col, 1.0)),
                         fdr=float(row[fdr_col]),
-                        n_genes_in_term=int(row.get(geneset_size_col, 0)) if geneset_size_col in df.columns else 0,
+                        n_genes_in_term=row_n_genes,
                     )
                 )
 
