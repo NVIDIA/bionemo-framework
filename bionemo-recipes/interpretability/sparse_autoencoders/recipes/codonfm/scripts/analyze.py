@@ -731,21 +731,29 @@ def run_auto_interp(
                 gsea_str = "\n\nGene-level GSEA enrichment (genes ranked by activation, tested against annotation databases):\n"
                 gsea_str += "\n".join(gsea_lines)
 
-        prompt = f"""This is a feature from a sparse autoencoder trained on a DNA codon language model (CodonFM).
-Each token is a codon (3 nucleotides) that encodes an amino acid.
+        prompt = f"""Analyze this sparse autoencoder feature from a DNA codon language model (CodonFM) to determine what predicts its activation pattern. Each token is a codon (3 nucleotides encoding one amino acid).
 
 Top promoted codons (decoder logits): {pos_str}
 Top suppressed codons: {neg_str}
 
-Top activating sequences (***highlighted*** = high activation):
-Each sequence may include metadata in brackets: gene name, data source (ClinVar=germline variants, COSMIC=somatic cancer mutations), pathogenicity label, PhyloP conservation score, variant info (ref>alt codon at position), and model effect score (more negative = higher predicted impact).
+Top activating sequences (***highlighted*** = high activation codons):
+Metadata in brackets may include: gene name, data source (ClinVar/COSMIC), pathogenicity, PhyloP conservation, variant info (ref>alt codon at position), model effect score.
 {examples_str}{gsea_str}
 
-In 1 short sentence starting with "Fires on", describe what biological pattern this feature detects.
-Consider: amino acid identity, specific codon choice, codon usage bias, positional context, CpG sites, wobble position patterns, gene-level functional enrichment, and any variant/clinical metadata patterns you observe.
+Analyze what predicts high vs low activation for this feature. This description should be concise but sufficient to predict activation levels on unseen codon sequences. The feature could be specific to a gene family, a codon usage pattern, a sequence motif, a functional role, a structural domain, etc.
+
+Focus on:
+- Which codons and amino acids are associated with high vs low activation, and whether specific synonymous codon choices matter
+- Where in the gene sequence activation occurs (N-terminal, C-terminal, or throughout)
+- What gene-level functional annotations (from GSEA enrichment if provided) characterize the top-activating genes
+- Whether codon usage bias, CpG content, wobble position patterns, or GC content are relevant
+- Any variant/clinical metadata patterns (pathogenicity, conservation, mutation impact)
+
+Your description will be used to predict activation on held-out sequences, so only highlight factors relevant for prediction.
 
 Format your response as:
-Label: <one short phrase>
+Description: <2-3 sentences starting with "The activation patterns are characterized by:">
+Label: <one concise phrase summarizing what this feature detects>
 Confidence: <0.00 to 1.00>"""
 
         try:
@@ -753,11 +761,14 @@ Confidence: <0.00 to 1.00>"""
             text = response.text.strip()
 
             label = None
+            description = None
             confidence = 0.0
 
             for line in text.split("\n"):
                 if line.startswith("Label:"):
                     label = line.replace("Label:", "").strip()
+                elif line.startswith("Description:"):
+                    description = line.replace("Description:", "").strip()
                 elif line.startswith("Confidence:"):
                     try:
                         confidence = float(line.replace("Confidence:", "").strip())
@@ -768,21 +779,24 @@ Confidence: <0.00 to 1.00>"""
             if not label:
                 label = f"Feature {f}"
 
-            return f, label, confidence
+            return f, label, confidence, description
         except Exception as e:
             print(f"  Warning: auto-interp failed for feature {f}: {e}")
-            return f, f"Feature {f}", 0.0
+            return f, f"Feature {f}", 0.0, None
 
     interpretations = {}
     confidences = {}
+    descriptions = {}
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = {executor.submit(interpret_feature, f): f for f in feature_indices}
         for future in tqdm(as_completed(futures), total=len(feature_indices), desc="  Auto-interp"):
-            f, label, confidence = future.result()
+            f, label, confidence, description = future.result()
             interpretations[f] = label
             confidences[f] = confidence
+            if description:
+                descriptions[f] = description
 
-    return interpretations, confidences
+    return interpretations, confidences, descriptions
 
 
 # ── Build summary labels ─────────────────────────────────────────────
@@ -984,7 +998,7 @@ def main():  # noqa: D103
 
         if todo_features:
             print(f"  Running auto-interp on {len(todo_features)} features ({len(auto_interp_labels)} already done)")
-            new_labels, new_confidences = run_auto_interp(
+            new_labels, new_confidences, new_descriptions = run_auto_interp(
                 sae,
                 vocab_logits,
                 inference,
@@ -1005,6 +1019,7 @@ def main():  # noqa: D103
                 auto_interp_labels[f] = {
                     "label": new_labels[f],
                     "confidence": new_confidences[f],
+                    "description": new_descriptions.get(f),
                 }
             with open(auto_interp_ckpt, "w") as f:
                 json.dump(auto_interp_labels, f, indent=2)
