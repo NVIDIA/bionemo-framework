@@ -227,6 +227,12 @@ def parse_args():  # noqa: D103
     p.add_argument(
         "--auto-interp-workers", type=int, default=1, help="Number of parallel workers for LLM calls (default: 1)"
     )
+    p.add_argument(
+        "--gsea-report",
+        type=str,
+        default=None,
+        help="Path to gene_enrichment_report.json — adds GSEA context to auto-interp prompts",
+    )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default=None)
     return p.parse_args()
@@ -569,6 +575,7 @@ def run_auto_interp(
     llm_provider="anthropic",
     llm_model=None,
     num_workers=1,
+    gsea_context=None,
 ):
     """Run LLM auto-interpretation using precomputed top-K indices.
 
@@ -712,6 +719,18 @@ def run_auto_interp(
 
         examples_str = "\n".join(f"  Seq {i + 1}: {ex}" for i, ex in enumerate(feature_examples.get(f, [])))
 
+        # Build GSEA enrichment context if available
+        gsea_str = ""
+        if gsea_context and f in gsea_context:
+            gsea_info = gsea_context[f]
+            gsea_lines = []
+            for db, entry in gsea_info.items():
+                if entry:
+                    gsea_lines.append(f"  {db}: {entry['term_name']} (FDR={entry['fdr']:.4f})")
+            if gsea_lines:
+                gsea_str = "\n\nGene-level GSEA enrichment (genes ranked by activation, tested against annotation databases):\n"
+                gsea_str += "\n".join(gsea_lines)
+
         prompt = f"""This is a feature from a sparse autoencoder trained on a DNA codon language model (CodonFM).
 Each token is a codon (3 nucleotides) that encodes an amino acid.
 
@@ -720,10 +739,10 @@ Top suppressed codons: {neg_str}
 
 Top activating sequences (***highlighted*** = high activation):
 Each sequence may include metadata in brackets: gene name, data source (ClinVar=germline variants, COSMIC=somatic cancer mutations), pathogenicity label, PhyloP conservation score, variant info (ref>alt codon at position), and model effect score (more negative = higher predicted impact).
-{examples_str}
+{examples_str}{gsea_str}
 
 In 1 short sentence starting with "Fires on", describe what biological pattern this feature detects.
-Consider: amino acid identity, specific codon choice, codon usage bias, positional context, CpG sites, wobble position patterns, and any variant/clinical metadata patterns you observe.
+Consider: amino acid identity, specific codon choice, codon usage bias, positional context, CpG sites, wobble position patterns, gene-level functional enrichment, and any variant/clinical metadata patterns you observe.
 
 Format your response as:
 Label: <one short phrase>
@@ -927,6 +946,29 @@ def main():  # noqa: D103
                     auto_interp_labels[k_int] = {"label": v, "confidence": 0.0}
         print(f"  Loaded {len(auto_interp_labels)} existing interpretations")
 
+    # Load GSEA context if provided
+    gsea_context = None
+    if args.gsea_report:
+        gsea_report_path = Path(args.gsea_report)
+        if gsea_report_path.exists():
+            print(f"  Loading GSEA report from {gsea_report_path}...")
+            with open(gsea_report_path) as f:
+                gsea_data = json.load(f)
+            gsea_context = {}
+            for fl in gsea_data.get("per_feature", []):
+                feat_idx = fl["feature_idx"]
+                per_db = {}
+                for db, entry in fl.get("best_per_database", {}).items():
+                    if entry is not None:
+                        per_db[db] = entry
+                if fl.get("overall_best"):
+                    per_db["overall_best"] = fl["overall_best"]
+                if per_db:
+                    gsea_context[feat_idx] = per_db
+            print(f"  GSEA context loaded for {len(gsea_context)} features")
+        else:
+            print(f"  WARNING: GSEA report not found at {gsea_report_path}")
+
     if args.auto_interp:
         print("\n[3/3] Auto-interpretation (LLM)...")
         alive_features = [f for f in range(n_features) if f in codon_annotations]
@@ -957,6 +999,7 @@ def main():  # noqa: D103
                 llm_provider=args.llm_provider,
                 llm_model=args.llm_model,
                 num_workers=args.auto_interp_workers,
+                gsea_context=gsea_context,
             )
             for f in new_labels:
                 auto_interp_labels[f] = {
