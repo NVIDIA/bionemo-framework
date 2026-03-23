@@ -3,22 +3,20 @@ defaults:
   - _self_
 
 # Training config
-use_te: false
-model_tag: facebook/esm2_t48_15B_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
+use_te: true
+model_tag: nvidia/esm2_t36_3B_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
 use_pretrained: true
 num_train_steps: 1000
 
 validation_interval: 20
 
-use_torch_compile: true
+use_torch_compile: false
 
 use_sequence_packing: true
 
 dataset:
-  # The NVIDIA tokenizer is identical to the facebook/esm* and supports generating multiple samples from sequences
-  # longer than 1024.
-  tokenizer_name: nvidia/esm2_t48_15B_UR50D
-  micro_batch_size: 8
+  tokenizer_name: ${model_tag}
+  micro_batch_size: 34
   val_micro_batch_size: 128
   num_workers: 1
   max_seq_length: 1024
@@ -31,9 +29,12 @@ dataset:
       train: "data/porter6_train_dataset_55k.parquet"
       validation: "data/porter6_val_dataset_2024_692.parquet"
 
+fp8_config:
+  enabled: true
+
 # WandB config
 wandb_init_args:
-  name: "fb_esm2_t48_15B_UR50D_lora"
+  name: "nv_esm2_t36_3B_UR50D_fp8_lora"
   project: "esm2_lora"
   mode: "online"
 
@@ -43,8 +44,8 @@ lr_scheduler_kwargs:
   num_training_steps: 1_000
 
 checkpoint:
-  ckpt_dir: "checkpoints/fb_esm2_t48_15B_UR50D"
-  save_final_model: false
+  ckpt_dir: "checkpoints/nvidia_esm2_t36_3B_UR50D_fp8"
+  save_final_model: true
 
 logger:
   frequency: 1
@@ -53,6 +54,8 @@ lora:
   r: 8
   alpha: 16
   target_modules:
-  - "query"
-  - "key"
-  - "value"
+  - "layernorm_qkv"
+  # For 'facebook/esm2*' use:
+  # - "query"
+  # - "key"
+  # - "value"

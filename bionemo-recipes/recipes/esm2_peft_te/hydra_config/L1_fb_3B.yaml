@@ -4,7 +4,7 @@ defaults:
 
 # Training config
 use_te: false
-model_tag: facebook/esm2_t48_15B_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
+model_tag: facebook/esm2_t36_3B_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
 use_pretrained: true
 num_train_steps: 1000
 
@@ -18,7 +18,7 @@ dataset:
   # The NVIDIA tokenizer is identical to the facebook/esm* and supports generating multiple samples from sequences
   # longer than 1024.
   tokenizer_name: nvidia/esm2_t48_15B_UR50D
-  micro_batch_size: 8
+  micro_batch_size: 34
   val_micro_batch_size: 128
   num_workers: 1
   max_seq_length: 1024
@@ -33,7 +33,7 @@ dataset:
 
 # WandB config
 wandb_init_args:
-  name: "fb_esm2_t48_15B_UR50D_lora"
+  name: "fb_esm2_t36_3B_UR50D_lora"
   project: "esm2_lora"
   mode: "online"
 

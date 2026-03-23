@@ -25,11 +25,10 @@ from torch.utils.data import DataLoader, DistributedSampler
 from transformers import (
     AutoTokenizer,
     DataCollatorForTokenClassification,
-    DataCollatorWithFlattening,
 )
 from transformers.trainer_pt_utils import get_parameter_names
 
-from collator import TokenPackingDataset
+from collator import DataCollatorWithFlattening, TokenPackingDataset
 from distributed_config import DistributedConfig
 
 
@@ -75,6 +74,7 @@ def create_dataloader(
     stride: int,
     seed: int,
     ss3_classification: bool,
+    pad_to_multiple_of: int | None,
     load_dataset_kwargs: dict,
 ) -> tuple[DataLoader, DataLoader | None, IterableDataset | DistributedSampler]:
     """Create a dataloader for the secondary structure dataset."""
@@ -174,7 +174,9 @@ def create_dataloader(
         assert isinstance(train_tokenized_dataset, datasets.IterableDataset), (
             "THD token packing requires a streaming dataset."
         )
-        collator = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
+        collator = DataCollatorWithFlattening(
+            return_position_ids=True, pad_token_id=tokenizer.pad_token_id, pad_to_multiple_of=pad_to_multiple_of
+        )
         train_tokenized_dataset = TokenPackingDataset(
             train_tokenized_dataset, max_tokens_per_batch=micro_batch_size * max_seq_length
         )
@@ -215,7 +217,9 @@ def create_dataloader(
             assert isinstance(val_tokenized_dataset, datasets.IterableDataset), (
                 "THD token packing requires a streaming dataset."
             )
-            collator = DataCollatorWithFlattening(return_flash_attn_kwargs=True)
+            collator = DataCollatorWithFlattening(
+                return_position_ids=True, pad_token_id=tokenizer.pad_token_id, pad_to_multiple_of=pad_to_multiple_of
+            )
             val_tokenized_dataset = TokenPackingDataset(
                 val_tokenized_dataset, max_tokens_per_batch=micro_batch_size * max_seq_length
             )

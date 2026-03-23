@@ -35,11 +35,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DataCollatorWithFlattening:
-    """Data collator that wraps a DataCollatorForLanguageModeling and flattens inputs for flash-attention.
+    """Data collator that flattens inputs for flash-attention, with optional MLM masking.
 
     This collator enables efficient training on batches containing variable-length sequences, by first flattening
-    (packing) multiple input sequences into a single contiguous tensor without padding between sequences. Then, it
-    applies masked language modeling (MLM) masking using the provided DataCollatorForLanguageModeling instance.
+    (packing) multiple input sequences into a single contiguous tensor without padding between sequences.
+
+    When a `collator` is provided, it applies masked language modeling (MLM) masking using the provided
+    DataCollatorForLanguageModeling instance. When `collator` is None, inputs are flattened as-is, which
+    is useful for non-MLM tasks such as token classification or sequence labeling.
 
     The collator also generates metadata required for Flash Attention or context-parallel attention:
       - `cu_seq_lens_q` and `cu_seq_lens_k` tensors, denoting cumulative sequence lengths so that sequence boundaries
@@ -53,32 +56,41 @@ class DataCollatorWithFlattening:
     Only PyTorch tensors (`return_tensors="pt"`) are supported.
 
     Args:
-        collator (DataCollatorForLanguageModeling): The collator to use for MLM masking. This is a captive
-            collator and should be constructed externally and passed in.
+        collator (DataCollatorForLanguageModeling | None): The collator to use for MLM masking. When None,
+            no masking is applied and inputs are flattened as-is.
         return_position_ids (bool): Whether to return position ids (default False).
         pad_to_multiple_of (int, optional): If set, pads the total sequence length to be divisible by this number.
         pad_sequences_to_be_divisible_by (int, optional): If set, each individual sequence is padded to this value.
         separator_id (int, optional): A label to insert between sequences, typically should be -100 for causal LM.
+        pad_token_id (int, optional): Token ID used for padding. Required when using `pad_to_multiple_of` or
+            `pad_sequences_to_be_divisible_by` without a `collator`. When a `collator` is provided, defaults
+            to the tokenizer's pad_token_id.
 
     Example:
-        >>> from transformers import AutoTokenizer, DataCollatorForLanguageModeling
-        >>> tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
-        >>> mlm_collator = DataCollatorForLanguageModeling(tokenizer)
-        >>> flat_collator = DataCollatorWithFlattening(
-        ...     collator=mlm_collator,
-        ...     pad_to_multiple_of=8,
-        ... )
-        >>>
-        >>> # Input: variable length protein sequences
-        >>> sequences = [
-        ...     {"input_ids": [0, 5, 6, 7, 2]},      # 5 tokens
-        ...     {"input_ids": [0, 8, 9, 10, 11, 2]}, # 6 tokens
-        ...     {"input_ids": [0, 12, 13, 2]},       # 4 tokens
-        ... ]  # Total: 15 tokens
-        >>> batch = flat_collator(sequences)
-        >>> print(batch['input_ids'].shape)    # torch.Size([1, 16])
-        >>> print(batch['labels'].shape)       # torch.Size([1, 16])
-        >>> print(batch['cu_seq_lens_q'])      # tensor([0, 5, 11, 15, 16], dtype=torch.int32)
+        With MLM masking::
+
+            >>> from transformers import AutoTokenizer, DataCollatorForLanguageModeling
+            >>> tokenizer = AutoTokenizer.from_pretrained("facebook/esm2_t6_8M_UR50D")
+            >>> mlm_collator = DataCollatorForLanguageModeling(tokenizer)
+            >>> flat_collator = DataCollatorWithFlattening(
+            ...     collator=mlm_collator,
+            ...     pad_to_multiple_of=8,
+            ... )
+            >>>
+            >>> # Input: variable length protein sequences
+            >>> sequences = [
+            ...     {"input_ids": [0, 5, 6, 7, 2]},      # 5 tokens
+            ...     {"input_ids": [0, 8, 9, 10, 11, 2]}, # 6 tokens
+            ...     {"input_ids": [0, 12, 13, 2]},       # 4 tokens
+            ... ]  # Total: 15 tokens
+            >>> batch = flat_collator(sequences)
+            >>> print(batch['input_ids'].shape)    # torch.Size([1, 16])
+            >>> print(batch['labels'].shape)       # torch.Size([1, 16])
+            >>> print(batch['cu_seq_lens_q'])      # tensor([0, 5, 11, 15, 16], dtype=torch.int32)
+
+        Without MLM masking (e.g. for token classification)::
+
+            >>> flat_collator = DataCollatorWithFlattening(pad_to_multiple_of=8, pad_token_id=1)
 
     Note:
         The output is a THD-format (Total, Height, Depth) batch, where all input sequences are packed without
@@ -86,23 +98,30 @@ class DataCollatorWithFlattening:
         Flash Attention or context-parallelism without traditional attention masks.
     """
 
-    collator: DataCollatorForLanguageModeling
+    collator: DataCollatorForLanguageModeling | None = None
     return_position_ids: bool = False
     pad_to_multiple_of: int | None = None
     pad_sequences_to_be_divisible_by: int | None = None
     separator_id: int | None = None
+    pad_token_id: int | None = None
 
     def __post_init__(self):
-        """Ensure padding options are not used together."""
+        """Validate configuration."""
         if self.pad_sequences_to_be_divisible_by is not None and self.pad_to_multiple_of is not None:
             raise ValueError("pad_sequences_to_be_divisible_by and pad_to_multiple_of cannot be used together")
+        needs_pad_token = self.pad_to_multiple_of is not None or self.pad_sequences_to_be_divisible_by is not None
+        if needs_pad_token and self.collator is None and self.pad_token_id is None:
+            raise ValueError(
+                "pad_token_id must be provided when using pad_to_multiple_of or "
+                "pad_sequences_to_be_divisible_by without a collator"
+            )
 
     def __call__(self, features, return_tensors=None):
-        """Process a batch of variable-length sequences for Flash Attention with MLM.
+        """Process a batch of variable-length sequences for Flash Attention.
 
         This method performs the following steps:
         1. Flattens multiple sequences into a single packed tensor with Flash Attention metadata
-        2. Applies MLM masking to the flattened sequence while preserving special tokens
+        2. If a collator is provided, applies MLM masking while preserving special tokens
         3. Optionally pads to a multiple of a specified number for hardware optimization
 
         Args:
@@ -159,22 +178,26 @@ class DataCollatorWithFlattening:
         if return_tensors is not None and return_tensors != "pt":
             raise NotImplementedError(f"Only return_tensors='pt' is supported, got '{return_tensors}'")
 
-        # Perform the masking with the BSHD collator.
-        bshd_batch = self.collator(features, return_tensors=return_tensors)
-
         # Create the flattened batch to get the cu_seq_lens_q and cu_seq_lens_k values.
         packed_batch = _pt_flatten_collate(features, return_position_ids=self.return_position_ids)
 
-        # Get the masked input_ids and labels from the BSHD batch.
-        masked_input_ids = bshd_batch["input_ids"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
-        masked_labels = bshd_batch["labels"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
+        if self.collator is not None:
+            # Perform the masking with the BSHD collator.
+            bshd_batch = self.collator(features, return_tensors=return_tensors)
 
-        if self.separator_id is not None:
-            masked_labels[:, packed_batch["cu_seq_lens_q"][1:-1]] = self.separator_id
+            # Get the masked input_ids and labels from the BSHD batch.
+            masked_input_ids = bshd_batch["input_ids"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
+            masked_labels = bshd_batch["labels"][bshd_batch["attention_mask"].bool()].unsqueeze(0)
 
-        # Update the packed batch with the masked input_ids and labels.
-        packed_batch["input_ids"] = masked_input_ids
-        packed_batch["labels"] = masked_labels
+            if self.separator_id is not None:
+                masked_labels[:, packed_batch["cu_seq_lens_q"][1:-1]] = self.separator_id
+
+            # Update the packed batch with the masked input_ids and labels.
+            packed_batch["input_ids"] = masked_input_ids
+            packed_batch["labels"] = masked_labels
+        else:
+            if self.separator_id is not None and "labels" in packed_batch:
+                packed_batch["labels"][:, packed_batch["cu_seq_lens_q"][1:-1]] = self.separator_id
 
         if self.pad_to_multiple_of is not None:
             packed_batch = self._pad_batch_to_multiple_of(packed_batch)
@@ -184,30 +207,30 @@ class DataCollatorWithFlattening:
 
         return packed_batch
 
+    def _get_pad_token_id(self) -> int:
+        """Resolve the pad token ID from the explicit field or the collator's tokenizer."""
+        if self.pad_token_id is not None:
+            return self.pad_token_id
+        if self.collator is not None:
+            tid = self.collator.tokenizer.pad_token_id
+            if isinstance(tid, int):
+                return tid
+            logger.warning("tokenizer.pad_token_id is not an integer, using 1 instead: %s", tid)
+            return 1
+        raise ValueError("pad_token_id must be provided when no collator is set")
+
     def _pad_batch_to_multiple_of(self, batch):
         """Add a mock sequence to make the total number of tokens divisible by pad_to_multiple_of."""
-        # Ensure token_pad is an integer, defaulting to 1 if pad_token_id is None or invalid
-        pad_token_id = self.collator.tokenizer.pad_token_id
-        if not isinstance(pad_token_id, int):
-            logger.warning(f"tokenizer.pad_token_id is not an integer, using 1 instead: {pad_token_id}")
-            pad_token_id = 1
-
         assert self.pad_to_multiple_of is not None, "pad_to_multiple_of must be set"
-
         return _pt_pad_to_multiple_of(
             batch,
             self.pad_to_multiple_of,
-            token_pad=pad_token_id,
+            token_pad=self._get_pad_token_id(),
             label_pad=-100,
         )
 
     def _pad_sequences_to_be_divisible_by(self, batch):
         """Pad individual sequences using cu_seq_lens_*_padded for context parallelism."""
-        pad_token_id = self.collator.tokenizer.pad_token_id
-        if not isinstance(pad_token_id, int):
-            logger.warning(f"tokenizer.pad_token_id is not an integer, using 1 instead: {pad_token_id}")
-            pad_token_id = 1
-
         assert self.pad_sequences_to_be_divisible_by is not None, "pad_sequences_to_be_divisible_by must be set"
 
         input_ids_padded, labels_padded, cu_seqlens_padded = pad_thd_sequences_for_cp(
@@ -215,7 +238,7 @@ class DataCollatorWithFlattening:
             batch["labels"],
             batch["cu_seq_lens_q"],
             self.pad_sequences_to_be_divisible_by,
-            padding_token_id=pad_token_id,
+            padding_token_id=self._get_pad_token_id(),
             padding_label_id=-100,
         )
 

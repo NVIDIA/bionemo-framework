@@ -3,13 +3,14 @@ defaults:
   - _self_
 
 # Training config
+use_te: true
 model_tag: nvidia/esm2_t48_15B_UR50D # E.g., nvidia/esm2_t6_8M_UR50D or facebook/esm2_t6_8M_UR50D
 use_pretrained: true
 num_train_steps: 1000
 
 validation_interval: 20
 
-use_torch_compile: true
+use_torch_compile: false
 
 use_sequence_packing: true
 
@@ -30,7 +31,7 @@ dataset:
 
 # WandB config
 wandb_init_args:
-  name: "esm2_t48_15B_UR50D_lora"
+  name: "nv_esm2_t48_15B_UR50D_lora"
   project: "esm2_lora"
   mode: "online"
 

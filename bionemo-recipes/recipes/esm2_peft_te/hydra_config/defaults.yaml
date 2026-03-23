@@ -1,4 +1,5 @@
 # Training config
+use_te: true # Whether to use TransformerEngine layers through NVEsmForMaskedLM (if false, use HF's EsmForMaskedLM)
 model_tag: ??? # E.g., nvidia/esm2_t6_8M_UR50D, facebook/esm2_t6_8M_UR50D, or a local path (e.g ./example_8m_checkpoint)
 num_train_steps: ???
 validation_interval: 50
@@ -22,6 +23,21 @@ dataset:
     path: "nvidia/esm2_uniref_pretraining_data"
     split: "train"
     streaming: True
+
+# TransformerEngine FP8 config. See
+# https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html for more information on
+# supported formats.
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+
+fp4_config:
+  enabled: false
+  fp4_recipe: transformer_engine.common.recipe.NVFP4BlockScaling
+  fp4_format: "E2M1"
+  fp4_recipe_kwargs: {}
 
 # WandB config
 wandb_init_args:

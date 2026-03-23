@@ -114,6 +114,15 @@ class NVEsmConfig(EsmConfig):
             use_quantized_model_init: Whether to use `quantized_model_init` for layer initialization.
             **kwargs: Additional config options to pass to EsmConfig.
         """
+        # EsmConfig (upstream) does not declare bos/eos_token_id, but
+        # transformers >=5.3 accesses them directly on the config in
+        # PreTrainedModel._maybe_warn_non_default_padding.  Default to None
+        # ("not used") following the same convention as BertConfig.
+        # We set them via kwargs so super().__init__() stores them, and an
+        # explicit value in a config.json will take precedence.
+        kwargs.setdefault("bos_token_id", None)
+        kwargs.setdefault("eos_token_id", None)
+
         super().__init__(**kwargs)
         # Additional TE-related config options.
         self.qkv_weight_interleaved = qkv_weight_interleaved

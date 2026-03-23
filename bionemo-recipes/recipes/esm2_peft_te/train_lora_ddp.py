@@ -24,6 +24,7 @@ import peft
 import torch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
+from transformer_engine.common.recipe import Format
 from transformers import (
     AutoConfig,
     AutoModelForTokenClassification,
@@ -65,19 +66,27 @@ def main(args: DictConfig) -> float:
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
-    train_dataloader, val_dataloader, train_dataset_or_sampler = create_dataloader(
-        distributed_config=dist_config,
-        use_sequence_packing=args.use_sequence_packing,
-        **OmegaConf.to_container(args.dataset, resolve=True),
-    )
-
-    perform_validation = val_dataloader is not None
-
     # Create a device mesh for DDP. While this isn't strictly necessary, it mirrors the device mesh we create for FSDP2
     # and MFSDP.
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("ddp",))
 
-    # For testing, we don't want to depend on loading pre-trained weights.
+    model_kwargs = {}
+
+    fp8_recipe = None
+    fp4_recipe = None
+    if args.use_te:
+        if args.fp8_config.enabled:
+            fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+                fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+            )
+            model_kwargs["fp8_recipe"] = fp8_recipe
+
+        if args.fp4_config.enabled:
+            fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+                fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
+            )
+            model_kwargs["fp4_recipe"] = fp4_recipe
+
     config = AutoConfig.from_pretrained(args.model_tag, trust_remote_code=True, dtype=torch.bfloat16)
     if args.use_sequence_packing:
         config.attn_input_format = "thd"
@@ -91,10 +100,19 @@ def main(args: DictConfig) -> float:
 
     if args.use_pretrained:
         model = AutoModelForTokenClassification.from_pretrained(
-            args.model_tag, config=config, trust_remote_code=True, dtype="bfloat16"
+            args.model_tag, config=config, trust_remote_code=True, **model_kwargs
         )
     else:
         model = AutoModelForTokenClassification.from_config(config, trust_remote_code=True)
+
+    train_dataloader, val_dataloader, train_dataset_or_sampler = create_dataloader(
+        distributed_config=dist_config,
+        use_sequence_packing=args.use_sequence_packing,
+        pad_to_multiple_of=16 if fp8_recipe is not None else None,
+        **OmegaConf.to_container(args.dataset, resolve=True),
+    )
+
+    perform_validation = val_dataloader is not None
 
     peft_config = peft.LoraConfig(
         task_type=peft.TaskType.TOKEN_CLS,
