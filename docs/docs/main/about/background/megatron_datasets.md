@@ -53,25 +53,28 @@ for sample in MultiEpochDatasetResampler(dataset, num_epochs=3, shuffle=True):
 
 ## Training Resumption
 
-The actively maintained framework no longer ships the older Megatron-specific datamodule helpers that used to manage
-sample-exact training resumption. If you are maintaining a legacy Megatron data pipeline, preserve the same contract
-explicitly in your datamodule:
+To ensure identical behavior with and without job interruption, Megatron datamodules must manage sample-exact training
+resumption. When writing your own datamodule, preserve these constraints:
 
-- persist enough dataloader state to resume from the correct sample index
-- distinguish train, validation, and test loader behavior explicitly
-- avoid reusing training-resume state for validation or test loaders
+- Persist enough dataloader state (e.g. the global step or sample index) so training resumes from the correct position
+  rather than restarting from index 0.
+- Distinguish between train, validation, and test dataloaders explicitly. Only the training dataloader should resume
+  from a saved sample index — validation and test dataloaders should always start from the beginning.
+- Update the global step immediately before returning each dataloader so the resume position is accurate.
 
-For new training code, prefer the self-contained implementations in `bionemo-recipes`, where checkpointing and
-dataloader state management live alongside the training entrypoints.
+See the `evo2_megatron` and `eden_megatron` recipes in `bionemo-recipes` for working examples of Megatron datamodule
+implementations with training resumption.
 
 ## Testing Datasets for Megatron Compatibility
 
-For legacy Megatron-compatible datasets, the key invariant is still determinism: repeated calls with the same effective
-index should yield the same sample. In practice, tests should confirm that:
+The key invariant for Megatron-compatible datasets is determinism: repeated calls with the same index must yield the
+same sample. When writing tests for your dataset, confirm that:
 
-- repeated indexing is deterministic
-- epoch-aware randomization is driven only by the epoch component of the index
-- `torch.manual_seed` is not called inside dataset access paths
+- Repeated indexing with the same index returns identical results.
+- Epoch-aware randomization is driven only by the epoch component of the index (via a local `torch.Generator`, not
+  the global seed).
+- `torch.manual_seed` is not called inside dataset `__getitem__` paths, as Megatron-LM manages torch seeding
+  internally for model parallelism.
 
-Current large-scale training examples live in `bionemo-recipes`, so recipe-local tests are the best reference for how
-to validate these assumptions today.
+Recipe-local tests in `bionemo-recipes` (e.g. in the `evo2_megatron` recipe) are the best reference for how to
+validate these assumptions.
