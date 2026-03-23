@@ -1,6 +1,6 @@
 # Development with BioNeMo
 
-This page covers the current development model for the repository after the NeMo2-era training packages were removed.
+This page covers the current development model for the repository.
 
 ## Code overview
 
@@ -8,6 +8,15 @@ BioNeMo Framework now has two main development workflows:
 
 - **Recipe development** in `bionemo-recipes/`, where model implementations and end-to-end training or inference workflows live.
 - **Framework library development** in `sub-packages/`, where reusable utilities and biology-oriented workflow libraries live.
+
+### Recipe isolation
+
+Each recipe should be treated as if it were its own isolated repository. Recipes may `pip install` packages from the
+`sub-packages/` framework libraries or from external sources, but they must not assume those packages are already
+available in the environment. Every recipe is responsible for declaring how its dependencies are installed (e.g. in a
+`requirements.txt`, `pyproject.toml`, or `Dockerfile`). This ensures recipes remain portable and self-contained — a
+user should be able to clone the repository, enter a recipe directory, and follow its instructions to get a working
+environment without relying on any implicit global state.
 
 Examples of current framework libraries include:
 
