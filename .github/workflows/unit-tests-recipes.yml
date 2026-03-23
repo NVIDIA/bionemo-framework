@@ -56,7 +56,6 @@ jobs:
             bionemo-recipes/models/**
             bionemo-recipes/recipes/**
             !bionemo-recipes/recipes/*megatron/**
-            !bionemo-recipes/recipes/vllm_inference/**
 
       - id: set-dirs
         name: Determine which directories to run
