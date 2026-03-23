@@ -68,6 +68,8 @@ Training recipes are available in the `bionemo-recipes/recipes/` directory:
   loop.
 - **[esm2_accelerate_te](../../recipes/esm2_accelerate_te/)** - Trains the model using HuggingFace
   [Accelerate](https://huggingface.co/docs/accelerate/index).
+- **[vllm_inference/esm2](../../recipes/vllm_inference/esm2/)** - Demonstrates inference with
+  [vLLM](https://github.com/vllm-project/vllm).
 
 ## Running with Low Precision (FP8/FP4)
 
@@ -142,8 +144,7 @@ You can also mix FP8 and FP4 layers by providing both recipes and a mixed `layer
 
 When `use_quantized_model_init=True` is set in the config, layers are created inside a
 `te.quantized_model_init` context. This tells TransformerEngine to initialize weights directly in
-the target quantized format, avoiding a separate quantization step after initialization. This is
-primarily useful when loading pre-quantized checkpoints.
+the target quantized format, avoiding a separate quantization step after initialization.
 
 ```python
 config = NVEsmConfig.from_pretrained(

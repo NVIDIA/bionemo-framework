@@ -1,0 +1,6 @@
+# @package _global_
+# ESM2-650M configuration
+model_name: nvidia/esm2_t33_650M_UR50D
+run_name: 650m_50k
+num_proteins: 50000
+batch_size: 16

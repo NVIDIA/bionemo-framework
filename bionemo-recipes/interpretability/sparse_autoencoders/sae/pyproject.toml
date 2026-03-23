@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sae"
+version = "0.1.0"
+description = "Generic Sparse Autoencoder implementations for interpretability research"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name="Jared Wilber", email="jwilber@nvidia.com" },
+]
+keywords = ["machine learning", "interpretability", "sparse autoencoders"]
+
+# Minimal dependencies - domain-agnostic
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.20",
+    "tqdm>=4.60",
+    "pyarrow>=23.0.0",
+    "wandb>=0.24.0",
+]
+
+[project.optional-dependencies]
+tracking = [
+    "wandb>=0.15",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+    "mypy>=1.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

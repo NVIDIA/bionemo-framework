@@ -16,7 +16,7 @@
 NVIDIA BioNeMo Framework is a comprehensive suite of programming tools, libraries, and models designed for digital biology. It accelerates the most time-consuming and costly stages of building and adapting biomolecular AI models by providing domain-specific, optimized model recipes and tooling that are easily integrated into GPU-based computational resources with state-of-the-art performance.
 
 <p align="center">
-  <img src="docs/docs/assets/images/esm2/esm2_native_te_benchmarks.svg" width="600">
+  <img src="docs/docs/assets/images/esm2/esm2_low_precision/esm2_15b_grouped_bars.png" width="600">
   <br>
   <em> Training benchmarks for ESM-2, a well known protein sequence model using the BERT architecture.</em>
 </p>
@@ -43,6 +43,18 @@ cd bionemo-framework/bionemo-recipes/recipes/esm2_native_te/
 
 ## Recent News
 
+<p align="center">
+  <img src="docs/docs/assets/images/sae.png" width="600">
+  <br>
+  <em><a href="https://research.nvidia.com/labs/dbr/blog/sae/">Sparse autoencoder feature dashboard for CodonFM 1B</a>, showing learned latent features and their activations on protein sequences.</em>
+</p>
+
+- 03/13/2026 [Sparse Autoencoders for model interpretability](bionemo-recipes/interpretability/sparse_autoencoders/) — train and analyze SAEs on biological foundation models. Includes recipes for ESM2 and CodonFM with interactive feature dashboards.
+- 03/09/2026 [Qwen2.5 / Qwen3 model](bionemo-recipes/models/qwen/) with TE acceleration, FP8/MXFP8, KV-cache inference, and bidirectional HF checkpoint conversion.
+- 03/05/2026 [ESM2 NVFP4 and MXFP8](bionemo-recipes/recipes/esm2_native_te/README.md#low-precision-performance-benchmarks) low-precision training — up to **2,367 TFLOPS/GPU** on NVIDIA B300 at 15B scale with per-layer precision control.
+- 02/23/2026 [Mixtral MoE model](bionemo-recipes/models/mixtral/) with TE `GroupedLinear` for efficient parallel expert computation, FP8/FP4 support, and HF conversion.
+- 02/13/2026 [ESM2 PEFT recipe](bionemo-recipes/recipes/esm2_peft_te/) for LoRA fine-tuning with sequence packing support.
+- 01/14/2026 [Llama3 Context Parallelism](bionemo-recipes/recipes/llama3_native_te/README.md#performance-benchmarks) — scaling Llama 3 70B to 144K context on 36x GB300 NVL36 with ~65% MFU.
 - 10/27/2025 [CodonFM recipe](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes/recipes/codonfm_ptl_te) released! This is an accelerated version of the original [research codebase](https://github.com/NVIDIA-Digital-Bio/CodonFM) with [scientific preprint](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/nv-codonfm-preprint.pdf).
 - 09/01/2025 [bionemo-recipes](https://github.com/NVIDIA/bionemo-framework/tree/main/bionemo-recipes) goes live! Lightweight and portable examples with state-of-the-art training performance you can riff on to meet your needs.
 
@@ -60,13 +72,18 @@ A core use-case of the BioNeMo Framework is to help digital biology scientists a
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------- | ----------- | ------------- | ------ | ---------------- | ------ | ------------------- |
 | `models/`<br>`amplify`                         | TE accelerated protein BERT, pushed to HuggingFace                                                                            | ✅ Active      | ❌          | ✅            | ✅     | 🚧 WIP           | ✅     | 🚧 WIP              |
 | `models/`<br>`esm2`                            | TE accelerated protein BERT, pushed to HuggingFace                                                                            | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | ✅                  |
-| `models/`<br>`llama3`                          | TE accelerated Llama 3                                                                                                        | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | 🚧 WIP | 🚧 WIP              |
+| `models/`<br>`llama3`                          | TE accelerated Llama 3                                                                                                        | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | ✅     | ✅                  |
 | `models/`<br>`geneformer`                      | TE accelerated single-cell BERT                                                                                               | 🚧 WIP         | ❌          | ✅            | 🚧 WIP | 🚧 WIP           | 🚧 WIP | 🚧 WIP              |
 | `recipes/`<br>`codonfm_ptl_te`                 | Recipe for [CodonFM](https://research.nvidia.com/labs/dbr/assets/data/manuscripts/nv-codonfm-preprint.pdf)'s Encodon using TE | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | 🚧 WIP | 🚧 WIP              |
 | `recipes/`<br>`esm2_accelerate_te`             | Recipe for ESM2 TE + HF Accelerate                                                                                            | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ❌               | ✅     | 🚧 WIP              |
-| `recipes/`<br>`esm2_native_te`                 | Recipe for ESM2 TE + native PyTorch                                                                                           | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | 🚧 WIP              |
+| `recipes/`<br>`esm2_native_te`                 | Recipe for ESM2 TE + native PyTorch                                                                                           | ✅ Active      | ❌          | ✅            | ✅     | ✅               | ✅     | ✅                  |
 | `recipes/`<br>`geneformer_native_te_mfsdp_fp8` | Recipe for Geneformer HF model                                                                                                | 🚧 WIP         | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
-| `recipes/`<br>`llama3_native_te`               | Recipe for Llama 3 TE + native PyTorch                                                                                        | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | 🚧 WIP | 🚧 WIP              |
+| `recipes/`<br>`llama3_native_te`               | Recipe for Llama 3 TE + native PyTorch                                                                                        | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | ✅     | ✅                  |
+| `models/`<br>`mixtral`                         | TE accelerated MoE model                                                                                                      | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | ✅     | 🚧 WIP              |
+| `models/`<br>`qwen`                            | TE accelerated Qwen2.5/Qwen3                                                                                                  | ✅ Active      | ❌          | 🚧 WIP        | ✅     | ✅               | ✅     | 🚧 WIP              |
+| `recipes/`<br>`esm2_peft_te`                   | Recipe for ESM2 LoRA fine-tuning                                                                                              | ✅ Active      | ❌          | ❌            | ✅     | ✅               | 🚧 WIP | ❌                  |
+| `recipes/`<br>`evo2_megatron`                  | Recipe for Evo2 via Megatron Bridge                                                                                           | 🚧 WIP         | ❌          | ❌            | ✅     | ❌               | ✅     | ❌                  |
+| `recipes/`<br>`fp8_analysis`                   | FP8 training analyzer & heatmap tool                                                                                          | ✅ Active      | N/A         | N/A           | N/A    | N/A              | N/A    | N/A                 |
 | `recipes/`<br>`vit`                            | Recipe for Vision Transformer                                                                                                 | 🚧 WIP         | ❌          | ✅            | ✅     | ❌               | ✅     | 🚧 WIP              |
 
 </small>

@@ -20,9 +20,24 @@ import tempfile
 from pathlib import Path
 
 import yaml
+from nvdlfw_inspect.logging import BaseLogger
 
 
 logger = logging.getLogger(__name__)
+
+
+class WandBQuantLogger(BaseLogger):
+    """Forward nvdlfw_inspect quant stats to WandB as scalars.
+
+    Each stat is logged under the ``quant/`` prefix so it appears alongside
+    training metrics (loss, perplexity, etc.) in a single WandB dashboard.
+    """
+
+    def log_scalar(self, name: str, value: float | int, iteration: int, **kwargs):
+        """Log a single quant stat to WandB."""
+        import wandb
+
+        wandb.log({f"quant/{name}": value}, step=iteration)
 
 
 def generate_layer_regex(layer_numbers: list[int] | None) -> str:
@@ -38,9 +53,9 @@ def generate_layer_regex(layer_numbers: list[int] | None) -> str:
         Regex pattern string for matching those layers' linear sublayers.
     """
     if not layer_numbers:
-        return r"model\.esm\.encoder\.layers\.DISABLED_NO_LAYERS_SPECIFIED"
+        return r"model\.model\.encoder\.layers\.DISABLED_NO_LAYERS_SPECIFIED"
     layer_pattern = "|".join(str(n) for n in sorted(layer_numbers))
-    return rf"model\.esm\.encoder\.layers\.({layer_pattern})\..*(layernorm_qkv|proj|fc1|fc2)"
+    return rf"model\.model\.encoder\.layers\.({layer_pattern})\..*(layernorm_qkv|proj|fc1|fc2)"
 
 
 def update_quant_stats_config(
@@ -99,6 +114,7 @@ def initialize_quant_stats_logging(
     quant_log_dir: str,
     rank: int,
     layer_precision: list[str | None],
+    statistics_logger: BaseLogger | None = None,
 ) -> None:
     """Set up quantization stats logging via nvdlfw_inspect.
 
@@ -111,6 +127,9 @@ def initialize_quant_stats_logging(
         rank: The global rank of this process.
         layer_precision: Per-layer precision list (0-indexed by position). Each element is
             ``"fp8"``, ``"fp4"``, or ``None``.
+        statistics_logger: Optional custom logger (e.g. :class:`WandBQuantLogger`) that receives
+            every ``log_scalar`` call from the debug API.  When provided together with
+            ``default_logging_enabled=True`` the file logger is kept as well.
     """
     import nvdlfw_inspect.api as debug_api
     import transformer_engine
@@ -133,6 +152,7 @@ def initialize_quant_stats_logging(
         config_file=updated_config,
         feature_dirs=[te_features_dir],
         log_dir=rank_log_dir,
+        statistics_logger=statistics_logger,
         default_logging_enabled=True,
     )
 

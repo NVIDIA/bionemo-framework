@@ -241,17 +241,18 @@ If you add new Python (`.py`) files, the pre-commit license-check hook will auto
 correct license header. We recommend using the developer container for contributions and running
 `pre-commit run --all-files` to apply headers and other formatting automatically.
 
-#### Updating the secrets baseline file
+#### Secret Detection
 
-If false-positives are raised by the [detect-secrets](https://github.com/Yelp/detect-secrets) pre-commit hook, they can
-be added to the baseline files by running the following commands:
+We use [gitleaks](https://github.com/gitleaks/gitleaks) to detect hardcoded secrets in the codebase. The configuration
+is in `.gitleaks.toml`.
 
-```bash
-detect-secrets scan --baseline .secrets.baseline --exclude-files '(.*\.ipynb|.*\.baseline)$'
-detect-secrets scan --baseline .secrets-nb.baseline --exclude-files '^.(?!.*\.ipynb)' --exclude-lines '"(hash|id|image/\w+)":.*'
+If gitleaks raises a false positive, you can suppress it by adding a `gitleaks:allow` comment on the offending line:
+
+```python
+api_url = "https://example.com/v1"  # gitleaks:allow
 ```
 
-The resulting altered baseline files should then be committed.
+Alternatively, you can add a path or regex pattern to the `[allowlist]` section in `.gitleaks.toml`.
 
 ## Contributing Python Sub-Packages to BioNeMo Framework
 
