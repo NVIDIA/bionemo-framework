@@ -26,7 +26,7 @@ which may also contribute to its lower test performance.
 
 | Model                      | Step / checkpoint | Train loss | Mean Test loss | Mean Test Perplexity |
 | -------------------------- | ----------------- | ---------- | -------------- | -------------------- |
-| LlaMA3 Recipe (OG2 7B)     | 182313            | 0.9444     | 0.9204         | 2.51                 |
+| LlaMA3 Recipe (OG2 7B)     | 182313            | 0.94     | 0.92       | 2.51                 |
 | Megatron baseline (OG2 7B) | 182313            | 1.01       | 1.019          | 2.80                 |
 
 > **Evaluation methodology:** Test losses are average NLL (negative log-likelihood) computed using
