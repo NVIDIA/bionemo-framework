@@ -26,6 +26,7 @@ Requires: WANDB_API_KEY set or `wandb login` done.
 
 import json
 import logging
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -47,7 +48,7 @@ RUNS = {
 }
 
 PROJECT = "clara-discovery/llama3-metagenome-7b"
-METRICS = ["train_loss", "learning_rate", "train_loss_smoothed"]
+METRICS = ["train/loss", "train/learning_rate"]
 
 
 def pull_run_history(api, project, run_id, metrics):
@@ -80,6 +81,9 @@ def main():
     for label, info in RUNS.items():
         logger.info(f"\nPulling {label}...")
         history, config, name = pull_run_history(api, PROJECT, info["run_id"], METRICS)
+        if len(history) == 0:
+            logger.warning(f"  No data returned for {label} - skipping")
+            continue
         all_histories[label] = history
         all_configs[label] = config
         logger.info(f"  Got {len(history)} data points")
@@ -91,24 +95,22 @@ def main():
     with open(out_dir / "configs.json", "w") as f:
         json.dump(all_configs, f, indent=2, default=str)
 
+    if not all_histories:
+        logger.error("No data pulled for any run - exiting")
+        sys.exit(1)
+
     # --- Plot 1: Loss curves ---
+    loss_col = "train/loss"
     fig, ax = plt.subplots(figsize=(14, 7))
     for label, info in RUNS.items():
+        if label not in all_histories:
+            continue
         history = all_histories[label]
-        loss_col = "train_loss" if "train_loss" in history.columns else history.columns[0]
+        if loss_col not in history.columns:
+            logger.warning(f"  {loss_col} not in {label} columns: {list(history.columns)}")
+            continue
         data = history.dropna(subset=[loss_col])
-        ax.plot(data["_step"], data[loss_col], label=label, color=info["color"], alpha=0.7, linewidth=1)
-
-        # Add smoothed if available
-        if "train_loss_smoothed" in history.columns:
-            smoothed = history.dropna(subset=["train_loss_smoothed"])
-            ax.plot(
-                smoothed["_step"],
-                smoothed["train_loss_smoothed"],
-                color=info["color"],
-                linewidth=2.5,
-                linestyle="-",
-            )
+        ax.plot(data["_step"], data[loss_col], label=label, color=info["color"], alpha=0.7, linewidth=1.5)
 
     ax.set_xlabel("Training Step", fontsize=14, fontweight="bold")
     ax.set_ylabel("Training Loss", fontsize=14, fontweight="bold")
@@ -123,13 +125,16 @@ def main():
     logger.info(f"\nSaved: {loss_path}")
 
     # --- Plot 2: Learning rate ---
-    if any("learning_rate" in h.columns for h in all_histories.values()):
+    lr_col = "train/learning_rate"
+    if any(lr_col in h.columns for h in all_histories.values()):
         fig, ax = plt.subplots(figsize=(14, 5))
         for label, info in RUNS.items():
+            if label not in all_histories:
+                continue
             history = all_histories[label]
-            if "learning_rate" in history.columns:
-                data = history.dropna(subset=["learning_rate"])
-                ax.plot(data["_step"], data["learning_rate"], label=label, color=info["color"], linewidth=1.5)
+            if lr_col in history.columns:
+                data = history.dropna(subset=[lr_col])
+                ax.plot(data["_step"], data[lr_col], label=label, color=info["color"], linewidth=1.5)
         ax.set_xlabel("Training Step", fontsize=12)
         ax.set_ylabel("Learning Rate", fontsize=12)
         ax.set_title("Learning Rate Schedule", fontsize=14, fontweight="bold")
@@ -146,8 +151,9 @@ def main():
     logger.info("SUMMARY")
     logger.info("=" * 70)
     for label, info in RUNS.items():
+        if label not in all_histories:
+            continue
         history = all_histories[label]
-        loss_col = "train_loss" if "train_loss" in history.columns else history.columns[0]
         data = history.dropna(subset=[loss_col])
         if len(data) > 0:
             logger.info(f"\n{label} ({info['run_id']}):")
@@ -162,7 +168,7 @@ def main():
     logger.info("\n--- Config differences ---")
     keys_to_compare = ["fp8_layers", "num_train_steps", "learning_rate", "micro_batch_size", "gradient_accumulation"]
     for key in keys_to_compare:
-        vals = {label: all_configs[label].get(key, "N/A") for label in RUNS}
+        vals = {label: all_configs[label].get(key, "N/A") for label in RUNS if label in all_configs}
         is_diff = len({str(v) for v in vals.values()}) > 1
         marker = " *** DIFFERENT ***" if is_diff else ""
         logger.info(f"  {key}:{marker}")
