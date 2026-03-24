@@ -181,7 +181,7 @@ a fruitful interaction across the team members.
 
 - All reviewers may request an PR is too large if it is larger than
   500 lines of net code addition. The only exception are MRs into
-  the `bionemo2/contrib` directory, where larger MRs are permissible.
+  the `contrib` directory, where larger MRs are permissible.
   This includes lines of code, but not something such as dummy data or
   a fake dataset that may contain thousands of lines of stuff that is not
   actually functional code.
@@ -458,10 +458,10 @@ a fruitful interaction across the team members.
   mistakes.
 
 - In BioNeMo, for features under development that are not ready for
-  production, we put them inside the `bionemo2/contrib` folder. This allows for teams to develop
+  production, we put them inside a `contrib` folder. This allows for teams to develop
   faster (less strict reviews) while testing code. When a feature is
-  complete and well tested, we move it to `bionemo2/src` or
-  `bionemo2/core` and we complete all the requirements for production.
+  complete and well tested, we move it to the appropriate sub-package under `sub-packages/`
+  and complete all the requirements for production.
 
 ## References
 

@@ -18,7 +18,7 @@
 Performs a fresh facebook -> TE export, then cross-validates embeddings across
 vLLM, HuggingFace (exported checkpoint), and HuggingFace (nvidia Hub reference).
 
-vLLM's pooling runner returns last-token, L2-normalised embeddings by default,
+vLLM's pooling runner returns last-token, L2-normalized embeddings by default,  # gitleaks:allow
 so the HuggingFace paths replicate that post-processing for comparison.
 """
 

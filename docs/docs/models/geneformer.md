@@ -39,7 +39,7 @@ Geneformer generates a dense representation of a scRNA cell by learning co-expre
 
 **Runtime Engine(s):**
 
-- BioNeMo, NeMo 1.2 <br>
+- BioNeMo, TransformerEngine <br>
 
 **Supported Hardware Microarchitecture Compatibility:** <br>
 
@@ -136,7 +136,7 @@ Adamson et al 2016 PERTURB-seq dataset, accessed by Harvard dataverse.
 
 ### Inference:
 
-**Engine:** BioNeMo, NeMo <br>
+**Engine:** BioNeMo, TransformerEngine <br>
 **Test Hardware:** <br>
 
 - Ampere <br>

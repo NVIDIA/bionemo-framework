@@ -46,7 +46,7 @@ The use cases of BioNeMO Recipes include:
 
 Abbreviations:
 
-- FSDP: Fully sharded data parallel. In `bionemo-recipes`, we focus on pytorch native [FSDP2](<(https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html)>) and [megatron-FSDP](<(https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src)>)(mFSDP) support.
+- FSDP: Fully sharded data parallel. In `bionemo-recipes`, we focus on pytorch native [FSDP2](https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html) and [megatron-FSDP](https://github.com/NVIDIA/Megatron-LM/tree/main/megatron/core/distributed/fsdp/src) (mFSDP) support.
 - BF16: [brain-float 16](https://en.wikipedia.org/wiki/Bfloat16_floating-point_format), a common 16 bit float format for deep learning.
 - FP8<sup>[1]</sup>: [8-bit floating point](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html), a compact format for weights allowing for faster training and inference.
 - MXFP8<sup>[2]</sup>: [Multi Scale 8-bit floating point](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html), as compact as FP8 but with better numerical precision.
@@ -104,7 +104,7 @@ Build and run recipes with the following.
 
 ```bash
 # Navigate to a recipe
-cd recipes/esm2_native_te_mfsdp
+cd recipes/esm2_native_te
 
 # Build and run
 docker build -t esm2_recipe .
@@ -145,7 +145,7 @@ BioNeMo Recipes prioritize **readability and simplicity** over comprehensive fea
 
 ### Testing Strategy
 
-BioNeMo Reciptes use a three-tier testing approach:
+BioNeMo Recipes use a three-tier testing approach:
 
 #### L0 Tests (Pre-merge)
 
