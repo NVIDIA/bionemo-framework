@@ -73,8 +73,8 @@ In the above plot we can see the performance increases as we lower the precision
 ### Convergence Benchmarks
 
 <p align="center">
-  <img src="../../../docs/docs/assets/images/recipes/llama3/lingua-1b-loss-curve.png" alt="Llama 3 Lingua 1B Loss Curve" width="49%" />
-  <img src="../../../docs/docs/assets/images/recipes/llama3/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
+  <img src="../../../docs/docs/assets/images/llama3/lingua-1b-loss-curve.png" alt="Llama 3 Lingua 1B Loss Curve" width="49%" />
+  <img src="../../../docs/docs/assets/images/llama3/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
 </p>
 
 We compared the convergence of this Llama3 recipe (with FSDP2) against NeMo 2.0
