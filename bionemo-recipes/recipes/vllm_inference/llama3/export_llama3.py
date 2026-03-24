@@ -40,7 +40,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 THIS_DIR = Path(__file__).resolve().parent
-HF_MODEL_ID = "meta-llama/Llama-3.2-1B-Instruct"
+HF_MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
 HF_CHECKPOINT_DIR = THIS_DIR / "llama3_hf_roundtrip_checkpoint"
 
 
@@ -83,11 +83,6 @@ def convert_te_to_vllm(te_checkpoint: Path, output_dir: Path) -> Path:
     """Convert a TE checkpoint to standard HF format for vLLM serving."""
     print(f"  Loading TE checkpoint: {te_checkpoint}")
     model_te = NVLlamaForCausalLM.from_pretrained(te_checkpoint)
-
-    # convert_llama_te_to_hf creates the target LlamaForCausalLM on the meta
-    # device in float32.  The TE checkpoint may store weights in bfloat16
-    # (typical for training), so we cast to float32 to match.
-    model_te = model_te.float()
 
     print("  Converting TE -> HF")
     model_hf = convert_llama_te_to_hf(model_te)

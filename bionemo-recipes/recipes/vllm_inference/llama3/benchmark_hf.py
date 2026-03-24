@@ -39,7 +39,7 @@ from benchmark_common import (
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-DEFAULT_MODEL = "meta-llama/Llama-3.2-1B-Instruct"
+DEFAULT_MODEL = "meta-llama/Llama-3.1-8B-Instruct"
 
 
 def main() -> None:
