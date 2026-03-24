@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FP8 Block Scaling Analysis: FL2 vs FL4</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #fff;
+  --text: #1a1a1a;
+  --muted: #555;
+  --light: #888;
+  --accent: #76b900;
+  --accent-dark: #5a8f00;
+  --border: #ddd;
+  --code-bg: #f4f4f6;
+  --surface: #f9f9fb;
+  --red: #c62828;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'Inter', sans-serif;
+  background: #888;
+  color: var(--text);
+  overflow: auto;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.deck-wrapper {
+  width: 1280px;
+  height: 720px;
+  position: relative;
+  background: var(--bg);
+  box-shadow: 0 4px 32px rgba(0,0,0,0.3);
+  flex-shrink: 0;
+}
+
+.slide {
+  position: absolute;
+  inset: 0;
+  padding: 40px 56px;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+  overflow: hidden;
+}
+
+.slide.active { opacity: 1; pointer-events: all; }
+
+.hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--accent);
+}
+
+.hdr h2 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
+
+.body { flex: 1; overflow-y: auto; }
+
+h1 { font-size: 2.6rem; font-weight: 900; letter-spacing: -0.03em; line-height: 1.15; }
+h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 6px; color: var(--accent-dark); }
+.sub { font-size: 1.15rem; color: var(--muted); margin-top: 6px; }
+
+ul { list-style: none; padding: 0; }
+ul li { padding: 3px 0 3px 20px; position: relative; font-size: 1rem; line-height: 1.5; }
+ul li::before { content: '–'; position: absolute; left: 0; color: var(--accent); font-weight: 700; }
+
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.cols-60-40 { display: grid; grid-template-columns: 3fr 2fr; gap: 24px; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+
+.callout {
+  background: #76b90010;
+  border-left: 3px solid var(--accent);
+  padding: 10px 16px;
+  border-radius: 0 6px 6px 0;
+  font-size: 0.92rem;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.callout.warn {
+  background: #c6282810;
+  border-left-color: var(--red);
+}
+
+.spc { height: 8px; }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin: 4px 0; }
+th { text-align: left; padding: 6px 10px; border-bottom: 2px solid var(--accent); font-weight: 700; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent-dark); }
+td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+td.bad { color: var(--red); font-weight: 600; }
+td.good { color: var(--accent-dark); font-weight: 600; }
+
+img.slide-img {
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.img-caption {
+  font-size: 0.82rem;
+  color: var(--light);
+  margin-top: 4px;
+}
+
+.nav {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; z-index: 100;
+}
+.nav button {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  width: 38px; height: 38px; border-radius: 50%; cursor: pointer; font-size: 1rem;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.nav button:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.nav .ctr { font-family: 'Space Mono', monospace; font-size: 0.78rem; color: var(--light); }
+
+.progress { position: fixed; top: 0; left: 0; height: 3px; background: var(--accent); transition: width 0.3s; z-index: 100; }
+
+.stat-box {
+  text-align: center;
+  padding: 12px;
+}
+.stat-val {
+  font-size: 2.2rem;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+.stat-label {
+  font-size: 0.78rem;
+  color: var(--light);
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+
+<div class="deck-wrapper">
+
+<!-- ===== SLIDE 1: Title ===== -->
+<div class="slide active">
+  <div class="body" style="display:flex; flex-direction:column; justify-content:center;">
+    <h1>FP8 Block Scaling<br>Activation Analysis</h1>
+    <p class="sub">FL2 vs FL4 diagnostic results on OpenGenome2 7B</p>
+    <p style="color:var(--light); margin-top:16px">Savitha Srinivasan &mdash; March 2026</p>
+  </div>
+</div>
+
+<!-- ===== SLIDE 2: Setup & Loss Curves ===== -->
+<div class="slide">
+  <div class="hdr"><h2>Experiment Setup & Loss Curves</h2></div>
+  <div class="body">
+    <div class="cols">
+      <div>
+        <img src="wandb_comparison/fl2_vs_fl4_loss_curves.png" class="slide-img" alt="FL2 vs FL4 loss curves">
+        <p class="img-caption">WandB loss curves: FL2 (blue) vs FL4 (red). FL2 continues improving; FL4 plateaus.</p>
+      </div>
+      <div>
+        <h3>Setup</h3>
+        <p style="font-size:0.9rem; color:var(--muted); margin-bottom:10px">
+          OG2-7B (Llama 3), 6x8 H100, FP8 E4M3 block scaling, FP32 master weights.
+        </p>
+        <table>
+          <tr><th>Config</th><th>FP8 Layers</th><th>BF16 Layers</th></tr>
+          <tr><td>FL2</td><td>3&ndash;30 (28 layers)</td><td>1&ndash;2, 31&ndash;32</td></tr>
+          <tr><td>FL4</td><td>5&ndash;28 (24 layers)</td><td>1&ndash;4, 29&ndash;32</td></tr>
+        </table>
+        <div class="spc"></div>
+        <h3>Results</h3>
+        <table>
+          <tr><th></th><th>FL2</th><th>FL4</th></tr>
+          <tr><td>Final loss</td><td class="good">1.04</td><td class="bad">1.16</td></tr>
+          <tr><td>Steps run</td><td>~49K</td><td>~36K</td></tr>
+          <tr><td>Trend</td><td class="good">Still improving</td><td class="bad">Plateaued / climbing</td></tr>
+        </table>
+        <div class="callout">
+          More BF16 layers (FL4) did not help convergence &mdash; FL2 outperforms FL4.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SLIDE 3: Gradient vs Activation Underflows ===== -->
+<div class="slide">
+  <div class="hdr"><h2>Gradient Underflows Are Not the Problem</h2></div>
+  <div class="body">
+    <p style="font-size:0.95rem; color:var(--muted); margin-bottom:14px">
+      The existing gradient underflow heatmaps show values &lt;0.05% across all layers &mdash; well within acceptable range.
+      I added <strong>activation underflow</strong> analysis to look deeper, and found the real issue.
+    </p>
+    <div class="cols" style="gap:32px">
+      <div class="card" style="text-align:center">
+        <h3 style="color:var(--accent-dark)">Gradient Underflows</h3>
+        <div style="display:flex; gap:16px; justify-content:center; margin:10px 0">
+          <div class="stat-box">
+            <div class="stat-val" style="color:var(--accent)">0.05%</div>
+            <div class="stat-label">Max (any layer)</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" style="color:var(--accent)">0%</div>
+            <div class="stat-label">fc2 gradient</div>
+          </div>
+        </div>
+        <p style="font-size:0.88rem; color:var(--muted)">All layers healthy. Gradients are fine.</p>
+      </div>
+      <div class="card" style="text-align:center">
+        <h3 style="color:var(--red)">Activation Underflows (fc2)</h3>
+        <div style="display:flex; gap:16px; justify-content:center; margin:10px 0">
+          <div class="stat-box">
+            <div class="stat-val" style="color:var(--red)">18.6%</div>
+            <div class="stat-label">FL2 layer 30</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val" style="color:var(--red)">16.1%</div>
+            <div class="stat-label">FL4 layer 28</div>
+          </div>
+        </div>
+        <p style="font-size:0.88rem; color:var(--muted)">Severe underflow at the last FP8 layer.</p>
+      </div>
+    </div>
+    <div class="callout" style="margin-top:14px">
+      The fc2 component (SwiGLU down-projection) at the last FP8 layer before the BF16 boundary appears to have extreme dynamic range that block scaling struggles to represent.
+    </div>
+  </div>
+</div>
+
+<!-- ===== SLIDE 4: Activation Underflow Heatmaps ===== -->
+<div class="slide">
+  <div class="hdr"><h2>fc2 Activation Underflow Heatmaps</h2></div>
+  <div class="body">
+    <div class="cols">
+      <div>
+        <img src="activation_analysis/heatmap_fc2_activation_underflows_fl2.png" class="slide-img" alt="FL2 fc2 activation underflows">
+        <p class="img-caption">FL2: Layers 3&ndash;30 in FP8. Layer 30 reaches 18.6% underflow.</p>
+      </div>
+      <div>
+        <img src="activation_analysis/heatmap_fc2_activation_underflows_fl4.png" class="slide-img" alt="FL4 fc2 activation underflows">
+        <p class="img-caption">FL4: Layers 5&ndash;28 in FP8. Layer 28 reaches 16.1% underflow.</p>
+      </div>
+    </div>
+    <div class="callout" style="margin-top:10px">
+      The degradation is concentrated at the last FP8 layer in both configs. All other layers are healthy (&lt;0.03%).
+      The boundary effect appears to follow the last FP8 layer regardless of where it's placed.
+    </div>
+  </div>
+</div>
+
+<!-- ===== SLIDE 5: Activation MSE Heatmaps ===== -->
+<div class="slide">
+  <div class="hdr"><h2>fc2 Activation MSE (Quantization Error)</h2></div>
+  <div class="body">
+    <div class="cols">
+      <div>
+        <img src="activation_analysis/heatmap_fc2_activation_mse_fl2.png" class="slide-img" alt="FL2 fc2 activation MSE">
+        <p class="img-caption">FL2: Layer 30 MSE reaches 37M. All others near zero.</p>
+      </div>
+      <div>
+        <img src="activation_analysis/heatmap_fc2_activation_mse_fl4.png" class="slide-img" alt="FL4 fc2 activation MSE">
+        <p class="img-caption">FL4: Layer 28 MSE reaches 133K. All others near zero.</p>
+      </div>
+    </div>
+    <div class="callout" style="margin-top:10px">
+      The quantization error at the boundary is orders of magnitude higher than in all other layers.
+      Despite FL2 having worse MSE (37M vs 133K), it converges better &mdash; suggesting the convergence gap is likely not driven by boundary precision alone.
+    </div>
+  </div>
+</div>
+
+<!-- ===== SLIDE 6: Boundary Timeseries ===== -->
+<div class="slide">
+  <div class="hdr"><h2>Boundary Layer Degradation Over Time</h2></div>
+  <div class="body">
+    <div class="cols">
+      <div>
+        <img src="activation_analysis/boundary_timeseries_fl2.png" class="slide-img" alt="FL2 boundary timeseries">
+        <p class="img-caption">FL2: Layer 30 underflow grows from ~8% to ~18% over 22K steps.</p>
+      </div>
+      <div>
+        <img src="activation_analysis/boundary_timeseries_fl4.png" class="slide-img" alt="FL4 boundary timeseries">
+        <p class="img-caption">FL4: Layer 28 underflow grows from ~4% to ~16% over 12K steps.</p>
+      </div>
+    </div>
+    <div class="callout" style="margin-top:10px">
+      Top: fc2 activation underflow %. Bottom: fc2 activation MSE. Both grow steadily over training for the last FP8 layer, while adjacent layers remain flat. This suggests a progressive degradation at the precision boundary.
+    </div>
+  </div>
+</div>
+
+<!-- ===== SLIDE 7: Summary & Next Steps ===== -->
+<div class="slide">
+  <div class="hdr"><h2>Summary & Next Steps</h2></div>
+  <div class="body">
+    <div class="cols">
+      <div>
+        <h3>What the results suggest</h3>
+        <ul>
+          <li>Block scaling has difficulty with fc2 activation dynamic range at the FP8&rarr;BF16 boundary</li>
+          <li>The boundary effect is localized to ~1 layer and appears position-independent</li>
+          <li>Adding more BF16 layers (FL4) doesn't address the boundary issue and may hurt by reducing efficient FP8 compute</li>
+          <li>Gradient underflows are not a concern for this model at this scale</li>
+        </ul>
+        <div class="spc"></div>
+        <h3>Caveats</h3>
+        <ul>
+          <li>FL2/FL4 used the original metagenome dataset (not the corrected reshuffled parquet2)</li>
+          <li>FL4 ran for fewer steps (~36K vs ~49K)</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Experiments launched</h3>
+        <div class="card" style="margin-bottom:10px">
+          <strong>FL1</strong> (first/last 1 layer BF16)<br>
+          <span style="font-size:0.88rem; color:var(--muted)">Minimize BF16 overhead. Parquet2 dataset.</span>
+        </div>
+        <div class="card" style="margin-bottom:10px">
+          <strong>FL0</strong> (all 32 layers FP8)<br>
+          <span style="font-size:0.88rem; color:var(--muted)">Test if BF16 boundary layers are needed at all.</span>
+        </div>
+        <div class="card" style="margin-bottom:10px">
+          <strong>MXFP8</strong> (microscaling, up next)<br>
+          <span style="font-size:0.88rem; color:var(--muted)">Smaller scaling groups (32 elements) should reduce boundary underflow. Testing once BIA cluster is set up.</span>
+        </div>
+        <div class="callout">
+          FL1 and FL0 both use corrected parquet2 dataset and train from scratch. WandB project: <code>llama3-metagenome-7b</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /deck-wrapper -->
+
+<div class="nav">
+  <button onclick="nav(-1)">&larr;</button>
+  <span class="ctr" id="ctr">1 / 7</span>
+  <button onclick="nav(1)">&rarr;</button>
+</div>
+
+<script>
+let c=0;
+const s=document.querySelectorAll('.slide'), t=s.length;
+function show(i){s.forEach(x=>x.classList.remove('active'));s[i].classList.add('active');document.getElementById('ctr').textContent=`${i+1} / ${t}`;document.getElementById('progress').style.width=`${((i+1)/t)*100}%`;c=i;}
+function nav(d){const n=c+d;if(n>=0&&n<t)show(n);}
+document.addEventListener('keydown',e=>{if(e.key==='ArrowRight'||e.key===' '){e.preventDefault();nav(1);}if(e.key==='ArrowLeft'){e.preventDefault();nav(-1);}});
+show(0);
+</script>
+
+</body>
+</html>
