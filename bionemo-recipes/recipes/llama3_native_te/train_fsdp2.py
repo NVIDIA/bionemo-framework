@@ -118,6 +118,14 @@ def main(args: DictConfig) -> float | None:
             fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
         )
 
+    if args.fp8_config.quantized_model_init_kwargs.get("enabled", False) and not (
+        args.fp8_config.enabled or args.fp4_config.enabled
+    ):
+        raise ValueError(
+            "fp8_config.quantized_model_init_kwargs.enabled=true requires fp8_config.enabled=true or "
+            "fp4_config.enabled=true. Enable at least one quantization format to use quantized model initialization."
+        )
+
     # --- Model Initialization ---
     # Optionally use transformer engine to initialize only fp8 versions of weights by setting
     # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16
