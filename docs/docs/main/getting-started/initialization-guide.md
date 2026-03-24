@@ -225,12 +225,12 @@ docker run -v <host_directory>:<container_directory> <image_name>
 **Example:**
 
 ```
-docker run -v /path/to/local/cache:/workspace/bionemo2/cache \
+docker run -v /path/to/local/cache:/workspace/bionemo/cache \
     {{ docker_url }}:{{ docker_tag }}
 ```
 
 In this example, the `/path/to/local/cache` directory on the host machine is mounted as a volume at
-`/workspace/bionemo2/cache` inside the container.
+`/workspace/bionemo/cache` inside the container.
 
 ### Setting Environment Variables with the `-e` Option
 

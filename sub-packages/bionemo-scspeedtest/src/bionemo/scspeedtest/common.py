@@ -305,13 +305,8 @@ def measure_peak_memory_full(
     Otherwise uses RSS of just the main process (lightweight).
 
     Returns:
-      (result,
-       baseline_mib,
-       peak_mib,
-       avg_mib,
-       delta_mib,
-       final_mib,
-       duration_s)
+        tuple: Tuple of `(result, baseline_mib, peak_mib, avg_mib, delta_mib,
+            final_mib, duration_s)`.
     """
     parent_pid = os.getpid()
     stop_event = mp.Event()

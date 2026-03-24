@@ -21,7 +21,7 @@ script_args:
   # All arguments referenced in the script string must be specified here.
   # Arguments not referenced in the script string must have the 'arg' field specified.
   # See jet/core/configs.py for the specification of the configuration class
-  workspace: /workspace/bionemo2
+  workspace: /workspace/bionemo
   data_path: /data/evo2
   pckg_url: gitlab-master.nvidia.com/api/v4/projects/180496/packages/pypi/simple/
   file_name_wheel: subquadratic-ops
@@ -70,7 +70,7 @@ script: |-
       sleep 1
   done
   WANDB_API_KEY=$BIONEMO_WANDB_API_KEY ${variant}_${model} \
-  -d /workspace/bionemo2/sub-packages/bionemo-evo2/examples/configs/full_pretrain_shortphase_config.yaml \
+  -d /workspace/bionemo/sub-packages/bionemo-evo2/examples/configs/full_pretrain_shortphase_config.yaml \
   --dataset-dir ${data_path} \
   --grad-acc-batches ${acc_grad} \
   --fp8 --fp8-wgrad --activation-checkpoint-recompute-num-layers 5 \

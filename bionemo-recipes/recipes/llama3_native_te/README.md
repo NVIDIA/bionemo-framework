@@ -71,12 +71,12 @@ def compute_model_pflops(seq_len, global_batch_size, step_time_s):
   <img src="../../../docs/docs/assets/images/recipes/lingua-1b-step-time.png" alt="Llama 3 Lingua 1B Step Time" width="49%" />
 </p>
 
-We compared the convergence of this Llama3 recipe (with FSDP2) against NeMo 2.0
-(https://github.com/NVIDIA-NeMo/NeMo) and the [facebookresearch/lingua](https://github.com/facebookresearch/lingua)
+We compared the convergence of this Llama3 recipe (with FSDP2) against
+[NeMo 2.0](https://github.com/NVIDIA-NeMo/NeMo) and the [facebookresearch/lingua](https://github.com/facebookresearch/lingua)
 implementation on the DCLM Baseline 1.0 dataset. See [Training on Natural Language Data (Lingua
-Reproduction)](#lingua-reproduction) for more details. The figure above shows similar loss convergence and step time to
+Reproduction)](#training-on-natural-language-data-lingua-reproduction) for more details. The figure above shows similar loss convergence and step time to
 the NeMo 2.0 training example, and the following table shows downstream performance on various tasks using the
-[lm-eval](github.com/eleutherai/lm-evaluation-harness) library. The variation in training step time every 10,000 steps
+[lm-eval](https://github.com/eleutherai/lm-evaluation-harness) library. The variation in training step time every 10,000 steps
 are due checkpointing, further work will be done to improve training step time stability.
 
 | name                | arc_challenge | arc_easy | boolq | copa | hella_swag | piqa  | winogrande |
@@ -217,7 +217,7 @@ python train_fsdp2.py --config-name L0_sanity \
   dataset.load_dataset_kwargs.path=/path/to/download/directory
 ```
 
-## Training on Natural Language Data (Lingua Reproduction) {#lingua-reproduction}
+## Training on Natural Language Data (Lingua Reproduction)
 
 We provide a configuration to reproduce the Llama-3.2-1B training experiments from [Meta
 Lingua](https://github.com/facebookresearch/lingua), using the [DCLM Baseline

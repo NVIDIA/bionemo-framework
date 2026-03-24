@@ -10,12 +10,12 @@ exclude = [
 ]
 source_roots = [
     "sub-packages/bionemo-core/src",
-    "sub-packages/bionemo-evo2/src",
-    "sub-packages/bionemo-example_model/src",
-    "sub-packages/bionemo-llm/src",
+    "sub-packages/bionemo-moco/src",
+    "sub-packages/bionemo-noodles/src",
+    "sub-packages/bionemo-recipeutils/src",
     "sub-packages/bionemo-scdl/src",
+    "sub-packages/bionemo-scspeedtest/src",
     "sub-packages/bionemo-size-aware-batching/src",
-    "sub-packages/bionemo-testing/src",
     "sub-packages/bionemo-webdatamodule/src",
 ]
 
@@ -24,28 +24,17 @@ path = "bionemo.core"
 depends_on = []
 
 [[modules]]
-path = "bionemo.evo2"
-depends_on = [
-    "bionemo.noodles",
-    "bionemo.core",
-    "bionemo.llm",
-]
-
-[[modules]]
-path = "bionemo.example_model"
-depends_on = [
-    "bionemo.core",
-    "bionemo.llm",
-]
-
-[[modules]]
-path = "bionemo.llm"
-depends_on = [
-    "bionemo.core",
-]
+path = "bionemo.moco"
+depends_on = []
 
 [[modules]]
 path = "bionemo.noodles"
+depends_on = [
+    "bionemo.core",
+]
+
+[[modules]]
+path = "bionemo.recipeutils"
 depends_on = [
     "bionemo.core",
 ]
@@ -57,21 +46,20 @@ depends_on = [
 ]
 
 [[modules]]
+path = "bionemo.scspeedtest"
+depends_on = [
+    "bionemo.core",
+    "bionemo.scdl",
+]
+
+[[modules]]
 path = "bionemo.size_aware_batching"
 depends_on = [
     "bionemo.core",
 ]
 
 [[modules]]
-path = "bionemo.testing"
-depends_on = [
-    "bionemo.core",
-    "bionemo.llm",
-]
-
-[[modules]]
 path = "bionemo.webdatamodule"
 depends_on = [
     "bionemo.core",
-    "bionemo.llm",
 ]

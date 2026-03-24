@@ -3,3 +3,4 @@
 - [Initialization Guide](initialization-guide.md)
 - [Development](development.md)
 - [Training Models](training-models.md)
+- [Using SLURM](using-slurm.md)

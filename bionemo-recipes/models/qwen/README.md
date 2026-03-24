@@ -261,7 +261,7 @@ python export.py
 ```
 
 Before publishing, validate the export by running the local test suite via
-[recipes_local_test.py](../../ci/scripts/recipes_local_test.py).
+`ci/scripts/recipes_local_test.py`.
 
 ### Development container
 

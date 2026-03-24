@@ -133,8 +133,8 @@ Next we acquired the `.fasta` file that was used to generate this, and configure
 
 ```yaml
 # mmseqs_promotors_config.yaml
-- datapaths: ["/workspace/bionemo2/data/mmseqs_results_rep_seq_distinct.fasta"]
-  output_dir: "/workspace/bionemo2/data"
+- datapaths: ["/workspace/bionemo/data/mmseqs_results_rep_seq_distinct.fasta"]
+  output_dir: "/workspace/bionemo/data"
   output_prefix: promoters_uint8_distinct
   train_split: 1.0  # We're just going to dump everything into a single file and compare against the union of the 3 splits in the SoT.
   valid_split: 0.0

@@ -1,4 +1,4 @@
-# BioNeMo2 Documentation
+# BioNeMo Framework Documentation
 
 ## Viewing the current documentation on github pages
 
@@ -10,14 +10,14 @@ From the repository root:
 
 ```bash
 # Build the Docker image
-docker build -t nvcr.io/nvidian/cvai_bnmo_trng/bionemo2-docs -f docs/Dockerfile .
+docker build -t nvcr.io/nvidian/cvai_bnmo_trng/bionemo-framework-docs -f docs/Dockerfile .
 
 # Run the Docker container
 docker run --rm -it -p 8000:8000 \
   -v ${PWD}/docs:/docs \
   -v ${PWD}/sub-packages:/sub-packages \
   -v ${PWD}/bionemo-recipes:/bionemo-recipes \
-  nvcr.io/nvidian/cvai_bnmo_trng/bionemo2-docs:latest
+  nvcr.io/nvidian/cvai_bnmo_trng/bionemo-framework-docs:latest
 ```
 
 And then navigate to [`http://0.0.0.0:8000`](http://0.0.0.0:8000) on your local
@@ -27,8 +27,8 @@ machine.
 
 When adding documentation for a new sub-package, ensure it is properly integrated into the documentation site by:
 
-1. Adding an entry to `docs/docs/user-guide/examples/SUMMARY.md` to include it in the Tutorials section
-2. Adding an entry to `docs/docs/user-guide/developer-guide/SUMMARY.md` to include it in the Developer Guide section
+1. Adding an entry to `docs/docs/main/examples/SUMMARY.md` to include it in the Tutorials section
+2. Adding an entry to `docs/docs/main/developer-guide/SUMMARY.md` to include it in the Developer Guide section
 
 This ensures the sub-package documentation is properly indexed and accessible through the navigation menu.
 

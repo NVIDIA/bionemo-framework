@@ -53,61 +53,28 @@ for sample in MultiEpochDatasetResampler(dataset, num_epochs=3, shuffle=True):
 
 ## Training Resumption
 
-To ensure identical behavior with and without job interruption, BioNeMo provides [MegatronDataModule][bionemo.llm.data.datamodule.MegatronDataModule] to save and load state dict for training resumption, and provides [WrappedDataLoader][nemo.lightning.data.WrappedDataLoader] to add a `mode` attribute to [DataLoader][torch.utils.data.DataLoader].
+To ensure identical behavior with and without job interruption, Megatron datamodules must manage sample-exact training
+resumption. When writing your own datamodule, preserve these constraints:
 
-```python
-class MyDataModule(MegatronDataModule):
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        ...
+- Persist enough dataloader state (e.g. the global step or sample index) so training resumes from the correct position
+  rather than restarting from index 0.
+- Distinguish between train, validation, and test dataloaders explicitly. Only the training dataloader should resume
+  from a saved sample index — validation and test dataloaders should always start from the beginning.
+- Update the global step immediately before returning each dataloader so the resume position is accurate.
 
-    def train_dataloader(self):
-        self.update_init_global_step()  # required to set the correct `global_step` for resumption
-        return WrappedDataLoader(
-            ...,  # any other arguments for DataLoader
-            mode="train",
-        )
-
-    def val_dataloader(self):
-        self.update_init_global_step()  # required to set the correct `global_step` for resumption
-        return WrappedDataLoader(
-            ...,  # any other arguments for DataLoader
-            mode="validation",
-        )
-
-    def test_dataloader(self):
-        self.update_init_global_step()  # required to set the correct `global_step` for resumption
-        return WrappedDataLoader(
-            ...,  # any other arguments for DataLoader
-            mode="test",
-        )
-```
-
-!!! note "MegatronDataModule"
-
-```
-Users will see non-overlapping training curve if their datamodule is not inheritting from `MegatronDataModule`, unless similar logics are handled by the users. In `MegatronDataModule`, `self.update_init_global_step()` must be called right before the dataloaders are returned to ensure that training resumes with the correct sample index instead of restarting from 0 everytime. We recommend users to inherit from `MegatronDataModule` similar to the pattern above.
-```
-
-!!! note "WrappedDataLoader"
-
-```
-The `WrappedDataLoader` class is a wrapper around the PyTorch DataLoader class that adds the `mode` attribute to the dataloader. The dataloader will resume from the last sample index only when mode is 'train'. `val_dataloader` and `test_dataloader` are unaffected.
-
-WARNING: 'train' is the default value of `mode` in `WrappedDataLoader`. If not set, users might find their validation/test dataloader changes behavior by resuming from a non-zero sample index.
-```
+See the `evo2_megatron` and `eden_megatron` recipes in `bionemo-recipes` for working examples of Megatron datamodule
+implementations with training resumption.
 
 ## Testing Datasets for Megatron Compatibility
 
-BioNeMo also provides utility functions for test suites to validate that datasets conform to the megatron data model.
-The [assert_dataset_compatible_with_megatron][bionemo.testing.data_utils.assert_dataset_compatible_with_megatron]
-function calls the dataset with identical indices and ensures the outputs are identical, while also checking to see if
-`torch.manual_seed` was used.
+The key invariant for Megatron-compatible datasets is determinism: repeated calls with the same index must yield the
+same sample. When writing tests for your dataset, confirm that:
 
-!!! example "Example datasets in BioNeMo"
+- Repeated indexing with the same index returns identical results.
+- Epoch-aware randomization is driven only by the epoch component of the index (via a local `torch.Generator`, not
+  the global seed).
+- `torch.manual_seed` is not called inside dataset `__getitem__` paths, as Megatron-LM manages torch seeding
+  internally for model parallelism.
 
-```
-The [ESMMaskedResidueDataset][bionemo.esm2.data.dataset.ESMMaskedResidueDataset] demonstrates one approach for
-leveraging [EpochIndex][bionemo.core.data.multi_epoch_dataset.EpochIndex] indices to perform epoch-level
-randomization within the confines of megatron's data model.
-```
+Recipe-local tests in `bionemo-recipes` (e.g. in the `evo2_megatron` recipe) are the best reference for how to
+validate these assumptions.

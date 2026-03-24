@@ -6,7 +6,7 @@
 
 ESM-2 is a pre-trained, bi-directional encoder (BERT-style model) over amino acid sequences. ESM-2 models provide
 embeddings for amino acids that have led to state-of-the-art performance on downstream tasks such as structure and
-function prediction. ESM-2 has been trained at a number of different model sizes. BioNeMo2 includes converted
+function prediction. ESM-2 has been trained at a number of different model sizes. BioNeMo Framework includes converted
 checkpoints for the 650M and 3B parameter variants. The 650M model has 33 layers, 20 attention heads, and a hidden space
 dimension of 1280. The 3B model has 36 layers, 40 attention heads, and a hidden space dimension of 2,560.
 
@@ -57,7 +57,7 @@ acid.
 
 **Runtime Engine(s)**
 
-- BioNeMo, NeMo, Megatron, TransformerEngine
+- BioNeMo, TransformerEngine
 
 **Supported Hardware Microarchitecture Compatibility**
 
@@ -81,11 +81,11 @@ acid.
 Original ESM-2 checkpoints from HuggingFace were trained with the UniProt 2021_04 sequence database. For more details on
 the training dataset, see Lin *et al.* 2023. The train/test splits used by the original authors were not distributed.
 A pre-training database compiled by NVIDIA following a similar approach is described in [UniProt
-Dataset](../../datasets/uniprot.md).
+Dataset](../../main/datasets/uniprot.md).
 
 ### Inference
 
-**Engine:** BioNeMo, NeMo
+**Engine:** BioNeMo, TransformerEngine
 
 **Test Hardware**
 
@@ -102,18 +102,18 @@ ESM-2 is provided under the Apache 2.0 license.
 ### Accuracy
 
 A validation set of 328,360 UniRef50 representative sequences were randomly selected from UniRef 2024_03 (see [UniProt
-Dataset](../../datasets/uniprot.md)). This validation set was used to ensure that the output of BioNeMo-converted
+Dataset](../../main/datasets/uniprot.md)). This validation set was used to ensure that the output of BioNeMo-converted
 checkpoints is consistent with their outputs when evaluated with the HuggingFace Transformers library.
 
-| Checkpoint | HuggingFace | BioNeMo2 | Lin *et al.* 2023                   |
-| ---------- | ----------- | -------- | ----------------------------------- |
-| 650M       | 7.001       | 7.002    | 6.95 :material-information-outline: |
-| 3B         | 6.003       | 6.004    | 6.49 :material-information-outline: |
+| Checkpoint | HuggingFace | BioNeMo Framework | Lin *et al.* 2023                   |
+| ---------- | ----------- | ----------------- | ----------------------------------- |
+| 650M       | 7.001       | 7.002             | 6.95 :material-information-outline: |
+| 3B         | 6.003       | 6.004             | 6.49 :material-information-outline: |
 
 !!! info "Different Validation Sets"
 
 ```
-The HuggingFace and converted BioNeMo2 checkpoints were evaluated on a newly curated validation set. Perplexities
+The HuggingFace and converted BioNeMo Framework checkpoints were evaluated on a newly curated validation set. Perplexities
 from Lin *et al.* 2023 are reported for comparison, but the original train/test splits are not available.
 ```
 
@@ -124,16 +124,16 @@ from Lin *et al.* 2023 are reported for comparison, but the original train/test 
 ![ESM-2 Single-Device Training Performance](../../assets/images/esm2/esm2_single_node_training_perf.png)
 
 The pure-PyTorch baseline (compiled with `torch.compile()`) raised an out-of-memory error for batch sizes larger than 16
-at the ESM2-650M model size. The `bionemo2` model could handle batch sizes of 46, reaching a model FLOPs utilization of
+at the ESM2-650M model size. The BioNeMo implementation could handle batch sizes of 46, reaching a model FLOPs utilization of
 59.2% on an NVIDIA A100.
 
 #### Model Scaling
 
 ![ESM-2 Model Scaling](../../assets/images/esm2/esm2_model_scaling.png)
 
-Training ESM-2 at the 650M, 3B, and 15B model variants show improved performance with the BioNeMo2 framework over the
+Training ESM-2 at the 650M, 3B, and 15B model variants show improved performance with the BioNeMo Framework over the
 pure-PyTorch baseline. These experiments were conducted on 16x NVIDIA A100 or 16x NVIDIA H100 GPUs split across two
-nodes. <sup>\*</sup>*Note:* 15B model variants were trained on 64 GPUs with the BioNeMo2 framework.
+nodes. <sup>\*</sup>*Note:* 15B model variants were trained on 64 GPUs with the BioNeMo Framework.
 
 #### Device Scaling
 

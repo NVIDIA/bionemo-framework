@@ -317,7 +317,7 @@
 
 ### New Features
 
-- [MolMIM](https://developer.nvidia.com/blog/new-models-molmim-and-diffdock-power-molecule-generation-and-molecular-docking-in-bionemo/) re-trained on more data is now available in the framework, and achieves [state of the art performance](models/molmim.md).
+- [MolMIM](https://developer.nvidia.com/blog/new-models-molmim-and-diffdock-power-molecule-generation-and-molecular-docking-in-bionemo/) re-trained on more data is now available in the framework and achieves state-of-the-art performance.
 - MolMIM property guided tutorial notebook covering property guided optimization using our new framework model.
 - MolMIM training tutorial available walking users through either training from scratch or from an existing checkpoint on your own data.
 - MolMIM tutorial notebook covering molecular sampling and property prediction is also now available.

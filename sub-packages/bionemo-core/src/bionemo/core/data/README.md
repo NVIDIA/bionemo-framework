@@ -20,7 +20,7 @@ are accessible by external collaborators, but require legal approval before re-d
 
 ## Loading test or example data
 
-Test data are specified via yaml files in `sub-packages/bionemo-testing/src/bionemo/testing/data/resources`. As an
+Test data are specified via yaml files in `sub-packages/bionemo-core/src/bionemo/core/data/resources`. As an
 example, in `esm2.yaml`:
 
 ```yaml
@@ -65,7 +65,7 @@ same NGC resource can therefore be used to host multiple test assets that are us
 ## Adding new test assets
 
 To add new data, first ensure that the data is available from either NGC or `pbss`. Next, extend or create a new yaml
-file in `sub-packages/bionemo-testing/src/bionemo/testing/data/resources` with the required information. Owner emails
+file in `sub-packages/bionemo-core/src/bionemo/core/data/resources` with the required information. Owner emails
 must be provided for all assets. The description and `ngc` fields are currently optional. If the `sha256` is left
 unspecified, `pooch` will report the downloaded file's sha when loaded.
 

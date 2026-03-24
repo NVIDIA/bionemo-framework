@@ -1,5 +1,5 @@
 {
-    "name": "BioNeMo Recipes Dev Container",
+    "name": "BioNeMo Dev Container",
     "build": {
         "dockerfile": "Dockerfile"
     },
@@ -14,8 +14,8 @@
         "source=${localEnv:HOME}/.netrc,target=/home/ubuntu/.netrc,type=bind,consistency=cached",
         "source=${localEnv:HOME}/.ssh,target=/home/ubuntu/.ssh,readonly,type=bind,consistency=cached"
     ],
-    "postCreateCommand": ".devcontainer/recipes/postCreateCommand.sh",
-    "initializeCommand": ".devcontainer/recipes/initializeCommand.sh",
+    "postCreateCommand": ".devcontainer/postCreateCommand.sh",
+    "initializeCommand": ".devcontainer/initializeCommand.sh",
     "remoteUser": "ubuntu",
     "runArgs": [
         "--gpus=all",
