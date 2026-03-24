@@ -191,6 +191,7 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
   const [mosaicReady, setMosaicReady] = useState(false)
   const [categoryColumns, setCategoryColumns] = useState([])
   const [selectedCategory, setSelectedCategory] = useState('mean_variant_1bcdwt')
+  const [hiddenCategories, setHiddenCategories] = useState(new Set())
   const [clickedFeatureId, setClickedFeatureId] = useState(null)
   const [clusterLabels, setClusterLabels] = useState(null)
   const [vocabLogits, setVocabLogits] = useState(null)
@@ -213,6 +214,7 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
   const endOfListRef = useRef(null)
   const searchSource = useRef({ source: 'search' })
   const editedSource = useRef({ source: 'edited' })
+  const legendSource = useRef({ source: 'legend' })
   const loadingMoreRef = useRef(false)
 
   // Lazy-load examples for a single feature from DuckDB (feature_examples VIEW)
@@ -480,12 +482,33 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
           if (['x', 'y', 'feature_id', 'top_example_idx'].includes(col.name)) continue
 
           if (col.type === 'VARCHAR') {
+            const isGsea = col.name.startsWith('gsea_')
+            const maxUnique = isGsea ? Infinity : 50
             const cardinalityResult = await vg.coordinator().query(`
-              SELECT COUNT(DISTINCT "${col.name}") as n_unique FROM features WHERE "${col.name}" IS NOT NULL
+              SELECT COUNT(DISTINCT "${col.name}") as n_unique FROM features WHERE "${col.name}" IS NOT NULL AND "${col.name}" != 'unlabeled'
             `)
             const nUnique = cardinalityResult.toArray()[0]?.n_unique ?? 0
-            if (nUnique > 0 && nUnique <= 50) {
-              detectedCategories.push({ name: col.name, type: 'string', nUnique })
+            if (nUnique > 0 && nUnique <= maxUnique) {
+              // For high-cardinality GSEA columns, collapse to top 20 + "other"
+              if (isGsea && nUnique > 20) {
+                await vg.coordinator().exec(`
+                  CREATE OR REPLACE TABLE features AS
+                  SELECT * REPLACE (
+                    CASE
+                      WHEN "${col.name}" IS NULL OR "${col.name}" = 'unlabeled' THEN 'unlabeled'
+                      WHEN "${col.name}" IN (
+                        SELECT "${col.name}" FROM features
+                        WHERE "${col.name}" IS NOT NULL AND "${col.name}" != 'unlabeled'
+                        GROUP BY "${col.name}" ORDER BY COUNT(*) DESC LIMIT 20
+                      ) THEN "${col.name}"
+                      ELSE 'other'
+                    END AS "${col.name}"
+                  ) FROM features
+                `)
+                detectedCategories.push({ name: col.name, type: 'string', nUnique: 22 })
+              } else {
+                detectedCategories.push({ name: col.name, type: 'string', nUnique })
+              }
             }
           } else if (col.type === 'BIGINT' || col.type === 'INTEGER') {
             if (col.name.includes('cluster') || col.name.includes('category') || col.name.includes('group')) {
@@ -564,7 +587,12 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
           SELECT * FROM read_parquet('${examplesUrl}')
         `)
 
-        // Load features from the features table (which has labels)
+        // Load features from the features table (which has labels + category columns)
+        const categorySelectCols = detectedCategories
+          .filter(c => c.type === 'string' || c.type === 'integer')
+          .map(c => `"${c.name}"`)
+          .join(', ')
+        const extraSelect = categorySelectCols ? `, ${categorySelectCols}` : ''
         const featuresResult = await vg.coordinator().query(`
           SELECT
             feature_id,
@@ -573,18 +601,27 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
             max_activation,
             x,
             y
+            ${extraSelect}
           FROM features
           ORDER BY feature_id
         `)
-        const loadedFeatures = featuresResult.toArray().map(row => ({
-          feature_id: row.feature_id,
-          label: row.label,
-          description: row.label,
-          activation_freq: row.activation_freq,
-          max_activation: row.max_activation,
-          x: row.x,
-          y: row.y,
-        }))
+        const loadedFeatures = featuresResult.toArray().map(row => {
+          const f = {
+            feature_id: row.feature_id,
+            label: row.label,
+            description: row.label,
+            activation_freq: row.activation_freq,
+            max_activation: row.max_activation,
+            x: row.x,
+            y: row.y,
+          }
+          for (const col of detectedCategories) {
+            if (col.type === 'string' || col.type === 'integer') {
+              f[col.name] = row[col.name]
+            }
+          }
+          return f
+        })
         setFeatures(loadedFeatures)
 
         // Generate cluster labels from DuckDB (non-fatal if cluster_id doesn't exist)
@@ -777,6 +814,7 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
     setSelectedFeatureIds(null)
     setSearchTerm('')
     setClickedFeatureId(null)
+    setHiddenCategories(new Set())
     // Reset viewport to the auto-fit view captured on first load
     if (initialViewportRef.current) {
       setViewportState({ ...initialViewportRef.current })
@@ -926,6 +964,41 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
       }
     }
   }, [showEditedOnly, mosaicReady, features])
+
+  // Update Mosaic crossfilter when legend selection changes
+  useEffect(() => {
+    if (!brushRef.current || !mosaicReady) return
+
+    const selection = brushRef.current
+
+    if (hiddenCategories.size > 0 && selectedCategory && selectedCategory !== 'none') {
+      const colInfo = categoryColumns.find(c => c.name === selectedCategory)
+      if (colInfo && (colInfo.type === 'string' || colInfo.type === 'integer')) {
+        const values = Array.from(hiddenCategories).map(v => `'${v.replace(/'/g, "''")}'`).join(',')
+        const predicateSql = `"${selectedCategory}" IN (${values})`
+
+        try {
+          selection.update({
+            source: legendSource.current,
+            predicate: predicateSql,
+            value: Array.from(hiddenCategories).join(',')
+          })
+        } catch (err) {
+          console.warn('Legend filter update failed:', err)
+        }
+      }
+    } else {
+      try {
+        selection.update({
+          source: legendSource.current,
+          predicate: null,
+          value: null
+        })
+      } catch (err) {
+        // Ignore
+      }
+    }
+  }, [hiddenCategories, selectedCategory, mosaicReady, categoryColumns])
 
   // Handle search - updates both Mosaic crossfilter (for UMAP/histograms) and local state (for cards)
   const handleSearchChange = useCallback((e) => {
@@ -1124,6 +1197,7 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
                   onChange={e => {
                     const val = e.target.value
                     setSelectedCategory(val)
+                    setHiddenCategories(new Set())
                     setHistMetric3(val)
                     setClickedFeatureId(null)
                     setCardResetKey(k => k + 1)
@@ -1166,41 +1240,136 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
                   features={features}
                   selectedCategory={selectedCategory}
                   darkMode={darkMode}
+                  hiddenCategories={hiddenCategories}
                 />
               )}
               {selectedCategory && selectedCategory !== 'none' && (() => {
                 const colInfo = categoryColumns.find(c => c.name === selectedCategory)
-                if (!colInfo || colInfo.type !== 'sequential') return null
-                const colors = [
-                  "#c359ef", "#9525C6", "#0046a4", "#0074DF", "#3f8500",
-                  "#76B900", "#ef9100", "#F9C500", "#ff8181", "#EF2020"
-                ]
-                const vals = features
-                  .map(f => f[selectedCategory])
-                  .filter(v => v != null && !isNaN(v))
-                const minVal = vals.length > 0 ? Math.min(...vals) : 0
-                const maxVal = vals.length > 0 ? Math.max(...vals) : 1
-                const fmt = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(1) : v.toFixed(3)
-                return (
-                  <div style={{
-                    position: 'absolute', right: '12px', top: '12%', bottom: '12%',
-                    display: 'flex', flexDirection: 'column', alignItems: 'center',
-                    gap: '2px', pointerEvents: 'none',
-                  }}>
-                    <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: '600' }}>{fmt(maxVal)}</span>
+                if (!colInfo) return null
+
+                if (colInfo.type === 'sequential') {
+                  const colors = [
+                    "#c359ef", "#9525C6", "#0046a4", "#0074DF", "#3f8500",
+                    "#76B900", "#ef9100", "#F9C500", "#ff8181", "#EF2020"
+                  ]
+                  const vals = features
+                    .map(f => f[selectedCategory])
+                    .filter(v => v != null && !isNaN(v))
+                  const minVal = vals.length > 0 ? Math.min(...vals) : 0
+                  const maxVal = vals.length > 0 ? Math.max(...vals) : 1
+                  const fmt = (v) => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(1) : v.toFixed(3)
+                  return (
                     <div style={{
-                      flex: 1, width: '12px', borderRadius: '3px',
-                      background: `linear-gradient(to bottom, ${[...colors].reverse().join(', ')})`,
-                    }} />
-                    <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: '600' }}>{fmt(minVal)}</span>
-                    <span style={{
-                      fontSize: '8px', color: 'var(--text-muted)', maxWidth: '60px', textAlign: 'center',
-                      lineHeight: '1.2', marginTop: '2px',
+                      position: 'absolute', right: '12px', top: '12%', bottom: '12%',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center',
+                      gap: '2px', pointerEvents: 'none',
                     }}>
-                      {selectedCategory.replace(/_/g, ' ')}
-                    </span>
-                  </div>
-                )
+                      <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: '600' }}>{fmt(maxVal)}</span>
+                      <div style={{
+                        flex: 1, width: '12px', borderRadius: '3px',
+                        background: `linear-gradient(to bottom, ${[...colors].reverse().join(', ')})`,
+                      }} />
+                      <span style={{ fontSize: '9px', color: 'var(--text-secondary)', fontWeight: '600' }}>{fmt(minVal)}</span>
+                      <span style={{
+                        fontSize: '8px', color: 'var(--text-muted)', maxWidth: '60px', textAlign: 'center',
+                        lineHeight: '1.2', marginTop: '2px',
+                      }}>
+                        {selectedCategory.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                  )
+                }
+
+                if (colInfo.type === 'string' || colInfo.type === 'integer') {
+                  const catColors = [
+                    "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728", "#9467bd",
+                    "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf",
+                    "#aec7e8", "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5",
+                    "#c49c94", "#f7b6d2", "#c7c7c7", "#dbdb8d", "#9edae5"
+                  ]
+                  // Count occurrences of each category value, sorted alphabetically
+                  // (matching DENSE_RANK ORDER BY which is alphabetical)
+                  const counts = {}
+                  for (const f of features) {
+                    const val = f[selectedCategory]
+                    if (val != null && val !== '') {
+                      counts[val] = (counts[val] || 0) + 1
+                    }
+                  }
+                  // Sort alphabetically to match dense_rank ordering
+                  const sortedCategories = Object.keys(counts).sort()
+                  return (
+                    <div style={{
+                      position: 'absolute', right: '8px', top: '8px',
+                      maxHeight: 'calc(100% - 16px)', overflowY: 'auto',
+                      background: 'var(--bg-card)', border: '1px solid var(--border-card)',
+                      borderRadius: '6px', padding: '6px 8px',
+                      fontSize: '10px', lineHeight: '1.4',
+                      pointerEvents: 'auto', minWidth: '120px', maxWidth: '200px',
+                      boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                    }}>
+                      <div style={{
+                        fontWeight: '600', fontSize: '10px', color: 'var(--text-secondary)',
+                        marginBottom: '4px', borderBottom: '1px solid var(--border-card)', paddingBottom: '3px',
+                      }}>
+                        {selectedCategory.replace(/_/g, ' ').replace('gsea ', '')}
+                      </div>
+                      {sortedCategories.map((cat, i) => {
+                        const hasFilter = hiddenCategories.size > 0
+                        const isHidden = hasFilter && !hiddenCategories.has(cat)
+                        return (
+                          <div
+                            key={cat}
+                            onClick={(e) => {
+                              if (e.metaKey || e.ctrlKey) {
+                                // Cmd/Ctrl+click: toggle this category in the selection
+                                setHiddenCategories(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(cat)) {
+                                    next.delete(cat)
+                                    // If nothing left selected, clear filter
+                                    return next.size === 0 ? new Set() : next
+                                  } else {
+                                    next.add(cat)
+                                    return next
+                                  }
+                                })
+                              } else {
+                                // Regular click: solo this category (or clear if already solo'd)
+                                setHiddenCategories(prev => {
+                                  if (prev.size === 1 && prev.has(cat)) return new Set()
+                                  return new Set([cat])
+                                })
+                              }
+                            }}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '5px', padding: '2px 0',
+                              cursor: 'pointer', opacity: isHidden ? 0.15 : 1,
+                              userSelect: 'none',
+                            }}
+                          >
+                            <span style={{
+                              width: '8px', height: '8px', borderRadius: '2px', flexShrink: 0,
+                              background: isHidden ? '#888' : catColors[i % catColors.length],
+                            }} />
+                            <span style={{
+                              color: 'var(--text-primary)', overflow: 'hidden',
+                              textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1,
+                              textDecoration: isHidden ? 'line-through' : 'none',
+                            }} title={cat}>
+                              {cat}
+                            </span>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '9px', flexShrink: 0 }}>
+                              {counts[cat]}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                }
+
+                return null
               })()}
             </div>
           </div>
