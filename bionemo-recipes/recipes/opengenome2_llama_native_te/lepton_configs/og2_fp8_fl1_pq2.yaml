@@ -1,0 +1,67 @@
+# OpenGenome2 7B - FP8 Block Scaling, FL1 (first/last 1 layer BF16)
+# Parquet2 dataset (corrected, globally shuffled). Training from scratch.
+#
+# Layers 2-31 in FP8 (1-indexed), layers 1 and 32 in BF16.
+# GBS = mbs * grad_acc * dp_size = 1 * 8 * 48 = 384
+defaults:
+  - _self_
+
+job_name: "og2-fp8-fl1-pq2-bs"
+node_group: "yo-bom-lepton-001"
+resource_shape: "gpu.8xh100-sxm"
+
+num_nodes: 6
+gpus_per_node: 8
+num_train_steps: 182314
+micro_batch_size: 1
+grad_acc_steps: 8
+
+# Parquet2 dataset (corrected, globally shuffled)
+dataset_path: "/data/opengenome2/parquet2"
+data_dir: ""
+num_workers: 8
+buffer_size: 10000
+
+repo_root: "/data/savithas/bionemo-framework"
+code_path: "/data/savithas/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_native_te"
+train_script: "train_fsdp2.py"
+hydra_config: "og2_7b_fp8_fl1_pq2"
+
+git_branch: "savitha/og2-fp8-refactor"
+
+validation_enabled: false
+
+spike_no_more_embedding_init: true
+skip_embedding_weight_decay: true
+use_megatron_scaled_init: true
+use_weight_decay_grouping: true
+use_meta_device: false
+
+# FP8 Block Scaling with FL1 (first/last 1 layer BF16)
+fp8_enabled: true
+fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+fp8_format: E4M3
+use_fp32_master_weights: true
+
+logger_frequency: 100
+
+checkpoint_dir: "/data/savithas/checkpoints/og2-7b-fp8-fl1-pq2-bs"  # pragma: allowlist secret
+save_every_n_steps: 5000
+resume_from_checkpoint: false
+async_save: false
+
+wandb_project: "llama3-metagenome-7b"
+wandb_name: "og2-7b-fp8-fl1-pq2-bs"
+wandb_secret: "wandb.savithas"  # pragma: allowlist secret
+
+hf_secret: "HUGGING_FACE_HUB_TOKEN.savithas"  # pragma: allowlist secret
+
+exclude_nodes:
+  - node-ip-10-50-80-195
+  - node-ip-10-50-81-231
+  - nvidia-lepton093
+  - nvidia-lepton007
+
+container:
+  image: "nvcr.io/nvidia/pytorch:26.02-py3"
+  registry_auth: "lepton-nvidia-cvai-bnmo-trng"
