@@ -27,6 +27,10 @@ dependencies = [
     "nvidia-resiliency-ext",
     "emerging_optimizers",
     "subquadratic-ops-torch-cu13",
+
+    # These are dependencies for examples only, but are useful for actually doing analyses with this model
+    "biopython",
+    "openpyxl",
 ]
 
 [project.optional-dependencies]
