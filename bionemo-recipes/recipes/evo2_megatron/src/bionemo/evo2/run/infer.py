@@ -351,6 +351,7 @@ def setup_inference_engine(
     pipeline_model_parallel_size: int = 1,
     context_parallel_size: int = 1,
     mixed_precision_recipe: Optional[str] = None,
+    vortex_style_fp8: bool = False,
     random_seed: int = 1234,
     prompt_segmentation_threshold: Optional[int] = None,
 ) -> Evo2InferenceComponents:
@@ -367,6 +368,8 @@ def setup_inference_engine(
         pipeline_model_parallel_size: Pipeline parallelism degree.
         context_parallel_size: Context parallelism degree.
         mixed_precision_recipe: Override mixed precision recipe.
+        vortex_style_fp8: Use vortex-style FP8 (applies FP8 only to projection layers).
+            Needed for FP8-sensitive checkpoints from original evo2 training (1b, 40b).
         random_seed: Random seed for reproducibility.
         prompt_segmentation_threshold: If set, prompts longer than this are
             segmented during prefill to reduce peak memory. The first segment
@@ -405,6 +408,9 @@ def setup_inference_engine(
     model_provider.sequence_parallel = False
 
     model_provider.flash_decode = True
+
+    if vortex_style_fp8:
+        model_provider.vortex_style_fp8 = True
 
     # Use bf16_mixed for inference to avoid FP8 issues
     if mixed_precision_recipe is not None:
@@ -743,6 +749,11 @@ def parse_args() -> argparse.Namespace:
 
     # Precision arguments
     ap.add_argument("--mixed-precision-recipe", type=str, default=None, help="Override precision recipe")
+    ap.add_argument(
+        "--vortex-style-fp8",
+        action="store_true",
+        help="Use vortex-style FP8 (applies FP8 only to projection layers)",
+    )
 
     # Model arguments
     ap.add_argument(
@@ -789,6 +800,7 @@ def infer(
     context_parallel_size: int = 1,
     output_file: Optional[Path] = None,
     mixed_precision_recipe: Optional[str] = None,
+    vortex_style_fp8: bool = False,
     max_seq_length: int = 8192,
     max_batch_size: int = 1,
     prompt_segmentation_threshold: Optional[int] = None,
@@ -812,6 +824,8 @@ def infer(
         context_parallel_size: Context parallelism degree.
         output_file: Optional path to save results as JSONL.
         mixed_precision_recipe: Override mixed precision recipe.
+        vortex_style_fp8: Use vortex-style FP8 (applies FP8 only to projection layers).
+            Needed for FP8-sensitive checkpoints from original evo2 training (1b, 40b).
         max_seq_length: Maximum sequence length.
         max_batch_size: Maximum batch size for inference. The inference engine pre-allocates
             GPU memory proportional to this value. For large models, only 1 may fit.
@@ -834,6 +848,7 @@ def infer(
         pipeline_model_parallel_size=pipeline_model_parallel_size,
         context_parallel_size=context_parallel_size,
         mixed_precision_recipe=mixed_precision_recipe,
+        vortex_style_fp8=vortex_style_fp8,
         random_seed=random_seed,
         prompt_segmentation_threshold=prompt_segmentation_threshold,
     )
