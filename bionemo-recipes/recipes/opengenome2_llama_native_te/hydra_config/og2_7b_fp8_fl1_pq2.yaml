@@ -1,0 +1,17 @@
+# OpenGenome2 7B - FP8 with First/Last layers in BF16 (FL1)
+#
+# Same as og2_7b_thd_gqa_fp8 but with first and last layers kept in BF16 for
+# numerical stability. Layers 2-31 (1-indexed) are in FP8, layers 1 and 32 are in BF16.
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_fp8_fl1_pq2 ...
+
+defaults:
+  - og2_7b_thd_gqa_fp8
+  - _self_
+
+# Layers 2-31 (1-indexed) in FP8, first (1) and last (32) in BF16
+fp8_layers: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
+
+wandb:
+  name: og2_7b_fp8_fl1_pq2

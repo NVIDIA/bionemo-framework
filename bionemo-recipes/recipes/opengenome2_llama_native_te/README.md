@@ -26,7 +26,7 @@ which may also contribute to its lower test performance.
 
 | Model                      | Step / checkpoint | Train loss | Mean Test loss | Mean Test Perplexity |
 | -------------------------- | ----------------- | ---------- | -------------- | -------------------- |
-| LlaMA3 Recipe (OG2 7B)     | 182313            | 0.94     | 0.92       | 2.51                 |
+| LlaMA3 Recipe (OG2 7B)     | 182313            | 0.94       | 0.92           | 2.51                 |
 | Megatron baseline (OG2 7B) | 182313            | 1.01       | 1.019          | 2.80                 |
 
 > **Evaluation methodology:** Test losses are average NLL (negative log-likelihood) computed using
@@ -224,8 +224,8 @@ To run training with FP8, enable it via the `fp8_config.enabled=true` override. 
 torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_thd_gqa fp8_config.enabled=true
 ```
 
-FP8 debugging (stats collection for activations/weights/gradients) can be enabled with
-`fp8_stats_config.enabled=True` and related options; see [fp8_debugging.py](fp8_debugging.py) and
+Quantization stats logging (stats collection for activations/weights/gradients) can be enabled with
+`quant_stats_config.enabled=True` and related options; see [quantization.py](quantization.py) and
 the [Transformer Engine config
 documentation](https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/debug/2_config_file_structure.html).
 
