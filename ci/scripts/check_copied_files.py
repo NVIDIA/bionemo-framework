@@ -195,11 +195,16 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     "bionemo-recipes/models/esm2/LICENSE": [
         "bionemo-recipes/recipes/vllm_inference/esm2/LICENSE",
     ],
+    # CodonFM model -> recipe sync
+    "bionemo-recipes/models/codonfm/modeling_codonfm_te.py": [
+        "bionemo-recipes/recipes/codonfm_native_te/modeling_codonfm_te.py",
+    ],
     # Common test library - synced between models
     "bionemo-recipes/models/esm2/tests/common": [
         "bionemo-recipes/models/llama3/tests/common",
         "bionemo-recipes/models/mixtral/tests/common",
         "bionemo-recipes/models/qwen/tests/common",
+        "bionemo-recipes/models/codonfm/tests/common",
     ],
 }
 
