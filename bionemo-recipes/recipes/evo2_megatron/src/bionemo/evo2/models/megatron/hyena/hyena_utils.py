@@ -642,7 +642,8 @@ class ImplicitModalFilter(nn.Module):
         """Get t and the convolution filter for t and the requested sequence length."""
         if self.use_subquadratic_ops:
             if self._cp_size > 1:
-                R = self.R[self._cp_rank * self.d_model : (self._cp_rank + 1) * self.d_model].to(torch.float32)  # noqa: N806
+                local_size = self.d_model // self._cp_size
+                R = self.R[self._cp_rank * local_size : (self._cp_rank + 1) * local_size].to(torch.float32)  # noqa: N806
             else:
                 R = self.R.to(torch.float32)  # noqa: N806
             h = self.implicit_filter(self.get_logp(), R, L)
