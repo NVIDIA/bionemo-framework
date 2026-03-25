@@ -972,6 +972,7 @@ def main() -> None:
         context_parallel_size=args.context_parallel_size,
         output_file=args.output_file,
         mixed_precision_recipe=args.mixed_precision_recipe,
+        vortex_style_fp8=args.vortex_style_fp8,
         max_seq_length=max_seq_length,
         max_batch_size=args.max_batch_size,
         prompt_segmentation_threshold=prompt_segmentation_threshold,
