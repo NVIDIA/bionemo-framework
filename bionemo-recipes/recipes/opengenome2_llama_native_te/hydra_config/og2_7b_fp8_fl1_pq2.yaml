@@ -13,5 +13,21 @@ defaults:
 # Layers 2-31 (1-indexed) in FP8, first (1) and last (32) in BF16
 fp8_layers: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
 
+# Parquet2 dataset - CRITICAL: data_files must be null
+dataset:
+  micro_batch_size: 1
+  num_workers: 8
+  buffer_size: 10_000
+  load_dataset_kwargs:
+    path: "/data/opengenome2/parquet2"
+    data_files: null
+    split: "train"
+    streaming: true
+
+checkpoint:
+  ckpt_dir: /data/savithas/checkpoints/og2-7b-fp8-fl1-pq2
+  resume_from_checkpoint: false
+  async_save: false
+
 wandb:
   name: og2_7b_fp8_fl1_pq2

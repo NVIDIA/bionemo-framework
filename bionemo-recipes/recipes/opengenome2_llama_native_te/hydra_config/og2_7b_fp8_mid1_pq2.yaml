@@ -1,0 +1,35 @@
+# OpenGenome2 7B - FP8 middle-layer-only on Parquet2 dataset
+#
+# Only layer 16 (1-indexed) in FP8, all other 31 layers in BF16.
+# Minimal FP8 experiment to isolate FP8 impact on a single central layer.
+# Uses parquet2 dataset (data_files=null, path=/data/opengenome2/parquet2).
+#
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name og2_7b_fp8_mid1_pq2 ...
+
+defaults:
+  - og2_7b_thd_gqa_fp8
+  - _self_
+
+# Only middle layer (16) in FP8, everything else BF16
+fp8_layers: [16]
+
+# Parquet2 dataset - CRITICAL: data_files must be null
+dataset:
+  micro_batch_size: 1
+  num_workers: 8
+  buffer_size: 10_000
+  load_dataset_kwargs:
+    path: "/data/opengenome2/parquet2"
+    data_files: null
+    split: "train"
+    streaming: true
+
+checkpoint:
+  ckpt_dir: /data/savithas/checkpoints/og2-7b-fp8-mid1-pq2
+  resume_from_checkpoint: false
+  async_save: false
+
+wandb:
+  name: og2_7b_fp8_mid1_pq2
+  project: opengenome2-7b
