@@ -205,6 +205,8 @@ wandb/
 
 # Any model checkpoints
 *.safetensors
+# Allow golden value test fixtures
+!bionemo-recipes/models/*/tests/golden_state_dict.safetensors
 checkpoint_export/
 checkpoints/
 
