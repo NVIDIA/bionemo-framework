@@ -67,7 +67,11 @@ python3 analyze_and_create_heatmap.py fp8logswithhead
 ```
 
 **Result:**
-![FP8 Full Heatmap](heatmap_highres_fp8head.png)
+
+Running the command writes a high-resolution heatmap to
+`heatmap_visualization/heatmap_highres_fp8head.png`. The generated PNG is not
+checked into the repository, so this guide describes the expected output
+instead of embedding the file directly.
 
 **What you see:**
 

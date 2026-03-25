@@ -145,7 +145,7 @@ Override any parameter on the command line:
 python run.py model=1b csv_path=data.csv train.n_epochs=5 train.lr=1e-4 nproc=8
 ```
 
-Key training defaults: `expansion_factor=8`, `top_k=32`, `lr=3e-4`, `n_epochs=3`, `batch_size=4096`, `layer=-2`.
+Key training defaults: `expansion_factor=8`, `top_k=32`, `lr=3e-4`, `n_epochs=3`, `batch_size=4096`, `layer=-2`. # gitleaks:allow
 
 ## Project Structure
 

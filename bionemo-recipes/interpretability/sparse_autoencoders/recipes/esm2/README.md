@@ -112,7 +112,7 @@ Override any parameter on the command line:
 python run.py model=3b train.n_epochs=5 train.lr=1e-4 nproc=8 source=swissprot
 ```
 
-Key training defaults: `expansion_factor=8`, `top_k=32`, `lr=3e-4`, `n_epochs=3`, `batch_size=4096`, `layer=24`, `source=uniref50`.
+Key training defaults: `expansion_factor=8`, `top_k=32`, `lr=3e-4`, `n_epochs=3`, `batch_size=4096`, `layer=24`, `source=uniref50`. <!-- gitleaks:allow -->
 
 ## Project Structure
 

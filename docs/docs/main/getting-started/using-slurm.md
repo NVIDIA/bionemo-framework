@@ -56,9 +56,9 @@ HDO=0.01
 # Mounts
 # =========================
 DATA_PATH=/lustre/.../[INSERT DATA PATH HERE]
-DATA_MOUNT=/workspace/bionemo2/data
+DATA_MOUNT=/workspace/bionemo/data
 MODEL_PATH=/lustre/.../[INSERT MODEL PATH HERE]
-MODEL_MOUNT=/workspace/bionemo2/model
+MODEL_MOUNT=/workspace/bionemo/model
 RESULTS_PATH=$MODEL_PATH/experiments/${EXPERIMENT_NAME}
 mkdir -p $RESULTS_PATH
 MOUNTS=${DATA_PATH}:${DATA_MOUNT},${MODEL_PATH}:${MODEL_MOUNT},$HOME/.cache:/root/.cache
@@ -69,8 +69,9 @@ echo "*******STARTING********" \
 && echo "---------------" \
 && echo "Starting training" \
 &&  \
-python /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
-    -d /workspace/bionemo2/sub-packages/bionemo-evo2/examples/configs/full_pretrain_shortphase_config.yaml \
+cd /workspace/bionemo/bionemo-recipes/recipes/evo2_megatron \
+&& train_evo2 \
+    -d /workspace/bionemo/bionemo-recipes/recipes/evo2_megatron/examples/configs/full_pretrain_shortphase_config.yaml \
     --num-nodes=${SLURM_JOB_NUM_NODES} \
     --devices=${SLURM_NTASKS_PER_NODE} \
     --grad-acc-batches $GRAD_ACC_BATCHES \
@@ -86,7 +87,7 @@ python /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.
     --hidden-dropout $HDO \
     --limit-val-batches=20 \
     --val-check-interval=${VAL_CHECK} \
-    --experiment-dir=/workspace/bionemo2/model/checkpoints/${EXPERIMENT_NAME} \
+    --experiment-dir=/workspace/bionemo/model/checkpoints/${EXPERIMENT_NAME} \
     --seq-length=${SEQ_LEN} \
     --tensor-parallel-size=${TP_SIZE} \
     --context-parallel-size=${CP_SIZE} \
@@ -159,9 +160,9 @@ Once again, we specify the paths as variables for readability and ease of modifi
 
 ```bash
 DATA_PATH=/lustre/.../[INSERT DATA PATH HERE]
-DATA_MOUNT=/workspace/bionemo2/data
+DATA_MOUNT=/workspace/bionemo/data
 MODEL_PATH=/lustre/.../[INSERT MODEL PATH HERE]
-MODEL_MOUNT=/workspace/bionemo2/model
+MODEL_MOUNT=/workspace/bionemo/model
 RESULTS_PATH=$MODEL_PATH/experiments/${EXPERIMENT_NAME}
 mkdir -p $RESULTS_PATH
 MOUNTS=${DATA_PATH}:${DATA_MOUNT},${MODEL_PATH}:${MODEL_MOUNT},$HOME/.cache:/root/.cache
@@ -181,8 +182,9 @@ EXPERIMENT_NAME=EVO2_SEQLEN${SEQ_LEN}_PP${PP_SIZE}_TP${TP_SIZE}_CP${CP_SIZE}_LR$
 After setting up all parameters and mounts, the training script is launched within the SLURM job using a compound command. This command string—stored in the `COMMAND` variable—calls the Python training script with all the environment-specific arguments and hyperparameters defined earlier.
 
 ```bash
-python /workspace/bionemo2/sub-packages/bionemo-evo2/src/bionemo/evo2/run/train.py \
-    -d /workspace/bionemo2/sub-packages/bionemo-evo2/examples/configs/full_pretrain_shortphase_config.yaml \
+cd /workspace/bionemo/bionemo-recipes/recipes/evo2_megatron
+train_evo2 \
+    -d /workspace/bionemo/bionemo-recipes/recipes/evo2_megatron/examples/configs/full_pretrain_shortphase_config.yaml \
     --num-nodes=${SLURM_JOB_NUM_NODES} \
     --devices=${SLURM_NTASKS_PER_NODE} \
     --grad-acc-batches $GRAD_ACC_BATCHES \
