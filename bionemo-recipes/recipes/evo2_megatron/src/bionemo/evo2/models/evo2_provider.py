@@ -706,6 +706,23 @@ class Hyena40bARCLongContextModelProvider(Hyena40bModelProvider):
 
 
 @dataclass
+class Hyena20bARCModelProvider(Hyena40bARCLongContextModelProvider):
+    """Config matching the 20b 1M context Evo2 model (arcinstitute/evo2_20b).
+
+    Architecturally identical to the 40b long-context model but with 24 layers
+    instead of 50.  All other hyperparameters (hidden_size, num_attention_heads,
+    ffn_hidden_size, rotary settings, etc.) are inherited from the 40b config.
+
+    Source: evo2/configs/evo2-20b-1m.yml from ARC's evo2 repo.
+    Layer pattern derived from: hcs=[0,4,7,11,14,18,21], hcm=[1,5,8,12,15,19,22],
+    hcl=[2,6,9,13,16,20,23], attn=[3,10,17].
+    """
+
+    hybrid_override_pattern: str = "SDH*SDHSDH*SDHSDH*SDHSDH"
+    num_layers: int = 24
+
+
+@dataclass
 class HyenaNV1b2ModelProvider(HyenaNV1bModelProvider):
     """A parallel friendly version of the HyenaNV1bConfig."""
 
@@ -725,6 +742,7 @@ HYENA_MODEL_OPTIONS: dict[str, Type[HyenaModelProvider]] = {
     "evo2_1b_base": Hyena1bModelProvider,
     "evo2_7b_base": Hyena7bModelProvider,
     "evo2_7b": Hyena7bARCLongContextModelProvider,
+    "evo2_20b": Hyena20bARCModelProvider,
     "evo2_40b_base": Hyena40bModelProvider,
     "evo2_40b": Hyena40bARCLongContextModelProvider,
     # NVIDIA-modified variants (striped_hyena_ prefix, no public ARC checkpoint)
@@ -763,6 +781,7 @@ __all__ = [
     "Hyena1bModelProvider",
     "Hyena7bARCLongContextModelProvider",
     "Hyena7bModelProvider",
+    "Hyena20bARCModelProvider",
     "Hyena40bARCLongContextModelProvider",
     "Hyena40bModelProvider",
     "HyenaModelProvider",
