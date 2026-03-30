@@ -86,6 +86,7 @@ def parse_args():
     train_group.add_argument("--max-grad-norm", type=float, default=None)
     train_group.add_argument("--lr-scale-with-latents", action=argparse.BooleanOptionalAction, default=False)
     train_group.add_argument("--lr-reference-hidden-dim", type=int, default=2048)
+    train_group.add_argument("--grad-accumulation-steps", type=int, default=1, help="Gradient accumulation steps")
 
     # W&B
     wb_group = p.add_argument_group("Weights & Biases")
@@ -155,6 +156,7 @@ def build_training_config(args, device: str) -> TrainingConfig:
         checkpoint_steps=args.checkpoint_steps,
         lr_scale_with_latents=args.lr_scale_with_latents,
         lr_reference_hidden_dim=args.lr_reference_hidden_dim,
+        grad_accumulation_steps=args.grad_accumulation_steps,
     )
 
 
@@ -266,6 +268,24 @@ def main():
             world_size=world_size,
             max_shards=max_shards,
         )
+        # Compute min batch count across all ranks to keep DDP in sync
+        # Read parquet footers for all ranks' shards (a few KB each, no data loading)
+        if world_size > 1:
+            import pyarrow.parquet as pq_meta
+
+            dataset = dataloader.dataset
+            per_rank = len(dataset.shard_indices)
+            min_batches = None
+            for r in range(world_size):
+                total_rows = sum(
+                    pq_meta.read_metadata(store.path / f"shard_{idx:05d}.parquet").num_rows
+                    for idx in range(r * per_rank, (r + 1) * per_rank)
+                )
+                batches = total_rows // args.batch_size
+                if min_batches is None or batches < min_batches:
+                    min_batches = batches
+            dataset.max_batches = min_batches
+            print(f"[rank {rank}] capped to {min_batches} batches/epoch for DDP sync")
         trainer.fit(
             dataloader,
             max_grad_norm=args.max_grad_norm,

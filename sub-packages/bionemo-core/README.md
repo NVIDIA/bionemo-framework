@@ -4,7 +4,7 @@ Common code that all BioNeMo framework packages depend on. Contains highly reusa
 abstractions and implementations that are valuable across a wide variety of domains and applications.
 
 Crucially, the `bionemo-core` Python package (namespace `bionemo.core`) depends on PyTorch and PyTorch
-Lightning. Other key BioNeMo component libraries, such as `bionemo-llm` obtain their PyTorch dependencies via `bionemo-core`.
+Lightning. Other BioNeMo component libraries obtain their PyTorch dependencies via `bionemo-core`.
 
 ## Developer Setup
 
@@ -23,19 +23,10 @@ pytest -v --cov=bionemo --cov-report=term .
 
 ## Package Highlights
 
-In `bionemo.core.model.config`:
-
-- `ModelOutput`: A Model's forward pass may produce a tensor, multiple tensors, or named tensors.
-- `LossType`: A generic type parameter for a loss function.
-- `Model`: An interface for any ML model that accepts and produces `torch.Tensor`s.
-- `ModelType`: A generic type parameter that is constrained to the `Model` interface.
-- `BionemoModelConfig`: An abstract class that enables parameterizable model instantiation that is compatible with Megatron.
-- `BionemoTrainableModelConfig`: An extension that includes the loss function to use with the model during training.
-
 In `bionemo.core.utils`:
 
 - the `batching_utils` module's `pad_token_ids`, which pads token ids with padding value & returns a mask.
-- the `dtype` module's `get_autocast_dtype`, which converts from nemo/nvidia datatypes to their PyTorch equivalents.
+- the `dtype` module's `get_autocast_dtype`, which converts from various precision-type representations to their PyTorch equivalents.
 - the `random_utils` module, which includes functions for managing random seeds and performing sampling.
 
 In the `bionemo.data` package, there is:

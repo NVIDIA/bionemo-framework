@@ -125,7 +125,7 @@ By default, CI pipeline is enabled for all PRs and only unit tests are run. To s
 
 #### **ciflow:slow**
 
-- Run slow single GPU integration tests marked as @pytest.mark.slow for bionemo2
+- Run slow single GPU integration tests marked as @pytest.mark.slow
 - Use when modifying core functionalities and require extensive moderate complexity testing on a single GPU
 - Disabled by default
 
@@ -137,8 +137,8 @@ By default, CI pipeline is enabled for all PRs and only unit tests are run. To s
 
 #### **ciflow:all**
 
-- Run all tests (unit tests, slow tests, and notebooks) for bionemo2.
-- Without this label, unit tests for bionemo2 in PR CI are run only on when the bionemo2 codebase has been modified
+- Run all tests (unit tests, slow tests, and notebooks).
+- Without this label, unit tests in PR CI are run only when framework-relevant files have been modified
 - Use when introducing significant codebase changes for comprehensive testing
 - Disabled by default
 
@@ -156,8 +156,8 @@ Changes that affect model training accuracy or compute performance should be tes
 Developer workflow for _external_ code contributions is as follows:
 
 1. External developers must first [fork](https://help.github.com/en/articles/fork-a-repo) the
-   [upstream](https://github.com/NVIDIA/bionemo-framework/tree/main) BioNeMo OSS repository and for BioNeMo2 (this branch)
-   use the `main` branch as base.
+   [upstream](https://github.com/NVIDIA/bionemo-framework/tree/main) BioNeMo OSS repository
+   and use the `main` branch as base.
 
 2. Clone the forked repository and push changes to the personal fork.
 
@@ -198,7 +198,7 @@ our repository otherwise please create a fork with your branch and submit a PR w
 - Make sure you have the linters enabled via pre-commit hooks (`pre-commit install`) (See also [Pre-commit
   validation](#pre-commit-validation))
 - Follow the default PR template
-- Make sure all unit tests finish successfully before running PR pipeline by invoking `pytest scripts sub-packages`.
+- Make sure all unit tests finish successfully before running PR pipeline by invoking `pytest sub-packages/`.
 - Make sure you added necessary tests and documentation changes (could be just comments in the config files) for the
   feature in your PR
 - Rebase your feature branch with the latest `main` to include any new changes that have been added. Resolve merge
@@ -237,26 +237,22 @@ locally, use `git commit -n ...` to allow the commit to proceed with some failin
 
 #### Updating License Header on Python Files
 
-If you add new Python (`.py`) files, be sure to run our license-check. If you have not already done sone, please install
-the dev-requirements.txt. If you are working directly inside a release container, you may need to manually install these.
-We recommend using the developer container for contributions.
+If you add new Python (`.py`) files, the pre-commit license-check hook will automatically add the
+correct license header. We recommend using the developer container for contributions and running
+`pre-commit run --all-files` to apply headers and other formatting automatically.
 
-```bash
-pip install -r dev-requirements.txt --user
-python ci/scripts/license_check.py --modify --replace --license-header ./license_header -c sub-packages/ -c docs/ -c scripts/ -c ci/ -c internal/
+#### Secret Detection
+
+We use [gitleaks](https://github.com/gitleaks/gitleaks) to detect hardcoded secrets in the codebase. The configuration
+is in `.gitleaks.toml`.
+
+If gitleaks raises a false positive, you can suppress it by adding a `gitleaks:allow` comment on the offending line:
+
+```python
+api_url = "https://example.com/v1"  # gitleaks:allow
 ```
 
-#### Updating the secrets baseline file
-
-If false-positives are raised by the [detect-secrets](https://github.com/Yelp/detect-secrets) pre-commit hook, they can
-be added to the baseline files by running the following commands:
-
-```bash
-detect-secrets scan --baseline .secrets.baseline --exclude-files '(.*\.ipynb|.*\.baseline)$'
-detect-secrets scan --baseline .secrets-nb.baseline --exclude-files '^.(?!.*\.ipynb)' --exclude-lines '"(hash|id|image/\w+)":.*'
-```
-
-The resulting altered baseline files should then be committed.
+Alternatively, you can add a path or regex pattern to the `[allowlist]` section in `.gitleaks.toml`.
 
 ## Contributing Python Sub-Packages to BioNeMo Framework
 
@@ -264,7 +260,7 @@ The resulting altered baseline files should then be committed.
 
 - The sub-package should be located in `bionemo-framework/sub-packages`.
 - The sub-package should have a `pyproject.toml` or equivalent package, a `VERSION` file dynamically linked to the `pyproject.toml`, a `README.md` that documents the functionality, usage, and structure of the modules in the package, and a `LICENSE`.
-- Source code should be placed into `src/bionemo/<package-name-suffix>` and testing code should be placed into `tests/...` following the exact same directory structure as the source code that is tested, i.e. `src/bionemo/evo2/run/train.py` should have unit tests located in `tests/bionemo/evo2/run/test_train.py` for organizational purposes.
+- Source code should be placed into `src/bionemo/<package-name-suffix>` and testing code should be placed into `tests/...` following the exact same directory structure as the source code that is tested, e.g. `src/bionemo/core/data/load.py` should have unit tests located in `tests/bionemo/core/data/test_load.py` for organizational purposes.
   - Unit tests not associated with source code in BioNeMo can be placed anywhere reasonable under `tests/bionemo/<package-name-suffix>`.
 - Verify that the `pyproject.toml` is `pip install`-able (and `python -m build`-able).
   - If the sub-package is publishable, follow the instructions in [Publishing to PyPI](#publishing-to-pypi) to register or link your package to the sub-package workflow in BioNeMo Framework.
@@ -293,9 +289,9 @@ To publish your sub-package via "Trusted Publishing" to PyPI, you can follow the
 
 - Dispatch the `bionemo-subpackage-ci.yml` workflow from GitHub Actions to test, build, and publish your sub-packages to PyPI!
   - Required: Input a comma-separated list of sub-packages you want to test and/or publish into `subpackages`.
-    - For example, `bionemo-moco,bionemo-llm,bionemo-webdatamodule`. The sub-packages will be tested and published in separate parallel environments.
+    - For example, `bionemo-moco,bionemo-scdl,bionemo-webdatamodule`. The sub-packages will be tested and published in separate parallel environments.
   - Optional: Set `test` to `true` if you want to test your sub-package. (Default: `true`)
-    - Sub-packages that require pre- or post- installation steps may require modification of the `install-and-test` job in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](../../../../.github/workflows/bionemo-subpackage-ci.yml).
+    - Sub-packages that require pre- or post- installation steps may require modification of the `install-and-test` job in [`bionemo-framework/.github/workflows/bionemo-subpackage-ci.yml`](https://github.com/NVIDIA/bionemo-framework/blob/main/.github/workflows/bionemo-subpackage-ci.yml).
       - Supported `pyproject.toml` Optional Dependencies: \[ `te` \]
   - Optional: Set `publish` to `true` if you want to publish to Test PyPI or PyPI. (Default: `false`)
     - Pre-Requisite: [BioNeMo Publishing to PyPI](#publishing-to-pypi)

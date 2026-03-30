@@ -34,7 +34,7 @@ from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 from perf_logger import PerfLogger
-from quantization import initialize_quant_stats_logging, resolve_layer_precision
+from quantization import WandBQuantLogger, initialize_quant_stats_logging, resolve_layer_precision
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -82,11 +82,15 @@ def main(args: DictConfig) -> float | None:
         )
         config.layer_precision = layer_precision
         if args.quant_stats_config.enabled:
+            wandb_logger = None
+            if args.quant_stats_config.log_to_wandb and dist_config.is_main_process():
+                wandb_logger = WandBQuantLogger()
             initialize_quant_stats_logging(
                 quant_stats_file=args.quant_stats_config.quant_stats_file,
                 quant_log_dir=args.quant_stats_config.quant_log_dir,
                 rank=dist_config.rank,
                 layer_precision=layer_precision,
+                statistics_logger=wandb_logger,
             )
 
         # Create quantization recipes -- these are only used if FP8/FP4 is enabled in the config.
@@ -108,14 +112,17 @@ def main(args: DictConfig) -> float | None:
         with torch.device("meta") if args.use_meta_device else nullcontext():
             model = NVEsmForMaskedLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
     else:
-        config = EsmConfig.from_pretrained(args.config_name_or_path, dtype=dtype, **args.config_kwargs)
+        config = EsmConfig.from_pretrained(
+            args.config_name_or_path, dtype=dtype, attn_implementation="flash_attention_2", **args.config_kwargs
+        )
         with torch.device("meta") if args.use_meta_device else nullcontext():
             model = EsmForMaskedLM(config)
 
     logger.info("Initialized Model:\n%s", model)
 
     # We call the transformer stack "layers" in our TE models, but it's called "layer" in the original ESM-2 models.
-    transformer_stack = model.esm.encoder.layers if hasattr(model.esm.encoder, "layers") else model.esm.encoder.layer
+    base = model.model if hasattr(model, "model") else model.esm
+    transformer_stack = base.encoder.layers if hasattr(base.encoder, "layers") else base.encoder.layer
 
     if args.use_fp32_master_weights:
         mp_policy = MixedPrecisionPolicy(
@@ -125,7 +132,7 @@ def main(args: DictConfig) -> float | None:
             cast_forward_inputs=False,
         )
     else:
-        mp_policy = MixedPrecisionPolicy()
+        mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
     for layer in transformer_stack:
         fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
     fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)

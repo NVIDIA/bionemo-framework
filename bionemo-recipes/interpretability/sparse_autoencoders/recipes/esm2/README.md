@@ -98,7 +98,6 @@ This computes F1 scores against Swiss-Prot annotations, loss recovered metrics, 
 
 | Model     | Params | Embedding Dim | Layers | Batch Size | Config       |
 | --------- | ------ | ------------- | ------ | ---------- | ------------ |
-| ESM2-8M   | 8M     | 320           | 6      | 32         | `model=8m`   |
 | ESM2-650M | 650M   | 1280          | 33     | 16         | `model=650m` |
 | ESM2-3B   | 3B     | 2560          | 36     | 4          | `model=3b`   |
 | ESM2-15B  | 15B    | 5120          | 48     | 1          | `model=15b`  |
@@ -113,7 +112,7 @@ Override any parameter on the command line:
 python run.py model=3b train.n_epochs=5 train.lr=1e-4 nproc=8 source=swissprot
 ```
 
-Key training defaults: `expansion_factor=8`, `top_k=32`, `lr=3e-4`, `n_epochs=3`, `batch_size=4096`, `layer=24`, `source=uniref50`.
+Key training defaults: `expansion_factor=8`, `top_k=32`, `lr=3e-4`, `n_epochs=3`, `batch_size=4096`, `layer=24`, `source=uniref50`. <!-- gitleaks:allow -->
 
 ## Project Structure
 
@@ -125,24 +124,26 @@ recipes/esm2/
     extract.py              Extract layer activations (multi-GPU)
     train.py                Train TopK SAE (multi-GPU)
     eval.py                 Evaluate + build dashboard data
+    launch_dashboard.py     Launch the interactive dashboard
+    650m.sh, 3b.sh, 15b.sh  Ready-to-run shell scripts
   src/esm2_sae/             Recipe-specific code
     data/                   Protein data loaders (FASTA, SwissProt, UniRef50)
     eval/                   F1 scores, loss recovered
+    analysis/               Protein ranking and interpretability
     viz/                    UMAP, feature stats, top examples
     data_export.py          Parquet/DuckDB export
   protein_dashboard/        React/Vite interactive dashboard
-  notebooks/                Jupyter notebooks (minimal workflow, checkpoint-to-dashboard)
-  650m.sh, 3b.sh, 15b.sh   Ready-to-run shell scripts
 ```
 
 ## Python API
 
 ```python
 from sae.architectures import TopKSAE
-from esm2_sae.data import read_fasta, download_swissprot
+from esm2_sae import read_fasta, download_swissprot
 
-# Load sequences
-sequences = read_fasta("proteins.fasta")
+# Load sequences (returns list of FastaRecord with .id and .sequence)
+records = read_fasta("proteins.fasta")
+sequences = [r.sequence for r in records]
 
 # Load trained SAE
 import torch
@@ -168,4 +169,4 @@ save_activations_parquet(
 save_activations_duckdb(codes=codes, protein_ids=ids, db_path="data.duckdb")
 ```
 
-Requires: `uv pip install pyarrow duckdb` or `uv sync --extra export`.
+Requires: `pip install pyarrow duckdb` or install with the export extra.

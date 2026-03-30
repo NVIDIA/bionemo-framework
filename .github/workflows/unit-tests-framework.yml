@@ -1,6 +1,8 @@
 # BioNeMo Framework CI Workflow
 #
-# This workflow runs comprehensive tests for the BioNeMo framework on various triggers:
+# This workflow runs tests for BioNeMo framework sub-packages using a matrix
+# strategy where each sub-package runs in its own container -- matching the
+# pattern used by unit-tests-recipes.yml.
 #
 # TRIGGERS:
 # - Push to main branch, pull-request branches, or dependabot branches
@@ -8,27 +10,11 @@
 # - Scheduled runs (daily at 7 AM UTC)
 #
 # WORKFLOW OVERVIEW:
-# 1. changed-files: Detects which files have changed compared to main branch
-#    - Tracks changes in: All files (**) except:
-#      * bionemo-recipes/** (recipes have separate workflow)
-#      * **.md (markdown documentation files)
-#      * .github/** (GitHub configuration, except this workflow file)
-#      * .gitignore, .devcontainer/**
-#      * ci/scripts/recipes_local_test.py
-#    - Includes: .github/workflows/unit-tests-framework.yml (this workflow file)
+# 1. changed-files: Detects which sub-packages changed and computes the test matrix
 # 2. pre-commit: Runs static code checks and linting
 # 3. get-pr-labels: Retrieves PR labels for conditional job execution
-# 4. build-bionemo-image: Builds Docker image (conditional on triggers/labels)
-# 5. run-tests: Runs unit tests (when image build succeeds)
-# 6. run-tests-slow: Runs slow tests (when image succeeds + ciflow:slow label OR schedule/merge_group/ciflow:all)
-# 7. run-tests-notebooks: Runs notebook tests (when image succeeds + ciflow:notebooks label OR schedule/merge_group/ciflow:all)
-# 8. verify-tests-status: Verifies all test jobs completed successfully
-#
-# CONDITIONAL EXECUTION:
-# - build-bionemo-image runs on: schedule, ciflow:all label, (no ciflow:skip + modified files), (merge_group + modified files)
-# - run-tests runs when: build-bionemo-image succeeds
-# - run-tests-slow runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:slow)
-# - run-tests-notebooks runs when: build-bionemo-image succeeds AND (schedule OR merge_group OR ciflow:all OR ciflow:notebooks)
+# 4. run-tests / run-tests-slow / run-tests-notebooks: Per-sub-package matrix jobs
+# 5. verify-tests-status: Verifies all test jobs completed successfully
 
 name: "BioNeMo Framework CI"
 
@@ -56,36 +42,134 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       any_changed: ${{ steps.changed-files.outputs.any_changed }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: "recursive"
 
       - name: Get merge-base commit
         id: merge-base
         run: |
-          # Get the merge-base between current branch and main
           MERGE_BASE=$(git merge-base HEAD origin/main)
           echo "merge-base=$MERGE_BASE" >> $GITHUB_OUTPUT
-          echo "Merge-base commit: $MERGE_BASE"
 
       - uses: step-security/changed-files@v46
         id: changed-files
         with:
+          json: true
+          matrix: true
           base_sha: ${{ steps.merge-base.outputs.merge-base }}
+          dir_names: true
+          dir_names_max_depth: 2
           files: |
-            3rdparty/**
             sub-packages/**
-            Dockerfile
             .github/workflows/unit-tests-framework.yml
 
       - name: Show output
         run: |
           echo '${{ toJSON(steps.changed-files.outputs) }}'
-        shell:
-          bash
+        shell: bash
 
+      - name: Compute test matrix from changed files
+        id: matrix
+        env:
+          CHANGED_JSON: ${{ steps.changed-files.outputs.all_changed_files }}
+          ANY_CHANGED: ${{ steps.changed-files.outputs.any_changed }}
+          IS_SCHEDULE: ${{ github.event_name == 'schedule' }}
+        run: |
+          python3 - <<'PY'
+          import json, os, tomllib
+
+          # --- Parse tach.toml for the dependency graph ---
+          with open("tach.toml", "rb") as f:
+              tach = tomllib.load(f)
+
+          # Map each module to its sub-package by checking which source root
+          # actually contains the module directory on disk.
+          mod_to_pkg = {}
+          for mod in tach.get("modules", []):
+              mod_dir = mod["path"].replace(".", "/")
+              for sr in tach.get("source_roots", []):
+                  parts = sr.split("/")
+                  if len(parts) >= 2 and parts[0] == "sub-packages" and os.path.isdir(os.path.join(sr, mod_dir)):
+                      mod_to_pkg[mod["path"]] = parts[1]
+                      break
+
+          # Build the package dependency dict from tach modules.
+          packages = {}
+          for mod in tach.get("modules", []):
+              pkg = mod_to_pkg.get(mod["path"])
+              if pkg is None:
+                  continue
+              deps = []
+              for dep_mod in mod.get("depends_on", []):
+                  dep_pkg = mod_to_pkg.get(dep_mod)
+                  if dep_pkg and dep_pkg != pkg:
+                      deps.append(dep_pkg)
+              packages[pkg] = sorted(set(deps))
+
+          print(f"Packages from tach.toml: { {k: v for k, v in sorted(packages.items())} }")
+
+          # --- Determine which packages changed ---
+          raw = (os.environ.get("CHANGED_JSON") or "").strip()
+          if raw:
+              try:
+                  changed = json.loads(raw)
+              except json.JSONDecodeError:
+                  changed = json.loads(raw.replace('\\"', '"'))
+          else:
+              changed = []
+
+          any_changed = os.environ.get("ANY_CHANGED", "false") == "true"
+          is_schedule = os.environ.get("IS_SCHEDULE", "false") == "true"
+
+          # Reverse dependency map: package -> downstream dependents.
+          reverse_deps = {name: [] for name in packages}
+          for name, deps in packages.items():
+              for dep in deps:
+                  reverse_deps.setdefault(dep, []).append(name)
+
+          if is_schedule:
+              to_test = set(packages.keys())
+          elif any_changed:
+              infra_changed = any(not c.startswith("sub-packages/") for c in changed)
+              if infra_changed:
+                  to_test = set(packages.keys())
+              else:
+                  directly_changed = set()
+                  for c in changed:
+                      parts = c.split("/")
+                      if len(parts) >= 2 and parts[0] == "sub-packages":
+                          pkg = parts[1]
+                          if pkg in packages:
+                              directly_changed.add(pkg)
+
+                  to_test = set(directly_changed)
+                  queue = list(directly_changed)
+                  while queue:
+                      pkg = queue.pop()
+                      for rdep in reverse_deps.get(pkg, []):
+                          if rdep not in to_test:
+                              to_test.add(rdep)
+                              queue.append(rdep)
+          else:
+              to_test = set()
+
+          # --- Build matrix output ---
+          matrix = []
+          for name in sorted(to_test):
+              matrix.append({
+                  "name": name,
+                  "dir": f"sub-packages/{name}",
+                  "deps": [f"sub-packages/{d}" for d in packages[name]],
+              })
+
+          result = json.dumps(matrix)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"matrix={result}\n")
+          print(f"Matrix ({len(matrix)} packages): {result}")
+          PY
 
   pre-commit:
     runs-on: ubuntu-latest
@@ -106,7 +190,6 @@ jobs:
           uv tool update-shell
       - run: ./ci/scripts/static_checks.sh
 
-  # With copy-pr-bot, we need to get the PR labels from the PR API rather than from the event metadata.
   get-pr-labels:
     runs-on: ubuntu-latest
     outputs:
@@ -127,201 +210,262 @@ jobs:
         run: |
           LABELS=$(gh api repos/${{ github.repository }}/pulls/${{ steps.get-pr-num.outputs.pr_num }} --jq '[.labels[].name]' || echo "[]")
           echo "labels=$LABELS" >> $GITHUB_OUTPUT
-          echo "Retrieved labels: $LABELS"
 
       - name: Set empty labels for non-PR branches
         if: ${{ !startsWith(github.ref, 'refs/heads/pull-request/') }}
         id: get-labels-empty
         run: |
           echo "labels=[]" >> $GITHUB_OUTPUT
-          echo "Set empty labels for non-PR branch"
 
-  build-bionemo-image:
+  run-tests:
     needs:
       - pre-commit
-      - get-pr-labels
       - changed-files
-    runs-on: linux-amd64-cpu16
+      - get-pr-labels
+    runs-on: linux-amd64-gpu-l4-latest-1
     if: |
       (github.event_name == 'schedule') ||
       contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
       (
         !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
         (needs.changed-files.outputs.any_changed == 'true')
-      ) ||
-      (
-        (github.event_name == 'merge_group') &&
-        (needs.changed-files.outputs.any_changed == 'true')
       )
-    steps:
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ vars.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Docker Metadata
-        id: metadata
-        uses: docker/metadata-action@v5
-        with:
-          images: svcbionemo023/bionemo-framework
-          tags: |
-            type=schedule
-            type=ref,event=branch
-            type=ref,event=tag
-            type=ref,event=pr
-            type=raw,value=${{ github.run_id }}
-
-      # This action sets up our cache-from and cache-to flags appropriately; see the README of this action for more
-      # info. It doesn't seem to cache correctly for merge_group events, so we need to add that as an extra argument in
-      # the step below. There's probably a slight optimization to be had here by caching from the pr- caches for
-      # merge_group events. See https://github.com/int128/docker-build-cache-config-action/issues/1005 for more info.
-      - uses: int128/docker-build-cache-config-action@v1
-        id: cache
-        with:
-          image: svcbionemo023/bionemo-build-cache
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          push: true
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
-          cache-from: |
-            ${{ steps.cache.outputs.cache-from }}
-            type=registry,ref=svcbionemo023/bionemo-build-cache:main
-          cache-to: ${{ steps.cache.outputs.cache-to }}
-
-
-  run-tests:
-    needs:
-      - build-bionemo-image
-      - get-pr-labels
-    runs-on: linux-amd64-gpu-l4-latest-1
+    name: "unit-tests (${{ matrix.pkg.name }})"
     container:
-      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
-      credentials:
-        username: ${{ vars.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
+      options: --shm-size=16G
       env:
         CI: true
         HF_TOKEN: ${{ secrets.HF_TOKEN }}
-    if: needs.build-bionemo-image.result == 'success'
+        HF_HOME: /cache/huggingface
+        BIONEMO_DATA_SOURCE: ngc
+    strategy:
+      matrix:
+        pkg: ${{ fromJson(needs.changed-files.outputs.matrix) }}
+      fail-fast: false
+
     steps:
+      - name: Show GPU info
+        run: nvidia-smi
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            sub-packages
+            LICENSE
+          sparse-checkout-cone-mode: true
+
+      - name: Install dependencies and package
+        working-directory: ${{ matrix.pkg.dir }}
+        env:
+          DEPS: ${{ toJson(matrix.pkg.deps) }}
+        run: |
+          # Install internal dependencies from local checkout first.
+          for dep in $(echo "$DEPS" | jq -r '.[]'); do
+            PIP_CONSTRAINT= pip install -e "../../$dep"
+          done
+
+          # Install the target sub-package.
+          if [ -f .ci_build.sh ]; then
+            bash .ci_build.sh
+          else
+            PIP_CONSTRAINT= pip install -e .
+          fi
+
+          # Install test dependencies if declared.
+          PIP_CONSTRAINT= pip install pytest pytest-cov pytest-timeout || true
+          PIP_CONSTRAINT= pip install -e ".[test]" 2>/dev/null || true
 
       - name: Run tests
-        # Tests in this stage generate code coverage metrics for the repository
-        # Coverage data is uploaded to Codecov in subsequent stages
-        env:
-          BIONEMO_DATA_SOURCE: ngc
+        working-directory: ${{ matrix.pkg.dir }}
         run: |
-          chmod +x ./ci/scripts/run_pytest_unittests.sh
-          ./ci/scripts/run_pytest_unittests.sh
+          pytest -v \
+            --cov=bionemo \
+            --cov-report=xml:coverage.xml \
+            --junitxml=results.junit.xml \
+            -o junit_family=legacy \
+            .
 
       - name: Upload coverage to Codecov
-        # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
-        # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
         if: github.event_name != 'merge_group' && github.event_name != 'schedule'
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          flags: ${{ matrix.pkg.name }}
+          files: coverage.xml
 
       - name: Upload test results to Codecov
-        # Don't run coverage on merge queue or nightly CI to avoid duplicating reports
-        # to codecov. See https://github.com/matplotlib/napari-matplotlib/issues/155
         if: ${{ !cancelled() && github.event_name != 'merge_group' && github.event_name != 'schedule' }}
         uses: codecov/test-results-action@v1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          flags: ${{ matrix.pkg.name }}
+          files: results.junit.xml
 
   run-tests-slow:
     needs:
-      - build-bionemo-image
+      - pre-commit
+      - changed-files
       - get-pr-labels
     runs-on: linux-amd64-gpu-l4-latest-1
-    container:
-      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
-      credentials:
-        username: ${{ vars.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
     if: |
-        (needs.build-bionemo-image.result == 'success') &&
+        (
+          (github.event_name == 'schedule') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+          (
+            !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
+            (needs.changed-files.outputs.any_changed == 'true')
+          )
+        ) &&
         (
           (github.event_name == 'schedule') ||
           (github.event_name == 'merge_group') ||
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:slow')
         )
+    name: "slow-tests (${{ matrix.pkg.name }})"
+    container:
+      image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
+      options: --shm-size=16G
+      env:
+        CI: true
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HF_HOME: /cache/huggingface
+        BIONEMO_DATA_SOURCE: ngc
+    strategy:
+      matrix:
+        pkg: ${{ fromJson(needs.changed-files.outputs.matrix) }}
+      fail-fast: false
+
     steps:
+      - name: Show GPU info
+        run: nvidia-smi
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            sub-packages
+            LICENSE
+          sparse-checkout-cone-mode: true
+
+      - name: Install dependencies and package
+        working-directory: ${{ matrix.pkg.dir }}
+        env:
+          DEPS: ${{ toJson(matrix.pkg.deps) }}
+        run: |
+          for dep in $(echo "$DEPS" | jq -r '.[]'); do
+            PIP_CONSTRAINT= pip install -e "../../$dep"
+          done
+
+          if [ -f .ci_build.sh ]; then
+            bash .ci_build.sh
+          else
+            PIP_CONSTRAINT= pip install -e .
+          fi
+
+          PIP_CONSTRAINT= pip install pytest pytest-cov pytest-timeout || true
+          PIP_CONSTRAINT= pip install -e ".[test]" 2>/dev/null || true
 
       - name: Run slow tests
-
-        env:
-          BIONEMO_DATA_SOURCE: ngc
-        # Not every sub-package has slow tests, and since some sub-packages have tests under the same name we need
-        #  to run package by package like we do with the fast tests.
+        working-directory: ${{ matrix.pkg.dir }}
         run: |
-          chmod +x ./ci/scripts/run_pytest_slow.sh
-          ./ci/scripts/run_pytest_slow.sh
-
+          pytest -v -m slow \
+            --junitxml=results-slow.junit.xml \
+            -o junit_family=legacy \
+            . || test $? -eq 5  # exit 5 = no tests collected, which is OK
 
   run-tests-notebooks:
     needs:
-      - build-bionemo-image
+      - pre-commit
+      - changed-files
       - get-pr-labels
     runs-on: linux-amd64-gpu-l4-latest-1
-
     if: |
-        (needs.build-bionemo-image.result == 'success') &&
+        (
+          (github.event_name == 'schedule') ||
+          contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
+          (
+            !contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:skip') &&
+            (needs.changed-files.outputs.any_changed == 'true')
+          )
+        ) &&
         (
           (github.event_name == 'schedule') ||
           (github.event_name == 'merge_group') ||
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:all') ||
           contains(fromJSON(needs.get-pr-labels.outputs.labels || '[]'), 'ciflow:notebooks')
         )
+    name: "notebook-tests (${{ matrix.pkg.name }})"
     container:
-      image: svcbionemo023/bionemo-framework:${{ github.run_id }}
-      credentials:
-        username: ${{ vars.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      image: svcbionemo023/bionemo-framework:pytorch26.02-py3-squashed
+      options: --shm-size=16G
+      env:
+        CI: true
+        HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        HF_HOME: /cache/huggingface
+        BIONEMO_DATA_SOURCE: ngc
+    strategy:
+      matrix:
+        pkg: ${{ fromJson(needs.changed-files.outputs.matrix) }}
+      fail-fast: false
+
     steps:
+      - name: Show GPU info
+        run: nvidia-smi
+
+      - name: Setup proxy cache
+        uses: nv-gha-runners/setup-proxy-cache@main
+
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            sub-packages
+            LICENSE
+          sparse-checkout-cone-mode: true
+
+      - name: Install dependencies and package
+        working-directory: ${{ matrix.pkg.dir }}
+        env:
+          DEPS: ${{ toJson(matrix.pkg.deps) }}
+        run: |
+          for dep in $(echo "$DEPS" | jq -r '.[]'); do
+            PIP_CONSTRAINT= pip install -e "../../$dep"
+          done
+
+          if [ -f .ci_build.sh ]; then
+            bash .ci_build.sh
+          else
+            PIP_CONSTRAINT= pip install -e .
+          fi
+
+          PIP_CONSTRAINT= pip install nbval testbook || true
+          PIP_CONSTRAINT= pip install -e ".[test]" 2>/dev/null || true
 
       - name: Run notebook tests
-        env:
-          BIONEMO_DATA_SOURCE: ngc
+        working-directory: ${{ matrix.pkg.dir }}
         run: |
-          chmod +x ./ci/scripts/run_pytest_notebooks.sh
-          ./ci/scripts/run_pytest_notebooks.sh
+          FAST_CI_MODE=true pytest -v --nbval-lax -x -p no:python . \
+            || test $? -eq 5  # exit 5 = no notebooks found, which is OK
 
   verify-tests-status:
-    # Base on the status of this job, the unit-tests workflow succeeds or fails
-    # This steps checks the status of all test jobs and fails if any of them failed or were cancelled.
-    # It is a workaround for the lack of a built-in feature to finalize a pipeline by checking the status of multiple jobs
-    needs: # List all your run-*-test jobs
+    needs:
       - pre-commit
+      - changed-files
       - get-pr-labels
-      - build-bionemo-image
       - run-tests
       - run-tests-slow
       - run-tests-notebooks
-      # Add all other run-*-test jobs
     runs-on: ubuntu-latest
-    if: always() # This ensures the job runs even if previous jobs fail
+    if: always()
     steps:
       - name: Check test job statuses
         run: |

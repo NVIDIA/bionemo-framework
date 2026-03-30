@@ -1,0 +1,22 @@
+.cache/
+outputs/
+wandb/
+
+# Generated dashboard data
+**/public/
+**/dist/
+**/feature_analysis.json
+**/feature_labels.json
+**/vocab_logits.json
+**/node_modules/
+dash/
+dash2/
+dash108k/
+dash_438k/
+dash_438k_auto/
+dash_438k_clinvar/
+dash_ef64/
+gtc_dash/
+nndash/
+nndash2/
+olddash/
