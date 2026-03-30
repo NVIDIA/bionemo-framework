@@ -7,6 +7,7 @@
 *.yaml
 
 # directories created during these notebook runs.
+*_mbridge
 evo2_20b_finetune/
 savanna_20b_download/
 nemo2_evo2_1b_8k/

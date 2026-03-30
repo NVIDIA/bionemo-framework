@@ -272,15 +272,17 @@ def baseline_predictions_7b_1m_results(
 
 
 @pytest.mark.parametrize(
-    "ddp,cp,pp,tp,fp8,wi",
+    "ddp,cp,pp,tp,fp8,wi,use_subquadratic_ops",
     [
-        pytest.param(1, 1, 1, 1, False, "epoch", id="ddp=1,cp=1,pp=1,tp=1,fp8=False,wi=epoch"),
-        pytest.param(2, 1, 1, 1, False, "epoch", id="ddp=2,cp=1,pp=1,tp=1,fp8=False,wi=epoch"),
+        pytest.param(1, 1, 1, 1, False, "epoch", False, id="ddp=1,cp=1,pp=1,tp=1,fp8=False,wi=epoch,subq=False"),
+        pytest.param(2, 1, 1, 1, False, "epoch", False, id="ddp=2,cp=1,pp=1,tp=1,fp8=False,wi=epoch,subq=False"),
         pytest.param(
-            2, 1, 1, 1, False, "batch", id="ddp=2,cp=1,pp=1,tp=1,fp8=False,wi=batch"
+            2, 1, 1, 1, False, "batch", False, id="ddp=2,cp=1,pp=1,tp=1,fp8=False,wi=batch,subq=False"
         ),  # simulate a large prediction run with dp parallelism
-        pytest.param(1, 2, 1, 1, False, "epoch", id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=epoch"),
-        pytest.param(1, 2, 1, 1, False, "batch", id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=batch"),
+        pytest.param(1, 2, 1, 1, False, "epoch", False, id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=epoch,subq=False"),
+        pytest.param(1, 2, 1, 1, False, "batch", False, id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=batch,subq=False"),
+        pytest.param(1, 1, 1, 1, False, "epoch", True, id="ddp=1,cp=1,pp=1,tp=1,fp8=False,wi=epoch,subq=True"),
+        pytest.param(1, 2, 1, 1, False, "epoch", True, id="ddp=1,cp=2,pp=1,tp=1,fp8=False,wi=epoch,subq=True"),
         pytest.param(
             1,
             1,
@@ -288,15 +290,18 @@ def baseline_predictions_7b_1m_results(
             1,
             False,
             "epoch",
-            id="ddp=1,cp=1,pp=2,tp=1,fp8=False,wi=epoch",
+            False,
+            id="ddp=1,cp=1,pp=2,tp=1,fp8=False,wi=epoch,subq=False",
             marks=pytest.mark.skip("Pipeline parallelism test currently hangs."),
         ),
         pytest.param(
-            1, 1, 1, 2, True, "epoch", id="ddp=1,cp=1,pp=1,tp=2,fp8=True,wi=epoch"
+            1, 1, 1, 2, True, "epoch", False, id="ddp=1,cp=1,pp=1,tp=2,fp8=True,wi=epoch,subq=False"
         ),  # Cover case where FP8 was not supported with TP=2
-        pytest.param(1, 1, 1, 2, False, "epoch", id="ddp=1,cp=1,pp=1,tp=2,fp8=False,wi=epoch"),
-        pytest.param(1, 1, 1, 8, False, "epoch", id="ddp=1,cp=1,pp=1,tp=8,fp8=False,wi=epoch"),
-        pytest.param(1, 1, 1, 8, True, "epoch", id="ddp=1,cp=1,pp=1,tp=8,fp8=True,wi=epoch"),  # Cover TP=8 with FP8
+        pytest.param(1, 1, 1, 2, False, "epoch", False, id="ddp=1,cp=1,pp=1,tp=2,fp8=False,wi=epoch,subq=False"),
+        pytest.param(1, 1, 1, 8, False, "epoch", False, id="ddp=1,cp=1,pp=1,tp=8,fp8=False,wi=epoch,subq=False"),
+        pytest.param(
+            1, 1, 1, 8, True, "epoch", False, id="ddp=1,cp=1,pp=1,tp=8,fp8=True,wi=epoch,subq=False"
+        ),  # Cover TP=8 with FP8
     ],
 )
 @pytest.mark.slow
@@ -309,6 +314,7 @@ def test_predict_evo2_equivalent_with_log_probs(
     tp: int,
     fp8: bool,
     wi: str,
+    use_subquadratic_ops: bool,
     mbridge_checkpoint_7b_1m_path: Path,
     baseline_predictions_7b_1m_results: dict[int, float],
     num_sequences: int = 5,
@@ -348,13 +354,14 @@ def test_predict_evo2_equivalent_with_log_probs(
         env["NCCL_P2P_DISABLE"] = "1"
 
     fp8_option = "--mixed-precision-recipe bf16_with_fp8_current_scaling_mixed" if fp8 else ""
+    subquadratic_ops_option = "--use-subquadratic-ops" if use_subquadratic_ops else ""
     output_dir = tmp_path / "test_output"
     open_port = find_free_network_port()
     command = (
         f"torchrun --nproc_per_node {world_size} --nnodes 1 --master_port {open_port} "
         f"-m bionemo.evo2.run.predict --fasta {fasta_file_path} --ckpt-dir {mbridge_checkpoint_7b_1m_path} "
         f"--micro-batch-size 3 --write-interval {wi} "
-        f"--output-dir {output_dir} --tensor-parallel-size {tp} {fp8_option} "
+        f"--output-dir {output_dir} --tensor-parallel-size {tp} {fp8_option} {subquadratic_ops_option} "
         f"--pipeline-model-parallel-size {pp} --context-parallel-size {cp} --num-nodes 1 --devices {world_size} "
         "--output-log-prob-seqs --log-prob-collapse-option sum"
     )

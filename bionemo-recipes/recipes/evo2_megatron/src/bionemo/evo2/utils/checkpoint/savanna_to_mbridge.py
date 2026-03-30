@@ -194,8 +194,21 @@ def savanna_to_mbridge_state_dict(
     mapping = {}
 
     mapping["sequential.0.word_embeddings.weight"] = "embedding.word_embeddings.weight"
-    # Savanna sequential layout: 0=embedding, 1=lambda(no params), 2..N+1=layers, N+2=lambda, N+3=final_norm
-    mapping[f"sequential.{num_layers + 3}.norm.weight"] = "decoder.final_norm.weight"
+    # Savanna sequential layout varies by model:
+    #   40b: 0=embedding, 1=lambda, 2..N+1=layers, N+2=lambda, N+3=final_norm
+    #   20b: 0=embedding, 1=lambda, 2..N+1=layers, N+2=final_norm  (no second lambda)
+    # Auto-detect by checking which index contains the final norm.
+    norm_key_plus3 = f"sequential.{num_layers + 3}.norm.weight"
+    norm_key_plus2 = f"sequential.{num_layers + 2}.norm.weight"
+    if norm_key_plus3 in savanna_state_dict:
+        mapping[norm_key_plus3] = "decoder.final_norm.weight"
+    elif norm_key_plus2 in savanna_state_dict:
+        mapping[norm_key_plus2] = "decoder.final_norm.weight"
+    else:
+        raise KeyError(
+            f"Cannot find final norm weight at sequential.{num_layers + 3} or sequential.{num_layers + 2}. "
+            f"Check that hybrid_override_pattern length ({num_layers}) matches the checkpoint."
+        )
 
     for i, symbol in enumerate(hybrid_override_pattern):
         src_idx = i + 2

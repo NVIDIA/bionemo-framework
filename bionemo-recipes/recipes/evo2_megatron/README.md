@@ -248,19 +248,22 @@ evo2_convert_savanna_to_mbridge \
 ```
 
 The `--savanna-ckpt-path` accepts either a local `.pt` file path or a HuggingFace
-repo ID (e.g., `arcinstitute/savanna_evo2_1b_base`). Available Savanna checkpoints:
+repo ID (e.g., `arcinstitute/savanna_evo2_1b_base`). Available Savanna checkpoints include:
 
 | HuggingFace Repo                     | Model Size      |
 | ------------------------------------ | --------------- |
 | `arcinstitute/savanna_evo2_1b_base`  | `evo2_1b_base`  |
+| `arcinstitute/savanna_evo2_7b_base`  | `evo2_7b_base`  |
 | `arcinstitute/savanna_evo2_7b`       | `evo2_7b`       |
+| `arcinstitute/savanna_evo2_20b`      | `evo2_20b`      |
 | `arcinstitute/savanna_evo2_40b_base` | `evo2_40b_base` |
+| `arcinstitute/savanna_evo2_40b`      | `evo2_40b`      |
 
 Options:
 
 - `--no-te` — disable Transformer Engine fused layernorm key mapping (use if the
   checkpoint was saved without TE).
-- `--mixed-precision-recipe` — precision recipe (default: `bf16_mixed`).
+- `--mixed-precision-recipe` — precision recipe (default: `bf16_mixed`). NOTE for checkpoints sensitive to FP8 and Hopper you need to run with `--mixed-precision-recipe bf16-mixed` and also supply the `--vortex-style-fp8` option for prediction/inference, you should not use the fp8 recipe for those models, as they are sensitive to the exact FP8 configuration they were trained with in savanna, see the [table under the section on available nvidia checkpoints for download from NGC](#available-models-in-ngc-currently-nemo-format-so-first-convert-to-mbridge).
 - `--verbose` / `-v` — enable debug logging.
 
 ## Exporting to Vortex format
@@ -353,8 +356,8 @@ docker build -t evo2_megatron_recipe-$(git rev-parse --short HEAD) .
 
 ## Performance and accuracy comparisons
 
-NOTE: this section is largely a work in progress. This reflects the most updated information, but may not reflect the
-current state of the code base at any given time.
+> **Note:** This section is largely a work in progress. This reflects the most updated information, but may not
+> reflect the current state of the code base at any given time.
 
 ### Training accuracy convergence
 
@@ -397,14 +400,21 @@ have currently demonstrated small training runs at 2M context on only 512 H100 G
 
 ## Available models in NGC (Currently NeMo format so first convert to mbridge)
 
+> **Note:** If you would like to use one of the checkpoints that requires FP8 and Hopper (e.g., that does not work
+> on Blackwell), you need to supply both `--mixed-precision-recipe bf16-mixed` to disable the default Megatron FP8
+> recipes, as well as `--vortex-style-fp8` which enables the custom FP8 recipe that supports these models. For the
+> robust NVIDIA fine-tuned variants of these models, you can run with FP8 using the available Megatron recipes. The
+> `evo2_7b` model size does not have these sensitivity issues so it can be executed with Megatron style FP8 or BF16.
+
 | HF Model                                                                                        | BioNeMo Resource Name                                                                                                 | Blackwell FP8 | Blackwell BF16 | Hopper FP8 | Hopper BF16 | Ampere | Notes                                                                                                                                                                                                                                                                    |
 | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ------------- | -------------- | ---------- | ----------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | [arcinstitute/savanna_evo2_1b_base](https://huggingface.co/arcinstitute/savanna_evo2_1b_base)   | [evo2/1b-8k:1.0](https://registry.ngc.nvidia.com/orgs/nvidia/teams/clara/models/evo2-1b-8k-nemo2)                     | ✅            | ❌             | ✅         | ❌          | ❌     | Low accuracy on bf16 (eg ampere) GPUs                                                                                                                                                                                                                                    |
 |                                                                                                 | [evo2/1b-8k-bf16:1.0](https://registry.ngc.nvidia.com/orgs/nvidia/teams/clara/models/evo2-1b-8k-bf16-nemo2)           | ✅            | ✅             | ✅         | ✅          | ✅     | Fine-tuned variant of the 1b-8k that supports bf16 as well as fp8, enabling ampere as well as hopper/blackwell.                                                                                                                                                          |
 | [arcinstitute/savanna_evo2_7b_base](https://huggingface.co/arcinstitute/savanna_evo2_7b_base)   | [evo2/7b-8k:1.0](https://registry.ngc.nvidia.com/orgs/nvidia/teams/clara/models/evo2-7b-8k-nemo2)                     | ✅            | ✅             | ✅         | ✅          | ✅     | The original 7b models have good accuracy across the board at bf16 and fp8 across tested hardware.                                                                                                                                                                       |
 | [arcinstitute/savanna_evo2_7b](https://huggingface.co/arcinstitute/savanna_evo2_7b)             | [evo2/7b-1m:1.0](https://registry.ngc.nvidia.com/orgs/nvidia/teams/clara/models/evo2-7b-1m-nemo2)                     | ✅            | ✅             | ✅         | ✅          | ✅     | The original 7b models have good accuracy across the board at bf16 and fp8 across tested hardware.                                                                                                                                                                       |
+| [arcinstitute/savanna_evo2_20b](https://huggingface.co/arcinstitute/savanna_evo2_20b)           |                                                                                                                       | ?             | ?              | ✅         | ❌          | ❌     | The 20b model appears to have the same FP8+Hopper support matrix as the 40b model, but we have not tested all configurations thoroughly yet.                                                                                                                             |
 | [arcinstitute/savanna_evo2_40b_base](https://huggingface.co/arcinstitute/savanna_evo2_40b_base) |                                                                                                                       | ?             | ?              | ?          | ?           | ?      | Unknown, likely has the same support pattern as the 40b-1m row below since this is the same model at an earlier step of training.                                                                                                                                        |
-| [arcinstitute/savanna_evo2_40b](https://huggingface.co/arcinstitute/savanna_evo2_40b)           |                                                                                                                       | ❌            | ❌             | ✅         | ❌          | ❌     | The original 40b-1m context trained model only supports hpper fp8                                                                                                                                                                                                        |
+| [arcinstitute/savanna_evo2_40b](https://huggingface.co/arcinstitute/savanna_evo2_40b)           |                                                                                                                       | ❌            | ❌             | ✅         | ❌          | ❌     | The original 40b-1m context trained model only supports Hopper FP8                                                                                                                                                                                                       |
 |                                                                                                 | [evo2/40b-1m-fp8-bf16:1.0](https://registry.ngc.nvidia.com/orgs/nvidia/teams/clara/models/evo2-40b-1m-fp8-bf16-nemo2) | ✅            | ✅             | ✅         | ✅          | ✅     | A fine-tuned variant of [arcinstitute/savanna_evo2_40b](https://huggingface.co/arcinstitute/savanna_evo2_40b) with broad hardware support (fp8 or bf16 and ampere, hopper, and blackwell have all been tested). The original model only has good accuracy on hopper fp8. |
 
 On the CLI you can access the resources in this table (and others) with:
