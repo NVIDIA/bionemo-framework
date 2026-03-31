@@ -230,7 +230,7 @@ class CodonFMEncoder(nn.Module):
         if self.config.layer_precision is not None and "fp4" in self.config.layer_precision and fp4_recipe is None:
             raise RuntimeError("layer_precision contains 'fp4' entries but no fp4_recipe was provided.")
 
-        device = "meta" if torch.get_default_device() == torch.device("meta") else "cpu"
+        device = "meta" if torch.get_default_device() == torch.device("meta") else "cuda"
 
         layers: list[transformer_engine.pytorch.TransformerLayer] = []
         for i in range(config.num_hidden_layers):
@@ -368,7 +368,7 @@ class CodonFMLMHead(nn.Module):
             config: Model configuration.
         """
         super().__init__()
-        device = "meta" if torch.get_default_device() == torch.device("meta") else "cpu"
+        device = "meta" if torch.get_default_device() == torch.device("meta") else "cuda"
         _act_fns = {
             "gelu": torch.nn.functional.gelu,
             "relu": torch.nn.functional.relu,
