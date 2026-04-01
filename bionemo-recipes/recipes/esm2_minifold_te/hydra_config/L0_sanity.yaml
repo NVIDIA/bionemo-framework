@@ -47,6 +47,8 @@ checkpoint:
   save_every_n_steps: 0
   max_checkpoints: 1
 
+use_fp32_master_weights: false
+
 # MXFP8 disabled for sanity check
 mxfp8:
   enabled: false
