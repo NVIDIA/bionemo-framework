@@ -23,6 +23,10 @@ nsight_profiling/
 logs/
 wandb/
 
+# Downloaded CIF files (reproduced by data/prepare_*.py scripts)
+data/cif_files/
+data/eval_cif_files/
+
 # Hydra / training outputs
 outputs/
 checkpoints/
