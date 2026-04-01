@@ -18,7 +18,7 @@
 Performs a fresh facebook -> TE export, then cross-validates embeddings across
 vLLM, HuggingFace (exported checkpoint), and HuggingFace (nvidia Hub reference).
 
-vLLM's pooling runner returns last-token, L2-normalised embeddings by default,
+vLLM's pooling runner returns last-token, L2-normalized embeddings by default,  # gitleaks:allow
 so the HuggingFace paths replicate that post-processing for comparison.
 """
 
@@ -63,6 +63,8 @@ def _last_token_l2(hidden_state: torch.Tensor) -> np.ndarray:
 
 def _hf_embed(model_id: str, sequences: list[str], dtype=torch.float32) -> np.ndarray:
     """Run HuggingFace inference and return last-token L2-normalised embeddings."""
+    torch.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
     model = AutoModel.from_pretrained(model_id, trust_remote_code=True).to("cuda", dtype=dtype).eval()
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
 
@@ -88,6 +90,7 @@ def _vllm_embed(model_id: str, sequences: list[str]) -> np.ndarray:
         dtype="float32",
         enforce_eager=True,
         max_num_batched_tokens=1026,
+        seed=42,
     )
     outputs = engine.embed(sequences)
 

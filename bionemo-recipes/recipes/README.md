@@ -49,8 +49,8 @@ Follow this naming pattern to clearly communicate what your recipe demonstrates:
 
 Examples:
 
-- `esm2_native_te_mfsdp/` - ESM-2 with vanilla PyTorch, TransformerEngine, and megatron-fsdp
-- `geneformer_lightning_context_parallel/` - Geneformer with PyTorch Lightning and context parallelism
+- `esm2_native_te/` - ESM-2 with vanilla PyTorch, TransformerEngine, and megatron-fsdp
+- `geneformer_native_te_mfsdp_fp8/` - Geneformer with native PyTorch, TransformerEngine, and mixed FSDP
 
 ### Required Directory Structure
 
@@ -412,8 +412,8 @@ docker run --rm -it --gpus all my_recipe pytest -v .
 
 For reference implementations, examine existing recipes:
 
-- **`esm2_native_te_mfsdp/`**: Comprehensive example showing vanilla PyTorch with TE and megatron-fsdp
-- **`geneformer_lightning_context_parallel/`**: PyTorch Lightning with context parallelism for long sequences
+- **`esm2_native_te/`**: Comprehensive example showing vanilla PyTorch with TE and megatron-fsdp
+- **`geneformer_native_te_mfsdp_fp8/`**: Geneformer with native PyTorch, TransformerEngine, and mixed FSDP
 
 ## Best Practices
 
