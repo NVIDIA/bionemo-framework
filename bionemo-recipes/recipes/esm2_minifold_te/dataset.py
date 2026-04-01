@@ -316,9 +316,11 @@ def create_dataloader(
     num_samples: int = 1000,
     cif_dir: str | None = None,
     pdb_ids: list[str] | None = None,
+    shuffle: bool = True,
+    drop_last: bool = True,
     **kwargs,
 ):
-    """Create a DataLoader for structure prediction training.
+    """Create a DataLoader for structure prediction training or evaluation.
 
     Args:
         dist_config: Distributed training configuration.
@@ -331,6 +333,8 @@ def create_dataloader(
         num_samples: Number of synthetic samples.
         cif_dir: Directory with .cif files (required if dataset_type="mmcif").
         pdb_ids: Optional list of PDB IDs to filter (for dataset_type="mmcif").
+        shuffle: Whether to shuffle the data (False for eval).
+        drop_last: Whether to drop the last incomplete batch (False for eval).
         **kwargs: Additional keyword arguments (ignored).
 
     Returns:
@@ -367,7 +371,7 @@ def create_dataloader(
         dataset,
         num_replicas=dist_config.world_size,
         rank=dist_config.rank,
-        shuffle=True,
+        shuffle=shuffle,
     )
 
     dataloader = DataLoader(
@@ -376,7 +380,7 @@ def create_dataloader(
         sampler=sampler,
         num_workers=num_workers,
         pin_memory=True,
-        drop_last=True,
+        drop_last=drop_last,
     )
 
     return dataloader, sampler
