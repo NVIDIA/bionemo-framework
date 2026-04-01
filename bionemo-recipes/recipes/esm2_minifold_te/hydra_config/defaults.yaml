@@ -48,6 +48,9 @@ checkpoint:
   save_every_n_steps: 1_000
   max_checkpoints: 5
 
+# FP32 master weights (optimizer keeps FP32 copies, forward/backward in BF16)
+use_fp32_master_weights: false
+
 # MXFP8 precision sweep config
 mxfp8:
   enabled: false

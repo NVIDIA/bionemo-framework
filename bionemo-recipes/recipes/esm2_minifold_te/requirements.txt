@@ -4,6 +4,7 @@ einops
 fair-esm
 hydra-core
 megatron-fsdp
+ml_collections
 pytest
 scipy
 torch
