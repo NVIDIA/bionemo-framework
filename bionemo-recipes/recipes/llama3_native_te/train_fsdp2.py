@@ -36,6 +36,7 @@ from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
+from transformer_engine.pytorch.optimizers import FusedAdam
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
@@ -56,6 +57,40 @@ from scheduler import get_cosine_annealing_schedule_with_warmup
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+class DTensorFusedAdam(FusedAdam):
+    """FusedAdam with DTensor-compatible state initialization.
+
+    TE's FusedAdam uses ``torch.empty(param.shape, ...)`` to create optimizer states, which produces
+    a regular Tensor even when ``param`` is a DTensor (FSDP2). This causes a crash on ``copy_()``
+    between the regular-Tensor state and the DTensor param. This subclass fixes the issue by using
+    ``torch.empty_like`` / ``torch.zeros_like`` which preserve DTensor sharding.
+
+    See: https://github.com/NVIDIA/TransformerEngine/blob/main/examples/pytorch/quantized_model_init/fully_shard.py
+    """
+
+    def _initialize_state(self, param, state_name, zero_buffer, store_param_remainders=False):
+        dtype = self.name_to_dtype_map[state_name]
+        if store_param_remainders:
+            data = torch.zeros_like(param, dtype=torch.int16)
+        else:
+            data = torch.empty_like(param, dtype=dtype)
+        if zero_buffer:
+            data.zero_()
+
+        if dtype == torch.uint8:
+            # FP8 quantizer path — delegate to parent (only used with QuantizedTensors).
+            super()._initialize_state(param, state_name, zero_buffer, store_param_remainders)
+            return
+
+        self.state[param][state_name] = data
+
+        # Create scale if necessary.
+        if dtype != torch.float32:
+            if param not in self._scales:
+                self._scales[param] = {}
+            self._scales[param][state_name] = torch.ones([1], dtype=torch.float32, device=param.device)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
@@ -82,9 +117,12 @@ def main(args: DictConfig) -> float | None:
         model_class = LlamaForCausalLM
 
     # --- Model Configuration ---
+    # FusedAdam maintains its own FP32 master weights, so model stays BF16.
+    # MixedPrecisionPolicy path inits in FP32 and casts to BF16 via FSDP.
+    use_fp32_mp = args.use_fp32_master_weights and not args.use_fp32_master_weights_fused
     config = config_class.from_pretrained(
         args.config_name_or_path,
-        dtype=torch.float32 if args.use_fp32_master_weights else torch.bfloat16,
+        dtype=torch.float32 if use_fp32_mp else torch.bfloat16,
         **args.config_kwargs,
     )
 
@@ -145,7 +183,7 @@ def main(args: DictConfig) -> float | None:
     logger.info("Initialized Model:\n%s", model)
 
     # --- Distributed Wrapping (FSDP2) ---
-    if args.use_fp32_master_weights:
+    if use_fp32_mp:
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16,
             reduce_dtype=torch.float32,
@@ -179,7 +217,15 @@ def main(args: DictConfig) -> float | None:
 
     # --- Optimizer & Scheduler ---
     # Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
+    if args.use_fp32_master_weights_fused:
+        # TE FusedAdam maintains FP32 master copies of BF16 params internally.
+        # 'fused' kwarg is not used by TE's FusedAdam (it's always fused).
+        adamw_kwargs.pop("fused", None)
+        optimizer = DTensorFusedAdam(model.parameters(), master_weights=True, **adamw_kwargs)  # type: ignore
+        logger.info("Using TE FusedAdam with FP32 master weights")
+    else:
+        optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     if args.use_torch_compile:

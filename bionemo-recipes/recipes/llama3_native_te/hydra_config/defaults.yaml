@@ -85,6 +85,7 @@ quant_stats_config:
 fp8_layers: null
 fp4_layers: null
 use_fp32_master_weights: null
+use_fp32_master_weights_fused: null  # Use TE FusedAdam for FP32 master weights (alternative to MixedPrecisionPolicy)
 
 profiler:
   enabled: false

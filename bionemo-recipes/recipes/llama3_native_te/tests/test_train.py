@@ -439,6 +439,59 @@ def test_sanity_fsdp2_cp(tmp_path, recipe_path):
     assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
 
 
+def test_sanity_convergence_fsdp2_te_fused_adam(tmp_path, recipe_path):
+    """Test FSDP2 training with TE FusedAdam for FP32 master weights.
+
+    This test validates:
+    - FusedAdam optimizer initializes correctly with FSDP2-wrapped model
+    - Training converges with FP32 master weights maintained by FusedAdam
+    - FusedAdam is a drop-in replacement for the MixedPrecisionPolicy approach
+    """
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "use_fp32_master_weights_fused=true",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
+def test_sanity_convergence_fsdp2_te_fused_adam_fp8(tmp_path, recipe_path):
+    """Test FSDP2 + FusedAdam + FP8 training.
+
+    This test validates FusedAdam works correctly alongside FP8 quantization,
+    matching the approach used in the lingua 7B MXFP8 experiment config.
+    """
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "use_fp32_master_weights_fused=true",
+                "fp8_config.enabled=true",
+                "use_sequence_packing=true",
+                "config_kwargs.attn_input_format=thd",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+
+
 @requires_fp8
 def test_sanity_ddp_fp8_stats_logging(tmp_path, recipe_path):
     """Test that FP8 stats logging creates the expected log files."""
