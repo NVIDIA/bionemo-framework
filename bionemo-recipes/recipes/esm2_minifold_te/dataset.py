@@ -181,19 +181,32 @@ class MmcifStructureDataset(Dataset):
         "MSE": "M",
     }
 
-    def __init__(self, cif_dir: str, tokenizer, max_seq_length: int = 256, pdb_ids: list[str] | None = None):
+    def __init__(
+        self,
+        cif_dir: str,
+        tokenizer,
+        max_seq_length: int = 256,
+        pdb_ids: list[str] | None = None,
+        min_residues: int = 50,
+        max_residues: int = 300,
+        min_ca_completeness: float = 0.9,
+    ):
         from Bio.PDB.MMCIFParser import MMCIFParser
 
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
+        self.min_residues = min_residues
+        self.max_residues = max_residues
+        self.min_ca_completeness = min_ca_completeness
         self.parser = MMCIFParser(QUIET=True)
 
         cif_path = Path(cif_dir)
         all_files = sorted(cif_path.glob("*.cif"))
 
         if pdb_ids is not None:
-            pdb_set = {pid.upper() for pid in pdb_ids}
-            self.files = [f for f in all_files if f.stem.upper() in pdb_set]
+            # Preserve caller's ordering (e.g., to match parquet row order)
+            file_by_id = {f.stem.upper(): f for f in all_files}
+            self.files = [file_by_id[pid.upper()] for pid in pdb_ids if pid.upper() in file_by_id]
         else:
             self.files = all_files
 
@@ -208,6 +221,9 @@ class MmcifStructureDataset(Dataset):
     def _parse_cif(self, cif_path):
         """Parse mmCIF file and extract sequence + Ca coordinates.
 
+        Uses the same filtering as prepare_pdb_dataset.py: min/max residues,
+        Ca completeness threshold, and truncation to max_residues.
+
         Returns (sequence, ca_coords, ca_mask) or raises on failure.
         """
         pdb_id = cif_path.stem
@@ -215,17 +231,25 @@ class MmcifStructureDataset(Dataset):
         model = structure[0]
 
         for chain in model:
-            sequence = []
-            coords = []
-            ca_mask = []
-
+            residues = []
             for res in chain.get_residues():
                 if res.id[0] != " ":
                     continue
                 resname = res.get_resname().strip()
                 if resname not in self.AA_3TO1:
                     continue
+                residues.append(res)
 
+            if len(residues) < self.min_residues:
+                continue
+            if len(residues) > self.max_residues:
+                residues = residues[: self.max_residues]
+
+            sequence = []
+            coords = []
+            ca_mask = []
+            for res in residues:
+                resname = res.get_resname().strip()
                 sequence.append(self.AA_3TO1[resname])
                 if "CA" in res:
                     ca = res["CA"].get_vector()
@@ -235,8 +259,11 @@ class MmcifStructureDataset(Dataset):
                     coords.append([0.0, 0.0, 0.0])
                     ca_mask.append(0)
 
-            if len(sequence) >= 20:
-                return "".join(sequence), coords, ca_mask
+            completeness = sum(ca_mask) / len(ca_mask)
+            if completeness < self.min_ca_completeness:
+                continue
+
+            return "".join(sequence), coords, ca_mask
 
         raise ValueError(f"No valid protein chain in {pdb_id}")
 
