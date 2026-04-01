@@ -216,7 +216,15 @@ def main(args: DictConfig) -> float | None:
     logger.info("Trainable: %d parameters", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     # FSDP2: shard MiniFormer blocks individually for memory efficiency
-    mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
+    if args.use_fp32_master_weights:
+        mp_policy = MixedPrecisionPolicy(
+            param_dtype=torch.bfloat16,  # Cast params to BF16 for forward/backward
+            reduce_dtype=torch.float32,  # Gradient reductions in FP32
+            output_dtype=torch.bfloat16,  # Forward output dtype
+            cast_forward_inputs=False,
+        )
+    else:
+        mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
     for block in model.fold.miniformer.blocks:
         fully_shard(block, mesh=device_mesh["dp"], mp_policy=mp_policy)
     fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
