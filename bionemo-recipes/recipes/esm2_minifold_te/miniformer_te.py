@@ -29,11 +29,11 @@ class TransitionUpdateTE(nn.Module):
     Replaces raw nn.Parameter + F.linear with te.LayerNorm + te.Linear modules.
     """
 
-    def __init__(self, dim: int = 128, hidden: int = 512):
+    def __init__(self, dim: int = 128, hidden: int = 512, params_dtype: torch.dtype = torch.float32):
         super().__init__()
-        self.norm = te.LayerNorm(dim, eps=1e-5)
-        self.fc1 = te.Linear(dim, hidden)
-        self.fc2 = te.Linear(hidden, dim)
+        self.norm = te.LayerNorm(dim, eps=1e-5, params_dtype=params_dtype)
+        self.fc1 = te.Linear(dim, hidden, params_dtype=params_dtype)
+        self.fc2 = te.Linear(hidden, dim, params_dtype=params_dtype)
 
         # Match original initialization
         init.bias_init_one_(self.norm.weight)
@@ -66,18 +66,18 @@ class TriangularUpdateTE(nn.Module):
     The einsum triangular multiplication operations remain in FP32.
     """
 
-    def __init__(self, dim: int = 128):
+    def __init__(self, dim: int = 128, params_dtype: torch.dtype = torch.float32):
         super().__init__()
 
         # Input gating: LayerNorm + two parallel linears (projection and gate)
-        self.input_norm = te.LayerNorm(dim, eps=1e-5)
-        self.pi = te.Linear(dim, dim)  # input projection
-        self.gi = te.Linear(dim, dim)  # input gate (sigmoid)
+        self.input_norm = te.LayerNorm(dim, eps=1e-5, params_dtype=params_dtype)
+        self.pi = te.Linear(dim, dim, params_dtype=params_dtype)  # input projection
+        self.gi = te.Linear(dim, dim, params_dtype=params_dtype)  # input gate (sigmoid)
 
         # Output gating: LayerNorm + two parallel linears
-        self.output_norm = te.LayerNorm(dim // 2, eps=1e-5)
-        self.po = te.Linear(dim // 2, dim)  # output projection
-        self.go = te.Linear(dim // 2, dim)  # output gate (sigmoid)
+        self.output_norm = te.LayerNorm(dim // 2, eps=1e-5, params_dtype=params_dtype)
+        self.po = te.Linear(dim // 2, dim, params_dtype=params_dtype)  # output projection
+        self.go = te.Linear(dim // 2, dim, params_dtype=params_dtype)  # output gate (sigmoid)
 
         # Match original initialization
         init.bias_init_one_(self.input_norm.weight)
@@ -131,10 +131,10 @@ class TriangularUpdateTE(nn.Module):
 class BlockTE(nn.Module):
     """TE version of a MiniFormer block: TriangularUpdate + TransitionUpdate."""
 
-    def __init__(self, dim: int = 128):
+    def __init__(self, dim: int = 128, params_dtype: torch.dtype = torch.float32):
         super().__init__()
-        self.triangular = TriangularUpdateTE(dim)
-        self.transition = TransitionUpdateTE(dim, dim * 4)
+        self.triangular = TriangularUpdateTE(dim, params_dtype=params_dtype)
+        self.transition = TransitionUpdateTE(dim, dim * 4, params_dtype=params_dtype)
 
     def forward(self, x: Tensor, mask: Tensor) -> Tensor:
         """Forward pass.
@@ -154,9 +154,9 @@ class BlockTE(nn.Module):
 class MiniFormerTE(nn.Module):
     """TE version of the MiniFormer module."""
 
-    def __init__(self, dim: int = 128, blocks: int = 48):
+    def __init__(self, dim: int = 128, blocks: int = 48, params_dtype: torch.dtype = torch.float32):
         super().__init__()
-        self.blocks = nn.ModuleList([BlockTE(dim) for _ in range(blocks)])
+        self.blocks = nn.ModuleList([BlockTE(dim, params_dtype=params_dtype) for _ in range(blocks)])
 
     def forward(self, x: Tensor, mask: Tensor) -> Tensor:
         """Forward pass.

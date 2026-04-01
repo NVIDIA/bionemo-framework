@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import torch
 import torch.nn as nn
 import transformer_engine.pytorch as te
 
@@ -24,17 +25,17 @@ from te_utils import te_layernorm_nd, te_linear_nd
 class PerResidueLDDTCaPredictorTE(nn.Module):
     """TE version of PerResidueLDDTCaPredictor."""
 
-    def __init__(self, no_bins, c_in, c_hidden):
+    def __init__(self, no_bins, c_in, c_hidden, params_dtype=torch.float32):
         super().__init__()
 
         self.no_bins = no_bins
         self.c_in = c_in
         self.c_hidden = c_hidden
 
-        self.layer_norm = te.LayerNorm(self.c_in, eps=1e-5)
-        self.linear_1 = te.Linear(self.c_in, self.c_hidden)
-        self.linear_2 = te.Linear(self.c_hidden, self.c_hidden)
-        self.linear_3 = te.Linear(self.c_hidden, self.no_bins)
+        self.layer_norm = te.LayerNorm(self.c_in, eps=1e-5, params_dtype=params_dtype)
+        self.linear_1 = te.Linear(self.c_in, self.c_hidden, params_dtype=params_dtype)
+        self.linear_2 = te.Linear(self.c_hidden, self.c_hidden, params_dtype=params_dtype)
+        self.linear_3 = te.Linear(self.c_hidden, self.no_bins, params_dtype=params_dtype)
 
         init.he_normal_init_(self.linear_1.weight)
         init.he_normal_init_(self.linear_2.weight)

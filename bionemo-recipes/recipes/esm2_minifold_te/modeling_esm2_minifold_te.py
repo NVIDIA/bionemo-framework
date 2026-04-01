@@ -52,6 +52,7 @@ class ESM2MiniFoldTE(nn.Module):
         use_structure_module: bool = False,
         num_structure_blocks: int = 8,
         structure_config: dict | None = None,
+        params_dtype: torch.dtype = torch.float32,
     ):
         """Initialize ESM2MiniFoldTE.
 
@@ -64,6 +65,7 @@ class ESM2MiniFoldTE(nn.Module):
             use_structure_module: Whether to include the structure module (Stage 2).
             num_structure_blocks: Number of IPA blocks in the structure module.
             structure_config: Optional config dict for auxiliary heads.
+            params_dtype: Data type for TE layer parameters.
         """
         super().__init__()
 
@@ -77,12 +79,12 @@ class ESM2MiniFoldTE(nn.Module):
         attn_dim = self.backbone.attn_dim
 
         # Sequence projection: embed_dim -> c_s
-        self.fc_s_1 = te.Linear(embed_dim, c_s)
-        self.fc_s_2 = te.Linear(c_s, c_s)
+        self.fc_s_1 = te.Linear(embed_dim, c_s, params_dtype=params_dtype)
+        self.fc_s_2 = te.Linear(c_s, c_s, params_dtype=params_dtype)
 
         # Pairwise projection: attn_dim -> c_z
-        self.fc_z_1 = te.Linear(attn_dim, c_z)
-        self.fc_z_2 = te.Linear(c_z, c_z)
+        self.fc_z_1 = te.Linear(attn_dim, c_z, params_dtype=params_dtype)
+        self.fc_z_2 = te.Linear(c_z, c_z, params_dtype=params_dtype)
 
         # Folding trunk
         self.fold = FoldingTrunkTE(
@@ -91,11 +93,12 @@ class ESM2MiniFoldTE(nn.Module):
             bins=32,
             disto_bins=no_bins,
             num_layers=num_blocks,
+            params_dtype=params_dtype,
         )
 
         # Optional structure module (Stage 2)
         if use_structure_module:
-            self.sz_project = PairToSequenceTE(c_z=c_z, c_s=c_s)
+            self.sz_project = PairToSequenceTE(c_z=c_z, c_s=c_s, params_dtype=params_dtype)
             self.structure_module = StructureModuleTE(
                 c_s=c_s,
                 c_z=c_z,
@@ -108,6 +111,7 @@ class ESM2MiniFoldTE(nn.Module):
                 trans_scale_factor=10,
                 epsilon=1e-5,
                 inf=1e5,
+                params_dtype=params_dtype,
             )
             if structure_config is not None:
                 self.aux_heads = AuxiliaryHeadsTE(structure_config["heads"])
