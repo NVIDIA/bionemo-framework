@@ -20,11 +20,11 @@ import time
 
 import torch
 import torchmetrics
-import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.tensor import DTensor
 from tqdm import tqdm
 
+import wandb
 from distributed_config import DistributedConfig
 
 
@@ -52,6 +52,11 @@ class PerfLogger:
             "train/learning_rate": torchmetrics.MeanMetric(),
             "train/step_time": torchmetrics.MeanMetric(),
             "train/gpu_memory_allocated_max_gb": torchmetrics.MaxMetric(),
+            "train/distogram_acc": torchmetrics.MeanMetric(),
+            "train/contact_precision_8A": torchmetrics.MeanMetric(),
+            "train/contact_recall_8A": torchmetrics.MeanMetric(),
+            "train/lddt_from_distogram": torchmetrics.MeanMetric(),
+            "train/mean_distance_error": torchmetrics.MeanMetric(),
         }
 
         self.metrics = torchmetrics.MetricCollection(metrics_dict)
@@ -69,6 +74,7 @@ class PerfLogger:
         disto_loss: torch.Tensor | None = None,
         grad_norm: torch.Tensor | DTensor | float = 0.0,
         lr: float = 0.0,
+        structure_metrics: dict[str, torch.Tensor] | None = None,
     ):
         """Log a training step."""
         with torch.no_grad():
@@ -89,6 +95,12 @@ class PerfLogger:
                 self.metrics["train/learning_rate"].update(lr)
                 self.metrics["train/grad_norm"].update(grad_norm)
                 self.metrics["train/step_time"].update(step_time)
+
+                if structure_metrics is not None:
+                    for key, value in structure_metrics.items():
+                        metric_key = f"train/{key}"
+                        if metric_key in self.metrics:
+                            self.metrics[metric_key].update(value)
 
                 memory_allocated = torch.cuda.memory_allocated() / (1024**3)
                 self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)

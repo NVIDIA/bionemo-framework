@@ -96,6 +96,89 @@ def compute_distogram_loss(preds, coords, mask, no_bins=64, max_dist=25.0):
     return mean.mean()
 
 
+def compute_distogram_metrics(preds, coords, mask, no_bins=64, max_dist=25.0, contact_threshold=8.0):
+    """Compute structure prediction quality metrics from distogram predictions.
+
+    Args:
+        preds: Predicted distogram logits (B, L, L, no_bins).
+        coords: Ca coordinates (B, L, 3).
+        mask: Residue mask (B, L).
+        no_bins: Number of distance bins.
+        max_dist: Maximum distance in Angstroms.
+        contact_threshold: Distance threshold for contact prediction (Angstroms).
+
+    Returns:
+        Dict with: distogram_acc, contact_precision, contact_recall,
+                   lddt_from_distogram, mean_distance_error.
+    """
+    with torch.no_grad():
+        # True pairwise distances
+        true_dists = torch.cdist(coords, coords)
+
+        # Bin boundaries and centers
+        boundaries = torch.linspace(2, max_dist, no_bins - 1, device=preds.device)
+        bin_centers = torch.cat(
+            [
+                torch.tensor([1.0], device=preds.device),
+                (boundaries[:-1] + boundaries[1:]) / 2,
+                torch.tensor([max_dist + 2.0], device=preds.device),
+            ]
+        )
+
+        # True bin indices
+        true_bins = (true_dists.unsqueeze(-1) > boundaries).sum(dim=-1)
+
+        # Predicted bin indices and probabilities
+        pred_bins = preds.argmax(dim=-1)
+        pred_probs = F.softmax(preds, dim=-1)
+
+        # Expected predicted distance from distogram
+        pred_dists = (pred_probs * bin_centers).sum(dim=-1)
+
+        # Valid pair mask (exclude self and padding)
+        square_mask = mask[:, None, :] * mask[:, :, None]
+        eye = torch.eye(mask.shape[1], device=mask.device).unsqueeze(0)
+        pair_mask = square_mask * (1 - eye)
+        n_pairs = pair_mask.sum().clamp(min=1)
+
+        # 1. Distogram accuracy
+        correct = (pred_bins == true_bins).float() * pair_mask
+        distogram_acc = correct.sum() / n_pairs
+
+        # 2. Contact precision and recall at threshold
+        true_contacts = (true_dists < contact_threshold).float() * pair_mask
+        pred_contacts = (pred_dists < contact_threshold).float() * pair_mask
+
+        tp = (true_contacts * pred_contacts).sum()
+        contact_precision = tp / pred_contacts.sum().clamp(min=1)
+        contact_recall = tp / true_contacts.sum().clamp(min=1)
+
+        # 3. lDDT from distogram expected distances
+        # Standard lDDT: fraction of pairwise distances within thresholds
+        dist_error = torch.abs(pred_dists - true_dists)
+        lddt_score = (
+            (dist_error < 0.5).float()
+            + (dist_error < 1.0).float()
+            + (dist_error < 2.0).float()
+            + (dist_error < 4.0).float()
+        ) * 0.25
+
+        # Only score pairs within 15Å cutoff (standard lDDT)
+        lddt_mask = pair_mask * (true_dists < 15.0).float()
+        lddt_from_distogram = (lddt_score * lddt_mask).sum() / lddt_mask.sum().clamp(min=1)
+
+        # 4. Mean distance error (on valid pairs within 15Å)
+        mean_dist_error = (dist_error * lddt_mask).sum() / lddt_mask.sum().clamp(min=1)
+
+        return {
+            "distogram_acc": distogram_acc,
+            "contact_precision_8A": contact_precision,
+            "contact_recall_8A": contact_recall,
+            "lddt_from_distogram": lddt_from_distogram,
+            "mean_distance_error": mean_dist_error,
+        }
+
+
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train ESM2-MiniFold TE with FSDP2.
@@ -227,6 +310,14 @@ def main(args: DictConfig) -> float | None:
             scheduler.step()
             optimizer.zero_grad()
 
+            # Compute structure quality metrics (no grad, cheap)
+            structure_metrics = compute_distogram_metrics(
+                preds=r_dict["preds"].float(),
+                coords=batch["coords"],
+                mask=batch["mask"],
+                no_bins=args.model.no_bins,
+            )
+
             # Logging
             perf_logger.log_step(
                 step=step,
@@ -234,6 +325,7 @@ def main(args: DictConfig) -> float | None:
                 disto_loss=disto_loss,
                 grad_norm=total_norm,
                 lr=optimizer.param_groups[0]["lr"],
+                structure_metrics=structure_metrics,
             )
 
             # Checkpointing

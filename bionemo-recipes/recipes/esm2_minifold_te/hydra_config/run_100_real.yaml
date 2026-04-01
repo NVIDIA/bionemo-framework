@@ -63,4 +63,4 @@ logger:
 wandb_init_args:
   project: esm2_minifold_te
   name: run_100_650M_real_pdb
-  mode: offline
+  mode: online
