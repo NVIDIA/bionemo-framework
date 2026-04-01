@@ -179,12 +179,12 @@ class TestCifParsing:
 
 class TestMmcifStructureDataset:
     def test_batch_keys(self, cif_dir, tokenizer):
-        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH)
+        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH, min_residues=20)
         sample = ds[0]
         assert set(sample.keys()) == {"input_ids", "attention_mask", "mask", "coords"}
 
     def test_batch_shapes(self, cif_dir, tokenizer):
-        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH)
+        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH, min_residues=20)
         sample = ds[0]
         assert sample["input_ids"].shape == (MAX_SEQ_LENGTH,)
         assert sample["attention_mask"].shape == (MAX_SEQ_LENGTH,)
@@ -192,7 +192,7 @@ class TestMmcifStructureDataset:
         assert sample["coords"].shape == (MAX_SEQ_LENGTH, 3)
 
     def test_batch_dtypes(self, cif_dir, tokenizer):
-        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH)
+        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH, min_residues=20)
         sample = ds[0]
         assert sample["input_ids"].dtype == torch.long
         assert sample["attention_mask"].dtype == torch.long
@@ -200,7 +200,7 @@ class TestMmcifStructureDataset:
         assert sample["coords"].dtype == torch.float32
 
     def test_cls_eos_tokens(self, cif_dir, tokenizer):
-        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH)
+        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH, min_residues=20)
         sample = ds[0]
         assert sample["input_ids"][0].item() == 0, "First token should be CLS (0)"
         # Find EOS position
@@ -208,7 +208,7 @@ class TestMmcifStructureDataset:
         assert sample["input_ids"][int(real_len) - 1].item() == 2, "Last real token should be EOS (2)"
 
     def test_padding_is_zero(self, cif_dir, tokenizer):
-        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH)
+        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH, min_residues=20)
         sample = ds[0]
         real_len = sample["attention_mask"].sum().item()
         assert (sample["attention_mask"][int(real_len) :] == 0).all()
@@ -248,7 +248,7 @@ class TestDatasetEquivalence:
     """Both datasets must produce matching outputs for the same protein."""
 
     def _get_samples(self, cif_dir, parquet_path, tokenizer):
-        ds_cif = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH)
+        ds_cif = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH, min_residues=20)
         ds_pq = ParquetStructureDataset(parquet_path, tokenizer, max_seq_length=MAX_SEQ_LENGTH)
         return ds_cif[0], ds_pq[0]
 

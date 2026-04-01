@@ -1,6 +1,8 @@
 # ESM2-MiniFold TE: 100-step run with REAL PDB data
 # 2x RTX 5090, frozen ESM-2 650M
-# Usage: torchrun --nproc_per_node=2 train_fsdp2.py --config-name run_100_real
+# Usage:
+#   Parquet (default, faster): torchrun --nproc_per_node=2 train_fsdp2.py --config-name run_100_real
+#   MmCIF (on-the-fly parsing): torchrun --nproc_per_node=2 train_fsdp2.py --config-name run_100_real dataset.dataset_type=mmcif
 
 esm_model_name: facebook/esm2_t33_650M_UR50D
 
@@ -15,8 +17,9 @@ model:
   num_recycling: 0
 
 dataset:
-  dataset_type: parquet
+  dataset_type: parquet  # "parquet" (fast, pre-processed) or "mmcif" (on-the-fly BioPython parsing)
   parquet_path: data/pdb_structures.parquet
+  cif_dir: data/cif_files
   tokenizer_name: ${esm_model_name}
   micro_batch_size: 2
   max_seq_length: 256
