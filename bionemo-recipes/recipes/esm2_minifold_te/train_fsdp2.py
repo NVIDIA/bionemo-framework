@@ -203,6 +203,7 @@ def main(args: DictConfig) -> float | None:
     )
 
     # Create model
+    params_dtype = torch.float32 if args.use_fp32_master_weights else torch.bfloat16
     model = ESM2MiniFoldTE(
         esm_model_name=args.esm_model_name,
         c_s=args.model.c_s,
@@ -210,6 +211,7 @@ def main(args: DictConfig) -> float | None:
         num_blocks=args.model.num_blocks,
         no_bins=args.model.no_bins,
         use_structure_module=args.model.use_structure_module,
+        params_dtype=params_dtype,
     ).to(device)
 
     logger.info("Model created: %d parameters", sum(p.numel() for p in model.parameters()))

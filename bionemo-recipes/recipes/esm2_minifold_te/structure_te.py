@@ -42,7 +42,7 @@ from te_utils import te_layernorm_nd, te_linear_nd
 class AttentionTE(nn.Module):
     """TE version of gated self-attention used in the StructureModule."""
 
-    def __init__(self, dim: int, num_heads: int, head_width: int):
+    def __init__(self, dim: int, num_heads: int, head_width: int, params_dtype: torch.dtype = torch.float32):
         super().__init__()
         assert dim == num_heads * head_width
 
@@ -52,10 +52,10 @@ class AttentionTE(nn.Module):
         self.rescale_factor = self.head_width**-0.5
 
         # Cannot fuse LN+proj because g_proj also reads the LN output
-        self.layer_norm = te.LayerNorm(dim, eps=1e-5)
-        self.proj = te.Linear(dim, dim * 3, bias=False)
-        self.o_proj = te.Linear(dim, dim, bias=True)
-        self.g_proj = te.Linear(dim, dim, bias=True)
+        self.layer_norm = te.LayerNorm(dim, eps=1e-5, params_dtype=params_dtype)
+        self.proj = te.Linear(dim, dim * 3, bias=False, params_dtype=params_dtype)
+        self.o_proj = te.Linear(dim, dim, bias=True, params_dtype=params_dtype)
+        self.g_proj = te.Linear(dim, dim, bias=True, params_dtype=params_dtype)
 
         torch.nn.init.zeros_(self.o_proj.bias)
         torch.nn.init.zeros_(self.g_proj.weight)
@@ -99,11 +99,11 @@ class AttentionTE(nn.Module):
 class MLPTE(nn.Module):
     """TE version of the MLP used in StructureModule transitions."""
 
-    def __init__(self, in_dim: int, out_dim: int):
+    def __init__(self, in_dim: int, out_dim: int, params_dtype: torch.dtype = torch.float32):
         super().__init__()
-        self.norm = te.LayerNorm(in_dim, eps=1e-5)
-        self.fc1 = te.Linear(in_dim, in_dim)
-        self.fc2 = te.Linear(in_dim, out_dim)
+        self.norm = te.LayerNorm(in_dim, eps=1e-5, params_dtype=params_dtype)
+        self.fc1 = te.Linear(in_dim, in_dim, params_dtype=params_dtype)
+        self.fc2 = te.Linear(in_dim, out_dim, params_dtype=params_dtype)
 
         init.he_normal_init_(self.fc1.weight)
         init.final_init_(self.fc2.weight)
@@ -129,10 +129,10 @@ class MLPTE(nn.Module):
 class AngleResnetBlockTE(nn.Module):
     """TE version of AngleResnetBlock."""
 
-    def __init__(self, dim):
+    def __init__(self, dim, params_dtype=torch.float32):
         super().__init__()
-        self.fc1 = te.Linear(dim, dim)
-        self.fc2 = te.Linear(dim, dim)
+        self.fc1 = te.Linear(dim, dim, params_dtype=params_dtype)
+        self.fc2 = te.Linear(dim, dim, params_dtype=params_dtype)
 
         init.he_normal_init_(self.fc1.weight)
         init.final_init_(self.fc2.weight)
@@ -150,7 +150,7 @@ class AngleResnetBlockTE(nn.Module):
 class AngleResnetTE(nn.Module):
     """TE version of AngleResnet."""
 
-    def __init__(self, c_in, c_hidden, no_blocks, no_angles, epsilon):
+    def __init__(self, c_in, c_hidden, no_blocks, no_angles, epsilon, params_dtype=torch.float32):
         super().__init__()
 
         self.c_in = c_in
@@ -159,14 +159,14 @@ class AngleResnetTE(nn.Module):
         self.no_angles = no_angles
         self.eps = epsilon
 
-        self.linear_in = te.Linear(self.c_in, self.c_hidden)
-        self.linear_initial = te.Linear(self.c_in, self.c_hidden)
+        self.linear_in = te.Linear(self.c_in, self.c_hidden, params_dtype=params_dtype)
+        self.linear_initial = te.Linear(self.c_in, self.c_hidden, params_dtype=params_dtype)
 
         self.layers = nn.ModuleList()
         for _ in range(self.no_blocks):
-            self.layers.append(AngleResnetBlockTE(dim=self.c_hidden))
+            self.layers.append(AngleResnetBlockTE(dim=self.c_hidden, params_dtype=params_dtype))
 
-        self.linear_out = te.Linear(self.c_hidden, self.no_angles * 2)
+        self.linear_out = te.Linear(self.c_hidden, self.no_angles * 2, params_dtype=params_dtype)
 
         init.lecun_normal_init_(self.linear_in.weight)
         init.lecun_normal_init_(self.linear_initial.weight)
@@ -230,6 +230,7 @@ class StructureModuleTE(nn.Module):
         trans_scale_factor: float,
         epsilon: float,
         inf: float,
+        params_dtype: torch.dtype = torch.float32,
     ):
         super().__init__()
 
@@ -245,21 +246,29 @@ class StructureModuleTE(nn.Module):
         self.epsilon = epsilon
         self.inf = inf
 
-        self.layer_norm_s = te.LayerNorm(self.c_s, eps=1e-5)
-        self.layer_norm_z = te.LayerNorm(self.c_z, eps=1e-5)
-        self.linear_in = te.Linear(self.c_s, self.c_s)
-        self.linear_b = te.Linear(self.c_z, self.no_blocks * self.no_heads)
+        self.layer_norm_s = te.LayerNorm(self.c_s, eps=1e-5, params_dtype=params_dtype)
+        self.layer_norm_z = te.LayerNorm(self.c_z, eps=1e-5, params_dtype=params_dtype)
+        self.linear_in = te.Linear(self.c_s, self.c_s, params_dtype=params_dtype)
+        self.linear_b = te.Linear(self.c_z, self.no_blocks * self.no_heads, params_dtype=params_dtype)
 
-        self.attn = nn.ModuleList([AttentionTE(self.c_s, self.no_heads, self.head_dim) for _ in range(self.no_blocks)])
-        self.transitions = nn.ModuleList([MLPTE(self.c_s, self.c_s) for _ in range(self.no_blocks)])
+        self.attn = nn.ModuleList(
+            [
+                AttentionTE(self.c_s, self.no_heads, self.head_dim, params_dtype=params_dtype)
+                for _ in range(self.no_blocks)
+            ]
+        )
+        self.transitions = nn.ModuleList(
+            [MLPTE(self.c_s, self.c_s, params_dtype=params_dtype) for _ in range(self.no_blocks)]
+        )
 
-        self.bb_update = te.Linear(self.c_s, 9)
+        self.bb_update = te.Linear(self.c_s, 9, params_dtype=params_dtype)
         self.angle_resnet = AngleResnetTE(
             self.c_s,
             self.c_resnet,
             self.no_resnet_blocks,
             self.no_angles,
             self.epsilon,
+            params_dtype=params_dtype,
         )
 
         # Initialize weights
