@@ -16,12 +16,15 @@
 """Dataset for protein structure prediction training.
 
 Provides:
-- StructureDataset: loads protein structures from parquet/PDB files
 - SyntheticStructureDataset: generates random data for testing
-- create_dataloader: creates a DataLoader for training
+- ParquetStructureDataset: loads from parquet (pre-processed Ca coords)
+- MmcifStructureDataset: loads from mmCIF files on-the-fly via BioPython
+- create_dataloader: factory function for any dataset type
 """
 
 import logging
+from pathlib import Path
+from typing import ClassVar
 
 import torch
 from torch.utils.data import DataLoader, Dataset, DistributedSampler
@@ -90,6 +93,7 @@ class ParquetStructureDataset(Dataset):
     Expected columns:
         sequence: str - amino acid sequence
         coords: list[list[float]] - Ca coordinates (N, 3)
+        ca_mask: list[int] - optional, 1=valid Ca, 0=missing (defaults to all-1s)
     """
 
     def __init__(self, parquet_path: str, tokenizer, max_seq_length: int = 256):
@@ -98,6 +102,7 @@ class ParquetStructureDataset(Dataset):
         self.df = pd.read_parquet(parquet_path)
         self.tokenizer = tokenizer
         self.max_seq_length = max_seq_length
+        self.has_ca_mask = "ca_mask" in self.df.columns
 
     def __len__(self):
         return len(self.df)
@@ -121,10 +126,149 @@ class ParquetStructureDataset(Dataset):
         mask = attention_mask.float()
 
         # Coordinates: pad to max_seq_length
-        coords_raw = torch.tensor(row["coords"], dtype=torch.float32)
+        import numpy as np
+
+        # Parquet stores list-of-lists as numpy object array of arrays; np.stack handles this
+        coords_raw = torch.from_numpy(np.stack(row["coords"]).astype(np.float32))
         coords = torch.zeros(self.max_seq_length, 3)
         seq_len = min(len(coords_raw), self.max_seq_length)
         coords[:seq_len] = coords_raw[:seq_len]
+
+        # Zero out coords for residues with missing Ca atoms
+        if self.has_ca_mask:
+            ca_mask_list = row["ca_mask"]
+            for i in range(min(len(ca_mask_list), self.max_seq_length)):
+                if ca_mask_list[i] == 0:
+                    coords[i] = 0.0
+
+        return {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "mask": mask,
+            "coords": coords,
+        }
+
+
+class MmcifStructureDataset(Dataset):
+    """Loads protein structures directly from mmCIF files via BioPython.
+
+    Parses each .cif file on-the-fly, extracts the amino acid sequence and Ca
+    coordinates, tokenizes with ESM-2, and returns the standard batch format.
+    """
+
+    # 3-letter to 1-letter amino acid mapping
+    AA_3TO1: ClassVar[dict[str, str]] = {
+        "ALA": "A",
+        "CYS": "C",
+        "ASP": "D",
+        "GLU": "E",
+        "PHE": "F",
+        "GLY": "G",
+        "HIS": "H",
+        "ILE": "I",
+        "LYS": "K",
+        "LEU": "L",
+        "MET": "M",
+        "ASN": "N",
+        "PRO": "P",
+        "GLN": "Q",
+        "ARG": "R",
+        "SER": "S",
+        "THR": "T",
+        "VAL": "V",
+        "TRP": "W",
+        "TYR": "Y",
+        "MSE": "M",
+    }
+
+    def __init__(self, cif_dir: str, tokenizer, max_seq_length: int = 256, pdb_ids: list[str] | None = None):
+        from Bio.PDB.MMCIFParser import MMCIFParser
+
+        self.tokenizer = tokenizer
+        self.max_seq_length = max_seq_length
+        self.parser = MMCIFParser(QUIET=True)
+
+        cif_path = Path(cif_dir)
+        all_files = sorted(cif_path.glob("*.cif"))
+
+        if pdb_ids is not None:
+            pdb_set = {pid.upper() for pid in pdb_ids}
+            self.files = [f for f in all_files if f.stem.upper() in pdb_set]
+        else:
+            self.files = all_files
+
+        if not self.files:
+            raise FileNotFoundError(f"No .cif files found in {cif_dir}")
+
+        logger.info("MmcifStructureDataset: %d CIF files from %s", len(self.files), cif_dir)
+
+    def __len__(self):
+        return len(self.files)
+
+    def _parse_cif(self, cif_path):
+        """Parse mmCIF file and extract sequence + Ca coordinates.
+
+        Returns (sequence, ca_coords, ca_mask) or raises on failure.
+        """
+        pdb_id = cif_path.stem
+        structure = self.parser.get_structure(pdb_id, str(cif_path))
+        model = structure[0]
+
+        for chain in model:
+            sequence = []
+            coords = []
+            ca_mask = []
+
+            for res in chain.get_residues():
+                if res.id[0] != " ":
+                    continue
+                resname = res.get_resname().strip()
+                if resname not in self.AA_3TO1:
+                    continue
+
+                sequence.append(self.AA_3TO1[resname])
+                if "CA" in res:
+                    ca = res["CA"].get_vector()
+                    coords.append([float(ca[0]), float(ca[1]), float(ca[2])])
+                    ca_mask.append(1)
+                else:
+                    coords.append([0.0, 0.0, 0.0])
+                    ca_mask.append(0)
+
+            if len(sequence) >= 20:
+                return "".join(sequence), coords, ca_mask
+
+        raise ValueError(f"No valid protein chain in {pdb_id}")
+
+    def __getitem__(self, idx):
+        try:
+            sequence, ca_coords, ca_mask = self._parse_cif(self.files[idx])
+        except Exception as e:
+            logger.warning("Failed to parse %s: %s, falling back to index 0", self.files[idx].name, e)
+            sequence, ca_coords, ca_mask = self._parse_cif(self.files[0])
+
+        # Tokenize
+        encoded = self.tokenizer(
+            sequence,
+            max_length=self.max_seq_length,
+            padding="max_length",
+            truncation=True,
+            return_tensors="pt",
+        )
+        input_ids = encoded["input_ids"].squeeze(0)
+        attention_mask = encoded["attention_mask"].squeeze(0)
+        mask = attention_mask.float()
+
+        # Coordinates: pad to max_seq_length
+        coords_raw = torch.tensor(ca_coords, dtype=torch.float32)
+        coords = torch.zeros(self.max_seq_length, 3)
+        seq_len = min(len(coords_raw), self.max_seq_length)
+        coords[:seq_len] = coords_raw[:seq_len]
+
+        # Zero out missing Ca positions
+        for i in range(seq_len):
+            if ca_mask[i] == 0:
+                coords[i] = 0.0
 
         return {
             "input_ids": input_ids,
@@ -143,6 +287,8 @@ def create_dataloader(
     parquet_path: str | None = None,
     tokenizer_name: str | None = None,
     num_samples: int = 1000,
+    cif_dir: str | None = None,
+    pdb_ids: list[str] | None = None,
     **kwargs,
 ):
     """Create a DataLoader for structure prediction training.
@@ -152,10 +298,12 @@ def create_dataloader(
         micro_batch_size: Batch size per GPU.
         max_seq_length: Maximum sequence length.
         num_workers: Number of DataLoader workers.
-        dataset_type: "synthetic" or "parquet".
+        dataset_type: "synthetic", "parquet", or "mmcif".
         parquet_path: Path to parquet file (required if dataset_type="parquet").
-        tokenizer_name: HuggingFace tokenizer name (required if dataset_type="parquet").
+        tokenizer_name: HuggingFace tokenizer name (required if dataset_type="parquet" or "mmcif").
         num_samples: Number of synthetic samples.
+        cif_dir: Directory with .cif files (required if dataset_type="mmcif").
+        pdb_ids: Optional list of PDB IDs to filter (for dataset_type="mmcif").
         **kwargs: Additional keyword arguments (ignored).
 
     Returns:
@@ -174,6 +322,16 @@ def create_dataloader(
             parquet_path=parquet_path,
             tokenizer=tokenizer,
             max_seq_length=max_seq_length,
+        )
+    elif dataset_type == "mmcif":
+        from transformers import EsmTokenizer
+
+        tokenizer = EsmTokenizer.from_pretrained(tokenizer_name)
+        dataset = MmcifStructureDataset(
+            cif_dir=cif_dir,
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+            pdb_ids=pdb_ids,
         )
     else:
         raise ValueError(f"Unknown dataset_type: {dataset_type}")
