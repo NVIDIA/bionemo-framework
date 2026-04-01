@@ -83,15 +83,24 @@ def main(args: DictConfig) -> None:
         use_structure_module=args.model.use_structure_module,
     ).to(device)
 
-    # FSDP2 sharding (must match training for checkpoint loading)
+    # Load checkpoint
+    ckpt_dir = Path(args.checkpoint.ckpt_dir)
+    checkpoint_type = args.checkpoint.get("checkpoint_type", "fsdp2")
+
+    if checkpoint_type == "safetensors":
+        # Load safetensors BEFORE FSDP2 sharding (plain tensors -> plain params)
+        from safetensors.torch import load_file
+
+        state_dict = load_file(str(ckpt_dir / "model.safetensors"))
+        model.load_state_dict(state_dict, strict=False)
+        logger.info("Loaded safetensors model from %s", ckpt_dir)
+
+    # FSDP2 sharding (must match training for FSDP2 checkpoint loading;
+    # also needed for multi-GPU eval even with safetensors)
     mp_policy = MixedPrecisionPolicy(param_dtype=torch.bfloat16)
     for block in model.fold.miniformer.blocks:
         fully_shard(block, mesh=device_mesh["dp"], mp_policy=mp_policy)
     fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
-
-    # Load checkpoint
-    ckpt_dir = Path(args.checkpoint.ckpt_dir)
-    checkpoint_type = args.checkpoint.get("checkpoint_type", "fsdp2")
 
     if checkpoint_type == "fsdp2":
         # Need dummy optimizer/scheduler for the checkpoint loader
@@ -106,13 +115,7 @@ def main(args: DictConfig) -> None:
             dist_config=dist_config,
         )
         logger.info("Loaded FSDP2 checkpoint from step %d", loaded_step)
-    elif checkpoint_type == "safetensors":
-        from safetensors.torch import load_file
-
-        state_dict = load_file(str(ckpt_dir / "model.safetensors"))
-        model.load_state_dict(state_dict, strict=False)
-        logger.info("Loaded safetensors model from %s", ckpt_dir)
-    else:
+    elif checkpoint_type != "safetensors":
         raise ValueError(f"Unknown checkpoint_type: {checkpoint_type}")
 
     # MXFP8 precision config
