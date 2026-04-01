@@ -92,9 +92,13 @@ def query_rcsb(max_resolution=2.5, min_length=50, max_length=300, max_results=15
     - Polymer entity length between min_length and max_length
     - Protein entity type
 
+    Paginates automatically (RCSB caps at 10,000 rows per request).
+
     Returns list of PDB IDs (4-letter codes, uppercase).
     """
-    query = {
+    PAGE_SIZE = 10000  # RCSB maximum rows per request
+
+    base_query = {
         "query": {
             "type": "group",
             "logical_operator": "and",
@@ -139,7 +143,6 @@ def query_rcsb(max_resolution=2.5, min_length=50, max_length=300, max_results=15
         },
         "return_type": "entry",
         "request_options": {
-            "paginate": {"start": 0, "rows": max_results},
             "results_content_type": ["experimental"],
             "sort": [{"sort_by": "rcsb_entry_info.resolution_combined", "direction": "asc"}],
         },
@@ -153,18 +156,46 @@ def query_rcsb(max_resolution=2.5, min_length=50, max_length=300, max_results=15
         max_results,
     )
 
-    req = Request(
-        RCSB_SEARCH_URL,
-        data=json.dumps(query).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-    )
+    pdb_ids = []
+    start = 0
+    total_count = None
 
-    with urlopen(req, timeout=60) as resp:
-        data = json.loads(resp.read().decode("utf-8"))
+    while len(pdb_ids) < max_results:
+        rows = min(PAGE_SIZE, max_results - len(pdb_ids))
+        query = {
+            **base_query,
+            "request_options": {
+                **base_query["request_options"],
+                "paginate": {"start": start, "rows": rows},
+            },
+        }
 
-    total_count = data.get("total_count", 0)
-    pdb_ids = [r["identifier"] for r in data.get("result_set", [])]
-    logger.info("RCSB returned %d results (total available: %d)", len(pdb_ids), total_count)
+        req = Request(
+            RCSB_SEARCH_URL,
+            data=json.dumps(query).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+
+        with urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        if total_count is None:
+            total_count = data.get("total_count", 0)
+
+        page_ids = [r["identifier"] for r in data.get("result_set", [])]
+        if not page_ids:
+            break
+
+        pdb_ids.extend(page_ids)
+        start += len(page_ids)
+        logger.info(
+            "RCSB page: fetched %d (total so far: %d, available: %d)", len(page_ids), len(pdb_ids), total_count
+        )
+
+        if start >= total_count:
+            break
+
+    logger.info("RCSB query complete: %d results (total available: %d)", len(pdb_ids), total_count)
     return pdb_ids
 
 
