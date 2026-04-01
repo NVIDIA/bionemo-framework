@@ -1,23 +1,22 @@
 # ESM2-MiniFold TE: 100-step run with REAL PDB data
-# 2x RTX 5090, frozen ESM-2 650M
+# Matches original MiniFold: ESM-2 3B backbone, 48 MiniFormer blocks
 # Usage:
-#   Parquet (default, faster): torchrun --nproc_per_node=2 train_fsdp2.py --config-name run_100_real
-#   MmCIF (on-the-fly parsing): torchrun --nproc_per_node=2 train_fsdp2.py --config-name run_100_real dataset.dataset_type=mmcif
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name run_100_real_3B
 
-esm_model_name: facebook/esm2_t33_650M_UR50D
+esm_model_name: facebook/esm2_t36_3B_UR50D
 
 num_train_steps: 100
 
 model:
   c_s: 1024
   c_z: 128
-  num_blocks: 8
+  num_blocks: 48
   no_bins: 64
   use_structure_module: false
   num_recycling: 0
 
 dataset:
-  dataset_type: parquet  # "parquet" (fast, pre-processed) or "mmcif" (on-the-fly BioPython parsing)
+  dataset_type: parquet
   parquet_path: data/pdb_structures.parquet
   cif_dir: data/cif_files
   tokenizer_name: ${esm_model_name}
@@ -64,5 +63,5 @@ logger:
 
 wandb_init_args:
   project: esm2_minifold_te
-  name: run_100_650M_real_pdb
+  name: run_100_3B_real_pdb
   mode: online
