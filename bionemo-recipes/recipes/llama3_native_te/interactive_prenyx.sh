@@ -4,7 +4,7 @@
 #     /lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh --endpoint-url https://pbss.s8k.io
 
 SQSH="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh"
-MOUNTS="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework:/workspace/bionemo,/lustre/fsw/healthcareeng_bionemo/savithas/results:/workspace/results,/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints:/workspace/checkpoints,/lustre/fsw/healthcareeng_bionemo/savithas/.claude:/workspace/.claude"
+MOUNTS="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework:/workspace/bionemo,/lustre/fsw/healthcareeng_bionemo/savithas/results:/workspace/results,/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints:/workspace/checkpoints,/lustre/fsw/healthcareeng_bionemo/savithas/.claude:/workspace/.claude,/lustre/fsw/healthcareeng_bionemo/savithas/data:/workspace/data"
 
 srun --account=healthcareeng_bionemo \
   --job-name=healthcareeng_bionemo-lingua.test \
