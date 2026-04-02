@@ -261,3 +261,49 @@ def testObeservedFetureIndex_getitem_slice_with_step_and_order_preserved(make_fe
         assert set(actual.keys()) == set(exp.keys())
         for k in exp:
             assert np.array_equal(actual[k], exp[k])
+
+
+def test_load_legacy_labels_npy_emits_future_warning(tmp_path, make_feat_dictionary):
+    """Loading an index saved with the old labels.npy format should emit a FutureWarning."""
+    import json
+
+    idx = ObservedFeatureIndex()
+    idx.append_features(make_feat_dictionary(2, 3), label="A")
+    idx.save(tmp_path / "features")
+    # Replace labels.json with a legacy labels.npy
+    labels_json = tmp_path / "features" / "labels.json"
+    labels_npy = tmp_path / "features" / "labels.npy"
+    with open(labels_json) as f:
+        labels = json.load(f)
+    np.save(labels_npy, np.array([l if l is not None else "" for l in labels]))
+    labels_json.unlink()
+
+    with pytest.warns(FutureWarning, match="legacy labels.npy"):
+        reloaded = ObservedFeatureIndex.load(tmp_path / "features")
+    assert reloaded.number_of_rows() == idx.number_of_rows()
+
+
+def test_load_legacy_labels_npy_with_pickle_raises(tmp_path, make_feat_dictionary):
+    """Loading a labels.npy that requires pickle should raise ValueError."""
+    idx = ObservedFeatureIndex()
+    idx.append_features(make_feat_dictionary(2, 3), label="A")
+    idx.save(tmp_path / "features")
+    # Replace labels.json with a labels.npy containing an object array (requires pickle)
+    labels_json = tmp_path / "features" / "labels.json"
+    labels_npy = tmp_path / "features" / "labels.npy"
+    np.save(labels_npy, np.array([None, "A"], dtype=object), allow_pickle=True)
+    labels_json.unlink()
+
+    with pytest.raises(ValueError, match="contains pickled objects"):
+        ObservedFeatureIndex.load(tmp_path / "features")
+
+
+def test_load_missing_labels_file_raises(tmp_path, make_feat_dictionary):
+    """Loading an index with no labels file should raise FileNotFoundError."""
+    idx = ObservedFeatureIndex()
+    idx.append_features(make_feat_dictionary(2, 3), label="A")
+    idx.save(tmp_path / "features")
+    (tmp_path / "features" / "labels.json").unlink()
+
+    with pytest.raises(FileNotFoundError, match="No labels file found"):
+        ObservedFeatureIndex.load(tmp_path / "features")
