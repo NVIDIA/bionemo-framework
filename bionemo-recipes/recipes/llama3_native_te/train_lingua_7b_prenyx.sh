@@ -65,7 +65,7 @@ echo "Results:" && ls -la /workspace/bionemo/results/
 echo "Starting training..."
 python train_fsdp2.py --config-name L2_lingua_7b \
   dataset.load_dataset_kwargs.path=parquet \
-  'dataset.load_dataset_kwargs.data_files=/workspace/data/dclm-baseline/global-shard_01_of_10/**/*.parquet' \
+  '+dataset.load_dataset_kwargs.data_files=/workspace/data/dclm-baseline/global-shard_01_of_10/**/*.parquet' \
   dataset.load_dataset_kwargs.streaming=true \
   ~dataset.load_dataset_kwargs.data_dir \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \

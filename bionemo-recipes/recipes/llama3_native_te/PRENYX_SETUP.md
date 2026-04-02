@@ -30,15 +30,16 @@ git pull origin savitha/lingua-7b-fp8-experiment
 ```bash
 srun --account=healthcareeng_bionemo \
      --partition=batch \
-     --nodes=1 --ntasks-per-node=8 --gres=gpu:8 \
+     --nodes=1 --ntasks-per-node=8 \
      --time=01:00:00 --mem=0 --exclusive --pty \
-     --container-image=/lustre/fsw/healthcareeng_bionemo/savithas/llama3_native_te_base.sqsh \
+     --container-image=/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh \
      --container-writable \
      --container-mounts="\
 /lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework:/workspace/bionemo,\
 /lustre/fsw/healthcareeng_bionemo/savithas/results:/workspace/results,\
 /lustre/fsw/healthcareeng_bionemo/savithas/checkpoints:/workspace/checkpoints,\
-/lustre/fsw/healthcareeng_bionemo/savithas/.claude:/workspace/.claude" \
+/lustre/fsw/healthcareeng_bionemo/savithas/.claude:/workspace/.claude,\
+/lustre/fsw/healthcareeng_bionemo/savithas/data:/workspace/data" \
      --container-env=WANDB_API_KEY,HUGGING_FACE_HUB_TOKEN,ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN \
      bash
 ```
@@ -50,17 +51,21 @@ Then inside the container:
 nvidia-smi
 python -c "import transformer_engine; print(transformer_engine.__version__)"
 
-# Quick smoke test
+# Quick smoke test (single process)
 cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 python train_fsdp2.py --config-name L0_sanity \
   checkpoint.ckpt_dir=/workspace/checkpoints/sanity_test \
   checkpoint.resume_from_checkpoint=false \
   wandb.project=null wandb.name=sanity-test
 
-# Or test lingua 7B (1 node, adjust grad_acc)
-python train_fsdp2.py --config-name L2_lingua_7b \
+# Test lingua 7B (1 node, use torchrun for multi-GPU)
+torchrun --nproc_per_node=8 train_fsdp2.py --config-name L2_lingua_7b \
   num_train_steps=10 \
   grad_acc_steps=4 \
+  dataset.load_dataset_kwargs.path=parquet \
+  '+dataset.load_dataset_kwargs.data_files=/workspace/data/dclm-baseline/global-shard_01_of_10/**/*.parquet' \
+  dataset.load_dataset_kwargs.streaming=true \
+  ~dataset.load_dataset_kwargs.data_dir \
   checkpoint.ckpt_dir=/workspace/checkpoints/lingua_debug \
   checkpoint.resume_from_checkpoint=false \
   wandb.project=lingua-7b wandb.name=debug-1node
@@ -71,15 +76,16 @@ python train_fsdp2.py --config-name L2_lingua_7b \
 ```bash
 srun --account=healthcareeng_bionemo \
      --partition=batch \
-     --nodes=1 --ntasks-per-node=8 --gres=gpu:8 \
+     --nodes=1 --ntasks-per-node=8 \
      --time=03:55:00 --mem=0 --exclusive --pty \
-     --container-image=/lustre/fsw/healthcareeng_bionemo/savithas/llama3_native_te_base.sqsh \
+     --container-image=/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh \
      --container-writable \
      --container-mounts="\
 /lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework:/workspace/bionemo,\
 /lustre/fsw/healthcareeng_bionemo/savithas/results:/workspace/results,\
 /lustre/fsw/healthcareeng_bionemo/savithas/checkpoints:/workspace/checkpoints,\
-/lustre/fsw/healthcareeng_bionemo/savithas/.claude:/workspace/.claude" \
+/lustre/fsw/healthcareeng_bionemo/savithas/.claude:/workspace/.claude,\
+/lustre/fsw/healthcareeng_bionemo/savithas/data:/workspace/data" \
      --container-env=WANDB_API_KEY,HUGGING_FACE_HUB_TOKEN,ANTHROPIC_BASE_URL,ANTHROPIC_AUTH_TOKEN \
      bash
 ```
