@@ -1,0 +1,50 @@
+# Lingua 7B MXFP8 FL1 (first+last layer BF16) + FP32 master weights - Eden 8-node
+# GBS = 1 * 4 * 8 * 8 = 256
+defaults:
+  - _self_
+
+job_name: "lingua-7b-mxfp8-fl1-8n"
+node_group: "yo-bom-lepton-001"
+resource_shape: "gpu.8xh100-sxm"
+
+# 8 nodes - GBS = 1 * 4 * 64 = 256
+num_nodes: 8
+gpus_per_node: 8
+num_train_steps: 60000
+micro_batch_size: 1
+grad_acc_steps: 4
+
+# Dataset - DCLM parquet on eden NFS
+dataset_path: "parquet"
+data_files: "/data/pstjohn/dclm-baseline-1.0-parquet/global-shard_01_of_10/**/*.parquet"
+
+# Code and paths
+repo_path: "/data/savithas/bionemo-framework"
+code_path: "/data/savithas/bionemo-framework/bionemo-recipes/recipes/llama3_native_te"
+branch: "savitha/lingua-7b-fp8-experiment"
+train_script: "train_fsdp2.py"
+hydra_config: "L2_lingua_7b_fp8"
+
+# Checkpointing
+checkpoint_dir: "/data/savithas/checkpoints/lingua-7b-mxfp8-fl1-8n"
+save_every_n_steps: 2000
+
+# WandB configuration
+wandb_project: "lingua-7b"
+wandb_name: "lingua-7b-mxfp8-fl1-8n"
+wandb_secret: "wandb.savithas"  # pragma: allowlist secret
+
+# HuggingFace token
+hf_secret: "HUGGING_FACE_HUB_TOKEN.savithas"  # pragma: allowlist secret
+
+# Nodes to exclude (ECC errors / NVLink issues)
+exclude_nodes:
+  - node-ip-10-50-80-195
+  - node-ip-10-50-81-231
+  - nvidia-lepton093
+  - nvidia-lepton007
+
+# Container configuration
+container:
+  image: "nvcr.io/nvidia/pytorch:26.02-py3"
+  registry_auth: "lepton-nvidia-cvai-bnmo-trng"
