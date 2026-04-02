@@ -84,13 +84,20 @@ export MASTER_PORT=29400
 export NCCL_TIMEOUT_MS=1800000
 export HF_HOME=/data/savithas/cache
 
-# Checkout the correct branch
-echo "Updating code to branch: {cfg.branch}"
+# Checkout the correct branch (only node 0 does git to avoid NFS lock contention)
 cd {cfg.repo_path}
-git fetch origin
-git checkout {cfg.branch}
-git pull origin {cfg.branch}
-echo "Code at commit: $(git rev-parse --short HEAD)"
+if [ "${{NODE_RANK:-0}}" = "0" ]; then
+  echo "Node 0: fetching and checking out branch {cfg.branch}"
+  git fetch origin {cfg.branch}
+  git checkout {cfg.branch}
+  git pull origin {cfg.branch}
+  git rev-parse --short HEAD > /tmp/bionemo_commit.txt
+  echo "Code at commit: $(cat /tmp/bionemo_commit.txt)"
+else
+  echo "Node $NODE_RANK: waiting for node 0 to finish git checkout..."
+  sleep 15
+  echo "Code at commit: $(git rev-parse --short HEAD)"
+fi
 
 cd {cfg.code_path}
 
