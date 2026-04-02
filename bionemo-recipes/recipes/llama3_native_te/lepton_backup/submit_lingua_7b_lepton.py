@@ -61,7 +61,7 @@ def launch_single_job(client, cfg: DictConfig):
     gbs = cfg.micro_batch_size * cfg.grad_acc_steps * total_gpus
 
     training_script = f"""#!/bin/bash
-set -e
+set -eux
 
 echo "=========================================="
 echo "Lingua 7B BF16 + FP32 Master Weights (DTensorFusedAdam)"
@@ -83,6 +83,10 @@ source init.sh
 export MASTER_PORT=29400
 export NCCL_TIMEOUT_MS=1800000
 export HF_HOME=/data/savithas/cache
+export TORCHELASTIC_ERROR_FILE=/tmp/torch_error.json
+export TORCH_DISTRIBUTED_DEBUG=INFO
+
+echo "Lepton env: NNODES=${{NNODES:-unset}} NODE_RANK=${{NODE_RANK:-unset}} MASTER_ADDR=${{MASTER_ADDR:-unset}}"
 
 # Checkout the correct branch (only node 0 does git to avoid NFS lock contention)
 cd {cfg.repo_path}
@@ -95,7 +99,7 @@ if [ "${{NODE_RANK:-0}}" = "0" ]; then
   echo "Code at commit: $(cat /tmp/bionemo_commit.txt)"
 else
   echo "Node $NODE_RANK: waiting for node 0 to finish git checkout..."
-  sleep 15
+  sleep 30
   echo "Code at commit: $(git rev-parse --short HEAD)"
 fi
 
@@ -103,10 +107,19 @@ cd {cfg.code_path}
 
 echo "Installing dependencies..."
 pip install -r requirements.txt
+hash -r
 
 # HF_TOKEN and WANDB_API_KEY are already set as env vars by Lepton.
 # Export HUGGING_FACE_HUB_TOKEN so datasets/transformers pick it up.
 export HUGGING_FACE_HUB_TOKEN=${{HF_TOKEN}}
+
+# Sanity checks before training
+echo "Python: $(python --version)"
+echo "Working dir: $(pwd)"
+echo "Config exists: $(ls hydra_config/{cfg.hydra_config}.yaml 2>&1)"
+echo "Model config exists: $(ls model_configs/meta-llama/Llama-3.1-8B/config.json 2>&1)"
+echo "Data path check: $(ls {cfg.data_files.split("**")[0]} 2>&1 | head -3)"
+python -c "import train_fsdp2; print('train_fsdp2 imports OK')" || echo "IMPORT FAILED"
 
 echo "=========================================="
 echo "Starting multinode training..."
@@ -118,18 +131,28 @@ torchrun \\
   --node_rank=$NODE_RANK \\
   --master_addr=$MASTER_ADDR \\
   --master_port=$MASTER_PORT \\
+  --log-dir=/tmp/torchrun_logs \\
   {cfg.train_script} \\
   --config-name={cfg.hydra_config} \\
   num_train_steps={cfg.num_train_steps} \\
   dataset.micro_batch_size={cfg.micro_batch_size} \\
   grad_acc_steps={cfg.grad_acc_steps} \\
-  dataset.load_dataset_kwargs.path="{cfg.dataset_path}" \\
-  dataset.load_dataset_kwargs.data_files="{cfg.data_files}" \\
+  'dataset.load_dataset_kwargs.path={cfg.dataset_path}' \\
+  'dataset.load_dataset_kwargs.data_files={cfg.data_files}' \\
   checkpoint.ckpt_dir={cfg.checkpoint_dir} \\
   checkpoint.save_every_n_steps={cfg.save_every_n_steps} \\
   checkpoint.resume_from_checkpoint=true \\
   wandb.project="{cfg.wandb_project}" \\
   wandb.name="{cfg.wandb_name}"
+
+RC=$?
+if [ $RC -ne 0 ]; then
+  echo "TRAINING FAILED with exit code $RC"
+  echo "=== Error file ==="
+  cat /tmp/torch_error.json 2>/dev/null || echo "No error file"
+  echo "=== Torchrun logs ==="
+  cat /tmp/torchrun_logs/*.log 2>/dev/null | tail -100 || echo "No torchrun logs"
+fi
 
 echo "=========================================="
 echo "Training completed!"
