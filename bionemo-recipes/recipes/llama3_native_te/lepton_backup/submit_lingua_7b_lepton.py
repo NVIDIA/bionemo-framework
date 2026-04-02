@@ -104,8 +104,9 @@ cd {cfg.code_path}
 echo "Installing dependencies..."
 pip install -r requirements.txt
 
-huggingface-cli login --token ${{HF_TOKEN}}
-wandb login ${{WANDB_API_KEY}}
+# HF_TOKEN and WANDB_API_KEY are already set as env vars by Lepton.
+# Export HUGGING_FACE_HUB_TOKEN so datasets/transformers pick it up.
+export HUGGING_FACE_HUB_TOKEN=${{HF_TOKEN}}
 
 echo "=========================================="
 echo "Starting multinode training..."
