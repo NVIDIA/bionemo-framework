@@ -16,27 +16,27 @@ use_fp32_master_weights_fused: true
 
 wandb:
   name: lingua-7b-bf16
-  project: null # Optional: set to your wandb project name
+  project: lingua-7b
 
 num_train_steps: 60_000
 
 dataset:
   tokenizer_name_or_path: meta-llama/Meta-Llama-3-8B
-  micro_batch_size: 8
+  micro_batch_size: 2
   num_workers: 8
   max_seq_length: 8192
   stride: 512
-  buffer_size: 50_000
+  buffer_size: 10_000
   use_stateful_dataloader: false
   mask_degenerate_bases: false
   uppercase_labels: false
   load_dataset_kwargs:
-    path: "mlfoundations/dclm-baseline-1.0"
-    data_dir: "global-shard_01_of_10"
+    path: parquet
+    data_files: "/workspace/data/dclm-baseline/global-shard_01_of_10/**/*.parquet"
     split: "train"
-    streaming: True
+    streaming: true
 
-grad_acc_steps: 2            # GBS = 8 * 16 GPUs * 2 = 256 (2 Blackwell nodes)
+grad_acc_steps: 4            # GBS = 2 * 4 * 32 GPUs = 256 (4 nodes)
 
 adamw_kwargs:
   lr: .003
