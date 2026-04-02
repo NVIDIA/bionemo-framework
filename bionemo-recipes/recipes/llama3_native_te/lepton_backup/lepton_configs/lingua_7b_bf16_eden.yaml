@@ -19,7 +19,9 @@ dataset_path: "parquet"
 data_files: "/data/pstjohn/dclm-baseline-1.0-parquet/global-shard_01_of_10/**/*.parquet"
 
 # Code and paths
+repo_path: "/data/savithas/bionemo-framework"
 code_path: "/data/savithas/bionemo-framework/bionemo-recipes/recipes/llama3_native_te"
+branch: "savitha/lingua-7b-fp8-experiment"
 train_script: "train_fsdp2.py"
 hydra_config: "L2_lingua_7b"
 

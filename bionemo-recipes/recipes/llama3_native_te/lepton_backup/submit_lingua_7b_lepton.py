@@ -84,6 +84,14 @@ export MASTER_PORT=29400
 export NCCL_TIMEOUT_MS=1800000
 export HF_HOME=/data/savithas/cache
 
+# Checkout the correct branch
+echo "Updating code to branch: {cfg.branch}"
+cd {cfg.repo_path}
+git fetch origin
+git checkout {cfg.branch}
+git pull origin {cfg.branch}
+echo "Code at commit: $(git rev-parse --short HEAD)"
+
 cd {cfg.code_path}
 
 echo "Installing dependencies..."
