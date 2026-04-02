@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -265,8 +267,6 @@ def testObeservedFetureIndex_getitem_slice_with_step_and_order_preserved(make_fe
 
 def test_load_legacy_labels_npy_emits_future_warning(tmp_path, make_feat_dictionary):
     """Loading an index saved with the old labels.npy format should emit a FutureWarning."""
-    import json
-
     idx = ObservedFeatureIndex()
     idx.append_features(make_feat_dictionary(2, 3), label="A")
     idx.save(tmp_path / "features")
