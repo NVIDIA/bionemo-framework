@@ -18,7 +18,9 @@ import contextlib
 import os
 import shutil
 import sys
+import tarfile
 import tempfile
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Optional, Sequence, TextIO
@@ -225,6 +227,47 @@ def load(
     return path
 
 
+def _validate_archive_members(member_names: list[str], extract_dir: str) -> None:
+    """Validate that no archive members would be extracted outside the target directory.
+
+    This prevents Zip Slip / path traversal attacks where malicious archives contain entries
+    with relative paths (e.g., ``../../etc/passwd``) that escape the extraction directory.
+
+    Args:
+        member_names: List of member names from the archive.
+        extract_dir: The directory where files will be extracted.
+
+    Raises:
+        ValueError: If any member would be extracted outside the target directory.
+    """
+    safe_dir = os.path.normpath(extract_dir)
+    for name in member_names:
+        member_path = os.path.normpath(os.path.join(safe_dir, name))
+        if not (member_path == safe_dir or member_path.startswith(safe_dir + os.sep)):
+            raise ValueError(
+                f"Archive member '{name}' would be extracted outside "
+                f"the target directory '{safe_dir}'. This is a potential Zip Slip security risk."
+            )
+
+
+class _SafeUntar(pooch.Untar):
+    """Untar processor with path traversal validation."""
+
+    def _extract_file(self, fname, extract_dir):
+        with tarfile.open(fname, "r") as tar_file:
+            _validate_archive_members([m.name for m in tar_file.getmembers()], extract_dir)
+        super()._extract_file(fname, extract_dir)
+
+
+class _SafeUnzip(pooch.Unzip):
+    """Unzip processor with path traversal validation."""
+
+    def _extract_file(self, fname, extract_dir):
+        with zipfile.ZipFile(fname, "r") as zip_file:
+            _validate_archive_members(zip_file.namelist(), extract_dir)
+        super()._extract_file(fname, extract_dir)
+
+
 def _get_processor(extension: str, unpack: bool | None, decompress: bool | None):
     """Get the processor for a given file extension.
 
@@ -242,10 +285,10 @@ def _get_processor(extension: str, unpack: bool | None, decompress: bool | None)
         return pooch.Decompress()
 
     elif extension in {".tar", ".tar.gz"} and unpack is None:
-        return pooch.Untar()
+        return _SafeUntar()
 
     elif extension == ".zip" and unpack is None:
-        return pooch.Unzip()
+        return _SafeUnzip()
 
     else:
         return None
