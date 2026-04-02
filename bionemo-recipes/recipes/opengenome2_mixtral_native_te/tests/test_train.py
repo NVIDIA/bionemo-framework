@@ -17,25 +17,14 @@
 # SPDX-License-Identifier: LicenseRef-Apache2
 
 import gc
-import importlib
 import random
-import sys
-from pathlib import Path
 
 import pytest
 import torch
 from hydra import compose, initialize_config_dir
+from modeling_mixtral_te import NVMixtralConfig, NVMixtralForCausalLM
 from optimizer import get_parameter_groups_with_weight_decay
 from train_fsdp2 import main as main_fsdp2
-
-
-SHARED_MIXTRAL_RECIPE = Path(__file__).resolve().parent.parent.parent / "mixtral_native_te"
-if str(SHARED_MIXTRAL_RECIPE) not in sys.path:
-    sys.path.append(str(SHARED_MIXTRAL_RECIPE))
-
-modeling_mixtral_te = importlib.import_module("modeling_mixtral_te")
-NVMixtralConfig = modeling_mixtral_te.NVMixtralConfig
-NVMixtralForCausalLM = modeling_mixtral_te.NVMixtralForCausalLM
 
 
 @pytest.fixture(autouse=True)

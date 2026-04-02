@@ -16,10 +16,8 @@
 """OpenGenome2 FSDP2 training script for Mixtral with TransformerEngine."""
 
 import gc
-import importlib
 import logging
 import random
-import sys
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -47,6 +45,7 @@ from checkpoint import (
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from fp8_debugging import initialize_fp8_debugging
+from modeling_mixtral_te import NVMixtralConfig, NVMixtralForCausalLM
 from omegaconf import DictConfig, OmegaConf
 from optimizer import get_parameter_groups_with_weight_decay
 from perf_logger import PerfLogger
@@ -58,15 +57,6 @@ from transformer_engine.common.recipe import Format
 from transformers.models.mixtral.configuration_mixtral import MixtralConfig
 from transformers.models.mixtral.modeling_mixtral import MixtralForCausalLM
 from validation import run_validation
-
-
-SHARED_MIXTRAL_RECIPE = Path(__file__).resolve().parent.parent / "mixtral_native_te"
-if str(SHARED_MIXTRAL_RECIPE) not in sys.path:
-    sys.path.append(str(SHARED_MIXTRAL_RECIPE))
-
-modeling_mixtral_te = importlib.import_module("modeling_mixtral_te")
-NVMixtralConfig = modeling_mixtral_te.NVMixtralConfig
-NVMixtralForCausalLM = modeling_mixtral_te.NVMixtralForCausalLM
 
 
 logger = logging.getLogger(__name__)
