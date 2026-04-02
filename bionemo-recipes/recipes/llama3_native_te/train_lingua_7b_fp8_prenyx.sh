@@ -42,14 +42,15 @@ MOUNTS="${CODE_DIR}:${CONTAINER_WORKDIR},${DATA_DIR}:/workspace/data,${RESULTS_D
 # TRAINING COMMAND
 # ============================================================================
 read -r -d '' COMMAND <<EOF || true
-set -euxo pipefail
-
+# Export secrets without tracing (no set -x yet)
 export EXP_NAME="${EXP_NAME}"
 export WANDB_API_KEY="${WANDB_API_KEY}"
 export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
 
+set -euxo pipefail
+
 echo "========================================="
-echo "Starting Lingua 7B MXFP8 FL1 Training"
+echo "Starting Lingua 7B MXFP8 FL1 Training (2 nodes)"
 echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "Tasks per node: \${SLURM_NTASKS_PER_NODE}"
@@ -65,7 +66,6 @@ echo "Results:" && ls -la /workspace/bionemo/results/
 echo "Starting training..."
 python train_fsdp2.py --config-name L2_lingua_7b_fp8 \
   grad_acc_steps=8 \
-  ~dataset.load_dataset_kwargs.data_dir \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   checkpoint.save_every_n_steps=2000 \
   checkpoint.resume_from_checkpoint=true \

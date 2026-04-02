@@ -42,11 +42,12 @@ MOUNTS="${CODE_DIR}:${CONTAINER_WORKDIR},${DATA_DIR}:/workspace/data,${RESULTS_D
 # TRAINING COMMAND
 # ============================================================================
 read -r -d '' COMMAND <<EOF || true
-set -euxo pipefail
-
+# Export secrets without tracing (no set -x yet)
 export EXP_NAME="${EXP_NAME}"
 export WANDB_API_KEY="${WANDB_API_KEY}"
 export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
+
+set -euxo pipefail
 
 echo "========================================="
 echo "Starting Lingua 7B BF16 Training (4 nodes)"
@@ -64,7 +65,6 @@ echo "Results:" && ls -la /workspace/bionemo/results/
 
 echo "Starting training..."
 python train_fsdp2.py --config-name L2_lingua_7b \
-  ~dataset.load_dataset_kwargs.data_dir \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   checkpoint.save_every_n_steps=2000 \
   checkpoint.resume_from_checkpoint=true \
