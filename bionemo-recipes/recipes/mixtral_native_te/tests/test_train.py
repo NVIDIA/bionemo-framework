@@ -16,6 +16,7 @@
 import gc
 import random
 
+import pytest
 import torch
 from hydra import compose, initialize_config_dir
 from train_fsdp2 import main as main_fsdp2
@@ -27,9 +28,13 @@ def _cleanup():
         torch.cuda.empty_cache()
 
 
-def test_set_seed():
+@pytest.fixture(autouse=True)
+def set_seed():
+    """Set random seeds for reproducibility."""
     random.seed(42)
     torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(42)
 
 
 def test_sanity_convergence_fsdp2_te_bshd(tmp_path, recipe_path):
@@ -70,3 +75,24 @@ def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path):
     _cleanup()
 
     assert final_loss < 8.5, f"Final loss {final_loss} is too high, expected < 8.5"
+
+
+def test_sanity_convergence_fsdp2_te_bshd_grad_acc(tmp_path, recipe_path):
+    """Test FSDP2 training with gradient accumulation."""
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "checkpoint.resume_from_checkpoint=false",
+                "num_train_steps=40",
+                "config_kwargs.attn_input_format=bshd",
+                "grad_acc_steps=2",
+            ],
+        )
+
+    final_loss = main_fsdp2(sanity_config)
+    _cleanup()
+
+    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"

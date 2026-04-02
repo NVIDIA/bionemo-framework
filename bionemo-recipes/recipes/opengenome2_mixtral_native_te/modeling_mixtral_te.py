@@ -509,12 +509,20 @@ class NVMixtralModel(NVMixtralPreTrainedModel):
         self._fp8_recipe: transformer_engine.common.recipe.Recipe | None = fp8_recipe
         self._fp4_recipe: transformer_engine.common.recipe.Recipe | None = fp4_recipe
 
-        if fp8_recipe is not None and self.config.layer_precision is None:
-            if fp4_recipe is not None:
+        if self.config.layer_precision is None:
+            if fp8_recipe is not None and fp4_recipe is not None:
                 raise RuntimeError("Both FP8 and FP4 recipes provided, but no layer precision provided.")
+            if fp8_recipe is not None:
+                warnings.warn("No layer precision provided, using FP8 recipe for all layers.", UserWarning)
+                self.config.layer_precision = ["fp8"] * self.config.num_hidden_layers
+            elif fp4_recipe is not None:
+                raise RuntimeError(
+                    "FP4 recipe provided but no layer_precision configured. "
+                    "Set layer_precision explicitly when using FP4."
+                )
 
-            warnings.warn("No layer precision provided, using FP8 recipe for all layers.", UserWarning)
-            self.config.layer_precision = ["fp8"] * self.config.num_hidden_layers
+        if self.config.layer_precision is not None and "fp4" in self.config.layer_precision and fp4_recipe is None:
+            raise RuntimeError("layer_precision contains 'fp4' entries but no fp4_recipe was provided.")
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx, dtype=config.dtype)
 
