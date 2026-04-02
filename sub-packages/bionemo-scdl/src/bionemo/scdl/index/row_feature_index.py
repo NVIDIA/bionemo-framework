@@ -146,11 +146,11 @@ class RowFeatureIndex(ABC):
             instance._extend_num_entries_per_row(features)
         instance._cumulative_sum_index = np.load(Path(datapath) / "cumulative_sum_index.npy")
         labels_json_path = Path(datapath) / "labels.json"
-        labels_npy_path = Path(datapath) / "labels.npy"
+        legacy_labels_npy_path = Path(datapath) / "labels.npy"
         if labels_json_path.exists():
             with open(labels_json_path) as f:
                 instance._labels = json.load(f)
-        elif labels_npy_path.exists():
+        elif legacy_labels_npy_path.exists():
             warnings.warn(
                 f"Found legacy labels.npy in '{datapath}'. This format is deprecated due to a "
                 "security vulnerability (arbitrary code execution via pickle deserialization). "
@@ -160,7 +160,7 @@ class RowFeatureIndex(ABC):
                 stacklevel=3,
             )
             try:
-                instance._labels = list(np.load(labels_npy_path, allow_pickle=False))
+                instance._labels = list(np.load(legacy_labels_npy_path, allow_pickle=False))
             except ValueError:
                 raise ValueError(
                     f"Cannot safely load labels.npy in '{datapath}' because it contains pickled objects. "
