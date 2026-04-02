@@ -15,13 +15,13 @@ python train_fsdp2.py --config-name L0_sanity
 Single GPU Lingua smoke run:
 
 ```bash
-python train_fsdp2.py --config-name L2_lingua_small_mixtral num_train_steps=20 checkpoint.ckpt_dir=./checkpoints
+python train_fsdp2.py --config-name L2_lingua_8x1B num_train_steps=20 checkpoint.ckpt_dir=./checkpoints
 ```
 
 Cluster or multi-GPU run:
 
 ```bash
-torchrun --standalone --nproc_per_node=2 train_fsdp2.py --config-name L2_lingua_small_mixtral
+torchrun --standalone --nproc_per_node=2 train_fsdp2.py --config-name L2_lingua_8x1B
 ```
 
 ## Notes

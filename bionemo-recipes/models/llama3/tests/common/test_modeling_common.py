@@ -1132,7 +1132,11 @@ class BaseModelTest(ABC):
         past_key_values = self.create_inference_params(config, batch_size=1)
 
         with torch.no_grad():
-            output_ids = model.generate(**inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values)
+            # compile=False prevents transformers' auto-compile from trying to JSON-serialize
+            # model_kwargs, which fails with our custom InferenceParams containing tensors.
+            output_ids = model.generate(
+                **inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values, compile=False
+            )
 
         assert output_ids.shape[1] > inputs["input_ids"].shape[1]
 
@@ -1156,7 +1160,9 @@ class BaseModelTest(ABC):
         past_key_values = self.create_inference_params(config, batch_size=2)
 
         with torch.no_grad():
-            output_ids = model.generate(**inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values)
+            output_ids = model.generate(
+                **inputs, max_new_tokens=16, use_cache=True, past_key_values=past_key_values, compile=False
+            )
 
         assert output_ids.shape[0] == 2
         assert output_ids.shape[1] > inputs["input_ids"].shape[1]
@@ -1189,6 +1195,7 @@ class BaseModelTest(ABC):
                 past_key_values=past_key_values,
                 num_beams=num_beams,
                 do_sample=True,
+                compile=False,
             )
 
         assert output_ids.shape[0] == 2

@@ -20,10 +20,10 @@ from scheduler import get_cosine_annealing_schedule_with_warmup
 from torch.optim import AdamW
 
 
-def test_lingua_small_mixtral_optimizer_golden_values(recipe_path):
+def test_lingua_8x1b_optimizer_golden_values(recipe_path):
     """Test that optimizer and scheduler match the recipe configuration."""
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
-        config = compose(config_name="L2_lingua_small_mixtral")
+        config = compose(config_name="L2_lingua_8x1B")
 
     model = torch.nn.Linear(10, 1)
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(config.adamw_kwargs, resolve=True))  # type: ignore[arg-type]
