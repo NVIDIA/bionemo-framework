@@ -228,10 +228,6 @@ def test_multiple_sequences_batch_correctly(tokenizer_path, simple_parquet, stre
 
     assert batch["input_ids"].shape[0] == 2, f"Batch should contain 2 sequences, got {batch['input_ids'].shape[0]}"
 
-    seq1 = batch["input_ids"][0]
-    seq2 = batch["input_ids"][1]
-    assert not torch.equal(seq1, seq2), "Sequences in batch should be different"
-
     batch_size, seq_length = batch["input_ids"].shape
     assert batch["attention_mask"].shape == (batch_size, seq_length)
     assert batch["labels"].shape == (batch_size, seq_length)

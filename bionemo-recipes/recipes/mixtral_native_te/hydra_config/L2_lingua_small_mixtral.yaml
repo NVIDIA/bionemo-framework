@@ -36,13 +36,13 @@ adamw_kwargs:
   lr: 0.003
   fused: true
   betas: [0.9, 0.95]
-  eps: 0.00000001
+  eps: 1e-8
   weight_decay: 0.033
 
 lr_scheduler_kwargs:
   num_warmup_steps: 5_000
   num_decay_steps: 55_000
-  min_lr_ratio: 0.000001
+  min_lr_ratio: 1e-6
 
 checkpoint:
   ckpt_dir: null

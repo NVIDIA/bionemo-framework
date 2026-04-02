@@ -38,7 +38,7 @@ dataset:
   uppercase_labels: false
   load_dataset_kwargs:
     path: parquet
-    data_files: /workspace/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_native_te/dlcm_sanity_dataset.parquet
+    data_files: ../../opengenome2_llama_native_te/dlcm_sanity_dataset.parquet
     split: train
     streaming: true
 
