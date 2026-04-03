@@ -18,13 +18,21 @@ import gzip
 import io
 import subprocess
 import tarfile
+import zipfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import ngcbase.environ
 import pytest
 
-from bionemo.core.data.load import default_ngc_client, default_pbss_client, load
+from bionemo.core.data.load import (
+    _SafeUntar,
+    _SafeUnzip,
+    _validate_archive_members,
+    default_ngc_client,
+    default_pbss_client,
+    load,
+)
 from bionemo.core.data.resource import get_all_resources
 
 
@@ -344,3 +352,99 @@ def test_load_with_file_from_ngc_resource(mocked_get_ngc_client, tmp_path):
     assert file_path.read_text() == "test"
 
     mocked_ngc_client.registry.resource.download_version.assert_called_once()
+
+
+# --- Zip Slip / path traversal tests ---
+
+
+def test_validate_archive_members_rejects_path_traversal():
+    with pytest.raises(ValueError, match="Zip Slip"):
+        _validate_archive_members(["../../etc/passwd"], "/tmp/extract")
+
+
+def test_validate_archive_members_rejects_absolute_path():
+    with pytest.raises(ValueError, match="Zip Slip"):
+        _validate_archive_members(["/etc/passwd"], "/tmp/extract")
+
+
+def test_validate_archive_members_accepts_safe_paths():
+    _validate_archive_members(["subdir/file.txt", "file.txt", "a/b/c/d.txt"], "/tmp/extract")
+
+
+def test_safe_untar_rejects_path_traversal(tmp_path):
+    """Verify _SafeUntar rejects tar archives with path traversal entries."""
+    malicious_tar = tmp_path / "malicious.tar"
+    with tarfile.open(malicious_tar, "w") as tar:
+        data = b"malicious content"
+        info = tarfile.TarInfo(name="../../escaped.txt")
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+
+    extract_dir = str(tmp_path / "extracted")
+    processor = _SafeUntar()
+    with pytest.raises(ValueError, match="Zip Slip"):
+        processor._extract_file(str(malicious_tar), extract_dir)
+
+
+def test_safe_untar_allows_safe_archive(tmp_path):
+    """Verify _SafeUntar allows normal tar archives."""
+    safe_tar = tmp_path / "safe.tar"
+    with tarfile.open(safe_tar, "w") as tar:
+        data = b"safe content"
+        info = tarfile.TarInfo(name="subdir/file.txt")
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+
+    extract_dir = str(tmp_path / "extracted")
+    processor = _SafeUntar()
+    processor._extract_file(str(safe_tar), extract_dir)
+    assert (tmp_path / "extracted" / "subdir" / "file.txt").read_text() == "safe content"
+
+
+def test_safe_unzip_rejects_path_traversal(tmp_path):
+    """Verify _SafeUnzip rejects zip archives with path traversal entries."""
+    malicious_zip = tmp_path / "malicious.zip"
+    with zipfile.ZipFile(malicious_zip, "w") as zf:
+        zf.writestr("../../escaped.txt", "malicious content")
+
+    extract_dir = str(tmp_path / "extracted")
+    processor = _SafeUnzip()
+    with pytest.raises(ValueError, match="Zip Slip"):
+        processor._extract_file(str(malicious_zip), extract_dir)
+
+
+def test_safe_unzip_allows_safe_archive(tmp_path):
+    """Verify _SafeUnzip allows normal zip archives."""
+    safe_zip = tmp_path / "safe.zip"
+    with zipfile.ZipFile(safe_zip, "w") as zf:
+        zf.writestr("subdir/file.txt", "safe content")
+
+    extract_dir = str(tmp_path / "extracted")
+    processor = _SafeUnzip()
+    processor._extract_file(str(safe_zip), extract_dir)
+    assert (tmp_path / "extracted" / "subdir" / "file.txt").read_text() == "safe content"
+
+
+@patch("bionemo.core.data.load._s3_download")
+def test_load_rejects_malicious_tar(mocked_s3_download, tmp_path):
+    """End-to-end test: loading a resource with a malicious tar archive raises ValueError."""
+    (tmp_path / "foo.yaml").write_text(
+        """
+        - tag: "evil"
+          pbss: "s3://test/evil.tar"
+          owner: Test <test@test.com>
+          sha256: null
+        """
+    )
+
+    def write_malicious_tar(_1, output_file: str, _2):
+        with tarfile.open(output_file, "w") as tar:
+            data = b"malicious"
+            info = tarfile.TarInfo(name="../../escaped.txt")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+
+    mocked_s3_download.side_effect = write_malicious_tar
+
+    with pytest.raises(ValueError, match="Zip Slip"):
+        load("foo/evil", resources=get_all_resources(tmp_path), cache_dir=tmp_path, source="pbss")
