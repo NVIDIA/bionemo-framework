@@ -25,7 +25,7 @@ defaults:
   - og2_7b_thd_gqa
   - _self_
 
-# Enable FP8 first/last BF16 for numerical stability
+# Full model config (inherits from og2_7b_thd_gqa, all layers FP8 by default)
 config_kwargs:
   vocab_size: 256
   num_hidden_layers: 32
@@ -43,7 +43,6 @@ config_kwargs:
     low_freq_factor: 1.0
     high_freq_factor: 4.0
     original_max_position_embeddings: 8192
-  fp8_first_last_bf16: true
 
 # FP8 configuration - Float8BlockScaling with E4M3 format
 fp8_config:
