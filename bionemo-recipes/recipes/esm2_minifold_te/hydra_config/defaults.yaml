@@ -1,0 +1,75 @@
+# ESM2-MiniFold TE: Structure prediction training config
+# Usage: torchrun --nproc_per_node=8 train_fsdp2.py --config-name defaults
+
+# ESM-2 backbone
+esm_model_name: facebook/esm2_t33_650M_UR50D
+
+# Training
+num_train_steps: 500_000
+
+# Model architecture
+model:
+  c_s: 1024           # Sequence feature dimension
+  c_z: 128            # Pair feature dimension
+  num_blocks: 48      # MiniFormer blocks
+  no_bins: 64         # Distogram bins
+  use_structure_module: false  # Stage 1: distogram only
+  num_recycling: 0    # No recycling (Stage 1)
+
+# Dataset
+dataset:
+  dataset_type: parquet
+  parquet_path: ???
+  tokenizer_name: ${esm_model_name}
+  micro_batch_size: 4
+  max_seq_length: 256
+  num_workers: 4
+  num_samples: 10000  # For synthetic dataset
+
+# Optimizer
+optimizer:
+  folding_lr: 1.0e-4
+  struct_lr: 1.0e-4
+  backbone_lr: 3.0e-5  # Only used if backbone unfrozen
+  betas: [0.9, 0.98]
+  eps: 1.0e-8
+  weight_decay: 0.01
+
+# LR scheduler
+lr_scheduler_kwargs:
+  num_warmup_steps: 2_000
+  num_training_steps: ${num_train_steps}
+
+# Checkpointing
+checkpoint:
+  ckpt_dir: ./checkpoints
+  save_final_model: true
+  resume_from_checkpoint: true
+  save_every_n_steps: 1_000
+  max_checkpoints: 5
+
+# FP32 master weights (optimizer keeps FP32 copies, forward/backward in BF16)
+use_fp32_master_weights: false
+
+# MXFP8 precision sweep config
+mxfp8:
+  enabled: false
+  tri_proj: false      # Triangular update projections
+  tri_gate: false      # Triangular update gates
+  ffn: false           # Transition FFN layers
+  struct_attn: false   # Structure module attention
+  struct_ffn: false    # Structure module FFN
+  seq_proj: false      # Sequence/pair projections
+  dist_head: false     # Distogram output head
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_recipe_kwargs: {}
+
+# Logging
+logger:
+  frequency: 100
+
+# Wandb
+wandb_init_args:
+  project: esm2_minifold_te
+  name: null
+  mode: online

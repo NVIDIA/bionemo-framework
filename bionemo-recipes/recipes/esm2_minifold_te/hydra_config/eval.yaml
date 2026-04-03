@@ -1,0 +1,43 @@
+# ESM2-MiniFold TE: Post-training evaluation on held-out structures
+# Usage: torchrun --nproc_per_node=2 eval_fsdp2.py checkpoint.ckpt_dir=/path/to/checkpoint
+
+esm_model_name: facebook/esm2_t33_650M_UR50D
+
+model:
+  c_s: 1024
+  c_z: 128
+  num_blocks: 8
+  no_bins: 64
+  use_structure_module: false
+  num_recycling: 0
+
+eval_dataset:
+  dataset_type: parquet
+  parquet_path: data/eval_structures.parquet
+  tokenizer_name: ${esm_model_name}
+  micro_batch_size: 4
+  max_seq_length: 256
+  num_workers: 2
+  shuffle: false
+  drop_last: false
+
+checkpoint:
+  ckpt_dir: ???           # required: path to trained checkpoint or final model
+  checkpoint_type: fsdp2  # "fsdp2" for distributed checkpoints, "safetensors" for exported model
+
+mxfp8:
+  enabled: false
+  tri_proj: false
+  tri_gate: false
+  ffn: false
+  struct_attn: false
+  struct_ffn: false
+  seq_proj: false
+  dist_head: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_recipe_kwargs: {}
+
+wandb_init_args:
+  project: esm2_minifold_te
+  name: eval_${now:%Y%m%d_%H%M%S}
+  mode: online

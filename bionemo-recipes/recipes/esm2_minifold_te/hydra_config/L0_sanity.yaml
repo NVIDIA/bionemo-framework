@@ -1,0 +1,73 @@
+# ESM2-MiniFold TE: L0 sanity check config
+# Quick test with small model and synthetic data
+# Usage: python train_fsdp2.py --config-name L0_sanity
+
+# Small ESM-2 backbone (8M params)
+esm_model_name: facebook/esm2_t6_8M_UR50D
+
+# Short training
+num_train_steps: 50
+
+# Small model
+model:
+  c_s: 512
+  c_z: 64
+  num_blocks: 2
+  no_bins: 64
+  use_structure_module: false
+  num_recycling: 0
+
+# Synthetic dataset
+dataset:
+  dataset_type: synthetic
+  micro_batch_size: 2
+  max_seq_length: 64
+  num_workers: 0
+  num_samples: 200
+
+# Optimizer
+optimizer:
+  folding_lr: 1.0e-4
+  struct_lr: 1.0e-4
+  backbone_lr: 3.0e-5
+  betas: [0.9, 0.98]
+  eps: 1.0e-8
+  weight_decay: 0.01
+
+# LR scheduler
+lr_scheduler_kwargs:
+  num_warmup_steps: 10
+  num_training_steps: ${num_train_steps}
+
+# Checkpointing
+checkpoint:
+  ckpt_dir: ./checkpoints
+  save_final_model: false
+  resume_from_checkpoint: false
+  save_every_n_steps: 0
+  max_checkpoints: 1
+
+use_fp32_master_weights: false
+
+# MXFP8 disabled for sanity check
+mxfp8:
+  enabled: false
+  tri_proj: false
+  tri_gate: false
+  ffn: false
+  struct_attn: false
+  struct_ffn: false
+  seq_proj: false
+  dist_head: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_recipe_kwargs: {}
+
+# Log every step for sanity check
+logger:
+  frequency: 1
+
+# Wandb offline for CI
+wandb_init_args:
+  project: esm2_minifold_te
+  name: L0_sanity
+  mode: offline

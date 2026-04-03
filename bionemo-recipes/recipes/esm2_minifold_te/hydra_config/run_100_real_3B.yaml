@@ -1,0 +1,67 @@
+# ESM2-MiniFold TE: 100-step run with REAL PDB data
+# Matches original MiniFold: ESM-2 3B backbone, 48 MiniFormer blocks
+# Usage:
+#   torchrun --nproc_per_node=8 train_fsdp2.py --config-name run_100_real_3B
+
+esm_model_name: facebook/esm2_t36_3B_UR50D
+
+num_train_steps: 100
+
+model:
+  c_s: 1024
+  c_z: 128
+  num_blocks: 48
+  no_bins: 64
+  use_structure_module: false
+  num_recycling: 0
+
+dataset:
+  dataset_type: parquet
+  parquet_path: data/pdb_structures.parquet
+  cif_dir: data/cif_files
+  tokenizer_name: ${esm_model_name}
+  micro_batch_size: 2
+  max_seq_length: 256
+  num_workers: 2
+  num_samples: 1000
+
+optimizer:
+  folding_lr: 1.0e-4
+  struct_lr: 1.0e-4
+  backbone_lr: 3.0e-5
+  betas: [0.9, 0.98]
+  eps: 1.0e-8
+  weight_decay: 0.0
+
+lr_scheduler_kwargs:
+  num_warmup_steps: 10
+  num_training_steps: ${num_train_steps}
+
+checkpoint:
+  ckpt_dir: null
+  save_final_model: false
+  resume_from_checkpoint: false
+  save_every_n_steps: 0
+  max_checkpoints: 1
+
+use_fp32_master_weights: false
+
+mxfp8:
+  enabled: false
+  tri_proj: false
+  tri_gate: false
+  ffn: false
+  struct_attn: false
+  struct_ffn: false
+  seq_proj: false
+  dist_head: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_recipe_kwargs: {}
+
+logger:
+  frequency: 5
+
+wandb_init_args:
+  project: esm2_minifold_te
+  name: run_100_3B_real_pdb
+  mode: online
