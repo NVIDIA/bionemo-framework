@@ -14,6 +14,7 @@
 # limitations under the License.
 
 import json
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -263,6 +264,26 @@ def testObeservedFetureIndex_getitem_slice_with_step_and_order_preserved(make_fe
         assert set(actual.keys()) == set(exp.keys())
         for k in exp:
             assert np.array_equal(actual[k], exp[k])
+
+
+def test_load_prefers_json_over_npy(tmp_path, make_feat_dictionary):
+    """When both labels.json and labels.npy exist, load should use labels.json and emit no FutureWarning."""
+    idx = ObservedFeatureIndex()
+    idx.append_features(make_feat_dictionary(2, 3), label="A")
+    idx.save(tmp_path / "features")
+
+    # Write an extra legacy labels.npy alongside the existing labels.json
+    legacy_labels = np.array(["WRONG_LABEL"])
+    np.save(tmp_path / "features" / "labels.npy", legacy_labels)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        reloaded = ObservedFeatureIndex.load(tmp_path / "features")
+
+    assert reloaded.number_of_rows() == idx.number_of_rows()
+    # Verify it used the JSON data (label "A"), not the npy data ("WRONG_LABEL")
+    _, labels = reloaded[0 : reloaded.number_of_rows()]
+    assert labels == ["A"]
 
 
 def test_load_legacy_labels_npy_emits_future_warning(tmp_path, make_feat_dictionary):
