@@ -1,10 +1,10 @@
-# Lingua 7B MXFP8 - FL1 (layer 1 and 32 in BF16, layers 2-31 in FP8)
+# Lingua 7B FP8 Block Scaling - FL1 (layer 1 and 32 in BF16, layers 2-31 in FP8)
 
 defaults:
   - L2_lingua_7b
   - _self_
 
-# FP8 with Float8BlockScaling (MXFP8) and E4M3 format
+# FP8 with Float8BlockScaling and E4M3 format
 fp8_config:
   enabled: true
   fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
@@ -17,5 +17,5 @@ fp8_config:
 fp8_layers: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31]
 
 wandb:
-  name: lingua-7b-mxfp8-fl1
-  id: lingua-7b-mxfp8-fl1
+  name: lingua-7b-fp8-bs-fl1
+  id: lingua-7b-fp8-bs-fl1-v2

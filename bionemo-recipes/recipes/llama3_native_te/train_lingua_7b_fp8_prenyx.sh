@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=03:55:00
 #SBATCH --mem=0
-#SBATCH --job-name=lingua-7b-mxfp8
+#SBATCH --job-name=lingua-7b-fp8-bs
 #SBATCH --mail-type=FAIL
 #SBATCH --overcommit
 #SBATCH --exclusive
@@ -20,7 +20,7 @@ DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
 # Fixed name so chained jobs (--singleton) resume from the same checkpoint dir.
 # Change this if you want a fresh experiment.
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_fl1_4n}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_fp8_bs_fl1_4n}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
@@ -50,7 +50,7 @@ export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
 set -euxo pipefail
 
 echo "========================================="
-echo "Starting Lingua 7B MXFP8 FL1 Training (4 nodes)"
+echo "Starting Lingua 7B FP8 Block Scaling FL1 Training (4 nodes)"
 echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "Tasks per node: \${SLURM_NTASKS_PER_NODE}"

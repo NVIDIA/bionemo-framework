@@ -17,7 +17,7 @@ use_fp32_master_weights_fused: true
 wandb:
   name: lingua-7b-bf16
   project: lingua-7b
-  id: lingua-7b-bf16
+  id: lingua-7b-bf16-v2
 
 num_train_steps: 60_000
 
@@ -40,11 +40,11 @@ dataset:
 grad_acc_steps: 4            # GBS = 2 * 4 * 32 GPUs = 256 (4 nodes)
 
 adamw_kwargs:
-  lr: .003
+  lr: 3e-4
   fused: true
   betas: [0.9, 0.95]
-  eps: 0.00000001
-  weight_decay: 0.033
+  eps: 1e-8
+  weight_decay: 0.01
 
 lr_scheduler_kwargs:
   num_warmup_steps: 5_000
