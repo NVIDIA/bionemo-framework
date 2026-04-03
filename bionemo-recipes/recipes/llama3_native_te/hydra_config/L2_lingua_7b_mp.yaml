@@ -1,0 +1,13 @@
+# Lingua 7B BF16 + FP32 master weights via MixedPrecisionPolicy (non-fused)
+
+defaults:
+  - L2_lingua_7b
+  - _self_
+
+# Use MixedPrecisionPolicy for FP32 master weights (instead of DTensorFusedAdam)
+use_fp32_master_weights_fused: null
+use_fp32_master_weights: true
+
+wandb:
+  name: lingua-7b-bf16-mp
+  id: lingua-7b-bf16-mp
