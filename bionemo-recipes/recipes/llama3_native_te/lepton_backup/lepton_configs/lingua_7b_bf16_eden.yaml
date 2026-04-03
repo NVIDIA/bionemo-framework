@@ -3,7 +3,7 @@
 defaults:
   - _self_
 
-job_name: "lingua-7b-bf16-fused-8n"
+job_name: "lingua-7b-bf16-fused-v2-8n"
 node_group: "yo-bom-lepton-001"
 resource_shape: "gpu.8xh100-sxm"
 
@@ -26,12 +26,12 @@ train_script: "train_fsdp2.py"
 hydra_config: "L2_lingua_7b"
 
 # Checkpointing
-checkpoint_dir: "/data/savithas/checkpoints/lingua-7b-bf16-fused-8n"
+checkpoint_dir: "/data/savithas/checkpoints/lingua-7b-bf16-fused-v2-8n"
 save_every_n_steps: 2000
 
 # WandB configuration
 wandb_project: "lingua-7b"
-wandb_name: "lingua-7b-bf16-fused-8n"
+wandb_name: "lingua-7b-bf16-fused-v2-8n"
 wandb_secret: "wandb.savithas"  # pragma: allowlist secret
 
 # HuggingFace token
