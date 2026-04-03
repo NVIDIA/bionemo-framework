@@ -143,7 +143,8 @@ torchrun \\
   checkpoint.save_every_n_steps={cfg.save_every_n_steps} \\
   checkpoint.resume_from_checkpoint=true \\
   wandb.project="{cfg.wandb_project}" \\
-  wandb.name="{cfg.wandb_name}"
+  wandb.name="{cfg.wandb_name}" \\
+  wandb.id="{cfg.wandb_name}"
 
 RC=$?
 if [ $RC -ne 0 ]; then

@@ -32,6 +32,8 @@ dataset:
 wandb:
   name: ???
   project: null # Optional: set to your wandb project name
+  id: null # Set to a fixed ID to resume the same run across restarts
+  resume: allow # "allow" resumes if id exists, else creates new run
 
 # TransformerEngine FP8 config. See
 # https://docs.nvidia.com/deeplearning/transformer-engine/user-guide/examples/fp8_primer.html for more information on

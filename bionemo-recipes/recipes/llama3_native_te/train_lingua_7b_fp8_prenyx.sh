@@ -71,6 +71,7 @@ python train_fsdp2.py --config-name L2_lingua_7b_fp8 \
   checkpoint.save_every_n_steps=2000 \
   checkpoint.resume_from_checkpoint=true \
   wandb.name=\${EXP_NAME} \
+  wandb.id=\${EXP_NAME} \
   wandb.project=lingua-7b
 
 echo "========================================="

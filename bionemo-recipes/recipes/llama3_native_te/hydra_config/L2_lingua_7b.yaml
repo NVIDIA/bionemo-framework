@@ -17,6 +17,7 @@ use_fp32_master_weights_fused: true
 wandb:
   name: lingua-7b-bf16
   project: lingua-7b
+  id: lingua-7b-bf16
 
 num_train_steps: 60_000
 
