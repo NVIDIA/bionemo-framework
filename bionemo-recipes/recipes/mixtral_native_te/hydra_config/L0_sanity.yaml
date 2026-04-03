@@ -27,6 +27,7 @@ dataset:
   micro_batch_size: 1
   num_workers: 0
   max_seq_length: 256
+  stride: 32
   text_column: "text"
   load_dataset_kwargs:
     path: "parquet"

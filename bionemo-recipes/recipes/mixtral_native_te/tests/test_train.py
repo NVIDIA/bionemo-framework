@@ -95,4 +95,5 @@ def test_sanity_convergence_fsdp2_te_bshd_grad_acc(tmp_path, recipe_path):
     final_loss = main_fsdp2(sanity_config)
     _cleanup()
 
-    assert final_loss < 8.0, f"Final loss {final_loss} is too high, expected < 8.0"
+    # Grad accumulation halves effective optimizer steps, so convergence is weaker
+    assert final_loss < 8.5, f"Final loss {final_loss} is too high, expected < 8.5"

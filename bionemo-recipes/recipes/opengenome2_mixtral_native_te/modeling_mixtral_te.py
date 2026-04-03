@@ -871,6 +871,8 @@ def _unpad_input(hidden_states, attention_mask, unused_mask=None):
 class HFInferenceParams(InferenceParams):
     """Extension of the InferenceParams class to support HF generate() and beam search."""
 
+    is_compileable = False
+
     def get_seq_length(self, layer_idx: int = 0) -> int:
         """Return the current cached sequence length.
 
