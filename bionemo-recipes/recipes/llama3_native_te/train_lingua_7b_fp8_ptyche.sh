@@ -58,9 +58,17 @@ echo "========================================="
 
 cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
-echo "Installing requirements..."
-pip install -r requirements.txt
-hash -r
+# Only local rank 0 installs packages to avoid concurrent pip conflicts
+if [ "\${SLURM_LOCALID}" = "0" ]; then
+  echo "Local rank 0: installing requirements..."
+  pip install -r requirements.txt
+  hash -r
+  touch /tmp/pip_install_done
+else
+  echo "Local rank \${SLURM_LOCALID}: waiting for pip install..."
+  while [ ! -f /tmp/pip_install_done ]; do sleep 2; done
+  echo "pip install done, proceeding."
+fi
 
 echo "Verifying mounts..."
 ls -la /workspace/data/dclm-baseline/global-shard_01_of_10/ | head -5
