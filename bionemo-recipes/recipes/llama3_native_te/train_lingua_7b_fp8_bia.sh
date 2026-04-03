@@ -65,6 +65,8 @@ echo "Results:" && ls -la /workspace/bionemo/results/
 
 echo "Starting training..."
 python train_fsdp2.py --config-name L2_lingua_7b_fp8 \
+  dataset.micro_batch_size=2 \
+  grad_acc_steps=4 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   checkpoint.save_every_n_steps=2000 \
   checkpoint.resume_from_checkpoint=true \
