@@ -2,7 +2,7 @@
 #SBATCH --account=healthcareeng_bionemo
 #SBATCH --nodes=4
 #SBATCH --partition=batch,backfill
-#SBATCH --ntasks-per-node=8
+#SBATCH --ntasks-per-node=4
 #SBATCH --time=03:55:00
 #SBATCH --mem=0
 #SBATCH --job-name=healthcareeng_bionemo-lingua7b.fp8bs
@@ -78,7 +78,7 @@ echo "Results:" && ls -la /workspace/bionemo/results/
 echo "Starting training..."
 python train_fsdp2.py --config-name L2_lingua_7b_fp8 \
   dataset.micro_batch_size=2 \
-  grad_acc_steps=4 \
+  grad_acc_steps=8 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   checkpoint.save_every_n_steps=2000 \
   checkpoint.resume_from_checkpoint=true \
