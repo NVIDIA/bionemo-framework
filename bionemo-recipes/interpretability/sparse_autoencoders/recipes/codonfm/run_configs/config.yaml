@@ -42,6 +42,10 @@ train:
   wandb_enabled: false
   wandb_project: sae_codonfm_recipe
   max_grad_norm: null
+  lr_schedule: constant
+  lr_min: 0.0
+  lr_decay_steps: null
+  warmup_steps: 0
 
 # Eval
 eval:

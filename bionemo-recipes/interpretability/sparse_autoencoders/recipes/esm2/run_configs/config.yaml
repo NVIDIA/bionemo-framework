@@ -48,6 +48,11 @@ train:
   batch_size: 4096
   log_interval: 50
   checkpoint_steps: 999999
+  max_grad_norm: null
+  lr_schedule: constant
+  lr_min: 0.0
+  lr_decay_steps: null
+  warmup_steps: 0
   wandb_enabled: false
   wandb_project: sae_esm2_recipe
 

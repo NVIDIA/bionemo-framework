@@ -133,6 +133,14 @@ def run_train(cfg: DictConfig, cache_dir: Path, output_dir: Path) -> None:  # no
         cmd.append("--normalize-input")
     if t.get("max_grad_norm"):
         cmd.extend(["--max-grad-norm", str(t.max_grad_norm)])
+    if t.get("lr_schedule", "constant") != "constant":
+        cmd.extend(["--lr-schedule", str(t.lr_schedule)])
+    if t.get("lr_min", 0.0) != 0.0:
+        cmd.extend(["--lr-min", str(t.lr_min)])
+    if t.get("lr_decay_steps"):
+        cmd.extend(["--lr-decay-steps", str(t.lr_decay_steps)])
+    if t.get("warmup_steps", 0) > 0:
+        cmd.extend(["--warmup-steps", str(t.warmup_steps)])
 
     if t.wandb_enabled:
         cmd.append("--wandb")

@@ -52,6 +52,7 @@ from codonfm_sae.data import read_codon_csv  # noqa: E402
 from codonfm_sae.eval.gene_enrichment import (  # noqa: E402
     ANNOTATION_DATABASES,
     GeneEnrichmentReport,
+    detect_gene_families,
     download_obo_files,
     rollup_go_slim,
     run_gene_enrichment,
@@ -499,6 +500,18 @@ def main():
     gsea_time = time.time() - t0
     print(f"\n  GSEA completed in {gsea_time:.1f}s")
 
+    # 6b. Detect gene families
+    print("  Detecting gene families...")
+    gene_families = detect_gene_families(gene_activations)
+    print(f"  {len(gene_families)} features with dominant gene family")
+
+    # Update report label columns with gene families
+    from codonfm_sae.eval.gene_enrichment import build_feature_label_columns
+
+    report.feature_label_columns = build_feature_label_columns(
+        report.per_feature, report.n_features_total, gene_families=gene_families
+    )
+
     # 7. Save results (before GO Slim so we don't lose GSEA work on failure)
     print("\n" + "=" * 60)
     print("SAVING RESULTS")
@@ -524,7 +537,9 @@ def main():
         # Rebuild label columns with GO Slim info
         from codonfm_sae.eval.gene_enrichment import build_feature_label_columns
 
-        report.feature_label_columns = build_feature_label_columns(report.per_feature, report.n_features_total)
+        report.feature_label_columns = build_feature_label_columns(
+            report.per_feature, report.n_features_total, gene_families=gene_families
+        )
 
         n_slim = sum(1 for fl in report.per_feature if fl.go_slim_name is not None)
         slim_names = {fl.go_slim_name for fl in report.per_feature if fl.go_slim_name is not None}

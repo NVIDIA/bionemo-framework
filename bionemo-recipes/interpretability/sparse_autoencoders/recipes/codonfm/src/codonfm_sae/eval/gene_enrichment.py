@@ -187,6 +187,8 @@ def run_gsea_for_feature(
                 res = gseapy.prerank(
                     rnk=series,
                     gene_sets=db,
+                    min_size=5,
+                    max_size=1000,
                     no_plot=True,
                     outdir=None,
                     verbose=False,
@@ -201,8 +203,6 @@ def run_gsea_for_feature(
             fdr_col = "FDR q-val" if "FDR q-val" in df.columns else "fdr"
             es_col = "NES" if "NES" in df.columns else "nes"
             pval_col = "NOM p-val" if "NOM p-val" in df.columns else "pval"
-            geneset_size_col = "Gene %" if "Gene %" in df.columns else "geneset_size"
-
             df[fdr_col] = pd.to_numeric(df[fdr_col], errors="coerce")
             df = df.dropna(subset=[fdr_col])
 
@@ -221,7 +221,15 @@ def run_gsea_for_feature(
             fdr_val = float(best_row[fdr_col])
             es_val = float(best_row.get(es_col, 0.0))
             pval = float(best_row.get(pval_col, 1.0))
-            n_genes = int(best_row.get(geneset_size_col, 0)) if geneset_size_col in df.columns else 0
+
+            # Parse n_genes from "Tag %" column (format: "6/200") or fall back to 0
+            n_genes = 0
+            tag_pct = str(best_row.get("Tag %", ""))
+            if "/" in tag_pct:
+                try:
+                    n_genes = int(tag_pct.split("/")[1])
+                except (ValueError, IndexError):
+                    pass
 
             result = EnrichmentResult(
                 feature_idx=feature_idx,
@@ -248,6 +256,13 @@ def run_gsea_for_feature(
                     continue  # Already added the best
                 t_id = _parse_go_id(t_raw) if is_go else t_raw
                 t_name = _parse_term_name(t_raw) if is_go else t_raw
+                row_n_genes = 0
+                row_tag = str(row.get("Tag %", ""))
+                if "/" in row_tag:
+                    try:
+                        row_n_genes = int(row_tag.split("/")[1])
+                    except (ValueError, IndexError):
+                        pass
                 all_significant.append(
                     EnrichmentResult(
                         feature_idx=feature_idx,
@@ -257,7 +272,7 @@ def run_gsea_for_feature(
                         enrichment_score=float(row.get(es_col, 0.0)),
                         pvalue=float(row.get(pval_col, 1.0)),
                         fdr=float(row[fdr_col]),
-                        n_genes_in_term=int(row.get(geneset_size_col, 0)) if geneset_size_col in df.columns else 0,
+                        n_genes_in_term=row_n_genes,
                     )
                 )
 
@@ -475,12 +490,58 @@ def rollup_go_slim(
     return feature_labels
 
 
+# ── Gene family detection ────────────────────────────────────────────────
+
+
+def _gene_prefix(gene_name: str) -> str:
+    """Extract the alphabetic prefix of a gene name (letters before first digit)."""
+    prefix = ""
+    for c in gene_name:
+        if c.isdigit():
+            break
+        prefix += c
+    return prefix
+
+
+def detect_gene_families(
+    gene_activations: Dict[int, Dict[str, float]],
+    top_k: int = 10,
+    min_fraction: float = 0.5,
+) -> Dict[int, str]:
+    """Detect dominant gene family for each feature based on top-K gene name prefixes.
+
+    Args:
+        gene_activations: feature_idx -> gene_name -> activation score.
+        top_k: Number of top genes to examine per feature.
+        min_fraction: Minimum fraction of top-K genes sharing a prefix to call it a family.
+
+    Returns:
+        feature_idx -> gene family label (e.g., "OR family (8/10)") or absent if no family.
+    """
+    from collections import Counter
+
+    result = {}
+    for feat_idx, gene_scores in gene_activations.items():
+        top_genes = sorted(gene_scores.keys(), key=lambda g: gene_scores[g], reverse=True)[:top_k]
+        if len(top_genes) < 3:
+            continue
+        prefixes = [_gene_prefix(g) for g in top_genes]
+        counts = Counter(p for p in prefixes if len(p) >= 2)
+        if not counts:
+            continue
+        top_prefix, top_count = counts.most_common(1)[0]
+        if top_count / len(top_genes) >= min_fraction:
+            result[feat_idx] = f"{top_prefix} family ({top_count}/{len(top_genes)})"
+    return result
+
+
 # ── Label columns for UMAP ──────────────────────────────────────────────
 
 
 def build_feature_label_columns(
     per_feature: List[FeatureLabels],
     n_features: int,
+    gene_families: Optional[Dict[int, str]] = None,
 ) -> Dict[str, Dict[int, str]]:
     """Build dict[column_name, dict[feature_idx, label]] for UMAP dropdown.
 
@@ -503,6 +564,7 @@ def build_feature_label_columns(
         "InterPro_Domains": {},
         "Pfam_Domains": {},
         "GO_Slim": {},
+        "gene_family": {},
     }
 
     for fl in per_feature:
@@ -524,6 +586,11 @@ def build_feature_label_columns(
             columns["GO_Slim"][idx] = fl.go_slim_name
         else:
             columns["GO_Slim"][idx] = "unlabeled"
+
+        if gene_families and idx in gene_families:
+            columns["gene_family"][idx] = gene_families[idx]
+        else:
+            columns["gene_family"][idx] = "unlabeled"
 
     # Fill missing feature indices with "unlabeled"
     for col in columns:

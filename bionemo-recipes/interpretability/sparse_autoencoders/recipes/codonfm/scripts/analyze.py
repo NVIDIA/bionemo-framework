@@ -227,6 +227,12 @@ def parse_args():  # noqa: D103
     p.add_argument(
         "--auto-interp-workers", type=int, default=1, help="Number of parallel workers for LLM calls (default: 1)"
     )
+    p.add_argument(
+        "--gsea-report",
+        type=str,
+        default=None,
+        help="Path to gene_enrichment_report.json — adds GSEA context to auto-interp prompts",
+    )
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default=None)
     return p.parse_args()
@@ -569,6 +575,7 @@ def run_auto_interp(
     llm_provider="anthropic",
     llm_model=None,
     num_workers=1,
+    gsea_context=None,
 ):
     """Run LLM auto-interpretation using precomputed top-K indices.
 
@@ -712,21 +719,41 @@ def run_auto_interp(
 
         examples_str = "\n".join(f"  Seq {i + 1}: {ex}" for i, ex in enumerate(feature_examples.get(f, [])))
 
-        prompt = f"""This is a feature from a sparse autoencoder trained on a DNA codon language model (CodonFM).
-Each token is a codon (3 nucleotides) that encodes an amino acid.
+        # Build GSEA enrichment context if available
+        gsea_str = ""
+        if gsea_context and f in gsea_context:
+            gsea_info = gsea_context[f]
+            gsea_lines = []
+            for db, entry in gsea_info.items():
+                if entry:
+                    gsea_lines.append(f"  {db}: {entry['term_name']} (FDR={entry['fdr']:.4f})")
+            if gsea_lines:
+                gsea_str = "\n\nGene-level GSEA enrichment (genes ranked by activation, tested against annotation databases):\n"
+                gsea_str += "\n".join(gsea_lines)
+
+        prompt = f"""Analyze this sparse autoencoder feature from a DNA codon language model (CodonFM) to determine what predicts its activation pattern. Each token is a codon (3 nucleotides encoding one amino acid).
 
 Top promoted codons (decoder logits): {pos_str}
 Top suppressed codons: {neg_str}
 
-Top activating sequences (***highlighted*** = high activation):
-Each sequence may include metadata in brackets: gene name, data source (ClinVar=germline variants, COSMIC=somatic cancer mutations), pathogenicity label, PhyloP conservation score, variant info (ref>alt codon at position), and model effect score (more negative = higher predicted impact).
-{examples_str}
+Top activating sequences (***highlighted*** = high activation codons):
+Metadata in brackets may include: gene name, data source (ClinVar/COSMIC), pathogenicity, PhyloP conservation, variant info (ref>alt codon at position), model effect score.
+{examples_str}{gsea_str}
 
-In 1 short sentence starting with "Fires on", describe what biological pattern this feature detects.
-Consider: amino acid identity, specific codon choice, codon usage bias, positional context, CpG sites, wobble position patterns, and any variant/clinical metadata patterns you observe.
+Analyze what predicts high vs low activation for this feature. This description should be concise but sufficient to predict activation levels on unseen codon sequences. The feature could be specific to a gene family, a codon usage pattern, a sequence motif, a functional role, a structural domain, etc.
+
+Focus on:
+- Which codons and amino acids are associated with high vs low activation, and whether specific synonymous codon choices matter
+- Where in the gene sequence activation occurs (N-terminal, C-terminal, or throughout)
+- What gene-level functional annotations (from GSEA enrichment if provided) characterize the top-activating genes
+- Whether codon usage bias, CpG content, wobble position patterns, or GC content are relevant
+- Any variant/clinical metadata patterns (pathogenicity, conservation, mutation impact)
+
+Your description will be used to predict activation on held-out sequences, so only highlight factors relevant for prediction.
 
 Format your response as:
-Label: <one short phrase>
+Description: <2-3 sentences starting with "The activation patterns are characterized by:">
+Label: <one concise phrase summarizing what this feature detects>
 Confidence: <0.00 to 1.00>"""
 
         try:
@@ -734,11 +761,14 @@ Confidence: <0.00 to 1.00>"""
             text = response.text.strip()
 
             label = None
+            description = None
             confidence = 0.0
 
             for line in text.split("\n"):
                 if line.startswith("Label:"):
                     label = line.replace("Label:", "").strip()
+                elif line.startswith("Description:"):
+                    description = line.replace("Description:", "").strip()
                 elif line.startswith("Confidence:"):
                     try:
                         confidence = float(line.replace("Confidence:", "").strip())
@@ -749,21 +779,24 @@ Confidence: <0.00 to 1.00>"""
             if not label:
                 label = f"Feature {f}"
 
-            return f, label, confidence
+            return f, label, confidence, description
         except Exception as e:
             print(f"  Warning: auto-interp failed for feature {f}: {e}")
-            return f, f"Feature {f}", 0.0
+            return f, f"Feature {f}", 0.0, None
 
     interpretations = {}
     confidences = {}
+    descriptions = {}
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
         futures = {executor.submit(interpret_feature, f): f for f in feature_indices}
         for future in tqdm(as_completed(futures), total=len(feature_indices), desc="  Auto-interp"):
-            f, label, confidence = future.result()
+            f, label, confidence, description = future.result()
             interpretations[f] = label
             confidences[f] = confidence
+            if description:
+                descriptions[f] = description
 
-    return interpretations, confidences
+    return interpretations, confidences, descriptions
 
 
 # ── Build summary labels ─────────────────────────────────────────────
@@ -927,6 +960,29 @@ def main():  # noqa: D103
                     auto_interp_labels[k_int] = {"label": v, "confidence": 0.0}
         print(f"  Loaded {len(auto_interp_labels)} existing interpretations")
 
+    # Load GSEA context if provided
+    gsea_context = None
+    if args.gsea_report:
+        gsea_report_path = Path(args.gsea_report)
+        if gsea_report_path.exists():
+            print(f"  Loading GSEA report from {gsea_report_path}...")
+            with open(gsea_report_path) as f:
+                gsea_data = json.load(f)
+            gsea_context = {}
+            for fl in gsea_data.get("per_feature", []):
+                feat_idx = fl["feature_idx"]
+                per_db = {}
+                for db, entry in fl.get("best_per_database", {}).items():
+                    if entry is not None:
+                        per_db[db] = entry
+                if fl.get("overall_best"):
+                    per_db["overall_best"] = fl["overall_best"]
+                if per_db:
+                    gsea_context[feat_idx] = per_db
+            print(f"  GSEA context loaded for {len(gsea_context)} features")
+        else:
+            print(f"  WARNING: GSEA report not found at {gsea_report_path}")
+
     if args.auto_interp:
         print("\n[3/3] Auto-interpretation (LLM)...")
         alive_features = [f for f in range(n_features) if f in codon_annotations]
@@ -942,7 +998,7 @@ def main():  # noqa: D103
 
         if todo_features:
             print(f"  Running auto-interp on {len(todo_features)} features ({len(auto_interp_labels)} already done)")
-            new_labels, new_confidences = run_auto_interp(
+            new_labels, new_confidences, new_descriptions = run_auto_interp(
                 sae,
                 vocab_logits,
                 inference,
@@ -957,11 +1013,13 @@ def main():  # noqa: D103
                 llm_provider=args.llm_provider,
                 llm_model=args.llm_model,
                 num_workers=args.auto_interp_workers,
+                gsea_context=gsea_context,
             )
             for f in new_labels:
                 auto_interp_labels[f] = {
                     "label": new_labels[f],
                     "confidence": new_confidences[f],
+                    "description": new_descriptions.get(f),
                 }
             with open(auto_interp_ckpt, "w") as f:
                 json.dump(auto_interp_labels, f, indent=2)
