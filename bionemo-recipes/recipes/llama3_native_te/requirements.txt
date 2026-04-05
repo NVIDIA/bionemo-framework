@@ -5,7 +5,7 @@ torchao!=0.14.0
 torchdata
 torchmetrics
 tqdm
-transformer_engine[pytorch]
+transformer_engine[pytorch] @ git+https://github.com/cspades/TransformerEngine.git@7e0d3a9b9cca4243bcf9f233f79fcb0c09795e3f
 transformers
 wandb
 zstandard

@@ -22,7 +22,7 @@ import hydra
 import torch
 import wandb
 from hydra.core.hydra_config import HydraConfig
-from megatron_fsdp import fully_shard
+from megatron_fsdp.fully_shard import fully_shard
 from omegaconf import OmegaConf
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR

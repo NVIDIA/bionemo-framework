@@ -19,7 +19,7 @@ The Llama-3 implementation natively supports the following TransformerEngine-pro
 | **Export to HuggingFace checkpoints**   | ✅ Supported                                                                     |
 | **KV-cache inference**                  | ✅ Supported (including beam search)                                             |
 | **Context Parallelism**                 | ✅ Supported                                                                     |
-| **Tensor Parallelism**                  | 🚧 Under development                                                             |
+| **Tensor Parallelism**                  | ✅ Supported                                                                     |
 
 Refer to [BioNeMo Recipes](../../recipes/llama3_native_te/README.md) for more details on how to use these features to accelerate model
 training and inference with native PyTorch training loops.
