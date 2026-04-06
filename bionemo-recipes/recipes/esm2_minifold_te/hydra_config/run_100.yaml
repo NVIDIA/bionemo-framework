@@ -40,17 +40,29 @@ checkpoint:
   save_every_n_steps: 0
   max_checkpoints: 1
 
-mxfp8:
+fp8_config:
   enabled: false
-  tri_proj: false
-  tri_gate: false
-  ffn: false
-  struct_attn: false
-  struct_ffn: false
-  seq_proj: false
-  dist_head: false
   fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
   fp8_recipe_kwargs: {}
+
+fp4_config:
+  enabled: false
+  fp4_recipe: transformer_engine.common.recipe.NVFP4BlockScaling
+  fp4_format: "E2M1"
+  fp4_recipe_kwargs: {}
+
+fp8_layers: null
+fp4_layers: null
+
+component_precision:
+  tri_proj: true
+  tri_gate: true
+  ffn: true
+  struct_attn: true
+  struct_ffn: true
+  seq_proj: true
+  dist_head: true
 
 logger:
   frequency: 5

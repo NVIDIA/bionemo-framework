@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from heads_te import PerResidueLDDTCaPredictorTE
 from miniformer_te import BlockTE, MiniFormerTE, TransitionUpdateTE, TriangularUpdateTE
 from model_te import FoldingTrunkTE, PairToSequenceTE, SequenceToPairTE
-from precision_config import FoldingHeadPrecisionConfig
+from quantization import ComponentPrecisionConfig, resolve_layer_precision
 from structure_te import MLPTE, AngleResnetTE, AttentionTE
 from te_utils import te_linear_nd
 
@@ -161,26 +161,200 @@ class TestPerResidueLDDTCaPredictorTE:
 
 
 # ===========================================================================
-# Precision Config Tests
+# Block Precision / Quantization Tests
 # ===========================================================================
 
 
-class TestPrecisionConfig:
-    def test_disabled_by_default(self):
-        config = FoldingHeadPrecisionConfig()
-        assert not config.enabled
-        assert config.get_enabled_groups() == []
+class TestResolveLayerPrecision:
+    def test_neither_enabled(self):
+        result = resolve_layer_precision(6, fp8_enabled=False, fp4_enabled=False, fp8_layers=None, fp4_layers=None)
+        assert result == [None] * 6
 
-    def test_selective_enable(self):
-        config = FoldingHeadPrecisionConfig(enabled=True, ffn=True, tri_proj=True)
-        assert config.is_enabled("ffn")
-        assert config.is_enabled("tri_proj")
-        assert not config.is_enabled("tri_gate")
-        assert set(config.get_enabled_groups()) == {"ffn", "tri_proj"}
+    def test_fp8_all_blocks(self):
+        result = resolve_layer_precision(4, fp8_enabled=True, fp4_enabled=False, fp8_layers=None, fp4_layers=None)
+        assert result == ["fp8"] * 4
 
-    def test_summary(self):
-        config = FoldingHeadPrecisionConfig(enabled=True, ffn=True)
-        assert "ffn" in config.summary()
+    def test_fp4_all_blocks(self):
+        result = resolve_layer_precision(4, fp8_enabled=False, fp4_enabled=True, fp8_layers=None, fp4_layers=None)
+        assert result == ["fp4"] * 4
+
+    def test_fp8_specific_blocks(self):
+        result = resolve_layer_precision(4, fp8_enabled=True, fp4_enabled=False, fp8_layers=[1, 3], fp4_layers=None)
+        assert result == ["fp8", None, "fp8", None]
+
+    def test_mixed_fp8_fp4(self):
+        result = resolve_layer_precision(4, fp8_enabled=True, fp4_enabled=True, fp8_layers=[1, 2], fp4_layers=[3, 4])
+        assert result == ["fp8", "fp8", "fp4", "fp4"]
+
+    def test_fp8_explicit_fp4_fills_remaining(self):
+        result = resolve_layer_precision(4, fp8_enabled=True, fp4_enabled=True, fp8_layers=[1, 2], fp4_layers=None)
+        assert result == ["fp8", "fp8", "fp4", "fp4"]
+
+    def test_both_enabled_no_layers_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            resolve_layer_precision(4, fp8_enabled=True, fp4_enabled=True, fp8_layers=None, fp4_layers=None)
+
+    def test_overlap_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            resolve_layer_precision(4, fp8_enabled=True, fp4_enabled=True, fp8_layers=[1, 2], fp4_layers=[2, 3])
+
+
+class TestMiniFormerTEPrecision:
+    def test_no_precision_config(self):
+        """MiniFormerTE works without block_precision (BF16 default)."""
+        mod = MiniFormerTE(dim=DIM, blocks=2).to(DEVICE)
+        x = torch.randn(B, N, N, DIM, device=DEVICE)
+        mask = torch.ones(B, N, N, device=DEVICE)
+        out = mod(x, mask)
+        assert out.shape == (B, N, N, DIM)
+
+    def test_with_block_precision_none_list(self):
+        """MiniFormerTE works with all-None block_precision (explicit BF16)."""
+        mod = MiniFormerTE(dim=DIM, blocks=2, block_precision=[None, None]).to(DEVICE)
+        x = torch.randn(B, N, N, DIM, device=DEVICE)
+        mask = torch.ones(B, N, N, device=DEVICE)
+        out = mod(x, mask)
+        assert out.shape == (B, N, N, DIM)
+
+    def test_block_precision_length_mismatch_raises(self):
+        import pytest
+
+        with pytest.raises(ValueError):
+            MiniFormerTE(dim=DIM, blocks=2, block_precision=[None])
+
+
+class TestComponentPrecision:
+    """Test per-component precision overrides within FP8 blocks.
+
+    These tests verify that te.autocast(enabled=False) is correctly applied
+    to keep specific sub-components (projections, gates, FFN, etc.) in BF16
+    while the rest of the block runs in FP8.
+    """
+
+    def test_all_components_enabled_fp8(self):
+        """All components in FP8 — forward pass produces valid output."""
+        cp = ComponentPrecisionConfig()  # all True by default
+        mod = MiniFormerTE(dim=DIM, blocks=2, block_precision=["fp8", "fp8"], component_precision=cp).to(DEVICE)
+        x = torch.randn(B, N, N, DIM, device=DEVICE)
+        mask = torch.ones(B, N, N, device=DEVICE)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = mod(x, mask)
+        assert out.shape == (B, N, N, DIM)
+
+    def test_ffn_bf16_only(self):
+        """FFN in BF16, everything else in FP8."""
+        cp = ComponentPrecisionConfig(ffn=False)
+        mod = MiniFormerTE(dim=DIM, blocks=2, block_precision=["fp8", "fp8"], component_precision=cp).to(DEVICE)
+        x = torch.randn(B, N, N, DIM, device=DEVICE)
+        mask = torch.ones(B, N, N, device=DEVICE)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = mod(x, mask)
+        assert out.shape == (B, N, N, DIM)
+
+    def test_tri_proj_bf16_only(self):
+        """Triangular projections in BF16, everything else in FP8."""
+        cp = ComponentPrecisionConfig(tri_proj=False)
+        mod = MiniFormerTE(dim=DIM, blocks=2, block_precision=["fp8", "fp8"], component_precision=cp).to(DEVICE)
+        x = torch.randn(B, N, N, DIM, device=DEVICE)
+        mask = torch.ones(B, N, N, device=DEVICE)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = mod(x, mask)
+        assert out.shape == (B, N, N, DIM)
+
+    def test_tri_gate_bf16_only(self):
+        """Triangular gates in BF16, everything else in FP8."""
+        cp = ComponentPrecisionConfig(tri_gate=False)
+        mod = MiniFormerTE(dim=DIM, blocks=2, block_precision=["fp8", "fp8"], component_precision=cp).to(DEVICE)
+        x = torch.randn(B, N, N, DIM, device=DEVICE)
+        mask = torch.ones(B, N, N, device=DEVICE)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = mod(x, mask)
+        assert out.shape == (B, N, N, DIM)
+
+    def test_all_components_bf16(self):
+        """All components forced to BF16 within FP8 blocks."""
+        cp = ComponentPrecisionConfig(
+            tri_proj=False,
+            tri_gate=False,
+            ffn=False,
+            struct_attn=False,
+            struct_ffn=False,
+            seq_proj=False,
+            dist_head=False,
+        )
+        mod = MiniFormerTE(dim=DIM, blocks=2, block_precision=["fp8", "fp8"], component_precision=cp).to(DEVICE)
+        x = torch.randn(B, N, N, DIM, device=DEVICE)
+        mask = torch.ones(B, N, N, device=DEVICE)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = mod(x, mask)
+        assert out.shape == (B, N, N, DIM)
+
+    def test_mixed_block_and_component(self):
+        """Block 1 in FP8 with FFN in BF16, block 2 fully in BF16."""
+        cp = ComponentPrecisionConfig(ffn=False)
+        mod = MiniFormerTE(dim=DIM, blocks=2, block_precision=["fp8", None], component_precision=cp).to(DEVICE)
+        x = torch.randn(B, N, N, DIM, device=DEVICE)
+        mask = torch.ones(B, N, N, device=DEVICE)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = mod(x, mask)
+        assert out.shape == (B, N, N, DIM)
+
+    def test_gradient_flow_with_component_override(self):
+        """Gradients flow correctly through mixed-precision components."""
+        cp = ComponentPrecisionConfig(ffn=False, tri_gate=False)
+        mod = MiniFormerTE(dim=DIM, blocks=2, block_precision=["fp8", "fp8"], component_precision=cp).to(DEVICE)
+        x = torch.randn(B, N, N, DIM, device=DEVICE, requires_grad=True)
+        mask = torch.ones(B, N, N, device=DEVICE)
+        with torch.autocast("cuda", dtype=torch.bfloat16):
+            out = mod(x, mask)
+        out.sum().backward()
+        assert x.grad is not None
+
+    def test_folding_trunk_with_dist_head_bf16(self):
+        """FoldingTrunkTE with dist_head forced to BF16 within FP8 blocks."""
+        cp = ComponentPrecisionConfig(dist_head=False)
+        c_s, c_z = 512, DIM
+        mod = FoldingTrunkTE(
+            c_s=c_s,
+            c_z=c_z,
+            bins=32,
+            disto_bins=64,
+            num_layers=2,
+            block_precision=["fp8", "fp8"],
+            component_precision=cp,
+        ).to(DEVICE)
+        s_s = torch.randn(B, N, c_s, device=DEVICE)
+        s_z = torch.randn(B, N, N, c_z, device=DEVICE)
+        mask = torch.ones(B, N, device=DEVICE)
+        mod.eval()
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            preds, sz = mod(s_s, s_z, mask, num_recycling=0)
+        assert preds.shape == (B, N, N, 64)
+
+    def test_folding_trunk_with_seq_proj_bf16(self):
+        """FoldingTrunkTE with seq_proj forced to BF16 within FP8 blocks."""
+        cp = ComponentPrecisionConfig(seq_proj=False)
+        c_s, c_z = 512, DIM
+        mod = FoldingTrunkTE(
+            c_s=c_s,
+            c_z=c_z,
+            bins=32,
+            disto_bins=64,
+            num_layers=2,
+            block_precision=["fp8", "fp8"],
+            component_precision=cp,
+        ).to(DEVICE)
+        s_s = torch.randn(B, N, c_s, device=DEVICE)
+        s_z = torch.randn(B, N, N, c_z, device=DEVICE)
+        mask = torch.ones(B, N, device=DEVICE)
+        mod.eval()
+        with torch.no_grad(), torch.autocast("cuda", dtype=torch.bfloat16):
+            preds, sz = mod(s_s, s_z, mask, num_recycling=0)
+        assert preds.shape == (B, N, N, 64)
 
 
 # ===========================================================================

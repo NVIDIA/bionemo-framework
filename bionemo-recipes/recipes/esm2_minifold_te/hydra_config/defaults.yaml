@@ -51,18 +51,34 @@ checkpoint:
 # FP32 master weights (optimizer keeps FP32 copies, forward/backward in BF16)
 use_fp32_master_weights: false
 
-# MXFP8 precision sweep config
-mxfp8:
+# Per-block quantization precision
+fp8_config:
   enabled: false
-  tri_proj: false      # Triangular update projections
-  tri_gate: false      # Triangular update gates
-  ffn: false           # Transition FFN layers
-  struct_attn: false   # Structure module attention
-  struct_ffn: false    # Structure module FFN
-  seq_proj: false      # Sequence/pair projections
-  dist_head: false     # Distogram output head
   fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
   fp8_recipe_kwargs: {}
+
+fp4_config:
+  enabled: false
+  fp4_recipe: transformer_engine.common.recipe.NVFP4BlockScaling
+  fp4_format: "E2M1"
+  fp4_recipe_kwargs: {}
+
+# 1-indexed lists of which MiniFormer blocks use FP8/FP4.
+# null means "all blocks" when the corresponding config is enabled.
+fp8_layers: null
+fp4_layers: null
+
+# Per-component precision overrides within FP8/FP4 blocks.
+# Components set to true run in the block's precision; false keeps them in BF16.
+component_precision:
+  tri_proj: true
+  tri_gate: true
+  ffn: true
+  struct_attn: true
+  struct_ffn: true
+  seq_proj: true
+  dist_head: true
 
 # Logging
 logger:

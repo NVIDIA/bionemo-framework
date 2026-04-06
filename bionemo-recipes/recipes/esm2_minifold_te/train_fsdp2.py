@@ -50,7 +50,7 @@ from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from modeling_esm2_minifold_te import ESM2MiniFoldTE
 from perf_logger import PerfLogger
-from precision_config import FoldingHeadPrecisionConfig
+from quantization import ComponentPrecisionConfig, resolve_layer_precision
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -202,8 +202,35 @@ def main(args: DictConfig) -> float | None:
         mesh_dim_names=("dp",),
     )
 
+    # Resolve per-block quantization precision
+    block_precision = resolve_layer_precision(
+        num_layers=args.model.num_blocks,
+        fp8_enabled=args.fp8_config.enabled,
+        fp4_enabled=args.fp4_config.enabled,
+        fp8_layers=OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None else None,
+        fp4_layers=OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None else None,
+    )
+
+    fp8_recipe = None
+    fp4_recipe = None
+    if args.fp8_config.enabled:
+        from transformer_engine.common.recipe import Format
+
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
+    if args.fp4_config.enabled:
+        from transformer_engine.common.recipe import Format
+
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+            fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
+        )
+
+    # Component-level precision overrides
+    component_precision = ComponentPrecisionConfig(**OmegaConf.to_container(args.component_precision, resolve=True))
+
     # Create model
-    params_dtype = torch.float32 if args.use_fp32_master_weights else torch.bfloat16
+    params_dtype = torch.float32
     model = ESM2MiniFoldTE(
         esm_model_name=args.esm_model_name,
         c_s=args.model.c_s,
@@ -212,6 +239,10 @@ def main(args: DictConfig) -> float | None:
         no_bins=args.model.no_bins,
         use_structure_module=args.model.use_structure_module,
         params_dtype=params_dtype,
+        block_precision=block_precision,
+        fp8_recipe=fp8_recipe,
+        fp4_recipe=fp4_recipe,
+        component_precision=component_precision,
     ).to(device)
 
     logger.info("Model created: %d parameters", sum(p.numel() for p in model.parameters()))
@@ -260,10 +291,8 @@ def main(args: DictConfig) -> float | None:
     # Create dataloader
     train_dataloader, sampler = create_dataloader(dist_config, **args.dataset)
 
-    # MXFP8 precision config
-    precision_config = FoldingHeadPrecisionConfig(**OmegaConf.to_container(args.mxfp8, resolve=True))
     if dist_config.is_main_process():
-        logger.info("Precision: %s", precision_config.summary())
+        logger.info("Block precision: %s", block_precision)
 
     # Resume from checkpoint
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
