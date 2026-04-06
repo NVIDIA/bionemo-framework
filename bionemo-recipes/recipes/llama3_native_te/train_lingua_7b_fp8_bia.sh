@@ -68,7 +68,7 @@ python train_fsdp2.py --config-name L2_lingua_7b_mxfp8 \
   dataset.micro_batch_size=2 \
   grad_acc_steps=4 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
-  checkpoint.save_every_n_steps=2000 \
+  checkpoint.save_every_n_steps=1500 \
   checkpoint.resume_from_checkpoint=true \
   wandb.name=\${EXP_NAME} \
   wandb.id=\${EXP_NAME} \
@@ -86,15 +86,14 @@ echo "Launching training: ${EXP_NAME}"
 echo "Results: ${RESULTS_DIR}"
 echo "Checkpoints: ${CKPT_ROOT}"
 
+# AUTO-CHAIN: always resubmit on exit (success, failure, or timeout).
+# Uses --dependency=singleton so only one job with this name runs at a time.
+# To stop chaining: scancel the queued job.
+trap 'echo "Resubmitting for next chain..."; sbatch --dependency=singleton "${BASH_SOURCE[0]}"; echo "Job finished! Check: ${RESULTS_DIR}"' EXIT
+
 srun \
   --output "${RESULTS_DIR}/slurm-%j-%n.out" \
   --error  "${RESULTS_DIR}/error-%j-%n.out" \
   --container-image "${CONTAINER}" \
   --container-mounts "${MOUNTS}" \
   bash -c "${COMMAND}"
-
-# Auto-chain: resubmit so training resumes from checkpoint. scancel to stop.
-echo "Resubmitting for next chain..."
-sbatch --dependency=singleton "${BASH_SOURCE[0]}"
-
-echo "Job finished! Check: ${RESULTS_DIR}"
