@@ -208,6 +208,7 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     # Mixtral TE model -> recipe sync
     "bionemo-recipes/models/mixtral/modeling_mixtral_te.py": [
         "bionemo-recipes/recipes/mixtral_native_te/modeling_mixtral_te.py",
+        "bionemo-recipes/recipes/opengenome2_mixtral_native_te/modeling_mixtral_te.py",
     ],
     # Common test library - synced between models
     "bionemo-recipes/models/esm2/tests/common": [

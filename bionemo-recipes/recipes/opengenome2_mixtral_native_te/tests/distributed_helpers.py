@@ -23,9 +23,9 @@ from pathlib import Path
 import torch
 
 
-# Import NVMixtralConfig from the shared mixtral_native_te recipe
-SHARED_MIXTRAL_RECIPE = Path(__file__).resolve().parent.parent.parent / "mixtral_native_te"
-sys.path.insert(0, str(SHARED_MIXTRAL_RECIPE))
+# Import NVMixtralConfig from the local recipe copy (CI uses sparse-checkout)
+RECIPE_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(RECIPE_ROOT))
 
 from modeling_mixtral_te import NVMixtralConfig  # noqa: E402
 

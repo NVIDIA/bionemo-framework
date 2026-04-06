@@ -25,9 +25,9 @@ import sys
 from pathlib import Path
 
 
-# Import NVMixtralForCausalLM from the shared mixtral_native_te recipe
-SHARED_MIXTRAL_RECIPE = Path(__file__).resolve().parent.parent.parent / "mixtral_native_te"
-sys.path.insert(0, str(SHARED_MIXTRAL_RECIPE))
+# Import from local recipe copy (CI uses sparse-checkout, shared recipe may not exist)
+RECIPE_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(RECIPE_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import pytest  # noqa: E402

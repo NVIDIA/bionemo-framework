@@ -13,12 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# --- BEGIN COPIED FILE NOTICE ---
-# This file is copied from: bionemo-recipes/models/mixtral/modeling_mixtral_te.py
-# Do not modify this file directly. Instead, modify the source and run:
-#     python ci/scripts/check_copied_files.py --fix
-# --- END COPIED FILE NOTICE ---
-
 """TransformerEngine-optimized Mixtral model with Mixture of Experts."""
 
 import logging
@@ -285,9 +279,22 @@ class NVMixtralSparseMoeBlock(nn.Module):
         device = torch.cuda.current_device()
         for attr_name in ("experts_gate_up_weight", "experts_down_weight"):
             old_param = getattr(self, attr_name)
-            new_data = torch.empty_like(old_param, device=device)
-            torch.nn.init.normal_(new_data, mean=0.0, std=self.initializer_range)
-            setattr(self, attr_name, nn.Parameter(new_data))
+            if isinstance(old_param.data, DTensor):
+                # FSDP2 has sharded this param; materialize the local shard on CUDA
+                # and reconstruct the DTensor wrapper so FSDP2 can manage it.
+                local_data = old_param.data.to_local()
+                new_local = torch.empty(local_data.shape, dtype=local_data.dtype, device=device)
+                torch.nn.init.normal_(new_local, mean=0.0, std=self.initializer_range)
+                new_dtensor = DTensor.from_local(
+                    new_local,
+                    device_mesh=old_param.data.device_mesh,
+                    placements=old_param.data.placements,
+                )
+                setattr(self, attr_name, nn.Parameter(new_dtensor))
+            else:
+                new_data = torch.empty_like(old_param, device=device)
+                torch.nn.init.normal_(new_data, mean=0.0, std=self.initializer_range)
+                setattr(self, attr_name, nn.Parameter(new_data))
 
         # Re-sync views to point to the new stacked parameter
         self._sync_expert_views()
@@ -304,13 +311,15 @@ class NVMixtralSparseMoeBlock(nn.Module):
         gate_up_w = self.experts_gate_up_weight
         if isinstance(gate_up_w, DTensor):
             gate_up_w = gate_up_w.to_local()
-        for i in range(self.num_local_experts):
+        num_local = gate_up_w.shape[0]
+        for i in range(num_local):
             object.__setattr__(self.experts_gate_up, f"weight{i}", gate_up_w[i])
 
         down_w = self.experts_down_weight
         if isinstance(down_w, DTensor):
             down_w = down_w.to_local()
-        for i in range(self.num_local_experts):
+        num_local_down = down_w.shape[0]
+        for i in range(num_local_down):
             object.__setattr__(self.experts_down, f"weight{i}", down_w[i])
 
     def set_ep_group(self, ep_group: dist.ProcessGroup, ep_mesh: DeviceMesh) -> None:
