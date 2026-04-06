@@ -145,13 +145,11 @@ class TriangularUpdateTE(nn.Module):
         # Apply mask
         x = x * mask.unsqueeze(-1)
 
-        # Triangular multiplication (MUST stay in FP32)
-        device = torch.device("mps" if torch.backends.mps.is_available() else "cuda")
-        with torch.autocast(device.type, enabled=False):
-            a1, b1, a2, b2 = torch.chunk(x.float(), 4, dim=-1)
-            x1 = torch.einsum("bikd,bjkd->bijd", a1, b1)
-            x2 = torch.einsum("bkid,bkjd->bijd", a2, b2)
-            x = torch.cat([x1, x2], dim=-1).to(mask.dtype if mask.is_floating_point() else torch.float32)
+        # Triangular multiplication (in FP32 via explicit .float() cast)
+        a1, b1, a2, b2 = torch.chunk(x.float(), 4, dim=-1)
+        x1 = torch.einsum("bikd,bjkd->bijd", a1, b1)
+        x2 = torch.einsum("bkid,bkjd->bijd", a2, b2)
+        x = torch.cat([x1, x2], dim=-1).to(mask.dtype if mask.is_floating_point() else torch.float32)
 
         # Output gating: D/2 -> D
         x = te_layernorm_nd(self.output_norm, x)

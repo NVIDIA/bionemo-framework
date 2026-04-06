@@ -179,8 +179,7 @@ def main(args: DictConfig) -> None:
         for batch in progress:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                r_dict = model(batch, num_recycling=args.model.get("num_recycling", 0))
+            r_dict = model(batch, num_recycling=args.model.get("num_recycling", 0))
 
             # Distogram loss
             disto_loss = compute_distogram_loss(
