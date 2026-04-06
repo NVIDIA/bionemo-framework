@@ -276,6 +276,14 @@ def cleanup_model(model):
     torch.cuda.empty_cache()
 
 
+def load_model_config(config_path):
+    """Load model config dict from a directory containing config.json."""
+    import json
+    from pathlib import Path
+
+    return json.loads(Path(config_path, "config.json").read_text())
+
+
 def print_breakdown(breakdown, lm_head_fwd, num_layers, total_flops, model_params):
     """Print first-principles FLOPs breakdown."""
     print()
@@ -291,3 +299,138 @@ def print_breakdown(breakdown, lm_head_fwd, num_layers, total_flops, model_param
     print(f"  {'Total forward':<20} {format_flops(total_fwd):>12}")
     print(f"  {'Total training (3x)':<20} {format_flops(total_flops):>12}")
     print(f"  {'Model params':<20} {model_params / 1e9:.2f}B")
+
+
+# =============================================================================
+# CLI
+# =============================================================================
+
+
+def _cli_bandwidth():
+    """Measure P2P bandwidth. Launch with: torchrun --nproc_per_node=2 compare_mfu_common.py bandwidth."""
+    import os
+
+    dist.init_process_group(backend="cpu:gloo,cuda:nccl")
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    torch.cuda.set_device(local_rank)
+    rank = dist.get_rank()
+    world_size = dist.get_world_size()
+    device = torch.device(f"cuda:{local_rank}")
+
+    if rank == 0:
+        print(f"Measuring P2P bandwidth between {world_size} GPUs...")
+        for i in range(world_size):
+            print(f"  GPU {i}: {torch.cuda.get_device_name(i)}")
+
+    bw = measure_bus_bandwidth(device, world_size)
+    if rank == 0:
+        print(f"\nUnidirectional P2P bandwidth: {bw:.2f} GB/s")
+
+    dist.destroy_process_group()
+
+
+def _cli_gpu_info():
+    """Print GPU info and peak TFLOPS."""
+    peak, name = detect_gpu_peak_tflops()
+    print(f"GPU: {name}")
+    if peak:
+        print(f"Peak bf16 TFLOPS: {peak:.1f}")
+    else:
+        print("Peak bf16 TFLOPS: unknown (use --peak-tflops to override)")
+    print()
+    print("Known GPUs:")
+    for gpu, tflops in GPU_PEAK_TFLOPS_BF16.items():
+        print(f"  {gpu:<16} {tflops:>8.1f} TFLOPS")
+
+
+def _cli_flops():
+    """Compute FLOPs for a model config."""
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command")  # "flops"
+    parser.add_argument("--config-path", default="./model_configs/lingua-1B")
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--seq-len", type=int, default=4096)
+    args = parser.parse_args()
+
+    cfg = load_model_config(args.config_path)
+    b, s = args.batch_size, args.seq_len
+    h = cfg["hidden_size"]
+    num_layers = cfg["num_hidden_layers"]
+    vocab_size = cfg["vocab_size"]
+    n_kv_heads = cfg["num_key_value_heads"]
+    n_heads = cfg["num_attention_heads"]
+    head_dim = h // n_heads
+    ffn = cfg["intermediate_size"]
+
+    print(f"Config: H={h}, L={num_layers}, n_heads={n_heads}, n_kv_heads={n_kv_heads}, I={ffn}, V={vocab_size}")
+    print(f"Batch:  B={b}, S={s}")
+    print()
+
+    readme = compute_flops_readme(b, s, h, num_layers, vocab_size)
+    fp, breakdown, lm_head = compute_flops_first_principles(b, s, h, num_layers, n_kv_heads, head_dim, ffn, vocab_size)
+
+    print(f"{'Method':<24} {'FLOPs/step':>14} {'Exact':>30}")
+    print("-" * 70)
+    print(f"{'README Formula':<24} {format_flops(readme):>14} {format_flops_exact(readme):>30}")
+    print(f"{'First Principles':<24} {format_flops(fp):>14} {format_flops_exact(fp):>30}")
+
+    if readme != fp:
+        diff = fp - readme
+        print(f"\nDifference: {format_flops_exact(diff)} ({diff / readme * 100:+.2f}%)")
+    else:
+        print("\nFormulas agree exactly for this config.")
+
+    # Estimate model params from config
+    # Embedding + layers*(attn + mlp) + norm + lm_head
+    attn_params = h * h + 2 * h * (n_kv_heads * head_dim) + h * h  # Q + K + V + O
+    mlp_params = 3 * h * ffn  # gate + up + down (SwiGLU)
+    layer_params = attn_params + mlp_params
+    total_params = vocab_size * h + num_layers * layer_params + h + vocab_size * h  # embed + layers + norm + lm_head
+    print_breakdown(breakdown, lm_head, num_layers, fp, total_params)
+
+
+def _cli_cp_comm():
+    """Estimate CP communication volume."""
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("command")  # "cp-comm"
+    parser.add_argument("--config-path", default="./model_configs/lingua-1B")
+    parser.add_argument("--batch-size", type=int, default=1)
+    parser.add_argument("--seq-len", type=int, default=16384)
+    parser.add_argument("--cp-size", type=int, default=2)
+    args = parser.parse_args()
+
+    cfg = load_model_config(args.config_path)
+    b, s = args.batch_size, args.seq_len
+    num_layers = cfg["num_hidden_layers"]
+    n_kv_heads = cfg["num_key_value_heads"]
+    head_dim = cfg["hidden_size"] // cfg["num_attention_heads"]
+
+    comm = estimate_cp_comm_bytes(b, s, num_layers, n_kv_heads, head_dim, args.cp_size)
+    print(f"CP={args.cp_size}, B={b}, S={s}, L={num_layers}, n_kv_heads={n_kv_heads}, head_dim={head_dim}")
+    print(f"Estimated CP ring attention communication: {format_bytes(comm)}/step ({format_flops_exact(comm)} bytes)")
+
+
+if __name__ == "__main__":
+    import sys
+
+    commands = {
+        "bandwidth": ("Measure P2P bandwidth (requires torchrun --nproc_per_node=2)", _cli_bandwidth),
+        "gpu-info": ("Print GPU info and peak TFLOPS", _cli_gpu_info),
+        "flops": ("Compute FLOPs for a model config", _cli_flops),
+        "cp-comm": ("Estimate CP communication volume", _cli_cp_comm),
+    }
+
+    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help") or sys.argv[1] not in commands:
+        print("Usage: python compare_mfu_common.py <command> [options]")
+        print("       torchrun --nproc_per_node=2 compare_mfu_common.py bandwidth")
+        print()
+        print("Commands:")
+        for cmd, (desc, _) in commands.items():
+            print(f"  {cmd:<16} {desc}")
+        sys.exit(0 if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help") else 1)
+
+    commands[sys.argv[1]][1]()
