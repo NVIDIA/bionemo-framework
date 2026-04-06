@@ -317,9 +317,8 @@ def main(args: DictConfig) -> float | None:
         for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
 
-            # Forward pass
-            with torch.autocast("cuda", dtype=torch.bfloat16):
-                r_dict = model(batch, num_recycling=args.model.get("num_recycling", 0))
+            # Forward pass (BF16 handled by FSDP2 MixedPrecisionPolicy)
+            r_dict = model(batch, num_recycling=args.model.get("num_recycling", 0))
 
             # Compute distogram loss
             disto_loss = compute_distogram_loss(

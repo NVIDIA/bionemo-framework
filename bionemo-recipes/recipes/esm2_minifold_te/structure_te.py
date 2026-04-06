@@ -323,32 +323,30 @@ class StructureModuleTE(nn.Module):
         # Predict angles
         unnormalized_angles, angles = self.angle_resnet(s, s_initial)
 
-        # Predict positions
-        device = torch.device("mps" if torch.backends.mps.is_available() else "cuda")
-        with torch.autocast(device.type, enabled=False):
-            n, ca, c = te_linear_nd(self.bb_update, s.float()).chunk(3, dim=-1)
-            rigids = Rigid.make_transform_from_reference(n, ca, c, eps=1e-7)
-            scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
+        # Predict positions (in FP32 via explicit .float() cast)
+        n, ca, c = te_linear_nd(self.bb_update, s.float()).chunk(3, dim=-1)
+        rigids = Rigid.make_transform_from_reference(n, ca, c, eps=1e-7)
+        scaled_rigids = rigids.scale_translation(self.trans_scale_factor)
 
-            all_frames_to_global = torsion_angles_to_frames(scaled_rigids, angles, aatype, self.default_frames)
-            pred_xyz = frames_and_literature_positions_to_atom14_pos(
-                all_frames_to_global,
-                aatype,
-                self.default_frames,
-                self.group_idx,
-                self.atom_mask,
-                self.lit_positions,
-            )
-            outputs.append(
-                {
-                    "angles": angles,
-                    "unnormalized_angles": unnormalized_angles,
-                    "frames": scaled_rigids.to_tensor_4x4(),
-                    "sidechain_frames": all_frames_to_global.to_tensor_4x4(),
-                    "positions": pred_xyz,
-                    "states": s,
-                }
-            )
+        all_frames_to_global = torsion_angles_to_frames(scaled_rigids, angles, aatype, self.default_frames)
+        pred_xyz = frames_and_literature_positions_to_atom14_pos(
+            all_frames_to_global,
+            aatype,
+            self.default_frames,
+            self.group_idx,
+            self.atom_mask,
+            self.lit_positions,
+        )
+        outputs.append(
+            {
+                "angles": angles,
+                "unnormalized_angles": unnormalized_angles,
+                "frames": scaled_rigids.to_tensor_4x4(),
+                "sidechain_frames": all_frames_to_global.to_tensor_4x4(),
+                "positions": pred_xyz,
+                "states": s,
+            }
+        )
 
         outputs = dict_multimap(torch.stack, outputs)
         outputs["single"] = s
