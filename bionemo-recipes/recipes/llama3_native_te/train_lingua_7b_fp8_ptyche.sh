@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=healthcareeng_bionemo
-#SBATCH --nodes=4
+#SBATCH --nodes=8
 #SBATCH --partition=batch,backfill
 #SBATCH --ntasks-per-node=4
 #SBATCH --time=03:55:00
@@ -20,7 +20,7 @@ DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
 # Fixed name so chained jobs (--singleton) resume from the same checkpoint dir.
 # Change this if you want a fresh experiment.
-export EXP_NAME="${EXP_NAME:-lingua_7b_fp8_bs_fl1_4n_ptyche}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_fp8_bs_fl1_8n_ptyche}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
@@ -50,7 +50,7 @@ export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
 set -euxo pipefail
 
 echo "========================================="
-echo "Starting Lingua 7B FP8 Block Scaling FL1 Training (4 nodes, ptyche ARM)"
+echo "Starting Lingua 7B FP8 Block Scaling FL1 Training (8 nodes, ptyche ARM)"
 echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "Tasks per node: \${SLURM_NTASKS_PER_NODE}"
@@ -78,7 +78,7 @@ echo "Results:" && ls -la /workspace/bionemo/results/
 echo "Starting training..."
 python train_fsdp2.py --config-name L2_lingua_7b_fp8 \
   dataset.micro_batch_size=2 \
-  grad_acc_steps=8 \
+  grad_acc_steps=4 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   checkpoint.save_every_n_steps=2000 \
   checkpoint.resume_from_checkpoint=true \
