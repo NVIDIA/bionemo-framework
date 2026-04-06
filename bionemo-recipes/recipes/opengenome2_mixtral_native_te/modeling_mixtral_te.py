@@ -880,6 +880,8 @@ def _unpad_input(hidden_states, attention_mask, unused_mask=None):
 class HFInferenceParams(InferenceParams):
     """Extension of the InferenceParams class to support HF generate() and beam search."""
 
+    # Required by transformers >= 5.4 _valid_auto_compile_criteria(); this
+    # custom TE-based cache is not compatible with torch.compile generate().
     is_compileable = False
 
     def get_seq_length(self, layer_idx: int = 0) -> int:
