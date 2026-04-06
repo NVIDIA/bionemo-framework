@@ -108,7 +108,15 @@ def create_te_model_on_gpu(config):
 
 
 def measure_step_time(
-    model, input_ids, num_warmup=10, num_timed=20, distributed=False, cp_context_fn=None, labels=None
+    model,
+    input_ids,
+    num_warmup=10,
+    num_timed=20,
+    distributed=False,
+    cp_context_fn=None,
+    labels=None,
+    position_ids=None,
+    **extra_fwd_kwargs,
 ):
     """Measure average training step time (forward + backward).
 
@@ -120,16 +128,24 @@ def measure_step_time(
         num_timed: Number of timed iterations to average.
         distributed: Whether to use dist.barrier() for synchronization.
         cp_context_fn: Optional callable returning a context manager (e.g., context_parallel).
-            Called fresh each iteration since it shards/restores buffers.
+            Called fresh each iteration. The context manager shards buffers in-place on entry
+            and restores them on exit, so reusing the same tensors across iterations is safe.
         labels: Optional labels tensor. If None, uses input_ids as labels.
+        position_ids: Optional position_ids tensor. Critical for HF models with CP to ensure
+            correct RoPE positions per rank.
+        **extra_fwd_kwargs: Additional kwargs passed to model forward (e.g., max_length_q/k for TE CP).
     """
     if labels is None:
         labels = input_ids
 
+    fwd_kwargs = {"input_ids": input_ids, "labels": labels, **extra_fwd_kwargs}
+    if position_ids is not None:
+        fwd_kwargs["position_ids"] = position_ids
+
     for _ in range(num_warmup):
         ctx = cp_context_fn() if cp_context_fn else nullcontext()
         with ctx:
-            output = model(input_ids=input_ids, labels=labels)
+            output = model(**fwd_kwargs)
             output.loss.backward()
         model.zero_grad(set_to_none=True)
 
@@ -147,8 +163,9 @@ def measure_step_time(
 
         ctx = cp_context_fn() if cp_context_fn else nullcontext()
         with ctx:
-            output = model(input_ids=input_ids, labels=labels)
+            output = model(**fwd_kwargs)
             output.loss.backward()
+            # no need to unshard output here since we're only measuring timing
         model.zero_grad(set_to_none=True)
 
         end.record()
@@ -174,23 +191,29 @@ def split_for_cp_bshd(tensor, cp_rank, cp_size):
 
 
 def measure_bus_bandwidth(device, world_size, num_iters=20, num_elements=10_000_000):
-    """Measure inter-GPU bus bandwidth using NCCL all-reduce."""
+    """Measure inter-GPU bus bandwidth using NCCL all-gather (pure data movement).
+
+    Uses all-gather rather than all-reduce since CP ring attention is purely communication
+    (send/recv of KV chunks), not reduction. all-gather better reflects actual P2P bandwidth.
+    """
     if world_size <= 1:
         return 0.0
 
     tensor = torch.randn(num_elements, device=device, dtype=torch.bfloat16)
+    output = [torch.zeros_like(tensor) for _ in range(world_size)]
     for _ in range(5):
-        dist.all_reduce(tensor)
+        dist.all_gather(output, tensor)
     torch.cuda.synchronize()
 
     start = time.perf_counter()
     for _ in range(num_iters):
-        dist.all_reduce(tensor)
+        dist.all_gather(output, tensor)
     torch.cuda.synchronize()
     elapsed = (time.perf_counter() - start) / num_iters
 
     data_bytes = tensor.nelement() * tensor.element_size()
-    bus_bw = 2 * (world_size - 1) / world_size * data_bytes / elapsed
+    # all-gather bus bandwidth: each rank sends data_bytes to (n-1) peers
+    bus_bw = (world_size - 1) * data_bytes / elapsed
     return bus_bw / 1e9  # GB/s
 
 
@@ -214,6 +237,11 @@ def format_flops(flops):
         return f"{flops / 1e9:.2f} G"
     else:
         return f"{flops:.2e}"
+
+
+def format_flops_exact(flops):
+    """Format FLOPs as the full integer with commas."""
+    return f"{int(flops):,}"
 
 
 def format_bytes(num_bytes):

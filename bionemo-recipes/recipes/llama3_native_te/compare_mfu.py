@@ -41,6 +41,7 @@ from compare_mfu_common import (
     create_te_model_on_gpu,
     detect_gpu_peak_tflops,
     format_flops,
+    format_flops_exact,
     measure_step_time,
     print_breakdown,
 )
@@ -104,7 +105,7 @@ def main():
 
     print("Counting FLOPs with HF model (meta device)...")
     hf_config = LlamaConfig.from_pretrained(args.config_path)
-    hf_config._attn_implementation = "eager"
+    hf_config._attn_implementation = "sdpa"
     with torch.device("meta"):
         hf_model_meta = LlamaForCausalLM(hf_config)
     meta_input_ids = torch.randint(0, vocab_size, (b, s), device="meta")
@@ -152,7 +153,7 @@ def main():
     # --- Table 1 ---
     print()
     print("--- Table 1: FLOPs Counting (per training step) ---")
-    hdr1 = f"{'Method':<24} {'FLOPs/step':>14}"
+    hdr1 = f"{'Method':<24} {'FLOPs/step':>14} {'Exact FLOPs':>30}"
     print(hdr1)
     print("-" * len(hdr1))
     for name, flops in [
@@ -160,7 +161,7 @@ def main():
         ("First Principles", total_flops_fp),
         ("FlopCounter (HF)", total_flops_hf_counter),
     ]:
-        print(f"{name:<24} {format_flops(flops):>14}")
+        print(f"{name:<24} {format_flops(flops):>14} {format_flops_exact(flops):>30}")
 
     # --- Table 2 ---
     print()

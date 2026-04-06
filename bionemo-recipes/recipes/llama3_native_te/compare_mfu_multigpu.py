@@ -47,6 +47,7 @@ from compare_mfu_common import (
     estimate_cp_comm_bytes,
     format_bytes,
     format_flops,
+    format_flops_exact,
     measure_bus_bandwidth,
     measure_step_time,
     print_breakdown,
@@ -147,7 +148,7 @@ def main():
     if rank == 0:
         print("Counting FLOPs with HF model (meta device)...")
     hf_config_meta = LlamaConfig.from_pretrained(args.config_path)
-    hf_config_meta._attn_implementation = "eager"
+    hf_config_meta._attn_implementation = "sdpa"
     hf_config_meta.max_position_embeddings = max(hf_config_meta.max_position_embeddings, s)
     with torch.device("meta"):
         hf_model_meta = LlamaForCausalLM(hf_config_meta)
@@ -163,7 +164,9 @@ def main():
     # Table 2: MFU — TE CP vs HF CP
     # =========================================================================
 
-    # --- HF with PyTorch native CP (run first to avoid NCCL memory fragmentation) ---
+    cp_mesh = device_mesh["cp"]
+
+    # --- HF with PyTorch native CP ---
     if rank == 0:
         print(f"\n[1/2] HF model with PyTorch native CP={cp_size} (S={s})...")
     hf_config_gpu = LlamaConfig.from_pretrained(args.config_path)
@@ -172,13 +175,15 @@ def main():
     hf_model = LlamaForCausalLM(hf_config_gpu).to(dtype=torch.bfloat16, device=device)
     hf_model.train()
 
-    # Full-size inputs — context_parallel shards them each iteration
+    # Full-size inputs — context_parallel shards them each iteration.
+    # position_ids are critical: without them, HF auto-generates [0..S/CP-1] per rank,
+    # giving WRONG RoPE positions. We create full [0..S-1] and shard alongside input_ids.
     hf_full_ids = torch.randint(0, vocab_size, (b, s), device=device)
     hf_full_labels = hf_full_ids.clone()
-    cp_mesh = device_mesh["cp"]
+    hf_full_pos = torch.arange(s, device=device).unsqueeze(0).expand(b, -1)
 
-    def make_hf_cp_ctx(_ids=hf_full_ids, _labels=hf_full_labels):
-        return context_parallel(cp_mesh, buffers=(_ids, _labels), buffer_seq_dims=(1, 1))
+    def make_hf_cp_ctx(_ids=hf_full_ids, _labels=hf_full_labels, _pos=hf_full_pos):
+        return context_parallel(cp_mesh, buffers=(_ids, _labels, _pos), buffer_seq_dims=(1, 1, 1))
 
     if rank == 0:
         print(f"Measuring HF CP step time ({args.warmup_steps} warmup + {args.timed_steps} timed)...")
@@ -190,11 +195,12 @@ def main():
         distributed=True,
         cp_context_fn=make_hf_cp_ctx,
         labels=hf_full_labels,
+        position_ids=hf_full_pos,
     )
     if rank == 0:
         print(f"  HF CP step time: {hf_cp_time:.4f}s")
     cleanup_model(hf_model)
-    del hf_full_ids, hf_full_labels
+    del hf_full_ids, hf_full_labels, hf_full_pos
 
     # --- TE with CP via set_context_parallel_group ---
     if rank == 0:
@@ -210,14 +216,22 @@ def main():
     for layer in te_model.model.layers:
         layer.set_context_parallel_group(cp_group, cp_ranks, torch.cuda.Stream())
     te_model.train()
+    model_params = sum(p.numel() for p in te_model.parameters())
 
     full_ids = torch.randint(0, vocab_size, (b, s), device=device)
     te_local_ids = split_for_cp_bshd(full_ids, cp_rank, cp_size)
 
     if rank == 0:
         print(f"Measuring TE CP step time ({args.warmup_steps} warmup + {args.timed_steps} timed)...")
-    te_cp_time = measure_step_time(te_model, te_local_ids, args.warmup_steps, args.timed_steps, distributed=True)
-    model_params = sum(p.numel() for p in te_model.parameters())
+    te_cp_time = measure_step_time(
+        te_model,
+        te_local_ids,
+        args.warmup_steps,
+        args.timed_steps,
+        distributed=True,
+        max_length_q=s,
+        max_length_k=s,
+    )
     if rank == 0:
         print(f"  TE CP step time: {te_cp_time:.4f}s")
     cleanup_model(te_model)
@@ -247,7 +261,7 @@ def main():
         # --- Table 1 ---
         print()
         print("--- Table 1: FLOPs Counting (per training step) ---")
-        hdr1 = f"{'Method':<24} {'Total FLOPs':>14} {'Per-GPU FLOPs':>14}"
+        hdr1 = f"{'Method':<24} {'Total FLOPs':>14} {'Per-GPU FLOPs':>14} {'Exact Total FLOPs':>30}"
         print(hdr1)
         print("-" * len(hdr1))
         for name, total in [
@@ -255,7 +269,10 @@ def main():
             ("First Principles", total_flops_fp),
             ("FlopCounter (HF)", total_flops_hf_counter),
         ]:
-            print(f"{name:<24} {format_flops(total):>14} {format_flops(total // world_size):>14}")
+            print(
+                f"{name:<24} {format_flops(total):>14} {format_flops(total // world_size):>14}"
+                f" {format_flops_exact(total):>30}"
+            )
 
         # --- Table 2 ---
         print()
