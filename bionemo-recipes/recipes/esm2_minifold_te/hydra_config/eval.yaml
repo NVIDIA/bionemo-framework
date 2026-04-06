@@ -25,17 +25,29 @@ checkpoint:
   ckpt_dir: ???           # required: path to trained checkpoint or final model
   checkpoint_type: fsdp2  # "fsdp2" for distributed checkpoints, "safetensors" for exported model
 
-mxfp8:
+fp8_config:
   enabled: false
-  tri_proj: false
-  tri_gate: false
-  ffn: false
-  struct_attn: false
-  struct_ffn: false
-  seq_proj: false
-  dist_head: false
   fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
   fp8_recipe_kwargs: {}
+
+fp4_config:
+  enabled: false
+  fp4_recipe: transformer_engine.common.recipe.NVFP4BlockScaling
+  fp4_format: "E2M1"
+  fp4_recipe_kwargs: {}
+
+fp8_layers: null
+fp4_layers: null
+
+component_precision:
+  tri_proj: true
+  tri_gate: true
+  ffn: true
+  struct_attn: true
+  struct_ffn: true
+  seq_proj: true
+  dist_head: true
 
 wandb_init_args:
   project: esm2_minifold_te

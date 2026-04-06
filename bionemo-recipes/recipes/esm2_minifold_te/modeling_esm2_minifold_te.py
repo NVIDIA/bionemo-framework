@@ -22,6 +22,8 @@ which are projected and fed into the FoldingTrunkTE for distogram prediction.
 Optionally includes the StructureModuleTE for full 3D structure prediction (Stage 2).
 """
 
+from contextlib import nullcontext
+
 import torch
 import torch.nn as nn
 import transformer_engine.pytorch as te
@@ -31,6 +33,7 @@ from heads_te import AuxiliaryHeadsTE
 from minifold_utils.feats import atom14_to_atom37
 from minifold_utils.tensor_utils import tensor_tree_map
 from model_te import FoldingTrunkTE, PairToSequenceTE
+from quantization import ComponentPrecisionConfig
 from structure_te import StructureModuleTE
 from te_utils import te_linear_nd
 
@@ -53,6 +56,10 @@ class ESM2MiniFoldTE(nn.Module):
         num_structure_blocks: int = 8,
         structure_config: dict | None = None,
         params_dtype: torch.dtype = torch.float32,
+        block_precision: list[str | None] | None = None,
+        fp8_recipe=None,
+        fp4_recipe=None,
+        component_precision: ComponentPrecisionConfig | None = None,
     ):
         """Initialize ESM2MiniFoldTE.
 
@@ -66,12 +73,17 @@ class ESM2MiniFoldTE(nn.Module):
             num_structure_blocks: Number of IPA blocks in the structure module.
             structure_config: Optional config dict for auxiliary heads.
             params_dtype: Data type for TE layer parameters.
+            block_precision: Per-block quantization precision list from resolve_layer_precision().
+            fp8_recipe: FP8 recipe for TE autocast.
+            fp4_recipe: FP4 recipe for TE autocast.
+            component_precision: Per-component precision overrides within FP8/FP4 blocks.
         """
         super().__init__()
 
         self.c_s = c_s
         self.c_z = c_z
         self.use_structure_module = use_structure_module
+        self._component_precision = component_precision
 
         # ESM-2 backbone (frozen)
         self.backbone = ESM2Backbone(esm_model_name)
@@ -94,6 +106,10 @@ class ESM2MiniFoldTE(nn.Module):
             disto_bins=no_bins,
             num_layers=num_blocks,
             params_dtype=params_dtype,
+            block_precision=block_precision,
+            fp8_recipe=fp8_recipe,
+            fp4_recipe=fp4_recipe,
+            component_precision=component_precision,
         )
 
         # Optional structure module (Stage 2)
@@ -140,16 +156,19 @@ class ESM2MiniFoldTE(nn.Module):
         )
 
         # Project sequence embeddings: embed_dim -> c_s
-        s_s = esm_out["representations"]
-        s_s = te_linear_nd(self.fc_s_1, s_s)
-        s_s = torch.relu(s_s)
-        s_s = te_linear_nd(self.fc_s_2, s_s)
+        cp = self._component_precision
+        seq_ctx = cp.get_context("seq_proj") if cp else nullcontext()
+        with seq_ctx:
+            s_s = esm_out["representations"]
+            s_s = te_linear_nd(self.fc_s_1, s_s)
+            s_s = torch.relu(s_s)
+            s_s = te_linear_nd(self.fc_s_2, s_s)
 
-        # Project attention maps: attn_dim -> c_z
-        s_z = esm_out["attentions"]
-        s_z = te_linear_nd(self.fc_z_1, s_z)
-        s_z = torch.relu(s_z)
-        s_z = te_linear_nd(self.fc_z_2, s_z)
+            # Project attention maps: attn_dim -> c_z
+            s_z = esm_out["attentions"]
+            s_z = te_linear_nd(self.fc_z_1, s_z)
+            s_z = torch.relu(s_z)
+            s_z = te_linear_nd(self.fc_z_2, s_z)
 
         # Run folding trunk
         preds, s_z = self.fold(

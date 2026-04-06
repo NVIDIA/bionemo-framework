@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import nullcontext
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -50,8 +52,16 @@ class RelativePosition(nn.Module):
 class SequenceToPairTE(nn.Module):
     """TE version of SequenceToPair."""
 
-    def __init__(self, sequence_state_dim, inner_dim, pairwise_state_dim, params_dtype=torch.float32):
+    def __init__(
+        self,
+        sequence_state_dim,
+        inner_dim,
+        pairwise_state_dim,
+        params_dtype=torch.float32,
+        component_precision=None,
+    ):
         super().__init__()
+        self._component_precision = component_precision
         self.layernorm = te.LayerNorm(sequence_state_dim, eps=1e-5, params_dtype=params_dtype)
         self.proj = te.Linear(sequence_state_dim, inner_dim * 2, bias=True, params_dtype=params_dtype)
         self.o_proj = te.Linear(2 * inner_dim, pairwise_state_dim, bias=True, params_dtype=params_dtype)
@@ -68,15 +78,18 @@ class SequenceToPairTE(nn.Module):
         Returns:
             pairwise_state: B x L x L x pairwise_state_dim
         """
-        s = te_layernorm_nd(self.layernorm, sequence_state)
-        s = te_linear_nd(self.proj, s)
-        q, k = s.chunk(2, dim=-1)
+        cp = self._component_precision
+        ctx = cp.get_context("seq_proj") if cp else nullcontext()
+        with ctx:
+            s = te_layernorm_nd(self.layernorm, sequence_state)
+            s = te_linear_nd(self.proj, s)
+            q, k = s.chunk(2, dim=-1)
 
-        prod = q[:, None, :, :] * k[:, :, None, :]
-        diff = q[:, None, :, :] - k[:, :, None, :]
+            prod = q[:, None, :, :] * k[:, :, None, :]
+            diff = q[:, None, :, :] - k[:, :, None, :]
 
-        x = torch.cat([prod, diff], dim=-1)
-        x = te_linear_nd(self.o_proj, x)
+            x = torch.cat([prod, diff], dim=-1)
+            x = te_linear_nd(self.o_proj, x)
 
         return x
 
@@ -135,14 +148,29 @@ class FoldingTrunkTE(nn.Module):
         disto_bins=64,
         num_layers=1,
         params_dtype=torch.float32,
+        block_precision=None,
+        fp8_recipe=None,
+        fp4_recipe=None,
+        component_precision=None,
     ):
         super().__init__()
+        self._component_precision = component_precision
         self.disto_bins = disto_bins
         self.positional_embedding = RelativePosition(bins, c_z)
-        self.seq_to_pair = SequenceToPairTE(c_s, c_z // 2, c_z, params_dtype=params_dtype)
+        self.seq_to_pair = SequenceToPairTE(
+            c_s, c_z // 2, c_z, params_dtype=params_dtype, component_precision=component_precision
+        )
         self.projection = te.Linear(c_z * 3, c_z, params_dtype=params_dtype)
         self.recycle = te.Linear(disto_bins, c_z, params_dtype=params_dtype)
-        self.miniformer = MiniFormerTE(c_z, blocks=num_layers, params_dtype=params_dtype)
+        self.miniformer = MiniFormerTE(
+            c_z,
+            blocks=num_layers,
+            params_dtype=params_dtype,
+            block_precision=block_precision,
+            fp8_recipe=fp8_recipe,
+            fp4_recipe=fp4_recipe,
+            component_precision=component_precision,
+        )
         self.fc_out_1 = te.Linear(c_z, c_z, params_dtype=params_dtype)
         self.fc_out_2 = te.Linear(c_z, disto_bins, params_dtype=params_dtype)
 
@@ -198,9 +226,12 @@ class FoldingTrunkTE(nn.Module):
                 s_z_c = self.miniformer(s_z_c, pair_mask)
 
                 # Output MLP
-                fc_out = te_linear_nd(self.fc_out_1, s_z_c + s_z_c.transpose(1, 2))
-                fc_out = F.relu(fc_out)
-                preds = te_linear_nd(self.fc_out_2, fc_out)
+                cp = self._component_precision
+                dist_ctx = cp.get_context("dist_head") if cp else nullcontext()
+                with dist_ctx:
+                    fc_out = te_linear_nd(self.fc_out_1, s_z_c + s_z_c.transpose(1, 2))
+                    fc_out = F.relu(fc_out)
+                    preds = te_linear_nd(self.fc_out_2, fc_out)
 
                 # Compute binned distance for recycling
                 dists = preds.detach().argmax(dim=-1)
