@@ -191,30 +191,43 @@ def split_for_cp_bshd(tensor, cp_rank, cp_size):
 
 
 def measure_bus_bandwidth(device, world_size, num_iters=20, num_elements=10_000_000):
-    """Measure inter-GPU bus bandwidth using NCCL all-gather (pure data movement).
+    """Measure unidirectional P2P bandwidth between GPU 0 and GPU 1 via send/recv.
 
-    Uses all-gather rather than all-reduce since CP ring attention is purely communication
-    (send/recv of KV chunks), not reduction. all-gather better reflects actual P2P bandwidth.
+    This matches CP ring attention's actual communication pattern: each rank sends
+    its KV chunk to the next rank in the ring via point-to-point transfer.
     """
     if world_size <= 1:
         return 0.0
 
+    rank = dist.get_rank()
     tensor = torch.randn(num_elements, device=device, dtype=torch.bfloat16)
-    output = [torch.zeros_like(tensor) for _ in range(world_size)]
+    peer = 1 - rank  # rank 0 <-> rank 1
+
+    # Warmup
     for _ in range(5):
-        dist.all_gather(output, tensor)
+        if rank == 0:
+            dist.send(tensor, dst=peer)
+            dist.recv(tensor, src=peer)
+        else:
+            dist.recv(tensor, src=peer)
+            dist.send(tensor, dst=peer)
     torch.cuda.synchronize()
 
+    # Timed: rank 0 sends, rank 1 receives (unidirectional)
+    dist.barrier()
+    torch.cuda.synchronize()
     start = time.perf_counter()
     for _ in range(num_iters):
-        dist.all_gather(output, tensor)
+        if rank == 0:
+            dist.send(tensor, dst=peer)
+        else:
+            dist.recv(tensor, src=peer)
     torch.cuda.synchronize()
-    elapsed = (time.perf_counter() - start) / num_iters
+    elapsed = time.perf_counter() - start
 
     data_bytes = tensor.nelement() * tensor.element_size()
-    # all-gather bus bandwidth: each rank sends data_bytes to (n-1) peers
-    bus_bw = (world_size - 1) * data_bytes / elapsed
-    return bus_bw / 1e9  # GB/s
+    bw = num_iters * data_bytes / elapsed
+    return bw / 1e9  # GB/s
 
 
 def estimate_cp_comm_bytes(b, s, num_layers, n_kv_heads, head_dim, cp_size, dtype_bytes=2):
