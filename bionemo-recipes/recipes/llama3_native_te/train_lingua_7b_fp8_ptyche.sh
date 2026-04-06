@@ -105,4 +105,12 @@ srun \
   --container-mounts "${MOUNTS}" \
   bash -c "${COMMAND}"
 
+# ============================================================================
+# AUTO-CHAIN: resubmit this script so training resumes from checkpoint
+# Uses --dependency=singleton so only one job with this name runs at a time.
+# To stop chaining, simply scancel the queued job.
+# ============================================================================
+echo "Resubmitting for next chain..."
+sbatch --dependency=singleton "${BASH_SOURCE[0]}"
+
 echo "Job finished! Check: ${RESULTS_DIR}"
