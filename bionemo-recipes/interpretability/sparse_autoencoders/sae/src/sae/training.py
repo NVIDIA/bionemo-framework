@@ -419,6 +419,7 @@ class Trainer:
                 group=self.wandb_config.group,
                 job_type=self.wandb_config.job_type,
                 config=config,
+                settings=wandb.Settings(init_timeout=300),
             )
             print(f"wandb run: {self.wandb_run.url}")
         else:
