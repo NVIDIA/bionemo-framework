@@ -29,7 +29,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from quantization import generate_layer_regex, resolve_layer_precision, update_quant_stats_config
+from quantization import BufferedQuantLogger, generate_layer_regex, resolve_layer_precision, update_quant_stats_config
 
 
 # -- resolve_layer_precision --
@@ -313,3 +313,94 @@ def test_with_real_fp8_config():
     assert re.search(fp8_regex, "fold.miniformer.blocks.3.triangular.go")
     assert re.search(fp8_regex, "fold.miniformer.blocks.7.triangular.pi")
     assert not re.search(fp8_regex, "fold.miniformer.blocks.1.transition.fc1")
+
+
+# -- BufferedQuantLogger --
+
+
+class TestBufferedQuantLogger:
+    def test_captures_underflow_stats(self):
+        logger = BufferedQuantLogger()
+        logger.log_scalar("model.fold.miniformer.blocks.0.transition.fc1_gradient_underflows%", 0.5, 100)
+        logger.log_scalar("model.fold.miniformer.blocks.0.transition.fc2_gradient_underflows%", 1.2, 100)
+        assert len(logger._underflow_buffer) == 2
+        assert logger._underflow_buffer["model.fold.miniformer.blocks.0.transition.fc1_gradient_underflows%"] == [
+            (100, 0.5)
+        ]
+
+    def test_ignores_non_underflow_stats(self):
+        logger = BufferedQuantLogger()
+        logger.log_scalar("model.fold.miniformer.blocks.0.transition.fc1_activation_scale_inv_min", 0.01, 100)
+        logger.log_scalar("model.fold.miniformer.blocks.0.transition.fc1_weight_mse", 0.001, 100)
+        assert len(logger._underflow_buffer) == 0
+
+    def test_accumulates_across_iterations(self):
+        logger = BufferedQuantLogger()
+        metric = "model.fold.miniformer.blocks.1.transition.fc1_gradient_underflows%"
+        logger.log_scalar(metric, 0.5, 100)
+        logger.log_scalar(metric, 0.3, 200)
+        logger.log_scalar(metric, 0.1, 300)
+        assert len(logger._underflow_buffer[metric]) == 3
+
+    def test_generate_heatmap_empty_returns_none(self):
+        logger = BufferedQuantLogger()
+        assert logger.generate_heatmap() is None
+
+    def test_generate_heatmap_returns_figure(self):
+        import matplotlib.figure
+
+        logger = BufferedQuantLogger()
+        # Populate with synthetic MiniFold metrics
+        for block in range(3):
+            for sublayer in ["fc1", "fc2"]:
+                metric = f"model.fold.miniformer.blocks.{block}.transition.{sublayer}_gradient_underflows%"
+                for step in range(0, 50, 10):
+                    logger.log_scalar(metric, float(block * 0.5 + step * 0.01), step)
+
+        fig = logger.generate_heatmap()
+        assert fig is not None
+        assert isinstance(fig, matplotlib.figure.Figure)
+        import matplotlib.pyplot as plt
+
+        plt.close(fig)
+
+    def test_generate_heatmap_correct_labels(self):
+        import matplotlib.pyplot as plt
+
+        logger = BufferedQuantLogger()
+        logger.log_scalar("model.fold.miniformer.blocks.0.transition.fc1_gradient_underflows%", 0.5, 0)
+        logger.log_scalar("model.fold.miniformer.blocks.0.transition.fc2_gradient_underflows%", 0.3, 0)
+        logger.log_scalar("model.fold.miniformer.blocks.1.triangular.pi_gradient_underflows%", 1.0, 0)
+
+        fig = logger.generate_heatmap()
+        assert fig is not None
+        ax = fig.axes[0]
+        y_labels = [t.get_text() for t in ax.get_yticklabels()]
+        assert "B0 fc1" in y_labels
+        assert "B0 fc2" in y_labels
+        assert "B1 pi" in y_labels
+        plt.close(fig)
+
+    def test_minifold_layer_name_parsing(self):
+        """Verify regex extracts block/module/sublayer from metric names."""
+        from quantization import _MINIFOLD_UNDERFLOW_PATTERN
+
+        match = _MINIFOLD_UNDERFLOW_PATTERN.search("model.fold.miniformer.blocks.5.triangular.gi_gradient_underflows%")
+        assert match is not None
+        assert match.group(1) == "5"
+        assert match.group(2) == "triangular"
+        assert match.group(3) == "gi"
+
+        match = _MINIFOLD_UNDERFLOW_PATTERN.search(
+            "model.fold.miniformer.blocks.47.transition.fc2_gradient_underflows%"
+        )
+        assert match is not None
+        assert match.group(1) == "47"
+        assert match.group(2) == "transition"
+        assert match.group(3) == "fc2"
+
+    def test_no_match_for_non_minifold_pattern(self):
+        from quantization import _MINIFOLD_UNDERFLOW_PATTERN
+
+        match = _MINIFOLD_UNDERFLOW_PATTERN.search("model.encoder.layers.3.self_attention.proj_gradient_underflows%")
+        assert match is None

@@ -87,6 +87,7 @@ quant_stats_config:
   quant_stats_file: ./fp8_debugging_stats.yaml
   quant_log_dir: ./log_quant_stats
   log_to_wandb: false
+  log_heatmap: false
 
 # Logging
 logger:
