@@ -80,7 +80,7 @@ python train_fsdp2.py --config-name L2_lingua_7b_mxfp8 \
   dataset.micro_batch_size=2 \
   grad_acc_steps=4 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
-  checkpoint.save_every_n_steps=1500 \
+  checkpoint.save_every_n_steps=1000 \
   checkpoint.resume_from_checkpoint=true \
   wandb.name=\${EXP_NAME} \
   wandb.id=\${EXP_NAME} \
