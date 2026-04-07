@@ -18,6 +18,7 @@
 import logging
 import time
 
+import nvdlfw_inspect.api as debug_api
 import torch
 import torchmetrics
 from omegaconf import DictConfig, OmegaConf
@@ -44,6 +45,7 @@ class PerfLogger:
 
         self.min_loss = torch.tensor(float("inf"), device=torch.device(f"cuda:{dist_config.local_rank}"))
         self.logging_frequency = args.logger.frequency
+        self.quant_stats_enabled = args.quant_stats_config.enabled
 
         metrics_dict = {
             "train/loss": torchmetrics.MeanMetric(),
@@ -57,6 +59,7 @@ class PerfLogger:
             "train/contact_recall_8A": torchmetrics.MeanMetric(),
             "train/lddt_from_distogram": torchmetrics.MeanMetric(),
             "train/mean_distance_error": torchmetrics.MeanMetric(),
+            "train/unpadded_tokens_per_sec": torchmetrics.MeanMetric(),
         }
 
         self.metrics = torchmetrics.MetricCollection(metrics_dict)
@@ -75,6 +78,7 @@ class PerfLogger:
         grad_norm: torch.Tensor | DTensor | float = 0.0,
         lr: float = 0.0,
         structure_metrics: dict[str, torch.Tensor] | None = None,
+        unpadded_tokens: float = 0.0,
     ):
         """Log a training step."""
         with torch.no_grad():
@@ -95,6 +99,8 @@ class PerfLogger:
                 self.metrics["train/learning_rate"].update(lr)
                 self.metrics["train/grad_norm"].update(grad_norm)
                 self.metrics["train/step_time"].update(step_time)
+                if unpadded_tokens > 0 and step_time > 0:
+                    self.metrics["train/unpadded_tokens_per_sec"].update(unpadded_tokens / step_time)
 
                 if structure_metrics is not None:
                     for key, value in structure_metrics.items():
@@ -121,8 +127,13 @@ class PerfLogger:
                 if self._dist_config.local_rank == 0:
                     logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
 
+                if self.quant_stats_enabled:
+                    debug_api.step()
+
     def finish(self):
         """Finish the logger."""
+        if self.quant_stats_enabled:
+            debug_api.end_debug()
         if not self._dist_config.is_main_process():
             return
         wandb.finish()

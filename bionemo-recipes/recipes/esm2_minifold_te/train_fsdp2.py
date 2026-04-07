@@ -50,7 +50,12 @@ from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from modeling_esm2_minifold_te import ESM2MiniFoldTE
 from perf_logger import PerfLogger
-from quantization import ComponentPrecisionConfig, resolve_layer_precision
+from quantization import (
+    ComponentPrecisionConfig,
+    WandBQuantLogger,
+    initialize_quant_stats_logging,
+    resolve_layer_precision,
+)
 from scheduler import get_linear_schedule_with_warmup
 
 
@@ -229,6 +234,20 @@ def main(args: DictConfig) -> float | None:
     # Component-level precision overrides
     component_precision = ComponentPrecisionConfig(**OmegaConf.to_container(args.component_precision, resolve=True))
 
+    # Quant stats logging
+    if args.quant_stats_config.enabled:
+        wandb_logger = None
+        if args.quant_stats_config.log_to_wandb and dist_config.is_main_process():
+            wandb_logger = WandBQuantLogger()
+        initialize_quant_stats_logging(
+            quant_stats_file=args.quant_stats_config.quant_stats_file,
+            quant_log_dir=args.quant_stats_config.quant_log_dir,
+            rank=dist_config.rank,
+            layer_precision=block_precision,
+            statistics_logger=wandb_logger,
+            component_precision=component_precision,
+        )
+
     # Create model
     params_dtype = torch.float32
     model = ESM2MiniFoldTE(
@@ -261,6 +280,12 @@ def main(args: DictConfig) -> float | None:
     for block in model.fold.miniformer.blocks:
         fully_shard(block, mesh=device_mesh["dp"], mp_policy=mp_policy)
     fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
+
+    # Assign layer names for quant stats debug API
+    if args.quant_stats_config.enabled:
+        import nvdlfw_inspect.api as debug_api
+
+        debug_api.infer_and_assign_layer_names(model)
 
     # Optimizer with parameter groups
     param_groups = [
@@ -356,6 +381,9 @@ def main(args: DictConfig) -> float | None:
                 no_bins=args.model.no_bins,
             )
 
+            # Count unpadded tokens across all GPUs
+            unpadded_tokens = batch["mask"].sum().item() * dist_config.world_size
+
             # Logging
             perf_logger.log_step(
                 step=step,
@@ -364,6 +392,7 @@ def main(args: DictConfig) -> float | None:
                 grad_norm=total_norm,
                 lr=optimizer.param_groups[0]["lr"],
                 structure_metrics=structure_metrics,
+                unpadded_tokens=unpadded_tokens,
             )
 
             # Checkpointing

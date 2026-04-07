@@ -71,6 +71,12 @@ component_precision:
   seq_proj: false      # Sequence/pair feature projections (fc_s_1, fc_s_2, fc_z_1, fc_z_2, seq_to_pair te.Linear layers)
   dist_head: false     # Distogram output head (fc_out_1, fc_out_2 te.Linear layers) — kept in model's base precision per MXFP8 paper
 
+quant_stats_config:
+  enabled: false
+  quant_stats_file: ./fp8_debugging_stats.yaml
+  quant_log_dir: ./log_quant_stats
+  log_to_wandb: false
+
 logger:
   frequency: 5
 
