@@ -256,15 +256,19 @@ def test_none_layers_disables_matching(fp8_only_config):
     assert "DISABLED" in regex
 
 
-def test_fp4_section_disabled_fp8_still_updated(fp4_fp8_config):
+def test_fp4_and_fp8_both_updated(fp4_fp8_config):
     output_path = update_quant_stats_config(config_file=fp4_fp8_config, fp4_layers=[1, 2, 3], fp8_layers=[4, 5, 6])
     with open(output_path) as f:
         result = yaml.safe_load(f)
 
-    assert result["example_fp4_tensor_stat_collection"]["enabled"] is False
+    # FP4 section should have regex for blocks 1-3 (0-indexed 0-2)
+    fp4_regex = result["example_fp4_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"]
+    assert re.search(fp4_regex, "fold.miniformer.blocks.0.transition.fc1")
+    assert re.search(fp4_regex, "fold.miniformer.blocks.2.triangular.pi")
+    assert not re.search(fp4_regex, "fold.miniformer.blocks.3.triangular.pi")
 
+    # FP8 section should have regex for blocks 4-6 (0-indexed 3-5)
     fp8_regex = result["example_fp8_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"]
-    # 1-indexed [4,5,6] -> 0-indexed [3,4,5]
     assert re.search(fp8_regex, "fold.miniformer.blocks.4.triangular.pi")
     assert not re.search(fp8_regex, "fold.miniformer.blocks.1.triangular.pi")
 

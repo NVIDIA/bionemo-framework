@@ -331,14 +331,12 @@ def update_quant_stats_config(
         config = yaml.safe_load(f)
 
     if "example_fp4_tensor_stat_collection" in config:
-        config["example_fp4_tensor_stat_collection"]["enabled"] = False
+        fp4_regex = generate_layer_regex(fp4_layers, component_precision=component_precision)
+        config["example_fp4_tensor_stat_collection"]["layers"]["layer_name_regex_pattern"] = fp4_regex
         if fp4_layers:
-            logger.warning(
-                "NVFP4 quant stats logging is not yet supported (requires a future TransformerEngine release). "
-                f"Disabling FP4 stats collection for blocks {fp4_layers}. FP8 stats will still be collected."
-            )
+            logger.info(f"Updated FP4 block regex to match blocks: {fp4_layers}")
         else:
-            logger.info("FP4 stats section disabled (no FP4 blocks and feature not yet supported)")
+            logger.info("FP4 blocks empty - regex set to match nothing")
 
     if "example_fp8_tensor_stat_collection" in config:
         fp8_regex = generate_layer_regex(fp8_layers, component_precision=component_precision)
