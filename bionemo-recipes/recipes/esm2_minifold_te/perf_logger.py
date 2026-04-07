@@ -39,13 +39,15 @@ class PerfLogger:
         min_loss: The minimum loss seen so far.
     """
 
-    def __init__(self, dist_config: DistributedConfig, args: DictConfig):
+    def __init__(self, dist_config: DistributedConfig, args: DictConfig, quant_logger=None):
         self._dist_config = dist_config
         self._run_config = OmegaConf.to_container(args, resolve=True, throw_on_missing=True)
 
         self.min_loss = torch.tensor(float("inf"), device=torch.device(f"cuda:{dist_config.local_rank}"))
         self.logging_frequency = args.logger.frequency
         self.quant_stats_enabled = args.quant_stats_config.enabled
+        self._quant_logger = quant_logger
+        self._log_heatmap = args.quant_stats_config.get("log_heatmap", False)
 
         metrics_dict = {
             "train/loss": torchmetrics.MeanMetric(),
@@ -129,6 +131,13 @@ class PerfLogger:
 
                 if self.quant_stats_enabled:
                     debug_api.step()
+                    if self._log_heatmap and self._quant_logger is not None and self._dist_config.is_main_process():
+                        import matplotlib.pyplot as plt
+
+                        fig = self._quant_logger.generate_heatmap()
+                        if fig is not None:
+                            wandb.log({"quant/gradient_underflow_heatmap": wandb.Image(fig)}, step=step)
+                            plt.close(fig)
 
     def finish(self):
         """Finish the logger."""

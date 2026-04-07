@@ -20,15 +20,22 @@ but applied to MiniFormer blocks instead of transformer layers.
 """
 
 import logging
+import re
 import tempfile
+from collections import defaultdict
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ContextManager
 
+import matplotlib
+import numpy as np
 import transformer_engine.pytorch as te
 import yaml
 from nvdlfw_inspect.logging import BaseLogger
+
+
+matplotlib.use("Agg")
 
 
 logger = logging.getLogger(__name__)
@@ -167,7 +174,101 @@ class WandBQuantLogger(BaseLogger):
         """Log a single quant stat to WandB."""
         import wandb
 
-        wandb.log({f"quant/{name}": value}, step=iteration)
+        wandb.log({f"quant/{name}": value})
+
+
+_MINIFOLD_UNDERFLOW_PATTERN = re.compile(r"blocks\.(\d+)\.(\w+)\.(\w+)_gradient_underflows%")
+
+
+class BufferedQuantLogger(BaseLogger):
+    """Buffer gradient underflow stats in memory and optionally forward all stats to WandB.
+
+    Accumulates gradient_underflows% values keyed by metric name and iteration,
+    enabling periodic heatmap generation without post-hoc log parsing.
+    """
+
+    def __init__(self):
+        self._underflow_buffer: dict[str, list[tuple[int, float]]] = defaultdict(list)
+
+    def log_scalar(self, name: str, value: float | int, iteration: int, **kwargs):
+        """Buffer gradient_underflows% for heatmaps. Scalar stats are logged via file logger."""
+        if "gradient_underflows%" in name:
+            self._underflow_buffer[name].append((iteration, value))
+
+    def generate_heatmap(self):
+        """Create a heatmap figure from buffered gradient underflow data.
+
+        Returns:
+            matplotlib.figure.Figure or None if no data has been buffered.
+        """
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        if not self._underflow_buffer:
+            return None
+
+        # Parse metric names into (block_num, module, sublayer) tuples
+        components = []
+        for metric_name in self._underflow_buffer:
+            match = _MINIFOLD_UNDERFLOW_PATTERN.search(metric_name)
+            if match:
+                block = int(match.group(1))
+                module = match.group(2)
+                sublayer = match.group(3)
+                sort_key = (block, module, sublayer)
+                label = f"B{block} {sublayer}"
+                components.append((sort_key, label, metric_name))
+
+        if not components:
+            return None
+
+        components.sort(key=lambda x: x[0])
+
+        # Collect all unique iterations
+        all_iterations = sorted({it for data in self._underflow_buffer.values() for it, _ in data})
+
+        # Build 2D array
+        iter_to_col = {it: i for i, it in enumerate(all_iterations)}
+        matrix = np.full((len(components), len(all_iterations)), np.nan)
+        labels = []
+
+        for row_idx, (_, label, metric_name) in enumerate(components):
+            labels.append(label)
+            for iteration, value in self._underflow_buffer[metric_name]:
+                col = iter_to_col[iteration]
+                matrix[row_idx, col] = value
+
+        # Create figure
+        fig, ax = plt.subplots(figsize=(14, max(6, len(components) * 0.3)))
+        cmap = sns.color_palette("rocket_r", as_cmap=True)
+        max_val = min(6.0, float(np.nanmax(matrix))) if not np.all(np.isnan(matrix)) else 6.0
+
+        ax.imshow(matrix, aspect="auto", cmap=cmap, interpolation="nearest", vmin=0, vmax=max_val)
+
+        # Y-axis
+        ax.set_yticks(range(len(labels)))
+        ax.set_yticklabels(labels, fontsize=max(6, min(10, 200 // max(len(labels), 1))))
+        ax.set_ylabel("MiniFold Block / Component")
+
+        # X-axis
+        n_ticks = min(12, len(all_iterations))
+        tick_positions = np.linspace(0, len(all_iterations) - 1, n_ticks).astype(int)
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels([str(all_iterations[i]) for i in tick_positions])
+        ax.set_xlabel("Training Iteration")
+
+        ax.set_title("FP8 Gradient Underflows: MiniFold Blocks")
+
+        # Block separator lines
+        prev_block = None
+        for idx, (sort_key, _, _) in enumerate(components):
+            block = sort_key[0]
+            if prev_block is not None and block != prev_block:
+                ax.axhline(y=idx - 0.5, color="white", linewidth=2)
+            prev_block = block
+
+        fig.tight_layout()
+        return fig
 
 
 def generate_layer_regex(

@@ -51,8 +51,8 @@ from distributed_config import DistributedConfig
 from modeling_esm2_minifold_te import ESM2MiniFoldTE
 from perf_logger import PerfLogger
 from quantization import (
+    BufferedQuantLogger,
     ComponentPrecisionConfig,
-    WandBQuantLogger,
     initialize_quant_stats_logging,
     resolve_layer_precision,
 )
@@ -235,16 +235,16 @@ def main(args: DictConfig) -> float | None:
     component_precision = ComponentPrecisionConfig(**OmegaConf.to_container(args.component_precision, resolve=True))
 
     # Quant stats logging
+    quant_logger = None
     if args.quant_stats_config.enabled:
-        wandb_logger = None
-        if args.quant_stats_config.log_to_wandb and dist_config.is_main_process():
-            wandb_logger = WandBQuantLogger()
+        if dist_config.is_main_process():
+            quant_logger = BufferedQuantLogger()
         initialize_quant_stats_logging(
             quant_stats_file=args.quant_stats_config.quant_stats_file,
             quant_log_dir=args.quant_stats_config.quant_log_dir,
             rank=dist_config.rank,
             layer_precision=block_precision,
-            statistics_logger=wandb_logger,
+            statistics_logger=quant_logger,
             component_precision=component_precision,
         )
 
@@ -334,7 +334,7 @@ def main(args: DictConfig) -> float | None:
         start_step = 0
         epoch = 0
 
-    perf_logger = PerfLogger(dist_config, args)
+    perf_logger = PerfLogger(dist_config, args, quant_logger=quant_logger)
 
     # Training loop
     step = start_step
