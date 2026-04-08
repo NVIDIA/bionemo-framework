@@ -32,6 +32,7 @@ js:
   strategy: beforeInteractive
 css:
 - ./main.css
+- ./styles/notebook-viewer.css
 navbar-links:
 - type: github
   value: https://github.com/NVIDIA/bionemo-framework

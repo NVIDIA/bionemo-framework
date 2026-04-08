@@ -49,3 +49,30 @@ fern docs dev
 ```
 
 Use the **API Reference** tab to browse generated pages after running `fern docs md generate`.
+
+## Jupyter notebooks (`NotebookViewer`)
+
+Static tutorial notebooks are rendered with the **`NotebookViewer`** React component (ported from NeMo Data Designer), optional **Colab** link, and **`fern/styles/notebook-viewer.css`** (registered in `docs.yml`).
+
+1. **Dependencies:** `pygments` (for syntax-highlighted code cells when converting).
+
+2. **Convert** `.ipynb` → JSON + TypeScript module for MDX import:
+
+   ```bash
+   cd fern
+   python scripts/ipynb-to-fern-json.py ../path/to/notebook.ipynb -o components/notebooks/my-notebook.json
+   ```
+
+3. **Use** in MDX:
+
+   ```mdx
+   import { NotebookViewer } from "@/components/NotebookViewer";
+   import notebook from "@/components/notebooks/my-notebook";
+
+   <NotebookViewer
+     notebook={notebook}
+     colabUrl="https://colab.research.google.com/github/NVIDIA/bionemo-framework/blob/main/..."
+   />
+   ```
+
+`experimental.mdx-components` in `docs.yml` already includes `./components`, so `@/components/...` resolves.
