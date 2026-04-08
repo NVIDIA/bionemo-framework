@@ -24,6 +24,7 @@ dataset:
   load_dataset_kwargs:
     path: mlfoundations/dclm-baseline-1.0
     data_dir: global-shard_01_of_10
+    data_files: null
     split: "train"
     streaming: true
 
