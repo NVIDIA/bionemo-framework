@@ -1,4 +1,4 @@
-# Lingua 70B smoke test for computelab - THD format (no CP).
+# Lingua 70B smoke test for computelab - THD format with CP=4.
 # Uses local DCLM parquet data mounted at /workspace/data/dclm-baseline.
 # Run from /tmp to avoid Hydra permission issues on read-only mounts.
 
@@ -13,8 +13,8 @@ config_kwargs:
   attn_input_format: thd
   self_attn_mask_type: padding
 
-# No CP with THD, pure DP across 8 GPUs. GBS = 1 * 8 * 1 = 8
-cp_size: 1
+# CP=4 with THD + sequence packing. dp=2, GBS = 1 * 2 * 1 = 2
+cp_size: 4
 use_sequence_packing: true
 grad_acc_steps: 1
 num_train_steps: 300
