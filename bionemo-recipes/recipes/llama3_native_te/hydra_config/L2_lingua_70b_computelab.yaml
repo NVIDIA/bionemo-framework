@@ -1,9 +1,13 @@
 # Lingua 70B smoke test for computelab (single node, 8 GPUs, CP=4).
 # Streams DCLM from HuggingFace - no local data needed.
+# Run from /tmp to avoid Hydra permission issues on read-only mounts.
 
 defaults:
   - L2_lingua_70b
   - _self_
+
+# Absolute path so it works when CWD != recipe dir
+config_name_or_path: /workspace/bionemo-framework/bionemo-recipes/recipes/llama3_native_te/model_configs/meta-llama/Llama-3.1-70B
 
 # Single node 8 GPU: CP=4, dp=2, GBS = 1 * 2 * 1 = 2
 cp_size: 4
