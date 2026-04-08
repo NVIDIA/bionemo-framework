@@ -25,7 +25,7 @@ from torch import Tensor
 
 from minifold_utils import init
 from quantization import ComponentPrecisionConfig
-from te_utils import te_layernorm_nd, te_linear_nd
+from te_utils import te_layernorm_nd, te_linear_nd, tri_mul_bmm
 
 
 class TransitionUpdateTE(nn.Module):
@@ -145,11 +145,16 @@ class TriangularUpdateTE(nn.Module):
         # Apply mask
         x = x * mask.unsqueeze(-1)
 
-        # Triangular multiplication (in FP32 via explicit .float() cast)
-        a1, b1, a2, b2 = torch.chunk(x.float(), 4, dim=-1)
-        x1 = torch.einsum("bikd,bjkd->bijd", a1, b1)
-        x2 = torch.einsum("bkid,bkjd->bijd", a2, b2)
-        x = torch.cat([x1, x2], dim=-1).to(mask.dtype if mask.is_floating_point() else torch.float32)
+        # Triangular multiplication via batched GEMM
+        tri_mode = cp.tri_einsum if cp else "off"
+        use_fp32 = tri_mode == "off"
+        x_in = x.float() if use_fp32 else x
+        a1, b1, a2, b2 = torch.chunk(x_in, 4, dim=-1)
+        x1 = tri_mul_bmm(a1, b1, k_dim=2, mode=tri_mode)  # "bikd,bjkd->bijd"
+        x2 = tri_mul_bmm(a2, b2, k_dim=1, mode=tri_mode)  # "bkid,bkjd->bijd"
+        x = torch.cat([x1, x2], dim=-1)
+        if use_fp32:
+            x = x.to(mask.dtype if mask.is_floating_point() else torch.float32)
 
         # Output gating: D/2 -> D
         x = te_layernorm_nd(self.output_norm, x)

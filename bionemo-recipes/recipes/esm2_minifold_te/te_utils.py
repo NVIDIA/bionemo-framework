@@ -57,6 +57,44 @@ def te_layernorm_nd(module: te.LayerNorm, x: torch.Tensor) -> torch.Tensor:
     return x.reshape(*leading, -1)
 
 
+def tri_mul_bmm(a: torch.Tensor, b: torch.Tensor, k_dim: int, mode: str = "off") -> torch.Tensor:
+    """Batched GEMM equivalent of triangular multiplication einsum.
+
+    Replaces:
+      k_dim=2: torch.einsum("bikd,bjkd->bijd", a, b)
+      k_dim=1: torch.einsum("bkid,bkjd->bijd", a, b)
+
+    Args:
+        a: Tensor of shape (B, N, N, D).
+        b: Tensor of shape (B, N, N, D).
+        k_dim: Spatial dimension to contract over (1 or 2).
+        mode: Precision mode.
+            "off": FP32 bmm (caller upcasts via .float(), default).
+            "bf16": BF16 bmm (skip .float() upcast).
+
+    Returns:
+        Tensor of shape (B, N, N, D).
+    """
+    B, N1, N2, D = a.shape
+    # Move D to dim 1: (B, D, N, N), then merge B*D for batched mm
+    a = a.permute(0, 3, 1, 2).contiguous().reshape(B * D, N1, N2)
+    b = b.permute(0, 3, 1, 2).contiguous().reshape(B * D, N1, N2)
+
+    if k_dim == 2:
+        # "bikd,bjkd->bijd": a is (batch, i, k), b is (batch, j, k)
+        # result = a @ b^T = (batch, i, j)
+        out = torch.bmm(a, b.transpose(1, 2))
+    elif k_dim == 1:
+        # "bkid,bkjd->bijd": a is (batch, k, i), b is (batch, k, j)
+        # result = a^T @ b = (batch, i, j)
+        out = torch.bmm(a.transpose(1, 2), b)
+    else:
+        raise ValueError(f"k_dim must be 1 or 2, got {k_dim}")
+
+    # Reshape back: (B*D, N, N) -> (B, D, N, N) -> (B, N, N, D)
+    return out.reshape(B, D, N1, N2).permute(0, 2, 3, 1)
+
+
 def te_layernorm_linear_nd(module: te.LayerNormLinear, x: torch.Tensor) -> torch.Tensor:
     """Apply a te.LayerNormLinear module to an N-dimensional tensor (N >= 2).
 
