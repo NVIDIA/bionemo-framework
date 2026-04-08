@@ -23,7 +23,7 @@ logger:
 dataset:
   load_dataset_kwargs:
     path: mlfoundations/dclm-baseline-1.0-parquet
-    data_dir: global-shard_01_of_10
+    data_dir: null
     data_files: null
     split: "train"
     streaming: true
