@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=03:55:00
 #SBATCH --mem=0
-#SBATCH --job-name=lingua-7b-mxfp8-stateful
+#SBATCH --job-name=lingua-7b-bf16-stateful
 #SBATCH --mail-type=FAIL
 #SBATCH --overcommit
 #SBATCH --exclusive
@@ -19,7 +19,7 @@ CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
 # Fresh experiment with stateful dataloader
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_stateful_4n_bia}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_bf16_stateful_4n_prenyx}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
@@ -49,7 +49,7 @@ export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
 set -euxo pipefail
 
 echo "========================================="
-echo "Starting Lingua 7B MXFP8 Training w/ Stateful DL (4 nodes, bia)"
+echo "Starting Lingua 7B BF16 Training w/ Stateful DL (4 nodes, prenyx)"
 echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "Tasks per node: \${SLURM_NTASKS_PER_NODE}"
@@ -63,7 +63,7 @@ echo "Checkpoints:" && ls -la /workspace/bionemo/checkpoints/
 echo "Results:" && ls -la /workspace/bionemo/results/
 
 echo "Starting training..."
-python train_fsdp2.py --config-name L2_lingua_7b_mxfp8 \
+python train_fsdp2.py --config-name L2_lingua_7b \
   dataset.micro_batch_size=2 \
   dataset.use_stateful_dataloader=true \
   grad_acc_steps=4 \
