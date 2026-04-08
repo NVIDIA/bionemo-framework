@@ -1,5 +1,5 @@
 # Lingua 70B smoke test for computelab (single node, 8 GPUs, CP=4).
-# Streams DCLM from HuggingFace - no local data needed.
+# Uses local DCLM parquet data mounted at /workspace/data/dclm-baseline.
 # Run from /tmp to avoid Hydra permission issues on read-only mounts.
 
 defaults:
@@ -22,9 +22,9 @@ logger:
 
 dataset:
   load_dataset_kwargs:
-    path: mlfoundations/dclm-baseline-1.0-parquet
+    path: parquet
     data_dir: null
-    data_files: null
+    data_files: "/workspace/data/dclm-baseline/global-shard_01_of_10/**/*.parquet"
     split: "train"
     streaming: true
 
