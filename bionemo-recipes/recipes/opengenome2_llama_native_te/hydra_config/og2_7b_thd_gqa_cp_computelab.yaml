@@ -13,6 +13,7 @@ config_name_or_path: /workspace/bionemo-framework/bionemo-recipes/recipes/openge
 dataset:
   tokenizer_name_or_path: /workspace/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_native_te/tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 2
+  buffer_size: 1000
 
 # CP=2 on single node 8 GPUs: dp=4, GBS = 2 * 1 * 4 = 8
 cp_size: 2
