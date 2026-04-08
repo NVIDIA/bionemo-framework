@@ -1,0 +1,33 @@
+# OG2 7B THD+GQA+CP smoke test for computelab (single node, 8 GPUs).
+# Tests the THD+GQA+CP combination that was broken in TE 25.11.
+# Mount broland data: -v /home/scratch.broland_sw_2/users/savithas:/data
+# Run from /tmp to avoid Hydra permission issues.
+
+defaults:
+  - og2_7b_thd_gqa
+  - _self_
+
+# Absolute path so it works when CWD != recipe dir
+config_name_or_path: /workspace/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_native_te/model_configs/meta-llama/Llama-3.1-8B
+
+dataset:
+  tokenizer_name_or_path: /workspace/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_native_te/tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 2
+
+# CP=4 on single node 8 GPUs: dp=2, GBS = 2 * 1 * 2 = 4
+cp_size: 4
+grad_acc_steps: 1
+num_train_steps: 300
+
+wandb:
+  mode: disabled
+
+logger:
+  frequency: 1
+
+validation:
+  enabled: false
+
+checkpoint:
+  ckpt_dir: /tmp/og2_7b_thd_gqa_cp_smoke_test
+  save_every_n_steps: 999999
