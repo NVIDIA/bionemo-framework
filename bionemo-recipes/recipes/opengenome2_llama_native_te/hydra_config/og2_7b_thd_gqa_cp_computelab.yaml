@@ -14,8 +14,8 @@ dataset:
   tokenizer_name_or_path: /workspace/bionemo-framework/bionemo-recipes/recipes/opengenome2_llama_native_te/tokenizers/nucleotide_fast_tokenizer
   micro_batch_size: 2
 
-# CP=4 on single node 8 GPUs: dp=2, GBS = 2 * 1 * 2 = 4
-cp_size: 4
+# CP=2 on single node 8 GPUs: dp=4, GBS = 2 * 1 * 4 = 8
+cp_size: 2
 grad_acc_steps: 1
 num_train_steps: 300
 
