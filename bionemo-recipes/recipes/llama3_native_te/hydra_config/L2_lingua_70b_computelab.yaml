@@ -1,0 +1,28 @@
+# Lingua 70B smoke test for computelab (single node, 8 GPUs, CP=4).
+# Streams DCLM from HuggingFace - no local data needed.
+
+defaults:
+  - L2_lingua_70b
+  - _self_
+
+# Single node 8 GPU: CP=4, dp=2, GBS = 1 * 2 * 1 = 2
+cp_size: 4
+grad_acc_steps: 1
+num_train_steps: 300
+
+wandb:
+  mode: disabled
+
+logger:
+  frequency: 1
+
+dataset:
+  load_dataset_kwargs:
+    path: mlfoundations/dclm-baseline-1.0
+    data_dir: global-shard_01_of_10
+    split: "train"
+    streaming: true
+
+checkpoint:
+  ckpt_dir: /tmp/70b_smoke_test
+  save_every_n_steps: 999999
