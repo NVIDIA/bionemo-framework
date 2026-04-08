@@ -141,6 +141,8 @@ class ComponentPrecisionConfig:
     Attributes:
         tri_proj: Triangular update input/output projections (pi, po).
         tri_gate: Triangular update sigmoid gates (gi, go).
+        tri_einsum: Triangular multiplication matmuls (reshaped einsum).
+            "off" = forced FP32 (default). "bf16" = ambient dtype (recommended).
         ffn: Transition update FFN layers (fc1, fc2).
         struct_attn: Structure module attention projections (proj, o_proj, g_proj).
         struct_ffn: Structure module transition MLP layers.
@@ -150,11 +152,17 @@ class ComponentPrecisionConfig:
 
     tri_proj: bool = True
     tri_gate: bool = True
+    tri_einsum: str = "off"
     ffn: bool = True
     struct_attn: bool = True
     struct_ffn: bool = True
     seq_proj: bool = True
     dist_head: bool = True
+
+    def __post_init__(self):
+        """Normalize tri_einsum for backward compatibility with bool configs."""
+        if isinstance(self.tri_einsum, bool):
+            self.tri_einsum = "bf16" if self.tri_einsum else "off"
 
     def get_context(self, component: str) -> ContextManager:
         """Return te.autocast(enabled=False) if the component is disabled, else nullcontext."""

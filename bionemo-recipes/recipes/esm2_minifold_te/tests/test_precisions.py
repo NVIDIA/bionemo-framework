@@ -16,10 +16,10 @@
 """Tests that verify actual precision of intermediate tensors during forward passes.
 
 Checks that:
-- Einsum triangular multiplication stays in FP32
+- Triangular multiplication batched GEMMs stay in FP32 by default
+- tri_einsum toggle controls FP32 vs ambient dtype for triangular matmuls
 - te.autocast correctly enables/disables FP8 for specific blocks
 - Component precision overrides correctly keep components out of FP8
-- FSDP2 MixedPrecisionPolicy casts params to BF16 for forward pass
 """
 
 import sys
@@ -37,95 +37,147 @@ from transformer_engine.pytorch.quantization import FP8GlobalStateManager
 from miniformer_te import MiniFormerTE, TransitionUpdateTE, TriangularUpdateTE
 from model_te import FoldingTrunkTE
 from quantization import ComponentPrecisionConfig
+from te_utils import tri_mul_bmm
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 B, N, DIM = 2, 16, 64
 
 
-class TestEinsumPrecision:
-    """Verify the triangular einsum always runs in FP32."""
+class TestTriMulPrecision:
+    """Verify the triangular multiplication batched GEMMs run in the expected precision."""
 
-    def test_einsum_intermediates_are_fp32(self):
-        """Even with BF16 input, the einsum should compute in FP32 via .float()."""
-        mod = TriangularUpdateTE(dim=DIM).to(DEVICE)
-        x_bf16 = torch.randn(B, N, N, DIM, device=DEVICE, dtype=torch.bfloat16)
-        mask = torch.ones(B, N, N, device=DEVICE, dtype=torch.bfloat16)
-
-        # Hook into forward to capture dtypes at the einsum
-        captured_dtypes = {}
-
-        orig_forward = mod.forward
-
-        def hooked_forward(x, mask):
-            # Reproduce the forward up to the einsum to check dtypes
-            cp = mod._component_precision
-
-            def _proj_ctx():
-                return cp.get_context("tri_proj") if cp else nullcontext()
-
-            def _gate_ctx():
-                return cp.get_context("tri_gate") if cp else nullcontext()
-
-            from te_utils import te_layernorm_nd, te_linear_nd
-
-            x = te_layernorm_nd(mod.input_norm, x)
-            with _proj_ctx():
-                pi_out = te_linear_nd(mod.pi, x)
-            with _gate_ctx():
-                gi_out = te_linear_nd(mod.gi, x).sigmoid()
-            x = pi_out * gi_out
-            x = x * mask.unsqueeze(-1)
-
-            # This is the critical part: .float() should cast to FP32
-            a1, b1, a2, b2 = torch.chunk(x.float(), 4, dim=-1)
-            captured_dtypes["einsum_input"] = a1.dtype
-            x1 = torch.einsum("bikd,bjkd->bijd", a1, b1)
-            captured_dtypes["einsum_output"] = x1.dtype
-            x2 = torch.einsum("bkid,bkjd->bijd", a2, b2)
-            x = torch.cat([x1, x2], dim=-1).to(mask.dtype if mask.is_floating_point() else torch.float32)
-            captured_dtypes["post_einsum"] = x.dtype
-
-            x = te_layernorm_nd(mod.output_norm, x)
-            with _proj_ctx():
-                po_out = te_linear_nd(mod.po, x)
-            with _gate_ctx():
-                go_out = te_linear_nd(mod.go, x).sigmoid()
-            return po_out * go_out
-
-        mod.forward = hooked_forward
-        mod(x_bf16, mask)
-
-        assert captured_dtypes["einsum_input"] == torch.float32, (
-            f"Einsum input should be FP32 but got {captured_dtypes['einsum_input']}"
-        )
-        assert captured_dtypes["einsum_output"] == torch.float32, (
-            f"Einsum output should be FP32 but got {captured_dtypes['einsum_output']}"
-        )
-
-    def test_einsum_fp32_with_fp8_block(self):
-        """Einsum stays FP32 even when block is wrapped in te.autocast(enabled=True)."""
+    def test_bmm_intermediates_are_fp32_by_default(self):
+        """Even with BF16 input, the bmm should compute in FP32 via .float() when tri_einsum="off"."""
         mod = TriangularUpdateTE(dim=DIM).to(DEVICE)
         x_bf16 = torch.randn(B, N, N, DIM, device=DEVICE, dtype=torch.bfloat16)
         mask = torch.ones(B, N, N, device=DEVICE, dtype=torch.bfloat16)
 
         captured = {}
+        orig_bmm = torch.bmm
 
-        orig_einsum = torch.einsum
+        def patched_bmm(a, b):
+            captured["input_dtype"] = a.dtype
+            result = orig_bmm(a, b)
+            captured["output_dtype"] = result.dtype
+            return result
 
-        def patched_einsum(eq, *tensors):
-            captured["dtype"] = tensors[0].dtype
-            return orig_einsum(eq, *tensors)
+        torch.bmm = patched_bmm
+        try:
+            mod(x_bf16, mask)
+        finally:
+            torch.bmm = orig_bmm
 
-        torch.einsum = patched_einsum
+        assert captured["input_dtype"] == torch.float32, (
+            f"BMM input should be FP32 but got {captured['input_dtype']}"
+        )
+        assert captured["output_dtype"] == torch.float32, (
+            f"BMM output should be FP32 but got {captured['output_dtype']}"
+        )
+
+    def test_bmm_fp32_with_fp8_block(self):
+        """BMM stays FP32 even when block is wrapped in te.autocast(enabled=True)."""
+        mod = TriangularUpdateTE(dim=DIM).to(DEVICE)
+        x_bf16 = torch.randn(B, N, N, DIM, device=DEVICE, dtype=torch.bfloat16)
+        mask = torch.ones(B, N, N, device=DEVICE, dtype=torch.bfloat16)
+
+        captured = {}
+        orig_bmm = torch.bmm
+
+        def patched_bmm(a, b):
+            captured["dtype"] = a.dtype
+            return orig_bmm(a, b)
+
+        torch.bmm = patched_bmm
         try:
             with te.autocast(enabled=True):
                 mod(x_bf16, mask)
         finally:
-            torch.einsum = orig_einsum
+            torch.bmm = orig_bmm
 
         assert captured["dtype"] == torch.float32, (
-            f"Einsum should be FP32 inside te.autocast but got {captured['dtype']}"
+            f"BMM should be FP32 inside te.autocast but got {captured['dtype']}"
+        )
+
+    def test_bmm_bf16_when_tri_einsum_bf16(self):
+        """BMM runs in BF16 when tri_einsum="bf16" (ambient dtype, no .float() cast)."""
+        cp = ComponentPrecisionConfig(tri_einsum="bf16")
+        mod = TriangularUpdateTE(dim=DIM, component_precision=cp).to(DEVICE)
+        x_bf16 = torch.randn(B, N, N, DIM, device=DEVICE, dtype=torch.bfloat16)
+        mask = torch.ones(B, N, N, device=DEVICE, dtype=torch.bfloat16)
+
+        captured = {}
+        orig_bmm = torch.bmm
+
+        def patched_bmm(a, b):
+            captured["dtype"] = a.dtype
+            return orig_bmm(a, b)
+
+        torch.bmm = patched_bmm
+        try:
+            mod(x_bf16, mask)
+        finally:
+            torch.bmm = orig_bmm
+
+        assert captured["dtype"] == torch.bfloat16, (
+            f"BMM should be BF16 when tri_einsum='bf16' but got {captured['dtype']}"
+        )
+
+    def test_bmm_bf16_backward_compat_bool_true(self):
+        """Bool True normalizes to 'bf16' via __post_init__."""
+        cp = ComponentPrecisionConfig(tri_einsum=True)
+        assert cp.tri_einsum == "bf16"
+
+    def test_bmm_bf16_backward_compat_bool_false(self):
+        """Bool False normalizes to 'off' via __post_init__."""
+        cp = ComponentPrecisionConfig(tri_einsum=False)
+        assert cp.tri_einsum == "off"
+
+    def test_bmm_fp32_when_tri_einsum_off(self):
+        """BMM stays FP32 when tri_einsum="off" (explicit .float() cast)."""
+        cp = ComponentPrecisionConfig(tri_einsum="off")
+        mod = TriangularUpdateTE(dim=DIM, component_precision=cp).to(DEVICE)
+        x_bf16 = torch.randn(B, N, N, DIM, device=DEVICE, dtype=torch.bfloat16)
+        mask = torch.ones(B, N, N, device=DEVICE, dtype=torch.bfloat16)
+
+        captured = {}
+        orig_bmm = torch.bmm
+
+        def patched_bmm(a, b):
+            captured["dtype"] = a.dtype
+            return orig_bmm(a, b)
+
+        torch.bmm = patched_bmm
+        try:
+            mod(x_bf16, mask)
+        finally:
+            torch.bmm = orig_bmm
+
+        assert captured["dtype"] == torch.float32, (
+            f"BMM should be FP32 when tri_einsum='off' but got {captured['dtype']}"
+        )
+
+    def test_bmm_fp32_with_no_component_precision(self):
+        """Without ComponentPrecisionConfig, BMM defaults to FP32."""
+        mod = TriangularUpdateTE(dim=DIM).to(DEVICE)
+        x_bf16 = torch.randn(B, N, N, DIM, device=DEVICE, dtype=torch.bfloat16)
+        mask = torch.ones(B, N, N, device=DEVICE, dtype=torch.bfloat16)
+
+        captured = {}
+        orig_bmm = torch.bmm
+
+        def patched_bmm(a, b):
+            captured["dtype"] = a.dtype
+            return orig_bmm(a, b)
+
+        torch.bmm = patched_bmm
+        try:
+            mod(x_bf16, mask)
+        finally:
+            torch.bmm = orig_bmm
+
+        assert captured["dtype"] == torch.float32, (
+            f"BMM should default to FP32 without component_precision but got {captured['dtype']}"
         )
 
 
@@ -138,7 +190,6 @@ class TestFP8StateInBlocks:
 
         mod = MiniFormerTE(dim=DIM, blocks=2, block_precision=["fp8", None]).to(DEVICE)
 
-        # Hook into each block to capture FP8 state
         for i, block in enumerate(mod.blocks):
 
             def make_hook(block_idx):
@@ -240,12 +291,10 @@ class TestComponentPrecisionOverrides:
         def hook(module, input, output):
             fp8_in_ffn.append(FP8GlobalStateManager.is_fp8_enabled())
 
-        # Hook the fc1 linear to check FP8 state during FFN
         mod.fc1.register_forward_hook(hook)
 
         x = torch.randn(B, N, N, DIM, device=DEVICE, dtype=torch.bfloat16)
 
-        # Run inside an FP8 block context (simulating what MiniFormerTE does)
         with te.autocast(enabled=True):
             mod(x)
 
@@ -294,7 +343,6 @@ class TestComponentPrecisionOverrides:
         with te.autocast(enabled=True):
             mod(x, mask)
 
-        # pi is called twice (input and output), gi is called twice
         assert not any(fp8_states["proj"]), "tri_proj should have FP8 disabled"
         assert all(fp8_states["gate"]), "tri_gate should have FP8 enabled"
 
@@ -373,3 +421,48 @@ class TestComponentPrecisionOverrides:
 
         assert len(fp8_in_ffn) == 1
         assert fp8_in_ffn[0], "Without component_precision, FFN should run in FP8"
+
+
+class TestTriMulBmmEquivalence:
+    """Verify tri_mul_bmm produces identical results to the original einsum."""
+
+    def test_outgoing_einsum_equivalence(self):
+        """tri_mul_bmm(a, b, k_dim=2) == torch.einsum('bikd,bjkd->bijd', a, b)."""
+        torch.manual_seed(42)
+        a = torch.randn(B, N, N, DIM // 4, device=DEVICE, dtype=torch.float32)
+        b = torch.randn(B, N, N, DIM // 4, device=DEVICE, dtype=torch.float32)
+
+        expected = torch.einsum("bikd,bjkd->bijd", a, b)
+        actual = tri_mul_bmm(a, b, k_dim=2)
+
+        assert torch.allclose(actual, expected, atol=1e-5), (
+            f"k_dim=2 mismatch: max diff {(actual - expected).abs().max()}"
+        )
+
+    def test_incoming_einsum_equivalence(self):
+        """tri_mul_bmm(a, b, k_dim=1) == torch.einsum('bkid,bkjd->bijd', a, b)."""
+        torch.manual_seed(42)
+        a = torch.randn(B, N, N, DIM // 4, device=DEVICE, dtype=torch.float32)
+        b = torch.randn(B, N, N, DIM // 4, device=DEVICE, dtype=torch.float32)
+
+        expected = torch.einsum("bkid,bkjd->bijd", a, b)
+        actual = tri_mul_bmm(a, b, k_dim=1)
+
+        assert torch.allclose(actual, expected, atol=1e-5), (
+            f"k_dim=1 mismatch: max diff {(actual - expected).abs().max()}"
+        )
+
+    def test_bf16_close_to_fp32(self):
+        """BF16 mode produces results close to FP32 reference."""
+        if not torch.cuda.is_available():
+            return
+        torch.manual_seed(42)
+        a = torch.randn(B, N, N, DIM // 4, device="cuda", dtype=torch.bfloat16)
+        b = torch.randn(B, N, N, DIM // 4, device="cuda", dtype=torch.bfloat16)
+
+        ref = tri_mul_bmm(a.float(), b.float(), k_dim=2).to(torch.bfloat16)
+        bf16_result = tri_mul_bmm(a, b, k_dim=2, mode="bf16")
+
+        assert torch.allclose(bf16_result, ref, atol=0.5, rtol=0.05), (
+            f"BF16 vs FP32 mismatch: max diff {(bf16_result - ref).abs().max()}"
+        )
