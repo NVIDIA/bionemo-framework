@@ -1,0 +1,16 @@
+# Lingua 70B BF16 THD format with Context Parallelism (CP=2).
+# THD enables sequence packing for better GPU utilization.
+
+defaults:
+  - L2_lingua_70b
+  - _self_
+
+config_kwargs:
+  attn_input_format: thd
+  self_attn_mask_type: padding
+
+use_sequence_packing: true
+
+wandb:
+  name: lingua-70b-bf16-thd-cp2
+  id: lingua-70b-bf16-thd-cp2
