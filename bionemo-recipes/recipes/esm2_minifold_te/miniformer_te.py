@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import warnings
 from contextlib import nullcontext
 from typing import ContextManager
@@ -25,7 +26,7 @@ from torch import Tensor
 
 from minifold_utils import init
 from quantization import ComponentPrecisionConfig
-from te_utils import te_layernorm_nd, te_linear_nd, tri_mul_bmm
+from te_utils import te_layernorm_nd, te_linear_nd, tri_mul, tri_mul_bmm_bdnn, tri_mul_xbdnn
 
 
 class TransitionUpdateTE(nn.Module):
@@ -149,10 +150,21 @@ class TriangularUpdateTE(nn.Module):
         tri_mode = cp.tri_einsum if cp else "off"
         use_fp32 = tri_mode == "off"
         x_in = x.float() if use_fp32 else x
-        a1, b1, a2, b2 = torch.chunk(x_in, 4, dim=-1)
-        x1 = tri_mul_bmm(a1, b1, k_dim=2, mode=tri_mode)  # "bikd,bjkd->bijd"
-        x2 = tri_mul_bmm(a2, b2, k_dim=1, mode=tri_mode)  # "bkid,bkjd->bijd"
-        x = torch.cat([x1, x2], dim=-1)
+        tri_impl = cp.tri_impl if cp else os.environ.get("BIONEMO_TRI_MUL_IMPL", "bmm")
+        if tri_impl in {"bmm", "cublas_xbdnn"}:
+            x_bdnn = x_in.permute(0, 3, 1, 2).contiguous()
+            if tri_impl == "cublas_xbdnn":
+                x = tri_mul_xbdnn(x_bdnn, out_dtype=x_in.dtype)
+            else:
+                a1, b1, a2, b2 = torch.chunk(x_bdnn, 4, dim=1)
+                x1 = tri_mul_bmm_bdnn(a1, b1, k_dim=2)  # "bikd,bjkd->bijd"
+                x2 = tri_mul_bmm_bdnn(a2, b2, k_dim=1)  # "bkid,bkjd->bijd"
+                x = torch.cat([x1, x2], dim=-1)
+        else:
+            a1, b1, a2, b2 = torch.chunk(x_in, 4, dim=-1)
+            x1 = tri_mul(a1, b1, k_dim=2, mode=tri_mode, impl=tri_impl)  # "bikd,bjkd->bijd"
+            x2 = tri_mul(a2, b2, k_dim=1, mode=tri_mode, impl=tri_impl)  # "bkid,bkjd->bijd"
+            x = torch.cat([x1, x2], dim=-1)
         if use_fp32:
             x = x.to(mask.dtype if mask.is_floating_point() else torch.float32)
 

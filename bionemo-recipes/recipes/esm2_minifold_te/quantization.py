@@ -143,6 +143,10 @@ class ComponentPrecisionConfig:
         tri_gate: Triangular update sigmoid gates (gi, go).
         tri_einsum: Triangular multiplication matmuls (reshaped einsum).
             "off" = forced FP32 (default). "bf16" = ambient dtype (recommended).
+        tri_impl: Triangular multiplication backend.
+            "einsum" = original literal torch.einsum path.
+            "bmm" = current PyTorch/cuBLAS batched path.
+            "cublas_xbdnn" = specialized BF16 cuBLAS backend for `(B, 128, N, N)`.
         ffn: Transition update FFN layers (fc1, fc2).
         struct_attn: Structure module attention projections (proj, o_proj, g_proj).
         struct_ffn: Structure module transition MLP layers.
@@ -153,6 +157,7 @@ class ComponentPrecisionConfig:
     tri_proj: bool = True
     tri_gate: bool = True
     tri_einsum: str = "off"
+    tri_impl: str = "bmm"
     ffn: bool = True
     struct_attn: bool = True
     struct_ffn: bool = True
@@ -163,6 +168,9 @@ class ComponentPrecisionConfig:
         """Normalize tri_einsum for backward compatibility with bool configs."""
         if isinstance(self.tri_einsum, bool):
             self.tri_einsum = "bf16" if self.tri_einsum else "off"
+        valid_tri_impls = {"einsum", "bmm", "cublas_xbdnn", "fused"}
+        if self.tri_impl not in valid_tri_impls:
+            raise ValueError(f"tri_impl must be one of {sorted(valid_tri_impls)}, got {self.tri_impl!r}")
 
     def get_context(self, component: str) -> ContextManager:
         """Return te.autocast(enabled=False) if the component is disabled, else nullcontext."""
