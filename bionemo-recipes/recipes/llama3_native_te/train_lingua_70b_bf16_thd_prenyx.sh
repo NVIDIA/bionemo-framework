@@ -64,8 +64,9 @@ echo "Starting training..."
 python train_fsdp2_cp.py --config-name L2_lingua_70b_thd \
   dataset.micro_batch_size=1 \
   grad_acc_steps=1 \
-  num_train_steps=300 \
+  num_train_steps=500 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
+  logger.frequency=10 \
   checkpoint.save_every_n_steps=999999 \
   checkpoint.resume_from_checkpoint=false \
   wandb.name=\${EXP_NAME} \
