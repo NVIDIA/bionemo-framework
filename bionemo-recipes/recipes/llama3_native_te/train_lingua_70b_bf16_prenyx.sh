@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=03:55:00
 #SBATCH --mem=0
-#SBATCH --job-name=lingua-70b-bf16
+#SBATCH --job-name=healthcareeng_bionemo-lingua70b.bf16-bench
 #SBATCH --mail-type=FAIL
 #SBATCH --overcommit
 #SBATCH --exclusive
@@ -18,7 +18,7 @@ CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sq
 CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
-export EXP_NAME="${EXP_NAME:-lingua_70b_bf16_cp2_4n}"
+export EXP_NAME="${EXP_NAME:-lingua_70b_bf16_bench_4n_prenyx}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
@@ -47,7 +47,7 @@ export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
 set -euxo pipefail
 
 echo "========================================="
-echo "Starting Lingua 70B BF16 CP=2 Training (4 nodes)"
+echo "Starting Lingua 70B BF16 Benchmark (4 nodes, prenyx, GBS=32)"
 echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "Tasks per node: \${SLURM_NTASKS_PER_NODE}"
@@ -62,9 +62,12 @@ echo "Results:" && ls -la /workspace/bionemo/results/
 
 echo "Starting training..."
 python train_fsdp2_cp.py --config-name L2_lingua_70b \
+  dataset.micro_batch_size=2 \
+  grad_acc_steps=1 \
+  num_train_steps=300 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
-  checkpoint.save_every_n_steps=1000 \
-  checkpoint.resume_from_checkpoint=true \
+  checkpoint.save_every_n_steps=999999 \
+  checkpoint.resume_from_checkpoint=false \
   wandb.name=\${EXP_NAME} \
   wandb.id=\${EXP_NAME} \
   wandb.project=lingua-70b
@@ -80,8 +83,6 @@ EOF
 echo "Launching training: ${EXP_NAME}"
 echo "Results: ${RESULTS_DIR}"
 echo "Checkpoints: ${CKPT_ROOT}"
-
-trap 'echo "Resubmitting for next chain..."; sbatch --dependency=singleton "${BASH_SOURCE[0]}"; echo "Job finished! Check: ${RESULTS_DIR}"' EXIT
 
 srun \
   --output "${RESULTS_DIR}/slurm-%j-%n.out" \

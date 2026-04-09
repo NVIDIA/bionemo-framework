@@ -18,7 +18,7 @@ CONTAINER="nvcr.io/nvidia/pytorch:26.02-py3"
 CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
-export EXP_NAME="${EXP_NAME:-lingua_70b_bf16_cp2_8n_ptyche}"
+export EXP_NAME="${EXP_NAME:-lingua_70b_bf16_bench_8n_ptyche}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
@@ -47,7 +47,7 @@ export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
 set -euxo pipefail
 
 echo "========================================="
-echo "Starting Lingua 70B BF16 CP=2 Training (8 nodes, ptyche)"
+echo "Starting Lingua 70B BF16 Benchmark (8 nodes, ptyche, GBS=32)"
 echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "Tasks per node: \${SLURM_NTASKS_PER_NODE}"
@@ -73,9 +73,12 @@ echo "Results:" && ls -la /workspace/bionemo/results/
 
 echo "Starting training..."
 python train_fsdp2_cp.py --config-name L2_lingua_70b \
+  dataset.micro_batch_size=2 \
+  grad_acc_steps=1 \
+  num_train_steps=300 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
-  checkpoint.save_every_n_steps=1000 \
-  checkpoint.resume_from_checkpoint=true \
+  checkpoint.save_every_n_steps=999999 \
+  checkpoint.resume_from_checkpoint=false \
   wandb.name=\${EXP_NAME} \
   wandb.id=\${EXP_NAME} \
   wandb.project=lingua-70b
@@ -91,8 +94,6 @@ EOF
 echo "Launching training: ${EXP_NAME}"
 echo "Results: ${RESULTS_DIR}"
 echo "Checkpoints: ${CKPT_ROOT}"
-
-trap 'echo "Resubmitting for next chain..."; sbatch --dependency=singleton "${BASH_SOURCE[0]}"; echo "Job finished! Check: ${RESULTS_DIR}"' EXIT
 
 srun \
   --output "${RESULTS_DIR}/slurm-%j-%n.out" \
