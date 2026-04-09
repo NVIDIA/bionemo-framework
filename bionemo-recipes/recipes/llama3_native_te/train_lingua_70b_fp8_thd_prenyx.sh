@@ -47,7 +47,7 @@ export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
 set -euxo pipefail
 
 echo "========================================="
-echo "Starting Lingua 70B MXFP8 THD Benchmark (4 nodes, prenyx, GBS=32)"
+echo "Starting Lingua 70B MXFP8 THD Benchmark (4 nodes, prenyx, GBS=16)"
 echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "Tasks per node: \${SLURM_NTASKS_PER_NODE}"
@@ -62,7 +62,7 @@ echo "Results:" && ls -la /workspace/bionemo/results/
 
 echo "Starting training..."
 python train_fsdp2_cp.py --config-name L2_lingua_70b_mxfp8_thd \
-  dataset.micro_batch_size=2 \
+  dataset.micro_batch_size=1 \
   grad_acc_steps=1 \
   num_train_steps=300 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
