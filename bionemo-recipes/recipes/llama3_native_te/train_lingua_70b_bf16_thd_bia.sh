@@ -5,7 +5,7 @@
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=03:55:00
 #SBATCH --mem=0
-#SBATCH --job-name=healthcareeng_bionemo-lingua70b.fp8-bshd-bia
+#SBATCH --job-name=healthcareeng_bionemo-lingua70b.bf16-thd-bia
 #SBATCH --mail-type=FAIL
 #SBATCH --overcommit
 #SBATCH --exclusive
@@ -18,7 +18,7 @@ CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sq
 CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
-export EXP_NAME="${EXP_NAME:-lingua_70b_mxfp8_bshd_bench_4n_cp2_bia}"
+export EXP_NAME="${EXP_NAME:-lingua_70b_bf16_thd_bench_4n_cp2_bia}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
@@ -47,7 +47,7 @@ export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
 set -euxo pipefail
 
 echo "========================================="
-echo "Starting Lingua 70B MXFP8 BSHD Benchmark (4 nodes, CP=2, bia B300, GBS=16)"
+echo "Starting Lingua 70B BF16 THD Benchmark (4 nodes, CP=2, bia B300, GBS=16)"
 echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "Tasks per node: \${SLURM_NTASKS_PER_NODE}"
@@ -61,9 +61,8 @@ echo "Checkpoints:" && ls -la /workspace/bionemo/checkpoints/
 echo "Results:" && ls -la /workspace/bionemo/results/
 
 echo "Starting training..."
-python train_fsdp2_cp.py --config-name L2_lingua_70b_mxfp8 \
+python train_fsdp2_cp.py --config-name L2_lingua_70b_thd \
   dataset.micro_batch_size=1 \
-  dataset.pad_sequences_to_be_divisible_by=64 \
   grad_acc_steps=1 \
   num_train_steps=500 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \

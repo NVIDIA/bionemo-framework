@@ -61,10 +61,8 @@ echo "Checkpoints:" && ls -la /workspace/bionemo/checkpoints/
 echo "Results:" && ls -la /workspace/bionemo/results/
 
 echo "Starting training..."
-python train_fsdp2_cp.py --config-name L2_lingua_70b_mxfp8 \
+python train_fsdp2_cp.py --config-name L2_lingua_70b_mxfp8_cp4 \
   dataset.micro_batch_size=1 \
-  dataset.pad_sequences_to_be_divisible_by=128 \
-  cp_size=4 \
   grad_acc_steps=1 \
   num_train_steps=500 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \

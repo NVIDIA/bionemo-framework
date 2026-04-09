@@ -18,7 +18,7 @@ CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sq
 CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
-export EXP_NAME="${EXP_NAME:-lingua_70b_mxfp8_thd_bench_4n_prenyx_v4}"
+export EXP_NAME="${EXP_NAME:-lingua_70b_mxfp8_thd_bench_4n_prenyx_v5}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
@@ -61,9 +61,8 @@ echo "Checkpoints:" && ls -la /workspace/bionemo/checkpoints/
 echo "Results:" && ls -la /workspace/bionemo/results/
 
 echo "Starting training..."
-python train_fsdp2_cp.py --config-name L2_lingua_70b_mxfp8_thd \
+python train_fsdp2_cp.py --config-name L2_lingua_70b_mxfp8_thd_cp4 \
   dataset.micro_batch_size=1 \
-  dataset.pad_sequences_to_be_divisible_by=64 \
   grad_acc_steps=1 \
   num_train_steps=500 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
