@@ -21,3 +21,8 @@ RUN uv tool install pre-commit --with pre-commit-uv --force-reinstall
 
 WORKDIR /workspace/bionemo
 COPY . .
+
+# Build and install the specialized triangular-multiplication extension inside
+# the image so the optimized BF16 backend is available at runtime.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-build-isolation -e /workspace/bionemo/tri_mul_ext

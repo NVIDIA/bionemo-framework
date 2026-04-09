@@ -36,7 +36,7 @@ from transformer_engine.pytorch.quantization import FP8GlobalStateManager
 from miniformer_te import MiniFormerTE, TransitionUpdateTE, TriangularUpdateTE
 from model_te import FoldingTrunkTE
 from quantization import ComponentPrecisionConfig
-from te_utils import tri_mul_bmm
+from te_utils import tri_mul_bmm, tri_mul_einsum
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -128,6 +128,25 @@ class TestTriMulPrecision:
         cp = ComponentPrecisionConfig(tri_einsum=False)
         assert cp.tri_einsum == "off"
 
+    def test_tri_impl_defaults_to_bmm(self):
+        """Hydra config should default to the current batched-matmul path."""
+        cp = ComponentPrecisionConfig()
+        assert cp.tri_impl == "bmm"
+
+    def test_tri_impl_validation(self):
+        """Unsupported triangular multiplication backends should fail fast."""
+        try:
+            ComponentPrecisionConfig(tri_impl="not_a_backend")
+        except ValueError as exc:
+            assert "tri_impl must be one of" in str(exc)
+        else:
+            raise AssertionError("Expected invalid tri_impl to raise ValueError")
+
+    def test_tri_impl_accepts_einsum(self):
+        """The original einsum path should remain Hydra-selectable."""
+        cp = ComponentPrecisionConfig(tri_impl="einsum")
+        assert cp.tri_impl == "einsum"
+
     def test_bmm_fp32_when_tri_einsum_off(self):
         """BMM stays FP32 when tri_einsum="off" (explicit .float() cast)."""
         cp = ComponentPrecisionConfig(tri_einsum="off")
@@ -174,6 +193,29 @@ class TestTriMulPrecision:
         assert captured["dtype"] == torch.float32, (
             f"BMM should default to FP32 without component_precision but got {captured['dtype']}"
         )
+
+    def test_cublas_xbdnn_backend_is_driven_by_component_precision(self):
+        """The backend selector should come from ComponentPrecisionConfig, not only env vars."""
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(tri_einsum="bf16", tri_impl="cublas_xbdnn")
+        mod = TriangularUpdateTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(B, N, N, 128, device=DEVICE, dtype=torch.bfloat16)
+        mask = torch.ones(B, N, N, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        assert out.shape == (B, N, N, 128)
+        assert out.dtype == torch.bfloat16
+
+    def test_tri_mul_einsum_matches_bmm_reference(self):
+        """The literal einsum backend should match the reshape-to-bmm backend."""
+        a = torch.randn(B, N, N, 16, device=DEVICE, dtype=torch.float32)
+        b = torch.randn(B, N, N, 16, device=DEVICE, dtype=torch.float32)
+        out_einsum_2 = tri_mul_einsum(a, b, k_dim=2)
+        out_bmm_2 = tri_mul_bmm(a, b, k_dim=2)
+        out_einsum_1 = tri_mul_einsum(a, b, k_dim=1)
+        out_bmm_1 = tri_mul_bmm(a, b, k_dim=1)
+        assert torch.allclose(out_einsum_2, out_bmm_2)
+        assert torch.allclose(out_einsum_1, out_bmm_1)
 
 
 class TestFP8StateInBlocks:
