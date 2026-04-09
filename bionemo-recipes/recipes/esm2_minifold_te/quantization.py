@@ -204,13 +204,19 @@ class BufferedQuantLogger(BaseLogger):
             self._underflow_buffer[name].append((iteration, value))
 
     def generate_heatmap(self):
-        """Create a heatmap figure from buffered gradient underflow data.
+        """Create a publication-quality heatmap from buffered gradient underflow data.
+
+        Adapted from fp8_analysis/analyze_and_create_heatmap.py with MiniFold-specific
+        block/component grouping, severity legend, summary stats, and yellow highlights
+        for critical components.
 
         Returns:
             matplotlib.figure.Figure or None if no data has been buffered.
         """
+        import matplotlib.patches as mpatches
         import matplotlib.pyplot as plt
         import seaborn as sns
+        from matplotlib.patches import Rectangle
 
         if not self._underflow_buffer:
             return None
@@ -225,57 +231,167 @@ class BufferedQuantLogger(BaseLogger):
                 sublayer = match.group(3)
                 sort_key = (block, module, sublayer)
                 label = f"B{block} {sublayer}"
-                components.append((sort_key, label, metric_name))
+                group = "Triangular" if module == "triangular" else "FFN"
+                components.append((sort_key, label, metric_name, group))
 
         if not components:
             return None
 
         components.sort(key=lambda x: x[0])
 
-        # Collect all unique iterations
+        # Collect all unique iterations and subsample for visualization
         all_iterations = sorted({it for data in self._underflow_buffer.values() for it, _ in data})
+        sample_iterations = all_iterations[:: max(1, len(all_iterations) // 120)]
 
         # Build 2D array
-        iter_to_col = {it: i for i, it in enumerate(all_iterations)}
-        matrix = np.full((len(components), len(all_iterations)), np.nan)
+        iter_to_col = {it: i for i, it in enumerate(sample_iterations)}
+        matrix = np.full((len(components), len(sample_iterations)), np.nan)
         labels = []
+        groups = []
 
-        for row_idx, (_, label, metric_name) in enumerate(components):
+        for row_idx, (_, label, metric_name, group) in enumerate(components):
             labels.append(label)
+            groups.append(group)
             for iteration, value in self._underflow_buffer[metric_name]:
-                col = iter_to_col[iteration]
-                matrix[row_idx, col] = value
+                if iteration in iter_to_col:
+                    matrix[row_idx, iter_to_col[iteration]] = value
 
-        # Create figure
-        fig, ax = plt.subplots(figsize=(14, max(6, len(components) * 0.3)))
+        # Create figure with colorbar
+        fig = plt.figure(figsize=(22, max(10, len(components) * 0.4)))
+        ax = plt.subplot2grid((20, 20), (0, 1), colspan=18, rowspan=18)
+        cax = plt.subplot2grid((20, 20), (0, 19), rowspan=18)
+
+        sns.set_style("white")
         cmap = sns.color_palette("rocket_r", as_cmap=True)
         max_val = min(6.0, float(np.nanmax(matrix))) if not np.all(np.isnan(matrix)) else 6.0
 
-        ax.imshow(matrix, aspect="auto", cmap=cmap, interpolation="nearest", vmin=0, vmax=max_val)
+        im = ax.imshow(matrix, aspect="auto", cmap=cmap, interpolation="nearest", vmin=0, vmax=max_val)
+
+        # Colorbar
+        cbar = plt.colorbar(im, cax=cax)
+        cbar.set_label("Gradient Underflows %", fontsize=14, fontweight="bold", rotation=270, labelpad=25)
+        cbar.ax.tick_params(labelsize=11)
 
         # Y-axis
         ax.set_yticks(range(len(labels)))
-        ax.set_yticklabels(labels, fontsize=max(6, min(10, 200 // max(len(labels), 1))))
-        ax.set_ylabel("MiniFold Block / Component")
+        ax.set_yticklabels(labels, fontsize=min(10, max(6, 200 // max(len(labels), 1))))
+        ax.set_ylabel("Component", fontsize=14, fontweight="bold")
 
         # X-axis
-        n_ticks = min(12, len(all_iterations))
-        tick_positions = np.linspace(0, len(all_iterations) - 1, n_ticks).astype(int)
-        ax.set_xticks(tick_positions)
-        ax.set_xticklabels([str(all_iterations[i]) for i in tick_positions])
-        ax.set_xlabel("Training Iteration")
+        x_tick_positions = np.linspace(0, len(sample_iterations) - 1, min(12, len(sample_iterations))).astype(int)
+        ax.set_xticks(x_tick_positions)
+        ax.set_xticklabels([f"{int(sample_iterations[i])}" for i in x_tick_positions], fontsize=11)
+        ax.set_xlabel("Training Iteration", fontsize=14, fontweight="bold")
 
-        ax.set_title("FP8 Gradient Underflows: MiniFold Blocks")
+        # Title
+        unique_groups = list(dict.fromkeys(groups))
+        ax.set_title(
+            f"FP8 Gradient Underflows: MiniFold {' + '.join(unique_groups)}", fontsize=18, fontweight="bold", pad=25
+        )
 
         # Block separator lines
         prev_block = None
-        for idx, (sort_key, _, _) in enumerate(components):
+        for idx, (sort_key, _, _, _) in enumerate(components):
             block = sort_key[0]
             if prev_block is not None and block != prev_block:
-                ax.axhline(y=idx - 0.5, color="white", linewidth=2)
+                ax.axhline(y=idx - 0.5, color="white", linestyle="-", linewidth=4, alpha=0.9)
             prev_block = block
 
-        fig.tight_layout()
+        # Group labels on the side
+        group_positions = {}
+        for idx, g in enumerate(groups):
+            if g not in group_positions:
+                group_positions[g] = []
+            group_positions[g].append(idx)
+
+        group_colors = {"FFN": "#2E86AB", "Triangular": "#A23B72"}
+        group_bg = {"FFN": "#E3F2FD", "Triangular": "#FCE4EC"}
+
+        for group, positions in group_positions.items():
+            mid_pos = (min(positions) + max(positions)) / 2
+            color = group_colors.get(group, "#666666")
+            ax.text(
+                -len(sample_iterations) * 0.06,
+                mid_pos,
+                group.upper(),
+                ha="center",
+                va="center",
+                fontsize=13,
+                fontweight="bold",
+                rotation=90,
+                color=color,
+                bbox={
+                    "boxstyle": "round,pad=0.8",
+                    "facecolor": group_bg.get(group, "#F5F5F5"),
+                    "edgecolor": color,
+                    "linewidth": 2.5,
+                    "alpha": 0.9,
+                },
+            )
+
+        # Highlight worst components (>2% underflow)
+        for row_idx in range(len(components)):
+            row_max = float(np.nanmax(matrix[row_idx])) if not np.all(np.isnan(matrix[row_idx])) else 0
+            if row_max > 2.0:
+                rect = Rectangle(
+                    (-0.5, row_idx - 0.4),
+                    len(sample_iterations),
+                    0.8,
+                    linewidth=2.5,
+                    edgecolor="yellow",
+                    facecolor="none",
+                    linestyle="-",
+                    alpha=0.7,
+                )
+                ax.add_patch(rect)
+
+        # Severity legend
+        legend_elements = [
+            mpatches.Patch(facecolor="#FEF5E7", label="< 0.5% (Acceptable)"),
+            mpatches.Patch(facecolor="#F8D7A1", label="0.5-1% (Warning)"),
+            mpatches.Patch(facecolor="#F1A468", label="1-2% (Concerning)"),
+            mpatches.Patch(facecolor="#E67F83", label="2-4% (Critical)"),
+            mpatches.Patch(facecolor="#8B0000", label="> 4% (Severe)"),
+        ]
+        ax.legend(
+            handles=legend_elements, loc="upper left", fontsize=10, framealpha=0.95, edgecolor="black", fancybox=True
+        )
+
+        # Summary statistics box
+        all_values = matrix[~np.isnan(matrix)]
+        total_components = len(components)
+        max_underflow = float(all_values.max()) if len(all_values) > 0 else 0
+        mean_underflow = float(all_values.mean()) if len(all_values) > 0 else 0
+        critical = sum(1 for r in range(len(components)) if float(np.nanmax(matrix[r])) > 2.0)
+
+        summary_text = (
+            f"Components: {total_components}\n"
+            f"Max Underflow: {max_underflow:.2f}%\n"
+            f"Mean Underflow: {mean_underflow:.2f}%\n"
+            f"Critical (>2%): {critical}"
+        )
+        ax.text(
+            0.98,
+            0.98,
+            summary_text,
+            transform=ax.transAxes,
+            fontsize=10,
+            verticalalignment="top",
+            horizontalalignment="right",
+            bbox={
+                "boxstyle": "round,pad=0.8",
+                "facecolor": "white",
+                "edgecolor": "black",
+                "linewidth": 2,
+                "alpha": 0.95,
+            },
+        )
+
+        # Remove spines
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+        plt.tight_layout()
         return fig
 
 

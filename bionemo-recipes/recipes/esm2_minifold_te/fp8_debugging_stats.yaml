@@ -9,13 +9,13 @@ example_fp8_tensor_stat_collection:
             tensors_struct:
             - tensor: activation
               stats: [underflows%, scale_inv_min, scale_inv_max, mse]
-              freq: 10
+              freq: 1000
             - tensor: gradient
               stats: [underflows%, scale_inv_min, scale_inv_max, mse]
-              freq: 10
+              freq: 1000
             - tensor: weight
               stats: [underflows%, scale_inv_min, scale_inv_max, mse]
-              freq: 10
+              freq: 1000
         LogTensorStats:
           enabled: True
           stats: [max, min, mean, std, l1_norm]
