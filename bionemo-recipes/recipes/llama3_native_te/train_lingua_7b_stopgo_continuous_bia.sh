@@ -58,7 +58,7 @@ python train_fsdp2.py --config-name L2_lingua_7b \
   logger.frequency=10 \
   wandb.name=\${EXP_NAME} \
   wandb.id=\${EXP_NAME} \
-  wandb.project=lingua-7b-stopgo
+  wandb.project=lingua-7b
 
 echo "========================================="
 echo "Continuous run complete!"
