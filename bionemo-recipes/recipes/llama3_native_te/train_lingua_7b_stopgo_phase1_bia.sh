@@ -52,7 +52,7 @@ python train_fsdp2.py --config-name L2_lingua_7b \
   dataset.micro_batch_size=2 \
   dataset.use_stateful_dataloader=false \
   grad_acc_steps=4 \
-  num_train_steps=500 \
+  num_train_steps=501 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   checkpoint.save_every_n_steps=500 \
   checkpoint.resume_from_checkpoint=false \
