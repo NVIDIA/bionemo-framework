@@ -93,6 +93,33 @@ class DTensorFusedAdam(FusedAdam):
             self._scales[param][state_name] = torch.ones([1], dtype=torch.float32, device=param.device)
 
 
+def _init_master_weights_from_high_precision(optimizer: "DTensorFusedAdam", model: torch.nn.Module) -> None:
+    """Initialize optimizer master weights from high-precision init values.
+
+    When quantized_model_init is used with preserve_high_precision_init_val=True, each FP8 parameter
+    stores the original BF16 init values in CPU memory. This function copies those into the optimizer's
+    FP32 master weight states, then frees the CPU copies. Without this, master weights would be
+    initialized from dequantized FP8 values, introducing quantization noise at initialization.
+    """
+    count = 0
+    for param in model.parameters():
+        if hasattr(param, "get_high_precision_init_val"):
+            hp_val = param.get_high_precision_init_val()
+            if hp_val is not None:
+                # Trigger optimizer state initialization if not yet done
+                if param not in optimizer.state or "master_param" not in optimizer.state[param]:
+                    optimizer.initialize_state(param, store_param_remainders=False)
+                optimizer.set_scaled_state(param, "master_param", hp_val.to(param.device).float())
+                param.clear_high_precision_init_val()
+                count += 1
+    if count > 0:
+        logger.info("Initialized %d master weight(s) from high-precision init values", count)
+    else:
+        logger.info(
+            "No parameters with high-precision init values found (quantized_model_init may not have been used)"
+        )
+
+
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
     """Train Llama3 with TE layers using FSDP2.
@@ -224,6 +251,13 @@ def main(args: DictConfig) -> float | None:
         adamw_kwargs.pop("fused", None)
         optimizer = DTensorFusedAdam(model.parameters(), master_weights=True, **adamw_kwargs)  # type: ignore
         logger.info("Using TE FusedAdam with FP32 master weights")
+
+        # When using quantized_model_init with preserve_high_precision_init_val=True,
+        # initialize FP32 master weights from the original high-precision values instead of
+        # from dequantized FP8 values. This avoids quantization noise in initialization.
+        # See: https://github.com/NVIDIA/TransformerEngine/blob/main/examples/pytorch/quantized_model_init/fully_shard.py
+        if args.fp8_config.quantized_model_init_kwargs.get("preserve_high_precision_init_val", False):
+            _init_master_weights_from_high_precision(optimizer, model)
     else:
         optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
