@@ -21,7 +21,7 @@ CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
 # IMPORTANT: phase1 and phase2 share the same checkpoint dir via EXP_NAME
-export EXP_NAME="${EXP_NAME:-lingua_7b_bf16_stopgo_resume_bia}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_bf16_stopgo_resume_v2_bia}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
