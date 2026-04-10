@@ -3,7 +3,7 @@
 #SBATCH --nodes=4
 #SBATCH --partition=batch,backfill
 #SBATCH --ntasks-per-node=8
-#SBATCH --time=01:30:00
+#SBATCH --time=03:55:00
 #SBATCH --mem=0
 #SBATCH --job-name=healthcareeng_bionemo-lingua7b.stopgo-phase2
 #SBATCH --mail-type=FAIL
