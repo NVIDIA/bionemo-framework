@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=healthcareeng_bionemo
-#SBATCH --nodes=4
+#SBATCH --nodes=8
 #SBATCH --partition=batch,backfill
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=03:55:00
@@ -20,7 +20,7 @@ CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sq
 CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_4n_bia}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_8n_prenyx}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
@@ -40,7 +40,7 @@ export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
 set -euxo pipefail
 
 echo "========================================="
-echo "Lingua 7B MXFP8 Quantized Model Init (4 nodes, bia)"
+echo "Lingua 7B MXFP8 Quantized Model Init (8 nodes, prenyx)"
 echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "========================================="
@@ -49,11 +49,12 @@ cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
 python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit \
   dataset.micro_batch_size=2 \
-  grad_acc_steps=4 \
+  dataset.use_stateful_dataloader=false \
+  grad_acc_steps=2 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
-  checkpoint.save_every_n_steps=2000 \
+  checkpoint.save_every_n_steps=1500 \
   checkpoint.resume_from_checkpoint=true \
-  logger.frequency=10 \
+  logger.frequency=100 \
   wandb.name=\${EXP_NAME} \
   wandb.id=\${EXP_NAME} \
   wandb.project=lingua-7b
