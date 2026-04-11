@@ -198,7 +198,7 @@ def compute_flops_simplified(batch_size, seq_len, hidden_size, num_layers, vocab
     (24*B*S*H^2 + 4*B*S^2*H) * 3*L + 6*B*S*H*V
 
     The 24*H^2 coefficient assumes: 8*H^2 for 4 attention projections (MHA) +
-    16*H^2 for 2 MLP projections with I=4H. See first_principles.md for details.
+    16*H^2 for 2 MLP projections with I=4H.
     """
     b, s, h = batch_size, seq_len, hidden_size
     return (24 * b * s * h * h + 4 * b * s * s * h) * (3 * num_layers) + (6 * b * s * h * vocab_size)
