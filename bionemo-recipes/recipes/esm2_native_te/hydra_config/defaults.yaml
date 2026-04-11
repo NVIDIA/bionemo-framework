@@ -12,6 +12,8 @@ use_torch_compile: false
 
 cp_size: 1
 
+log_mfu: false
+
 use_sequence_packing: false
 dataset:
   tokenizer_name: ${config_name_or_path}

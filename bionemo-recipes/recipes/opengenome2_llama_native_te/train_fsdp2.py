@@ -28,6 +28,7 @@ Supports:
 import gc
 import logging
 import random
+import time
 from contextlib import nullcontext
 from pathlib import Path
 
@@ -62,6 +63,7 @@ from checkpoint import (
 )
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
+from flops import MFUTracker, from_hf_config
 from fp8_debugging import initialize_fp8_debugging
 from opengenome_modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from optimizer import get_parameter_groups_with_weight_decay
@@ -260,6 +262,19 @@ def main(args: DictConfig) -> float | None:
 
     perf_logger = PerfLogger(dist_config, args)
 
+    # --- MFU Tracking (optional) ---
+    mfu_tracker = None
+    if args.get("log_mfu", False):
+        mfu_tracker = MFUTracker(
+            config=from_hf_config(config.to_dict()),
+            batch_size=args.dataset.micro_batch_size,
+            seq_len=args.dataset.max_seq_length,
+            num_gpus=dist_config.world_size,
+            parallelism={"dp": dist_config.world_size},
+        )
+        if dist_config.is_main_process():
+            logger.info("MFU tracking enabled:\n%s", mfu_tracker.summary())
+
     # Setup validation if enabled
     val_config = getattr(args, "validation", None)
     val_enabled = val_config is not None and getattr(val_config, "enabled", False)
@@ -301,6 +316,7 @@ def main(args: DictConfig) -> float | None:
     logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
     step = start_step
     micro_step = 0
+    step_start_time = time.perf_counter()
 
     if train_dataloader is None:
         raise RuntimeError("Expected train_dataloader to be initialized before training.")
@@ -334,6 +350,13 @@ def main(args: DictConfig) -> float | None:
                     grad_norm=total_norm,
                     lr=optimizer.param_groups[0]["lr"],
                 )
+
+                if mfu_tracker is not None:
+                    step_time = time.perf_counter() - step_start_time
+                    mfu_info = mfu_tracker.compute_mfu(step_time)
+                    if dist_config.is_main_process():
+                        logger.info("MFU: %.1f%% (%.2f TFLOPS/GPU)", mfu_info["mfu"], mfu_info["tflops_per_gpu"])
+                step_start_time = time.perf_counter()
 
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                     save_checkpoint_fsdp2(

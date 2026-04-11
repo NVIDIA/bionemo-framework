@@ -65,3 +65,4 @@ quant_stats_config:
 fp8_layers: null
 fp4_layers: null
 use_fp32_master_weights: null
+log_mfu: false

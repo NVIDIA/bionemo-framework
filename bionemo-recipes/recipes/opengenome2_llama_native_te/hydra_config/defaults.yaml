@@ -103,6 +103,8 @@ fp8_stats_config:
   fp8_stats_file: ./fp8_debugging_stats.yaml
   fp8_log_dir: ./log_fp8_stats
 
+log_mfu: false
+
 profiler:
   enabled: false
   start_step: 10

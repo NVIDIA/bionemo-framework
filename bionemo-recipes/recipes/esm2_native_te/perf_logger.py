@@ -70,6 +70,7 @@ class PerfLogger:
         # We move metrics to a GPU device so we can use torch.distributed to aggregate them before logging.
         self.metrics.to(torch.device(f"cuda:{dist_config.local_rank}"))
         self.previous_step_time = time.perf_counter()
+        self.last_step_time = None  # Set after each logged step for MFU tracking
 
         if self._dist_config.is_main_process():
             # Log the entire args object to wandb for experiment tracking and reproducibility.
@@ -115,6 +116,7 @@ class PerfLogger:
                     time.perf_counter(),
                 )
                 step_time = elapsed_time / self.logging_frequency
+                self.last_step_time = step_time
 
                 self.metrics["train/loss"].update(outputs.loss)
                 self.metrics["train/learning_rate"].update(lr)
