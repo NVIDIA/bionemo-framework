@@ -52,18 +52,26 @@ from torch.utils.flop_counter import FlopCounterMode
 # GPU Peak TFLOPS
 # =============================================================================
 
+# Dense (without sparsity) BF16 tensor core peak TFLOPS.
+# NVIDIA product pages often list the 2x sparse value; dense = sparse / 2.
+# Sources:
+#   H100/H200/GH200: https://www.nvidia.com/en-us/data-center/h100/ (1,979 TFLOPS sparse)
+#   A100: https://www.nvidia.com/content/dam/en-zz/Solutions/Data-Center/a100/pdf/nvidia-a100-datasheet-us-nvidia-1758950-r4-web.pdf
+#   A6000: https://www.nvidia.com/content/dam/en-zz/Solutions/design-visualization/quadro-product-literature/proviz-print-nvidia-rtx-a6000-datasheet-us-nvidia-1454980-r9-web%20(1).pdf
+#   L40: https://www.nvidia.com/en-us/data-center/l40/
+#   B200/GB200: https://www.nvidia.com/en-us/data-center/dgx-b200/
+#   B300/GB300: https://www.nvidia.com/en-us/data-center/gb300-nvl72/ (360 PFLOPS sparse / 72 GPUs / 2)
 GPU_PEAK_TFLOPS_BF16 = {
     "H100": 989.0,
     "H200": 989.0,
     "A100": 312.0,
     "A6000": 155.0,
-    "A5000": 111.0,
     "L40": 181.0,
-    "RTX 4090": 330.0,
-    "RTX 3090": 142.0,
     "GH200": 989.0,
     "B200": 2250.0,
     "GB200": 2250.0,
+    "B300": 2500.0,
+    "GB300": 2500.0,
 }
 
 
