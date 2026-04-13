@@ -34,9 +34,11 @@ import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
+from torch.distributed.tensor import DTensor
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
 from transformer_engine.pytorch.optimizers import FusedAdam
+from transformer_engine.pytorch.tensor import QuantizedTensor
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
@@ -93,25 +95,35 @@ class DTensorFusedAdam(FusedAdam):
             self._scales[param][state_name] = torch.ones([1], dtype=torch.float32, device=param.device)
 
 
-def _init_master_weights_from_high_precision(optimizer: "DTensorFusedAdam", model: torch.nn.Module) -> None:
+def _init_master_weights_from_high_precision(
+    optimizer: "DTensorFusedAdam", model: torch.nn.Module, device: torch.device
+) -> None:
     """Initialize optimizer master weights from high-precision init values.
 
     When quantized_model_init is used with preserve_high_precision_init_val=True, each FP8 parameter
     stores the original BF16 init values in CPU memory. This function copies those into the optimizer's
     FP32 master weight states, then frees the CPU copies. Without this, master weights would be
     initialized from dequantized FP8 values, introducing quantization noise at initialization.
+
+    Follows the pattern from the TE example:
+    https://github.com/NVIDIA/TransformerEngine/blob/main/examples/pytorch/quantized_model_init/fully_shard.py
     """
     count = 0
-    for param in model.parameters():
-        if hasattr(param, "get_high_precision_init_val"):
-            hp_val = param.get_high_precision_init_val()
+    for name, param in model.named_parameters():
+        # Initialize optimizer state for ALL parameters (not just quantized ones).
+        # FusedAdam's lazy init in step() doesn't handle QuantizedTensor correctly,
+        # so we must eagerly initialize state for every parameter.
+        optimizer.initialize_state(param, store_param_remainders=False)
+
+        # For FSDP2 DTensor params, access the local shard to check for QuantizedTensor.
+        local = param._local_tensor if isinstance(param, DTensor) else param
+        if isinstance(local, QuantizedTensor):
+            hp_val = local.get_high_precision_init_val()
             if hp_val is not None:
-                # Trigger optimizer state initialization if not yet done
-                if param not in optimizer.state or "master_param" not in optimizer.state[param]:
-                    optimizer.initialize_state(param, store_param_remainders=False)
-                optimizer.set_scaled_state(param, "master_param", hp_val.to(param.device).float())
-                param.clear_high_precision_init_val()
+                optimizer.set_scaled_state(param, "master_param", hp_val.to(device=device, dtype=torch.float32))
+                local.clear_high_precision_init_val()
                 count += 1
+                logger.debug("Seeded master weight for %s from high-precision init val", name)
     if count > 0:
         logger.info("Initialized %d master weight(s) from high-precision init values", count)
     else:
@@ -257,7 +269,7 @@ def main(args: DictConfig) -> float | None:
         # from dequantized FP8 values. This avoids quantization noise in initialization.
         # See: https://github.com/NVIDIA/TransformerEngine/blob/main/examples/pytorch/quantized_model_init/fully_shard.py
         if args.fp8_config.quantized_model_init_kwargs.get("preserve_high_precision_init_val", False):
-            _init_master_weights_from_high_precision(optimizer, model)
+            _init_master_weights_from_high_precision(optimizer, model, device)
     else:
         optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
