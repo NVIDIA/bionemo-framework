@@ -1,0 +1,28 @@
+# Lingua 7B MXFP8 with quantized model init + FL1 (first/last layer BF16).
+# Layers 2-31 in FP8, layers 1 and 32 in BF16.
+# Quantized model init stores only FP8 weights (no BF16 copies), saving memory.
+# FP32 master weights are maintained in FusedAdam optimizer.
+# Requires config_kwargs.use_quantized_model_init=true so per-layer init
+# correctly disables quantization for BF16 layers.
+# Requires Blackwell GPUs (GB200) for hardware MXFP8 support.
+
+defaults:
+  - L2_lingua_7b_mxfp8
+  - _self_
+
+config_kwargs:
+  attn_input_format: thd
+  use_quantized_model_init: true
+
+fp8_config:
+  enabled: true
+  fp8_recipe: transformer_engine.common.recipe.MXFP8BlockScaling
+  fp8_format: E4M3
+  fp8_recipe_kwargs: {}
+  quantized_model_init_kwargs:
+    enabled: true
+    preserve_high_precision_init_val: true
+
+wandb:
+  name: lingua-7b-mxfp8-fl1-qinit
+  id: lingua-7b-mxfp8-fl1-qinit

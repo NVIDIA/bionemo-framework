@@ -409,7 +409,10 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
 
         if init and self.config.use_quantized_model_init:
             if precision in ("fp8", "fp4"):
-                return transformer_engine.pytorch.quantized_model_init(recipe=recipe)
+                # Let the outer quantized_model_init context handle FP8/FP4 layers. Using nullcontext()
+                # preserves the outer context's settings (recipe, preserve_high_precision_init_val).
+                # A nested quantized_model_init would override preserve_high_precision_init_val to False.
+                return nullcontext()
             # BF16 layers: explicitly disable quantized init to override any outer quantized_model_init context.
             return transformer_engine.pytorch.quantized_model_init(enabled=False)
 
