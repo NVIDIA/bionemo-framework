@@ -14,11 +14,16 @@ set -euxo pipefail
 # ============================================================================
 # Lingua 7B MXFP8 with quantized model init experiment
 # Tests convergence with FP8-only weights + FP32 master weights in FusedAdam
+#
+# SETUP (one-time on prenyx):
+#   cd /lustre/fsw/healthcareeng_bionemo/savithas
+#   git clone --recursive https://github.com/NVIDIA/TransformerEngine.git
 # ============================================================================
 
 CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh"
 CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
+TE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/TransformerEngine"
 
 export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_v4_te_main_8n_prenyx}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
@@ -30,7 +35,8 @@ mkdir -p "${RESULTS_DIR}" "${CKPT_ROOT}"
 : "${HUGGING_FACE_HUB_TOKEN:?Set HUGGING_FACE_HUB_TOKEN in ~/.bashrc}"
 
 CONTAINER_WORKDIR="/workspace/bionemo"
-MOUNTS="${CODE_DIR}:${CONTAINER_WORKDIR},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CONTAINER_WORKDIR}/results,${CKPT_ROOT}:${CONTAINER_WORKDIR}/checkpoints"
+TE_MOUNT="/workspace/transformer_engine"
+MOUNTS="${CODE_DIR}:${CONTAINER_WORKDIR},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CONTAINER_WORKDIR}/results,${CKPT_ROOT}:${CONTAINER_WORKDIR}/checkpoints,${TE_DIR}:${TE_MOUNT}"
 
 read -r -d '' COMMAND <<EOF || true
 export EXP_NAME="${EXP_NAME}"
@@ -45,17 +51,21 @@ echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "========================================="
 
-cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
+# Build TE from source (mounted from lustre) against the container's PyTorch.
+# Following Jonathan's approach: uninstall old TE, build from mounted source.
+pip uninstall -y transformer-engine transformer-engine-torch 2>/dev/null || true
+cd ${TE_MOUNT}
+NVTE_FRAMEWORK=pytorch \
+NVTE_CUDA_ARCHS="103a" \
+NVTE_BUILD_THREADS_PER_JOB=4 \
+MAX_JOBS=8 \
+pip install --no-build-isolation -e .
 
-# Patch TE's fused_adam.py with PR #2753 fix (pure Python, no rebuild needed)
-# Downloads the single file from TE main that adds QuantizedTensor support to FusedAdam
-TE_SITE=\$(python -c "import transformer_engine; import os; print(os.path.dirname(transformer_engine.__file__))")
-curl -sL https://raw.githubusercontent.com/NVIDIA/TransformerEngine/main/transformer_engine/pytorch/optimizers/fused_adam.py \
-  -o "\${TE_SITE}/pytorch/optimizers/fused_adam.py"
-echo "Patched fused_adam.py from TE main"
-
+# Verify TE has QuantizedTensor support in FusedAdam (PR #2753)
 python -c "import transformer_engine; print(f'TE version: {transformer_engine.__version__}')"
-python -c "from transformer_engine.pytorch.optimizers.fused_adam import FusedAdam; import inspect; assert 'QuantizedTensor' in inspect.getsource(FusedAdam.step), 'Patch failed!'; print('FusedAdam has QuantizedTensor support')"
+python -c "from transformer_engine.pytorch.optimizers.fused_adam import FusedAdam; import inspect; assert 'QuantizedTensor' in inspect.getsource(FusedAdam.step), 'PR #2753 not found!'; print('FusedAdam has QuantizedTensor support')"
+
+cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
 python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit \
   dataset.micro_batch_size=2 \
