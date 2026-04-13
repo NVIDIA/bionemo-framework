@@ -37,15 +37,12 @@ Usage as a CLI:
     torchrun --nproc_per_node=2 flops.py bandwidth
 """
 
-import gc
 import math
 import time
-from contextlib import nullcontext
 from dataclasses import dataclass
 
 import torch
 import torch.distributed as dist
-from torch.utils.flop_counter import FlopCounterMode
 
 
 # =============================================================================
@@ -263,30 +260,6 @@ def compute_flops_hyena(config, batch_size, seq_len, hyena_layer_counts=None):
     return 3 * total_fwd
 
 
-# Backward-compatible wrappers for existing compare_mfu*.py scripts.
-
-
-def compute_flops_first_principles(b, s, h, num_layers, n_kv_heads, head_dim, ffn_hidden_size, vocab_size):
-    """Backward-compatible wrapper. Assumes SwiGLU (3 MLP projections)."""
-    config = ModelFLOPsConfig(
-        hidden_size=h,
-        num_hidden_layers=num_layers,
-        num_attention_heads=h // head_dim,
-        num_kv_heads=n_kv_heads,
-        head_dim=head_dim,
-        intermediate_size=ffn_hidden_size,
-        num_mlp_projections=3,
-        vocab_size=vocab_size,
-        has_lm_head=True,
-    )
-    return compute_flops_analytical(config, b, s)
-
-
-def compute_flops_readme(b, s, h, num_layers, vocab_size):
-    """Backward-compatible wrapper for the simplified README formula."""
-    return compute_flops_simplified(b, s, h, num_layers, vocab_size)
-
-
 # =============================================================================
 # MFU Tracker
 # =============================================================================
@@ -479,87 +452,8 @@ def _estimate_model_params(config):
 
 
 # =============================================================================
-# Step Time Measurement
-# =============================================================================
-
-
-def measure_step_time(
-    model,
-    input_ids,
-    num_warmup=10,
-    num_timed=20,
-    distributed=False,
-    cp_context_fn=None,
-    labels=None,
-    position_ids=None,
-    **extra_fwd_kwargs,
-):
-    """Measure average training step time (forward + backward).
-
-    Args:
-        model: The model to benchmark.
-        input_ids: Input tensor.
-        num_warmup: Warmup iterations (discarded).
-        num_timed: Timed iterations to average.
-        distributed: Whether to use dist.barrier() for synchronization.
-        cp_context_fn: Optional callable returning a context manager for CP.
-        labels: Optional labels tensor. If None, uses input_ids.
-        position_ids: Optional position_ids for correct RoPE with CP.
-        **extra_fwd_kwargs: Additional kwargs for model forward.
-    """
-    if labels is None:
-        labels = input_ids
-
-    fwd_kwargs = {"input_ids": input_ids, "labels": labels, **extra_fwd_kwargs}
-    if position_ids is not None:
-        fwd_kwargs["position_ids"] = position_ids
-
-    for _ in range(num_warmup):
-        ctx = cp_context_fn() if cp_context_fn else nullcontext()
-        with ctx:
-            output = model(**fwd_kwargs)
-            output.loss.backward()
-        model.zero_grad(set_to_none=True)
-
-    if distributed:
-        dist.barrier()
-    torch.cuda.synchronize()
-
-    times = []
-    for _ in range(num_timed):
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        torch.cuda.synchronize()
-        start.record()
-
-        ctx = cp_context_fn() if cp_context_fn else nullcontext()
-        with ctx:
-            output = model(**fwd_kwargs)
-            output.loss.backward()
-        model.zero_grad(set_to_none=True)
-
-        end.record()
-        torch.cuda.synchronize()
-        times.append(start.elapsed_time(end) / 1000.0)
-
-    return sum(times) / len(times)
-
-
-# =============================================================================
 # Utilities
 # =============================================================================
-
-
-def split_for_cp_bshd(tensor, cp_rank, cp_size):
-    """Split a BSHD tensor for CP using the dual-chunk zigzag pattern."""
-    if cp_size <= 1:
-        return tensor
-    total_chunks = 2 * cp_size
-    seq_len = tensor.size(1)
-    chunk_size = seq_len // total_chunks
-    chunk_indices = [cp_rank, total_chunks - cp_rank - 1]
-    slices = [tensor[:, idx * chunk_size : (idx + 1) * chunk_size] for idx in chunk_indices]
-    return torch.cat(slices, dim=1)
 
 
 def measure_bus_bandwidth(device, world_size, num_iters=20, num_elements=10_000_000):
@@ -595,14 +489,6 @@ def measure_bus_bandwidth(device, world_size, num_iters=20, num_elements=10_000_
     return num_iters * data_bytes / elapsed / 1e9
 
 
-def count_flops_with_model(model, input_ids):
-    """Count forward FLOPs using PyTorch's FlopCounterMode, return 3x for training."""
-    flop_counter = FlopCounterMode(display=False)
-    with flop_counter:
-        model(input_ids=input_ids)
-    return flop_counter.get_total_flops() * 3
-
-
 def load_model_config(config_path):
     """Load model config dict from a local path or HuggingFace model ID.
 
@@ -625,13 +511,6 @@ def load_model_config(config_path):
 
     hf_config = AutoConfig.from_pretrained(config_path, trust_remote_code=True)
     return hf_config.to_dict()
-
-
-def cleanup_model(model):
-    """Delete a model and free GPU memory."""
-    del model
-    gc.collect()
-    torch.cuda.empty_cache()
 
 
 # =============================================================================
