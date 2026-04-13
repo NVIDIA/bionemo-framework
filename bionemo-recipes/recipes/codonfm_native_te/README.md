@@ -177,6 +177,23 @@ python train_fsdp2.py \
 A final model suitable for uploading to the Hugging Face Hub can be exported at the end of training by setting
 `checkpoint.save_final_model=true`.
 
+## MFU Tracking
+
+Enable per-step Model FLOPs Utilization (MFU) logging during training by adding `log_mfu=true`:
+
+```bash
+torchrun --nproc_per_node=1 train_fsdp2.py --config-name encodon_1b log_mfu=true
+```
+
+This logs MFU (%), TFLOPS/GPU, and step time at each optimizer step. The module auto-detects model architecture from the model config.
+
+The `flops.py` CLI provides standalone utilities:
+
+```bash
+python flops.py gpu-info                                       # Show GPU and peak TFLOPS
+torchrun --nproc_per_node=2 flops.py bandwidth                # Measure P2P GPU bandwidth
+```
+
 ## Developer Guide
 
 ### Running Tests

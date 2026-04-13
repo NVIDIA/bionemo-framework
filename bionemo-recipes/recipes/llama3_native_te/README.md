@@ -412,6 +412,25 @@ Once converted, the model can be loaded by any library that supports Llama 3, su
 vllm serve path/to/hf_converted_model
 ```
 
+## MFU Tracking
+
+Enable per-step Model FLOPs Utilization (MFU) logging during training by adding `log_mfu=true`:
+
+```bash
+torchrun --nproc_per_node=2 train_fsdp2_cp.py --config-name L2_lingua_1b log_mfu=true
+```
+
+This logs MFU (%), TFLOPS/GPU, and step time at each optimizer step. The module auto-detects model architecture (GQA, SwiGLU, etc.) from the model config.
+
+The `flops.py` CLI provides standalone utilities:
+
+```bash
+python flops.py gpu-info                                       # Show GPU and peak TFLOPS
+python flops.py flops --config-path ./model_configs/lingua-1B  # Compute FLOPs for a config
+python flops.py cp-comm --config-path ./model_configs/lingua-1B --cp-size 2  # CP comm estimate
+torchrun --nproc_per_node=2 flops.py bandwidth                # Measure P2P GPU bandwidth
+```
+
 ## Developer Guide
 
 ### Running tests

@@ -411,6 +411,25 @@ Validation logging during training can be enabled with `validation.enabled=true`
 validation data (e.g. a JSONL file). The `og2_7b_thd_gqa` config enables validation by default.
 Control evaluation frequency with `validation.eval_interval` and `validation.num_batches`.This can be helpful when debugging training convergence.
 
+## MFU Tracking
+
+Enable per-step Model FLOPs Utilization (MFU) logging during training by adding `log_mfu=true`:
+
+```bash
+torchrun --nproc_per_node=2 train_fsdp2_cp.py log_mfu=true
+```
+
+This logs MFU (%), TFLOPS/GPU, and step time at each optimizer step. The module auto-detects model architecture (GQA, SwiGLU, etc.) from the model config.
+
+The `flops.py` CLI provides standalone utilities:
+
+```bash
+python flops.py gpu-info                                                          # Show GPU and peak TFLOPS
+python flops.py flops --config-path ./model_configs/meta-llama/Llama-3.1-8B       # Compute FLOPs
+python flops.py cp-comm --config-path ./model_configs/meta-llama/Llama-3.1-8B --cp-size 2  # CP comm estimate
+torchrun --nproc_per_node=2 flops.py bandwidth                                   # Measure P2P GPU bandwidth
+```
+
 ## Developer Guide
 
 ### Running tests

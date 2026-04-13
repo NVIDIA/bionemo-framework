@@ -374,6 +374,25 @@ output = model(**inputs)
 
 - [ESM-2 Training with Accelerate](../esm2_accelerate_te/README.md)
 
+## MFU Tracking
+
+Enable per-step Model FLOPs Utilization (MFU) logging during training by adding `log_mfu=true`:
+
+```bash
+torchrun --nproc_per_node=2 train_fsdp2.py --config-name L1_3B log_mfu=true
+```
+
+This logs MFU (%), TFLOPS/GPU, and step time at each optimizer step. The module auto-detects model architecture (MHA, standard FFN, etc.) from the model config.
+
+The `flops.py` CLI provides standalone utilities:
+
+```bash
+python flops.py gpu-info                                                       # Show GPU and peak TFLOPS
+python flops.py flops --config-path ./model_configs/nvidia/esm2_t6_8M_UR50D   # Compute FLOPs
+python flops.py flops --config-path nvidia/esm2_t36_3B_UR50D                   # FLOPs from HF Hub config
+torchrun --nproc_per_node=2 flops.py bandwidth                                # Measure P2P GPU bandwidth
+```
+
 ## Developer Guide
 
 ### Running Tests
