@@ -65,25 +65,50 @@ class DTensorFusedAdam(FusedAdam):
 
     TE's FusedAdam uses ``torch.empty(param.shape, ...)`` to create optimizer states, which produces
     a regular Tensor even when ``param`` is a DTensor (FSDP2). This causes a crash on ``copy_()``
-    between the regular-Tensor state and the DTensor param. This subclass fixes the issue by using
-    ``torch.empty_like`` / ``torch.zeros_like`` which preserve DTensor sharding.
+    between the regular-Tensor state and the DTensor param.
+
+    We cannot use ``torch.empty_like`` / ``torch.zeros_like`` because QuantizedTensor's
+    ``__torch_dispatch__`` overrides ``empty_like`` and **ignores the dtype kwarg**, always
+    creating another quantized tensor. Instead, we create plain local tensors with
+    ``torch.empty`` and wrap them in DTensor to preserve sharding.
 
     See: https://github.com/NVIDIA/TransformerEngine/blob/main/examples/pytorch/quantized_model_init/fully_shard.py
     """
 
     def _initialize_state(self, param, state_name, zero_buffer, store_param_remainders=False):
         dtype = self.name_to_dtype_map[state_name]
-        if store_param_remainders:
-            data = torch.zeros_like(param, dtype=torch.int16)
-        else:
-            data = torch.empty_like(param, dtype=dtype)
-        if zero_buffer:
-            data.zero_()
 
         if dtype == torch.uint8:
             # FP8 quantizer path — delegate to parent (only used with QuantizedTensors).
             super()._initialize_state(param, state_name, zero_buffer, store_param_remainders)
             return
+
+        # Create state tensor with the correct dtype.
+        # We create a plain tensor via torch.empty/torch.zeros (not empty_like/zeros_like)
+        # and wrap it in DTensor if needed.  This avoids QuantizedTensor.__torch_dispatch__
+        # which overrides empty_like to ignore the dtype kwarg.
+        if isinstance(param, DTensor):
+            local_shape = param._local_tensor.shape
+            if store_param_remainders:
+                local_data = torch.zeros(local_shape, dtype=torch.int16, device=param.device)
+            else:
+                local_data = torch.empty(local_shape, dtype=dtype, device=param.device)
+            if zero_buffer:
+                local_data.zero_()
+            data = DTensor.from_local(
+                local_data,
+                device_mesh=param.device_mesh,
+                placements=param.placements,
+                shape=param.size(),
+                stride=param.stride(),
+            )
+        else:
+            if store_param_remainders:
+                data = torch.zeros(param.shape, dtype=torch.int16, device=param.device)
+            else:
+                data = torch.empty(param.shape, dtype=dtype, device=param.device)
+            if zero_buffer:
+                data.zero_()
 
         self.state[param][state_name] = data
 
