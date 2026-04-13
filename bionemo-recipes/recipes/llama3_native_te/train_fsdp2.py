@@ -95,12 +95,14 @@ class DTensorFusedAdam(FusedAdam):
                 local_data = torch.empty(local_shape, dtype=dtype, device=param.device)
             if zero_buffer:
                 local_data.zero_()
+            # Do NOT pass stride=param.stride() — for MXFP8Tensor, the param's stride
+            # reflects block-quantized storage layout, but local_data is a plain contiguous
+            # float32 tensor. Passing MXFP8 strides would cause CUDA kernels to compute wrong
+            # memory offsets → Xid 31 (GPU memory page fault).
             data = DTensor.from_local(
                 local_data,
                 device_mesh=param.device_mesh,
                 placements=param.placements,
-                shape=param.size(),
-                stride=param.stride(),
             )
         else:
             if store_param_remainders:
