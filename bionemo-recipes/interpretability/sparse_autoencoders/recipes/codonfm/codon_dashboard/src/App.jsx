@@ -529,6 +529,8 @@ export default function App({ title = "SAE Feature Explorer", subtitle = "Explor
                  'high_score_delta', 'low_score_delta',
                  'gc_mean', 'gc_std',
                  'trinuc_entropy', 'trinuc_dominant_frac',
+                 'pli_mean_pli', 'pli_frac_constrained', 'pli_max_pli',
+                 'codon_cai', 'codon_tai', 'codon_rscu',
                  'gene_entropy', 'gene_n_unique', 'gene_dominant_frac',
             ].includes(col.name)) {
               sequentialColumns.push({ name: col.name, type: 'sequential' })

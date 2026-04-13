@@ -356,7 +356,6 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
       { key: 'gsea_GO_Molecular_Function', label: 'GSEA GO Molecular Function' },
       { key: 'gsea_GO_Cellular_Component', label: 'GSEA GO Cellular Component' },
       { key: 'gsea_InterPro_Domains', label: 'GSEA InterPro Domains' },
-      { key: 'gsea_Pfam_Domains', label: 'GSEA Pfam Domains' },
       { key: 'gsea_GO_Slim', label: 'GSEA GO Slim' },
     ]
     const gseaLines = gseaCsvFields
@@ -682,7 +681,6 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
               { key: 'gsea_GO_Molecular_Function', prefix: 'GO:MF', color: '#ede7f6' },
               { key: 'gsea_GO_Cellular_Component', prefix: 'GO:CC', color: '#e0f2f1' },
               { key: 'gsea_InterPro_Domains', prefix: 'InterPro', color: '#fff8e1' },
-              { key: 'gsea_Pfam_Domains', prefix: 'Pfam', color: '#fbe9e7' },
               { key: 'gsea_GO_Slim', prefix: 'GO Slim', color: '#f1f8e9' },
             ]
             for (const { key, prefix, color } of gseaFields) {
@@ -691,6 +689,11 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
                 tags.push({ label: `${prefix}: ${val}`, color })
               }
             }
+
+            // Codon optimality metrics from annotations
+            if (ann.cai != null) tags.push({ label: `CAI: ${ann.cai.toFixed(3)}`, color: '#e0f7fa' })
+            if (ann.tai != null) tags.push({ label: `tAI: ${ann.tai.toFixed(3)}`, color: '#e0f7fa' })
+            if (ann.rscu != null) tags.push({ label: `RSCU: ${ann.rscu.toFixed(2)}`, color: '#e0f7fa' })
 
             if (tags.length === 0) return null
             return (

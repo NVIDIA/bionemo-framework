@@ -376,7 +376,6 @@ export default function FeatureDetailPage({ feature, examples, vocabLogits, feat
             { key: 'gsea_GO_Molecular_Function', label: 'GO Molecular Function' },
             { key: 'gsea_GO_Cellular_Component', label: 'GO Cellular Component' },
             { key: 'gsea_InterPro_Domains', label: 'InterPro Domains' },
-            { key: 'gsea_Pfam_Domains', label: 'Pfam Domains' },
             { key: 'gsea_GO_Slim', label: 'GO Slim' },
           ]
           const gseaEntries = gseaFields
@@ -388,7 +387,7 @@ export default function FeatureDetailPage({ feature, examples, vocabLogits, feat
             <div style={styles.section}>
               <div style={styles.sectionTitle}>Gene-Level Enrichment (GSEA)</div>
               <div style={styles.sectionSubtitle}>
-                Genes ranked by activation strength, tested against GO, InterPro, and Pfam databases.
+                Genes ranked by activation strength, tested against GO and InterPro databases.
               </div>
               {overallBest && overallBest !== 'unlabeled' && (
                 <div style={{
