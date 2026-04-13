@@ -121,6 +121,118 @@ HUMAN_CODON_USAGE = {
     "GGG": 16.5,
 }
 
+# ── Precomputed codon optimality weights ─────────────────────────────
+# CAI weight per codon: w_i = freq(codon) / max_freq(synonymous codons for same AA)
+# RSCU per codon: observed_freq / (1/n_synonymous) = freq * n_synonymous / sum(freq for AA)
+# tAI weights: human tRNA gene copy numbers (GtRNAdb, hg38)
+# Source: Chan & Lowe, GtRNAdb 2.0 (2016)
+
+_HUMAN_TRNA_COPY_NUMBERS = {
+    "TTT": 10,
+    "TTC": 20,
+    "TTA": 6,
+    "TTG": 11,
+    "CTT": 10,
+    "CTC": 20,
+    "CTA": 5,
+    "CTG": 20,
+    "ATT": 15,
+    "ATC": 23,
+    "ATA": 5,
+    "ATG": 23,
+    "GTT": 11,
+    "GTC": 14,
+    "GTA": 5,
+    "GTG": 16,
+    "TCT": 11,
+    "TCC": 17,
+    "TCA": 7,
+    "TCG": 4,
+    "CCT": 10,
+    "CCC": 12,
+    "CCA": 13,
+    "CCG": 5,
+    "ACT": 10,
+    "ACC": 20,
+    "ACA": 10,
+    "ACG": 6,
+    "GCT": 16,
+    "GCC": 34,
+    "GCA": 10,
+    "GCG": 6,
+    "TAT": 10,
+    "TAC": 16,
+    "TAA": 0,
+    "TAG": 0,
+    "CAT": 10,
+    "CAC": 15,
+    "CAA": 10,
+    "CAG": 34,
+    "AAT": 14,
+    "AAC": 20,
+    "AAA": 15,
+    "AAG": 34,
+    "GAT": 17,
+    "GAC": 25,
+    "GAA": 16,
+    "GAG": 40,
+    "TGT": 10,
+    "TGC": 20,
+    "TGA": 0,
+    "TGG": 10,
+    "CGT": 6,
+    "CGC": 15,
+    "CGA": 5,
+    "CGG": 5,
+    "AGT": 8,
+    "AGC": 18,
+    "AGA": 10,
+    "AGG": 8,
+    "GGT": 10,
+    "GGC": 22,
+    "GGA": 10,
+    "GGG": 8,
+}
+
+
+def _build_codon_weights():
+    """Precompute CAI, RSCU, and tAI weight arrays for all 64 codons."""
+    from collections import defaultdict
+
+    # Group codons by amino acid
+    aa_codons = defaultdict(list)
+    for codon, aa in CODON_TO_AA.items():
+        if aa != "*":
+            aa_codons[aa].append(codon)
+
+    # CAI weights: w_i = freq(codon) / max_freq(synonymous codons)
+    cai_weights = {}
+    for aa, codons in aa_codons.items():
+        freqs = [HUMAN_CODON_USAGE.get(c, 0.0) for c in codons]
+        max_freq = max(freqs) if freqs else 1.0
+        for c, f in zip(codons, freqs):
+            cai_weights[c] = f / max_freq if max_freq > 0 else 0.0
+
+    # RSCU: observed / expected = freq * n_synonymous / sum(freqs for AA)
+    rscu_values = {}
+    for aa, codons in aa_codons.items():
+        freqs = [HUMAN_CODON_USAGE.get(c, 0.0) for c in codons]
+        total = sum(freqs)
+        n_syn = len(codons)
+        for c, f in zip(codons, freqs):
+            rscu_values[c] = (f * n_syn / total) if total > 0 else 1.0
+
+    # tAI weights: normalize by max tRNA copy number per AA family
+    tai_weights = {}
+    for aa, codons in aa_codons.items():
+        copies = [_HUMAN_TRNA_COPY_NUMBERS.get(c, 0) for c in codons]
+        max_copy = max(copies) if copies else 1
+        for c, cp in zip(codons, copies):
+            tai_weights[c] = cp / max_copy if max_copy > 0 else 0.0
+
+    return cai_weights, rscu_values, tai_weights
+
+
 CODON_TO_AA = {
     "TTT": "F",
     "TTC": "F",
@@ -187,6 +299,8 @@ CODON_TO_AA = {
     "GGA": "G",
     "GGG": "G",
 }
+
+_CAI_WEIGHTS, _RSCU_VALUES, _TAI_WEIGHTS = _build_codon_weights()
 
 
 def parse_args():  # noqa: D103
@@ -330,6 +444,10 @@ def _summarize_codon_annotations(
     wobble_at_counts,
     first30_counts,
     rest_counts,
+    cai_log_sum=None,
+    tai_log_sum=None,
+    rscu_sum=None,
+    optimality_count=None,
 ):
     """Summarize accumulated annotation counts into per-feature dicts."""
     all_aas = sorted(set(CODON_TO_AA.values()))
@@ -386,6 +504,22 @@ def _summarize_codon_annotations(
             if first_frac > expected_frac * 3:
                 annotations["position"] = {"region": "N-terminal", "enrichment": first_frac / expected_frac}
 
+        # Codon optimality metrics (CAI, tAI, RSCU)
+        if optimality_count is not None and optimality_count[f] > 10:
+            n_opt = int(optimality_count[f])
+            # CAI = geometric mean of weights = exp(mean(log(w)))
+            if cai_log_sum is not None:
+                cai = float(np.exp(cai_log_sum[f] / n_opt))
+                annotations["cai"] = round(cai, 4)
+            # tAI = geometric mean of tRNA adaptation weights
+            if tai_log_sum is not None:
+                tai = float(np.exp(tai_log_sum[f] / n_opt))
+                annotations["tai"] = round(tai, 4)
+            # RSCU = mean RSCU of active codons (1.0 = no bias)
+            if rscu_sum is not None:
+                mean_rscu = float(rscu_sum[f] / n_opt)
+                annotations["rscu"] = round(mean_rscu, 4)
+
         if annotations:
             results[f] = annotations
 
@@ -430,6 +564,12 @@ def stream_annotations_and_topk(
     wobble_at_counts = np.zeros(n_features, dtype=np.int64)
     first30_counts = np.zeros(n_features, dtype=np.int64)
     rest_counts = np.zeros(n_features, dtype=np.int64)
+
+    # CAI/tAI/RSCU accumulators: weighted sums over active codons
+    cai_log_sum = np.zeros(n_features, dtype=np.float64)
+    tai_log_sum = np.zeros(n_features, dtype=np.float64)
+    rscu_sum = np.zeros(n_features, dtype=np.float64)
+    optimality_count = np.zeros(n_features, dtype=np.int64)
 
     # Top-K tracking per feature (vectorized heap replacement)
     top_acts = np.full((n_features, K), -np.inf, dtype=np.float32)
@@ -515,6 +655,30 @@ def stream_annotations_and_topk(
             first30_counts += active[is_first30].sum(axis=0) if is_first30.any() else 0
             rest_counts += active[~is_first30].sum(axis=0) if (~is_first30).any() else 0
 
+            # CAI/tAI/RSCU: accumulate log-weights for active codons (excluding stop codons)
+            cai_w = np.array([_CAI_WEIGHTS.get(c, 0.0) for c in codons], dtype=np.float64)
+            tai_w = np.array([_TAI_WEIGHTS.get(c, 0.0) for c in codons], dtype=np.float64)
+            rscu_v = np.array([_RSCU_VALUES.get(c, 1.0) for c in codons], dtype=np.float64)
+            # Mask out stop codons and codons with zero weight
+            non_stop = np.array([CODON_TO_AA.get(c, "*") != "*" for c in codons])
+            valid_cai = non_stop & (cai_w > 0)
+            valid_tai = non_stop & (tai_w > 0)
+
+            if valid_cai.any():
+                log_cai = np.zeros(vl, dtype=np.float64)
+                log_cai[valid_cai] = np.log(cai_w[valid_cai])
+                # Sum of log(w) for active codons at each position -> per feature
+                cai_log_sum += (active[valid_cai] * log_cai[valid_cai, None]).sum(axis=0)
+
+            if valid_tai.any():
+                log_tai = np.zeros(vl, dtype=np.float64)
+                log_tai[valid_tai] = np.log(tai_w[valid_tai])
+                tai_log_sum += (active[valid_tai] * log_tai[valid_tai, None]).sum(axis=0)
+
+            if non_stop.any():
+                rscu_sum += (active[non_stop] * rscu_v[non_stop, None]).sum(axis=0)
+                optimality_count += active[non_stop].sum(axis=0)
+
         del out, batch_input, hidden
         torch.cuda.empty_cache()
 
@@ -531,6 +695,10 @@ def stream_annotations_and_topk(
         wobble_at_counts,
         first30_counts,
         rest_counts,
+        cai_log_sum,
+        tai_log_sum,
+        rscu_sum,
+        optimality_count,
     )
 
     return codon_annotations, top_acts, top_indices
@@ -1077,8 +1245,17 @@ def main():  # noqa: D103
             table = table.drop("llm_confidence") if "llm_confidence" in table.column_names else table
             table = table.append_column("label", pa.array(label_col))
             table = table.append_column("llm_confidence", pa.array(confidence_col, type=pa.float32()))
+
+            # Add codon optimality columns (CAI, tAI, RSCU)
+            for metric in ["cai", "tai", "rscu"]:
+                col_name = f"codon_{metric}"
+                values = [codon_annotations.get(i, {}).get(metric) for i in range(n)]
+                if col_name in table.column_names:
+                    table = table.drop(col_name)
+                table = table.append_column(col_name, pa.array(values, type=pa.float32()))
+
             pq.write_table(table, atlas_path, compression="snappy")
-            print(f"  Updated {n} feature labels and confidence scores in atlas")
+            print(f"  Updated {n} feature labels, confidence scores, and optimality metrics in atlas")
 
     # Copy analysis files to dashboard dir
     if args.dashboard_dir:

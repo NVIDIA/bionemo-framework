@@ -92,7 +92,7 @@ select = [
 "__init__.py" = ["D104", "E402", "F401", "F403", "F811"]
 "test_*.py" = ["D"]
 "conftest.py" = ["D"]
-"**/*.ipynb" = ["D"]
+"**/*.ipynb" = ["D", "E402"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2

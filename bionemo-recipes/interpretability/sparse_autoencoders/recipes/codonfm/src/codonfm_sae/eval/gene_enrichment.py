@@ -16,7 +16,7 @@
 """Gene-level GSEA enrichment metric for CodonFM SAE features.
 
 For each SAE feature, ranks genes by activation strength and runs GSEA
-(Gene Set Enrichment Analysis) against GO, InterPro, and Pfam databases.
+(Gene Set Enrichment Analysis) against GO and InterPro databases.
 This captures functional/pathway-level interpretability that residue-level
 F1 misses (e.g., a feature that fires on all ribosomal protein genes).
 
@@ -43,7 +43,6 @@ ANNOTATION_DATABASES = [
     "GO_Molecular_Function_2023",
     "GO_Cellular_Component_2023",
     "InterPro_Domains_2019",
-    "Pfam_Domains_2019",
 ]
 
 _GO_ID_PATTERN = re.compile(r"\((GO:\d+)\)")
@@ -535,6 +534,63 @@ def detect_gene_families(
     return result
 
 
+# ── pLI scores ──────────────────────────────────────────────────────────
+
+
+def load_pli_scores(pli_path: str) -> Dict[str, float]:
+    """Load gnomAD pLI scores from the constraint metrics TSV.
+
+    Supports both plain TSV and bgzipped (.bgz/.gz) files.
+    The file should have 'gene' and 'pLI' columns (gnomAD v2.1.1 format).
+
+    Returns:
+        gene_name -> pLI score
+    """
+    if str(pli_path).endswith(".bgz") or str(pli_path).endswith(".gz"):
+        df = pd.read_csv(pli_path, sep="\t", compression="gzip", usecols=["gene", "pLI"])
+    else:
+        df = pd.read_csv(pli_path, sep="\t", usecols=["gene", "pLI"])
+
+    df = df.dropna(subset=["pLI"])
+    # Keep first occurrence per gene (canonical transcript)
+    df = df.drop_duplicates(subset=["gene"], keep="first")
+    return dict(zip(df["gene"], df["pLI"].astype(float)))
+
+
+def compute_feature_pli(
+    gene_activations: Dict[int, Dict[str, float]],
+    pli_scores: Dict[str, float],
+    top_k: int = 20,
+) -> Dict[int, Dict[str, float]]:
+    """Compute pLI-based metrics for each feature.
+
+    For each feature, looks at the top-K genes by activation and computes:
+    - mean_pli: mean pLI score of top-K genes (with known pLI)
+    - frac_constrained: fraction of top-K genes with pLI > 0.9
+    - max_pli: max pLI among top-K genes
+
+    Args:
+        gene_activations: feature_idx -> gene_name -> activation score.
+        pli_scores: gene_name -> pLI score.
+        top_k: Number of top genes to examine per feature.
+
+    Returns:
+        feature_idx -> {"mean_pli": float, "frac_constrained": float, "max_pli": float}
+    """
+    result = {}
+    for feat_idx, gene_scores in gene_activations.items():
+        top_genes = sorted(gene_scores.keys(), key=lambda g: gene_scores[g], reverse=True)[:top_k]
+        pli_vals = [pli_scores[g] for g in top_genes if g in pli_scores]
+        if not pli_vals:
+            continue
+        result[feat_idx] = {
+            "mean_pli": float(np.mean(pli_vals)),
+            "frac_constrained": float(np.mean([1.0 if v > 0.9 else 0.0 for v in pli_vals])),
+            "max_pli": float(np.max(pli_vals)),
+        }
+    return result
+
+
 # ── Label columns for UMAP ──────────────────────────────────────────────
 
 
@@ -546,14 +602,13 @@ def build_feature_label_columns(
     """Build dict[column_name, dict[feature_idx, label]] for UMAP dropdown.
 
     Keys: overall_best, GO_Biological_Process, GO_Molecular_Function,
-          GO_Cellular_Component, InterPro_Domains, Pfam_Domains, GO_Slim
+          GO_Cellular_Component, InterPro_Domains, GO_Slim
     """
     db_to_column = {
         "GO_Biological_Process_2023": "GO_Biological_Process",
         "GO_Molecular_Function_2023": "GO_Molecular_Function",
         "GO_Cellular_Component_2023": "GO_Cellular_Component",
         "InterPro_Domains_2019": "InterPro_Domains",
-        "Pfam_Domains_2019": "Pfam_Domains",
     }
 
     columns: Dict[str, Dict[int, str]] = {
@@ -562,7 +617,6 @@ def build_feature_label_columns(
         "GO_Molecular_Function": {},
         "GO_Cellular_Component": {},
         "InterPro_Domains": {},
-        "Pfam_Domains": {},
         "GO_Slim": {},
         "gene_family": {},
     }
