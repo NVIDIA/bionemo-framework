@@ -416,7 +416,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         if init and self.config.use_quantized_model_init:
             if precision in ("fp8", "fp4"):
                 return transformer_engine.pytorch.quantized_model_init(recipe=recipe)
-            return nullcontext()
+            # BF16 layers: explicitly disable quantized init to override any outer quantized_model_init context.
+            return transformer_engine.pytorch.quantized_model_init(enabled=False)
 
         if precision == "fp8":
             if recipe is None:

@@ -20,7 +20,7 @@ CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sq
 CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_8n_prenyx}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_v2_8n_prenyx}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
