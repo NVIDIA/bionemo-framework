@@ -38,7 +38,6 @@ from torch.distributed.tensor import DTensor
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
 from transformer_engine.pytorch.optimizers import FusedAdam
-from transformer_engine.pytorch.tensor import QuantizedTensor
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
@@ -115,9 +114,12 @@ def _init_master_weights_from_high_precision(
         # so we must eagerly initialize state for every parameter.
         optimizer.initialize_state(param, store_param_remainders=False)
 
-        # For FSDP2 DTensor params, access the local shard to check for QuantizedTensor.
+        # For FSDP2 DTensor params, access the local shard which holds the hp init val.
+        # TE's reset_parameters() monkey-patches get_high_precision_init_val / clear_high_precision_init_val
+        # onto the local Parameter (which wraps a QuantizedTensor). The DTensor wrapper doesn't
+        # expose these methods, so we must unwrap to the local tensor first.
         local = param._local_tensor if isinstance(param, DTensor) else param
-        if isinstance(local, QuantizedTensor):
+        if hasattr(local, "get_high_precision_init_val"):
             hp_val = local.get_high_precision_init_val()
             if hp_val is not None:
                 optimizer.set_scaled_state(param, "master_param", hp_val.to(device=device, dtype=torch.float32))
