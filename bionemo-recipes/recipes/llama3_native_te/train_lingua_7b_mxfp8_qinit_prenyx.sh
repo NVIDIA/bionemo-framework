@@ -16,7 +16,7 @@ set -euxo pipefail
 # Tests convergence with FP8-only weights + FP32 master weights in FusedAdam
 # ============================================================================
 
-CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te_te-main-26.03.sqsh"
+CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh"
 CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
@@ -47,8 +47,15 @@ echo "========================================="
 
 cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
-# Verify TE version has MXFP8 FusedAdam support (should be from main with PR #2753)
+# Patch TE's fused_adam.py with PR #2753 fix (pure Python, no rebuild needed)
+# Downloads the single file from TE main that adds QuantizedTensor support to FusedAdam
+TE_SITE=\$(python -c "import transformer_engine; import os; print(os.path.dirname(transformer_engine.__file__))")
+curl -sL https://raw.githubusercontent.com/NVIDIA/TransformerEngine/main/transformer_engine/pytorch/optimizers/fused_adam.py \
+  -o "\${TE_SITE}/pytorch/optimizers/fused_adam.py"
+echo "Patched fused_adam.py from TE main"
+
 python -c "import transformer_engine; print(f'TE version: {transformer_engine.__version__}')"
+python -c "from transformer_engine.pytorch.optimizers.fused_adam import FusedAdam; import inspect; assert 'QuantizedTensor' in inspect.getsource(FusedAdam.step), 'Patch failed!'; print('FusedAdam has QuantizedTensor support')"
 
 python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit \
   dataset.micro_batch_size=2 \
