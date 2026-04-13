@@ -118,6 +118,33 @@ class DTensorFusedAdam(FusedAdam):
                 self._scales[param] = {}
             self._scales[param][state_name] = torch.ones([1], dtype=torch.float32, device=param.device)
 
+    def initialize_state(self, param, store_param_remainders):
+        """Override to avoid param.clone().detach().float() on DTensor<QuantizedTensor>.
+
+        The parent's initialize_state calls param.clone().detach().float() to seed master weights.
+        For DTensor<MXFP8Tensor>, this triggers CUDA illegal memory access because FSDP2's
+        reshape of MXFP8Tensor inner dimensions leaves the tensor in an inconsistent state
+        for dequantization. For quantized params we skip this (the caller will overwrite with
+        hp_val), and for non-quantized DTensor params we dequantize the local tensor directly.
+        """
+        self._initialize_state(param, "exp_avg", zero_buffer=True)
+        self._initialize_state(param, "exp_avg_sq", zero_buffer=True)
+        if self.master_weights:
+            self._initialize_state(
+                param, "master_param", zero_buffer=False, store_param_remainders=store_param_remainders
+            )
+            if not store_param_remainders:
+                local = param._local_tensor if isinstance(param, DTensor) else param
+                if hasattr(local, "get_high_precision_init_val"):
+                    # Quantized param — don't attempt param.clone().detach().float() which
+                    # crashes with MXFP8Tensor + FSDP2.  The caller (_init_master_weights_from_
+                    # high_precision) will overwrite master_param with the hp_val.
+                    # Zero-init as a safe placeholder.
+                    self.state[param]["master_param"].zero_()
+                else:
+                    # Non-quantized param (BF16) — standard path.
+                    self.set_scaled_state(param, "master_param", param.clone().detach().float())
+
 
 def _init_master_weights_from_high_precision(
     optimizer: "DTensorFusedAdam", model: torch.nn.Module, device: torch.device
@@ -147,7 +174,15 @@ def _init_master_weights_from_high_precision(
         if hasattr(local, "get_high_precision_init_val"):
             hp_val = local.get_high_precision_init_val()
             if hp_val is not None:
-                optimizer.set_scaled_state(param, "master_param", hp_val.to(device=device, dtype=torch.float32))
+                # hp_val is a regular tensor with local shard shape (saved before DTensor wrapping).
+                # The state is a DTensor, so we set the master_param on the local state tensor
+                # directly to avoid DTensor dispatch issues with mismatched shapes.
+                hp_val_cuda = hp_val.to(device=device, dtype=torch.float32)
+                master_state = optimizer.state[param]["master_param"]
+                if isinstance(master_state, DTensor):
+                    master_state._local_tensor.copy_(hp_val_cuda)
+                else:
+                    master_state.copy_(hp_val_cuda)
                 local.clear_high_precision_init_val()
                 count += 1
                 logger.debug("Seeded master weight for %s from high-precision init val", name)
