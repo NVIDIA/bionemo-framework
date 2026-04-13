@@ -51,10 +51,16 @@ from checkpoint import (
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
+
+# Backport PR #2753: MXFP8 QuantizedTensor support in FusedAdam.step()
+# Remove once TE version includes this fix (check: "QuantizedTensor" in FusedAdam.step source)
+from patch_fused_adam_mxfp8 import apply_patch as _apply_fused_adam_patch
 from perf_logger import PerfLogger
 from quantization import initialize_quant_stats_logging, resolve_layer_precision
 from scheduler import get_cosine_annealing_schedule_with_warmup
 
+
+_apply_fused_adam_patch()
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)

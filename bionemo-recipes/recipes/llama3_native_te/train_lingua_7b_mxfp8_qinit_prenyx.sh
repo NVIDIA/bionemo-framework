@@ -16,11 +16,11 @@ set -euxo pipefail
 # Tests convergence with FP8-only weights + FP32 master weights in FusedAdam
 # ============================================================================
 
-CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh"
+CONTAINER="nvcr.io/nvidia/pytorch:26.03-py3"
 CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
 DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_v2_8n_prenyx}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_v3_26.03_8n_prenyx}"
 RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
 CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
 
@@ -45,7 +45,12 @@ echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "========================================="
 
+# Install dependencies (raw NGC image, not pre-built sqsh)
 cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
+pip install --no-cache-dir -r requirements.txt
+
+# Verify TE version has MXFP8 FusedAdam support
+python -c "import transformer_engine; print(f'TE version: {transformer_engine.__version__}')"
 
 python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit \
   dataset.micro_batch_size=2 \
