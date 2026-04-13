@@ -18,5 +18,5 @@ fp8_config:
     preserve_high_precision_init_val: true
 
 wandb:
-  name: lingua-7b-mxfp8-qinit
-  id: lingua-7b-mxfp8-qinit
+  name: lingua-7b-mxfp8-allfp8-qinit
+  id: lingua-7b-mxfp8-allfp8-qinit
