@@ -62,9 +62,8 @@ echo "========================================="
 
 # Use pre-built TE from mounted source (built once via interactive --build-te step).
 # Don't uninstall container TE — its pip metadata is needed by sanity_checks_for_pypi_installation().
-# Instead, prepend PYTHONPATH so our mounted TE code takes precedence over container's v2.13.
-cp ${TE_MOUNT}/transformer_engine_torch*.so ${TE_MOUNT}/transformer_engine/ 2>/dev/null || true
-cp ${TE_MOUNT}/transformer_engine_cu12*.so ${TE_MOUNT}/transformer_engine/ 2>/dev/null || true
+# Don't copy .so files — editable install leaves them at repo root, TE's loader finds them there.
+# Copying creates duplicates that cause "Multiple files found" RuntimeError.
 export PYTHONPATH="${TE_MOUNT}:\${PYTHONPATH:-}"
 
 # Verify TE has QuantizedTensor support in FusedAdam (PR #2753)
