@@ -30,7 +30,7 @@ TE_MOUNT="/workspace/transformer_engine"
 DATA_DIR="${SCRATCH}/data"
 DATA_MOUNT="/workspace/data"
 
-CONTAINER_IMAGE="${SCRATCH}/enroot/llama3_native_te.sqsh"
+CONTAINER_IMAGE="${SCRATCH}/enroot/llama3_native_te_te-main-26.03.sqsh"
 CONTAINER_NAME="bionemo-te-dev"
 
 # ── Credentials (prefer env vars over hardcoding) ─────
