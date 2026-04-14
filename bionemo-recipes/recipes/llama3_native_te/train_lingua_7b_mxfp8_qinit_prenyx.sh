@@ -15,18 +15,10 @@ set -euxo pipefail
 # Lingua 7B MXFP8 with quantized model init experiment
 # Tests convergence with FP8-only weights + FP32 master weights in FusedAdam
 #
-# SETUP (one-time on prenyx):
-#   1. Clone TE:
-#      cd /lustre/fsw/healthcareeng_bionemo/savithas
-#      git clone --recursive https://github.com/NVIDIA/TransformerEngine.git
-#   2. Build TE interactively (allocate a node first):
-#      salloc --account=healthcareeng_bionemo --nodes=1 --ntasks-per-node=1 --time=01:00:00 --partition=batch
-#      srun --container-image=<sqsh> --container-mounts="<TE_DIR>:/workspace/transformer_engine" \
-#        --container-writable bash -c '
-#        pip uninstall transformer-engine transformer-engine-torch -y;
-#        cd /workspace/transformer_engine && rm -rf build/cmake;
-#        NVTE_FRAMEWORK=pytorch NVTE_CUDA_ARCHS="103a" NVTE_BUILD_THREADS_PER_JOB=4 \
-#        pip install -v --no-build-isolation -e .'
+# PREREQUISITE: Build TE from source once using setup_te_prenyx.sh:
+#   salloc --account=healthcareeng_bionemo --nodes=1 --ntasks-per-node=1 \
+#     --time=01:00:00 --partition=batch
+#   srun bash setup_te_prenyx.sh --build-te
 # ============================================================================
 
 CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh"
@@ -47,28 +39,37 @@ CONTAINER_WORKDIR="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 MOUNTS="${CODE_DIR}:${CONTAINER_WORKDIR},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CONTAINER_WORKDIR}/results,${CKPT_ROOT}:${CONTAINER_WORKDIR}/checkpoints,${TE_DIR}:${TE_MOUNT}"
 
-read -r -d '' COMMAND <<EOF || true
-export EXP_NAME="${EXP_NAME}"
-export WANDB_API_KEY="${WANDB_API_KEY}"
-export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
-
+read -r -d '' COMMAND <<'OUTER_EOF' || true
 set -euxo pipefail
+
+TE_MOUNT="/workspace/transformer_engine"
 
 echo "========================================="
 echo "Lingua 7B MXFP8 Quantized Model Init (8 nodes, prenyx)"
-echo "Job ID: \${SLURM_JOB_ID}"
-echo "Nodes: \${SLURM_JOB_NUM_NODES}"
+echo "Job ID: ${SLURM_JOB_ID}"
+echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
 
-# Use pre-built TE from mounted source (built once via interactive --build-te step).
-# Don't uninstall container TE — its pip metadata is needed by sanity_checks_for_pypi_installation().
-# Don't copy .so files — editable install leaves them at repo root, TE's loader finds them there.
-# Copying creates duplicates that cause "Multiple files found" RuntimeError.
-export PYTHONPATH="${TE_MOUNT}:\${PYTHONPATH:-}"
+# ── TE setup: following Jonathan's --copy-so approach exactly ──
+# 1. Remove container's TE (and its wrong-arch native libs)
+pip uninstall transformer-engine transformer-engine-torch -y 2>/dev/null || true
+
+# 2. Copy pre-built .so files into the TE package directory
+cp "$TE_MOUNT"/transformer_engine_torch*.so "$TE_MOUNT"/transformer_engine/ 2>/dev/null || true
+cp "$TE_MOUNT"/transformer_engine_cu12*.so "$TE_MOUNT"/transformer_engine/ 2>/dev/null || true
+
+# 3. Set PYTHONPATH so Python finds the mounted TE source
+export PYTHONPATH="$TE_MOUNT:${PYTHONPATH:-}"
 
 # Verify TE has QuantizedTensor support in FusedAdam (PR #2753)
 python -c "import transformer_engine; print(f'TE version: {transformer_engine.__version__}')"
-python -c "from transformer_engine.pytorch.optimizers.fused_adam import FusedAdam; import inspect; assert 'QuantizedTensor' in inspect.getsource(FusedAdam.step), 'PR #2753 not found!'; print('FusedAdam has QuantizedTensor support')"
+python -c "
+from transformer_engine.pytorch.optimizers.fused_adam import FusedAdam
+import inspect
+src = inspect.getsource(FusedAdam.step)
+assert 'QuantizedTensor' in src, 'PR #2753 not found'
+print('FusedAdam has QuantizedTensor support')
+"
 
 cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
@@ -80,14 +81,17 @@ python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit \
   checkpoint.save_every_n_steps=1500 \
   checkpoint.resume_from_checkpoint=true \
   logger.frequency=100 \
-  wandb.name=\${EXP_NAME} \
-  wandb.id=\${EXP_NAME} \
+  wandb.name=${EXP_NAME} \
+  wandb.id=${EXP_NAME} \
   wandb.project=lingua-7b
 
 echo "========================================="
 echo "Training complete!"
 echo "========================================="
-EOF
+OUTER_EOF
+
+# Inject credentials into the command
+COMMAND="export EXP_NAME=\"${EXP_NAME}\"; export WANDB_API_KEY=\"${WANDB_API_KEY}\"; export HUGGING_FACE_HUB_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; ${COMMAND}"
 
 echo "Launching: ${EXP_NAME}"
 srun \
