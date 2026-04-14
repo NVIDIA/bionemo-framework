@@ -1,23 +1,26 @@
 #!/bin/bash
-# ============================================================================
-# TE Development Environment (following Jonathan Mitchell's approach)
-#
-# Uses enroot to create a persistent writable container, then builds or loads
-# TransformerEngine from source with the correct GPU architecture.
-#
-# USAGE:
-#   # One-time: build TE from source (takes ~30 min)
-#   salloc --account=healthcareeng_bionemo --nodes=1 --ntasks-per-node=1 \
-#     --time=01:00:00 --partition=batch
-#   srun bash setup_te_prenyx.sh --build-te
-#
-#   # Quick start: load pre-built TE (takes seconds)
-#   srun bash setup_te_prenyx.sh --copy-so
-#
-#   # Override arch (default: 103a for B300):
-#   srun bash setup_te_prenyx.sh --build-te 100a
-# ============================================================================
 set -euo pipefail
+
+# ============================================================================
+# TE Development Environment for Prenyx
+# (Following Jonathan Mitchell's enroot approach)
+#
+# FIRST TIME SETUP:
+#   1. Import base container as sqsh (if not already done):
+#      enroot import -o /lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh \
+#        dockerd://nvcr.io/nvidia/pytorch:26.03-py3
+#
+#   2. Allocate a compute node:
+#      salloc --account=healthcareeng_bionemo --nodes=1 --ntasks-per-node=1 \
+#        --time=01:00:00 --partition=batch
+#
+#   3. Build TE from source (~30 min):
+#      bash setup_te_prenyx.sh --build-te
+#
+# SUBSEQUENT USE:
+#   bash setup_te_prenyx.sh --copy-so    # Fast: load pre-built TE
+#   bash setup_te_prenyx.sh              # Plain shell (no TE setup)
+# ============================================================================
 
 SCRATCH="/lustre/fsw/healthcareeng_bionemo/savithas"
 CODE_SRC="${SCRATCH}/bionemo-framework"
@@ -30,7 +33,7 @@ DATA_MOUNT="/workspace/data"
 CONTAINER_IMAGE="${SCRATCH}/enroot/llama3_native_te.sqsh"
 CONTAINER_NAME="bionemo-te-dev"
 
-# ── Credentials ───────────────────────────────────────
+# ── Credentials (prefer env vars over hardcoding) ─────
 : "${WANDB_API_KEY:?Set WANDB_API_KEY in ~/.bashrc}"
 : "${HUGGING_FACE_HUB_TOKEN:?Set HUGGING_FACE_HUB_TOKEN in ~/.bashrc}"
 
@@ -45,6 +48,7 @@ NVTE_ARCH="${2:-103a}"
 
 # ── Launch ─────────────────────────────────────────────
 enroot start --rw \
+    --mount "${SCRATCH}:/scratch" \
     --mount "${CODE_SRC}:${CODE_MOUNT}" \
     --mount "${TE_SRC}:${TE_MOUNT}" \
     --mount "${DATA_DIR}:${DATA_MOUNT}" \

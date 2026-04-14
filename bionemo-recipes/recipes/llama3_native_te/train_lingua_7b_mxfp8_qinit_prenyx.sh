@@ -15,29 +15,31 @@ set -euxo pipefail
 # Lingua 7B MXFP8 with quantized model init experiment
 # Tests convergence with FP8-only weights + FP32 master weights in FusedAdam
 #
-# PREREQUISITE: Build TE from source once using setup_te_prenyx.sh:
+# PREREQUISITE: Build TE once using setup_te_prenyx.sh:
 #   salloc --account=healthcareeng_bionemo --nodes=1 --ntasks-per-node=1 \
 #     --time=01:00:00 --partition=batch
-#   srun bash setup_te_prenyx.sh --build-te
+#   bash setup_te_prenyx.sh --build-te
 # ============================================================================
 
-CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh"
-CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
-DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
-TE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/TransformerEngine"
+SCRATCH="/lustre/fsw/healthcareeng_bionemo/savithas"
+CODE_DIR="${SCRATCH}/bionemo-framework"
+DATA_DIR="${SCRATCH}/data"
+TE_DIR="${SCRATCH}/TransformerEngine"
+
+CONTAINER_NAME="bionemo-te-dev"
+CODE_MOUNT="/workspace/bionemo"
+TE_MOUNT="/workspace/transformer_engine"
 
 export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_v4_te_main_8n_prenyx}"
-RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
-CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
+RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
+CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
 
 mkdir -p "${RESULTS_DIR}" "${CKPT_ROOT}"
 
 : "${WANDB_API_KEY:?Set WANDB_API_KEY in ~/.bashrc}"
 : "${HUGGING_FACE_HUB_TOKEN:?Set HUGGING_FACE_HUB_TOKEN in ~/.bashrc}"
 
-CONTAINER_WORKDIR="/workspace/bionemo"
-TE_MOUNT="/workspace/transformer_engine"
-MOUNTS="${CODE_DIR}:${CONTAINER_WORKDIR},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CONTAINER_WORKDIR}/results,${CKPT_ROOT}:${CONTAINER_WORKDIR}/checkpoints,${TE_DIR}:${TE_MOUNT}"
+MOUNTS="${CODE_DIR}:${CODE_MOUNT},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CODE_MOUNT}/results,${CKPT_ROOT}:${CODE_MOUNT}/checkpoints,${TE_DIR}:${TE_MOUNT}"
 
 read -r -d '' COMMAND <<'OUTER_EOF' || true
 set -euxo pipefail
@@ -50,15 +52,10 @@ echo "Job ID: ${SLURM_JOB_ID}"
 echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
 
-# ── TE setup: following Jonathan's --copy-so approach exactly ──
-# 1. Remove container's TE (and its wrong-arch native libs)
+# TE setup: --copy-so approach (container already has TE built via setup_te_prenyx.sh --build-te)
 pip uninstall transformer-engine transformer-engine-torch -y 2>/dev/null || true
-
-# 2. Copy pre-built .so files into the TE package directory
 cp "$TE_MOUNT"/transformer_engine_torch*.so "$TE_MOUNT"/transformer_engine/ 2>/dev/null || true
 cp "$TE_MOUNT"/transformer_engine_cu12*.so "$TE_MOUNT"/transformer_engine/ 2>/dev/null || true
-
-# 3. Set PYTHONPATH so Python finds the mounted TE source
 export PYTHONPATH="$TE_MOUNT:${PYTHONPATH:-}"
 
 # Verify TE has QuantizedTensor support in FusedAdam (PR #2753)
@@ -97,8 +94,9 @@ echo "Launching: ${EXP_NAME}"
 srun \
   --output "${RESULTS_DIR}/slurm-%j-%n.out" \
   --error  "${RESULTS_DIR}/error-%j-%n.out" \
-  --container-image "${CONTAINER}" \
+  --container-name "${CONTAINER_NAME}" \
   --container-mounts "${MOUNTS}" \
+  --container-writable \
   bash -c "${COMMAND}"
 
 # Auto-chain: resubmit so training resumes from checkpoint. scancel to stop.
