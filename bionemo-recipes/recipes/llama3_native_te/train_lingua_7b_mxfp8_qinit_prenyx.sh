@@ -16,8 +16,17 @@ set -euxo pipefail
 # Tests convergence with FP8-only weights + FP32 master weights in FusedAdam
 #
 # SETUP (one-time on prenyx):
-#   cd /lustre/fsw/healthcareeng_bionemo/savithas
-#   git clone --recursive https://github.com/NVIDIA/TransformerEngine.git
+#   1. Clone TE:
+#      cd /lustre/fsw/healthcareeng_bionemo/savithas
+#      git clone --recursive https://github.com/NVIDIA/TransformerEngine.git
+#   2. Build TE interactively (allocate a node first):
+#      salloc --account=healthcareeng_bionemo --nodes=1 --ntasks-per-node=1 --time=01:00:00 --partition=batch
+#      srun --container-image=<sqsh> --container-mounts="<TE_DIR>:/workspace/transformer_engine" \
+#        --container-writable bash -c '
+#        pip uninstall transformer-engine transformer-engine-torch -y;
+#        cd /workspace/transformer_engine && rm -rf build/cmake;
+#        NVTE_FRAMEWORK=pytorch NVTE_CUDA_ARCHS="103a" NVTE_BUILD_THREADS_PER_JOB=4 \
+#        pip install -v --no-build-isolation -e .'
 # ============================================================================
 
 CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh"
@@ -51,15 +60,12 @@ echo "Job ID: \${SLURM_JOB_ID}"
 echo "Nodes: \${SLURM_JOB_NUM_NODES}"
 echo "========================================="
 
-# Build TE from source (mounted from lustre) against the container's PyTorch.
-# Following Jonathan's approach: uninstall old TE, build from mounted source.
+# Use pre-built TE from mounted source (built once via interactive --build-te step).
+# Following Jonathan's --copy-so approach: uninstall container's TE, use mounted build.
 pip uninstall -y transformer-engine transformer-engine-torch 2>/dev/null || true
-cd ${TE_MOUNT}
-NVTE_FRAMEWORK=pytorch \
-NVTE_CUDA_ARCHS="103a" \
-NVTE_BUILD_THREADS_PER_JOB=4 \
-MAX_JOBS=8 \
-pip install --no-build-isolation -e .
+cp ${TE_MOUNT}/transformer_engine_torch*.so ${TE_MOUNT}/transformer_engine/ 2>/dev/null || true
+cp ${TE_MOUNT}/transformer_engine_cu12*.so ${TE_MOUNT}/transformer_engine/ 2>/dev/null || true
+export PYTHONPATH="${TE_MOUNT}:\${PYTHONPATH:-}"
 
 # Verify TE has QuantizedTensor support in FusedAdam (PR #2753)
 python -c "import transformer_engine; print(f'TE version: {transformer_engine.__version__}')"
