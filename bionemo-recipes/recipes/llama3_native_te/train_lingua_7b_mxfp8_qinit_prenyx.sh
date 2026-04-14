@@ -22,11 +22,11 @@ set -euxo pipefail
 # ============================================================================
 
 SCRATCH="/lustre/fsw/healthcareeng_bionemo/savithas"
+CONTAINER="${SCRATCH}/enroot/llama3_native_te_te-main-26.03.sqsh"
 CODE_DIR="${SCRATCH}/bionemo-framework"
 DATA_DIR="${SCRATCH}/data"
 TE_DIR="${SCRATCH}/TransformerEngine"
 
-CONTAINER_NAME="bionemo-te-dev"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
@@ -52,10 +52,15 @@ echo "Job ID: ${SLURM_JOB_ID}"
 echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
 
-# TE setup: --copy-so approach (container already has TE built via setup_te_prenyx.sh --build-te)
+# TE setup: Jonathan's --copy-so approach
+# 1. Remove container's TE (removes wrong-arch native libs)
 pip uninstall transformer-engine transformer-engine-torch -y 2>/dev/null || true
+
+# 2. Copy pre-built .so into TE package dir
 cp "$TE_MOUNT"/transformer_engine_torch*.so "$TE_MOUNT"/transformer_engine/ 2>/dev/null || true
 cp "$TE_MOUNT"/transformer_engine_cu12*.so "$TE_MOUNT"/transformer_engine/ 2>/dev/null || true
+
+# 3. PYTHONPATH so Python finds the mounted TE source
 export PYTHONPATH="$TE_MOUNT:${PYTHONPATH:-}"
 
 # Verify TE has QuantizedTensor support in FusedAdam (PR #2753)
@@ -94,9 +99,8 @@ echo "Launching: ${EXP_NAME}"
 srun \
   --output "${RESULTS_DIR}/slurm-%j-%n.out" \
   --error  "${RESULTS_DIR}/error-%j-%n.out" \
-  --container-name "${CONTAINER_NAME}" \
+  --container-image "${CONTAINER}" \
   --container-mounts "${MOUNTS}" \
-  --container-writable \
   bash -c "${COMMAND}"
 
 # Auto-chain: resubmit so training resumes from checkpoint. scancel to stop.
