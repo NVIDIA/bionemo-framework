@@ -52,15 +52,12 @@ echo "Job ID: ${SLURM_JOB_ID}"
 echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
 
-# TE setup: Jonathan's --copy-so approach
-# 1. Remove container's TE (removes wrong-arch native libs)
-pip uninstall transformer-engine transformer-engine-torch -y 2>/dev/null || true
-
-# 2. Copy pre-built .so into TE package dir
-cp "$TE_MOUNT"/transformer_engine_torch*.so "$TE_MOUNT"/transformer_engine/ 2>/dev/null || true
-cp "$TE_MOUNT"/transformer_engine_cu12*.so "$TE_MOUNT"/transformer_engine/ 2>/dev/null || true
-
-# 3. PYTHONPATH so Python finds the mounted TE source
+# TE setup: overwrite container's native libs with our Blackwell-compiled build,
+# then use PYTHONPATH for TE main Python code. No pip uninstall needed (avoids
+# sanity check failures), no copy to TE subdir (avoids duplicate file errors).
+TE_SITE="/usr/local/lib/python3.12/dist-packages/transformer_engine"
+cp "$TE_MOUNT"/transformer_engine_torch*.so "$TE_SITE"/ 2>/dev/null || true
+cp "$TE_MOUNT"/transformer_engine_cu12*.so "$TE_SITE"/ 2>/dev/null || true
 export PYTHONPATH="$TE_MOUNT:${PYTHONPATH:-}"
 
 # Verify TE has QuantizedTensor support in FusedAdam (PR #2753)
