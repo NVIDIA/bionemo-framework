@@ -60,137 +60,32 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-class DTensorFusedAdam(FusedAdam):
-    """FusedAdam with DTensor-compatible state initialization.
-
-    TE's FusedAdam uses ``torch.empty(param.shape, ...)`` to create optimizer states, which produces
-    a regular Tensor even when ``param`` is a DTensor (FSDP2). This causes a crash on ``copy_()``
-    between the regular-Tensor state and the DTensor param.
-
-    We cannot use ``torch.empty_like`` / ``torch.zeros_like`` because QuantizedTensor's
-    ``__torch_dispatch__`` overrides ``empty_like`` and **ignores the dtype kwarg**, always
-    creating another quantized tensor. Instead, we create plain local tensors with
-    ``torch.empty`` and wrap them in DTensor to preserve sharding.
-
-    See: https://github.com/NVIDIA/TransformerEngine/blob/main/examples/pytorch/quantized_model_init/fully_shard.py
-    """
-
-    def _initialize_state(self, param, state_name, zero_buffer, store_param_remainders=False):
-        dtype = self.name_to_dtype_map[state_name]
-
-        if dtype == torch.uint8:
-            # FP8 quantizer path — delegate to parent (only used with QuantizedTensors).
-            super()._initialize_state(param, state_name, zero_buffer, store_param_remainders)
-            return
-
-        # Create state tensor with the correct dtype.
-        # We create a plain tensor via torch.empty/torch.zeros (not empty_like/zeros_like)
-        # and wrap it in DTensor if needed.  This avoids QuantizedTensor.__torch_dispatch__
-        # which overrides empty_like to ignore the dtype kwarg.
-        if isinstance(param, DTensor):
-            local_shape = param._local_tensor.shape
-            if store_param_remainders:
-                local_data = torch.zeros(local_shape, dtype=torch.int16, device=param.device)
-            else:
-                local_data = torch.empty(local_shape, dtype=dtype, device=param.device)
-            if zero_buffer:
-                local_data.zero_()
-            # Do NOT pass stride=param.stride() — for MXFP8Tensor, the param's stride
-            # reflects block-quantized storage layout, but local_data is a plain contiguous
-            # float32 tensor. Passing MXFP8 strides would cause CUDA kernels to compute wrong
-            # memory offsets → Xid 31 (GPU memory page fault).
-            data = DTensor.from_local(
-                local_data,
-                device_mesh=param.device_mesh,
-                placements=param.placements,
-            )
-        else:
-            if store_param_remainders:
-                data = torch.zeros(param.shape, dtype=torch.int16, device=param.device)
-            else:
-                data = torch.empty(param.shape, dtype=dtype, device=param.device)
-            if zero_buffer:
-                data.zero_()
-
-        self.state[param][state_name] = data
-
-        # Create scale if necessary.
-        if dtype != torch.float32:
-            if param not in self._scales:
-                self._scales[param] = {}
-            self._scales[param][state_name] = torch.ones([1], dtype=torch.float32, device=param.device)
-
-    def initialize_state(self, param, store_param_remainders):
-        """Override to avoid param.clone().detach().float() on DTensor<QuantizedTensor>.
-
-        The parent's initialize_state calls param.clone().detach().float() to seed master weights.
-        For DTensor<MXFP8Tensor>, this triggers CUDA illegal memory access because FSDP2's
-        reshape of MXFP8Tensor inner dimensions leaves the tensor in an inconsistent state
-        for dequantization. For quantized params we skip this (the caller will overwrite with
-        hp_val), and for non-quantized DTensor params we dequantize the local tensor directly.
-        """
-        self._initialize_state(param, "exp_avg", zero_buffer=True)
-        self._initialize_state(param, "exp_avg_sq", zero_buffer=True)
-        if self.master_weights:
-            self._initialize_state(
-                param, "master_param", zero_buffer=False, store_param_remainders=store_param_remainders
-            )
-            if not store_param_remainders:
-                local = param._local_tensor if isinstance(param, DTensor) else param
-                if hasattr(local, "get_high_precision_init_val"):
-                    # Quantized param — don't attempt param.clone().detach().float() which
-                    # crashes with MXFP8Tensor + FSDP2.  The caller (_init_master_weights_from_
-                    # high_precision) will overwrite master_param with the hp_val.
-                    # Zero-init as a safe placeholder.
-                    self.state[param]["master_param"].zero_()
-                else:
-                    # Non-quantized param (BF16) — copy directly to local tensor
-                    # to avoid DTensor dispatch issues in TE's set_scaled_state.
-                    master_state = self.state[param]["master_param"]
-                    local_val = param._local_tensor.float() if isinstance(param, DTensor) else param.float()
-                    if isinstance(master_state, DTensor):
-                        master_state._local_tensor.copy_(local_val)
-                    else:
-                        master_state.copy_(local_val)
-
-
 def _init_master_weights_from_high_precision(
-    optimizer: "DTensorFusedAdam", model: torch.nn.Module, device: torch.device
+    optimizer: FusedAdam, model: torch.nn.Module, device: torch.device
 ) -> None:
     """Initialize optimizer master weights from high-precision init values.
 
     When quantized_model_init is used with preserve_high_precision_init_val=True, each FP8 parameter
-    stores the original BF16 init values in CPU memory. This function copies those into the optimizer's
-    FP32 master weight states, then frees the CPU copies. Without this, master weights would be
-    initialized from dequantized FP8 values, introducing quantization noise at initialization.
+    stores the original BF16 init values in CPU memory. This function initializes optimizer state
+    for all parameters, then overwrites master weights for quantized params with the preserved
+    high-precision values instead of dequantized FP8 values.
 
-    Follows the pattern from the TE example:
+    Follows the TE example:
     https://github.com/NVIDIA/TransformerEngine/blob/main/examples/pytorch/quantized_model_init/fully_shard.py
     """
     count = 0
     for name, param in model.named_parameters():
-        # Initialize optimizer state for ALL parameters (not just quantized ones).
-        # FusedAdam's lazy init in step() doesn't handle QuantizedTensor correctly,
-        # so we must eagerly initialize state for every parameter.
+        # Eagerly initialize optimizer state for all parameters.
+        # TE main's FusedAdam handles DTensor + QuantizedTensor natively.
         optimizer.initialize_state(param, store_param_remainders=False)
 
-        # For FSDP2 DTensor params, access the local shard which holds the hp init val.
-        # TE's reset_parameters() monkey-patches get_high_precision_init_val / clear_high_precision_init_val
-        # onto the local Parameter (which wraps a QuantizedTensor). The DTensor wrapper doesn't
-        # expose these methods, so we must unwrap to the local tensor first.
+        # For quantized params, overwrite master weights with the preserved high-precision
+        # init values (instead of the dequantized FP8 values set by initialize_state).
         local = param._local_tensor if isinstance(param, DTensor) else param
         if hasattr(local, "get_high_precision_init_val"):
             hp_val = local.get_high_precision_init_val()
             if hp_val is not None:
-                # hp_val is a regular tensor with local shard shape (saved before DTensor wrapping).
-                # The state is a DTensor, so we set the master_param on the local state tensor
-                # directly to avoid DTensor dispatch issues with mismatched shapes.
-                hp_val_cuda = hp_val.to(device=device, dtype=torch.float32)
-                master_state = optimizer.state[param]["master_param"]
-                if isinstance(master_state, DTensor):
-                    master_state._local_tensor.copy_(hp_val_cuda)
-                else:
-                    master_state.copy_(hp_val_cuda)
+                optimizer.set_scaled_state(param, "master_param", hp_val.to(device=device, dtype=torch.float32))
                 local.clear_high_precision_init_val()
                 count += 1
                 logger.debug("Seeded master weight for %s from high-precision init val", name)
@@ -331,7 +226,7 @@ def main(args: DictConfig) -> float | None:
         # TE FusedAdam maintains FP32 master copies of BF16 params internally.
         # 'fused' kwarg is not used by TE's FusedAdam (it's always fused).
         adamw_kwargs.pop("fused", None)
-        optimizer = DTensorFusedAdam(model.parameters(), master_weights=True, **adamw_kwargs)  # type: ignore
+        optimizer = FusedAdam(model.parameters(), master_weights=True, **adamw_kwargs)  # type: ignore
         logger.info("Using TE FusedAdam with FP32 master weights")
 
         # When using quantized_model_init with preserve_high_precision_init_val=True,
