@@ -65,11 +65,14 @@ def _assert_checkpoint_step(ckpt_subdir, step, num_ranks):
     step_dir = os.path.join(ckpt_subdir, f"step_{step}")
     assert os.path.isdir(step_dir), f"Step {step} directory not found: {step_dir}"
     files = os.listdir(step_dir)
-    model_files = [f for f in files if f.startswith("model_rank_")]
-    optimizer_files = [f for f in files if f.startswith("optimizer_rank_")]
-    assert len(model_files) >= num_ranks, f"Expected model files for {num_ranks} ranks in {step_dir}: {files}"
-    assert len(optimizer_files) >= num_ranks, f"Expected optimizer files for {num_ranks} ranks in {step_dir}: {files}"
-    assert "metadata.pt" in files, f"Missing metadata.pt in {step_dir}: {files}"
+    # FSDP2 DCP checkpoints save as .distcp files with a .metadata index,
+    # not the older model_rank_*/optimizer_rank_* format.
+    distcp_files = [f for f in files if f.endswith(".distcp")]
+    has_metadata = ".metadata" in files
+    assert has_metadata, f"Missing .metadata in {step_dir}: {files}"
+    assert len(distcp_files) >= num_ranks, (
+        f"Expected at least {num_ranks} .distcp files in {step_dir}: {files}"
+    )
     dataloader_files = [f for f in files if "dataloader" in f]
     assert len(dataloader_files) >= num_ranks, (
         f"Expected dataloader files for {num_ranks} ranks in {step_dir}: {files}"
