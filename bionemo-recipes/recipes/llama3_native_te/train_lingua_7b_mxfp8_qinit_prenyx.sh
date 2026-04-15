@@ -74,7 +74,7 @@ cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
 python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit \
   dataset.micro_batch_size=2 \
-  dataset.use_stateful_dataloader=false \
+  dataset.use_stateful_dataloader=true \
   grad_acc_steps=2 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   checkpoint.save_every_n_steps=1500 \
