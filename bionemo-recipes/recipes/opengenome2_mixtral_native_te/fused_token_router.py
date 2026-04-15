@@ -29,7 +29,6 @@ from typing import Any
 import torch
 import torch.distributed as dist
 import transformer_engine.pytorch
-
 from fused_a2a import fused_combine, fused_dispatch
 from fused_indices_converter import HAVE_TRITON, fused_indices_to_multihot
 from modeling_mixtral_te import DispatchOutput

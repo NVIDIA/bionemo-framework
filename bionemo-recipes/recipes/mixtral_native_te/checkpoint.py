@@ -186,6 +186,7 @@ def load_checkpoint_ddp(
         dataloader: The dataloader to load.
         weights_only: Whether to load the checkpoint weights only. We have to set this to True when loading FP8
             checkpoints.
+        expert_parallel_size: Expert parallelism size. When > 1, loads expert weights with EP-aware state dict handling.
     """
     checkpoint_path, _ = get_latest_checkpoint(ckpt_path)
 
@@ -394,6 +395,7 @@ def load_checkpoint_fsdp2(
         dist_config: The distributed configuration.
         dataloader: The dataloader to load.
         process_group: The process group to use for checkpointing.
+        expert_parallel_size: Expert parallelism size. When > 1, loads expert weights with EP-aware state dict handling.
     """
     checkpoint_path, _ = get_latest_checkpoint(ckpt_path)
     if not checkpoint_path:
@@ -454,6 +456,7 @@ def save_checkpoint_fsdp2(
         process_group: The process group to use for checkpointing.
         max_checkpoints: The maximum number of checkpoints to keep.
         async_save: Whether to save the checkpoint asynchronously.
+        expert_parallel_size: Expert parallelism size. When > 1, saves expert weights with EP-aware state dict handling.
     """
     start_time = time.perf_counter()
     ckpt_path = Path(ckpt_path)

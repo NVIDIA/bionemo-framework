@@ -70,9 +70,7 @@ def _assert_checkpoint_step(ckpt_subdir, step, num_ranks):
     distcp_files = [f for f in files if f.endswith(".distcp")]
     has_metadata = ".metadata" in files
     assert has_metadata, f"Missing .metadata in {step_dir}: {files}"
-    assert len(distcp_files) >= num_ranks, (
-        f"Expected at least {num_ranks} .distcp files in {step_dir}: {files}"
-    )
+    assert len(distcp_files) >= num_ranks, f"Expected at least {num_ranks} .distcp files in {step_dir}: {files}"
     dataloader_files = [f for f in files if "dataloader" in f]
     assert len(dataloader_files) >= num_ranks, (
         f"Expected dataloader files for {num_ranks} ranks in {step_dir}: {files}"

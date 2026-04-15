@@ -27,10 +27,9 @@ from hydra import compose, initialize_config_dir
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel
 from tokenizers.pre_tokenizers import Whitespace
-from transformers import PreTrainedTokenizerFast
-
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
+from transformers import PreTrainedTokenizerFast
 
 
 os.environ["WANDB_DISABLED"] = "true"
@@ -111,15 +110,21 @@ def _assert_checkpoint_step(ckpt_subdir, step, num_ranks, is_ddp, use_distribute
         model_files = [f for f in files if f.startswith("model_rank_")]
         optimizer_files = [f for f in files if f.startswith("optimizer_rank_")]
         assert len(model_files) >= num_ranks, f"Expected model files for {num_ranks} ranks in {step_dir}: {files}"
-        assert len(optimizer_files) >= num_ranks, f"Expected optimizer files for {num_ranks} ranks in {step_dir}: {files}"
+        assert len(optimizer_files) >= num_ranks, (
+            f"Expected optimizer files for {num_ranks} ranks in {step_dir}: {files}"
+        )
         assert "metadata.pt" in files, f"Missing metadata.pt in {step_dir}: {files}"
     dataloader_files = [f for f in files if "dataloader" in f]
-    assert len(dataloader_files) >= num_ranks, f"Expected dataloader files for {num_ranks} ranks in {step_dir}: {files}"
+    assert len(dataloader_files) >= num_ranks, (
+        f"Expected dataloader files for {num_ranks} ranks in {step_dir}: {files}"
+    )
 
 
 def _run_single_process_checkpoint_test(recipe_path, tmp_path, main_fn, ckpt_subdir_name, extra_overrides, is_ddp):
     tokenizer_path = _create_local_tokenizer(tmp_path)
-    expert_parallel_size = int(next(o.split("=", 1)[1] for o in extra_overrides if o.startswith("expert_parallel_size=")))
+    expert_parallel_size = int(
+        next(o.split("=", 1)[1] for o in extra_overrides if o.startswith("expert_parallel_size="))
+    )
     use_distributed_checkpoint = is_ddp and expert_parallel_size > 1
     common = [
         "checkpoint.save_every_n_steps=5",
@@ -138,7 +143,9 @@ def _run_single_process_checkpoint_test(recipe_path, tmp_path, main_fn, ckpt_sub
     torch.cuda.empty_cache()
 
     ckpt_subdir = os.path.join(str(tmp_path / "ckpt"), ckpt_subdir_name)
-    _assert_checkpoint_step(ckpt_subdir, 5, num_ranks=1, is_ddp=is_ddp, use_distributed_checkpoint=use_distributed_checkpoint)
+    _assert_checkpoint_step(
+        ckpt_subdir, 5, num_ranks=1, is_ddp=is_ddp, use_distributed_checkpoint=use_distributed_checkpoint
+    )
 
     cfg2 = _compose_config(
         recipe_path,
@@ -149,7 +156,9 @@ def _run_single_process_checkpoint_test(recipe_path, tmp_path, main_fn, ckpt_sub
     gc.collect()
     torch.cuda.empty_cache()
 
-    _assert_checkpoint_step(ckpt_subdir, 5, num_ranks=1, is_ddp=is_ddp, use_distributed_checkpoint=use_distributed_checkpoint)
+    _assert_checkpoint_step(
+        ckpt_subdir, 5, num_ranks=1, is_ddp=is_ddp, use_distributed_checkpoint=use_distributed_checkpoint
+    )
     _assert_checkpoint_step(
         ckpt_subdir, 10, num_ranks=1, is_ddp=is_ddp, use_distributed_checkpoint=use_distributed_checkpoint
     )
@@ -162,7 +171,9 @@ def _run_multi_process_checkpoint_test(
 ):
     ckpt_dir = str(tmp_path / "ckpt")
     tokenizer_path = _create_local_tokenizer(tmp_path)
-    expert_parallel_size = int(next(o.split("=", 1)[1] for o in extra_overrides if o.startswith("expert_parallel_size=")))
+    expert_parallel_size = int(
+        next(o.split("=", 1)[1] for o in extra_overrides if o.startswith("expert_parallel_size="))
+    )
     use_distributed_checkpoint = is_ddp and expert_parallel_size > 1
     env = os.environ.copy()
     env["WANDB_MODE"] = "disabled"
@@ -194,7 +205,9 @@ def _run_multi_process_checkpoint_test(
     assert result1.returncode == 0, f"Phase 1 failed: {result1.stderr}"
 
     ckpt_subdir = os.path.join(ckpt_dir, ckpt_subdir_name)
-    _assert_checkpoint_step(ckpt_subdir, 5, num_ranks=2, is_ddp=is_ddp, use_distributed_checkpoint=use_distributed_checkpoint)
+    _assert_checkpoint_step(
+        ckpt_subdir, 5, num_ranks=2, is_ddp=is_ddp, use_distributed_checkpoint=use_distributed_checkpoint
+    )
 
     result2 = subprocess.run(
         [*base_cmd, "num_train_steps=15", "checkpoint.resume_from_checkpoint=true", *common],
@@ -205,7 +218,9 @@ def _run_multi_process_checkpoint_test(
     )
     assert result2.returncode == 0, f"Phase 2 failed: {result2.stderr}"
 
-    _assert_checkpoint_step(ckpt_subdir, 5, num_ranks=2, is_ddp=is_ddp, use_distributed_checkpoint=use_distributed_checkpoint)
+    _assert_checkpoint_step(
+        ckpt_subdir, 5, num_ranks=2, is_ddp=is_ddp, use_distributed_checkpoint=use_distributed_checkpoint
+    )
     _assert_checkpoint_step(
         ckpt_subdir, 10, num_ranks=2, is_ddp=is_ddp, use_distributed_checkpoint=use_distributed_checkpoint
     )
