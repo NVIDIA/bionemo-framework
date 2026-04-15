@@ -53,7 +53,7 @@ def trunc_normal_init_(weights, scale=1.0, fan="fan_in"):
     samples = truncnorm.rvs(a=a, b=b, loc=0, scale=std, size=size)
     samples = np.reshape(samples, shape)
     with torch.no_grad():
-        weights.copy_(torch.tensor(samples, device=weights.device))
+        weights.copy_(torch.tensor(samples, device=weights.device, dtype=weights.dtype))
 
 
 def lecun_normal_init_(weights):

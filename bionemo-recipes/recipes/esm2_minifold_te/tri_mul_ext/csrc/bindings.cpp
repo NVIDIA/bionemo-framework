@@ -12,6 +12,14 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("k_dim"),
       pybind11::arg("out_dtype"));
   m.def(
+      "tri_mul_fused_backward",
+      &tri_mul_ext::tri_mul_fused_backward_cuda,
+      "Triangular multiplication fused backward",
+      pybind11::arg("grad"),
+      pybind11::arg("a"),
+      pybind11::arg("b"),
+      pybind11::arg("k_dim"));
+  m.def(
       "tri_mul_bdnn_cublas",
       &tri_mul_ext::tri_mul_bdnn_cublas_cuda,
       "Triangular multiplication on (B, D, N, N) via cuBLAS strided batched GEMM",

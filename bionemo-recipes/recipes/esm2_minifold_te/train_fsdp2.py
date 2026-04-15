@@ -35,9 +35,11 @@ Usage:
 
 import logging
 import os
+import random
 from pathlib import Path
 
 import hydra
+import numpy as np
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig, OmegaConf
@@ -61,6 +63,17 @@ from scheduler import get_linear_schedule_with_warmup
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+def set_global_seed(seed: int, local_rank: int) -> None:
+    """Seed Python, NumPy, and PyTorch for reproducible short-run comparisons."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # Make per-rank streams deterministic but distinct when needed.
+    torch.cuda.set_device(local_rank)
 
 
 def compute_distogram_loss(preds, coords, mask, no_bins=64, max_dist=25.0):
@@ -200,6 +213,7 @@ def main(args: DictConfig) -> float | None:
     device = torch.device(f"cuda:{dist_config.local_rank}")
     torch.distributed.init_process_group(backend="nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
+    set_global_seed(int(args.seed), dist_config.local_rank)
 
     device_mesh = init_device_mesh(
         "cuda",

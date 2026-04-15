@@ -12,6 +12,12 @@ at::Tensor tri_mul_fused_cuda(
     int64_t k_dim,
     const std::string& out_dtype);
 
+std::vector<at::Tensor> tri_mul_fused_backward_cuda(
+    const at::Tensor& grad,
+    const at::Tensor& a,
+    const at::Tensor& b,
+    int64_t k_dim);
+
 at::Tensor tri_mul_bdnn_cublas_cuda(
     const at::Tensor& a,
     const at::Tensor& b,

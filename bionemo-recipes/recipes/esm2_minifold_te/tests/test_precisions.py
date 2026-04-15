@@ -32,11 +32,12 @@ import transformer_engine.pytorch as te
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from transformer_engine.pytorch.quantization import FP8GlobalStateManager
+from transformer_engine.pytorch.quantized_tensor import QuantizedTensor
 
-from miniformer_te import MiniFormerTE, TransitionUpdateTE, TriangularUpdateTE
+from miniformer_te import BlockTE, MiniFormerTE, TransitionUpdateTE, TriangularUpdateTE
 from model_te import FoldingTrunkTE
 from quantization import ComponentPrecisionConfig
-from te_utils import tri_mul_bmm, tri_mul_einsum
+from te_utils import te_linear_nd, tri_mul_bmm, tri_mul_einsum, tri_mul_fp8_bdnn
 
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -147,6 +148,21 @@ class TestTriMulPrecision:
         cp = ComponentPrecisionConfig(tri_impl="einsum")
         assert cp.tri_impl == "einsum"
 
+    def test_tri_impl_accepts_fp8_bmm(self):
+        """The MXFP8 batched GEMM path should be Hydra-selectable."""
+        cp = ComponentPrecisionConfig(tri_impl="fp8_bmm")
+        assert cp.tri_impl == "fp8_bmm"
+
+    def test_tri_impl_accepts_fp8_cublaslt(self):
+        """The cuBLASLt MXFP8 path should be Hydra-selectable."""
+        cp = ComponentPrecisionConfig(tri_impl="fp8_cublaslt")
+        assert cp.tri_impl == "fp8_cublaslt"
+
+    def test_tri_impl_accepts_fused_fp8(self):
+        """The fused FP8 recipe path should be Hydra-selectable."""
+        cp = ComponentPrecisionConfig(tri_impl="fused_fp8")
+        assert cp.tri_impl == "fused_fp8"
+
     def test_bmm_fp32_when_tri_einsum_off(self):
         """BMM stays FP32 when tri_einsum="off" (explicit .float() cast)."""
         cp = ComponentPrecisionConfig(tri_einsum="off")
@@ -205,6 +221,258 @@ class TestTriMulPrecision:
         out = mod(x, mask)
         assert out.shape == (B, N, N, 128)
         assert out.dtype == torch.bfloat16
+
+    def test_fp8_bmm_backend_runs_forward_and_backward(self):
+        """The fp8_bmm backend should produce finite activations and gradients at production-aligned shapes."""
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(tri_einsum="bf16", tri_impl="fp8_bmm")
+        mod = TriangularUpdateTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(B, 32, 32, 128, device=DEVICE, dtype=torch.bfloat16, requires_grad=True)
+        mask = torch.ones(B, 32, 32, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        loss = out.float().square().mean()
+        loss.backward()
+        assert out.shape == (B, 32, 32, 128)
+        assert out.dtype == torch.bfloat16
+        assert torch.isfinite(out).all()
+        assert torch.isfinite(x.grad).all()
+
+    def test_tri_saved_tensor_fp8_hook_runs_forward_and_backward(self):
+        """Experimental FP8 saved-tensor packing should preserve a usable backward path."""
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(tri_saved_tensors_fp8=True)
+        mod = TriangularUpdateTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(1, 16, 16, 128, device=DEVICE, dtype=torch.bfloat16, requires_grad=True)
+        mask = torch.ones(1, 16, 16, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        loss = out.float().square().mean()
+        loss.backward()
+        assert out.shape == (1, 16, 16, 128)
+        assert out.dtype == torch.bfloat16
+        assert torch.isfinite(out).all()
+        assert torch.isfinite(x.grad).all()
+
+
+class TestSavedTensorPacking:
+    """Verify experimental saved-activation FP8 packing paths remain functional."""
+
+    def test_ffn_saved_tensor_fp8_hook_runs_forward_and_backward(self):
+        """TransitionUpdateTE should still train when BF16 saved tensors are packed to FP8."""
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(ffn_saved_tensors_fp8=True)
+        mod = TransitionUpdateTE(dim=128, hidden=512, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(1, 16, 16, 128, device=DEVICE, dtype=torch.bfloat16, requires_grad=True)
+        out = mod(x)
+        loss = out.float().square().mean()
+        loss.backward()
+        assert out.shape == (1, 16, 16, 128)
+        assert out.dtype == torch.bfloat16
+        assert torch.isfinite(out).all()
+        assert torch.isfinite(x.grad).all()
+
+    def test_ffn_checkpoint_saved_tensor_fp8_hook_hits_checkpoint_input(self, monkeypatch):
+        """Checkpointed FFN packing should attach at the checkpoint boundary and see the saved BF16 input."""
+        if not torch.cuda.is_available():
+            return
+
+        import miniformer_te as miniformer_te_module
+
+        seen = []
+        original_ctx = miniformer_te_module.saved_tensor_fp8_context
+
+        def instrumented_ctx(*, enabled, include_bf16=True, include_fp32=False, include_leaf_tensors=False):
+            base = original_ctx(
+                enabled=enabled,
+                include_bf16=include_bf16,
+                include_fp32=include_fp32,
+                include_leaf_tensors=include_leaf_tensors,
+            )
+            if not enabled:
+                return base
+
+            def _pack(tensor):
+                if isinstance(tensor, torch.Tensor):
+                    seen.append(
+                        {
+                            "shape": tuple(tensor.shape),
+                            "dtype": tensor.dtype,
+                            "is_leaf": bool(tensor.is_leaf),
+                        }
+                    )
+                return tensor
+
+            def _unpack(x):
+                return x
+
+            return torch.autograd.graph.saved_tensors_hooks(_pack, _unpack)
+
+        monkeypatch.setattr(miniformer_te_module, "saved_tensor_fp8_context", instrumented_ctx)
+
+        cp = ComponentPrecisionConfig(ffn=True, ffn_saved_tensors_fp8=True, ffn_checkpoint_reentrant=True)
+        mod = BlockTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(1, 16, 16, 128, device=DEVICE, dtype=torch.bfloat16, requires_grad=True)
+        mask = torch.ones(1, 16, 16, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        loss = out.float().square().mean()
+        loss.backward()
+
+        assert any(entry["shape"] == (1, 16, 16, 128) and entry["dtype"] == torch.bfloat16 for entry in seen)
+
+    def test_tri_checkpoint_saved_tensor_fp8_hook_hits_checkpoint_inputs(self, monkeypatch):
+        """Checkpointed triangular packing should attach at the checkpoint boundary and see saved inputs."""
+        if not torch.cuda.is_available():
+            return
+
+        import miniformer_te as miniformer_te_module
+
+        seen = []
+        original_ctx = miniformer_te_module.saved_tensor_fp8_context
+
+        def instrumented_ctx(*, enabled, include_bf16=True, include_fp32=False, include_leaf_tensors=False):
+            base = original_ctx(
+                enabled=enabled,
+                include_bf16=include_bf16,
+                include_fp32=include_fp32,
+                include_leaf_tensors=include_leaf_tensors,
+            )
+            if not enabled:
+                return base
+
+            def _pack(tensor):
+                if isinstance(tensor, torch.Tensor):
+                    seen.append(
+                        {
+                            "shape": tuple(tensor.shape),
+                            "dtype": tensor.dtype,
+                            "is_leaf": bool(tensor.is_leaf),
+                        }
+                    )
+                return tensor
+
+            def _unpack(x):
+                return x
+
+            return torch.autograd.graph.saved_tensors_hooks(_pack, _unpack)
+
+        monkeypatch.setattr(miniformer_te_module, "saved_tensor_fp8_context", instrumented_ctx)
+
+        cp = ComponentPrecisionConfig(
+            tri_saved_tensors_fp8=True,
+            tri_checkpoint_reentrant=True,
+        )
+        mod = BlockTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(1, 16, 16, 128, device=DEVICE, dtype=torch.bfloat16, requires_grad=True)
+        mask = torch.ones(1, 16, 16, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        loss = out.float().square().mean()
+        loss.backward()
+
+        assert any(entry["shape"] == (1, 16, 16, 128) and entry["dtype"] == torch.bfloat16 for entry in seen)
+        assert any(entry["shape"] == (1, 16, 16) and entry["dtype"] == torch.bfloat16 for entry in seen)
+
+    def test_tri_prefix_checkpoint_reentrant_runs_forward_and_backward(self):
+        """Checkpointing only the triangular projection/gating prefix should still train."""
+        if not torch.cuda.is_available():
+            return
+
+        cp = ComponentPrecisionConfig(
+            tri_saved_tensors_fp8=True,
+            tri_prefix_checkpoint_reentrant=True,
+        )
+        mod = BlockTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(1, 16, 16, 128, device=DEVICE, dtype=torch.bfloat16, requires_grad=True)
+        mask = torch.ones(1, 16, 16, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        loss = out.float().square().mean()
+        loss.backward()
+
+        assert out.shape == (1, 16, 16, 128)
+        assert torch.isfinite(out).all()
+        assert torch.isfinite(x.grad).all()
+
+    def test_ffn_fused_subgraph_fp8_runs_forward_and_backward(self):
+        """Custom-autograd TransitionUpdateTE should still backprop through TE modules."""
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(ffn=True, ffn_fused_subgraph_fp8=True)
+        mod = TransitionUpdateTE(dim=128, hidden=512, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(1, 16, 16, 128, device=DEVICE, dtype=torch.bfloat16, requires_grad=True)
+        out = mod(x)
+        loss = out.float().square().mean()
+        loss.backward()
+        assert out.shape == (1, 16, 16, 128)
+        assert out.dtype == torch.bfloat16
+        assert torch.isfinite(out).all()
+        assert torch.isfinite(x.grad).all()
+
+    def test_fp8_grouped_backend_runs_forward_and_backward(self):
+        """The bulk-packed grouped FP8 backend should produce finite activations and gradients."""
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(tri_einsum="bf16", tri_impl="fp8_grouped")
+        mod = TriangularUpdateTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(B, 32, 32, 128, device=DEVICE, dtype=torch.bfloat16, requires_grad=True)
+        mask = torch.ones(B, 32, 32, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        loss = out.float().square().mean()
+        loss.backward()
+        assert out.shape == (B, 32, 32, 128)
+        assert out.dtype == torch.bfloat16
+        assert torch.isfinite(out).all()
+        assert torch.isfinite(x.grad).all()
+
+    def test_fp8_cublaslt_backend_runs_forward_and_backward(self):
+        """The cuBLASLt FP8 backend should produce finite activations and gradients."""
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(tri_einsum="bf16", tri_impl="fp8_cublaslt")
+        mod = TriangularUpdateTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(B, 32, 32, 128, device=DEVICE, dtype=torch.bfloat16, requires_grad=True)
+        mask = torch.ones(B, 32, 32, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        loss = out.float().square().mean()
+        loss.backward()
+        assert out.shape == (B, 32, 32, 128)
+        assert out.dtype == torch.bfloat16
+        assert torch.isfinite(out).all()
+        assert torch.isfinite(x.grad).all()
+
+    def test_fused_fp8_backend_runs_forward_and_backward(self):
+        """The fused FP8 recipe backend should produce finite activations and gradients."""
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(tri_einsum="bf16", tri_impl="fused_fp8")
+        mod = TriangularUpdateTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(B, 32, 32, 128, device=DEVICE, dtype=torch.bfloat16, requires_grad=True)
+        mask = torch.ones(B, 32, 32, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        loss = out.float().square().mean()
+        loss.backward()
+        assert out.shape == (B, 32, 32, 128)
+        assert out.dtype == torch.bfloat16
+        assert torch.isfinite(out).all()
+        assert torch.isfinite(x.grad).all()
+
+    def test_fp8_bdnn_matches_bf16_path_within_fp8_noise(self):
+        """The one-permute FP8 backend should stay close to the BF16 bmm reference."""
+        if not torch.cuda.is_available():
+            return
+        x_bdnn = torch.randn(B, 128, 32, 32, device=DEVICE, dtype=torch.bfloat16)
+        out_fp8 = tri_mul_fp8_bdnn(x_bdnn, out_dtype=torch.float32)
+        a1, b1, a2, b2 = torch.chunk(x_bdnn, 4, dim=1)
+        out_ref = torch.cat(
+            [
+                tri_mul_bmm(a1.permute(0, 2, 3, 1), b1.permute(0, 2, 3, 1), k_dim=2, mode="bf16").float(),
+                tri_mul_bmm(a2.permute(0, 2, 3, 1), b2.permute(0, 2, 3, 1), k_dim=1, mode="bf16").float(),
+            ],
+            dim=-1,
+        )
+        delta = (out_fp8 - out_ref).abs()
+        assert delta.mean().item() < 0.25
+        assert delta.flatten().quantile(0.99).item() < 0.8
 
     def test_tri_mul_einsum_matches_bmm_reference(self):
         """The literal einsum backend should match the reshape-to-bmm backend."""
@@ -313,6 +581,45 @@ class TestFP8StateInBlocks:
         expected = [(0, True), (1, False), (2, True), (3, False)]
         for (idx, actual), (_, expect) in zip(fp8_states, expected):
             assert actual == expect, f"Block {idx}: expected FP8={expect}, got FP8={actual}"
+
+
+class TestTEFloat8Boundaries:
+    """Verify where TE FP8 outputs can persist and where the graph must break back to BF16."""
+
+    def test_te_linear_nd_can_return_float8_tensor(self):
+        """The N-D TE wrapper should preserve Float8Tensor outputs when fp8_output is requested."""
+        if not torch.cuda.is_available():
+            return
+        mod = te.Linear(128, 128, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(B, 32, 32, 128, device=DEVICE, dtype=torch.bfloat16)
+
+        with te.autocast(enabled=True):
+            out = te_linear_nd(mod, x, fp8_output=True)
+
+        assert isinstance(out, QuantizedTensor)
+        assert out.shape == x.shape
+
+    def test_te_float8_output_breaks_to_bf16_at_sigmoid_and_mul(self):
+        """Sigmoid and elementwise multiply are mandatory higher-precision boundaries."""
+        if not torch.cuda.is_available():
+            return
+        mod = te.Linear(128, 128, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(B, 32, 32, 128, device=DEVICE, dtype=torch.bfloat16)
+
+        with te.autocast(enabled=True):
+            q = te_linear_nd(mod, x, fp8_output=True)
+
+        assert isinstance(q, QuantizedTensor)
+
+        sigma = q.sigmoid()
+        prod = q * sigma
+
+        assert isinstance(sigma, torch.Tensor)
+        assert not isinstance(sigma, QuantizedTensor)
+        assert sigma.dtype == torch.bfloat16
+        assert isinstance(prod, torch.Tensor)
+        assert not isinstance(prod, QuantizedTensor)
+        assert prod.dtype == torch.bfloat16
 
 
 class TestComponentPrecisionOverrides:
