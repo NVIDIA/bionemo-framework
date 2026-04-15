@@ -93,15 +93,15 @@ OUTER_EOF
 COMMAND="export EXP_NAME=\"${EXP_NAME}\"; export WANDB_API_KEY=\"${WANDB_API_KEY}\"; export HUGGING_FACE_HUB_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; ${COMMAND}"
 
 echo "Launching: ${EXP_NAME}"
+
+# AUTO-CHAIN: always resubmit on exit (success, failure, or timeout).
+# Uses --dependency=singleton so only one job with this name runs at a time.
+# To stop chaining: scancel the queued job.
+trap 'echo "Resubmitting for next chain..."; sbatch --dependency=singleton "${BASH_SOURCE[0]}"; echo "Job finished! Check: ${RESULTS_DIR}"' EXIT
+
 srun \
   --output "${RESULTS_DIR}/slurm-%j-%n.out" \
   --error  "${RESULTS_DIR}/error-%j-%n.out" \
   --container-image "${CONTAINER}" \
   --container-mounts "${MOUNTS}" \
   bash -c "${COMMAND}"
-
-# Auto-chain: resubmit so training resumes from checkpoint. scancel to stop.
-echo "Resubmitting for next chain..."
-sbatch --dependency=singleton "${BASH_SOURCE[0]}"
-
-echo "Job finished! Check: ${RESULTS_DIR}"
