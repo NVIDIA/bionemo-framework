@@ -44,7 +44,7 @@ if ! enroot list | grep -q "^${CONTAINER_NAME}$"; then
 fi
 
 MODE="${1:-}"
-NVTE_ARCH="${2:-103a}"
+NVTE_ARCH="${2:-100a}"
 
 # ── Launch ─────────────────────────────────────────────
 enroot start --rw \
