@@ -1,0 +1,43 @@
+defaults:
+  - defaults
+  - _self_
+
+config_name_or_path: ./model_configs/og2-mixtral-8x7B
+use_meta_device: true
+use_fp32_master_weights: false
+expert_parallel_size: 2
+num_train_steps: 200
+
+dataset:
+  tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
+  micro_batch_size: 1
+  num_workers: 4
+  max_seq_length: 2048
+  stride: 256
+  buffer_size: 50_000
+  use_stateful_dataloader: false
+  mask_degenerate_bases: true
+  load_dataset_kwargs:
+    path: arcinstitute/opengenome2
+    split: train
+    streaming: true
+
+wandb:
+  name: agent01-og2-8x7B-ep2
+  project: swarm-mixtral-development
+
+lr_scheduler_kwargs:
+  num_warmup_steps: 20
+  num_decay_steps: 180
+  min_lr_ratio: 1.0e-6
+
+checkpoint:
+  ckpt_dir: /home/user/checkpoints/mixtral-ep-test
+  save_final_model: false
+  resume_from_checkpoint: false
+  save_every_n_steps: 100
+  max_checkpoints: 2
+  async_save: true
+
+logger:
+  frequency: 10
