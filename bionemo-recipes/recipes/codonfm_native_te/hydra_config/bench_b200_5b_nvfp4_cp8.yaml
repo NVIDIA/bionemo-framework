@@ -1,0 +1,8 @@
+# WARNING: codonfm_native_te does not have train_fsdp2_cp.py yet
+# AUTO-GENERATED benchmark config — B200 CodonFM encodon_5b NVFP4 CP=8
+# Regenerate: python ci/benchmarks/generate_benchmark_configs.py --mode local
+defaults:
+  - bench_b200_5b_nvfp4
+  - _self_
+
+cp_size: 8

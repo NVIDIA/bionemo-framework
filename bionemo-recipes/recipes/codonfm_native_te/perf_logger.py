@@ -115,6 +115,7 @@ class PerfLogger:
         step: int,
         grad_norm: torch.Tensor | DTensor | float,
         lr: float,
+        mfu_info: dict | None = None,
     ):
         """Log a training step (called once per optimizer step).
 
@@ -122,6 +123,7 @@ class PerfLogger:
             step: Current optimizer step.
             grad_norm: Gradient norm value.
             lr: Current learning rate.
+            mfu_info: Optional MFU tracking info dict with 'mfu' and 'tflops_per_gpu' keys.
         """
         with torch.no_grad():
             assert self.grad_acc_step_count > 0, (
@@ -166,6 +168,10 @@ class PerfLogger:
                     for k, v in metrics.items()
                 }
                 metrics["train/global_step"] = step
+
+                if mfu_info is not None:
+                    metrics["train/mfu_percent"] = mfu_info["mfu"]
+                    metrics["train/tflops_per_gpu"] = mfu_info["tflops_per_gpu"]
 
                 if self._dist_config.is_main_process():
                     wandb.log(metrics, step=step)

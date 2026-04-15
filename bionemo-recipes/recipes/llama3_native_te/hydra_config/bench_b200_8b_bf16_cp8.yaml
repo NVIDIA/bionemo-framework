@@ -1,0 +1,7 @@
+# AUTO-GENERATED benchmark config — B200 Llama3 Llama-3.1-8B BF16 CP=8
+# Regenerate: python ci/benchmarks/generate_benchmark_configs.py --mode local
+defaults:
+  - bench_b200_8b_bf16
+  - _self_
+
+cp_size: 8

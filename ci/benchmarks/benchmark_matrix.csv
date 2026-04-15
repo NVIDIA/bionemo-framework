@@ -1,0 +1,13 @@
+Hardware,Model Family,Model Variant,Precision,Notes,Single Node 8GPU (CP=1; TP=8),Single Node 8GPU (CP=4; TP=2),Single Node 8GPU (CP=8; TP=1),Multi Node 32GPU (CP=1; TP=8; PP=4),Multi Node 32GPU (CP=4; TP=8; PP=1),Multi Node 32GPU (CP=8; TP=4; PP=1),Multi Node 32GPU (CP=16; TP=2; PP=1)
+H100,ESM2,3B,BF16,,,,,,,,
+H100,ESM2,3B,FP8,,,,,,,,
+H100,ESM2,15B,BF16,,,,,,,,
+H100,ESM2,15B,FP8,,,,,,,,
+H100,Llama3,Llama-3.1-8B,BF16,,,,,,,,
+H100,Llama3,Llama-3.1-8B,FP8,,,,,,,,
+H100,Llama3,OpenGenome2-7B,BF16,,,,,,,,
+H100,Llama3,OpenGenome2-7B,FP8,,,,,,,,
+H100,CodonFM,encodon_5b,BF16,Tentative CP: port over from ESM2 recipe,,,,,,,
+H100,CodonFM,encodon_5b,FP8,Tentative CP: port over from ESM2 recipe,,,,,,,
+H100,Evo2,evo2/7b-1m,BF16,,,,,,,,
+H100,Evo2,evo2/7b-1m,FP8,,,,,,,,

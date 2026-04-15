@@ -1,0 +1,93 @@
+############################################################
+# Performance Benchmark Base Configuration
+#
+# Shared config for throughput/MFU performance benchmarks.
+# Child configs override recipe-specific fields and products.
+#
+# Usage:
+#   python ci/lepton/core/launch_job.py \
+#     --config-path="../perf_benchmarks/configs" \
+#     --config-name="esm2/h100_esm2_3b_bf16"
+############################################################
+template_type: convergence_tests
+
+############################################################
+# Container Runtime
+############################################################
+container:
+  image: nvcr.io/nvidia/pytorch:26.02-py3
+  registry_auth: lepton-nvidia
+
+############################################################
+# Telemetry
+############################################################
+log_to_wandb: true
+log_to_kratos: true
+
+# Secret name overrides (users can point to their own Lepton secrets)
+wandb_secret: SHARED_WANDB_API_KEY
+hf_token_secret: SHARED_HF_TOKEN
+
+environment_variables:
+  - name: WANDB_API_KEY
+    value_from: ${wandb_secret}
+  - name: KRATOS_SSA_URL
+    value_from: SHARED_KRATOS_SSA_URL
+  - name: KRATOS_SSA_CLIENT_ID
+    value_from: SHARED_KRATOS_SSA_CLIENT_ID
+  - name: KRATOS_SSA_SECRET
+    value_from: SHARED_KRATOS_SSA_SECRET
+  - name: LEP_LOGIN_CREDENTIALS
+    value_from: SHARED_LEP_LOGIN_CREDENTIALS
+  - name: HF_HOME
+    value: /data/esm2/cache
+  - name: HF_TOKEN
+    value_from: ${hf_token_secret}
+
+############################################################
+# Cluster Defaults (H100)
+# Override in child configs for other hardware.
+############################################################
+node_group: yo-bom-lepton-001
+mount_from: node-nfs:fs1
+
+mounts:
+  - path: /BioNeMo
+    mount_path: /data
+    from_: ${mount_from}
+
+############################################################
+# W&B Defaults
+############################################################
+wandb_init_args:
+  group: "perf_benchmarks__recipes"
+  mode: "online"
+
+############################################################
+# Git Checkout
+############################################################
+branch: main
+commit_sha: ""
+
+checkout_script: |
+  set -euo pipefail
+  git clone https://github.com/NVIDIA/bionemo-framework.git
+  cd bionemo-framework
+  if [ -n "${commit_sha}" ]; then
+    echo "Checking out commit: ${commit_sha}"
+    git checkout "${commit_sha}"
+  elif [ "${branch}" != "main" ]; then
+    echo "Checking out branch: ${branch}"
+    git checkout "${branch}"
+  fi
+  cd bionemo-recipes/recipes/${recipe_subdir}
+  pip install -r requirements.txt
+
+############################################################
+# Runtime Commands
+############################################################
+run_script: ""
+
+script: |
+  ${checkout_script}
+  ${run_script}

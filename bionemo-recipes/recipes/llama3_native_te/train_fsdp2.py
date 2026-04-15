@@ -209,17 +209,19 @@ def main(args: DictConfig) -> float | None:
                 scheduler.step()
                 optimizer.zero_grad()
 
-                perf_logger.log_step(
-                    step=step,
-                    grad_norm=total_norm,
-                    lr=optimizer.param_groups[0]["lr"],
-                )
-
+                mfu_info = None
                 if mfu_tracker is not None:
                     step_time = time.perf_counter() - step_start_time
                     mfu_info = mfu_tracker.compute_mfu(step_time)
                     if dist_config.is_main_process():
                         logger.info("MFU: %.1f%% (%.2f TFLOPS/GPU)", mfu_info["mfu"], mfu_info["tflops_per_gpu"])
+
+                perf_logger.log_step(
+                    step=step,
+                    grad_norm=total_norm,
+                    lr=optimizer.param_groups[0]["lr"],
+                    mfu_info=mfu_info,
+                )
                 step_start_time = time.perf_counter()
 
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):

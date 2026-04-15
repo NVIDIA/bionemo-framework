@@ -18,6 +18,7 @@ from pathlib import Path
 
 import hydra
 import torch
+import wandb
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.optim import AdamW
@@ -218,6 +219,10 @@ def main(args: DictConfig) -> float | None:
                         mfu_info["mfu"],
                         mfu_info["tflops_per_gpu"],
                         mfu_info["step_time"],
+                    )
+                    wandb.log(
+                        {"train/mfu_percent": mfu_info["mfu"], "train/tflops_per_gpu": mfu_info["tflops_per_gpu"]},
+                        step=step,
                     )
 
             if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):

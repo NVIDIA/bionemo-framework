@@ -1,0 +1,21 @@
+# AUTO-GENERATED benchmark config — B200 CodonFM encodon_5b FP8
+# Regenerate: python ci/benchmarks/generate_benchmark_configs.py --mode local
+defaults:
+  - defaults
+  - _self_
+
+num_train_steps: 500
+log_mfu: true
+dataset:
+  micro_batch_size: 4
+fp8_config:
+  enabled: true
+  fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+  fp8_format: E4M3
+checkpoint:
+  ckpt_dir: ''
+  save_final_model: false
+  resume_from_checkpoint: false
+wandb:
+  name: bench_b200_5b_fp8
+  mode: online

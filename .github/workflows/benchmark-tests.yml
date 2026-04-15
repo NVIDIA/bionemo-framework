@@ -1,0 +1,56 @@
+name: "BioNeMo Perf Benchmark Tests"
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchmark_config:
+        description: "Benchmark config name (e.g., esm2/h100_esm2_3b_bf16)"
+        required: true
+        type: string
+      branch:
+        description: "Branch to benchmark (ignored if commit SHA is provided)"
+        required: true
+        default: "main"
+        type: string
+      commit_sha:
+        description: "Commit SHA (optional — overrides branch if provided)"
+        required: false
+        type: string
+
+jobs:
+  submit-benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.commit_sha || github.event.inputs.branch || 'main' }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            ci/lepton/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ci/lepton/requirements.txt
+
+      - name: Submit Lepton Benchmark Jobs
+        env:
+          LEP_LOGIN_CREDENTIALS: ${{ secrets.LEP_LOGIN_CREDENTIALS }}
+          BENCHMARK_CONFIG: ${{ github.event.inputs.benchmark_config }}
+          BRANCH: ${{ github.event.inputs.branch || 'main' }}
+          COMMIT_SHA: ${{ github.event.inputs.commit_sha || '' }}
+        run: |
+          set -euo pipefail
+          lep login -c "$LEP_LOGIN_CREDENTIALS" || true
+
+          python ci/lepton/core/launch_job.py \
+            --config-path ../perf_benchmarks/configs \
+            --config-name "$BENCHMARK_CONFIG" \
+            branch="$BRANCH" \
+            commit_sha="$COMMIT_SHA"

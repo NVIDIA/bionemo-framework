@@ -1,0 +1,22 @@
+# AUTO-GENERATED benchmark config — B200 ESM2 3B FP8
+# Regenerate: python ci/benchmarks/generate_benchmark_configs.py --mode local
+defaults:
+  - defaults
+  - _self_
+
+config_name_or_path: nvidia/esm2_t36_3B_UR50D
+num_train_steps: 500
+log_mfu: true
+dataset:
+  micro_batch_size: 16
+fp8_config:
+  enabled: true
+  fp8_recipe: transformer_engine.common.recipe.Float8BlockScaling
+  fp8_format: E4M3
+checkpoint:
+  ckpt_dir: ''
+  save_final_model: false
+  resume_from_checkpoint: false
+wandb_init_args:
+  name: bench_b200_3b_fp8
+  mode: online
