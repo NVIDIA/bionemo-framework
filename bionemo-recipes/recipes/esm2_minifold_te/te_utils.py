@@ -16,6 +16,7 @@
 import os
 import sys
 import importlib
+from contextlib import nullcontext
 from pathlib import Path
 
 import torch
@@ -23,7 +24,13 @@ import transformer_engine.pytorch as te
 from transformer_engine.pytorch.constants import TE_DType
 from transformer_engine.pytorch.cpp_extensions import split_quantize
 from transformer_engine.pytorch.cpp_extensions.gemm import general_grouped_gemm
+from transformer_engine.pytorch.quantized_tensor import (
+    QuantizedTensor,
+    prepare_for_saving,
+    restore_from_func_ctx,
+)
 from transformer_engine.pytorch.tensor import MXFP8Quantizer, MXFP8TensorStorage
+from transformer_engine.pytorch.tensor.float8_blockwise_tensor import Float8BlockQuantizer
 
 try:
     from tri_mul_ext import tri_mul_fused as _tri_mul_fused_ext
@@ -120,6 +127,89 @@ def te_layernorm_nd(module: te.LayerNorm, x: torch.Tensor) -> torch.Tensor:
     return x.reshape(*leading, -1)
 
 
+def _make_saved_activation_quantizer() -> Float8BlockQuantizer:
+    """Create a TE block-scaled FP8 quantizer for saved activation packing."""
+    return Float8BlockQuantizer(
+        TE_DType[torch.float8_e4m3fn],
+        rowwise=True,
+        columnwise=False,
+        block_scaling_dim=2,
+    )
+
+
+def quantize_tensor_for_fp8_save(tensor: torch.Tensor) -> torch.Tensor | QuantizedTensor:
+    """Quantize a tensor to TE block-scaled FP8 when the shape supports it."""
+    if isinstance(tensor, QuantizedTensor):
+        return tensor
+    if tensor.device.type != "cuda":
+        return tensor
+    quantizer = _make_saved_activation_quantizer()
+    if tensor.dim() < 2 or not quantizer.is_quantizable(tensor):
+        return tensor
+    return quantizer.quantize(tensor.detach())
+
+
+def save_fp8_tensors_for_backward(ctx, *tensors: torch.Tensor | QuantizedTensor) -> None:
+    """Save tensors on an autograd context, preserving TE quantized storages."""
+    saved_tensors, tensor_objects = prepare_for_saving(*tensors)
+    ctx.tensor_objects = tensor_objects
+    ctx.save_for_backward(*saved_tensors)
+
+
+def restore_fp8_tensors_from_backward(ctx) -> list[torch.Tensor | QuantizedTensor | None]:
+    """Restore tensors previously saved with `save_fp8_tensors_for_backward`."""
+    return restore_from_func_ctx(ctx)
+
+
+def saved_tensor_fp8_context(
+    *,
+    enabled: bool,
+    include_bf16: bool = True,
+    include_fp32: bool = False,
+    include_leaf_tensors: bool = False,
+):
+    """Pack autograd-saved tensors into block-scaled FP8 and restore on backward.
+
+    This is an experimental activation-memory path. It is intended for large
+    non-leaf saved activations inside hotspot modules, not for model weights.
+    """
+    if not enabled or not torch.is_grad_enabled():
+        return nullcontext()
+
+    allowed_dtypes = set()
+    if include_bf16:
+        allowed_dtypes.add(torch.bfloat16)
+    if include_fp32:
+        allowed_dtypes.add(torch.float32)
+
+    quantizer = _make_saved_activation_quantizer()
+
+    def _pack(tensor):
+        if not isinstance(tensor, torch.Tensor):
+            return tensor
+        if isinstance(tensor, QuantizedTensor):
+            return tensor
+        if tensor.device.type != "cuda" or tensor.dtype not in allowed_dtypes:
+            return tensor
+        if tensor.dim() < 2:
+            return tensor
+        if tensor.is_leaf and not include_leaf_tensors:
+            return tensor
+        if not quantizer.is_quantizable(tensor):
+            return tensor
+
+        packed = quantizer.quantize(tensor.detach())
+        return ("te_fp8_saved_tensor", packed, tensor.dtype)
+
+    def _unpack(packed):
+        if isinstance(packed, tuple) and len(packed) == 3 and packed[0] == "te_fp8_saved_tensor":
+            _, tensor, orig_dtype = packed
+            return tensor.dequantize(dtype=orig_dtype)
+        return packed
+
+    return torch.autograd.graph.saved_tensors_hooks(_pack, _unpack)
+
+
 def tri_mul_bmm(a: torch.Tensor, b: torch.Tensor, k_dim: int, mode: str = "off") -> torch.Tensor:
     """Batched GEMM equivalent of triangular multiplication einsum.
 
@@ -181,7 +271,7 @@ def tri_mul(
     - `bmm`: reshape-to-batched-GEMM implementation
     - `fp8_bmm`: MXFP8 batched GEMM with custom autograd
     - `fp8_cublaslt`: MXFP8 batched GEMM via raw cuBLASLt
-    - `fused`: experimental external `tri_mul_ext` kernel
+    - `fused`: experimental external `tri_mul_ext` BF16 kernel
     """
     impl = impl or os.environ.get("BIONEMO_TRI_MUL_IMPL", "bmm")
     if impl == "einsum":
@@ -281,6 +371,16 @@ def tri_mul_fp8_cublaslt_bdnn(x_bdnn: torch.Tensor, out_dtype: torch.dtype | Non
         x = _mxfp8_cublaslt_tri_mul_xbdnn_ext(x_bdnn, out_dtype=out_dtype)
     d_out = x.shape[1]
     return x.reshape(B, d_out, N1, N1).permute(0, 2, 3, 1)
+
+
+def tri_mul_fp8_fused_bdnn(x_bdnn: torch.Tensor, out_dtype: torch.dtype | None = None) -> torch.Tensor:
+    """Fused FP8 tri-mul over a packed `(B, 128, N, N)` tensor.
+
+    This exposes the paired native MXFP8 cuBLASLt implementation as a recipe-level
+    fused backend. It keeps the two triangular contractions inside one FP8 backend
+    path rather than issuing them through the older BF16 `tri_mul_ext` API.
+    """
+    return tri_mul_fp8_cublaslt_bdnn(x_bdnn, out_dtype=out_dtype)
 
 
 def tri_mul_fp8_grouped_bdnn(x_bdnn: torch.Tensor, out_dtype: torch.dtype | None = None) -> torch.Tensor:

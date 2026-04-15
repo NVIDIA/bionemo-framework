@@ -7,6 +7,7 @@
 esm_model_name: facebook/esm2_t33_650M_UR50D
 
 num_train_steps: 100
+seed: 42
 
 model:
   c_s: 1024
@@ -66,7 +67,7 @@ component_precision:
   tri_proj: false      # TriangularUpdateTE input/output projections (pi, po te.Linear layers)
   tri_gate: false      # TriangularUpdateTE sigmoid gates (gi, go te.Linear layers)
   tri_einsum: "off"    # "off" = FP32 (default), "bf16" = ambient dtype (recommended)
-  tri_impl: "bmm"      # "einsum" = original path, "bmm" = batched GEMM, "cublas_xbdnn" = optimized BF16 backend
+  tri_impl: "bmm"      # "einsum" = original path, "bmm" = batched GEMM, "fp8_bmm"/"fp8_cublaslt" = MXFP8 batched GEMM, "cublas_xbdnn" = optimized BF16 backend
   ffn: true            # TransitionUpdateTE FFN (fc1, fc2 te.Linear layers)
   struct_attn: false   # StructureModuleTE attention projections (proj, o_proj, g_proj te.Linear layers)
   struct_ffn: false    # StructureModuleTE transition MLP (fc1, fc2 te.Linear layers)

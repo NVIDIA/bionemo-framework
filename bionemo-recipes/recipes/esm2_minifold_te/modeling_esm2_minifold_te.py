@@ -60,6 +60,7 @@ class ESM2MiniFoldTE(nn.Module):
         fp8_recipe=None,
         fp4_recipe=None,
         component_precision: ComponentPrecisionConfig | None = None,
+        te_module_device: str | torch.device | None = None,
     ):
         """Initialize ESM2MiniFoldTE.
 
@@ -77,6 +78,9 @@ class ESM2MiniFoldTE(nn.Module):
             fp8_recipe: FP8 recipe for TE autocast.
             fp4_recipe: FP4 recipe for TE autocast.
             component_precision: Per-component precision overrides within FP8/FP4 blocks.
+            te_module_device: Optional device context used only while constructing
+                the TE folding head. Set to ``"meta"`` to create TE params on the
+                meta device before FSDP2 sharding/materialization.
         """
         super().__init__()
 
@@ -90,47 +94,49 @@ class ESM2MiniFoldTE(nn.Module):
         embed_dim = self.backbone.embed_dim
         attn_dim = self.backbone.attn_dim
 
-        # Sequence projection: embed_dim -> c_s
-        self.fc_s_1 = te.Linear(embed_dim, c_s, params_dtype=params_dtype)
-        self.fc_s_2 = te.Linear(c_s, c_s, params_dtype=params_dtype)
+        te_device_ctx = torch.device(te_module_device) if te_module_device is not None else nullcontext()
+        with te_device_ctx:
+            # Sequence projection: embed_dim -> c_s
+            self.fc_s_1 = te.Linear(embed_dim, c_s, params_dtype=params_dtype)
+            self.fc_s_2 = te.Linear(c_s, c_s, params_dtype=params_dtype)
 
-        # Pairwise projection: attn_dim -> c_z
-        self.fc_z_1 = te.Linear(attn_dim, c_z, params_dtype=params_dtype)
-        self.fc_z_2 = te.Linear(c_z, c_z, params_dtype=params_dtype)
+            # Pairwise projection: attn_dim -> c_z
+            self.fc_z_1 = te.Linear(attn_dim, c_z, params_dtype=params_dtype)
+            self.fc_z_2 = te.Linear(c_z, c_z, params_dtype=params_dtype)
 
-        # Folding trunk
-        self.fold = FoldingTrunkTE(
-            c_s=c_s,
-            c_z=c_z,
-            bins=32,
-            disto_bins=no_bins,
-            num_layers=num_blocks,
-            params_dtype=params_dtype,
-            block_precision=block_precision,
-            fp8_recipe=fp8_recipe,
-            fp4_recipe=fp4_recipe,
-            component_precision=component_precision,
-        )
-
-        # Optional structure module (Stage 2)
-        if use_structure_module:
-            self.sz_project = PairToSequenceTE(c_z=c_z, c_s=c_s, params_dtype=params_dtype)
-            self.structure_module = StructureModuleTE(
+            # Folding trunk
+            self.fold = FoldingTrunkTE(
                 c_s=c_s,
                 c_z=c_z,
-                c_resnet=128,
-                head_dim=64,
-                no_heads=16,
-                no_blocks=num_structure_blocks,
-                no_resnet_blocks=2,
-                no_angles=7,
-                trans_scale_factor=10,
-                epsilon=1e-5,
-                inf=1e5,
+                bins=32,
+                disto_bins=no_bins,
+                num_layers=num_blocks,
                 params_dtype=params_dtype,
+                block_precision=block_precision,
+                fp8_recipe=fp8_recipe,
+                fp4_recipe=fp4_recipe,
+                component_precision=component_precision,
             )
-            if structure_config is not None:
-                self.aux_heads = AuxiliaryHeadsTE(structure_config["heads"])
+
+            # Optional structure module (Stage 2)
+            if use_structure_module:
+                self.sz_project = PairToSequenceTE(c_z=c_z, c_s=c_s, params_dtype=params_dtype)
+                self.structure_module = StructureModuleTE(
+                    c_s=c_s,
+                    c_z=c_z,
+                    c_resnet=128,
+                    head_dim=64,
+                    no_heads=16,
+                    no_blocks=num_structure_blocks,
+                    no_resnet_blocks=2,
+                    no_angles=7,
+                    trans_scale_factor=10,
+                    epsilon=1e-5,
+                    inf=1e5,
+                    params_dtype=params_dtype,
+                )
+                if structure_config is not None:
+                    self.aux_heads = AuxiliaryHeadsTE(structure_config["heads"])
 
     def forward(self, batch: dict, num_recycling: int = 0) -> dict:
         """Forward pass.

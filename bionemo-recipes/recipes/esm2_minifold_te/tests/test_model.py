@@ -68,6 +68,39 @@ class TestTriangularUpdateTE:
         out = mod(x, mask)
         assert out.shape == (B, N, N, DIM)
 
+    def test_forward_shape_fp8_bmm_backend(self):
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(tri_einsum="bf16", tri_impl="fp8_bmm")
+        mod = TriangularUpdateTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(B, 32, 32, 128, device=DEVICE, dtype=torch.bfloat16)
+        mask = torch.ones(B, 32, 32, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        assert out.shape == (B, 32, 32, 128)
+        assert out.dtype == torch.bfloat16
+
+    def test_forward_shape_fp8_grouped_backend(self):
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(tri_einsum="bf16", tri_impl="fp8_grouped")
+        mod = TriangularUpdateTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(B, 32, 32, 128, device=DEVICE, dtype=torch.bfloat16)
+        mask = torch.ones(B, 32, 32, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        assert out.shape == (B, 32, 32, 128)
+        assert out.dtype == torch.bfloat16
+
+    def test_forward_shape_fp8_cublaslt_backend(self):
+        if not torch.cuda.is_available():
+            return
+        cp = ComponentPrecisionConfig(tri_einsum="bf16", tri_impl="fp8_cublaslt")
+        mod = TriangularUpdateTE(dim=128, component_precision=cp, params_dtype=torch.bfloat16).to(DEVICE)
+        x = torch.randn(B, 32, 32, 128, device=DEVICE, dtype=torch.bfloat16)
+        mask = torch.ones(B, 32, 32, device=DEVICE, dtype=torch.bfloat16)
+        out = mod(x, mask)
+        assert out.shape == (B, 32, 32, 128)
+        assert out.dtype == torch.bfloat16
+
 
 class TestBlockTE:
     def test_forward_shape(self):

@@ -35,6 +35,21 @@ def _tri_mul_reference(a: torch.Tensor, b: torch.Tensor, k_dim: int) -> torch.Te
     return out3.reshape(B, D, N1, N2).permute(0, 2, 3, 1)
 
 
+class _TriMulFused(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, a: torch.Tensor, b: torch.Tensor, k_dim: int, out_dtype: torch.dtype) -> torch.Tensor:
+        ctx.k_dim = int(k_dim)
+        ctx.save_for_backward(a, b)
+        return _C.tri_mul_fused(a, b, int(k_dim), str(out_dtype).replace("torch.", ""))
+
+    @staticmethod
+    def backward(ctx, grad_output: torch.Tensor):
+        a, b = ctx.saved_tensors
+        grad_output = grad_output.contiguous()
+        grad_a, grad_b = _C.tri_mul_fused_backward(grad_output, a, b, int(ctx.k_dim))
+        return grad_a, grad_b, None, None
+
+
 def tri_mul_fused(
     a: torch.Tensor,
     b: torch.Tensor,
@@ -49,11 +64,17 @@ def tri_mul_fused(
     so callers and benchmarks can be wired up before the real fused kernel lands.
     """
     out_dtype = a.dtype if out_dtype is None else out_dtype
-    if tri_mul_fused_triton is not None and a.is_cuda and a.dtype == torch.bfloat16 and a.shape[-1] == 32:
+    if (
+        tri_mul_fused_triton is not None
+        and a.is_cuda
+        and a.dtype == torch.bfloat16
+        and a.shape[-1] == 32
+        and not torch.is_grad_enabled()
+    ):
         return tri_mul_fused_triton(a, b, k_dim=k_dim, out_dtype=out_dtype)
     if _C is None or a.shape[-1] != 32:
         return _tri_mul_reference(a, b, k_dim).to(out_dtype)
-    return _C.tri_mul_fused(a, b, int(k_dim), str(out_dtype).replace("torch.", ""))
+    return _TriMulFused.apply(a, b, int(k_dim), out_dtype)
 
 
 def tri_mul_bdnn_cublas(

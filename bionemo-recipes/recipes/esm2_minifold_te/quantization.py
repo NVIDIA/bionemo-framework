@@ -146,12 +146,35 @@ class ComponentPrecisionConfig:
         tri_impl: Triangular multiplication backend.
             "einsum" = original literal torch.einsum path.
             "bmm" = current PyTorch/cuBLAS batched path.
+            "fp8_bmm" = custom MXFP8 batched GEMM path with saved FP8 activations.
+            "fp8_cublaslt" = raw cuBLASLt MXFP8 batched GEMM backend.
+            "fp8_grouped" = TE grouped FP8 GEMM prototype.
             "cublas_xbdnn" = specialized BF16 cuBLAS backend for `(B, 128, N, N)`.
+            "fused_fp8" = paired native MXFP8 cuBLASLt backend exposed as a fused recipe path.
         ffn: Transition update FFN layers (fc1, fc2).
         struct_attn: Structure module attention projections (proj, o_proj, g_proj).
         struct_ffn: Structure module transition MLP layers.
         seq_proj: Sequence and pair feature projections (fc_s, fc_z, seq_to_pair).
         dist_head: Distogram output head (fc_out_1, fc_out_2).
+        tri_saved_tensors_fp8: Experimentally pack autograd-saved tensors inside
+            TriangularUpdateTE to block-scaled FP8.
+        tri_gating_chain_fp8: Use the single dequant/requant triangular gating
+            chain wrapper instead of per-op FP8 dispatch for sigmoid/mul.
+        ffn_saved_tensors_fp8: Experimentally pack autograd-saved tensors inside
+            TransitionUpdateTE to block-scaled FP8.
+        ffn_relu_native_fp8: Use the native raw-FP8 ReLU path inside
+            TransitionUpdateTE instead of the per-op dispatch path.
+        ffn_fused_subgraph_fp8: Use a custom autograd wrapper for TransitionUpdateTE
+            that recomputes through TE modules in backward and saves quantized state.
+        ffn_fused_subgraph_debug_memory: Print coarse CUDA memory checkpoints inside
+            the custom TransitionUpdateTE backward path.
+        tri_checkpoint_reentrant: Wrap TriangularUpdateTE in reentrant activation
+            checkpointing at the MiniFormer block level.
+        tri_prefix_checkpoint_reentrant: Wrap only the cheap projection/gating
+            prefix of TriangularUpdateTE in reentrant checkpointing.
+        ffn_checkpoint_reentrant: Wrap TransitionUpdateTE in reentrant activation
+            checkpointing at the MiniFormer block level.
+        saved_tensors_fp8_include_fp32: Also pack FP32 saved tensors, not only BF16.
     """
 
     tri_proj: bool = True
@@ -163,12 +186,31 @@ class ComponentPrecisionConfig:
     struct_ffn: bool = True
     seq_proj: bool = True
     dist_head: bool = True
+    tri_saved_tensors_fp8: bool = False
+    tri_gating_chain_fp8: bool = False
+    ffn_saved_tensors_fp8: bool = False
+    ffn_relu_native_fp8: bool = False
+    ffn_fused_subgraph_fp8: bool = False
+    ffn_fused_subgraph_debug_memory: bool = False
+    tri_checkpoint_reentrant: bool = False
+    tri_prefix_checkpoint_reentrant: bool = False
+    ffn_checkpoint_reentrant: bool = False
+    saved_tensors_fp8_include_fp32: bool = False
 
     def __post_init__(self):
         """Normalize tri_einsum for backward compatibility with bool configs."""
         if isinstance(self.tri_einsum, bool):
             self.tri_einsum = "bf16" if self.tri_einsum else "off"
-        valid_tri_impls = {"einsum", "bmm", "cublas_xbdnn", "fused"}
+        valid_tri_impls = {
+            "einsum",
+            "bmm",
+            "fp8_bmm",
+            "fp8_cublaslt",
+            "fp8_grouped",
+            "cublas_xbdnn",
+            "fused",
+            "fused_fp8",
+        }
         if self.tri_impl not in valid_tri_impls:
             raise ValueError(f"tri_impl must be one of {sorted(valid_tri_impls)}, got {self.tri_impl!r}")
 

@@ -77,7 +77,7 @@ class SyntheticStructureDataset(Dataset):
         mask[: seq_len + 2] = 1.0
 
         # Random Ca coordinates (Angstroms)
-        coords = torch.randn(self.max_seq_length, 3) * 10.0
+        coords = torch.randn(self.max_seq_length, 3, generator=self.rng) * 10.0
 
         return {
             "input_ids": input_ids,
@@ -314,6 +314,7 @@ def create_dataloader(
     parquet_path: str | None = None,
     tokenizer_name: str | None = None,
     num_samples: int = 1000,
+    seed: int = 42,
     cif_dir: str | None = None,
     pdb_ids: list[str] | None = None,
     shuffle: bool = True,
@@ -344,6 +345,7 @@ def create_dataloader(
         dataset = SyntheticStructureDataset(
             num_samples=num_samples,
             max_seq_length=max_seq_length,
+            seed=seed,
         )
     elif dataset_type == "parquet":
         from transformers import EsmTokenizer

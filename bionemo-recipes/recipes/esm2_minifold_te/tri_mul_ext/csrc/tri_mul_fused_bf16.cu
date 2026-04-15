@@ -78,6 +78,90 @@ void launch_batched_cublas(
       CUBLAS_GEMM_DEFAULT_TENSOR_OP));
 }
 
+at::Tensor rowmajor_square_bmm_strided(
+    const at::Tensor& left,
+    const at::Tensor& right,
+    bool trans_left,
+    bool trans_right,
+    c10::ScalarType out_type) {
+  TORCH_CHECK(left.is_cuda() && right.is_cuda(), "rowmajor_square_bmm_strided expects CUDA tensors");
+  TORCH_CHECK(left.dim() == 3 && right.dim() == 3, "rowmajor_square_bmm_strided expects 3D tensors");
+  TORCH_CHECK(left.is_contiguous() && right.is_contiguous(), "rowmajor_square_bmm_strided expects contiguous tensors");
+  TORCH_CHECK(left.scalar_type() == right.scalar_type(), "rowmajor_square_bmm_strided expects matching dtypes");
+  TORCH_CHECK(left.size(0) == right.size(0), "batch dimensions must match");
+
+  const int64_t batch = left.size(0);
+  const int64_t n = left.size(1);
+  TORCH_CHECK(left.size(2) == n, "left matrices must be square");
+  TORCH_CHECK(right.size(1) == n && right.size(2) == n, "right matrices must match left square shape");
+
+  auto out = at::empty({batch, n, n}, left.options().dtype(out_type));
+  auto handle = at::cuda::getCurrentCUDABlasHandle();
+  auto stream = at::cuda::getDefaultCUDAStream();
+  TORCH_CUDABLAS_CHECK(cublasSetStream(handle, stream));
+
+  const float alpha = 1.0f;
+  const float beta = 0.0f;
+  const int64_t stride = n * n;
+  const void* left_ptr = nullptr;
+  const void* right_ptr = nullptr;
+  if (left.scalar_type() == c10::ScalarType::BFloat16) {
+    left_ptr = left.data_ptr<at::BFloat16>();
+    right_ptr = right.data_ptr<at::BFloat16>();
+  } else if (left.scalar_type() == c10::ScalarType::Half) {
+    left_ptr = left.data_ptr<at::Half>();
+    right_ptr = right.data_ptr<at::Half>();
+  } else {
+    left_ptr = left.data_ptr<float>();
+    right_ptr = right.data_ptr<float>();
+  }
+  void* out_ptr = out.data_ptr();
+  const auto in_dtype =
+      left.scalar_type() == c10::ScalarType::BFloat16 ? CUDA_R_16BF
+      : left.scalar_type() == c10::ScalarType::Half   ? CUDA_R_16F
+                                                      : CUDA_R_32F;
+  const auto out_dtype =
+      out_type == c10::ScalarType::BFloat16 ? CUDA_R_16BF
+      : out_type == c10::ScalarType::Half   ? CUDA_R_16F
+                                            : CUDA_R_32F;
+
+  // Row-major GEMM via cuBLAS column-major view:
+  // C_row = op(left_row) @ op(right_row)
+  // C_col = C_row^T = op(right_row)^T @ op(left_row)^T
+  // Therefore:
+  // - cuBLAS A points to right storage with transa = op(right_row)
+  // - cuBLAS B points to left storage with transb = op(left_row)
+  const cublasOperation_t transa = trans_right ? CUBLAS_OP_T : CUBLAS_OP_N;
+  const cublasOperation_t transb = trans_left ? CUBLAS_OP_T : CUBLAS_OP_N;
+
+  TORCH_CUDABLAS_CHECK(cublasGemmStridedBatchedEx(
+      handle,
+      transa,
+      transb,
+      static_cast<int>(n),
+      static_cast<int>(n),
+      static_cast<int>(n),
+      &alpha,
+      right_ptr,
+      in_dtype,
+      static_cast<int>(n),
+      stride,
+      left_ptr,
+      in_dtype,
+      static_cast<int>(n),
+      stride,
+      &beta,
+      out_ptr,
+      out_dtype,
+      static_cast<int>(n),
+      stride,
+      static_cast<int>(batch),
+      CUBLAS_COMPUTE_32F,
+      CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+
+  return out;
+}
+
 template <typename scalar_t>
 __device__ inline float to_float(scalar_t x);
 
@@ -308,6 +392,47 @@ at::Tensor tri_mul_fused_cuda(
               }));
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return out;
+}
+
+std::vector<at::Tensor> tri_mul_fused_backward_cuda(
+    const at::Tensor& grad,
+    const at::Tensor& a,
+    const at::Tensor& b,
+    int64_t k_dim) {
+  check_input(grad, "grad");
+  check_input(a, "a");
+  check_input(b, "b");
+  TORCH_CHECK(grad.sizes() == a.sizes() && a.sizes() == b.sizes(), "grad, a, and b must have matching shapes");
+  TORCH_CHECK(a.scalar_type() == b.scalar_type(), "a and b must have matching dtypes");
+  TORCH_CHECK(k_dim == 1 || k_dim == 2, "k_dim must be 1 or 2");
+
+  c10::cuda::CUDAGuard guard(a.device());
+  const int64_t B = a.size(0);
+  const int64_t N = a.size(1);
+  const int64_t D = a.size(3);
+  TORCH_CHECK(a.size(2) == N, "tri_mul_fused_backward requires square spatial dimensions");
+  TORCH_CHECK(D == 32, "tri_mul_fused_backward currently requires D == 32");
+
+  auto grad_in = grad.scalar_type() == a.scalar_type() ? grad : grad.to(a.scalar_type());
+  auto a_bdnn = a.permute({0, 3, 1, 2}).contiguous().reshape({B * D, N, N});
+  auto b_bdnn = b.permute({0, 3, 1, 2}).contiguous().reshape({B * D, N, N});
+  auto grad_bdnn = grad_in.permute({0, 3, 1, 2}).contiguous().reshape({B * D, N, N});
+
+  at::Tensor grad_a_bdnn;
+  at::Tensor grad_b_bdnn;
+  if (k_dim == 2) {
+    // Forward: C = A @ B^T
+    grad_a_bdnn = rowmajor_square_bmm_strided(grad_bdnn, b_bdnn, false, false, a.scalar_type());
+    grad_b_bdnn = rowmajor_square_bmm_strided(grad_bdnn, a_bdnn, true, false, b.scalar_type());
+  } else {
+    // Forward: C = A^T @ B
+    grad_a_bdnn = rowmajor_square_bmm_strided(b_bdnn, grad_bdnn, false, true, a.scalar_type());
+    grad_b_bdnn = rowmajor_square_bmm_strided(a_bdnn, grad_bdnn, false, false, b.scalar_type());
+  }
+
+  auto grad_a = grad_a_bdnn.reshape({B, D, N, N}).permute({0, 2, 3, 1}).contiguous();
+  auto grad_b = grad_b_bdnn.reshape({B, D, N, N}).permute({0, 2, 3, 1}).contiguous();
+  return {std::move(grad_a), std::move(grad_b)};
 }
 
 at::Tensor tri_mul_bdnn_cublas_cuda(
