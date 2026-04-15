@@ -144,8 +144,14 @@ class DTensorFusedAdam(FusedAdam):
                     # Zero-init as a safe placeholder.
                     self.state[param]["master_param"].zero_()
                 else:
-                    # Non-quantized param (BF16) — standard path.
-                    self.set_scaled_state(param, "master_param", param.clone().detach().float())
+                    # Non-quantized param (BF16) — copy directly to local tensor
+                    # to avoid DTensor dispatch issues in TE's set_scaled_state.
+                    master_state = self.state[param]["master_param"]
+                    local_val = param._local_tensor.float() if isinstance(param, DTensor) else param.float()
+                    if isinstance(master_state, DTensor):
+                        master_state._local_tensor.copy_(local_val)
+                    else:
+                        master_state.copy_(local_val)
 
 
 def _init_master_weights_from_high_precision(
