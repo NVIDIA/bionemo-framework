@@ -698,215 +698,13 @@ def generate_configs(
 
 
 # ---------------------------------------------------------------------------
-# Local config generation (Hydra overrides into recipe dirs)
-# ---------------------------------------------------------------------------
-
-
-def _build_local_base_config(row: BenchmarkRow, model_profile: dict, precision_profile: dict) -> dict:
-    """Build a Hydra override config for local execution (CP=1 base)."""
-    config = {}
-
-    # Model identifier
-    if model_profile["model_tag"]:
-        config["config_name_or_path"] = model_profile["model_tag"]
-
-    config["num_train_steps"] = model_profile["num_train_steps"]
-    config["log_mfu"] = True
-
-    config["dataset"] = {"micro_batch_size": model_profile["micro_batch_size"]}
-
-    # Precision
-    if precision_profile["fp8_enabled"]:
-        config["fp8_config"] = {
-            "enabled": True,
-            "fp8_recipe": precision_profile["fp8_recipe"],
-            "fp8_format": precision_profile["fp8_format"],
-        }
-    if precision_profile["fp4_enabled"]:
-        config["fp4_config"] = {
-            "enabled": True,
-            "fp4_recipe": precision_profile["fp4_recipe"],
-            "fp4_format": precision_profile["fp4_format"],
-        }
-
-    # Benchmarks don't checkpoint
-    config["checkpoint"] = {"ckpt_dir": "", "save_final_model": False, "resume_from_checkpoint": False}
-
-    # W&B
-    hw_label = _sanitize(row.hardware)
-    variant_label = model_profile["variant_label"]
-    precision_label = precision_profile["precision"]
-    wandb_key = "wandb_init_args" if model_profile["run_script_type"] == "esm2" else "wandb"
-    config[wandb_key] = {"name": f"bench_{hw_label}_{variant_label}_{precision_label}", "mode": "online"}
-
-    return config
-
-
-def _render_local_yaml(config: dict, defaults_from: str, comment: str) -> str:
-    """Render a local Hydra config with defaults and a comment header."""
-
-    class _Dumper(yaml.SafeDumper):
-        pass
-
-    def _str_representer(dumper, data):
-        if "\n" in data:
-            return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data)
-
-    _Dumper.add_representer(str, _str_representer)
-
-    lines = [
-        f"# AUTO-GENERATED benchmark config — {comment}",
-        "# Regenerate: python ci/benchmarks/generate_benchmark_configs.py --mode local",
-        "defaults:",
-        f"  - {defaults_from}",
-        "  - _self_",
-        "",
-    ]
-    body = yaml.dump(config, Dumper=_Dumper, default_flow_style=False, sort_keys=False, width=120)
-    lines.append(body)
-    return "\n".join(lines)
-
-
-def generate_local_configs(
-    csv_path: Path,
-    recipes_root: Path,
-    *,
-    dry_run: bool = False,
-    model_filter: list[str] | None = None,
-) -> list[dict]:
-    """Generate Hydra override configs into each recipe's hydra_config/ dir.
-
-    Returns a list of benchmark descriptors for RUN_BENCHMARKS.md generation.
-    """
-    rows, parallelism_configs = parse_csv(csv_path)
-    print(f"Parsed {len(rows)} rows with {len(parallelism_configs)} parallelism strategies from {csv_path}")
-
-    generated = 0
-    benchmarks = []  # For documenting run commands
-
-    # Group rows by (model_family, model_variant) to avoid duplicate base configs
-    seen_bases = set()
-
-    for row in rows:
-        key = (row.model_family, row.model_variant)
-        if key not in MODEL_PROFILES:
-            print(f"  SKIP: Unknown model {key}")
-            continue
-        if row.precision not in PRECISION_PROFILES:
-            print(f"  SKIP: Unknown precision {row.precision}")
-            continue
-        if row.hardware not in HARDWARE_PROFILES:
-            print(f"  SKIP: Unknown hardware {row.hardware}")
-            continue
-
-        model_profile = MODEL_PROFILES[key]
-        precision_profile = PRECISION_PROFILES[row.precision]
-
-        if model_filter and model_profile["model_type"] not in model_filter:
-            continue
-
-        # Skip Evo2 — different framework, not a Hydra recipe
-        if model_profile["framework"] == "megatron":
-            print(f"  SKIP: {row.model_family}/{row.model_variant} (Megatron, not a Hydra recipe)")
-            continue
-
-        hw_label = _sanitize(row.hardware)
-        variant_label = model_profile["variant_label"]
-        precision_label = _sanitize(row.precision)
-        recipe_dir = recipes_root / model_profile["recipe_subdir"]
-        hydra_dir = recipe_dir / "hydra_config"
-
-        base_name = f"bench_{hw_label}_{variant_label}_{precision_label}"
-        base_key = (model_profile["recipe_subdir"], base_name)
-
-        # Generate base config (CP=1)
-        if base_key not in seen_bases:
-            seen_bases.add(base_key)
-            base_config = _build_local_base_config(row, model_profile, precision_profile)
-            base_yaml = _render_local_yaml(
-                base_config,
-                "defaults",
-                f"{row.hardware} {row.model_family} {row.model_variant} {row.precision}",
-            )
-            base_path = hydra_dir / f"{base_name}.yaml"
-
-            if dry_run:
-                print(f"  [DRY RUN] Would write: {base_path}")
-            else:
-                base_path.parent.mkdir(parents=True, exist_ok=True)
-                base_path.write_text(base_yaml)
-                print(f"  Written: {base_path}")
-            generated += 1
-
-            # Record CP=1 benchmark
-            benchmarks.append(
-                {
-                    "recipe_subdir": model_profile["recipe_subdir"],
-                    "config_name": base_name,
-                    "script": model_profile["task_cmd_cp1"],
-                    "cp": 1,
-                    "description": f"{row.hardware} {row.model_family} {row.model_variant} {row.precision} CP=1",
-                    "notes": row.notes,
-                    "disabled": False,
-                }
-            )
-
-        # Generate CP>1 override configs
-        for par in parallelism_configs:
-            if par.cp <= 1:
-                continue
-            if par.num_nodes > 1:
-                continue  # Local mode is single-node only
-
-            cp_name = f"{base_name}_cp{par.cp}"
-            cp_config = {"cp_size": par.cp}
-            disabled = not model_profile["has_cp_script"]
-
-            cp_yaml = _render_local_yaml(
-                cp_config,
-                base_name,
-                f"{row.hardware} {row.model_family} {row.model_variant} {row.precision} CP={par.cp}",
-            )
-            if disabled:
-                cp_yaml = (
-                    f"# WARNING: {model_profile['recipe_subdir']} does not have train_fsdp2_cp.py yet\n" + cp_yaml
-                )
-
-            cp_path = hydra_dir / f"{cp_name}.yaml"
-
-            if dry_run:
-                print(f"  [DRY RUN] Would write: {cp_path}{' (DISABLED)' if disabled else ''}")
-            else:
-                cp_path.parent.mkdir(parents=True, exist_ok=True)
-                cp_path.write_text(cp_yaml)
-                print(f"  Written: {cp_path}{' (DISABLED)' if disabled else ''}")
-            generated += 1
-
-            benchmarks.append(
-                {
-                    "recipe_subdir": model_profile["recipe_subdir"],
-                    "config_name": cp_name,
-                    "script": model_profile["task_cmd_cp"],
-                    "cp": par.cp,
-                    "description": f"{row.hardware} {row.model_family} {row.model_variant} {row.precision} CP={par.cp}",
-                    "notes": row.notes,
-                    "disabled": disabled,
-                }
-            )
-
-    print(f"\n{'Would generate' if dry_run else 'Generated'} {generated} local Hydra configs")
-    return benchmarks
-
-
-# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 
 def main():
     """CLI entry point for benchmark config generation."""
-    parser = argparse.ArgumentParser(description="Generate benchmark configs from CSV matrix")
+    parser = argparse.ArgumentParser(description="Generate Lepton CI benchmark configs from CSV matrix")
     parser.add_argument(
         "--csv",
         type=Path,
@@ -917,19 +715,7 @@ def main():
         "--output-dir",
         type=Path,
         default=Path("ci/lepton/perf_benchmarks/configs"),
-        help="Output directory for generated Lepton YAML configs (lepton mode)",
-    )
-    parser.add_argument(
-        "--mode",
-        choices=["lepton", "local"],
-        default="lepton",
-        help="Generation mode: 'lepton' for CI configs, 'local' for Hydra recipe configs",
-    )
-    parser.add_argument(
-        "--recipes-root",
-        type=Path,
-        default=Path("bionemo-recipes/recipes"),
-        help="Root directory of recipes (local mode)",
+        help="Output directory for generated YAML configs",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print what would be generated without writing")
     parser.add_argument(
@@ -940,21 +726,13 @@ def main():
 
     model_filter = [m.strip() for m in args.models.split(",")] if args.models else None
 
-    if args.mode == "lepton":
-        generate_configs(
-            csv_path=args.csv,
-            output_dir=args.output_dir,
-            dry_run=args.dry_run,
-            model_filter=model_filter,
-            validate_only=args.validate_only,
-        )
-    else:
-        generate_local_configs(
-            csv_path=args.csv,
-            recipes_root=args.recipes_root,
-            dry_run=args.dry_run,
-            model_filter=model_filter,
-        )
+    generate_configs(
+        csv_path=args.csv,
+        output_dir=args.output_dir,
+        dry_run=args.dry_run,
+        model_filter=model_filter,
+        validate_only=args.validate_only,
+    )
 
 
 if __name__ == "__main__":

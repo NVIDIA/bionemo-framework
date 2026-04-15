@@ -1,7 +1,0 @@
-# AUTO-GENERATED benchmark config — B200 ESM2 15B NVFP4 CP=4
-# Regenerate: python ci/benchmarks/generate_benchmark_configs.py --mode local
-defaults:
-  - bench_b200_15b_nvfp4
-  - _self_
-
-cp_size: 4

@@ -1,7 +1,0 @@
-# AUTO-GENERATED benchmark config — B200 ESM2 15B BF16 CP=8
-# Regenerate: python ci/benchmarks/generate_benchmark_configs.py --mode local
-defaults:
-  - bench_b200_15b_bf16
-  - _self_
-
-cp_size: 8
