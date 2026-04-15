@@ -64,6 +64,13 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+# --- BEGIN COPIED FUNCTIONS ---
+# _build_dispatcher and clip_grad_norm_ep_aware are copied from:
+#   bionemo-recipes/recipes/mixtral_native_te/train_fsdp2.py
+# Kept inline for recipe self-containment (KISS over DRY).
+# --- END COPIED FUNCTIONS ---
+
+
 def _build_dispatcher(args: DictConfig, config: NVMixtralConfig):
     """Build the requested token dispatcher for EP runs.
 
@@ -139,6 +146,9 @@ def clip_grad_norm_ep_aware(params: Iterable[torch.nn.Parameter], max_norm: floa
     return total_norm
 
 
+# --- END COPIED FUNCTIONS ---
+
+
 def set_seed(seed: int) -> None:
     """Set random seeds for reproducibility.
 
@@ -155,7 +165,7 @@ def set_seed(seed: int) -> None:
     torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    logger.info(f"Set seed to {seed} (same on all ranks for FSDP2)")
+    logger.info("Set seed to %s (same on all ranks for FSDP2)", seed)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
@@ -165,6 +175,7 @@ def main(args: DictConfig) -> float | None:
     Returns:
         float: The minimum loss value observed during training.
     """
+    # --- Distributed Setup ---
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
     device = torch.device(f"cuda:{dist_config.local_rank}")
@@ -187,11 +198,15 @@ def main(args: DictConfig) -> float | None:
     dp_size = dist_config.world_size // ep_size
     device_mesh = init_device_mesh("cuda", mesh_shape=(dp_size, ep_size), mesh_dim_names=("dp", "ep"))
 
-    # Create an FP8 recipe -- this is only used if FP8 is enabled in the config.
-    fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
-        fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
-    )
+    # --- Model Configuration ---
+    # Create quantization recipes -- only used if FP8 is enabled in the config.
+    fp8_recipe = None
+    if args.fp8_config.enabled:
+        fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
+            fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
+        )
 
+    # --- Model Initialization ---
     if args.use_te:
         config_class = NVMixtralConfig
         model_class = NVMixtralForCausalLM
@@ -236,6 +251,7 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
+    # --- Expert Parallelism Setup ---
     # Expert parallelism setup — MUST happen before fully_shard()
     # Wraps expert weights as DTensors with Shard(0) on the expert dimension.
     if args.use_te and ep_size > 1:
@@ -256,6 +272,7 @@ def main(args: DictConfig) -> float | None:
             "MixedPrecisionPolicy: param_dtype=bf16, reduce_dtype=fp32, output_dtype=bf16, cast_forward_inputs=False"
         )
 
+    # --- Distributed Wrapping (FSDP2) ---
     # Shard transformer layers with FSDP
     if mp_policy is None:
         mp_policy = MixedPrecisionPolicy()
@@ -273,6 +290,7 @@ def main(args: DictConfig) -> float | None:
     if args.fp8_stats_config.enabled and HAS_NVDLFW_INSPECT:
         debug_api.infer_and_assign_layer_names(model)
 
+    # --- Optimizer & Scheduler ---
     # Create optimizer
     adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
 
@@ -286,13 +304,14 @@ def main(args: DictConfig) -> float | None:
             skip_embeddings=skip_embedding_wd,
         )
         optimizer = AdamW(param_groups, **adamw_kwargs)  # type: ignore
-        logger.info(f"Weight decay grouping enabled: wd={weight_decay}, skip_embeddings={skip_embedding_wd}")
+        logger.info("Weight decay grouping enabled: wd=%s, skip_embeddings=%s", weight_decay, skip_embedding_wd)
     else:
         optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
-        logger.info(f"Weight decay grouping disabled: wd={adamw_kwargs.get('weight_decay', 0.1)} for all params")
+        logger.info("Weight decay grouping disabled: wd=%s for all params", adamw_kwargs.get("weight_decay", 0.1))
 
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
+    # --- Data Loading ---
     if args.use_sequence_packing:
         train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
     else:
@@ -301,10 +320,11 @@ def main(args: DictConfig) -> float | None:
     if args.use_torch_compile:
         model = torch.compile(model)
 
+    # --- Checkpoint Resume ---
     # Load checkpoint if resuming
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
-        logger.info(f"Attempting to load checkpoint from {ckpt_path}")
+        logger.info("Attempting to load checkpoint from %s", ckpt_path)
         model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_fsdp2(
             model=model,
             optimizer=optimizer,
@@ -315,7 +335,7 @@ def main(args: DictConfig) -> float | None:
             process_group=device_mesh.get_group("dp"),
             expert_parallel_size=ep_size,
         )
-        logger.info(f"Checkpoint loaded, resuming from step {start_step}, epoch {epoch}")
+        logger.info("Checkpoint loaded, resuming from step %s, epoch %s", start_step, epoch)
     else:
         logger.info("No checkpoint to load, starting from scratch")
         start_step = 0
@@ -351,17 +371,18 @@ def main(args: DictConfig) -> float | None:
                 val_dataloader, _ = create_bshd_dataloader(dist_config, **val_dataset_kwargs)
 
             logger.info(
-                f"Validation enabled: every {val_config.eval_interval} steps, {val_config.num_batches} batches"
+                "Validation enabled: every %s steps, %s batches", val_config.eval_interval, val_config.num_batches
             )
         else:
             logger.warning("Validation enabled but no data_path specified, skipping validation")
             val_enabled = False
 
+    # --- Training Loop ---
     gc.collect()
     torch.cuda.empty_cache()
 
     # Training loop
-    logger.info(f"Starting training loop from step {start_step} to {args.num_train_steps}")
+    logger.info("Starting training loop from step %s to %s", start_step, args.num_train_steps)
     step = start_step
     micro_step = 0
 
@@ -436,6 +457,7 @@ def main(args: DictConfig) -> float | None:
         epoch += 1
         dataset_or_sampler.set_epoch(epoch)
 
+    # --- Cleanup ---
     # Save final model
     if args.checkpoint.save_final_model and ckpt_path:
         save_final_model_fsdp2(

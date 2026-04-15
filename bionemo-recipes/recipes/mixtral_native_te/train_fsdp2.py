@@ -128,7 +128,12 @@ def clip_grad_norm_ep_aware(params: Iterable[torch.nn.Parameter], max_norm: floa
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
 def main(args: DictConfig) -> float | None:
-    """Train Mixtral with TE layers using FSDP2."""
+    """Train Mixtral with TE layers using FSDP2.
+
+    Returns:
+        float: The minimum loss value observed during training.
+    """
+    # --- Distributed Setup ---
     dist_config = DistributedConfig()
     logger.info("Initializing distributed training: %s", dist_config)
     device = torch.device(f"cuda:{dist_config.local_rank}")
@@ -138,6 +143,7 @@ def main(args: DictConfig) -> float | None:
     if args.fp8_stats_config.enabled:
         initialize_fp8_debugging(dist_config, **args.fp8_stats_config, fp8_enabled=args.fp8_config.enabled)
 
+    # --- Model Configuration ---
     ep_size = args.expert_parallel_size
     if dist_config.world_size % ep_size != 0:
         raise ValueError(
@@ -156,6 +162,7 @@ def main(args: DictConfig) -> float | None:
     if args.fp4_config.enabled:
         fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(**args.fp4_config.fp4_recipe_kwargs)
 
+    # --- Model Initialization ---
     if args.use_te:
         # Pass expert_parallel_size to config so the model initializes with the correct
         # num_local_experts = num_experts // expert_parallel_size per rank.
@@ -175,6 +182,7 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
+    # --- Expert Parallelism Setup ---
     # Expert parallelism setup — MUST happen before fully_shard()
     # Wraps expert weights as DTensors with Shard(0) on the expert dimension.
     if args.use_te and ep_size > 1:
@@ -182,6 +190,7 @@ def main(args: DictConfig) -> float | None:
         ep_group = ep_mesh.get_group()
         model.model.set_ep_groups(ep_group, ep_mesh)
 
+    # --- Distributed Wrapping (FSDP2) ---
     for layer in model.model.layers:
         fully_shard(layer, mesh=device_mesh["dp"])
     fully_shard(model, mesh=device_mesh["dp"])
@@ -196,17 +205,20 @@ def main(args: DictConfig) -> float | None:
     if args.fp8_stats_config.enabled:
         debug_api.infer_and_assign_layer_names(model)
 
+    # --- Optimizer & Scheduler ---
     optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore[arg-type]
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     if args.use_torch_compile:
         model = torch.compile(model)
 
+    # --- Data Loading ---
     if args.use_sequence_packing:
         train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
     else:
         train_dataloader, dataset_or_sampler = create_bshd_dataloader(dist_config, **args.dataset)
 
+    # --- Checkpoint Resume ---
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
         logger.info("Attempting to load checkpoint from %s", ckpt_path)
@@ -228,6 +240,7 @@ def main(args: DictConfig) -> float | None:
 
     perf_logger = PerfLogger(dist_config, args, start_step=start_step)
 
+    # --- Training Loop ---
     gc.collect()
     torch.cuda.empty_cache()
 
@@ -281,6 +294,7 @@ def main(args: DictConfig) -> float | None:
         epoch += 1
         dataset_or_sampler.set_epoch(epoch)
 
+    # --- Cleanup ---
     if args.checkpoint.save_final_model and ckpt_path:
         save_final_model_fsdp2(
             model=model,

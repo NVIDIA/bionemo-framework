@@ -44,6 +44,34 @@ def run_train_cmd(cmd, recipe_path):
 
 
 @requires_multi_gpu
+def test_multi_gpu_train_ddp(recipe_path):
+    """Test DDP training on 2 GPUs.
+
+    This test validates:
+    - DDP launches successfully with 2 processes
+    - Both GPUs are utilized
+    - Training completes without errors
+    - Gradient synchronization works across GPUs
+
+    The test runs only 4 training steps for speed.
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node",
+            "2",
+            "train_ddp.py",
+            "--config-name",
+            "L0_sanity",
+            "num_train_steps=4",
+            "expert_parallel_size=1",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
 def test_multi_gpu_train_fsdp2(recipe_path):
     run_train_cmd(
         [
@@ -55,6 +83,66 @@ def test_multi_gpu_train_fsdp2(recipe_path):
             "--config-name",
             "L0_sanity",
             "num_train_steps=4",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
+def test_multi_gpu_train_fsdp2_with_checkpointing(tmp_path, recipe_path):
+    """Test FSDP2 training on 2 GPUs with checkpoint saving.
+
+    This test validates:
+    - FSDP2 can save checkpoints with multiple processes
+    - Sharded checkpoints are created correctly
+    - No race conditions in checkpoint saving
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node",
+            "2",
+            "train_fsdp2.py",
+            "--config-name",
+            "L0_sanity",
+            "num_train_steps=10",
+            f"checkpoint.ckpt_dir={tmp_path}",
+            "checkpoint.save_every_n_steps=5",
+            "dataset.use_stateful_dataloader=true",
+            "expert_parallel_size=1",
+        ],
+        recipe_path,
+    )
+
+    # Verify checkpoint was created
+    ckpt_dir = tmp_path / "train_fsdp2"
+    assert ckpt_dir.exists(), f"Checkpoint directory not created: {ckpt_dir}"
+    assert (ckpt_dir / "step_5").exists(), "Checkpoint at step 5 not found"
+
+
+@requires_multi_gpu
+def test_multi_gpu_train_fsdp2_ep2(recipe_path):
+    """Test FSDP2 training with expert parallelism on 2 GPUs.
+
+    This test validates:
+    - Expert parallelism (EP=2) works with FSDP2 on 2 GPUs
+    - MoE routing and expert distribution across GPUs functions correctly
+    - Training completes without errors
+
+    The test runs only 4 training steps for speed.
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node",
+            "2",
+            "train_fsdp2.py",
+            "--config-name",
+            "L0_sanity",
+            "num_train_steps=4",
+            "expert_parallel_size=2",
         ],
         recipe_path,
     )

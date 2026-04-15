@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class DistributedConfig:
-    """Track distributed ranks and basic environment defaults."""
+    """Class to track distributed ranks and handle basic distributed training setup."""
 
     rank: int = field(default_factory=lambda: int(os.environ.setdefault("RANK", "0")))
     local_rank: int = field(default_factory=lambda: int(os.environ.setdefault("LOCAL_RANK", "0")))

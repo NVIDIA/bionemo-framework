@@ -23,9 +23,8 @@ use_torch_compile: false
 use_meta_device: false  # small model fits on device directly; avoids meta-device complexity with EP
 use_fp32_master_weights: false
 
-# Expert parallelism: EP=2 on 2-GPU setup (dp=1, ep=2).
-# num_local_experts (4) must be divisible by expert_parallel_size (2): 4/2=2 experts/rank.
-expert_parallel_size: 2
+# EP=1 for single-GPU sanity testing. Multi-GPU EP tests are in test_fsdp_ep.py.
+expert_parallel_size: 1
 
 dataset:
   tokenizer_name_or_path: ./tokenizers/nucleotide_fast_tokenizer
@@ -42,8 +41,8 @@ dataset:
     streaming: true
 
 wandb:
-  name: "agent1-opengenome2"
-  project: "swarm-mixtral-development"
+  name: "og2_mixtral_8x1B_sanity"
+  mode: "offline"
 
 lr_scheduler_kwargs:
   num_warmup_steps: 10
