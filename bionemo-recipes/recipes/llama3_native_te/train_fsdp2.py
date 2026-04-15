@@ -228,13 +228,6 @@ def main(args: DictConfig) -> float | None:
         adamw_kwargs.pop("fused", None)
         optimizer = FusedAdam(model.parameters(), master_weights=True, **adamw_kwargs)  # type: ignore
         logger.info("Using TE FusedAdam with FP32 master weights")
-
-        # When using quantized_model_init with preserve_high_precision_init_val=True,
-        # initialize FP32 master weights from the original high-precision values instead of
-        # from dequantized FP8 values. This avoids quantization noise in initialization.
-        # See: https://github.com/NVIDIA/TransformerEngine/blob/main/examples/pytorch/quantized_model_init/fully_shard.py
-        if args.fp8_config.quantized_model_init_kwargs.get("preserve_high_precision_init_val", False):
-            _init_master_weights_from_high_precision(optimizer, model, device)
     else:
         optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
@@ -267,6 +260,15 @@ def main(args: DictConfig) -> float | None:
         logger.info("No checkpoint to load, starting from scratch")
         start_step = 0
         epoch = 0
+
+        # When starting from scratch with quantized_model_init + preserve_high_precision_init_val,
+        # seed FP32 master weights from the original high-precision init values (not dequantized FP8).
+        # Skip on resume — checkpoint already has correct master weights, and eager dequantize() can
+        # invalidate QuantizedTensor storage causing FSDP2 forward failures.
+        if args.use_fp32_master_weights_fused and args.fp8_config.quantized_model_init_kwargs.get(
+            "preserve_high_precision_init_val", False
+        ):
+            _init_master_weights_from_high_precision(optimizer, model, device)
 
     perf_logger = PerfLogger(dist_config, args, start_step=start_step)
 
