@@ -28,15 +28,31 @@ from torch.autograd import Function
 from torch.utils.checkpoint import checkpoint
 from transformer_engine.pytorch.quantized_tensor import QuantizedTensor
 from transformer_engine.pytorch.quantization import FP8GlobalStateManager
-from transformer_engine.pytorch.tensor.float8_blockwise_tensor import (
-    Float8BlockwiseQTensor,
-    fused_relu_backward_fp8,
-    fused_relu_forward_fp8,
-    fused_sigmoid_gate_backward_fp8,
-    fused_sigmoid_gate_forward_fp8,
-)
+from transformer_engine.pytorch.tensor.float8_blockwise_tensor import Float8BlockwiseQTensor
+
+try:
+    from transformer_engine.pytorch.tensor.float8_blockwise_tensor import (
+        fused_relu_backward_fp8,
+        fused_relu_forward_fp8,
+        fused_sigmoid_gate_backward_fp8,
+        fused_sigmoid_gate_forward_fp8,
+    )
+except ImportError:
+    def _missing_fp8_blockwise_helper(name: str):
+        def _missing(*args, **kwargs):
+            raise RuntimeError(
+                f"{name} is unavailable in the installed TransformerEngine build on this node"
+            )
+
+        return _missing
+
+    fused_relu_backward_fp8 = _missing_fp8_blockwise_helper("fused_relu_backward_fp8")
+    fused_relu_forward_fp8 = _missing_fp8_blockwise_helper("fused_relu_forward_fp8")
+    fused_sigmoid_gate_backward_fp8 = _missing_fp8_blockwise_helper("fused_sigmoid_gate_backward_fp8")
+    fused_sigmoid_gate_forward_fp8 = _missing_fp8_blockwise_helper("fused_sigmoid_gate_forward_fp8")
 
 from minifold_utils import init
+from flash_trimul import flash_trimul
 from quantization import ComponentPrecisionConfig
 from te_utils import (
     quantize_tensor_for_fp8_save,
@@ -439,6 +455,9 @@ class TriangularUpdateTE(nn.Module):
             pi_out = te_linear_nd(self.pi, x, fp8_output=keep_fp8_linear_outputs)
         with _gate_ctx():
             gi_logits = te_linear_nd(self.gi, x, fp8_output=keep_fp8_linear_outputs)
+        tri_impl = cp.tri_impl if cp else os.environ.get("BIONEMO_TRI_MUL_IMPL", "bmm")
+        if tri_impl == "flash_trimul":
+            return (pi_out, gi_logits)
         use_gating_chain = bool(cp and cp.tri_gating_chain_fp8 and keep_fp8_linear_outputs)
         if use_gating_chain:
             return _GatedChainToFloat8Func.apply(
@@ -449,7 +468,7 @@ class TriangularUpdateTE(nn.Module):
             )
         return pi_out * torch.sigmoid(gi_logits) * mask.unsqueeze(-1)
 
-    def tri_mul_and_output(self, x: Tensor, mask: Tensor) -> Tensor:
+    def tri_mul_and_output(self, x: Tensor | tuple[Tensor, Tensor], mask: Tensor) -> Tensor:
         cp = self._component_precision
 
         def _proj_ctx():
@@ -460,11 +479,18 @@ class TriangularUpdateTE(nn.Module):
 
         keep_fp8_linear_outputs = FP8GlobalStateManager.is_fp8_enabled()
 
+        tri_impl = cp.tri_impl if cp else os.environ.get("BIONEMO_TRI_MUL_IMPL", "bmm")
         tri_mode = cp.tri_einsum if cp else "off"
         use_fp32 = tri_mode == "off"
-        x_in = x.float() if use_fp32 else x
-        tri_impl = cp.tri_impl if cp else os.environ.get("BIONEMO_TRI_MUL_IMPL", "bmm")
-        if tri_impl in {"bmm", "cublas_xbdnn", "fp8_bmm", "fp8_cublaslt", "fp8_grouped", "fused_fp8"}:
+        if tri_impl == "flash_trimul":
+            if not isinstance(x, tuple) or len(x) != 2:
+                raise TypeError("flash_trimul expects project_and_gate to return (proj, gate_logits)")
+            proj, gate_logits = x
+            proj_in = proj.float() if use_fp32 else proj
+            gate_in = gate_logits.float() if use_fp32 else gate_logits
+            x = flash_trimul(proj_in, gate_in, mask)
+        elif tri_impl in {"bmm", "cublas_xbdnn", "fp8_bmm", "fp8_cublaslt", "fp8_grouped", "fused_fp8"}:
+            x_in = x.float() if use_fp32 else x
             x_bdnn = x_in.permute(0, 3, 1, 2).contiguous()
             if tri_impl == "cublas_xbdnn":
                 x = tri_mul_xbdnn(x_bdnn, out_dtype=x_in.dtype)
@@ -482,6 +508,7 @@ class TriangularUpdateTE(nn.Module):
                 x2 = tri_mul_bmm_bdnn(a2, b2, k_dim=1)
                 x = torch.cat([x1, x2], dim=-1)
         else:
+            x_in = x.float() if use_fp32 else x
             a1, b1, a2, b2 = torch.chunk(x_in, 4, dim=-1)
             if tri_impl == "fused":
                 a1 = a1.contiguous()

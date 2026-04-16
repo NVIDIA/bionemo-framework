@@ -153,6 +153,11 @@ class TestTriMulPrecision:
         cp = ComponentPrecisionConfig(tri_impl="fp8_bmm")
         assert cp.tri_impl == "fp8_bmm"
 
+    def test_tri_impl_accepts_flash_trimul(self):
+        """The fused Triton gate+tri-mul path should be Hydra-selectable."""
+        cp = ComponentPrecisionConfig(tri_impl="flash_trimul")
+        assert cp.tri_impl == "flash_trimul"
+
     def test_tri_impl_accepts_fp8_cublaslt(self):
         """The cuBLASLt MXFP8 path should be Hydra-selectable."""
         cp = ComponentPrecisionConfig(tri_impl="fp8_cublaslt")

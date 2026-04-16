@@ -27,8 +27,14 @@ from transformer_engine.pytorch.cpp_extensions.gemm import general_grouped_gemm
 from transformer_engine.pytorch.quantized_tensor import (
     QuantizedTensor,
     prepare_for_saving,
-    restore_from_func_ctx,
 )
+try:
+    from transformer_engine.pytorch.quantized_tensor import restore_from_func_ctx
+except ImportError:
+    from transformer_engine.pytorch.quantized_tensor import restore_from_saved
+
+    def restore_from_func_ctx(ctx):
+        return restore_from_saved(ctx.tensor_objects, ctx.saved_tensors)
 from transformer_engine.pytorch.tensor import MXFP8Quantizer, MXFP8TensorStorage
 from transformer_engine.pytorch.tensor.float8_blockwise_tensor import Float8BlockQuantizer
 

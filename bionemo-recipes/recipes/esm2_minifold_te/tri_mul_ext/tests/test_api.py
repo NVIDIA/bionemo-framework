@@ -13,6 +13,12 @@ sys.path.insert(0, str(ROOT / "tri_mul_ext"))
 from tri_mul_ext import tri_mul_fused, tri_mul_xbdnn_cublas  # noqa: E402
 
 
+def _rel_error(actual: torch.Tensor, ref: torch.Tensor) -> float:
+    diff = (actual.float() - ref.float()).norm()
+    base = ref.float().norm().clamp_min(1e-12)
+    return float((diff / base).item())
+
+
 def test_tri_mul_fused_matches_reference_kdim2():
     if not torch.cuda.is_available():
         return
@@ -44,3 +50,49 @@ def test_tri_mul_xbdnn_cublas_matches_reference():
     ref = torch.cat([ref1, ref2], dim=-1).to(torch.bfloat16)
     out = tri_mul_xbdnn_cublas(x_bdnn, out_dtype=torch.bfloat16)
     assert torch.allclose(out, ref, atol=2e-2, rtol=2e-2)
+
+
+def test_tri_mul_xbdnn_cublas_backward_populates_input_grad():
+    if not torch.cuda.is_available():
+        return
+    x = torch.randn((1, 128, 32, 32), device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    out = tri_mul_xbdnn_cublas(x, out_dtype=torch.bfloat16)
+    loss = out.float().square().mean()
+    loss.backward()
+    assert out.requires_grad
+    assert x.grad is not None
+    assert torch.isfinite(x.grad).all()
+    assert x.grad.abs().max().item() > 0
+
+
+def test_tri_mul_xbdnn_cublas_3b_shape_backward_matches_reference():
+    if not torch.cuda.is_available():
+        return
+
+    torch.manual_seed(42)
+    x = torch.randn((2, 128, 256, 256), device="cuda", dtype=torch.bfloat16, requires_grad=True)
+    out = tri_mul_xbdnn_cublas(x, out_dtype=torch.bfloat16)
+    loss = out.float().square().mean()
+    loss.backward()
+
+    x_ref = x.detach().clone().requires_grad_(True)
+    a1, b1, a2, b2 = torch.chunk(x_ref, 4, dim=1)
+    batch, d_chunk, n, _ = a1.shape
+    ref1 = torch.bmm(a1.reshape(batch * d_chunk, n, n), b1.reshape(batch * d_chunk, n, n).transpose(1, 2))
+    ref2 = torch.bmm(a2.reshape(batch * d_chunk, n, n).transpose(1, 2), b2.reshape(batch * d_chunk, n, n))
+    ref = torch.cat(
+        [ref1.reshape(batch, d_chunk, n, n), ref2.reshape(batch, d_chunk, n, n)],
+        dim=1,
+    ).permute(0, 2, 3, 1)
+    ref_loss = ref.float().square().mean()
+    ref_loss.backward()
+
+    out_max_abs = float((out.float() - ref.float()).abs().max().item())
+    grad_max_abs = float((x.grad.float() - x_ref.grad.float()).abs().max().item())
+    grad_rel = _rel_error(x.grad, x_ref.grad)
+
+    assert torch.isfinite(out).all()
+    assert torch.isfinite(x.grad).all()
+    assert out_max_abs < 1e-2
+    assert grad_max_abs < 5e-2
+    assert grad_rel < 5e-3

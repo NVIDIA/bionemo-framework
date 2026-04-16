@@ -146,6 +146,7 @@ class ComponentPrecisionConfig:
         tri_impl: Triangular multiplication backend.
             "einsum" = original literal torch.einsum path.
             "bmm" = current PyTorch/cuBLAS batched path.
+            "flash_trimul" = Triton fused gate+tri-mul path with backward recompute.
             "fp8_bmm" = custom MXFP8 batched GEMM path with saved FP8 activations.
             "fp8_cublaslt" = raw cuBLASLt MXFP8 batched GEMM backend.
             "fp8_grouped" = TE grouped FP8 GEMM prototype.
@@ -204,6 +205,7 @@ class ComponentPrecisionConfig:
         valid_tri_impls = {
             "einsum",
             "bmm",
+            "flash_trimul",
             "fp8_bmm",
             "fp8_cublaslt",
             "fp8_grouped",
