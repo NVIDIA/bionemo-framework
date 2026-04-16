@@ -30,9 +30,10 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_v6_te_main_8n_prenyx}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_v7_no_stateful_dl_prenyx}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
-CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
+# Resume from v6 checkpoints (step 9000) to test without stateful dataloader
+CKPT_ROOT="${SCRATCH}/checkpoints/lingua_7b_mxfp8_qinit_v6_te_main_8n_prenyx"
 
 mkdir -p "${RESULTS_DIR}" "${CKPT_ROOT}"
 
@@ -74,7 +75,7 @@ cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
 python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit \
   dataset.micro_batch_size=2 \
-  dataset.use_stateful_dataloader=true \
+  dataset.use_stateful_dataloader=false \
   grad_acc_steps=2 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   checkpoint.save_every_n_steps=1500 \
@@ -94,10 +95,8 @@ COMMAND="export EXP_NAME=\"${EXP_NAME}\"; export WANDB_API_KEY=\"${WANDB_API_KEY
 
 echo "Launching: ${EXP_NAME}"
 
-# AUTO-CHAIN: always resubmit on exit (success, failure, or timeout).
-# Uses --dependency=singleton so only one job with this name runs at a time.
-# To stop chaining: scancel the queued job.
-trap 'echo "Resubmitting for next chain..."; sbatch --dependency=singleton "${BASH_SOURCE[0]}"; echo "Job finished! Check: ${RESULTS_DIR}"' EXIT
+# AUTO-CHAIN disabled for this diagnostic run.
+# trap 'echo "Resubmitting for next chain..."; sbatch --dependency=singleton "${BASH_SOURCE[0]}"; echo "Job finished! Check: ${RESULTS_DIR}"' EXIT
 
 srun \
   --output "${RESULTS_DIR}/slurm-%j-%n.out" \
