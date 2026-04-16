@@ -14,17 +14,63 @@
 # limitations under the License.
 
 import sys
+import tempfile
 from pathlib import Path
 from unittest import mock
 
 import pytest
 import torch
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from tokenizers.pre_tokenizers import Whitespace
 from transformer_engine.pytorch import fp8 as te_fp8
+from transformers import PreTrainedTokenizerFast
 
 
 sys.path.append(Path(__file__).parent.parent.as_posix())
 sys.path.append(Path(__file__).parent.as_posix())
 from distributed_config import DistributedConfig
+
+
+def _create_local_tokenizer(directory: Path) -> str:
+    """Create a small local tokenizer so tests don't depend on HF Hub."""
+    directory.mkdir(parents=True, exist_ok=True)
+    tokenizer = Tokenizer(
+        WordLevel(
+            vocab={
+                "[UNK]": 0,
+                "[PAD]": 1,
+                "[BOS]": 2,
+                "[EOS]": 3,
+                "the": 4,
+                "quick": 5,
+                "brown": 6,
+                "fox": 7,
+                "jumps": 8,
+                "over": 9,
+                "lazy": 10,
+                "dog": 11,
+            },
+            unk_token="[UNK]",
+        )
+    )
+    tokenizer.pre_tokenizer = Whitespace()
+    fast_tokenizer = PreTrainedTokenizerFast(
+        tokenizer_object=tokenizer,
+        unk_token="[UNK]",
+        pad_token="[PAD]",
+        bos_token="[BOS]",
+        eos_token="[EOS]",
+    )
+    fast_tokenizer.save_pretrained(directory)
+    return str(directory)
+
+
+@pytest.fixture(scope="session")
+def local_tokenizer_path():
+    """Session-scoped local tokenizer that avoids HF Hub downloads."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        yield _create_local_tokenizer(Path(tmpdir) / "tokenizer")
 
 
 @pytest.fixture
@@ -34,9 +80,9 @@ def recipe_path() -> Path:
 
 
 @pytest.fixture
-def tokenizer_path(recipe_path):
-    """Get the path to the recipe tokenizer."""
-    return "nvidia/Llama-3.1-8B-Instruct-FP8"
+def tokenizer_path(local_tokenizer_path):
+    """Get the path to the local test tokenizer."""
+    return local_tokenizer_path
 
 
 @pytest.fixture(autouse=True)

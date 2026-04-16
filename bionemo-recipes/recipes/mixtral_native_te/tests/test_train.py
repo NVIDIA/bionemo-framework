@@ -55,13 +55,15 @@ def set_seed():
         torch.cuda.manual_seed_all(42)
 
 
-def test_sanity_convergence_fsdp2_te_bshd(tmp_path, recipe_path):
+def test_sanity_convergence_fsdp2_te_bshd(tmp_path, recipe_path, local_tokenizer_path):
+    tokenizer_path = local_tokenizer_path
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
             overrides=[
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.tokenizer_name_or_path={tokenizer_path}",
                 "checkpoint.resume_from_checkpoint=false",
                 "num_train_steps=40",
                 "config_kwargs.attn_input_format=bshd",
@@ -74,13 +76,15 @@ def test_sanity_convergence_fsdp2_te_bshd(tmp_path, recipe_path):
     assert final_loss < 8.5, f"Final loss {final_loss} is too high, expected < 8.5"
 
 
-def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path):
+def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path, local_tokenizer_path):
+    tokenizer_path = local_tokenizer_path
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
             overrides=[
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.tokenizer_name_or_path={tokenizer_path}",
                 "checkpoint.resume_from_checkpoint=false",
                 "num_train_steps=40",
                 "use_sequence_packing=true",
@@ -95,14 +99,16 @@ def test_sanity_convergence_fsdp2_te_thd(tmp_path, recipe_path):
     assert final_loss < 8.5, f"Final loss {final_loss} is too high, expected < 8.5"
 
 
-def test_sanity_convergence_fsdp2_te_bshd_grad_acc(tmp_path, recipe_path):
+def test_sanity_convergence_fsdp2_te_bshd_grad_acc(tmp_path, recipe_path, local_tokenizer_path):
     """Test FSDP2 training with gradient accumulation."""
+    tokenizer_path = local_tokenizer_path
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
             overrides=[
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.tokenizer_name_or_path={tokenizer_path}",
                 "checkpoint.resume_from_checkpoint=false",
                 "num_train_steps=40",
                 "config_kwargs.attn_input_format=bshd",
@@ -117,21 +123,16 @@ def test_sanity_convergence_fsdp2_te_bshd_grad_acc(tmp_path, recipe_path):
     assert final_loss < 8.5, f"Final loss {final_loss} is too high, expected < 8.5"
 
 
-def test_sanity_convergence_ddp_te(tmp_path, recipe_path):
-    """Test that DDP training converges on sanity-scale data.
-
-    This test validates:
-    - The train_ddp.py script runs end-to-end without errors
-    - Model, optimizer, and dataloader integrate correctly
-    - Training converges to reasonable loss on small dataset
-    - Uses L0_sanity config with small model and few training steps
-    """
+def test_sanity_convergence_ddp_te(tmp_path, recipe_path, local_tokenizer_path):
+    """Test that DDP training converges on sanity-scale data."""
+    tokenizer_path = local_tokenizer_path
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
             overrides=[
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.tokenizer_name_or_path={tokenizer_path}",
                 "checkpoint.resume_from_checkpoint=false",
                 "num_train_steps=40",
                 "config_kwargs.attn_input_format=bshd",
@@ -144,14 +145,16 @@ def test_sanity_convergence_ddp_te(tmp_path, recipe_path):
     assert final_loss < 8.5, f"Final loss {final_loss} is too high, expected < 8.5"
 
 
-def test_sanity_convergence_ddp_te_grad_acc(tmp_path, recipe_path):
+def test_sanity_convergence_ddp_te_grad_acc(tmp_path, recipe_path, local_tokenizer_path):
     """Test DDP training with gradient accumulation."""
+    tokenizer_path = local_tokenizer_path
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
             overrides=[
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.tokenizer_name_or_path={tokenizer_path}",
                 "checkpoint.resume_from_checkpoint=false",
                 "num_train_steps=40",
                 "config_kwargs.attn_input_format=bshd",
@@ -165,20 +168,16 @@ def test_sanity_convergence_ddp_te_grad_acc(tmp_path, recipe_path):
     assert final_loss < 8.5, f"Final loss {final_loss} is too high, expected < 8.5"
 
 
-def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path):
-    """Test that FSDP2 training converges with HuggingFace (non-TE) model.
-
-    This test validates:
-    - The train_fsdp2.py script runs end-to-end without errors using vanilla HF layers
-    - FSDP2 wrapping and sharding work correctly without TransformerEngine
-    - Training converges to reasonable loss on small dataset
-    """
+def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path, local_tokenizer_path):
+    """Test that FSDP2 training converges with HuggingFace (non-TE) model."""
+    tokenizer_path = local_tokenizer_path
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
             overrides=[
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.tokenizer_name_or_path={tokenizer_path}",
                 "checkpoint.resume_from_checkpoint=false",
                 "num_train_steps=40",
                 "use_te=false",
@@ -194,14 +193,16 @@ def test_sanity_convergence_fsdp2_hf(tmp_path, recipe_path):
 
 @requires_fp8
 @requires_datacenter_hardware
-def test_sanity_convergence_fsdp2_te_fp8(tmp_path, recipe_path, fp_recipe):
+def test_sanity_convergence_fsdp2_te_fp8(tmp_path, recipe_path, local_tokenizer_path, fp_recipe):
     """Test FSDP2 training with FP8 enabled using parametrized FP8 recipes."""
+    tokenizer_path = local_tokenizer_path
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
             config_name="L0_sanity",
             overrides=[
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
+                f"dataset.tokenizer_name_or_path={tokenizer_path}",
                 "checkpoint.resume_from_checkpoint=false",
                 "num_train_steps=40",
                 "config_kwargs.attn_input_format=bshd",
