@@ -137,7 +137,7 @@ class _GatedChainToFloat8Func(Function):
     """Autograd bridge for the triangular sigmoid->mul chain with FP8 output."""
 
     @staticmethod
-    def forward(ctx, proj_out, gate_logits, mask, quantize_output: bool, preserve_columnwise_output: bool):
+    def forward(ctx, proj_out, gate_logits, mask, quantize_output: bool):
         proj_dtype = proj_out.dtype if isinstance(proj_out, torch.Tensor) else None
         gate_dtype = gate_logits.dtype if isinstance(gate_logits, torch.Tensor) else None
 
@@ -152,7 +152,6 @@ class _GatedChainToFloat8Func(Function):
                     proj_out,
                     gate_logits,
                     mask,
-                    preserve_columnwise_output=preserve_columnwise_output,
                 )
                 ctx.save_for_backward(
                     proj_out,
@@ -164,7 +163,6 @@ class _GatedChainToFloat8Func(Function):
                 ctx.gate_dtype = gate_dtype
                 ctx.quantize_output = quantize_output
                 ctx.use_fused_fp8 = True
-                ctx.preserve_columnwise_output = preserve_columnwise_output
                 return out_q.requires_grad_(proj_out.requires_grad or gate_logits.requires_grad)
             except Exception:
                 pass
@@ -183,8 +181,6 @@ class _GatedChainToFloat8Func(Function):
         ctx.gate_dtype = gate_dtype
         ctx.quantize_output = quantize_output
         ctx.use_fused_fp8 = False
-        ctx.preserve_columnwise_output = preserve_columnwise_output
-
         if not quantize_output:
             return out
 
@@ -192,7 +188,7 @@ class _GatedChainToFloat8Func(Function):
         if not isinstance(quantizer_src, QuantizedTensor):
             return out
         quantizer = quantizer_src._get_quantizer().copy()
-        quantizer.set_usage(rowwise=True, columnwise=preserve_columnwise_output)
+        quantizer.set_usage(rowwise=True, columnwise=True)
         out_q = quantizer.quantize(out, dtype=quantizer_src.dtype)
         return out_q.requires_grad_(out.requires_grad)
 
@@ -443,16 +439,13 @@ class TriangularUpdateTE(nn.Module):
             pi_out = te_linear_nd(self.pi, x, fp8_output=keep_fp8_linear_outputs)
         with _gate_ctx():
             gi_logits = te_linear_nd(self.gi, x, fp8_output=keep_fp8_linear_outputs)
-        use_gating_chain = bool(
-            cp and (cp.tri_gating_chain_fp8 or cp.tri_zero_boundary_fp8) and keep_fp8_linear_outputs
-        )
+        use_gating_chain = bool(cp and cp.tri_gating_chain_fp8 and keep_fp8_linear_outputs)
         if use_gating_chain:
             return _GatedChainToFloat8Func.apply(
                 pi_out,
                 gi_logits,
                 mask,
                 True,
-                not bool(cp and cp.tri_zero_boundary_fp8),
             )
         return pi_out * torch.sigmoid(gi_logits) * mask.unsqueeze(-1)
 
@@ -506,16 +499,13 @@ class TriangularUpdateTE(nn.Module):
             po_out = te_linear_nd(self.po, x, fp8_output=keep_fp8_linear_outputs)
         with _gate_ctx():
             go_logits = te_linear_nd(self.go, x, fp8_output=keep_fp8_linear_outputs)
-        use_gating_chain = bool(
-            cp and (cp.tri_gating_chain_fp8 or cp.tri_zero_boundary_fp8) and keep_fp8_linear_outputs
-        )
+        use_gating_chain = bool(cp and cp.tri_gating_chain_fp8 and keep_fp8_linear_outputs)
         if use_gating_chain:
             return _GatedChainToFloat8Func.apply(
                 po_out,
                 go_logits,
                 None,
                 True,
-                not bool(cp and cp.tri_zero_boundary_fp8),
             )
         return po_out * torch.sigmoid(go_logits)
 

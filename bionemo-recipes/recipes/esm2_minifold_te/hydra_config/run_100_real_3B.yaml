@@ -78,7 +78,6 @@ component_precision:
   dist_head: false     # Distogram output head (fc_out_1, fc_out_2 te.Linear layers) — kept in model's base precision per MXFP8 paper
   tri_saved_tensors_fp8: false
   tri_gating_chain_fp8: false
-  tri_zero_boundary_fp8: false
   ffn_saved_tensors_fp8: false
   ffn_relu_native_fp8: false
   ffn_fused_subgraph_fp8: false
