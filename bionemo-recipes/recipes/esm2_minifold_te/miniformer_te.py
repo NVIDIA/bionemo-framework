@@ -28,6 +28,13 @@ from torch.autograd import Function
 from torch.utils.checkpoint import checkpoint
 from transformer_engine.pytorch.quantized_tensor import QuantizedTensor
 from transformer_engine.pytorch.quantization import FP8GlobalStateManager
+from transformer_engine.pytorch.tensor.float8_blockwise_tensor import (
+    Float8BlockwiseQTensor,
+    fused_relu_backward_fp8,
+    fused_relu_forward_fp8,
+    fused_sigmoid_gate_backward_fp8,
+    fused_sigmoid_gate_forward_fp8,
+)
 
 from minifold_utils import init
 from quantization import ComponentPrecisionConfig
@@ -130,9 +137,37 @@ class _GatedChainToFloat8Func(Function):
     """Autograd bridge for the triangular sigmoid->mul chain with FP8 output."""
 
     @staticmethod
-    def forward(ctx, proj_out, gate_logits, mask, quantize_output: bool):
+    def forward(ctx, proj_out, gate_logits, mask, quantize_output: bool, preserve_columnwise_output: bool):
         proj_dtype = proj_out.dtype if isinstance(proj_out, torch.Tensor) else None
         gate_dtype = gate_logits.dtype if isinstance(gate_logits, torch.Tensor) else None
+
+        use_fused_fp8 = (
+            quantize_output
+            and isinstance(proj_out, Float8BlockwiseQTensor)
+            and isinstance(gate_logits, Float8BlockwiseQTensor)
+        )
+        if use_fused_fp8:
+            try:
+                out_q, saved_g_q = fused_sigmoid_gate_forward_fp8(
+                    proj_out,
+                    gate_logits,
+                    mask,
+                    preserve_columnwise_output=preserve_columnwise_output,
+                )
+                ctx.save_for_backward(
+                    proj_out,
+                    saved_g_q,
+                    mask if mask is not None else torch.tensor([], device=out_q.device),
+                )
+                ctx.has_mask = mask is not None
+                ctx.proj_dtype = proj_dtype
+                ctx.gate_dtype = gate_dtype
+                ctx.quantize_output = quantize_output
+                ctx.use_fused_fp8 = True
+                ctx.preserve_columnwise_output = preserve_columnwise_output
+                return out_q.requires_grad_(proj_out.requires_grad or gate_logits.requires_grad)
+            except Exception:
+                pass
 
         proj_hp = proj_out.dequantize(dtype=proj_dtype) if isinstance(proj_out, QuantizedTensor) else proj_out
         gate_hp = gate_logits.dequantize(dtype=gate_dtype) if isinstance(gate_logits, QuantizedTensor) else gate_logits
@@ -147,6 +182,8 @@ class _GatedChainToFloat8Func(Function):
         ctx.proj_dtype = proj_dtype
         ctx.gate_dtype = gate_dtype
         ctx.quantize_output = quantize_output
+        ctx.use_fused_fp8 = False
+        ctx.preserve_columnwise_output = preserve_columnwise_output
 
         if not quantize_output:
             return out
@@ -155,12 +192,24 @@ class _GatedChainToFloat8Func(Function):
         if not isinstance(quantizer_src, QuantizedTensor):
             return out
         quantizer = quantizer_src._get_quantizer().copy()
-        quantizer.set_usage(rowwise=True, columnwise=True)
+        quantizer.set_usage(rowwise=True, columnwise=preserve_columnwise_output)
         out_q = quantizer.quantize(out, dtype=quantizer_src.dtype)
         return out_q.requires_grad_(out.requires_grad)
 
     @staticmethod
     def backward(ctx, grad_out):
+        if ctx.use_fused_fp8:
+            proj_q, saved_g_q, mask = ctx.saved_tensors
+            grad_proj, grad_gate = fused_sigmoid_gate_backward_fp8(
+                proj_q,
+                saved_g_q,
+                grad_out,
+                mask if ctx.has_mask else None,
+                proj_dtype=ctx.proj_dtype,
+                gate_dtype=ctx.gate_dtype,
+            )
+            return grad_proj, grad_gate, None, None, None
+
         proj_hp, gate_sigmoid, mask = ctx.saved_tensors
 
         if isinstance(grad_out, QuantizedTensor):
@@ -181,7 +230,7 @@ class _GatedChainToFloat8Func(Function):
         if ctx.gate_dtype is not None and grad_gate.dtype != ctx.gate_dtype:
             grad_gate = grad_gate.to(ctx.gate_dtype)
 
-        return grad_proj, grad_gate, None, None
+        return grad_proj, grad_gate, None, None, None
 
 
 class _NativeFP8ReluFunc(Function):
@@ -207,41 +256,7 @@ class _NativeFP8ReluFunc(Function):
             ctx.save_for_backward(out)
             ctx.quantized = False
             return out
-
-        rowwise_data = tensor._rowwise_data.detach().clone() if tensor._rowwise_data is not None else None
-        rowwise_scale_inv = (
-            tensor._rowwise_scale_inv.detach().clone() if tensor._rowwise_scale_inv is not None else None
-        )
-        columnwise_data = (
-            tensor._columnwise_data.detach().clone() if tensor._columnwise_data is not None else None
-        )
-        columnwise_scale_inv = (
-            tensor._columnwise_scale_inv.detach().clone()
-            if tensor._columnwise_scale_inv is not None
-            else None
-        )
-        out_q = tensor.__class__(
-            shape=tensor.shape,
-            dtype=tensor.dtype,
-            fp8_dtype=tensor._fp8_dtype,
-            rowwise_data=rowwise_data,
-            rowwise_scale_inv=rowwise_scale_inv,
-            columnwise_data=columnwise_data,
-            columnwise_scale_inv=columnwise_scale_inv,
-            quantizer=tensor._quantizer,
-            is_2D_scaled=tensor._is_2D_scaled,
-            requires_grad=tensor.requires_grad,
-        )
-        if out_q._rowwise_data is None and columnwise_data is not None:
-            out_q._rowwise_data = tex.fp8_transpose(columnwise_data, out_q._fp8_dtype, out=None)
-            if columnwise_scale_inv is not None:
-                out_q._rowwise_scale_inv = columnwise_scale_inv.transpose(-2, -1).contiguous()
-        if out_q._rowwise_data is not None:
-            negative = torch.bitwise_and(out_q._rowwise_data, 0x80).ne(0)
-            out_q._rowwise_data[negative] = 0
-        if out_q._columnwise_data is not None:
-            negative = torch.bitwise_and(out_q._columnwise_data, 0x80).ne(0)
-            out_q._columnwise_data[negative] = 0
+        out_q = fused_relu_forward_fp8(tensor)
         ctx.save_for_backward(out_q)
         ctx.quantized = True
         return out_q.requires_grad_(tensor.requires_grad)
@@ -254,8 +269,11 @@ class _NativeFP8ReluFunc(Function):
         if ctx.input_dtype is not None and grad_out.dtype != ctx.input_dtype:
             grad_out = grad_out.to(ctx.input_dtype)
         if ctx.quantized:
-            positive_mask = _NativeFP8ReluFunc._positive_mask(saved_out)
-            grad_input = grad_out * positive_mask.to(dtype=grad_out.dtype)
+            grad_input = fused_relu_backward_fp8(
+                saved_out._rowwise_data,
+                grad_out,
+                input_dtype=ctx.input_dtype,
+            )
         else:
             grad_input = grad_out * (saved_out > 0).to(dtype=grad_out.dtype)
         if ctx.input_dtype is not None and grad_input.dtype != ctx.input_dtype:
@@ -425,13 +443,16 @@ class TriangularUpdateTE(nn.Module):
             pi_out = te_linear_nd(self.pi, x, fp8_output=keep_fp8_linear_outputs)
         with _gate_ctx():
             gi_logits = te_linear_nd(self.gi, x, fp8_output=keep_fp8_linear_outputs)
-        use_gating_chain = bool(cp and cp.tri_gating_chain_fp8 and keep_fp8_linear_outputs)
+        use_gating_chain = bool(
+            cp and (cp.tri_gating_chain_fp8 or cp.tri_zero_boundary_fp8) and keep_fp8_linear_outputs
+        )
         if use_gating_chain:
             return _GatedChainToFloat8Func.apply(
                 pi_out,
                 gi_logits,
                 mask,
                 True,
+                not bool(cp and cp.tri_zero_boundary_fp8),
             )
         return pi_out * torch.sigmoid(gi_logits) * mask.unsqueeze(-1)
 
@@ -485,13 +506,16 @@ class TriangularUpdateTE(nn.Module):
             po_out = te_linear_nd(self.po, x, fp8_output=keep_fp8_linear_outputs)
         with _gate_ctx():
             go_logits = te_linear_nd(self.go, x, fp8_output=keep_fp8_linear_outputs)
-        use_gating_chain = bool(cp and cp.tri_gating_chain_fp8 and keep_fp8_linear_outputs)
+        use_gating_chain = bool(
+            cp and (cp.tri_gating_chain_fp8 or cp.tri_zero_boundary_fp8) and keep_fp8_linear_outputs
+        )
         if use_gating_chain:
             return _GatedChainToFloat8Func.apply(
                 po_out,
                 go_logits,
                 None,
                 True,
+                not bool(cp and cp.tri_zero_boundary_fp8),
             )
         return po_out * torch.sigmoid(go_logits)
 

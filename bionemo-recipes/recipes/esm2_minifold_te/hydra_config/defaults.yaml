@@ -89,6 +89,7 @@ component_precision:
   dist_head: false     # Distogram output head (fc_out_1, fc_out_2 te.Linear layers) — kept in model's base precision per MXFP8 paper
   tri_saved_tensors_fp8: false      # Experimental: pack TriangularUpdateTE saved activations to block-scaled FP8
   tri_gating_chain_fp8: false       # Experimental: dequant once around triangular sigmoid->mul gating chains
+  tri_zero_boundary_fp8: false      # Experimental: triangular gating chain without eager columnwise FP8 output materialization
   ffn_saved_tensors_fp8: false      # Experimental: pack TransitionUpdateTE saved activations to block-scaled FP8
   ffn_relu_native_fp8: false        # Experimental: native raw-FP8 ReLU inside TransitionUpdateTE
   ffn_fused_subgraph_fp8: false     # Experimental: custom-autograd TransitionUpdateTE with quantized saved state

@@ -160,6 +160,9 @@ class ComponentPrecisionConfig:
             TriangularUpdateTE to block-scaled FP8.
         tri_gating_chain_fp8: Use the single dequant/requant triangular gating
             chain wrapper instead of per-op FP8 dispatch for sigmoid/mul.
+        tri_zero_boundary_fp8: Experimental zero-boundary variant of the
+            triangular gating chain that avoids eagerly materializing a
+            columnwise FP8 copy on the gated output.
         ffn_saved_tensors_fp8: Experimentally pack autograd-saved tensors inside
             TransitionUpdateTE to block-scaled FP8.
         ffn_relu_native_fp8: Use the native raw-FP8 ReLU path inside
@@ -188,6 +191,7 @@ class ComponentPrecisionConfig:
     dist_head: bool = True
     tri_saved_tensors_fp8: bool = False
     tri_gating_chain_fp8: bool = False
+    tri_zero_boundary_fp8: bool = False
     ffn_saved_tensors_fp8: bool = False
     ffn_relu_native_fp8: bool = False
     ffn_fused_subgraph_fp8: bool = False
