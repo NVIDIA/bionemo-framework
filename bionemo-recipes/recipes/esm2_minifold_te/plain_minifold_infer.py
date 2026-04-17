@@ -90,6 +90,7 @@ SUPPORTED_LINEAR_PRECISION = (
 SUPPORTED_TRI_IMPLS = ("bmm", "cublas_xbdnn", "fp8_cublaslt", "fp8_grouped")
 _FP8_MAX = 448.0
 _FP8_LINEAR_MAX_ROWS = 1 << 22
+_NATIVE_FC1_DIRECT_MAX_ROWS = 1 << 16
 
 
 def resolve_pair_precision(pair_precision: str | None = None, fp8_activations: bool | None = None) -> str:
@@ -557,11 +558,13 @@ def configure_fp8_linear_weight_(module: nn.Linear, enabled: bool) -> None:
         _set_buffer(module, "scale_w", scale_w.contiguous())
         if module.weight.is_cuda and bmm_ext_raw is not None:
             weight_mxfp8, scale_w_mxfp8, scale_w_mxfp8_swizzled = quantize_linear_weight_to_mxfp8(module.weight)
+            weight_mxfp8_cutlass_col = weight_mxfp8.transpose(1, 2).contiguous()
         else:
-            weight_mxfp8, scale_w_mxfp8, scale_w_mxfp8_swizzled = None, None, None
+            weight_mxfp8, scale_w_mxfp8, scale_w_mxfp8_swizzled, weight_mxfp8_cutlass_col = None, None, None, None
         _set_buffer(module, "weight_mxfp8", weight_mxfp8)
         _set_buffer(module, "scale_w_mxfp8", scale_w_mxfp8)
         _set_buffer(module, "scale_w_mxfp8_swizzled", scale_w_mxfp8_swizzled)
+        _set_buffer(module, "weight_mxfp8_cutlass_col", weight_mxfp8_cutlass_col)
         _set_buffer(module, "weight_fp8_tensorwise", None)
         _set_buffer(module, "scale_w_tensorwise", None)
     else:
@@ -570,6 +573,7 @@ def configure_fp8_linear_weight_(module: nn.Linear, enabled: bool) -> None:
         _set_buffer(module, "weight_mxfp8", None)
         _set_buffer(module, "scale_w_mxfp8", None)
         _set_buffer(module, "scale_w_mxfp8_swizzled", None)
+        _set_buffer(module, "weight_mxfp8_cutlass_col", None)
         _set_buffer(module, "weight_fp8_tensorwise", None)
         _set_buffer(module, "scale_w_tensorwise", None)
 
@@ -760,7 +764,18 @@ def native_linear_forward_quantized(
     ) -> tuple[torch.Tensor, torch.Tensor]:
         scale_e8 = scale_chunk.to(torch.float8_e8m0fnu).reshape(1, payload_chunk.shape[0], groups).contiguous()
         scale_swizzled = _swizzle_mxfp8_scale_rowwise(scale_e8)
-        use_direct_output = direct_fp8_output and getattr(module, "_native_direct_fp8_output_supported", False)
+        use_fc1_direct = (
+            apply_relu
+            and residual_payload_chunk is None
+            and residual_scale_chunk is None
+            and in_dim == 128
+            and out_dim == 512
+            and getattr(module, "_native_fc1_direct_enabled", False)
+            and hasattr(minifold_native_raw, "linear_block32_fc1_direct")
+            and isinstance(getattr(module, "weight_mxfp8_cutlass_col", None), torch.Tensor)
+            and getattr(module, "_native_fc1_direct_supported", True)
+        )
+        use_direct_output = direct_fp8_output and getattr(module, "_native_direct_fp8_output_supported", True)
         support_attr = "_native_relu_bias_epilogue_supported" if apply_relu else "_native_bias_epilogue_supported"
         use_fused_bias_epilogue = fuse_bias_epilogue and getattr(module, support_attr, True)
         residual_payload_3d = None
@@ -768,52 +783,55 @@ def native_linear_forward_quantized(
         if residual_payload_chunk is not None and residual_scale_chunk is not None:
             residual_payload_3d = residual_payload_chunk.reshape(1, payload_chunk.shape[0], out_dim).contiguous()
             residual_scale_3d = residual_scale_chunk.reshape(1, payload_chunk.shape[0], out_dim // 32).contiguous()
-        try:
-            payload, scale = minifold_native_raw.linear_block32_fused(
-                payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
-                module.weight_mxfp8.contiguous(),
-                scale_swizzled,
-                module.scale_w_mxfp8_swizzled.contiguous(),
-                None if module.bias is None else module.bias.contiguous(),
-                "bfloat16",
-                apply_relu,
-                use_direct_output,
-                use_fused_bias_epilogue,
-                residual_payload_3d,
-                residual_scale_3d,
-            )
-        except RuntimeError as exc:
-            if use_direct_output and "cublasLtMatmulAlgoGetHeuristic" in str(exc):
-                module._native_direct_fp8_output_supported = False
-                payload, scale = minifold_native_raw.linear_block32_fused(
+        if use_fc1_direct:
+            try:
+                payload, scale = minifold_native_raw.linear_block32_fc1_direct(
                     payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
-                    module.weight_mxfp8.contiguous(),
+                    module.weight_mxfp8_cutlass_col.contiguous(),
                     scale_swizzled,
                     module.scale_w_mxfp8_swizzled.contiguous(),
                     None if module.bias is None else module.bias.contiguous(),
-                    "bfloat16",
-                    apply_relu,
-                    False,
-                    use_fused_bias_epilogue,
-                    residual_payload_3d,
-                    residual_scale_3d,
                 )
-            elif use_fused_bias_epilogue and ("cublasLtMatmulAlgoGetHeuristic" in str(exc) or "cublasLtMatmul(" in str(exc)):
-                setattr(module, support_attr, False)
-                payload, scale = minifold_native_raw.linear_block32_fused(
-                    payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
-                    module.weight_mxfp8.contiguous(),
-                    scale_swizzled,
-                    module.scale_w_mxfp8_swizzled.contiguous(),
-                    None if module.bias is None else module.bias.contiguous(),
-                    "bfloat16",
-                    apply_relu,
-                    use_direct_output,
-                    False,
-                    residual_payload_3d,
-                    residual_scale_3d,
-                )
+            except RuntimeError:
+                module._native_fc1_direct_supported = False
             else:
+                payload = payload.reshape(payload_chunk.shape[0], out_dim)
+                scale = scale.reshape(payload_chunk.shape[0], out_dim // 32)
+                if stats is not None:
+                    stats.record_native_linear_fused(payload, scale)
+                return payload, scale
+        current_direct_output = use_direct_output
+        current_fused_bias_epilogue = use_fused_bias_epilogue
+        while True:
+            try:
+                payload, scale = minifold_native_raw.linear_block32_fused(
+                    payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
+                    module.weight_mxfp8.contiguous(),
+                    scale_swizzled,
+                    module.scale_w_mxfp8_swizzled.contiguous(),
+                    None if module.bias is None else module.bias.contiguous(),
+                    "bfloat16",
+                    apply_relu,
+                    current_direct_output,
+                    current_fused_bias_epilogue,
+                    residual_payload_3d,
+                    residual_scale_3d,
+                )
+                break
+            except RuntimeError as exc:
+                exc_text = str(exc)
+                if current_direct_output and (
+                    "cublasLtMatmulAlgoGetHeuristic" in exc_text or "cublasLtMatmul(" in exc_text
+                ):
+                    module._native_direct_fp8_output_supported = False
+                    current_direct_output = False
+                    continue
+                if current_fused_bias_epilogue and (
+                    "cublasLtMatmulAlgoGetHeuristic" in exc_text or "cublasLtMatmul(" in exc_text
+                ):
+                    setattr(module, support_attr, False)
+                    current_fused_bias_epilogue = False
+                    continue
                 raise
         payload = payload.reshape(payload_chunk.shape[0], out_dim)
         scale = scale.reshape(payload_chunk.shape[0], out_dim // 32)
@@ -821,17 +839,28 @@ def native_linear_forward_quantized(
             stats.record_native_linear_fused(payload, scale)
         return payload, scale
 
-    if rows <= _FP8_LINEAR_MAX_ROWS:
+    row_limit = _FP8_LINEAR_MAX_ROWS
+    if (
+        apply_relu
+        and residual_payload_2d is None
+        and residual_scale_2d is None
+        and in_dim == 128
+        and out_dim == 512
+        and getattr(module, "_native_fc1_direct_enabled", False)
+    ):
+        row_limit = min(row_limit, _NATIVE_FC1_DIRECT_MAX_ROWS)
+
+    if rows <= row_limit:
         payload_2d_out, scale_2d_out = run_native_linear(payload_2d, scale_2d, residual_payload_2d, residual_scale_2d)
     else:
         payload_parts: list[torch.Tensor] = []
         scale_parts: list[torch.Tensor] = []
-        for start in range(0, rows, _FP8_LINEAR_MAX_ROWS):
+        for start in range(0, rows, row_limit):
             payload_chunk, scale_chunk = run_native_linear(
-                payload_2d[start : start + _FP8_LINEAR_MAX_ROWS],
-                scale_2d[start : start + _FP8_LINEAR_MAX_ROWS],
-                None if residual_payload_2d is None else residual_payload_2d[start : start + _FP8_LINEAR_MAX_ROWS],
-                None if residual_scale_2d is None else residual_scale_2d[start : start + _FP8_LINEAR_MAX_ROWS],
+                payload_2d[start : start + row_limit],
+                scale_2d[start : start + row_limit],
+                None if residual_payload_2d is None else residual_payload_2d[start : start + row_limit],
+                None if residual_scale_2d is None else residual_scale_2d[start : start + row_limit],
             )
             payload_parts.append(payload_chunk)
             scale_parts.append(scale_chunk)
@@ -911,6 +940,98 @@ def native_tri_mul_from_block32_quantized(
     payload, scale = minifold_native_raw.tri_mul_pair_from_block32_carrier(
         x.payload.contiguous(),
         x.scale.contiguous(),
+        tri_mask,
+        "float16",
+    )
+    if stats is not None:
+        stats.record_native_tri_fused(payload, scale)
+    return Mxfp8PairTensor(payload=payload, scale=scale, logical_dtype=x.logical_dtype)
+
+
+def native_tri_mul_from_gate_quantized(
+    lhs_module: nn.Linear,
+    rhs_module: nn.Linear,
+    x: Mxfp8PairTensor,
+    mask: torch.Tensor,
+    stats: FP8ActivationStats | None = None,
+) -> Mxfp8PairTensor:
+    if (
+        minifold_native_raw is None
+        or not hasattr(minifold_native_raw, "tri_gate_block32_fused")
+        or not _has_mxfp8_linear_weight(lhs_module)
+        or not _has_mxfp8_linear_weight(rhs_module)
+    ):
+        gated = native_gate_sigmoid_mul_quantized(lhs_module, rhs_module, x, stats=stats)
+        return native_tri_mul_from_block32_quantized(gated, mask=mask, stats=stats)
+    original_shape = x.payload.shape[:-1]
+    in_dim = x.payload.shape[-1]
+    rows = x.payload.numel() // in_dim
+    groups = in_dim // 32
+    payload_2d = x.payload.reshape(rows, in_dim).contiguous()
+    scale_2d = x.scale.reshape(rows, groups).contiguous()
+    scale_e8 = scale_2d.to(torch.float8_e8m0fnu).reshape(1, rows, groups).contiguous()
+    scale_swizzled = _swizzle_mxfp8_scale_rowwise(scale_e8)
+    mask_bool = mask.to(torch.bool)
+    if mask_bool.dim() == 2:
+        tri_mask = (mask_bool[:, :, None] & mask_bool[:, None, :]).contiguous()
+    elif mask_bool.dim() == 3:
+        tri_mask = mask_bool.contiguous()
+    else:
+        raise ValueError(f"Unsupported mask rank for native fused tri path: {mask_bool.dim()}")
+    payload, scale = minifold_native_raw.tri_gate_block32_fused(
+        payload_2d.reshape(1, rows, in_dim).contiguous(),
+        scale_swizzled,
+        lhs_module.weight_mxfp8.contiguous(),
+        lhs_module.scale_w_mxfp8_swizzled.contiguous(),
+        None if lhs_module.bias is None else lhs_module.bias.contiguous(),
+        rhs_module.weight_mxfp8.contiguous(),
+        rhs_module.scale_w_mxfp8_swizzled.contiguous(),
+        None if rhs_module.bias is None else rhs_module.bias.contiguous(),
+        tri_mask,
+        "float16",
+    )
+    payload = payload.reshape(*original_shape, payload.shape[-1]).contiguous()
+    scale = scale.reshape(*original_shape, scale.shape[-1]).contiguous()
+    if stats is not None:
+        stats.record_native_tri_fused(payload, scale)
+    return Mxfp8PairTensor(payload=payload, scale=scale, logical_dtype=x.logical_dtype)
+
+
+def native_tri_mul_from_input_quantized(
+    input_norm_module: nn.LayerNorm,
+    lhs_module: nn.Linear,
+    rhs_module: nn.Linear,
+    x: Mxfp8PairTensor,
+    mask: torch.Tensor,
+    stats: FP8ActivationStats | None = None,
+) -> Mxfp8PairTensor:
+    if (
+        minifold_native_raw is None
+        or not hasattr(minifold_native_raw, "tri_input_norm_gate_block32_fused")
+        or not _has_mxfp8_linear_weight(lhs_module)
+        or not _has_mxfp8_linear_weight(rhs_module)
+    ):
+        normalized = native_mxfp8_layernorm_quantized(input_norm_module, x)
+        return native_tri_mul_from_gate_quantized(lhs_module, rhs_module, normalized, mask=mask, stats=stats)
+    mask_bool = mask.to(torch.bool)
+    if mask_bool.dim() == 2:
+        tri_mask = (mask_bool[:, :, None] & mask_bool[:, None, :]).contiguous()
+    elif mask_bool.dim() == 3:
+        tri_mask = mask_bool.contiguous()
+    else:
+        raise ValueError(f"Unsupported mask rank for native fused tri path: {mask_bool.dim()}")
+    payload, scale = minifold_native_raw.tri_input_norm_gate_block32_fused(
+        x.payload.contiguous(),
+        x.scale.contiguous(),
+        input_norm_module.weight.to(device=x.device, dtype=torch.bfloat16).contiguous(),
+        input_norm_module.bias.to(device=x.device, dtype=torch.bfloat16).contiguous(),
+        float(input_norm_module.eps),
+        lhs_module.weight_mxfp8.contiguous(),
+        lhs_module.scale_w_mxfp8_swizzled.contiguous(),
+        None if lhs_module.bias is None else lhs_module.bias.contiguous(),
+        rhs_module.weight_mxfp8.contiguous(),
+        rhs_module.scale_w_mxfp8_swizzled.contiguous(),
+        None if rhs_module.bias is None else rhs_module.bias.contiguous(),
         tri_mask,
         "float16",
     )
@@ -1153,6 +1274,11 @@ class TransitionUpdate(nn.Module):
         enabled = include_transition and self.linear_precision == LINEAR_PRECISION_FP8
         for linear in (self.fc1, self.fc2):
             configure_fp8_linear_weight_(linear, enabled=enabled)
+        # The CUTLASS fc1 direct-output path is kept opt-in only. It is stable
+        # after stream/chunking fixes, but the canonical end-to-end path is
+        # still faster with the existing fused BF16-output quantize flow.
+        self.fc1._native_fc1_direct_enabled = False
+        self.fc2._native_fc1_direct_enabled = False
 
     def _apply_linear(self, module: nn.Linear, x: torch.Tensor) -> torch.Tensor:
         if self.linear_precision == LINEAR_PRECISION_FP8 and _has_fp8_linear_weight(module):
@@ -1179,7 +1305,8 @@ class TransitionUpdate(nn.Module):
         if self.linear_precision != LINEAR_PRECISION_FP8 or not _has_mxfp8_linear_weight(self.fc1) or not _has_mxfp8_linear_weight(self.fc2):
             raise RuntimeError("fp8_native requires TransitionUpdate.fc1/fc2 to be quantized; build with linear_precision=fp8.")
         residual = x
-        x = native_transition_norm_fc1_quantized(self.norm, self.fc1, x, stats=stats)
+        x = native_mxfp8_layernorm_quantized(self.norm, x)
+        x = native_linear_forward_quantized(self.fc1, x, stats=stats, apply_relu=True)
         if stats is not None:
             stats.record_boundary("fp8_residual_add")
         return native_linear_forward_quantized(
@@ -1270,9 +1397,7 @@ class TriangularUpdate(nn.Module):
         if self.tri_impl != "fp8_cublaslt":
             raise RuntimeError("fp8_native currently requires tri_impl=fp8_cublaslt.")
         residual = x
-        x = native_mxfp8_layernorm_quantized(self.input_norm, x)
-        gated = native_gate_sigmoid_mul_quantized(self.pi, self.gi, x, stats=stats)
-        tri_out_q = native_tri_mul_from_block32_quantized(gated, mask=mask, stats=stats)
+        tri_out_q = native_tri_mul_from_input_quantized(self.input_norm, self.pi, self.gi, x, mask=mask, stats=stats)
         tri_out_q = native_mxfp8_layernorm_quantized(self.output_norm, tri_out_q)
         if stats is not None:
             stats.record_boundary("fp8_residual_add")
