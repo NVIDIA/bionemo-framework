@@ -19,6 +19,18 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("residual_payload") = pybind11::none(),
       pybind11::arg("residual_scale") = pybind11::none());
   m.def(
+      "transition_norm_fc1_block32_fused",
+      &minifold_native_ext::transition_norm_fc1_block32_fused_cuda,
+      "MiniFold native fused transition layernorm plus fc1 MXFP8 GEMM",
+      pybind11::arg("payload"),
+      pybind11::arg("scale"),
+      pybind11::arg("norm_weight"),
+      pybind11::arg("norm_bias"),
+      pybind11::arg("norm_eps"),
+      pybind11::arg("b_t"),
+      pybind11::arg("b_scale_swizzled"),
+      pybind11::arg("bias") = pybind11::none());
+  m.def(
       "gate_sigmoid_mul_block32_fused",
       &minifold_native_ext::gate_sigmoid_mul_block32_fused_cuda,
       "MiniFold native fused gate path: two MXFP8 GEMMs plus sigmoid-mul block32 output",
@@ -41,6 +53,23 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("scale"),
       pybind11::arg("mask") = pybind11::none(),
       pybind11::arg("out_dtype") = "float16");
+  m.def(
+      "tri_gate_layernorm_block32_fused",
+      &minifold_native_ext::tri_gate_layernorm_block32_fused_cuda,
+      "MiniFold native fused pre-tri gate + raw tri GEMMs + post-tri layernorm to resident block32 carrier",
+      pybind11::arg("a"),
+      pybind11::arg("a_scale_swizzled"),
+      pybind11::arg("lhs_b_t"),
+      pybind11::arg("lhs_scale_swizzled"),
+      pybind11::arg("lhs_bias") = pybind11::none(),
+      pybind11::arg("rhs_b_t"),
+      pybind11::arg("rhs_scale_swizzled"),
+      pybind11::arg("rhs_bias") = pybind11::none(),
+      pybind11::arg("mask"),
+      pybind11::arg("output_norm_weight"),
+      pybind11::arg("output_norm_bias"),
+      pybind11::arg("output_norm_eps"),
+      pybind11::arg("tri_out_dtype") = "float16");
   m.def(
       "relu_block32",
       &minifold_native_ext::relu_block32_cuda,
