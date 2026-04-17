@@ -34,6 +34,16 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
     const c10::optional<at::Tensor>& residual_payload = c10::nullopt,
     const c10::optional<at::Tensor>& residual_scale = c10::nullopt);
 
+std::tuple<at::Tensor, at::Tensor> transition_norm_fc1_block32_fused_cuda(
+    const at::Tensor& payload,
+    const at::Tensor& scale,
+    const at::Tensor& norm_weight,
+    const at::Tensor& norm_bias,
+    double norm_eps,
+    const at::Tensor& b_t,
+    const at::Tensor& b_scale_swizzled,
+    const c10::optional<at::Tensor>& bias = c10::nullopt);
+
 std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_cuda(
     const at::Tensor& a,
     const at::Tensor& a_scale_swizzled,
@@ -52,6 +62,21 @@ std::tuple<at::Tensor, at::Tensor> tri_mul_pair_from_block32_carrier_cuda(
     const at::Tensor& scale,
     const c10::optional<at::Tensor>& mask,
     const std::string& out_dtype);
+
+std::tuple<at::Tensor, at::Tensor> tri_gate_layernorm_block32_fused_cuda(
+    const at::Tensor& a,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& lhs_b_t,
+    const at::Tensor& lhs_scale_swizzled,
+    const c10::optional<at::Tensor>& lhs_bias,
+    const at::Tensor& rhs_b_t,
+    const at::Tensor& rhs_scale_swizzled,
+    const c10::optional<at::Tensor>& rhs_bias,
+    const at::Tensor& mask,
+    const at::Tensor& output_norm_weight,
+    const at::Tensor& output_norm_bias,
+    double output_norm_eps,
+    const std::string& tri_out_dtype = "float16");
 
 std::tuple<at::Tensor, at::Tensor> relu_block32_cuda(
     const at::Tensor& payload,

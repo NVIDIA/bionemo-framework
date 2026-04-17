@@ -1,7 +1,6 @@
 #include "common.h"
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/cuda/CUDAGuard.h>
 #include <cuda_bf16.h>
 #include <cuda_fp16.h>
 #include <cuda_fp8.h>
@@ -42,6 +41,14 @@ void validate_sm100_plus() {
   TORCH_CHECK(props != nullptr, "could not query CUDA device properties");
   const int sm = props->major * 10 + props->minor;
   TORCH_CHECK(sm >= 100, "MiniFold native FP8 kernels require SM100+, found SM", sm);
+}
+
+inline cudaStream_t current_cuda_stream() {
+  return static_cast<cudaStream_t>(0);
+}
+
+void set_cuda_device(const at::Tensor& t) {
+  TORCH_CHECK(cudaSetDevice(static_cast<int>(t.get_device())) == cudaSuccess, "failed to set CUDA device");
 }
 
 cudaDataType_t to_cuda_dtype(c10::ScalarType dtype) {
@@ -345,7 +352,7 @@ at::Tensor run_mxfp8_cublaslt_bmm(
       &cached_plan->heuristic.algo,
       workspace.data_ptr(),
       kWorkspaceBytes,
-      at::cuda::getCurrentCUDAStream()));
+      current_cuda_stream()));
   return out;
 }
 
@@ -785,6 +792,64 @@ __global__ void layernorm_block32_kernel_small(
   }
 }
 
+__global__ void transition_norm_to_mxfp8_input_kernel(
+    const __nv_fp8_storage_t* input,
+    const float* input_scale,
+    const __nv_bfloat16* weight,
+    const __nv_bfloat16* bias,
+    __nv_fp8_storage_t* output,
+    __nv_fp8_storage_t* output_scale_swizzled,
+    int rows,
+    float eps) {
+  constexpr int kCols = 128;
+  constexpr int kGroups = 4;
+  constexpr int kPaddedCols = 4;
+  const int warp_id = threadIdx.x >> 5;
+  const int lane = threadIdx.x & 31;
+  const int row = blockIdx.x * 4 + warp_id;
+  if (row >= rows || warp_id >= 4) {
+    return;
+  }
+
+  float x_vals[kGroups];
+  float sum = 0.0f;
+  float sumsq = 0.0f;
+#pragma unroll
+  for (int group = 0; group < kGroups; ++group) {
+    const int col = lane + group * 32;
+    const float x = fp8_storage_to_float(input[row * kCols + col]) * input_scale[row * kGroups + group];
+    x_vals[group] = x;
+    sum += x;
+    sumsq += x * x;
+  }
+  const float total = warp_reduce_sum(sum);
+  const float total_sq = warp_reduce_sum(sumsq);
+  const float mean = __shfl_sync(0xffffffff, total / static_cast<float>(kCols), 0);
+  const float inv_std = __shfl_sync(
+      0xffffffff,
+      rsqrtf(fmaxf(total_sq / static_cast<float>(kCols) - mean * mean, 0.0f) + eps),
+      0);
+
+  float y_vals[kGroups];
+  float scales[kGroups];
+#pragma unroll
+  for (int group = 0; group < kGroups; ++group) {
+    const int col = lane + group * 32;
+    const float y =
+        (x_vals[group] - mean) * inv_std * __bfloat162float(weight[col]) + __bfloat162float(bias[col]);
+    y_vals[group] = y;
+    scales[group] = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(y)), 0));
+  }
+#pragma unroll
+  for (int group = 0; group < kGroups; ++group) {
+    const int col = lane + group * 32;
+    output[row * kCols + col] = float_to_fp8_storage(y_vals[group] / scales[group]);
+    if (lane == 0) {
+      output_scale_swizzled[swizzled_scale_offset(row, group, kPaddedCols)] = float_to_e8m0_storage(scales[group]);
+    }
+  }
+}
+
 __global__ void pack_block32_to_mxfp8_lhs_pair_mask_kernel(
     const __nv_fp8_storage_t* payload,
     const float* scale,
@@ -978,6 +1043,79 @@ __global__ void pack_block32_to_mxfp8_fused_kernel(
   }
 }
 
+__global__ void gate_sigmoid_mul_pack_to_mxfp8_fused_kernel(
+    const __nv_bfloat16* lhs,
+    const __nv_bfloat16* rhs,
+    const __nv_bfloat16* lhs_bias,
+    const __nv_bfloat16* rhs_bias,
+    const bool* mask,
+    __nv_fp8_storage_t* a1,
+    __nv_fp8_storage_t* a1_scale,
+    __nv_fp8_storage_t* b1,
+    __nv_fp8_storage_t* b1_scale,
+    __nv_fp8_storage_t* a2_t,
+    __nv_fp8_storage_t* a2_t_scale,
+    __nv_fp8_storage_t* b2_rhs,
+    __nv_fp8_storage_t* b2_rhs_scale,
+    int batch,
+    int n,
+    int padded_rows,
+    int padded_cols) {
+  const int batch_channel_block = blockIdx.x;
+  const int row = blockIdx.y;
+  const int kblock = blockIdx.z;
+  const int warp_id = threadIdx.x >> 5;
+  const int lane = threadIdx.x & 31;
+  const int batch_idx = batch_channel_block / 4;
+  const int channel = ((batch_channel_block % 4) << 3) + warp_id;
+  const int k = kblock * 32 + lane;
+  if (batch_idx >= batch || row >= n || k >= n || warp_id >= 8) {
+    return;
+  }
+
+  const int64_t rowk_position = static_cast<int64_t>(batch_idx) * n * n + static_cast<int64_t>(row) * n + k;
+  const int64_t krow_position = static_cast<int64_t>(batch_idx) * n * n + static_cast<int64_t>(k) * n + row;
+  const float mask_rowk = (mask == nullptr || mask[(batch_idx * n + row) * n + k]) ? 1.0f : 0.0f;
+  const float mask_krow = (mask == nullptr || mask[(batch_idx * n + k) * n + row]) ? 1.0f : 0.0f;
+
+  const int rowk_base = static_cast<int>(rowk_position * 128);
+  const int krow_base = static_cast<int>(krow_position * 128);
+
+  const float a1_lhs = __bfloat162float(lhs[rowk_base + channel]) + __bfloat162float(lhs_bias[channel]);
+  const float a1_rhs = __bfloat162float(rhs[rowk_base + channel]) + __bfloat162float(rhs_bias[channel]);
+  const float b1_lhs = __bfloat162float(lhs[rowk_base + 32 + channel]) + __bfloat162float(lhs_bias[32 + channel]);
+  const float b1_rhs = __bfloat162float(rhs[rowk_base + 32 + channel]) + __bfloat162float(rhs_bias[32 + channel]);
+  const float a2_lhs = __bfloat162float(lhs[krow_base + 64 + channel]) + __bfloat162float(lhs_bias[64 + channel]);
+  const float a2_rhs = __bfloat162float(rhs[krow_base + 64 + channel]) + __bfloat162float(rhs_bias[64 + channel]);
+  const float b2_lhs = __bfloat162float(lhs[krow_base + 96 + channel]) + __bfloat162float(lhs_bias[96 + channel]);
+  const float b2_rhs_dense = __bfloat162float(rhs[krow_base + 96 + channel]) + __bfloat162float(rhs_bias[96 + channel]);
+
+  const float a1_value = a1_lhs * (1.0f / (1.0f + __expf(-a1_rhs))) * mask_rowk;
+  const float b1_value = b1_lhs * (1.0f / (1.0f + __expf(-b1_rhs))) * mask_rowk;
+  const float a2_value = a2_lhs * (1.0f / (1.0f + __expf(-a2_rhs))) * mask_krow;
+  const float b2_value = b2_lhs * (1.0f / (1.0f + __expf(-b2_rhs_dense))) * mask_krow;
+
+  const float a1_block_scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(a1_value)), 0));
+  const float b1_block_scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(b1_value)), 0));
+  const float a2_block_scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(a2_value)), 0));
+  const float b2_block_scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(b2_value)), 0));
+
+  const int plane = batch_idx * 32 + channel;
+  a1[((plane * n + row) * n) + k] = float_to_fp8_storage(a1_value / a1_block_scale);
+  b1[((plane * n + row) * n) + k] = float_to_fp8_storage(b1_value / b1_block_scale);
+  a2_t[((plane * n + row) * n) + k] = float_to_fp8_storage(a2_value / a2_block_scale);
+  b2_rhs[((plane * n + k) * n) + row] = float_to_fp8_storage(b2_value / b2_block_scale);
+
+  if (lane == 0) {
+    const int plane_offset = plane * padded_rows * padded_cols;
+    const int scale_offset = plane_offset + swizzled_scale_offset(row, kblock, padded_cols);
+    a1_scale[scale_offset] = float_to_e8m0_storage(a1_block_scale);
+    b1_scale[scale_offset] = float_to_e8m0_storage(b1_block_scale);
+    a2_t_scale[scale_offset] = float_to_e8m0_storage(a2_block_scale);
+    b2_rhs_scale[scale_offset] = float_to_e8m0_storage(b2_block_scale);
+  }
+}
+
 __global__ void tri_pair_to_block32_carrier_half_kernel(
     const __half* x1,
     const __half* x2,
@@ -1015,6 +1153,57 @@ __global__ void tri_pair_to_block32_carrier_half_kernel(
   output[out_idx] = float_to_fp8_storage(value / scale);
   if (lane == 0) {
     output_scale[(((batch_idx * n + i) * n + j) * 2) + group] = scale;
+  }
+}
+
+__global__ void tri_pair_layernorm_to_block32_half_kernel(
+    const __half* x1,
+    const __half* x2,
+    const __nv_bfloat16* weight,
+    const __nv_bfloat16* bias,
+    __nv_fp8_storage_t* output,
+    float* output_scale,
+    int batch,
+    int n,
+    float eps) {
+  __shared__ float shared_sum[2][2];
+  __shared__ float shared_sumsq[2][2];
+
+  const int warp_id = threadIdx.x >> 5;
+  const int lane = threadIdx.x & 31;
+  const int position_in_block = warp_id >> 1;
+  const int group = warp_id & 1;
+  const int position = blockIdx.x * 2 + position_in_block;
+  if (warp_id >= 4 || position >= batch * n * n) {
+    return;
+  }
+
+  const int batch_idx = position / (n * n);
+  const int rem = position % (n * n);
+  const int i = rem / n;
+  const int j = rem % n;
+  const int col = group * 32 + lane;
+  const float x = group == 0
+      ? __half2float(x1[(((batch_idx * 32) + lane) * n + i) * n + j])
+      : __half2float(x2[(((batch_idx * 32) + lane) * n + i) * n + j]);
+
+  const float warp_sum = warp_reduce_sum(x);
+  const float warp_sumsq = warp_reduce_sum(x * x);
+  if (lane == 0) {
+    shared_sum[position_in_block][group] = warp_sum;
+    shared_sumsq[position_in_block][group] = warp_sumsq;
+  }
+  __syncthreads();
+
+  const float mean = (shared_sum[position_in_block][0] + shared_sum[position_in_block][1]) / 64.0f;
+  const float var = fmaxf((shared_sumsq[position_in_block][0] + shared_sumsq[position_in_block][1]) / 64.0f - mean * mean, 0.0f);
+  const float inv_std = rsqrtf(var + eps);
+  const float y = (x - mean) * inv_std * __bfloat162float(weight[col]) + __bfloat162float(bias[col]);
+  const float group_scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(y)), 0));
+  const int out_idx = (((batch_idx * n + i) * n + j) * 64) + col;
+  output[out_idx] = float_to_fp8_storage(y / group_scale);
+  if (lane == 0) {
+    output_scale[(((batch_idx * n + i) * n + j) * 2) + group] = group_scale;
   }
 }
 
@@ -1140,7 +1329,7 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16_with_bias(
   auto* input_ptr = reinterpret_cast<const __nv_bfloat16*>(input.data_ptr());
   auto* output_ptr = reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr());
   auto* scale_ptr = output_scale.data_ptr<float>();
-  auto stream = at::cuda::getCurrentCUDAStream();
+  auto stream = current_cuda_stream();
   const int quantize_blocks = cols == 128 ? static_cast<int>((rows + 3) / 4) : static_cast<int>((rows + 1) / 2);
   if (cols == 128) {
     if (apply_relu) {
@@ -1240,7 +1429,7 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16(
   auto* input_ptr = reinterpret_cast<const __nv_bfloat16*>(input.data_ptr());
   auto* output_ptr = reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr());
   auto* scale_ptr = output_scale.data_ptr<float>();
-  auto stream = at::cuda::getCurrentCUDAStream();
+  auto stream = current_cuda_stream();
   const int quantize_blocks = cols == 128 ? static_cast<int>((rows + 3) / 4) : static_cast<int>((rows + 1) / 2);
   if (cols == 128) {
     if (residual_payload_ptr != nullptr) {
@@ -1339,7 +1528,7 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_quantize_bf16(
   if (cols == 128 && lhs_bias_ptr != nullptr && rhs_bias_ptr != nullptr) {
     const int gate_blocks = static_cast<int>((rows + 3) / 4);
     if (residual_payload_ptr != nullptr) {
-      gate_sigmoid_mul_quantize_bf16_128_kernel<true><<<gate_blocks, 128, 0, at::cuda::getCurrentCUDAStream()>>>(
+      gate_sigmoid_mul_quantize_bf16_128_kernel<true><<<gate_blocks, 128, 0, current_cuda_stream()>>>(
           reinterpret_cast<const __nv_bfloat16*>(lhs.data_ptr()),
           reinterpret_cast<const __nv_bfloat16*>(rhs.data_ptr()),
           lhs_bias_ptr,
@@ -1350,7 +1539,7 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_quantize_bf16(
           output_scale.data_ptr<float>(),
           static_cast<int>(rows));
     } else {
-      gate_sigmoid_mul_quantize_bf16_128_kernel<false><<<gate_blocks, 128, 0, at::cuda::getCurrentCUDAStream()>>>(
+      gate_sigmoid_mul_quantize_bf16_128_kernel<false><<<gate_blocks, 128, 0, current_cuda_stream()>>>(
           reinterpret_cast<const __nv_bfloat16*>(lhs.data_ptr()),
           reinterpret_cast<const __nv_bfloat16*>(rhs.data_ptr()),
           lhs_bias_ptr,
@@ -1362,7 +1551,7 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_quantize_bf16(
           static_cast<int>(rows));
     }
   } else {
-    gate_sigmoid_mul_quantize_bf16_kernel<<<rows, cols, 0, at::cuda::getCurrentCUDAStream()>>>(
+    gate_sigmoid_mul_quantize_bf16_kernel<<<rows, cols, 0, current_cuda_stream()>>>(
         reinterpret_cast<const __nv_bfloat16*>(lhs.data_ptr()),
         reinterpret_cast<const __nv_bfloat16*>(rhs.data_ptr()),
         lhs_bias_ptr,
@@ -1394,7 +1583,7 @@ std::tuple<at::Tensor, at::Tensor> unary_block32_impl(
   TORCH_CHECK(scale.numel() == rows * groups, "scale shape is incompatible with payload");
   auto output = at::empty_like(payload);
   auto output_scale = at::empty_like(scale);
-  unary_block32_kernel<<<rows, cols, 0, at::cuda::getCurrentCUDAStream()>>>(
+  unary_block32_kernel<<<rows, cols, 0, current_cuda_stream()>>>(
       reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
       scale.data_ptr<float>(),
       reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr()),
@@ -1425,7 +1614,7 @@ std::tuple<at::Tensor, at::Tensor> binary_block32_impl(
   TORCH_CHECK(cols % 32 == 0 && cols <= 512, "binary_block32 expects cols divisible by 32 and <= 512, got ", cols);
   auto output = at::empty_like(lhs_payload);
   auto output_scale = at::empty_like(lhs_scale);
-  binary_block32_kernel<<<rows, cols, 0, at::cuda::getCurrentCUDAStream()>>>(
+  binary_block32_kernel<<<rows, cols, 0, current_cuda_stream()>>>(
       reinterpret_cast<const __nv_fp8_storage_t*>(lhs_payload.data_ptr()),
       lhs_scale.data_ptr<float>(),
       reinterpret_cast<const __nv_fp8_storage_t*>(rhs_payload.data_ptr()),
@@ -1464,7 +1653,7 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_impl(
   auto output_scale = at::empty_like(scale);
   const int layernorm_blocks = static_cast<int>((rows + 3) / 4);
   if (cols == 64) {
-    layernorm_block32_kernel_small<64><<<layernorm_blocks, 128, 0, at::cuda::getCurrentCUDAStream()>>>(
+    layernorm_block32_kernel_small<64><<<layernorm_blocks, 128, 0, current_cuda_stream()>>>(
         reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
         scale.data_ptr<float>(),
         reinterpret_cast<const __nv_bfloat16*>(weight.data_ptr()),
@@ -1475,7 +1664,7 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_impl(
         static_cast<int>(groups),
         eps);
   } else if (cols == 128) {
-    layernorm_block32_kernel_small<128><<<layernorm_blocks, 128, 0, at::cuda::getCurrentCUDAStream()>>>(
+    layernorm_block32_kernel_small<128><<<layernorm_blocks, 128, 0, current_cuda_stream()>>>(
         reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
         scale.data_ptr<float>(),
         reinterpret_cast<const __nv_bfloat16*>(weight.data_ptr()),
@@ -1487,7 +1676,7 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_impl(
         eps);
   } else {
     const size_t shared_bytes = static_cast<size_t>(cols) * sizeof(float);
-    layernorm_block32_generic_kernel<<<rows, cols, shared_bytes, at::cuda::getCurrentCUDAStream()>>>(
+    layernorm_block32_generic_kernel<<<rows, cols, shared_bytes, current_cuda_stream()>>>(
         reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
         scale.data_ptr<float>(),
         reinterpret_cast<const __nv_bfloat16*>(weight.data_ptr()),
@@ -1525,7 +1714,7 @@ std::tuple<at::Tensor, at::Tensor> pack_block32_to_mxfp8_lhs(
     mask_ptr = mask.data_ptr<bool>();
   }
   const dim3 grid(static_cast<unsigned int>(batch * 32), static_cast<unsigned int>(n), static_cast<unsigned int>(n / 32));
-  pack_block32_to_mxfp8_lhs_mask_kernel<<<grid, 32, 0, at::cuda::getCurrentCUDAStream()>>>(
+  pack_block32_to_mxfp8_lhs_mask_kernel<<<grid, 32, 0, current_cuda_stream()>>>(
       reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
       scale.data_ptr<float>(),
       mask_ptr,
@@ -1562,7 +1751,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor> pack_block32_to_mxfp8
     mask_ptr = mask.data_ptr<bool>();
   }
   const dim3 grid(static_cast<unsigned int>(batch * 32), static_cast<unsigned int>(n), static_cast<unsigned int>(n / 32));
-  pack_block32_to_mxfp8_lhs_pair_mask_kernel<<<grid, 32, 0, at::cuda::getCurrentCUDAStream()>>>(
+  pack_block32_to_mxfp8_lhs_pair_mask_kernel<<<grid, 32, 0, current_cuda_stream()>>>(
       reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
       scale.data_ptr<float>(),
       mask_ptr,
@@ -1599,7 +1788,7 @@ std::tuple<at::Tensor, at::Tensor> pack_block32_to_mxfp8_rhs(
     mask_ptr = mask.data_ptr<bool>();
   }
   const dim3 grid(static_cast<unsigned int>(batch * 32), static_cast<unsigned int>(n / 32), static_cast<unsigned int>(n));
-  pack_block32_to_mxfp8_rhs_mask_kernel<<<grid, 32, 0, at::cuda::getCurrentCUDAStream()>>>(
+  pack_block32_to_mxfp8_rhs_mask_kernel<<<grid, 32, 0, current_cuda_stream()>>>(
       reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
       scale.data_ptr<float>(),
       mask_ptr,
@@ -1642,10 +1831,81 @@ pack_block32_to_mxfp8_fused(
     mask_ptr = mask.data_ptr<bool>();
   }
   const dim3 grid(static_cast<unsigned int>(batch * 4), static_cast<unsigned int>(n), static_cast<unsigned int>(n / 32));
-  pack_block32_to_mxfp8_fused_kernel<<<grid, 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+  pack_block32_to_mxfp8_fused_kernel<<<grid, 256, 0, current_cuda_stream()>>>(
       reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
       scale.data_ptr<float>(),
       mask_ptr,
+      reinterpret_cast<__nv_fp8_storage_t*>(a1.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(a1_scale.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(b1.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(b1_scale.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(a2_t.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(a2_t_scale.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(b2_rhs.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(b2_rhs_scale.data_ptr()),
+      static_cast<int>(batch),
+      static_cast<int>(n),
+      static_cast<int>(padded_rows),
+      static_cast<int>(padded_cols));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return {a1, a1_scale, b1, b1_scale, a2_t, a2_t_scale, b2_rhs, b2_rhs_scale};
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+gate_sigmoid_mul_pack_to_mxfp8_fused(
+    const at::Tensor& lhs,
+    const at::Tensor& rhs,
+    const c10::optional<at::Tensor>& lhs_bias_opt,
+    const c10::optional<at::Tensor>& rhs_bias_opt,
+    const at::Tensor& mask) {
+  TORCH_CHECK(lhs.scalar_type() == c10::ScalarType::BFloat16 && rhs.scalar_type() == c10::ScalarType::BFloat16,
+              "gate_sigmoid_mul_pack_to_mxfp8_fused expects bfloat16 inputs");
+  TORCH_CHECK(lhs.sizes() == rhs.sizes(), "lhs and rhs must match");
+  TORCH_CHECK(lhs.dim() == 3 && lhs.size(0) == 1, "gate_sigmoid_mul_pack_to_mxfp8_fused expects lhs/rhs with shape [1, rows, 128]");
+  TORCH_CHECK(lhs.size(2) == 128, "gate_sigmoid_mul_pack_to_mxfp8_fused expects width 128");
+  check_cuda_tensor(mask, "mask");
+  TORCH_CHECK(mask.scalar_type() == c10::ScalarType::Bool, "mask must be bool");
+  TORCH_CHECK(mask.dim() == 3 && mask.size(1) == mask.size(2), "mask must have shape [B, N, N]");
+
+  at::Tensor lhs_bias;
+  at::Tensor rhs_bias;
+  const __nv_bfloat16* lhs_bias_ptr = nullptr;
+  const __nv_bfloat16* rhs_bias_ptr = nullptr;
+  if (lhs_bias_opt.has_value()) {
+    lhs_bias = lhs_bias_opt.value();
+    check_cuda_tensor(lhs_bias, "lhs_bias");
+    TORCH_CHECK(lhs_bias.dim() == 1 && lhs_bias.size(0) == 128, "lhs_bias must be 1D with width 128");
+    lhs_bias_ptr = reinterpret_cast<const __nv_bfloat16*>(lhs_bias.data_ptr());
+  }
+  if (rhs_bias_opt.has_value()) {
+    rhs_bias = rhs_bias_opt.value();
+    check_cuda_tensor(rhs_bias, "rhs_bias");
+    TORCH_CHECK(rhs_bias.dim() == 1 && rhs_bias.size(0) == 128, "rhs_bias must be 1D with width 128");
+    rhs_bias_ptr = reinterpret_cast<const __nv_bfloat16*>(rhs_bias.data_ptr());
+  }
+  TORCH_CHECK(lhs_bias_ptr != nullptr && rhs_bias_ptr != nullptr,
+              "gate_sigmoid_mul_pack_to_mxfp8_fused requires lhs_bias and rhs_bias");
+
+  const int64_t batch = mask.size(0);
+  const int64_t n = mask.size(1);
+  TORCH_CHECK(lhs.size(1) == batch * n * n, "lhs/rhs rows must equal batch * n * n");
+  const int64_t padded_rows = ((n + 127) / 128) * 128;
+  const int64_t padded_cols = (((n / 32) + 3) / 4) * 4;
+  auto a1 = at::empty({batch * 32, n, n}, lhs.options().dtype(at::kFloat8_e4m3fn));
+  auto b1 = at::empty({batch * 32, n, n}, lhs.options().dtype(at::kFloat8_e4m3fn));
+  auto a2_t = at::empty({batch * 32, n, n}, lhs.options().dtype(at::kFloat8_e4m3fn));
+  auto b2_rhs = at::empty({batch * 32, n, n}, lhs.options().dtype(at::kFloat8_e4m3fn));
+  auto a1_scale = at::full({batch * 32, padded_rows, padded_cols}, kMinPow2Scale, lhs.options().dtype(at::kFloat8_e8m0fnu));
+  auto b1_scale = at::full({batch * 32, padded_rows, padded_cols}, kMinPow2Scale, lhs.options().dtype(at::kFloat8_e8m0fnu));
+  auto a2_t_scale = at::full({batch * 32, padded_rows, padded_cols}, kMinPow2Scale, lhs.options().dtype(at::kFloat8_e8m0fnu));
+  auto b2_rhs_scale = at::full({batch * 32, padded_rows, padded_cols}, kMinPow2Scale, lhs.options().dtype(at::kFloat8_e8m0fnu));
+  const dim3 grid(static_cast<unsigned int>(batch * 4), static_cast<unsigned int>(n), static_cast<unsigned int>(n / 32));
+  gate_sigmoid_mul_pack_to_mxfp8_fused_kernel<<<grid, 256, 0, current_cuda_stream()>>>(
+      reinterpret_cast<const __nv_bfloat16*>(lhs.data_ptr()),
+      reinterpret_cast<const __nv_bfloat16*>(rhs.data_ptr()),
+      lhs_bias_ptr,
+      rhs_bias_ptr,
+      mask.data_ptr<bool>(),
       reinterpret_cast<__nv_fp8_storage_t*>(a1.data_ptr()),
       reinterpret_cast<__nv_fp8_storage_t*>(a1_scale.data_ptr()),
       reinterpret_cast<__nv_fp8_storage_t*>(b1.data_ptr()),
@@ -1675,7 +1935,7 @@ std::tuple<at::Tensor, at::Tensor> tri_pair_to_block32_carrier(
   auto output = at::empty({batch, n, n, d_chunk * 2}, x1.options().dtype(at::kFloat8_e4m3fn));
   auto output_scale = at::empty({batch, n, n, 2}, x1.options().dtype(at::kFloat));
   const int64_t total_positions = batch * n * n;
-  tri_pair_to_block32_carrier_half_kernel<<<(total_positions + 1) / 2, 128, 0, at::cuda::getCurrentCUDAStream()>>>(
+  tri_pair_to_block32_carrier_half_kernel<<<(total_positions + 1) / 2, 128, 0, current_cuda_stream()>>>(
       reinterpret_cast<const __half*>(x1.data_ptr()),
       reinterpret_cast<const __half*>(x2.data_ptr()),
       reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr()),
@@ -1683,6 +1943,40 @@ std::tuple<at::Tensor, at::Tensor> tri_pair_to_block32_carrier(
       static_cast<int>(batch),
       static_cast<int>(n),
       static_cast<int>(d_chunk));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  return {output, output_scale};
+}
+
+std::tuple<at::Tensor, at::Tensor> tri_pair_layernorm_to_block32_carrier(
+    const at::Tensor& x1,
+    const at::Tensor& x2,
+    int64_t batch,
+    const at::Tensor& weight,
+    const at::Tensor& bias,
+    float eps) {
+  TORCH_CHECK(x1.scalar_type() == c10::ScalarType::Half && x2.scalar_type() == c10::ScalarType::Half,
+              "tri_pair_layernorm_to_block32_carrier expects float16 inputs");
+  TORCH_CHECK(x1.sizes() == x2.sizes(), "x1 and x2 must match");
+  TORCH_CHECK(weight.dim() == 1 && bias.dim() == 1 && weight.size(0) == 64 && bias.size(0) == 64,
+              "output layernorm weight/bias must have width 64");
+  TORCH_CHECK(weight.scalar_type() == c10::ScalarType::BFloat16 && bias.scalar_type() == c10::ScalarType::BFloat16,
+              "output layernorm weight/bias must be bfloat16");
+  const int64_t d_chunk = x1.size(0) / batch;
+  const int64_t n = x1.size(1);
+  TORCH_CHECK(d_chunk == 32, "tri_pair_layernorm_to_block32_carrier expects d_chunk=32, got ", d_chunk);
+  auto output = at::empty({batch, n, n, d_chunk * 2}, x1.options().dtype(at::kFloat8_e4m3fn));
+  auto output_scale = at::empty({batch, n, n, 2}, x1.options().dtype(at::kFloat));
+  const int64_t total_positions = batch * n * n;
+  tri_pair_layernorm_to_block32_half_kernel<<<(total_positions + 1) / 2, 128, 0, current_cuda_stream()>>>(
+      reinterpret_cast<const __half*>(x1.data_ptr()),
+      reinterpret_cast<const __half*>(x2.data_ptr()),
+      reinterpret_cast<const __nv_bfloat16*>(weight.data_ptr()),
+      reinterpret_cast<const __nv_bfloat16*>(bias.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr()),
+      output_scale.data_ptr<float>(),
+      static_cast<int>(batch),
+      static_cast<int>(n),
+      eps);
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {output, output_scale};
 }
@@ -1737,7 +2031,7 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
   TORCH_CHECK(a.size(1) % 32 == 0 && a.size(2) % 32 == 0 && b_t.size(1) % 32 == 0,
               "MiniFold native fused linear path requires M, N, and K divisible by 32");
 
-  c10::cuda::CUDAGuard guard(a.device());
+  set_cuda_device(a);
   validate_sm100_plus();
   check_same_device(a, b_t, a_scale_swizzled, b_scale_swizzled);
   if (bias.has_value()) {
@@ -1771,6 +2065,81 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
     return quantize_block32_bf16(dense, residual_payload, residual_scale);
   }
   return quantize_block32_bf16_with_bias(dense, bias, residual_payload, residual_scale, apply_relu);
+}
+
+std::tuple<at::Tensor, at::Tensor> transition_norm_fc1_block32_fused_cuda(
+    const at::Tensor& payload,
+    const at::Tensor& scale,
+    const at::Tensor& norm_weight,
+    const at::Tensor& norm_bias,
+    double norm_eps,
+    const at::Tensor& b_t,
+    const at::Tensor& b_scale_swizzled,
+    const c10::optional<at::Tensor>& bias) {
+  validate_block32_carrier(payload, scale);
+  TORCH_CHECK(payload.size(3) == 128, "transition_norm_fc1_block32_fused expects payload width 128");
+  check_cuda_tensor(norm_weight, "norm_weight");
+  check_cuda_tensor(norm_bias, "norm_bias");
+  TORCH_CHECK(norm_weight.dim() == 1 && norm_weight.size(0) == 128, "norm_weight must have width 128");
+  TORCH_CHECK(norm_bias.dim() == 1 && norm_bias.size(0) == 128, "norm_bias must have width 128");
+  TORCH_CHECK(
+      norm_weight.scalar_type() == c10::ScalarType::BFloat16 && norm_bias.scalar_type() == c10::ScalarType::BFloat16,
+      "norm weight and bias must be bfloat16");
+  check_cuda_tensor(b_t, "b_t");
+  check_cuda_tensor(b_scale_swizzled, "b_scale_swizzled");
+  TORCH_CHECK(
+      b_t.scalar_type() == c10::ScalarType::Float8_e4m3fn || b_t.scalar_type() == c10::ScalarType::Float8_e5m2,
+      "b_t must be FP8");
+  TORCH_CHECK(b_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu,
+              "b_scale_swizzled must use torch.float8_e8m0fnu");
+  TORCH_CHECK(b_t.dim() == 3, "b_t must be 3D");
+  TORCH_CHECK(b_t.size(0) == 1 && b_t.size(2) == 128 && b_t.size(1) == 512,
+              "transition_norm_fc1_block32_fused expects b_t with shape [1, 512, 128]");
+  if (bias.has_value()) {
+    check_cuda_tensor(bias.value(), "bias");
+    TORCH_CHECK(
+        bias.value().dim() == 1 && bias.value().size(0) == 512 && bias.value().scalar_type() == c10::ScalarType::BFloat16,
+        "fc1 bias must be bfloat16 with width 512");
+  }
+
+  set_cuda_device(payload);
+  validate_sm100_plus();
+  TORCH_CHECK(payload.device() == b_t.device() && payload.device() == b_scale_swizzled.device(),
+              "all transition_norm_fc1 tensors must be on the same CUDA device");
+  const int64_t batch = payload.size(0);
+  const int64_t n = payload.size(1);
+  const int64_t cols = payload.size(3);
+  const int64_t rows = batch * n * n;
+  TORCH_CHECK(rows % 32 == 0, "transition_norm_fc1_block32_fused requires rows divisible by 32, got ", rows);
+
+  auto a = at::empty({1, rows, cols}, payload.options().dtype(at::kFloat8_e4m3fn));
+  const int64_t padded_rows = ((rows + 127) / 128) * 128;
+  auto a_scale_swizzled = at::full(
+      {1, padded_rows, 4},
+      kMinPow2Scale,
+      payload.options().dtype(at::kFloat8_e8m0fnu));
+  const int layernorm_blocks = static_cast<int>((rows + 3) / 4);
+  transition_norm_to_mxfp8_input_kernel<<<layernorm_blocks, 128, 0, current_cuda_stream()>>>(
+      reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
+      scale.data_ptr<float>(),
+      reinterpret_cast<const __nv_bfloat16*>(norm_weight.data_ptr()),
+      reinterpret_cast<const __nv_bfloat16*>(norm_bias.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(a.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(a_scale_swizzled.data_ptr()),
+      static_cast<int>(rows),
+      static_cast<float>(norm_eps));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  auto dense = run_mxfp8_cublaslt_bmm(
+      a,
+      b_t,
+      a_scale_swizzled,
+      b_scale_swizzled,
+      c10::ScalarType::BFloat16,
+      false,
+      c10::nullopt,
+      CUBLASLT_EPILOGUE_DEFAULT);
+  return quantize_block32_bf16_with_bias(dense, bias, c10::nullopt, c10::nullopt, true);
 }
 
 std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_cuda(
@@ -1807,7 +2176,7 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_cuda(
                 "residual tensors must be on the same CUDA device as a");
   }
 
-  c10::cuda::CUDAGuard guard(a.device());
+  set_cuda_device(a);
   validate_sm100_plus();
   auto lhs_dense = run_mxfp8_cublaslt_bmm(a, lhs_b_t, a_scale_swizzled, lhs_scale_swizzled, out_dtype, false);
   auto rhs_dense = run_mxfp8_cublaslt_bmm(a, rhs_b_t, a_scale_swizzled, rhs_scale_swizzled, out_dtype, false);
@@ -1824,7 +2193,7 @@ std::tuple<at::Tensor, at::Tensor> tri_mul_pair_from_block32_carrier_cuda(
               "tri_mul_pair_from_block32_carrier currently supports out_dtype='float16' only");
   validate_block32_carrier(payload, scale);
 
-  c10::cuda::CUDAGuard guard(payload.device());
+  set_cuda_device(payload);
   validate_sm100_plus();
   if (mask.has_value()) {
     check_cuda_tensor(mask.value(), "mask");
@@ -1836,6 +2205,70 @@ std::tuple<at::Tensor, at::Tensor> tri_mul_pair_from_block32_carrier_cuda(
   auto x2 = run_mxfp8_cublaslt_bmm(
       std::get<4>(packed), std::get<6>(packed), std::get<5>(packed), std::get<7>(packed), out_dtype, true);
   return tri_pair_to_block32_carrier(x1, x2, payload.size(0));
+}
+
+std::tuple<at::Tensor, at::Tensor> tri_gate_layernorm_block32_fused_cuda(
+    const at::Tensor& a,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& lhs_b_t,
+    const at::Tensor& lhs_scale_swizzled,
+    const c10::optional<at::Tensor>& lhs_bias,
+    const at::Tensor& rhs_b_t,
+    const at::Tensor& rhs_scale_swizzled,
+    const c10::optional<at::Tensor>& rhs_bias,
+    const at::Tensor& mask,
+    const at::Tensor& output_norm_weight,
+    const at::Tensor& output_norm_bias,
+    double output_norm_eps,
+    const std::string& tri_out_dtype_str) {
+  const auto tri_out_dtype = parse_out_dtype(tri_out_dtype_str);
+  TORCH_CHECK(tri_out_dtype == c10::ScalarType::Half,
+              "tri_gate_layernorm_block32_fused currently supports tri_out_dtype='float16' only");
+  check_cuda_tensor(a, "a");
+  check_cuda_tensor(a_scale_swizzled, "a_scale_swizzled");
+  check_cuda_tensor(lhs_b_t, "lhs_b_t");
+  check_cuda_tensor(lhs_scale_swizzled, "lhs_scale_swizzled");
+  check_cuda_tensor(rhs_b_t, "rhs_b_t");
+  check_cuda_tensor(rhs_scale_swizzled, "rhs_scale_swizzled");
+  check_cuda_tensor(mask, "mask");
+  check_cuda_tensor(output_norm_weight, "output_norm_weight");
+  check_cuda_tensor(output_norm_bias, "output_norm_bias");
+  TORCH_CHECK(a.dim() == 3 && a.size(0) == 1 && a.size(2) == 128,
+              "tri_gate_layernorm_block32_fused expects a with shape [1, rows, 128]");
+  TORCH_CHECK(mask.scalar_type() == c10::ScalarType::Bool && mask.dim() == 3 && mask.size(1) == mask.size(2),
+              "mask must have shape [B, N, N] and bool dtype");
+  TORCH_CHECK(output_norm_weight.scalar_type() == c10::ScalarType::BFloat16 &&
+                  output_norm_bias.scalar_type() == c10::ScalarType::BFloat16,
+              "output_norm weight/bias must be bfloat16");
+  TORCH_CHECK(output_norm_weight.dim() == 1 && output_norm_weight.size(0) == 64, "output_norm_weight must have width 64");
+  TORCH_CHECK(output_norm_bias.dim() == 1 && output_norm_bias.size(0) == 64, "output_norm_bias must have width 64");
+  if (lhs_bias.has_value()) {
+    check_cuda_tensor(lhs_bias.value(), "lhs_bias");
+  }
+  if (rhs_bias.has_value()) {
+    check_cuda_tensor(rhs_bias.value(), "rhs_bias");
+  }
+
+  set_cuda_device(a);
+  validate_sm100_plus();
+  const int64_t batch = mask.size(0);
+  const int64_t n = mask.size(1);
+  TORCH_CHECK(a.size(1) == batch * n * n, "a rows must equal batch * n * n");
+
+  auto lhs_dense = run_mxfp8_cublaslt_bmm(a, lhs_b_t, a_scale_swizzled, lhs_scale_swizzled, c10::ScalarType::BFloat16, false);
+  auto rhs_dense = run_mxfp8_cublaslt_bmm(a, rhs_b_t, a_scale_swizzled, rhs_scale_swizzled, c10::ScalarType::BFloat16, false);
+  auto packed = gate_sigmoid_mul_pack_to_mxfp8_fused(lhs_dense, rhs_dense, lhs_bias, rhs_bias, mask);
+  auto x1 = run_mxfp8_cublaslt_bmm(
+      std::get<0>(packed), std::get<2>(packed), std::get<1>(packed), std::get<3>(packed), tri_out_dtype, false);
+  auto x2 = run_mxfp8_cublaslt_bmm(
+      std::get<4>(packed), std::get<6>(packed), std::get<5>(packed), std::get<7>(packed), tri_out_dtype, true);
+  return tri_pair_layernorm_to_block32_carrier(
+      x1,
+      x2,
+      batch,
+      output_norm_weight,
+      output_norm_bias,
+      static_cast<float>(output_norm_eps));
 }
 
 std::tuple<at::Tensor, at::Tensor> relu_block32_cuda(

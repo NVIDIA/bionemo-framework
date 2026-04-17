@@ -162,6 +162,26 @@ def test_fp8_requantize_block32_with_bias_shapes():
     not torch.cuda.is_available() or PLAIN_MODULE.minifold_native_raw is None,
     reason="CUDA and minifold_native_ext are required for native fused linear smoke",
 )
+def test_native_transition_norm_fc1_quantized_shapes():
+    norm = torch.nn.LayerNorm(128, eps=1e-5, device="cuda", dtype=torch.bfloat16)
+    fc1 = torch.nn.Linear(128, 512, bias=True, device="cuda", dtype=torch.bfloat16)
+    PLAIN_MODULE.configure_fp8_linear_weight_(fc1, enabled=True)
+    x = PLAIN_MODULE.Mxfp8PairTensor.from_tensor(
+        torch.randn(1, 8, 8, 128, device="cuda", dtype=torch.bfloat16),
+        scale_dtype=torch.float32,
+    )
+    y = PLAIN_MODULE.native_transition_norm_fc1_quantized(norm, fc1, x)
+    assert isinstance(y, PLAIN_MODULE.Mxfp8PairTensor)
+    assert y.payload.shape == (1, 8, 8, 512)
+    assert y.scale.shape == (1, 8, 8, 16)
+    assert y.payload.dtype == torch.float8_e4m3fn
+    assert y.scale.dtype == torch.float32
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or PLAIN_MODULE.minifold_native_raw is None,
+    reason="CUDA and minifold_native_ext are required for native fused linear smoke",
+)
 def test_native_linear_forward_quantized_shapes():
     linear = torch.nn.Linear(128, 128, bias=True, device="cuda", dtype=torch.bfloat16)
     PLAIN_MODULE.configure_fp8_linear_weight_(linear, enabled=True)
