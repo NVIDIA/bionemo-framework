@@ -597,3 +597,8 @@ class HFInferenceParams(InferenceParams):
             updated_key_cache = key_cache.index_select(0, beam_idx)
             updated_value_cache = value_cache.index_select(0, beam_idx)
             self.cache_manager.cache[layer_number] = (updated_key_cache, updated_value_cache)
+
+    @property
+    def is_compileable(self) -> bool:
+        """Return False as this cache is not compatible with torch.compile."""
+        return False
