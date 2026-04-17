@@ -19,6 +19,15 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("residual_payload") = pybind11::none(),
       pybind11::arg("residual_scale") = pybind11::none());
   m.def(
+      "linear_block32_fc1_direct",
+      &minifold_native_ext::linear_block32_fc1_direct_cuda,
+      "MiniFold native canonical fc1 path with direct FP8 block32 output",
+      pybind11::arg("a"),
+      pybind11::arg("b_cutlass_col"),
+      pybind11::arg("a_scale_swizzled"),
+      pybind11::arg("b_scale_swizzled"),
+      pybind11::arg("bias"));
+  m.def(
       "transition_norm_fc1_block32_fused",
       &minifold_native_ext::transition_norm_fc1_block32_fused_cuda,
       "MiniFold native fused transition layernorm plus fc1 MXFP8 GEMM",
@@ -53,6 +62,37 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("scale"),
       pybind11::arg("mask") = pybind11::none(),
       pybind11::arg("out_dtype") = "float16");
+  m.def(
+      "tri_gate_block32_fused",
+      &minifold_native_ext::tri_gate_block32_fused_cuda,
+      "MiniFold native fused pre-tri gate pack + raw tri GEMMs to resident block32 carrier",
+      pybind11::arg("a"),
+      pybind11::arg("a_scale_swizzled"),
+      pybind11::arg("lhs_b_t"),
+      pybind11::arg("lhs_scale_swizzled"),
+      pybind11::arg("lhs_bias") = pybind11::none(),
+      pybind11::arg("rhs_b_t"),
+      pybind11::arg("rhs_scale_swizzled"),
+      pybind11::arg("rhs_bias") = pybind11::none(),
+      pybind11::arg("mask"),
+      pybind11::arg("tri_out_dtype") = "float16");
+  m.def(
+      "tri_input_norm_gate_block32_fused",
+      &minifold_native_ext::tri_input_norm_gate_block32_fused_cuda,
+      "MiniFold native fused tri input layernorm + gate pack + raw tri GEMMs to resident block32 carrier",
+      pybind11::arg("payload"),
+      pybind11::arg("scale"),
+      pybind11::arg("input_norm_weight"),
+      pybind11::arg("input_norm_bias"),
+      pybind11::arg("input_norm_eps"),
+      pybind11::arg("lhs_b_t"),
+      pybind11::arg("lhs_scale_swizzled"),
+      pybind11::arg("lhs_bias") = pybind11::none(),
+      pybind11::arg("rhs_b_t"),
+      pybind11::arg("rhs_scale_swizzled"),
+      pybind11::arg("rhs_bias") = pybind11::none(),
+      pybind11::arg("mask"),
+      pybind11::arg("tri_out_dtype") = "float16");
   m.def(
       "tri_gate_layernorm_block32_fused",
       &minifold_native_ext::tri_gate_layernorm_block32_fused_cuda,

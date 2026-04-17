@@ -199,6 +199,28 @@ def test_native_linear_forward_quantized_shapes():
 
 @pytest.mark.skipif(
     not torch.cuda.is_available() or PLAIN_MODULE.minifold_native_raw is None,
+    reason="CUDA and minifold_native_ext are required for native fc1 direct smoke",
+)
+def test_native_fc1_direct_path_repeated_smoke():
+    linear = torch.nn.Linear(128, 512, bias=True, device="cuda", dtype=torch.bfloat16)
+    PLAIN_MODULE.configure_fp8_linear_weight_(linear, enabled=True)
+    linear._native_fc1_direct_enabled = True
+    x = PLAIN_MODULE.Mxfp8PairTensor.from_tensor(
+        torch.randn(1, 32, 32, 128, device="cuda", dtype=torch.bfloat16),
+        scale_dtype=torch.float32,
+    )
+    for _ in range(4):
+        y = PLAIN_MODULE.native_linear_forward_quantized(linear, x, apply_relu=True)
+        torch.cuda.synchronize()
+        assert isinstance(y, PLAIN_MODULE.Mxfp8PairTensor)
+        assert y.payload.shape == (1, 32, 32, 512)
+        assert y.scale.shape == (1, 32, 32, 16)
+        assert y.payload.dtype == torch.float8_e4m3fn
+        assert y.scale.dtype == torch.float32
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or PLAIN_MODULE.minifold_native_raw is None,
     reason="CUDA and minifold_native_ext are required for native fused linear smoke",
 )
 def test_native_linear_forward_quantized_direct_output_shapes():
@@ -284,6 +306,51 @@ def test_native_tri_mul_from_block32_quantized_shapes():
     )
     mask = torch.ones(1, 32, device="cuda", dtype=torch.bool)
     y = PLAIN_MODULE.native_tri_mul_from_block32_quantized(x, mask=mask)
+    assert isinstance(y, PLAIN_MODULE.Mxfp8PairTensor)
+    assert y.payload.shape == (1, 32, 32, 64)
+    assert y.scale.shape == (1, 32, 32, 2)
+    assert y.payload.dtype == torch.float8_e4m3fn
+    assert y.scale.dtype == torch.float32
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or PLAIN_MODULE.minifold_native_raw is None,
+    reason="CUDA and minifold_native_ext are required for native tri gate smoke",
+)
+def test_native_tri_mul_from_gate_quantized_shapes():
+    pi = torch.nn.Linear(128, 128, bias=True, device="cuda", dtype=torch.bfloat16)
+    gi = torch.nn.Linear(128, 128, bias=True, device="cuda", dtype=torch.bfloat16)
+    PLAIN_MODULE.configure_fp8_linear_weight_(pi, enabled=True)
+    PLAIN_MODULE.configure_fp8_linear_weight_(gi, enabled=True)
+    x = PLAIN_MODULE.Mxfp8PairTensor.from_tensor(
+        torch.randn(1, 32, 32, 128, device="cuda", dtype=torch.bfloat16),
+        scale_dtype=torch.float32,
+    )
+    mask = torch.ones(1, 32, device="cuda", dtype=torch.bool)
+    y = PLAIN_MODULE.native_tri_mul_from_gate_quantized(pi, gi, x, mask=mask)
+    assert isinstance(y, PLAIN_MODULE.Mxfp8PairTensor)
+    assert y.payload.shape == (1, 32, 32, 64)
+    assert y.scale.shape == (1, 32, 32, 2)
+    assert y.payload.dtype == torch.float8_e4m3fn
+    assert y.scale.dtype == torch.float32
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or PLAIN_MODULE.minifold_native_raw is None,
+    reason="CUDA and minifold_native_ext are required for native tri input-norm smoke",
+)
+def test_native_tri_mul_from_input_quantized_shapes():
+    input_norm = torch.nn.LayerNorm(128, eps=1e-5, device="cuda", dtype=torch.bfloat16)
+    pi = torch.nn.Linear(128, 128, bias=True, device="cuda", dtype=torch.bfloat16)
+    gi = torch.nn.Linear(128, 128, bias=True, device="cuda", dtype=torch.bfloat16)
+    PLAIN_MODULE.configure_fp8_linear_weight_(pi, enabled=True)
+    PLAIN_MODULE.configure_fp8_linear_weight_(gi, enabled=True)
+    x = PLAIN_MODULE.Mxfp8PairTensor.from_tensor(
+        torch.randn(1, 32, 32, 128, device="cuda", dtype=torch.bfloat16),
+        scale_dtype=torch.float32,
+    )
+    mask = torch.ones(1, 32, device="cuda", dtype=torch.bool)
+    y = PLAIN_MODULE.native_tri_mul_from_input_quantized(input_norm, pi, gi, x, mask=mask)
     assert isinstance(y, PLAIN_MODULE.Mxfp8PairTensor)
     assert y.payload.shape == (1, 32, 32, 64)
     assert y.scale.shape == (1, 32, 32, 2)

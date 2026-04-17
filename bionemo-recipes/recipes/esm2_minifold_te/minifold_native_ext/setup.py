@@ -5,6 +5,7 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 
 ROOT = Path(__file__).resolve().parent
+CUTLASS_ROOT = ROOT / "third_party" / "cutlass"
 
 
 setup(
@@ -17,10 +18,13 @@ setup(
             name="minifold_native_ext._C",
             sources=[
                 "csrc/bindings.cpp",
+                "csrc/fc1_direct_cutlass.cu",
                 "csrc/linear_block32_cuda.cu",
             ],
             include_dirs=[
                 str(ROOT / "csrc"),
+                str(CUTLASS_ROOT / "include"),
+                str(CUTLASS_ROOT / "tools" / "util" / "include"),
                 "/usr/local/cuda/include",
                 "/usr/local/cuda/targets/x86_64-linux/include",
             ],
@@ -35,7 +39,7 @@ setup(
             libraries=["cublasLt", "cublas"],
             extra_compile_args={
                 "cxx": ["-O3", "-std=c++17"],
-                "nvcc": ["-O3", "-std=c++17", "--use_fast_math"],
+                "nvcc": ["-O3", "-std=c++17", "--use_fast_math", "--expt-relaxed-constexpr"],
             },
         )
     ],
