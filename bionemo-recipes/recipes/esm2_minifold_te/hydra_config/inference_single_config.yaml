@@ -2,6 +2,8 @@ seq_len: 256
 mbs: 16
 tri_impl: bmm
 tri_einsum: bf16
+pair_precision: bf16
+linear_precision: bf16
 fp8_activations: false
 warmup: 5
 iters: 20
