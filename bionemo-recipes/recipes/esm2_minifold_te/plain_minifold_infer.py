@@ -360,7 +360,9 @@ def native_transition_norm_fc1_quantized(
         or not _has_mxfp8_linear_weight(fc1_module)
         or x.payload.shape[-1] != 128
         or fc1_module.weight.shape != (512, 128)
+        or not getattr(fc1_module, "_native_transition_norm_fc1_enabled", False)
         or not getattr(fc1_module, "_native_transition_norm_fc1_supported", True)
+        or not isinstance(getattr(fc1_module, "weight_mxfp8_cutlass_col", None), torch.Tensor)
     ):
         return fallback()
     original_shape = x.payload.shape[:-1]
@@ -372,7 +374,7 @@ def native_transition_norm_fc1_quantized(
             norm_module.weight.to(device=x.device, dtype=torch.bfloat16).contiguous(),
             norm_module.bias.to(device=x.device, dtype=torch.bfloat16).contiguous(),
             float(norm_module.eps),
-            fc1_module.weight_mxfp8.contiguous(),
+            fc1_module.weight_mxfp8_cutlass_col.contiguous(),
             fc1_module.scale_w_mxfp8_swizzled.contiguous(),
             None if fc1_module.bias is None else fc1_module.bias.contiguous(),
         )
@@ -1274,9 +1276,11 @@ class TransitionUpdate(nn.Module):
         enabled = include_transition and self.linear_precision == LINEAR_PRECISION_FP8
         for linear in (self.fc1, self.fc2):
             configure_fp8_linear_weight_(linear, enabled=enabled)
-        # The CUTLASS fc1 direct-output path is kept opt-in only. It is stable
-        # after stream/chunking fixes, but the canonical end-to-end path is
-        # still faster with the existing fused BF16-output quantize flow.
+        # The chunked CUTLASS transition-entry path remains in-tree but
+        # non-default on this node/build. When disabled, forward_fp8_native()
+        # falls back to the stable resident-LN + native fc1 flow.
+        self.fc1._native_transition_norm_fc1_enabled = False
+        self.fc1._native_transition_norm_fc1_supported = True
         self.fc1._native_fc1_direct_enabled = False
         self.fc2._native_fc1_direct_enabled = False
 
@@ -1305,8 +1309,7 @@ class TransitionUpdate(nn.Module):
         if self.linear_precision != LINEAR_PRECISION_FP8 or not _has_mxfp8_linear_weight(self.fc1) or not _has_mxfp8_linear_weight(self.fc2):
             raise RuntimeError("fp8_native requires TransitionUpdate.fc1/fc2 to be quantized; build with linear_precision=fp8.")
         residual = x
-        x = native_mxfp8_layernorm_quantized(self.norm, x)
-        x = native_linear_forward_quantized(self.fc1, x, stats=stats, apply_relu=True)
+        x = native_transition_norm_fc1_quantized(self.norm, self.fc1, x, stats=stats)
         if stats is not None:
             stats.record_boundary("fp8_residual_add")
         return native_linear_forward_quantized(

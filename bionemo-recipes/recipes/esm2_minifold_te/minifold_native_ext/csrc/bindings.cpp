@@ -36,7 +36,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("norm_weight"),
       pybind11::arg("norm_bias"),
       pybind11::arg("norm_eps"),
-      pybind11::arg("b_t"),
+      pybind11::arg("b_cutlass_col"),
       pybind11::arg("b_scale_swizzled"),
       pybind11::arg("bias") = pybind11::none());
   m.def(

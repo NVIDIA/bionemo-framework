@@ -47,7 +47,7 @@ std::tuple<at::Tensor, at::Tensor> transition_norm_fc1_block32_fused_cuda(
     const at::Tensor& norm_weight,
     const at::Tensor& norm_bias,
     double norm_eps,
-    const at::Tensor& b_t,
+    const at::Tensor& b_cutlass_col,
     const at::Tensor& b_scale_swizzled,
     const c10::optional<at::Tensor>& bias = c10::nullopt);
 
