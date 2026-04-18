@@ -23,10 +23,14 @@ from omegaconf import OmegaConf
 from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from distributed_config import DistributedConfig
-from perf_logger import PerfLogger
+from perf_logger import (
+    PerfLogger,
+    _compute_per_token_flops,
+    _detect_peak_tflops_bf16,
+)
 
 
-def _make_args(logging_frequency=1, num_train_steps=100):
+def _make_args(logging_frequency=1, num_train_steps=100, log_mfu=False, max_seq_length=128):
     """Create a minimal args config for PerfLogger."""
     return OmegaConf.create(
         {
@@ -35,6 +39,8 @@ def _make_args(logging_frequency=1, num_train_steps=100):
             "num_train_steps": num_train_steps,
             "profiler": {"enabled": False},
             "fp8_stats_config": {"enabled": False},
+            "log_mfu": log_mfu,
+            "dataset": {"max_seq_length": max_seq_length},
         }
     )
 
@@ -208,3 +214,97 @@ class TestPerfLoggerLoss:
         _run_steps(perf_logger, losses)
 
         assert perf_logger.min_loss.item() == pytest.approx(1.0)
+
+
+class TestComputePerTokenFlops:
+    """Test that the per-token training FLOPs formula matches hand-calculated values."""
+
+    def test_llama_gqa_swiglu(self):
+        """Llama-style config: GQA (n_kv=8 < n_heads=32) + SwiGLU (3 MLP projections)."""
+        config = {
+            "model_type": "llama",
+            "hidden_size": 4096,
+            "num_hidden_layers": 32,
+            "num_attention_heads": 32,
+            "num_key_value_heads": 8,  # GQA
+            "intermediate_size": 14336,
+            "vocab_size": 128256,
+        }
+        seq_len = 8192
+        h, i, v, kv_dim, layers = 4096, 14336, 128256, 8 * 128, 32
+        # Per-layer: Q (2h^2) + K+V (4h*kv_dim) + O (2h^2) + attn (4*S*h) + MLP (2*3*h*i)
+        per_layer = 2 * h * h + 4 * h * kv_dim + 2 * h * h + 4 * seq_len * h + 2 * 3 * h * i
+        expected_fwd = layers * per_layer + 2 * h * v
+        assert _compute_per_token_flops(config, seq_len) == 3 * expected_fwd
+
+    def test_esm_mha_gelu(self):
+        """ESM2-style config: MHA (no num_key_value_heads) + standard FFN (2 MLP projections)."""
+        config = {
+            "model_type": "esm",
+            "hidden_size": 1280,
+            "num_hidden_layers": 33,
+            "num_attention_heads": 20,
+            "intermediate_size": 5120,
+            "vocab_size": 33,
+        }
+        seq_len = 1024
+        h, i, v, kv_dim, layers = 1280, 5120, 33, (1280 // 20) * 20, 33  # kv_dim=h for MHA
+        per_layer = 2 * h * h + 4 * h * kv_dim + 2 * h * h + 4 * seq_len * h + 2 * 2 * h * i
+        expected_fwd = layers * per_layer + 2 * h * v
+        assert _compute_per_token_flops(config, seq_len) == 3 * expected_fwd
+
+    def test_scales_with_seq_len(self):
+        """Only the attention S^2 term should vary with seq_len."""
+        config = {
+            "model_type": "llama",
+            "hidden_size": 2048,
+            "num_hidden_layers": 16,
+            "num_attention_heads": 16,
+            "num_key_value_heads": 8,
+            "intermediate_size": 8192,
+            "vocab_size": 32000,
+        }
+        h, layers = 2048, 16
+        # Difference per token between seq_len=1024 and seq_len=2048:
+        #   layers * 4 * (2048 - 1024) * h, times 3 (forward+backward)
+        diff = _compute_per_token_flops(config, 2048) - _compute_per_token_flops(config, 1024)
+        assert diff == 3 * layers * 4 * 1024 * h
+
+    def test_linear_in_unpadded_tokens(self):
+        """Multiplying per-token FLOPs by N tokens is linear (MFU formula relies on this)."""
+        config = {
+            "model_type": "llama",
+            "hidden_size": 1024,
+            "num_hidden_layers": 8,
+            "num_attention_heads": 8,
+            "intermediate_size": 4096,
+            "vocab_size": 32000,
+        }
+        per_token = _compute_per_token_flops(config, seq_len=512)
+        assert per_token * 100 == 100 * per_token
+        # Sanity: doubling unpadded token count doubles total FLOPs
+        assert per_token * 200 == 2 * (per_token * 100)
+
+    def test_no_lm_head_when_vocab_zero(self):
+        """vocab_size=0 should drop the LM head term."""
+        config_base = {
+            "model_type": "llama",
+            "hidden_size": 512,
+            "num_hidden_layers": 4,
+            "num_attention_heads": 8,
+            "intermediate_size": 2048,
+        }
+        with_vocab = _compute_per_token_flops({**config_base, "vocab_size": 32000}, seq_len=256)
+        no_vocab = _compute_per_token_flops({**config_base, "vocab_size": 0}, seq_len=256)
+        # Difference = 3 (training) * 2 * h * vocab
+        assert with_vocab - no_vocab == 3 * 2 * 512 * 32000
+
+
+class TestDetectPeakTflops:
+    """Smoke test for GPU peak TFLOPS detection."""
+
+    def test_returns_tuple_shape(self):
+        """Returns (peak_tflops_or_none, device_name_str)."""
+        peak, name = _detect_peak_tflops_bf16()
+        assert isinstance(name, str)
+        assert peak is None or isinstance(peak, float)

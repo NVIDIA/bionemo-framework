@@ -199,18 +199,6 @@ SOURCE_TO_DESTINATION_MAP: dict[str, list[str]] = {
     "bionemo-recipes/models/codonfm/modeling_codonfm_te.py": [
         "bionemo-recipes/recipes/codonfm_native_te/modeling_codonfm_te.py",
     ],
-    # FLOPs / MFU module - synced across recipes
-    "bionemo-recipes/recipes/llama3_native_te/flops.py": [
-        "bionemo-recipes/recipes/esm2_native_te/flops.py",
-        "bionemo-recipes/recipes/codonfm_native_te/flops.py",
-        "bionemo-recipes/recipes/opengenome2_llama_native_te/flops.py",
-    ],
-    # FLOPs tests - synced across recipes
-    "bionemo-recipes/recipes/llama3_native_te/tests/test_flops.py": [
-        "bionemo-recipes/recipes/esm2_native_te/tests/test_flops.py",
-        "bionemo-recipes/recipes/codonfm_native_te/tests/test_flops.py",
-        "bionemo-recipes/recipes/opengenome2_llama_native_te/tests/test_flops.py",
-    ],
     # Common test library - synced between models
     "bionemo-recipes/models/esm2/tests/common": [
         "bionemo-recipes/models/llama3/tests/common",

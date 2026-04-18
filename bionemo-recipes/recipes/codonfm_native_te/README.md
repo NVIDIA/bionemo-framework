@@ -185,14 +185,16 @@ Enable per-step Model FLOPs Utilization (MFU) logging during training by adding 
 torchrun --nproc_per_node=1 train_fsdp2.py --config-name encodon_1b log_mfu=true
 ```
 
-This logs MFU (%), TFLOPS/GPU, and step time at each optimizer step. The module auto-detects model architecture from the model config.
+This adds two metrics at each logging interval, emitted alongside existing metrics via WANDB and
+stdout:
 
-The `flops.py` CLI provides standalone utilities:
+- `train/tflops_per_gpu` — achieved BF16 TFLOPS per GPU
+- `train/mfu_pct` — MFU as a percentage of the GPU's peak dense BF16 TFLOPS
 
-```bash
-python flops.py gpu-info                                       # Show GPU and peak TFLOPS
-torchrun --nproc_per_node=2 flops.py bandwidth                # Measure P2P GPU bandwidth
-```
+The FLOPs formula auto-detects model architecture from the model config (MHA, standard FFN,
+vocabulary size) and scales with the actual unpadded token count on each rank. This means it
+naturally handles gradient accumulation, data parallelism, BSHD, and THD (sequence packing)
+without per-strategy code paths. The implementation lives in `perf_logger.py`.
 
 ## Developer Guide
 

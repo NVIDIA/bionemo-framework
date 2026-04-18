@@ -31,7 +31,6 @@ from transformers.models.esm.modeling_esm import EsmForMaskedLM
 from checkpoint import load_checkpoint_mfsdp, save_checkpoint_mfsdp, save_final_model_mfsdp, should_save_checkpoint
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
-from flops import MFUTracker, from_hf_config
 from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 from perf_logger import PerfLogger
 from quantization import resolve_layer_precision
@@ -164,19 +163,11 @@ def main(args: DictConfig) -> float | None:
         start_step = 0
         epoch = 0
 
-    perf_logger = PerfLogger(dist_config, args)
-
-    mfu_tracker = None
-    if args.get("log_mfu", False):
-        mfu_tracker = MFUTracker(
-            config=from_hf_config(config.to_dict()),
-            batch_size=args.dataset.micro_batch_size,
-            seq_len=args.dataset.max_seq_length,
-            num_gpus=dist_config.world_size,
-            parallelism={"dp": dist_config.world_size},
-        )
-        if dist_config.is_main_process():
-            logger.info("MFU tracking enabled:\n%s", mfu_tracker.summary())
+    perf_logger = PerfLogger(
+        dist_config,
+        args,
+        model_config_dict=config.to_dict() if args.get("log_mfu", False) else None,
+    )
 
     # Training loop
     step = start_step
@@ -207,17 +198,6 @@ def main(args: DictConfig) -> float | None:
                 grad_norm=0.0,  # total_norm,
                 lr=optimizer.param_groups[0]["lr"],
             )
-
-            if mfu_tracker is not None and perf_logger.last_step_time is not None:
-                mfu_info = mfu_tracker.compute_mfu(perf_logger.last_step_time)
-                if dist_config.is_main_process():
-                    logger.info(
-                        "Step %d MFU: %.1f%% (%.1f TFLOPS/gpu, step_time=%.3fs)",
-                        step,
-                        mfu_info["mfu"],
-                        mfu_info["tflops_per_gpu"],
-                        mfu_info["step_time"],
-                    )
 
             if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                 save_checkpoint_mfsdp(
