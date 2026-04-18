@@ -81,6 +81,16 @@ def export_hf_checkpoint(tag: str, export_path: Path):
     tokenizer = AutoTokenizer.from_pretrained("esm_fast_tokenizer")  # Use our PreTrainedTokenizerFast implementation.
     tokenizer.save_pretrained(export_path / tag)
 
+    # Patch tokenizer_config.json: transformers 5.x saves "TokenizersBackend" which AutoTokenizer cannot resolve.
+    tokenizer_config_path = export_path / tag / "tokenizer_config.json"
+    with open(tokenizer_config_path, "r") as f:
+        tokenizer_config = json.load(f)
+    tokenizer_config["tokenizer_class"] = "PreTrainedTokenizerFast"
+    tokenizer_config.pop("backend", None)
+    tokenizer_config.pop("is_local", None)
+    with open(tokenizer_config_path, "w") as f:
+        json.dump(tokenizer_config, f, indent=2, sort_keys=True)
+
     # Patch the config
     with open(export_path / tag / "config.json", "r") as f:
         config = json.load(f)
