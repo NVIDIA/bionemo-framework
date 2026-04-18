@@ -1259,6 +1259,91 @@ __global__ void pack_block32_to_mxfp8_fused_kernel(
   }
 }
 
+__global__ void gate_sigmoid_mul_pack_rowk_mxfp8_kernel(
+    const __nv_bfloat16* lhs,
+    const __nv_bfloat16* rhs,
+    const __nv_bfloat16* lhs_bias,
+    const __nv_bfloat16* rhs_bias,
+    const bool* mask,
+    __nv_fp8_storage_t* a1,
+    __nv_fp8_storage_t* a1_scale,
+    __nv_fp8_storage_t* b1,
+    __nv_fp8_storage_t* b1_scale,
+    int batch,
+    int n,
+    int padded_rows,
+    int padded_cols) {
+  constexpr int kRowsPerBlock = 2;
+  constexpr int kWarpsPerRow = 4;
+  constexpr int kWarpsPerBlock = 8;
+  __shared__ float lhs_bias_shared[64];
+  __shared__ float rhs_bias_shared[64];
+  __shared__ float rowk_mask_shared[kRowsPerBlock][32];
+  __shared__ __nv_bfloat16 lhs_rowk0_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 rhs_rowk0_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 lhs_rowk1_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 rhs_rowk1_shared[kRowsPerBlock][kWarpsPerRow][32];
+
+  const int tid = threadIdx.x;
+  if (tid < 64) {
+    lhs_bias_shared[tid] = __bfloat162float(lhs_bias[tid]);
+    rhs_bias_shared[tid] = __bfloat162float(rhs_bias[tid]);
+  }
+
+  const int batch_channel_block = blockIdx.x;
+  const int kblock = blockIdx.z;
+  const int warp_id = tid >> 5;
+  const int lane = tid & 31;
+  const int batch_idx = batch_channel_block / 8;
+  const int row_in_block = warp_id / kWarpsPerRow;
+  const int warp_in_row = warp_id % kWarpsPerRow;
+  const int row = blockIdx.y * kRowsPerBlock + row_in_block;
+  const int channel = ((batch_channel_block % 8) << 2) + warp_in_row;
+  const int k = kblock * 32 + lane;
+  if (warp_id < kWarpsPerBlock && batch_idx < batch && row < n && k < n) {
+    const int64_t rowk_position = static_cast<int64_t>(batch_idx) * n * n + static_cast<int64_t>(row) * n + k;
+    const int rowk_base = static_cast<int>(rowk_position * 128);
+
+    lhs_rowk0_shared[row_in_block][warp_in_row][lane] = lhs[rowk_base + channel];
+    rhs_rowk0_shared[row_in_block][warp_in_row][lane] = rhs[rowk_base + channel];
+    lhs_rowk1_shared[row_in_block][warp_in_row][lane] = lhs[rowk_base + 32 + channel];
+    rhs_rowk1_shared[row_in_block][warp_in_row][lane] = rhs[rowk_base + 32 + channel];
+
+    if (warp_in_row == 0) {
+      rowk_mask_shared[row_in_block][lane] = (mask == nullptr || mask[(batch_idx * n + row) * n + k]) ? 1.0f : 0.0f;
+    }
+  }
+  __syncthreads();
+  if (batch_idx >= batch || row >= n || k >= n || warp_id >= kWarpsPerBlock) {
+    return;
+  }
+
+  const float mask_rowk = rowk_mask_shared[row_in_block][lane];
+  const float a1_lhs = __bfloat162float(lhs_rowk0_shared[row_in_block][warp_in_row][lane]) + lhs_bias_shared[channel];
+  const float a1_rhs = __bfloat162float(rhs_rowk0_shared[row_in_block][warp_in_row][lane]) + rhs_bias_shared[channel];
+  const float b1_lhs =
+      __bfloat162float(lhs_rowk1_shared[row_in_block][warp_in_row][lane]) + lhs_bias_shared[32 + channel];
+  const float b1_rhs =
+      __bfloat162float(rhs_rowk1_shared[row_in_block][warp_in_row][lane]) + rhs_bias_shared[32 + channel];
+
+  const float a1_value = a1_lhs * (1.0f / (1.0f + __expf(-a1_rhs))) * mask_rowk;
+  const float b1_value = b1_lhs * (1.0f / (1.0f + __expf(-b1_rhs))) * mask_rowk;
+
+  const float a1_block_scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(a1_value)), 0));
+  const float b1_block_scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(b1_value)), 0));
+
+  const int plane = batch_idx * 32 + channel;
+  a1[((plane * n + row) * n) + k] = float_to_fp8_storage(a1_value / a1_block_scale);
+  b1[((plane * n + row) * n) + k] = float_to_fp8_storage(b1_value / b1_block_scale);
+
+  if (lane == 0) {
+    const int plane_offset = plane * padded_rows * padded_cols;
+    const int scale_offset = plane_offset + swizzled_scale_offset(row, kblock, padded_cols);
+    a1_scale[scale_offset] = float_to_e8m0_storage(a1_block_scale);
+    b1_scale[scale_offset] = float_to_e8m0_storage(b1_block_scale);
+  }
+}
+
 __global__ void gate_sigmoid_mul_pack_to_mxfp8_fused_kernel(
     const __nv_bfloat16* lhs,
     const __nv_bfloat16* rhs,
@@ -1277,34 +1362,80 @@ __global__ void gate_sigmoid_mul_pack_to_mxfp8_fused_kernel(
     int n,
     int padded_rows,
     int padded_cols) {
+  constexpr int kRowsPerBlock = 2;
+  constexpr int kWarpsPerRow = 8;
+  constexpr int kWarpsPerBlock = 16;
+  __shared__ float lhs_bias_shared[128];
+  __shared__ float rhs_bias_shared[128];
+  __shared__ float rowk_mask_shared[kRowsPerBlock][32];
+  __shared__ float krow_mask_shared[kRowsPerBlock][32];
+  __shared__ __nv_bfloat16 lhs_rowk0_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 rhs_rowk0_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 lhs_rowk1_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 rhs_rowk1_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 lhs_krow0_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 rhs_krow0_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 lhs_krow1_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 rhs_krow1_shared[kRowsPerBlock][kWarpsPerRow][32];
+
+  const int tid = threadIdx.x;
+  if (tid < 128) {
+    lhs_bias_shared[tid] = __bfloat162float(lhs_bias[tid]);
+    rhs_bias_shared[tid] = __bfloat162float(rhs_bias[tid]);
+  }
+
   const int batch_channel_block = blockIdx.x;
-  const int row = blockIdx.y;
   const int kblock = blockIdx.z;
-  const int warp_id = threadIdx.x >> 5;
-  const int lane = threadIdx.x & 31;
+  const int warp_id = tid >> 5;
+  const int lane = tid & 31;
   const int batch_idx = batch_channel_block / 4;
-  const int channel = ((batch_channel_block % 4) << 3) + warp_id;
+  const int row_in_block = warp_id / kWarpsPerRow;
+  const int warp_in_row = warp_id % kWarpsPerRow;
+  const int row = blockIdx.y * kRowsPerBlock + row_in_block;
+  const int channel = ((batch_channel_block % 4) << 3) + warp_in_row;
   const int k = kblock * 32 + lane;
-  if (batch_idx >= batch || row >= n || k >= n || warp_id >= 8) {
+  if (warp_id < kWarpsPerBlock && batch_idx < batch && row < n && k < n) {
+    const int64_t rowk_position = static_cast<int64_t>(batch_idx) * n * n + static_cast<int64_t>(row) * n + k;
+    const int64_t krow_position = static_cast<int64_t>(batch_idx) * n * n + static_cast<int64_t>(k) * n + row;
+    const int rowk_base = static_cast<int>(rowk_position * 128);
+    const int krow_base = static_cast<int>(krow_position * 128);
+
+    lhs_rowk0_shared[row_in_block][warp_in_row][lane] = lhs[rowk_base + channel];
+    rhs_rowk0_shared[row_in_block][warp_in_row][lane] = rhs[rowk_base + channel];
+    lhs_rowk1_shared[row_in_block][warp_in_row][lane] = lhs[rowk_base + 32 + channel];
+    rhs_rowk1_shared[row_in_block][warp_in_row][lane] = rhs[rowk_base + 32 + channel];
+    lhs_krow0_shared[row_in_block][warp_in_row][lane] = lhs[krow_base + 64 + channel];
+    rhs_krow0_shared[row_in_block][warp_in_row][lane] = rhs[krow_base + 64 + channel];
+    lhs_krow1_shared[row_in_block][warp_in_row][lane] = lhs[krow_base + 96 + channel];
+    rhs_krow1_shared[row_in_block][warp_in_row][lane] = rhs[krow_base + 96 + channel];
+
+    if (warp_in_row == 0) {
+      rowk_mask_shared[row_in_block][lane] = (mask == nullptr || mask[(batch_idx * n + row) * n + k]) ? 1.0f : 0.0f;
+      krow_mask_shared[row_in_block][lane] = (mask == nullptr || mask[(batch_idx * n + k) * n + row]) ? 1.0f : 0.0f;
+    }
+  }
+  __syncthreads();
+  if (batch_idx >= batch || row >= n || k >= n || warp_id >= kWarpsPerBlock) {
     return;
   }
 
-  const int64_t rowk_position = static_cast<int64_t>(batch_idx) * n * n + static_cast<int64_t>(row) * n + k;
-  const int64_t krow_position = static_cast<int64_t>(batch_idx) * n * n + static_cast<int64_t>(k) * n + row;
-  const float mask_rowk = (mask == nullptr || mask[(batch_idx * n + row) * n + k]) ? 1.0f : 0.0f;
-  const float mask_krow = (mask == nullptr || mask[(batch_idx * n + k) * n + row]) ? 1.0f : 0.0f;
+  const float mask_rowk = rowk_mask_shared[row_in_block][lane];
+  const float mask_krow = krow_mask_shared[row_in_block][lane];
 
-  const int rowk_base = static_cast<int>(rowk_position * 128);
-  const int krow_base = static_cast<int>(krow_position * 128);
-
-  const float a1_lhs = __bfloat162float(lhs[rowk_base + channel]) + __bfloat162float(lhs_bias[channel]);
-  const float a1_rhs = __bfloat162float(rhs[rowk_base + channel]) + __bfloat162float(rhs_bias[channel]);
-  const float b1_lhs = __bfloat162float(lhs[rowk_base + 32 + channel]) + __bfloat162float(lhs_bias[32 + channel]);
-  const float b1_rhs = __bfloat162float(rhs[rowk_base + 32 + channel]) + __bfloat162float(rhs_bias[32 + channel]);
-  const float a2_lhs = __bfloat162float(lhs[krow_base + 64 + channel]) + __bfloat162float(lhs_bias[64 + channel]);
-  const float a2_rhs = __bfloat162float(rhs[krow_base + 64 + channel]) + __bfloat162float(rhs_bias[64 + channel]);
-  const float b2_lhs = __bfloat162float(lhs[krow_base + 96 + channel]) + __bfloat162float(lhs_bias[96 + channel]);
-  const float b2_rhs_dense = __bfloat162float(rhs[krow_base + 96 + channel]) + __bfloat162float(rhs_bias[96 + channel]);
+  const float a1_lhs = __bfloat162float(lhs_rowk0_shared[row_in_block][warp_in_row][lane]) + lhs_bias_shared[channel];
+  const float a1_rhs = __bfloat162float(rhs_rowk0_shared[row_in_block][warp_in_row][lane]) + rhs_bias_shared[channel];
+  const float b1_lhs =
+      __bfloat162float(lhs_rowk1_shared[row_in_block][warp_in_row][lane]) + lhs_bias_shared[32 + channel];
+  const float b1_rhs =
+      __bfloat162float(rhs_rowk1_shared[row_in_block][warp_in_row][lane]) + rhs_bias_shared[32 + channel];
+  const float a2_lhs =
+      __bfloat162float(lhs_krow0_shared[row_in_block][warp_in_row][lane]) + lhs_bias_shared[64 + channel];
+  const float a2_rhs =
+      __bfloat162float(rhs_krow0_shared[row_in_block][warp_in_row][lane]) + rhs_bias_shared[64 + channel];
+  const float b2_lhs =
+      __bfloat162float(lhs_krow1_shared[row_in_block][warp_in_row][lane]) + lhs_bias_shared[96 + channel];
+  const float b2_rhs_dense =
+      __bfloat162float(rhs_krow1_shared[row_in_block][warp_in_row][lane]) + rhs_bias_shared[96 + channel];
 
   const float a1_value = a1_lhs * (1.0f / (1.0f + __expf(-a1_rhs))) * mask_rowk;
   const float b1_value = b1_lhs * (1.0f / (1.0f + __expf(-b1_rhs))) * mask_rowk;
@@ -1327,6 +1458,91 @@ __global__ void gate_sigmoid_mul_pack_to_mxfp8_fused_kernel(
     const int scale_offset = plane_offset + swizzled_scale_offset(row, kblock, padded_cols);
     a1_scale[scale_offset] = float_to_e8m0_storage(a1_block_scale);
     b1_scale[scale_offset] = float_to_e8m0_storage(b1_block_scale);
+    a2_t_scale[scale_offset] = float_to_e8m0_storage(a2_block_scale);
+    b2_rhs_scale[scale_offset] = float_to_e8m0_storage(b2_block_scale);
+  }
+}
+
+__global__ void gate_sigmoid_mul_pack_krow_mxfp8_kernel(
+    const __nv_bfloat16* lhs,
+    const __nv_bfloat16* rhs,
+    const __nv_bfloat16* lhs_bias,
+    const __nv_bfloat16* rhs_bias,
+    const bool* mask,
+    __nv_fp8_storage_t* a2_t,
+    __nv_fp8_storage_t* a2_t_scale,
+    __nv_fp8_storage_t* b2_rhs,
+    __nv_fp8_storage_t* b2_rhs_scale,
+    int batch,
+    int n,
+    int padded_rows,
+    int padded_cols) {
+  constexpr int kRowsPerBlock = 2;
+  constexpr int kWarpsPerRow = 4;
+  constexpr int kWarpsPerBlock = 8;
+  __shared__ float lhs_bias_shared[64];
+  __shared__ float rhs_bias_shared[64];
+  __shared__ float krow_mask_shared[kRowsPerBlock][32];
+  __shared__ __nv_bfloat16 lhs_krow0_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 rhs_krow0_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 lhs_krow1_shared[kRowsPerBlock][kWarpsPerRow][32];
+  __shared__ __nv_bfloat16 rhs_krow1_shared[kRowsPerBlock][kWarpsPerRow][32];
+
+  const int tid = threadIdx.x;
+  if (tid < 64) {
+    lhs_bias_shared[tid] = __bfloat162float(lhs_bias[64 + tid]);
+    rhs_bias_shared[tid] = __bfloat162float(rhs_bias[64 + tid]);
+  }
+
+  const int batch_channel_block = blockIdx.x;
+  const int kblock = blockIdx.z;
+  const int warp_id = tid >> 5;
+  const int lane = tid & 31;
+  const int batch_idx = batch_channel_block / 8;
+  const int row_in_block = warp_id / kWarpsPerRow;
+  const int warp_in_row = warp_id % kWarpsPerRow;
+  const int row = blockIdx.y * kRowsPerBlock + row_in_block;
+  const int channel = ((batch_channel_block % 8) << 2) + warp_in_row;
+  const int k = kblock * 32 + lane;
+  if (warp_id < kWarpsPerBlock && batch_idx < batch && row < n && k < n) {
+    const int64_t krow_position = static_cast<int64_t>(batch_idx) * n * n + static_cast<int64_t>(k) * n + row;
+    const int krow_base = static_cast<int>(krow_position * 128);
+
+    lhs_krow0_shared[row_in_block][warp_in_row][lane] = lhs[krow_base + 64 + channel];
+    rhs_krow0_shared[row_in_block][warp_in_row][lane] = rhs[krow_base + 64 + channel];
+    lhs_krow1_shared[row_in_block][warp_in_row][lane] = lhs[krow_base + 96 + channel];
+    rhs_krow1_shared[row_in_block][warp_in_row][lane] = rhs[krow_base + 96 + channel];
+
+    if (warp_in_row == 0) {
+      krow_mask_shared[row_in_block][lane] = (mask == nullptr || mask[(batch_idx * n + k) * n + row]) ? 1.0f : 0.0f;
+    }
+  }
+  __syncthreads();
+  if (batch_idx >= batch || row >= n || k >= n || warp_id >= kWarpsPerBlock) {
+    return;
+  }
+
+  const float mask_krow = krow_mask_shared[row_in_block][lane];
+  const float a2_lhs = __bfloat162float(lhs_krow0_shared[row_in_block][warp_in_row][lane]) + lhs_bias_shared[channel];
+  const float a2_rhs = __bfloat162float(rhs_krow0_shared[row_in_block][warp_in_row][lane]) + rhs_bias_shared[channel];
+  const float b2_lhs =
+      __bfloat162float(lhs_krow1_shared[row_in_block][warp_in_row][lane]) + lhs_bias_shared[32 + channel];
+  const float b2_rhs_dense =
+      __bfloat162float(rhs_krow1_shared[row_in_block][warp_in_row][lane]) + rhs_bias_shared[32 + channel];
+
+  const float a2_value = a2_lhs * (1.0f / (1.0f + __expf(-a2_rhs))) * mask_krow;
+  const float b2_value = b2_lhs * (1.0f / (1.0f + __expf(-b2_rhs_dense))) * mask_krow;
+
+  const float a2_block_scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(a2_value)), 0));
+  const float b2_block_scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(b2_value)), 0));
+
+  const int plane = batch_idx * 32 + channel;
+  a2_t[((plane * n + row) * n) + k] = float_to_fp8_storage(a2_value / a2_block_scale);
+  b2_rhs[((plane * n + k) * n) + row] = float_to_fp8_storage(b2_value / b2_block_scale);
+
+  if (lane == 0) {
+    const int plane_offset = plane * padded_rows * padded_cols;
+    const int scale_offset = plane_offset + swizzled_scale_offset(row, kblock, padded_cols);
     a2_t_scale[scale_offset] = float_to_e8m0_storage(a2_block_scale);
     b2_rhs_scale[scale_offset] = float_to_e8m0_storage(b2_block_scale);
   }
@@ -1579,8 +1795,8 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16_with_bias(
   auto* output_ptr = reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr());
   auto* scale_ptr = output_scale.data_ptr<float>();
   auto stream = current_cuda_stream();
-  const int quantize_blocks = cols == 128 ? static_cast<int>((rows + 7) / 8) : static_cast<int>((rows + 1) / 2);
   if (cols == 128) {
+    const int quantize_blocks = static_cast<int>((rows + 7) / 8);
     if (apply_relu) {
       if (residual_payload_ptr != nullptr) {
         quantize_block32_bf16_specialized_kernel<128, true, true, true><<<quantize_blocks, 256, 0, stream>>>(
@@ -1599,6 +1815,7 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16_with_bias(
       }
     }
   } else if (cols == 512) {
+    const int quantize_blocks = static_cast<int>((rows + 1) / 2);
     if (apply_relu) {
       if (residual_payload_ptr != nullptr) {
         quantize_block32_bf16_specialized_kernel<512, true, true, true><<<quantize_blocks, 256, 0, stream>>>(
@@ -1679,8 +1896,8 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16(
   auto* output_ptr = reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr());
   auto* scale_ptr = output_scale.data_ptr<float>();
   auto stream = current_cuda_stream();
-  const int quantize_blocks = cols == 128 ? static_cast<int>((rows + 7) / 8) : static_cast<int>((rows + 1) / 2);
   if (cols == 128) {
+    const int quantize_blocks = static_cast<int>((rows + 7) / 8);
     if (residual_payload_ptr != nullptr) {
       quantize_block32_bf16_specialized_kernel<128, false, false, true><<<quantize_blocks, 256, 0, stream>>>(
           input_ptr, nullptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, static_cast<int>(rows));
@@ -1689,6 +1906,7 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16(
           input_ptr, nullptr, nullptr, nullptr, output_ptr, scale_ptr, static_cast<int>(rows));
     }
   } else if (cols == 512) {
+    const int quantize_blocks = static_cast<int>((rows + 1) / 2);
     if (residual_payload_ptr != nullptr) {
       quantize_block32_bf16_specialized_kernel<512, false, false, true><<<quantize_blocks, 256, 0, stream>>>(
           input_ptr, nullptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, static_cast<int>(rows));
@@ -1900,8 +2118,8 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_impl(
               "weight and bias must be bfloat16");
   auto output = at::empty_like(payload);
   auto output_scale = at::empty_like(scale);
-  const int layernorm_blocks_small = static_cast<int>((rows + 7) / 8);
   if (cols == 64) {
+    const int layernorm_blocks_small = static_cast<int>((rows + 7) / 8);
     layernorm_block32_kernel_small<64><<<layernorm_blocks_small, 256, 0, current_cuda_stream()>>>(
         reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
         scale.data_ptr<float>(),
@@ -1913,6 +2131,7 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_impl(
         static_cast<int>(groups),
         eps);
   } else if (cols == 128) {
+    const int layernorm_blocks_small = static_cast<int>((rows + 7) / 8);
     layernorm_block32_kernel_small<128><<<layernorm_blocks_small, 256, 0, current_cuda_stream()>>>(
         reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
         scale.data_ptr<float>(),
@@ -2148,8 +2367,11 @@ gate_sigmoid_mul_pack_to_mxfp8_fused(
   auto b1_scale = at::full({batch * 32, padded_rows, padded_cols}, kMinPow2Scale, lhs.options().dtype(at::kFloat8_e8m0fnu));
   auto a2_t_scale = at::full({batch * 32, padded_rows, padded_cols}, kMinPow2Scale, lhs.options().dtype(at::kFloat8_e8m0fnu));
   auto b2_rhs_scale = at::full({batch * 32, padded_rows, padded_cols}, kMinPow2Scale, lhs.options().dtype(at::kFloat8_e8m0fnu));
-  const dim3 grid(static_cast<unsigned int>(batch * 4), static_cast<unsigned int>(n), static_cast<unsigned int>(n / 32));
-  gate_sigmoid_mul_pack_to_mxfp8_fused_kernel<<<grid, 256, 0, current_cuda_stream()>>>(
+  const dim3 grid(
+      static_cast<unsigned int>(batch * 4),
+      static_cast<unsigned int>((n + 1) / 2),
+      static_cast<unsigned int>(n / 32));
+  gate_sigmoid_mul_pack_to_mxfp8_fused_kernel<<<grid, 512, 0, current_cuda_stream()>>>(
       reinterpret_cast<const __nv_bfloat16*>(lhs.data_ptr()),
       reinterpret_cast<const __nv_bfloat16*>(rhs.data_ptr()),
       lhs_bias_ptr,
@@ -2322,7 +2544,7 @@ std::tuple<at::Tensor, at::Tensor> transition_norm_fc1_block32_fused_cuda(
     const at::Tensor& norm_weight,
     const at::Tensor& norm_bias,
     double norm_eps,
-    const at::Tensor& b_t,
+    const at::Tensor& b_cutlass_col,
     const at::Tensor& b_scale_swizzled,
     const c10::optional<at::Tensor>& bias) {
   validate_block32_carrier(payload, scale);
@@ -2334,16 +2556,16 @@ std::tuple<at::Tensor, at::Tensor> transition_norm_fc1_block32_fused_cuda(
   TORCH_CHECK(
       norm_weight.scalar_type() == c10::ScalarType::BFloat16 && norm_bias.scalar_type() == c10::ScalarType::BFloat16,
       "norm weight and bias must be bfloat16");
-  check_cuda_tensor(b_t, "b_t");
+  check_cuda_tensor(b_cutlass_col, "b_cutlass_col");
   check_cuda_tensor(b_scale_swizzled, "b_scale_swizzled");
   TORCH_CHECK(
-      b_t.scalar_type() == c10::ScalarType::Float8_e4m3fn || b_t.scalar_type() == c10::ScalarType::Float8_e5m2,
-      "b_t must be FP8");
+      b_cutlass_col.scalar_type() == c10::ScalarType::Float8_e4m3fn || b_cutlass_col.scalar_type() == c10::ScalarType::Float8_e5m2,
+      "b_cutlass_col must be FP8");
   TORCH_CHECK(b_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu,
               "b_scale_swizzled must use torch.float8_e8m0fnu");
-  TORCH_CHECK(b_t.dim() == 3, "b_t must be 3D");
-  TORCH_CHECK(b_t.size(0) == 1 && b_t.size(2) == 128 && b_t.size(1) == 512,
-              "transition_norm_fc1_block32_fused expects b_t with shape [1, 512, 128]");
+  TORCH_CHECK(b_cutlass_col.dim() == 3, "b_cutlass_col must be 3D");
+  TORCH_CHECK(b_cutlass_col.size(0) == 1 && b_cutlass_col.size(1) == 128 && b_cutlass_col.size(2) == 512,
+              "transition_norm_fc1_block32_fused expects b_cutlass_col with shape [1, 128, 512]");
   if (bias.has_value()) {
     check_cuda_tensor(bias.value(), "bias");
     TORCH_CHECK(
@@ -2353,60 +2575,52 @@ std::tuple<at::Tensor, at::Tensor> transition_norm_fc1_block32_fused_cuda(
 
   set_cuda_device(payload);
   validate_sm100_plus();
-  TORCH_CHECK(payload.device() == b_t.device() && payload.device() == b_scale_swizzled.device(),
+  TORCH_CHECK(payload.device() == b_cutlass_col.device() && payload.device() == b_scale_swizzled.device(),
               "all transition_norm_fc1 tensors must be on the same CUDA device");
+  TORCH_CHECK(bias.has_value(), "transition_norm_fc1_block32_fused requires bias for canonical fc1 direct output");
   const int64_t batch = payload.size(0);
   const int64_t n = payload.size(1);
   const int64_t cols = payload.size(3);
   const int64_t rows = batch * n * n;
   TORCH_CHECK(rows % 32 == 0, "transition_norm_fc1_block32_fused requires rows divisible by 32, got ", rows);
+  constexpr int64_t kChunkRows = 1 << 16;
+  auto payload_2d = payload.view({rows, cols});
+  auto scale_2d = scale.view({rows, cols / 32});
+  auto output = at::empty({1, rows, 512}, payload.options().dtype(at::kFloat8_e4m3fn));
+  auto output_scale = at::empty({1, rows, 16}, payload.options().dtype(at::kFloat));
 
-  auto a = at::empty({1, rows, cols}, payload.options().dtype(at::kFloat8_e4m3fn));
-  const int64_t padded_rows = ((rows + 127) / 128) * 128;
-  auto a_scale_swizzled = at::full(
-      {1, padded_rows, 4},
-      kMinPow2Scale,
-      payload.options().dtype(at::kFloat8_e8m0fnu));
-  const int layernorm_blocks = static_cast<int>((rows + 3) / 4);
-  transition_norm_to_mxfp8_input_kernel<<<layernorm_blocks, 128, 0, current_cuda_stream()>>>(
-      reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
-      scale.data_ptr<float>(),
-      reinterpret_cast<const __nv_bfloat16*>(norm_weight.data_ptr()),
-      reinterpret_cast<const __nv_bfloat16*>(norm_bias.data_ptr()),
-      reinterpret_cast<__nv_fp8_storage_t*>(a.data_ptr()),
-      reinterpret_cast<__nv_fp8_storage_t*>(a_scale_swizzled.data_ptr()),
-      static_cast<int>(rows),
-      static_cast<float>(norm_eps));
-  C10_CUDA_KERNEL_LAUNCH_CHECK();
+  for (int64_t start = 0; start < rows; start += kChunkRows) {
+    const int64_t chunk_rows = std::min<int64_t>(kChunkRows, rows - start);
+    auto payload_chunk = payload_2d.narrow(0, start, chunk_rows);
+    auto scale_chunk = scale_2d.narrow(0, start, chunk_rows);
+    auto a = at::empty({1, chunk_rows, cols}, payload.options().dtype(at::kFloat8_e4m3fn));
+    const int64_t padded_rows = ((chunk_rows + 127) / 128) * 128;
+    auto a_scale_swizzled = at::full(
+        {1, padded_rows, 4},
+        kMinPow2Scale,
+        payload.options().dtype(at::kFloat8_e8m0fnu));
+    const int layernorm_blocks = static_cast<int>((chunk_rows + 3) / 4);
+    transition_norm_to_mxfp8_input_kernel<<<layernorm_blocks, 128, 0, current_cuda_stream()>>>(
+        reinterpret_cast<const __nv_fp8_storage_t*>(payload_chunk.data_ptr()),
+        scale_chunk.data_ptr<float>(),
+        reinterpret_cast<const __nv_bfloat16*>(norm_weight.data_ptr()),
+        reinterpret_cast<const __nv_bfloat16*>(norm_bias.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(a.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(a_scale_swizzled.data_ptr()),
+        static_cast<int>(chunk_rows),
+        static_cast<float>(norm_eps));
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
 
-  if (bias.has_value()) {
-    try {
-      return run_mxfp8_cublaslt_bmm_direct_output(
-          a,
-          b_t,
-          a_scale_swizzled,
-          b_scale_swizzled,
-          bias,
-          CUBLASLT_EPILOGUE_RELU_BIAS);
-    } catch (const c10::Error&) {
-      auto direct_bias = run_mxfp8_cublaslt_bmm_direct_output(
-          a,
-          b_t,
-          a_scale_swizzled,
-          b_scale_swizzled,
-          bias,
-          CUBLASLT_EPILOGUE_BIAS);
-      return unary_block32_impl(std::get<0>(direct_bias), std::get<1>(direct_bias), 0);
-    }
+    auto chunk_out = linear_block32_fc1_direct_cuda(
+        a,
+        b_cutlass_col,
+        a_scale_swizzled,
+        b_scale_swizzled,
+        bias.value());
+    output.narrow(1, start, chunk_rows).copy_(std::get<0>(chunk_out));
+    output_scale.narrow(1, start, chunk_rows).copy_(std::get<1>(chunk_out));
   }
-  auto direct = run_mxfp8_cublaslt_bmm_direct_output(
-      a,
-      b_t,
-      a_scale_swizzled,
-      b_scale_swizzled,
-      c10::nullopt,
-      CUBLASLT_EPILOGUE_DEFAULT);
-  return unary_block32_impl(std::get<0>(direct), std::get<1>(direct), 0);
+  return {output, output_scale};
 }
 
 std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_cuda(

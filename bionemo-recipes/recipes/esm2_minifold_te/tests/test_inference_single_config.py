@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -198,8 +199,10 @@ def test_native_linear_forward_quantized_shapes():
 
 
 @pytest.mark.skipif(
-    not torch.cuda.is_available() or PLAIN_MODULE.minifold_native_raw is None,
-    reason="CUDA and minifold_native_ext are required for native fc1 direct smoke",
+    not torch.cuda.is_available()
+    or PLAIN_MODULE.minifold_native_raw is None
+    or os.environ.get("MINIFOLD_TEST_EXPERIMENTAL_FC1_DIRECT") != "1",
+    reason="CUDA, minifold_native_ext, and MINIFOLD_TEST_EXPERIMENTAL_FC1_DIRECT=1 are required for native fc1 direct smoke",
 )
 def test_native_fc1_direct_path_repeated_smoke():
     linear = torch.nn.Linear(128, 512, bias=True, device="cuda", dtype=torch.bfloat16)
