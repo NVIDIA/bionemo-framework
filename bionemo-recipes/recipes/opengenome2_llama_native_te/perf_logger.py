@@ -270,11 +270,13 @@ class PerfLogger:
                 self.metrics["train/total_unpadded_tokens_per_batch"].update(self.num_unpadded_tokens)
 
                 if self._log_mfu:
-                    # num_unpadded_tokens is accumulated over the grad-acc micro-batches of one
-                    # optimizer step (the last step in the logging window), so this yields FLOPs
-                    # per optimizer step per rank. step_time is already the per-step average.
-                    tokens_on_rank = self.num_unpadded_tokens.item()
-                    flops_per_step = self._per_token_flops * tokens_on_rank
+                    # PaLM/Megatron/MosaicML convention: count the configured-shape token budget
+                    # (input_ids.numel() = B * S_padded for BSHD, or total packed tokens for THD),
+                    # not attention_mask.sum(). The hardware executes matmuls over every position
+                    # regardless of masking, and this matches published MFU numbers.
+                    # num_tokens is accumulated over the grad-acc micro-batches of one optimizer
+                    # step (the last step in the logging window). step_time is per-step average.
+                    flops_per_step = self._per_token_flops * self.num_tokens
                     tflops_per_gpu = flops_per_step / step_time / 1e12
                     self.metrics["train/tflops_per_gpu"].update(tflops_per_gpu)
                     if self._peak_tflops is not None:
