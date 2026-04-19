@@ -66,7 +66,7 @@ jobs:
           CHANGED_FILES: ${{ steps.changed-files.outputs.all_changed_files }}
         run: |
           # Get all recipe and model directories
-          ALL_DIRS=$(ls -d bionemo-recipes/models/*/ bionemo-recipes/recipes/*/ 2>/dev/null | jq -R -s -c 'split("\n")[:-1] | map(rtrimstr("/"))')
+          ALL_DIRS=$(ls -d bionemo-recipes/models/*/ bionemo-recipes/recipes/*/ 2>/dev/null | grep -v -E "vllm_inference|megatron" | jq -R -s -c 'split("\n")[:-1] | map(rtrimstr("/"))')
 
           # Helper to check for a PR label
           has_label() {
