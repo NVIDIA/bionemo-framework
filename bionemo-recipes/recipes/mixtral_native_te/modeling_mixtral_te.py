@@ -415,7 +415,28 @@ class NVMixtralSparseMoeBlock(nn.Module):
         self._sync_expert_views()
 
         dispatch_output = self.dispatcher.dispatch(hidden_states, selected_experts, routing_weights)
-        expert_output = self._expert_ffn(dispatch_output.expert_input, dispatch_output.tokens_per_expert)
+
+        expert_input = dispatch_output.expert_input
+        tokens_per_expert = dispatch_output.tokens_per_expert
+
+        # MXFP8 requires both tensor dims divisible by 32.  Upstream attention layers
+        # get this from the collator (pad_sequences_to_be_divisible_by=32), but after
+        # all-to-all dispatch the per-rank token count is data-dependent (routing
+        # decisions pick different expert loads). Pad here so GroupedLinear's MXFP8
+        # kernels don't assert, then slice the padding off afterwards.
+        n_tokens = expert_input.shape[0]
+        mxfp8_pad = (32 - n_tokens % 32) % 32
+        if mxfp8_pad:
+            expert_input = torch.nn.functional.pad(expert_input, (0, 0, 0, mxfp8_pad))
+            # Attribute the padding tokens to the last expert so m_splits still sums correctly.
+            tokens_per_expert = list(tokens_per_expert)
+            tokens_per_expert[-1] += mxfp8_pad
+
+        expert_output = self._expert_ffn(expert_input, tokens_per_expert)
+
+        if mxfp8_pad:
+            expert_output = expert_output[:n_tokens]
+
         output = self.dispatcher.combine(expert_output, dispatch_output.handle)
 
         return output.reshape(original_shape)
