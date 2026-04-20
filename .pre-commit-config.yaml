@@ -44,3 +44,8 @@ repos:
     rev: v8.24.2
     hooks:
       - id: gitleaks
+        # Override default entry: `gitleaks git --pre-commit --staged` only
+        # scans staged commits, which is a no-op in CI (`pre-commit run
+        # --all-files`).  `gitleaks dir` scans file contents directly, so it
+        # catches secrets both locally and in CI.
+        entry: gitleaks dir --redact --verbose
