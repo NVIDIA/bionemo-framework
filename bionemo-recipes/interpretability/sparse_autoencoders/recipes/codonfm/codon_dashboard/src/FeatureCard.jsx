@@ -349,6 +349,24 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
       lines.push('')
     }
 
+    // GSEA enrichment section
+    const gseaCsvFields = [
+      { key: 'gsea_overall_best', label: 'GSEA Overall Best' },
+      { key: 'gsea_GO_Biological_Process', label: 'GSEA GO Biological Process' },
+      { key: 'gsea_GO_Molecular_Function', label: 'GSEA GO Molecular Function' },
+      { key: 'gsea_GO_Cellular_Component', label: 'GSEA GO Cellular Component' },
+      { key: 'gsea_InterPro_Domains', label: 'GSEA InterPro Domains' },
+      { key: 'gsea_GO_Slim', label: 'GSEA GO Slim' },
+    ]
+    const gseaLines = gseaCsvFields
+      .filter(({ key }) => feature[key] && feature[key] !== 'unlabeled')
+      .map(({ key, label }) => `${label},${feature[key]}`)
+    if (gseaLines.length > 0) {
+      lines.push('=== GSEA ENRICHMENT ===')
+      gseaLines.forEach(l => lines.push(l))
+      lines.push('')
+    }
+
     // Examples section
     if (examples && examples.length > 0) {
       lines.push('=== ACTIVATION EXAMPLES ===')
@@ -656,6 +674,26 @@ const FeatureCard = forwardRef(function FeatureCard({ feature, isHighlighted, fo
             if (ann.wobble) tags.push({ label: `wobble ${ann.wobble.preference}`, color: '#f3e5f5' })
             if (ann.cpg) tags.push({ label: `CpG enriched`, color: '#fce4ec' })
             if (ann.position) tags.push({ label: `N-terminal`, color: '#e8f5e9' })
+
+            // GSEA enrichment tags
+            const gseaFields = [
+              { key: 'gsea_GO_Biological_Process', prefix: 'GO:BP', color: '#e8eaf6' },
+              { key: 'gsea_GO_Molecular_Function', prefix: 'GO:MF', color: '#ede7f6' },
+              { key: 'gsea_GO_Cellular_Component', prefix: 'GO:CC', color: '#e0f2f1' },
+              { key: 'gsea_InterPro_Domains', prefix: 'InterPro', color: '#fff8e1' },
+              { key: 'gsea_GO_Slim', prefix: 'GO Slim', color: '#f1f8e9' },
+            ]
+            for (const { key, prefix, color } of gseaFields) {
+              const val = feature[key]
+              if (val && val !== 'unlabeled' && val !== 'other') {
+                tags.push({ label: `${prefix}: ${val}`, color })
+              }
+            }
+
+            // Codon optimality metrics from annotations
+            if (ann.cai != null) tags.push({ label: `CAI: ${ann.cai.toFixed(3)}`, color: '#e0f7fa' })
+            if (ann.tai != null) tags.push({ label: `tAI: ${ann.tai.toFixed(3)}`, color: '#e0f7fa' })
+            if (ann.rscu != null) tags.push({ label: `RSCU: ${ann.rscu.toFixed(2)}`, color: '#e0f7fa' })
 
             if (tags.length === 0) return null
             return (

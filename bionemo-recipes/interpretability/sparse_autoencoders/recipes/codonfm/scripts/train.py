@@ -80,6 +80,21 @@ def parse_args():  # noqa: D103
     train_group.add_argument("--max-grad-norm", type=float, default=None)
     train_group.add_argument("--lr-scale-with-latents", action=argparse.BooleanOptionalAction, default=False)
     train_group.add_argument("--lr-reference-hidden-dim", type=int, default=2048)
+    train_group.add_argument("--warmup-steps", type=int, default=0, help="Linear LR warmup steps")
+    train_group.add_argument(
+        "--lr-schedule",
+        type=str,
+        default="constant",
+        choices=["constant", "cosine", "linear"],
+        help="LR schedule after warmup",
+    )
+    train_group.add_argument("--lr-min", type=float, default=0.0, help="Minimum LR for decay schedules")
+    train_group.add_argument(
+        "--lr-decay-steps",
+        type=int,
+        default=None,
+        help="Total steps for LR decay (None = full training)",
+    )
 
     # W&B
     wb_group = p.add_argument_group("Weights & Biases")
@@ -147,6 +162,11 @@ def build_training_config(args, device: str) -> TrainingConfig:  # noqa: D103
         checkpoint_steps=args.checkpoint_steps,
         lr_scale_with_latents=args.lr_scale_with_latents,
         lr_reference_hidden_dim=args.lr_reference_hidden_dim,
+        warmup_steps=args.warmup_steps,
+        max_grad_norm=args.max_grad_norm,
+        lr_schedule=args.lr_schedule,
+        lr_min=args.lr_min,
+        lr_decay_steps=args.lr_decay_steps,
     )
 
 
@@ -277,7 +297,6 @@ def main():  # noqa: D103
             print(f"[rank {rank}] capped to {min_batches} batches/epoch for DDP sync")
         trainer.fit(
             dataloader,
-            max_grad_norm=args.max_grad_norm,
             resume_from=args.resume_from,
             data_sharded=True,
         )
@@ -292,7 +311,6 @@ def main():  # noqa: D103
 
         trainer.fit(
             activations_flat,
-            max_grad_norm=args.max_grad_norm,
             resume_from=args.resume_from,
         )
 

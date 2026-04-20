@@ -64,7 +64,7 @@ class FeatureTooltip {
   }
 }
 
-export default function EmbeddingView({ brush, categoryColumn, categoryColumns, onFeatureClick, highlightedFeatureId, viewportState, onViewportChange, labels, features, selectedCategory, darkMode }) {
+export default function EmbeddingView({ brush, categoryColumn, categoryColumns, onFeatureClick, highlightedFeatureId, viewportState, onViewportChange, labels, features, selectedCategory, darkMode, hiddenCategories }) {
   const containerRef = useRef(null)
   const viewRef = useRef(null)
   const onFeatureClickRef = useRef(onFeatureClick)
@@ -267,7 +267,8 @@ export default function EmbeddingView({ brush, categoryColumn, categoryColumns, 
     if (!viewRef.current) return
 
     let categoryColName = null
-    let colors = Array(50).fill(DEFAULT_COLOR)
+    const HIDDEN_COLOR = darkMode ? "#0a0a0a" : "#fafafa"
+    let colors = Array(50).fill(HIDDEN_COLOR)
 
     if (categoryColumn && categoryColumn !== "none") {
       const colInfo = categoryColumns?.find(c => c.name === categoryColumn)
@@ -278,6 +279,17 @@ export default function EmbeddingView({ brush, categoryColumn, categoryColumns, 
         } else if (colInfo.type === 'string') {
           categoryColName = `${categoryColumn}_cat`
           colors = CATEGORY_COLORS.slice(0, Math.max(colInfo.nUnique, 10))
+          // Map colors to match DENSE_RANK order, dim non-selected when filtering
+          if (hiddenCategories && hiddenCategories.size > 0 && features) {
+            const allCatNames = [...new Set(
+              features.map(f => f[categoryColumn]).filter(v => v != null)
+            )].sort()
+            colors = colors.map((c, i) => {
+              const name = allCatNames[i]
+              if (!name) return c
+              return !hiddenCategories.has(name) ? HIDDEN_COLOR : c
+            })
+          }
         } else {
           categoryColName = categoryColumn
           colors = CATEGORY_COLORS.slice(0, Math.max(colInfo.nUnique, 10))
@@ -291,7 +303,7 @@ export default function EmbeddingView({ brush, categoryColumn, categoryColumns, 
       selection: null,
       tooltip: null,
     })
-  }, [categoryColumn, categoryColumns])
+  }, [categoryColumn, categoryColumns, hiddenCategories])
 
   // Handle resize
   useEffect(() => {
