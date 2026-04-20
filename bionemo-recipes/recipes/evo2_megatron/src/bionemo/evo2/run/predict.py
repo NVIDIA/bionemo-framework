@@ -887,6 +887,7 @@ def predict(
     no_sequence_parallel: bool = False,
     # Precision settings
     mixed_precision_recipe: Optional[str] = None,
+    vortex_style_fp8: bool = False,
     use_subquadratic_ops: bool = False,
     # Batch/sequence settings
     micro_batch_size: int = 1,
@@ -919,6 +920,8 @@ def predict(
         context_parallel_size: Context parallelism degree (splits sequence across GPUs).
         no_sequence_parallel: Disable sequence parallelism when using TP > 1.
         mixed_precision_recipe: Override mixed precision recipe (default: use checkpoint).
+        vortex_style_fp8: Use vortex-style FP8 (applies FP8 only to projection layers).
+            Needed for FP8-sensitive checkpoints from original evo2 training (1b, 40b).
         use_subquadratic_ops: Use subquadratic_ops for improved performance.
         micro_batch_size: Batch size per forward pass.
         min_length: Minimum sequence length (pad shorter sequences to this).
@@ -968,6 +971,10 @@ def predict(
     model_provider.pipeline_model_parallel_size = pipeline_model_parallel_size
     model_provider.context_parallel_size = context_parallel_size
     model_provider.sequence_parallel = tensor_parallel_size > 1 and not no_sequence_parallel
+
+    # Configure vortex-style FP8 (applies FP8 only to projection layers)
+    if vortex_style_fp8:
+        model_provider.vortex_style_fp8 = True
 
     # Configure subquadratic ops for improved performance
     if use_subquadratic_ops:
@@ -1252,6 +1259,7 @@ def main() -> None:
         no_sequence_parallel=args.no_sequence_parallel,
         # Precision settings
         mixed_precision_recipe=args.mixed_precision_recipe,
+        vortex_style_fp8=args.vortex_style_fp8,
         use_subquadratic_ops=args.use_subquadratic_ops,
         # Batch/sequence settings
         micro_batch_size=args.micro_batch_size,

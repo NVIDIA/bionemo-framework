@@ -30,6 +30,8 @@ tracks row boundaries between blocks. The feature dictionarires are stroed in `_
 from __future__ import annotations
 
 import importlib.metadata
+import json
+import warnings
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional, Sequence, Tuple
@@ -143,7 +145,31 @@ class RowFeatureIndex(ABC):
         for features in instance._feature_arr:
             instance._extend_num_entries_per_row(features)
         instance._cumulative_sum_index = np.load(Path(datapath) / "cumulative_sum_index.npy")
-        instance._labels = np.load(Path(datapath) / "labels.npy", allow_pickle=True)
+        labels_json_path = Path(datapath) / "labels.json"
+        legacy_labels_npy_path = Path(datapath) / "labels.npy"
+        if labels_json_path.exists():
+            with open(labels_json_path) as f:
+                instance._labels = json.load(f)
+        elif legacy_labels_npy_path.exists():
+            warnings.warn(
+                f"Found legacy labels.npy in '{datapath}'. This format is deprecated due to a "
+                "security vulnerability (arbitrary code execution via pickle deserialization). "
+                "To re-index, load this dataset and call .save() to write the new labels.json format. "
+                "Support for labels.npy will be removed in a future release.",
+                FutureWarning,
+                stacklevel=3,
+            )
+            try:
+                instance._labels = list(np.load(legacy_labels_npy_path, allow_pickle=False))
+            except ValueError:
+                raise ValueError(
+                    f"Cannot safely load labels.npy in '{datapath}' because it contains pickled objects. "
+                    "This is a security risk and is no longer supported. To migrate, re-create the dataset "
+                    "from source (e.g. re-run your h5ad-to-SCDL conversion) so that labels are saved in "
+                    "the new JSON format."
+                )
+        else:
+            raise FileNotFoundError(f"No labels file found in {datapath}. Expected labels.json or labels.npy.")
         instance._version = np.load(Path(datapath) / "version.npy").item()
         return instance
 
@@ -305,7 +331,8 @@ class RowFeatureIndex(ABC):
             dataframe_str_index = f"{index:0{num_digits}d}"
             pq.write_table(table, f"{datapath}/dataframe_{dataframe_str_index}.parquet")
         np.save(Path(datapath) / "cumulative_sum_index.npy", self._cumulative_sum_index)
-        np.save(Path(datapath) / "labels.npy", self._labels)
+        with open(Path(datapath) / "labels.json", "w") as f:
+            json.dump([str(label) if label is not None else None for label in self._labels], f)
         np.save(Path(datapath) / "version.npy", np.array(self._version))
 
 

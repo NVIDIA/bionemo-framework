@@ -27,18 +27,18 @@ from modeling_esm_te import NVEsmConfig, NVEsmForMaskedLM
 
 
 mapping = {
-    "esm.encoder.layer.*.attention.output.dense.weight": "esm.encoder.layers.*.self_attention.proj.weight",
-    "esm.encoder.layer.*.attention.output.dense.bias": "esm.encoder.layers.*.self_attention.proj.bias",
-    "esm.encoder.layer.*.attention.LayerNorm.weight": "esm.encoder.layers.*.self_attention.layernorm_qkv.layer_norm_weight",
-    "esm.encoder.layer.*.attention.LayerNorm.bias": "esm.encoder.layers.*.self_attention.layernorm_qkv.layer_norm_bias",
-    "esm.encoder.layer.*.intermediate.dense.weight": "esm.encoder.layers.*.layernorm_mlp.fc1_weight",
-    "esm.encoder.layer.*.intermediate.dense.bias": "esm.encoder.layers.*.layernorm_mlp.fc1_bias",
-    "esm.encoder.layer.*.output.dense.weight": "esm.encoder.layers.*.layernorm_mlp.fc2_weight",
-    "esm.encoder.layer.*.output.dense.bias": "esm.encoder.layers.*.layernorm_mlp.fc2_bias",
-    "esm.encoder.layer.*.LayerNorm.weight": "esm.encoder.layers.*.layernorm_mlp.layer_norm_weight",
-    "esm.encoder.layer.*.LayerNorm.bias": "esm.encoder.layers.*.layernorm_mlp.layer_norm_bias",
-    "esm.encoder.emb_layer_norm_after.weight": "esm.encoder.emb_layer_norm_after.weight",
-    "esm.encoder.emb_layer_norm_after.bias": "esm.encoder.emb_layer_norm_after.bias",
+    "esm.encoder.layer.*.attention.output.dense.weight": "model.encoder.layers.*.self_attention.proj.weight",
+    "esm.encoder.layer.*.attention.output.dense.bias": "model.encoder.layers.*.self_attention.proj.bias",
+    "esm.encoder.layer.*.attention.LayerNorm.weight": "model.encoder.layers.*.self_attention.layernorm_qkv.layer_norm_weight",
+    "esm.encoder.layer.*.attention.LayerNorm.bias": "model.encoder.layers.*.self_attention.layernorm_qkv.layer_norm_bias",
+    "esm.encoder.layer.*.intermediate.dense.weight": "model.encoder.layers.*.layernorm_mlp.fc1_weight",
+    "esm.encoder.layer.*.intermediate.dense.bias": "model.encoder.layers.*.layernorm_mlp.fc1_bias",
+    "esm.encoder.layer.*.output.dense.weight": "model.encoder.layers.*.layernorm_mlp.fc2_weight",
+    "esm.encoder.layer.*.output.dense.bias": "model.encoder.layers.*.layernorm_mlp.fc2_bias",
+    "esm.encoder.layer.*.LayerNorm.weight": "model.encoder.layers.*.layernorm_mlp.layer_norm_weight",
+    "esm.encoder.layer.*.LayerNorm.bias": "model.encoder.layers.*.layernorm_mlp.layer_norm_bias",
+    "esm.encoder.emb_layer_norm_after.weight": "model.encoder.emb_layer_norm_after.weight",
+    "esm.encoder.emb_layer_norm_after.bias": "model.encoder.emb_layer_norm_after.bias",
     "lm_head.dense.weight": "lm_head.dense.weight",
     "lm_head.dense.bias": "lm_head.dense.bias",
     "lm_head.layer_norm.weight": "lm_head.decoder.layer_norm_weight",
@@ -135,7 +135,7 @@ def convert_esm_te_to_hf(model_te: nn.Module, **config_kwargs) -> nn.Module:
         "esm.encoder.layer.*.attention.self.key.weight",
         "esm.encoder.layer.*.attention.self.value.weight",
     ),
-    target_key="esm.encoder.layers.*.self_attention.layernorm_qkv.weight",
+    target_key="model.encoder.layers.*.self_attention.layernorm_qkv.weight",
 )
 def _pack_qkv_weight(ctx: state.TransformCTX, query, key, value):
     """Pack separate Q, K, V weight tensors into a single interleaved QKV weight tensor."""
@@ -157,7 +157,7 @@ def _pack_qkv_weight(ctx: state.TransformCTX, query, key, value):
         "esm.encoder.layer.*.attention.self.key.bias",
         "esm.encoder.layer.*.attention.self.value.bias",
     ),
-    target_key="esm.encoder.layers.*.self_attention.layernorm_qkv.bias",
+    target_key="model.encoder.layers.*.self_attention.layernorm_qkv.bias",
 )
 def _pack_qkv_bias(ctx: state.TransformCTX, query, key, value):
     """Pack separate Q, K, V bias tensors into a single interleaved QKV bias tensor."""
@@ -174,7 +174,7 @@ def _pack_qkv_bias(ctx: state.TransformCTX, query, key, value):
 
 
 @state.state_transform(
-    source_key="esm.encoder.layers.*.self_attention.layernorm_qkv.weight",
+    source_key="model.encoder.layers.*.self_attention.layernorm_qkv.weight",
     target_key=(
         "esm.encoder.layer.*.attention.self.query.weight",
         "esm.encoder.layer.*.attention.self.key.weight",
@@ -203,7 +203,7 @@ def _unpack_qkv_weight(ctx: state.TransformCTX, qkv_weight):
 
 
 @state.state_transform(
-    source_key="esm.encoder.layers.*.self_attention.layernorm_qkv.bias",
+    source_key="model.encoder.layers.*.self_attention.layernorm_qkv.bias",
     target_key=(
         "esm.encoder.layer.*.attention.self.query.bias",
         "esm.encoder.layer.*.attention.self.key.bias",
@@ -248,7 +248,7 @@ def _pad_weights(ctx: state.TransformCTX, source_embed):
 
 _pad_embeddings = state.state_transform(
     source_key="esm.embeddings.word_embeddings.weight",
-    target_key="esm.embeddings.word_embeddings.weight",
+    target_key="model.embeddings.word_embeddings.weight",
 )(_pad_weights)
 
 _pad_decoder_weights = state.state_transform(
@@ -257,7 +257,7 @@ _pad_decoder_weights = state.state_transform(
 )(_pad_weights)
 
 _unpad_embeddings = state.state_transform(
-    source_key="esm.embeddings.word_embeddings.weight",
+    source_key="model.embeddings.word_embeddings.weight",
     target_key="esm.embeddings.word_embeddings.weight",
 )(_unpad_weights)
 

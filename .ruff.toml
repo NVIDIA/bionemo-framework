@@ -1,0 +1,26 @@
+line-length = 119
+
+[lint]
+ignore = ["C901", "D100", "E501", "E741", "RUF005", "RUF010"]
+select = [
+    "C",   # Pylint conventions
+    "D",   # Documentation formatting
+    "E",   # style stuff, whitespaces
+    "F",   # important pyflakes lints
+    "I",   # import sorting
+    "RUF", # Some Ruff-specific lints, unused noqas, etc.
+    "W",   # Pylint warnings
+]
+
+[lint.per-file-ignores]
+"__init__.py" = ["D104", "E402", "F401", "F403", "F811"]
+"test_*.py" = ["D"]
+"conftest.py" = ["D"]
+"**/*.ipynb" = ["D"]
+
+[lint.isort]
+lines-after-imports = 2
+known-first-party = ["bionemo", "infra_bionemo"]
+
+[lint.pydocstyle]
+convention = "google"

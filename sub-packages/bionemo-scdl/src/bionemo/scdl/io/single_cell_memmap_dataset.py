@@ -985,7 +985,7 @@ class SingleCellMemMapDataset(SingleCellRowDataset):
             features_rel_path = f"{feature_index_path}"
             index_files: List[str] = [
                 f"{features_rel_path}/cumulative_sum_index.npy",
-                f"{features_rel_path}/labels.npy",
+                f"{features_rel_path}/labels.json",
                 f"{features_rel_path}/version.npy",
             ]
             if num_frames > 0:

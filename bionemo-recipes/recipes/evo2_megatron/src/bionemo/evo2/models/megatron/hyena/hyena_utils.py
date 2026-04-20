@@ -609,7 +609,7 @@ class ImplicitModalFilter(nn.Module):
         glogp = logp * torch.exp(gamma)
         return glogp
 
-    def compute_filter(self, L, t):  # noqa: N803
+    def compute_filter(self, L, t, glogp, R):  # noqa: N803
         """Compute the filter for convolution."""
         assert t.dtype == torch.float32, (
             f"t must be float32. At lower precision, indexes will be merged together. Current dtype: {t.dtype}"
@@ -625,13 +625,7 @@ class ImplicitModalFilter(nn.Module):
         # assert (
         #     self.R.dtype == torch.float32
         # ), f"R must be float32. At lower precision, indexes will be merged together. Current dtype: {self.R.dtype}"
-        if self._cp_size > 1:
-            rank = self._cp_rank
-            local_size = self.d_model // self._cp_size
-            R = self.R[rank * local_size : (rank + 1) * local_size].to(torch.float32)  # noqa: N806
-        else:
-            R = self.R.to(torch.float32)  # noqa: N806
-        glogp = self.get_logp()
+
         h = torch.exp(glogp[..., None] * t)
         h = torch.einsum("do,dot->dt", R, h)
         h = h[None]
@@ -640,16 +634,20 @@ class ImplicitModalFilter(nn.Module):
 
     def filter(self, L, *args, **kwargs):  # noqa: N803
         """Get t and the convolution filter for t and the requested sequence length."""
+        if self._cp_size > 1:
+            rank = self._cp_rank
+            local_size = self.d_model // self._cp_size
+            R = self.R[rank * local_size : (rank + 1) * local_size].to(torch.float32)  # noqa: N806
+        else:
+            R = self.R.to(torch.float32)  # noqa: N806
+        glogp = self.get_logp()
+
         if self.use_subquadratic_ops:
-            if self._cp_size > 1:
-                R = self.R[self._cp_rank * self.d_model : (self._cp_rank + 1) * self.d_model].to(torch.float32)  # noqa: N806
-            else:
-                R = self.R.to(torch.float32)  # noqa: N806
-            h = self.implicit_filter(self.get_logp(), R, L)
+            h = self.implicit_filter(glogp, R, L)
             h = h.unsqueeze(0)  # TODO: Remove this once we have a proper kernel implementation
         else:
             t = self.get_t(L)
-            h = self.compute_filter(L, t)
+            h = self.compute_filter(L, t, glogp, R)
         return h
 
     def forward(self, L, **kwargs):  # noqa: N803

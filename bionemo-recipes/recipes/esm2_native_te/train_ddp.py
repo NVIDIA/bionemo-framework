@@ -109,8 +109,9 @@ def main(args: DictConfig) -> float | None:
 
     # The ESM model has a contact head that we don't use in masked language pre-training, so we delete it to
     # avoid errors with unused parameters in DDP.
+    base = model.model if hasattr(model, "model") else model.esm
     try:
-        del model.esm.contact_head
+        del base.contact_head
     except AttributeError:
         pass
 

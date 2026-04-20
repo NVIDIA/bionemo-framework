@@ -8,7 +8,11 @@ coverage:
         target: auto
         threshold: 5
 
+flag_management:
+  default_rules:
+    carryforward: true
+
 comment:
   layout: "diff, flags, files"
   behavior: default
-  require_changes: false  # if true: only post the comment if coverage changes
+  require_changes: false
