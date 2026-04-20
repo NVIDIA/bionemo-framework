@@ -44,8 +44,12 @@ repos:
     rev: v8.24.2
     hooks:
       - id: gitleaks
-        # Override default entry: `gitleaks git --pre-commit --staged` only
-        # scans staged commits, which is a no-op in CI (`pre-commit run
-        # --all-files`).  `gitleaks dir` scans file contents directly, so it
-        # catches secrets both locally and in CI.
-        entry: gitleaks dir --redact --verbose
+        # Override upstream `gitleaks git --pre-commit --staged`, which scans
+        # staged git diffs and is a no-op in CI (`pre-commit run --all-files`
+        # has nothing staged).  Instead, scan the files pre-commit passes in:
+        # staged files on `git commit`, tracked files on `--all-files`.
+        # `gitleaks dir` only accepts one path per invocation, so fan out via
+        # xargs -P for parallelism; xargs returns 123 if any child exits
+        # non-zero, which pre-commit surfaces as a hook failure.
+        entry: sh -c 'printf "%s\0" "$@" | xargs -0 -n1 -P"$(getconf _NPROCESSORS_ONLN)" gitleaks dir --redact --verbose --no-banner' --
+        pass_filenames: true
