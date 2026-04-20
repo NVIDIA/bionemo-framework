@@ -706,7 +706,7 @@ def test_cp_dataloader(tokenizer_path):
 
     cp_mesh = device_mesh["cp"]
 
-    # Create the context-parallel dataloader directly following the pattern in train_fsdp2_cp.py
+    # Create the context-parallel dataloader directly following the pattern in train_fsdp2_nd_parallel.py
     if cp_mesh.get_local_rank() == 0:
         train_dataloader, _ = create_thd_dataloader(
             distributed_config=dist_config,
@@ -799,7 +799,7 @@ if __name__ == "__main__":
 
     cp_mesh = device_mesh["cp"]
 
-    # Create the context-parallel dataloader directly following the pattern in train_fsdp2_cp.py
+    # Create the context-parallel dataloader directly following the pattern in train_fsdp2_nd_parallel.py
     if cp_mesh.get_local_rank() == 0:
         train_dataloader, _ = create_thd_dataloader(
             distributed_config=dist_config,

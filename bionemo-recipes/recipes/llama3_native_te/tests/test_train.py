@@ -24,7 +24,7 @@ from transformer_engine.pytorch.fp8 import check_fp8_support
 
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
-from train_fsdp2_cp import main as main_fsdp2_cp
+from train_fsdp2_nd_parallel import main as main_fsdp2_cp
 
 
 # TODO(@jomitchell): Delete once https://nvbugspro.nvidia.com/bug/5458694 is fixed.
@@ -478,6 +478,61 @@ def test_sanity_ddp_fp8_stats_logging(tmp_path, recipe_path):
     # Verify files are non-empty
     assert metadata_log.stat().st_size > 0, "Metadata log file is empty"
     assert stats_log.stat().st_size > 0, "Statistics log file is empty"
+
+
+def test_sanity_nd_parallel_tp1_bshd(tmp_path, recipe_path):
+    """Test ND-parallel training with tensor_parallel=True and tp_size=1 (trivial TP group), BSHD.
+
+    This test validates that all TP code paths in NVLlamaModel and NVLlamaForCausalLM execute
+    correctly with a single-rank TP mesh:
+    - parallelize_module on embed_tokens (ColwiseParallel)
+    - TransformerLayer TP mode flags
+    - lm_head row-parallel mode and set_tensor_parallel_group
+    - Hidden-state activation slicing in NVLlamaForCausalLM.forward
+    """
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity_tp",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "num_train_steps=10",
+                "tp_size=1",
+                "checkpoint.resume_from_checkpoint=false",
+            ],
+        )
+
+    final_loss = main_fsdp2_cp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
+
+
+def test_sanity_nd_parallel_tp1_sequence_parallel_bshd(tmp_path, recipe_path):
+    """Test ND-parallel training with tensor_parallel=True, sequence_parallel=True, tp_size=1, BSHD.
+
+    Validates that the sequence-parallel RMSNorm (set_device_mesh on the final norm) does not
+    break forward/backward even when the TP group is a single rank.
+    """
+    with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
+        sanity_config = compose(
+            config_name="L0_sanity_tp",
+            overrides=[
+                f"+wandb.dir={tmp_path}",
+                f"checkpoint.ckpt_dir={tmp_path}",
+                "num_train_steps=10",
+                "tp_size=1",
+                "config_kwargs.sequence_parallel=true",
+                "checkpoint.resume_from_checkpoint=false",
+            ],
+        )
+
+    final_loss = main_fsdp2_cp(sanity_config)
+    gc.collect()
+    torch.cuda.empty_cache()
+
+    assert torch.isfinite(torch.tensor(final_loss)), f"Final loss {final_loss} is not finite"
 
 
 @requires_fp8

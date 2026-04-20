@@ -40,7 +40,7 @@ from hydra import compose, initialize_config_dir
 
 from train_ddp import main as main_ddp
 from train_fsdp2 import main as main_fsdp2
-from train_fsdp2_cp import main as main_fsdp2_cp
+from train_fsdp2_nd_parallel import main as main_fsdp2_cp
 
 
 os.environ["WANDB_DISABLED"] = "true"
@@ -329,7 +329,7 @@ def test_checkpoint_save_and_load_two_processes_fsdp2_with_context_parallelism(r
     _run_multi_process_checkpoint_test(
         recipe_path,
         tmp_path,
-        "train_fsdp2_cp.py",
+        "train_fsdp2_nd_parallel.py",
         ckpt_subdir_name="train_fsdp2",
         extra_overrides=["checkpoint.async_save=false", "cp_size=2"],
         is_ddp=False,

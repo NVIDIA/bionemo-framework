@@ -25,6 +25,8 @@ import torch.nn as nn
 import transformer_engine.common.recipe
 import transformer_engine.pytorch
 import transformers
+from torch.distributed.tensor.parallel import ColwiseParallel, parallelize_module
+from torch.distributed.tensor.placement_types import Replicate
 from transformer_engine.pytorch.attention import InferenceParams
 from transformer_engine.pytorch.attention.inference import PagedKVCacheManager
 from transformer_engine.pytorch.attention.rope import RotaryPositionEmbedding
@@ -52,6 +54,9 @@ class NVLlamaConfig(LlamaConfig):
     #   "thd"  = Total tokens (packed/unpadded), Head, Dimension (sequence packing format)
     attn_input_format: str = "thd"
     self_attn_mask_type: str = "padding_causal"
+    tensor_parallel: bool = False
+    sequence_parallel: bool = False
+    tp_size: int = 1
 
     def __init__(
         self,
@@ -142,6 +147,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         config: LlamaConfig,
         fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
         fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        nvte_tp_mesh: torch.distributed.DeviceMesh | None = None,
+        nvte_weight_mesh: torch.distributed.DeviceMesh | None = None,
     ):
         """Initialize the NVLlama model.
 
@@ -149,6 +156,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             config: The configuration of the model.
             fp8_recipe: The FP8 recipe for the model.
             fp4_recipe: The FP4 recipe for the model.
+            nvte_tp_mesh: TP DeviceMesh for the model.
+            nvte_weight_mesh: Weight-sharding DeviceMesh for the model.
         """
         super().__init__(config)
         self.config = config
@@ -156,6 +165,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
         self.vocab_size = config.vocab_size
         self._fp8_recipe: transformer_engine.common.recipe.Recipe | None = fp8_recipe
         self._fp4_recipe: transformer_engine.common.recipe.Recipe | None = fp4_recipe
+        self.tp_mesh = nvte_tp_mesh
+        self.weight_mesh = nvte_weight_mesh
 
         if self.config.layer_precision is None:
             if fp8_recipe is not None and fp4_recipe is not None:
@@ -173,6 +184,27 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             raise RuntimeError("layer_precision contains 'fp4' entries but no fp4_recipe was provided.")
 
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size, self.padding_idx, dtype=config.dtype)
+
+        # Tensor-parallelize torch.nn.Embedding. Combines DTensor-based TP with TE-based TP.
+        if config.tensor_parallel:
+            assert self.tp_mesh is not None, "[NVLlamaModel] Tensor parallelism requires a NVLlamaConfig.tp_mesh."
+            assert self.tp_mesh.size() == config.tp_size, (
+                f"[NVLlamaModel] DeviceMesh TP size ({self.tp_mesh.size()}) "
+                f"does not match configured TP size ({config.tp_size}).",
+            )
+            # NOTE(@cspades): Because the TELinear head is weight-tied to torch.nn.Embedding
+            # during HuggingFace post-init, this will automatically convert the TELinear head
+            # weight into a DTensor with the correct sharding placements prior to FSDP2
+            # fully_shard(), and no need to call TELinear.set_device_mesh().
+            parallelize_module(
+                self.embed_tokens,
+                self.tp_mesh,
+                # Un-sharded output activations for compatible input to TETransformer.
+                # NOTE(@cspades): ColwiseParallel -> torch.nn.Embedding -> Shard(dim=1)
+                # RowwiseParallel doesn't support output_layouts=Replicate() with
+                # torch.compile: https://github.com/pytorch/torchtitan/issues/534
+                ColwiseParallel(input_layouts=Replicate(), output_layouts=Replicate()),
+            )
 
         def _init_method(x):
             torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range)
@@ -201,6 +233,11 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
                         device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
                         init_method=_init_method,
                         output_layer_init_method=_init_method,
+                        set_parallel_mode=config.tensor_parallel,
+                        sequence_parallel=config.sequence_parallel,
+                        tp_size=config.tp_size,
+                        tp_mesh=self.tp_mesh,
+                        weight_mesh=self.weight_mesh,
                     )
                 ]
 
@@ -211,6 +248,8 @@ class NVLlamaModel(NVLlamaPreTrainedModel):
             dtype=config.dtype,
             device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
         )
+        # Norm modules are non-Base TransformerEngine modules that require a manual call for TP.
+        self.norm.set_device_mesh(tp_mesh=self.tp_mesh, weight_mesh=self.weight_mesh)
 
         # We use TE's RotaryPositionEmbedding, but we ensure that we use the same inv_freq as the original
         # LlamaRotaryEmbedding.
@@ -387,6 +426,8 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         config,
         fp8_recipe: transformer_engine.common.recipe.Recipe | None = None,
         fp4_recipe: transformer_engine.common.recipe.Recipe | None = None,
+        nvte_tp_mesh: torch.distributed.DeviceMesh | None = None,
+        nvte_weight_mesh: torch.distributed.DeviceMesh | None = None,
     ):
         """Initialize the NVLlamaForCausalLM model.
 
@@ -394,10 +435,21 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
             config: The configuration of the model.
             fp8_recipe: The FP8 recipe for the model.
             fp4_recipe: The FP4 recipe for the model.
+            nvte_tp_mesh: TP DeviceMesh for the model.
+            nvte_weight_mesh: Weight-sharding DeviceMesh for the model.
         """
         super().__init__(config)
-        self.model = NVLlamaModel(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+        self.model = NVLlamaModel(
+            config,
+            fp8_recipe=fp8_recipe,
+            fp4_recipe=fp4_recipe,
+            nvte_tp_mesh=nvte_tp_mesh,
+            nvte_weight_mesh=nvte_weight_mesh,
+        )
+        self.config = config
         self.vocab_size = config.vocab_size
+        self.tp_mesh = nvte_tp_mesh
+        self.weight_mesh = nvte_weight_mesh
         with transformer_engine.pytorch.quantized_model_init(enabled=False):
             self.lm_head = transformer_engine.pytorch.Linear(
                 config.hidden_size,
@@ -406,9 +458,25 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
                 params_dtype=config.dtype,
                 device="meta" if torch.get_default_device() == torch.device("meta") else "cuda",
                 init_method=lambda x: torch.nn.init.normal_(x, mean=0.0, std=config.initializer_range),
+                parallel_mode="row" if config.tensor_parallel else None,
+                # This scatters your output, not ever needed for final layer.
+                # Will all-reduce the output instead, as required.
+                sequence_parallel=False,
+                tp_size=config.tp_size,
             )
+            if config.tensor_parallel:
+                if config.tie_word_embeddings:
+                    # Head weights have already been tied to the embedding weights.
+                    # Just set the tensor parallel group for TE.
+                    # No parameter quantization either, so no need for weight_mesh.
+                    self.lm_head.set_tensor_parallel_group(self.tp_mesh.get_group())
+                else:
+                    # Head weights are not tied to the embedding weights. Need to
+                    # wrap the LM head weight as a DTensor with TE.
+                    # No parameter quantization either, so no need for weight_mesh.
+                    self.lm_head.set_device_mesh(tp_mesh=self.tp_mesh)
 
-        # Initialize weights and apply final processing
+        # Initialize weights and apply final processing. Ties weights.
         self.post_init()
 
     def forward(
@@ -460,6 +528,14 @@ class NVLlamaForCausalLM(NVLlamaPreTrainedModel, transformers.GenerationMixin):
         hidden_states = outputs.last_hidden_state
         # Only compute necessary logits, and do not upcast them to float if we are not computing the loss
         slice_indices = slice(-logits_to_keep, None) if isinstance(logits_to_keep, int) else logits_to_keep
+
+        if self.config.tensor_parallel:
+            # If using TP, shard your activation across the TP group,
+            # to support row-wise tensor parallelism in the LM head.
+            # Use ... to support both BSHD (3D) and THD (2D) hidden states.
+            tp_rank = self.tp_mesh.get_local_rank()
+            tp_stride = hidden_states.shape[-1] // self.config.tp_size
+            hidden_states = hidden_states[..., tp_rank * tp_stride : (tp_rank + 1) * tp_stride]
 
         with transformer_engine.pytorch.autocast(enabled=False):
             if hidden_states.ndim == 3:

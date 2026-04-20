@@ -13,14 +13,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""FSDP2 with Context Parallelism training script for Llama 3 with TransformerEngine.
+"""FSDP2 with Tensor & Context Parallelism training script for Llama 3 with TransformerEngine.
 
-Combines Fully Sharded Data Parallel v2 with Context Parallelism (CP), where each sequence is
-split across multiple GPUs along the sequence dimension. This is useful for training with very long
-sequences that do not fit into a single GPU's memory even with FSDP2 alone. Only supports
-TE-accelerated models (NVLlamaForCausalLM).
+Combines Fully Sharded Data Parallel v2 with Tensor Parallelism (TP) and Context Parallelism (CP).
+In Context Parallelism, each sequence is split across multiple GPUs along the sequence dimension,
+which is useful for training on extremely long sequences that exhaust activation memory.
+In Tensor Parallelism, weights and activations are sharded on the hidden dim across multiple GPUs,
+which is useful for sharding model weights and activations unlike FSDP which only shards weights.
+Only supports TE-accelerated models (NVLlamaForCausalLM).
 
-For standard FSDP2 training without context parallelism, use ``train_fsdp2.py`` instead.
+For standard FSDP2 training without N-D parallelism, use ``train_fsdp2.py`` instead.
 """
 
 import gc
@@ -59,7 +61,7 @@ logger.setLevel(logging.INFO)
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
 def main(args: DictConfig) -> float | None:
-    """Train Llama3 with TE layers using FSDP2 with Context Parallelism.
+    """Train Llama3 with TE layers using FSDP2, CP, and TP.
 
     Returns:
         float: The loss value for the final batch.
@@ -73,8 +75,8 @@ def main(args: DictConfig) -> float | None:
 
     device_mesh = init_device_mesh(
         "cuda",
-        mesh_shape=(dist_config.world_size // args.cp_size, args.cp_size),
-        mesh_dim_names=("dp", "cp"),
+        mesh_shape=(dist_config.world_size // (args.cp_size * args.tp_size), args.cp_size, args.tp_size),
+        mesh_dim_names=("dp", "cp", "tp"),
     )
     logger.info("Created device mesh: %s", device_mesh)
 
@@ -94,11 +96,22 @@ def main(args: DictConfig) -> float | None:
     config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
 
     with torch.device("meta") if args.use_meta_device else nullcontext():
-        model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+        model = NVLlamaForCausalLM(
+            config,
+            fp8_recipe=fp8_recipe,
+            fp4_recipe=fp4_recipe,
+            # Only pass DeviceMesh to TransformerEngine if using Tensor Parallelism
+            # or if your DeviceMesh has multiple weight-sharding dimensions.
+            nvte_tp_mesh=device_mesh["tp"] if config.tensor_parallel else None,
+            # nvte_weight_mesh is only required for Float8CurrentScaling parameters.
+            nvte_weight_mesh=device_mesh["dp", "cp", "tp"]._flatten("weight_mesh") if config.tensor_parallel else None,
+        )
 
     logger.info("Initialized Model:\n%s", model)
 
     # --- Distributed Wrapping (FSDP2 + CP) ---
+
+    # Create a flattened mesh for FSDP2-CP sharding. This will shard the model across both the DP and CP ranks.
     cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
 
     # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
@@ -107,7 +120,7 @@ def main(args: DictConfig) -> float | None:
         fully_shard(layer, mesh=cp_dp_mesh)
     fully_shard(model, mesh=cp_dp_mesh)
 
-    # Attach the CP group to the model.
+    # Attach the CP ProcessGroup to the TransformerEngine model.
     for layer in model.model.layers:
         layer.set_context_parallel_group(
             device_mesh["cp"].get_group(),
@@ -136,9 +149,12 @@ def main(args: DictConfig) -> float | None:
         logger.info("pad_sequences_to_be_divisible_by is not provided, using cp_mesh.size() * 2")
         OmegaConf.update(args, "dataset.pad_sequences_to_be_divisible_by", device_mesh["cp"].size() * 2)
 
-    # We only create the dataloader on rank 0, which is responsible for loading data for all CP (and eventually TP)
-    # ranks. This ensures that the data remains synchronized, even if we're using a non-deterministic data pipeline.
-    if device_mesh["cp"].get_local_rank() == 0:
+    # We only create the dataloader on rank 0, which is responsible for loading data for all CP (and TP) ranks.
+    # This ensures that the data remains synchronized, even if we're using a non-deterministic data pipeline.
+    cp_tp_mesh = device_mesh["cp", "tp"]._flatten(mesh_dim_name="cp_tp")
+    if cp_tp_mesh.get_local_rank() == 0:
+        # We only create the dataloader on CP-TP Rank 0 and pass it to a ContextParallelDataLoaderWrapper
+        # that will shard, replicate, and distribute the data across the flattened CP and TP group.
         if args.use_sequence_packing:
             train_dataloader, dataset_or_sampler = create_thd_dataloader(dist_config, **args.dataset)
         else:
@@ -155,8 +171,8 @@ def main(args: DictConfig) -> float | None:
         train_dataloader = None
         dataset_or_sampler = None
 
-    # On all ranks, we create a ContextParallelDataLoaderWrapper that broadcasts the data from cp rank 0.
-    train_dataloader = ContextParallelDataLoaderWrapper(train_dataloader, device_mesh["cp"])
+    # Deliver CP-sharded replicates to a flattened CP-TP mesh.
+    train_dataloader = ContextParallelDataLoaderWrapper(train_dataloader, cp_tp_mesh)
 
     # --- Checkpoint Resume ---
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
@@ -169,7 +185,6 @@ def main(args: DictConfig) -> float | None:
             ckpt_path=ckpt_path,
             dist_config=dist_config,
             dataloader=train_dataloader,
-            process_group=cp_dp_mesh.get_group(),
         )
         logger.info("Checkpoint loaded, resuming from step %s, epoch %s", start_step, epoch)
     else:
@@ -234,7 +249,6 @@ def main(args: DictConfig) -> float | None:
                         epoch=epoch,
                         dist_config=dist_config,
                         dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
-                        process_group=cp_dp_mesh.get_group(),
                         max_checkpoints=args.checkpoint.max_checkpoints,
                         async_save=args.checkpoint.async_save,
                     )

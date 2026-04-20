@@ -233,9 +233,28 @@ class AppState(Stateful):
     epoch: int = 0
 
     def state_dict(self):
-        """Get the state dict for the model, optimizer, scheduler, and step."""
+        """Get the state dict for the model, optimizer, scheduler, and step.
+
+        This factory both retrieves the model state dictionary when saving
+        checkpoints and initializes a destination for the state read from
+        DCP checkpoint files when loading checkpoints.
+        """
         model_state_dict, optimizer_state_dict = get_state_dict(self.model, self.optimizer)
-        model_state_dict = {k: v for k, v in model_state_dict.items() if not k.endswith("_extra_state")}
+        for fqn in list(model_state_dict.keys()):
+            # Get the model parameter.
+            model_param = model_state_dict[fqn]
+            if isinstance(model_param, DTensor):
+                model_param = model_param.to_local()
+            if model_param.numel() == 0 and fqn in optimizer_state_dict["state"]:
+                # Empty model parameter. Clear the associated optimizer state
+                # when initializing the optimizer state upon DCP load, because
+                # empty optimizer state DTensors are not checkpointed with DCP,
+                # yet get_state_dict / _init_optim_state produce empty Tensors.
+                # TransformerEngine uses empty Tensors for dummy Parameters.
+                optimizer_state_dict["state"][fqn] = {}
+            if fqn.endswith("_extra_state"):
+                # Evict `_extra_state` quantization data from model checkpoint.
+                model_state_dict.pop(fqn)
         return {
             "model": model_state_dict,
             "optim": optimizer_state_dict,
@@ -245,12 +264,18 @@ class AppState(Stateful):
         }
 
     def load_state_dict(self, state_dict: dict):
-        """Load the state dict for the model, optimizer, scheduler, and step."""
+        """Load the state dict for the model, optimizer, scheduler, and step.
+
+        Given the checkpoint-loaded state_dict, set the state of the model,
+        optimizer, scheduler, step, and epoch to the values in state_dict.
+        """
         set_state_dict(
             self.model,
             self.optimizer,
             model_state_dict=state_dict["model"],
             optim_state_dict=state_dict["optim"],
+            # Non-strict checkpoint loading ignores empty optimizer states,
+            # skips loading non-FP8 checkpoint weights (e.g. _extra_state).
             options=StateDictOptions(strict=False),
         )
         self.scheduler.load_state_dict(state_dict["scheduler"])

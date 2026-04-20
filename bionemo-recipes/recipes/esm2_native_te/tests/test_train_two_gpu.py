@@ -135,7 +135,7 @@ def test_multi_gpu_train_te_fsdp2_cp(tmp_path, recipe_path):
         [
             "torchrun",
             "--nproc_per_node=2",
-            "train_fsdp2_cp.py",
+            "train_fsdp2_nd_parallel.py",
             "--config-name",
             "L0_sanity_cp",
             "num_train_steps=4",

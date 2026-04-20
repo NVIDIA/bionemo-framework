@@ -12,6 +12,10 @@ use_meta_device: true
 # We leave this off by default since we don't see much of a performance improvement with TE layers.
 use_torch_compile: false
 
+# Default parallelism sizes.
+tp_size: 1
+cp_size: 1
+
 use_sequence_packing: false
 
 dataset:

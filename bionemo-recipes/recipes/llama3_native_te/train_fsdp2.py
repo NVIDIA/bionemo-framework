@@ -19,7 +19,7 @@ Model weights and optimizer states are sharded across GPUs, allowing training of
 the memory of a single GPU. Supports both TE-accelerated (NVLlamaForCausalLM) and standard
 HuggingFace (LlamaForCausalLM) models.
 
-For very long sequences, use ``train_fsdp2_cp.py`` which adds Context Parallelism on top of FSDP2.
+For very long sequences, use ``train_fsdp2_nd_parallel.py`` which adds Context Parallelism on top of FSDP2.
 """
 
 import gc

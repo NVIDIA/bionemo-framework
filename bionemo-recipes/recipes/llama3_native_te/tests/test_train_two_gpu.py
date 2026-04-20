@@ -199,7 +199,7 @@ def test_multi_gpu_train_te_fsdp2_cp_bshd(tmp_path, recipe_path):
             "torchrun",
             "--standalone",
             "--nproc_per_node=2",
-            "train_fsdp2_cp.py",
+            "train_fsdp2_nd_parallel.py",
             "--config-name",
             "L0_sanity_cp",
             "num_train_steps=10",
@@ -223,7 +223,7 @@ def test_multi_gpu_train_te_fsdp2_cp_thd(tmp_path, recipe_path):
             "torchrun",
             "--standalone",
             "--nproc_per_node=2",
-            "train_fsdp2_cp.py",
+            "train_fsdp2_nd_parallel.py",
             "--config-name",
             "L0_sanity_cp",
             "num_train_steps=10",
@@ -236,6 +236,111 @@ def test_multi_gpu_train_te_fsdp2_cp_thd(tmp_path, recipe_path):
         ],
         recipe_path,
     )
+
+
+@requires_multi_gpu
+def test_multi_gpu_train_te_fsdp2_tp_bshd(tmp_path, recipe_path):
+    """Test FSDP2 with tensor parallelism on 2 GPUs using BSHD input format.
+
+    Validates:
+    - The 1-D TP device mesh (dp=1, cp=1, tp=2) is created and used correctly
+    - Embedding weights are ColwiseParallel-sharded across 2 TP ranks
+    - TransformerLayer TP mode shards QKV/FFN weights across ranks
+    - Row-wise parallel LM head with hidden-state slicing before forward
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=2",
+            "train_fsdp2_nd_parallel.py",
+            "--config-name",
+            "L0_sanity_tp",
+            "num_train_steps=10",
+            f"checkpoint.ckpt_dir={tmp_path}",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
+@requires_datacenter_hardware
+def test_multi_gpu_train_te_fsdp2_tp_thd(tmp_path, recipe_path):
+    """Test FSDP2 with tensor parallelism on 2 GPUs using THD (sequence-packed) input format.
+
+    Validates:
+    - TP=2, CP=1 with sequence-packing / THD attention format
+    - _unpad_input / _pad_input round-trip works alongside TP activation sharding
+    - padding_causal mask type is compatible with row-wise parallel LM head
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=2",
+            "train_fsdp2_nd_parallel.py",
+            "--config-name",
+            "L0_sanity_tp",
+            "num_train_steps=10",
+            f"checkpoint.ckpt_dir={tmp_path}",
+            "use_sequence_packing=true",
+            "config_kwargs.attn_input_format=thd",
+            "config_kwargs.self_attn_mask_type=padding_causal",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
+def test_multi_gpu_train_te_fsdp2_tp_sequence_parallel_bshd(tmp_path, recipe_path):
+    """Test FSDP2 with tensor parallelism + sequence parallelism on 2 GPUs, BSHD.
+
+    Validates that sequence parallelism (LayerNorm activations sharded across TP ranks)
+    works alongside standard tensor parallelism without errors.
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=2",
+            "train_fsdp2_nd_parallel.py",
+            "--config-name",
+            "L0_sanity_tp",
+            "num_train_steps=10",
+            f"checkpoint.ckpt_dir={tmp_path}",
+            "config_kwargs.sequence_parallel=true",
+        ],
+        recipe_path,
+    )
+
+
+@requires_multi_gpu
+def test_multi_gpu_train_te_fsdp2_tp_bshd_with_checkpointing(tmp_path, recipe_path):
+    """Test FSDP2 TP training on 2 GPUs with checkpoint saving.
+
+    Validates:
+    - Sharded FSDP2 checkpoints are written correctly while TP is active
+    - The expected checkpoint directory structure is present after training
+    """
+    run_train_cmd(
+        [
+            "torchrun",
+            "--standalone",
+            "--nproc_per_node=2",
+            "train_fsdp2_nd_parallel.py",
+            "--config-name",
+            "L0_sanity_tp",
+            "num_train_steps=10",
+            f"checkpoint.ckpt_dir={tmp_path}",
+            "checkpoint.save_every_n_steps=5",
+            "checkpoint.resume_from_checkpoint=false",
+        ],
+        recipe_path,
+    )
+
+    ckpt_dir = tmp_path / "train_fsdp2"
+    assert ckpt_dir.exists(), f"Checkpoint directory not created: {ckpt_dir}"
+    assert (ckpt_dir / "step_5").exists(), "Checkpoint at step 5 not found"
 
 
 nsys_available = subprocess.run(["which", "nsys"], check=False, capture_output=True).returncode == 0
