@@ -89,12 +89,18 @@ def parse_args():
     train_group.add_argument("--grad-accumulation-steps", type=int, default=1, help="Gradient accumulation steps")
     train_group.add_argument("--warmup-steps", type=int, default=0, help="Linear LR warmup steps")
     train_group.add_argument(
-        "--lr-schedule", type=str, default="constant", choices=["constant", "cosine", "linear"],
+        "--lr-schedule",
+        type=str,
+        default="constant",
+        choices=["constant", "cosine", "linear"],
         help="LR schedule after warmup",
     )
     train_group.add_argument("--lr-min", type=float, default=0.0, help="Minimum LR for decay schedules")
     train_group.add_argument(
-        "--lr-decay-steps", type=int, default=None, help="Total steps for LR decay (None = full training)",
+        "--lr-decay-steps",
+        type=int,
+        default=None,
+        help="Total steps for LR decay (None = full training)",
     )
 
     # W&B

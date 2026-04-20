@@ -190,9 +190,7 @@ class Trainer:
         # Validate lr_schedule
         valid_schedules = ("constant", "cosine", "linear")
         if self.config.lr_schedule not in valid_schedules:
-            raise ValueError(
-                f"Unknown lr_schedule: {self.config.lr_schedule!r}. Expected one of {valid_schedules}."
-            )
+            raise ValueError(f"Unknown lr_schedule: {self.config.lr_schedule!r}. Expected one of {valid_schedules}.")
 
         # Will be set during training
         self.dataloader: Optional[DataLoader] = None
