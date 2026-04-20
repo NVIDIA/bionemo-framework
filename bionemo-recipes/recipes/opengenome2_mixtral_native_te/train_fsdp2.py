@@ -351,7 +351,7 @@ def main(args: DictConfig) -> float | None:
     if val_enabled:
         val_data_path = getattr(val_config, "data_path", None)
         if val_data_path:
-            logger.info(f"Setting up validation dataloader from {val_data_path}")
+            logger.info("Setting up validation dataloader from %s", val_data_path)
             val_dataset_kwargs = OmegaConf.to_container(args.dataset, resolve=True)
             val_dataset_kwargs["load_dataset_kwargs"] = {
                 "path": "json",
