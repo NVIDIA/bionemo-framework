@@ -77,6 +77,7 @@ PAIR_PRECISION_FP8_EXTREME = "fp8_extreme"
 PAIR_PRECISION_FP8_HYBRID = "fp8_hybrid"
 PAIR_PRECISION_FP8_NATIVE = "fp8_native"
 PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS = "fp8_native_gold_packs"
+PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL = "fp8_native_mixed_tail"
 SUPPORTED_PAIR_PRECISION = (
     PAIR_PRECISION_BF16,
     PAIR_PRECISION_BF16_NATIVE,
@@ -86,12 +87,14 @@ SUPPORTED_PAIR_PRECISION = (
     PAIR_PRECISION_FP8_HYBRID,
     PAIR_PRECISION_FP8_NATIVE,
     PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
+    PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
 )
 FP8_BLOCK32_PAIR_PRECISIONS = (
     PAIR_PRECISION_FP8_EXTREME,
     PAIR_PRECISION_FP8_HYBRID,
     PAIR_PRECISION_FP8_NATIVE,
     PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
+    PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
 )
 LINEAR_PRECISION_BF16 = "bf16"
 LINEAR_PRECISION_BF16_NATIVE = "bf16_native"
@@ -298,6 +301,34 @@ def resolve_hybrid_precision_config(
     raise TypeError(
         "hybrid_precision must be a HybridPrecisionConfig, a dict of booleans, or None; "
         f"got {type(hybrid_precision)!r}"
+    )
+
+
+@dataclass(frozen=True)
+class MixedTailConfig:
+    tail_bf16_native_blocks: int = 0
+    bf16_native_rung: str = BF16_NATIVE_RUNG_B3
+
+
+def resolve_mixed_tail_config(
+    mixed_tail: MixedTailConfig | dict[str, object] | None = None,
+) -> MixedTailConfig:
+    if mixed_tail is None:
+        return MixedTailConfig()
+    if isinstance(mixed_tail, MixedTailConfig):
+        raw = asdict(mixed_tail)
+    elif isinstance(mixed_tail, dict):
+        raw = dict(mixed_tail)
+    else:
+        raise TypeError(
+            "mixed_tail must be a MixedTailConfig, a dict, or None; "
+            f"got {type(mixed_tail)!r}"
+        )
+    tail_bf16_native_blocks = int(raw.get("tail_bf16_native_blocks", 0))
+    bf16_native_rung = resolve_bf16_native_rung(raw.get("bf16_native_rung")) or BF16_NATIVE_RUNG_B3
+    return MixedTailConfig(
+        tail_bf16_native_blocks=tail_bf16_native_blocks,
+        bf16_native_rung=bf16_native_rung,
     )
 
 
@@ -2227,6 +2258,12 @@ class Block(nn.Module):
             hybrid_precision=self.hybrid_precision,
         )
 
+    def configure_bf16_native_tail(self, bf16_native_rung: str = BF16_NATIVE_RUNG_B3) -> None:
+        self.bf16_native_rung = resolve_bf16_native_rung(bf16_native_rung) or BF16_NATIVE_RUNG_B3
+        self.triangular.tri_impl = "cublas_xbdnn"
+        self.triangular.set_linear_precision(LINEAR_PRECISION_BF16_NATIVE)
+        self.transition.set_linear_precision(LINEAR_PRECISION_BF16_NATIVE, include_transition=False)
+
     def _hybrid_uses_tri_residual_fusion(self) -> bool:
         return self.hybrid_precision.use_resident_fp8_residual and self.hybrid_precision.use_native_gate
 
@@ -2264,7 +2301,10 @@ class Block(nn.Module):
             x = mxfp8_add_quantized(x, trans_out)
             _record_probe(activation_probe, block_idx, "block_output", x)
             return x
-        if isinstance(x, Mxfp8PairTensor) and stats is not None and stats.pair_precision_mode == PAIR_PRECISION_FP8_NATIVE:
+        if isinstance(x, Mxfp8PairTensor) and stats is not None and stats.pair_precision_mode in (
+            PAIR_PRECISION_FP8_NATIVE,
+            PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
+        ):
             x = self.triangular.forward_fp8_native(
                 x,
                 mask,
@@ -2407,12 +2447,14 @@ class MiniFormer(nn.Module):
         fp8_activations: bool | None = None,
         hybrid_precision: HybridPrecisionConfig | dict[str, bool] | None = None,
         bf16_native_rung: str | None = None,
+        mixed_tail: MixedTailConfig | dict[str, object] | None = None,
     ):
         super().__init__()
         self.pair_precision = resolve_pair_precision(pair_precision=pair_precision, fp8_activations=fp8_activations)
         self.linear_precision = resolve_linear_precision(linear_precision)
         self.hybrid_precision = resolve_hybrid_precision_config(hybrid_precision)
         self.bf16_native_rung = resolve_bf16_native_rung(bf16_native_rung)
+        self.mixed_tail = resolve_mixed_tail_config(mixed_tail)
         if self.pair_precision == PAIR_PRECISION_BF16_NATIVE and self.bf16_native_rung is None:
             self.bf16_native_rung = BF16_NATIVE_RUNG_B4
         self.fp8_activations = self.pair_precision not in (PAIR_PRECISION_BF16, PAIR_PRECISION_BF16_NATIVE)
@@ -2429,9 +2471,32 @@ class MiniFormer(nn.Module):
                 for _ in range(blocks)
             ]
         )
+        if self.mixed_tail.tail_bf16_native_blocks < 0 or self.mixed_tail.tail_bf16_native_blocks > len(self.blocks):
+            raise ValueError(
+                f"mixed_tail.tail_bf16_native_blocks must be between 0 and {len(self.blocks)}, "
+                f"got {self.mixed_tail.tail_bf16_native_blocks}"
+            )
+        self._mixed_tail_start_idx = len(self.blocks) - self.mixed_tail.tail_bf16_native_blocks
         self.last_pair_precision_stats: FP8ActivationStats | None = None
         self.last_fp8_stats: FP8ActivationStats | None = None
         self.last_activation_probe: ActivationProbe | None = None
+
+    def configure_mixed_tail_runtime(
+        self,
+        mixed_tail: MixedTailConfig | dict[str, object] | None = None,
+    ) -> MixedTailConfig:
+        self.mixed_tail = resolve_mixed_tail_config(mixed_tail)
+        if self.mixed_tail.tail_bf16_native_blocks < 0 or self.mixed_tail.tail_bf16_native_blocks > len(self.blocks):
+            raise ValueError(
+                f"mixed_tail.tail_bf16_native_blocks must be between 0 and {len(self.blocks)}, "
+                f"got {self.mixed_tail.tail_bf16_native_blocks}"
+            )
+        self._mixed_tail_start_idx = len(self.blocks) - self.mixed_tail.tail_bf16_native_blocks
+        if self.pair_precision != PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL or self.mixed_tail.tail_bf16_native_blocks == 0:
+            return self.mixed_tail
+        for idx in range(self._mixed_tail_start_idx, len(self.blocks)):
+            self.blocks[idx].configure_bf16_native_tail(self.mixed_tail.bf16_native_rung)
+        return self.mixed_tail
 
     def forward(
         self,
@@ -2450,6 +2515,12 @@ class MiniFormer(nn.Module):
                 stats.record_quantize(x)
         for idx, block in enumerate(self.blocks):
             if self.pair_precision == PAIR_PRECISION_BF16_NATIVE:
+                x = block.forward_bf16_native(x, mask, block_idx=idx, activation_probe=activation_probe)
+                continue
+            if self.pair_precision == PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL and idx >= self._mixed_tail_start_idx:
+                if isinstance(x, (QuantizedPairTensor, Mxfp8PairTensor)):
+                    x = _materialize_pair_tensor(x, stats, "mixed_tail_boundary")
+                    _record_probe(activation_probe, idx, "mixed_tail_boundary", x)
                 x = block.forward_bf16_native(x, mask, block_idx=idx, activation_probe=activation_probe)
                 continue
             x = block(x, mask, stats=stats, block_idx=idx, activation_probe=activation_probe)
@@ -2492,6 +2563,7 @@ class FoldingTrunk(nn.Module):
         fp8_activations: bool | None = None,
         hybrid_precision: HybridPrecisionConfig | dict[str, bool] | None = None,
         bf16_native_rung: str | None = None,
+        mixed_tail: MixedTailConfig | dict[str, object] | None = None,
     ):
         super().__init__()
         self.disto_bins = disto_bins
@@ -2509,6 +2581,7 @@ class FoldingTrunk(nn.Module):
             fp8_activations=fp8_activations,
             hybrid_precision=hybrid_precision,
             bf16_native_rung=bf16_native_rung,
+            mixed_tail=mixed_tail,
         )
         self.fc_out_1 = nn.Linear(c_z, c_z)
         self.fc_out_2 = nn.Linear(c_z, disto_bins)
@@ -2563,6 +2636,7 @@ class PlainESM2MiniFold(nn.Module):
         fp8_activations: bool | None = None,
         hybrid_precision: HybridPrecisionConfig | dict[str, bool] | None = None,
         bf16_native_rung: str | None = None,
+        mixed_tail: MixedTailConfig | dict[str, object] | None = None,
     ):
         super().__init__()
         from esm_backbone import ESM2Backbone
@@ -2587,6 +2661,7 @@ class PlainESM2MiniFold(nn.Module):
             fp8_activations=fp8_activations,
             hybrid_precision=hybrid_precision,
             bf16_native_rung=bf16_native_rung,
+            mixed_tail=mixed_tail,
         )
 
     def forward(
@@ -2626,6 +2701,22 @@ def configure_linear_precision(
     return resolved
 
 
+def configure_mixed_tail_runtime(
+    module: nn.Module,
+    pair_precision: str,
+    mixed_tail: MixedTailConfig | dict[str, object] | None = None,
+) -> MixedTailConfig:
+    resolved = resolve_mixed_tail_config(mixed_tail)
+    if pair_precision != PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL:
+        return resolved
+    if isinstance(module, MiniFormer):
+        return module.configure_mixed_tail_runtime(resolved)
+    for submodule in module.modules():
+        if isinstance(submodule, MiniFormer):
+            return submodule.configure_mixed_tail_runtime(resolved)
+    raise TypeError("configure_mixed_tail_runtime expected a module containing a MiniFormer")
+
+
 def validate_bf16_native_configuration(
     pair_precision: str,
     linear_precision: str,
@@ -2654,3 +2745,26 @@ def validate_fp8_extreme_configuration(pair_precision: str, linear_precision: st
         raise ValueError(f"pair_precision={pair_precision} requires linear_precision=fp8.")
     if tri_impl != "fp8_cublaslt":
         raise ValueError(f"pair_precision={pair_precision} currently requires tri_impl=fp8_cublaslt.")
+
+
+def validate_fp8_native_mixed_tail_configuration(
+    pair_precision: str,
+    linear_precision: str,
+    tri_impl: str,
+    num_blocks: int,
+    mixed_tail: MixedTailConfig | dict[str, object] | None = None,
+) -> MixedTailConfig:
+    resolved = resolve_mixed_tail_config(mixed_tail)
+    if pair_precision != PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL:
+        return resolved
+    validate_fp8_extreme_configuration(pair_precision, linear_precision, tri_impl)
+    if resolved.tail_bf16_native_blocks < 0 or resolved.tail_bf16_native_blocks > num_blocks:
+        raise ValueError(
+            f"pair_precision={pair_precision} requires mixed_tail.tail_bf16_native_blocks between 0 and {num_blocks}, "
+            f"got {resolved.tail_bf16_native_blocks}."
+        )
+    if resolved.bf16_native_rung != BF16_NATIVE_RUNG_B3:
+        raise ValueError(
+            f"pair_precision={pair_precision} currently requires mixed_tail.bf16_native_rung={BF16_NATIVE_RUNG_B3}."
+        )
+    return resolved

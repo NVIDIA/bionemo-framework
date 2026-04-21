@@ -64,6 +64,8 @@ def test_eval_real_3b_fp8native_defaults_to_scaled_eval_and_hybrid_config():
     assert cfg.hybrid_precision.use_native_gate is False
     assert cfg.hybrid_precision.use_native_tri is False
     assert cfg.hybrid_precision.use_resident_fp8_residual is False
+    assert cfg.mixed_tail.tail_bf16_native_blocks == 0
+    assert cfg.mixed_tail.bf16_native_rung == "B3"
 
 
 def test_scale_summary_flags_zero_scale_collapse():

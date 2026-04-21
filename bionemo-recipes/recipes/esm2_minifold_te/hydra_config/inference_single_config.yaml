@@ -5,6 +5,9 @@ tri_einsum: bf16
 pair_precision: bf16
 linear_precision: bf16
 bf16_native_rung: null
+mixed_tail:
+  tail_bf16_native_blocks: 0
+  bf16_native_rung: B3
 fp8_activations: false
 warmup: 5
 iters: 20

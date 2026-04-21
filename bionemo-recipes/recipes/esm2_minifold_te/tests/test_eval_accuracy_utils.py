@@ -61,6 +61,14 @@ def test_select_eval_stem_uses_expected_artifact_names():
     assert select_eval_stem("bf16", "bf16") == "bf16_baseline_eval_metrics"
     assert select_eval_stem("fp8_native", "fp8") == "fp8_native_eval_metrics"
     assert select_eval_stem("fp8_native_gold_packs", "fp8") == "fp8_native_gold_packs_eval_metrics"
+    assert (
+        select_eval_stem(
+            "fp8_native_mixed_tail",
+            "fp8",
+            mixed_tail={"tail_bf16_native_blocks": 2, "bf16_native_rung": "B3"},
+        )
+        == "fp8_native_mixed_tail_k2_eval_metrics"
+    )
     assert select_eval_stem("fp8_storage", "bf16") == "fp8_storage_bf16_eval_metrics"
 
 

@@ -7,6 +7,7 @@ esm_model_name: facebook/esm2_t36_3B_UR50D
 
 pair_precision: bf16
 linear_precision: bf16
+bf16_native_rung: null
 artifact_root: /scratch/claude_tasks/accuracy_validation
 report_path: projects/blackwell_native_folding/accuracy_validation_2026_04_21.md
 
@@ -34,6 +35,10 @@ hybrid_precision:
   use_native_gate: false
   use_native_tri: false
   use_resident_fp8_residual: false
+
+mixed_tail:
+  tail_bf16_native_blocks: 0
+  bf16_native_rung: B3
 
 checkpoint:
   ckpt_dir: /minifold_home/checkpoints/3B/bf16_baseline_50ksteps_multirun

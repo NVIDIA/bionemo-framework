@@ -108,13 +108,20 @@ def compute_distogram_metrics_per_sample(
     }
 
 
-def select_eval_stem(pair_precision: str, linear_precision: str) -> str:
+def select_eval_stem(
+    pair_precision: str,
+    linear_precision: str,
+    mixed_tail: dict[str, object] | None = None,
+) -> str:
     if pair_precision == "bf16" and linear_precision == "bf16":
         return "bf16_baseline_eval_metrics"
     if pair_precision == "fp8_native" and linear_precision == "fp8":
         return "fp8_native_eval_metrics"
     if pair_precision == "fp8_native_gold_packs" and linear_precision == "fp8":
         return "fp8_native_gold_packs_eval_metrics"
+    if pair_precision == "fp8_native_mixed_tail" and linear_precision == "fp8":
+        tail_blocks = int((mixed_tail or {}).get("tail_bf16_native_blocks", 0))
+        return f"fp8_native_mixed_tail_k{tail_blocks}_eval_metrics"
     return f"{pair_precision}_{linear_precision}_eval_metrics".replace("/", "_").replace(" ", "_")
 
 

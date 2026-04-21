@@ -20,18 +20,22 @@ from plain_minifold_infer import (
     PAIR_PRECISION_FP8_HYBRID,
     PAIR_PRECISION_FP8_NATIVE,
     PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
+    PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
     SUPPORTED_BF16_NATIVE_RUNGS,
     FP8_BLOCK32_PAIR_PRECISIONS,
     SUPPORTED_PAIR_PRECISION,
     SUPPORTED_TRI_IMPLS,
     FoldingTrunk,
     collect_fp8_linear_storage_stats,
+    configure_mixed_tail_runtime,
     configure_linear_precision,
     resolve_bf16_native_rung,
     resolve_linear_precision,
+    resolve_mixed_tail_config,
     resolve_pair_precision,
     validate_bf16_native_configuration,
     validate_fp8_extreme_configuration,
+    validate_fp8_native_mixed_tail_configuration,
 )
 
 
@@ -48,6 +52,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pair_precision", choices=SUPPORTED_PAIR_PRECISION)
     parser.add_argument("--linear_precision", choices=SUPPORTED_LINEAR_PRECISION)
     parser.add_argument("--bf16_native_rung", choices=SUPPORTED_BF16_NATIVE_RUNGS)
+    parser.add_argument("--mixed_tail_blocks", type=int)
+    parser.add_argument("--mixed_tail_bf16_native_rung", choices=SUPPORTED_BF16_NATIVE_RUNGS)
     parser.add_argument("--fp8_activations", action="store_const", const=True, default=None)
     parser.add_argument("--warmup", type=int)
     parser.add_argument("--iters", type=int)
@@ -74,6 +80,11 @@ def load_config(args: argparse.Namespace) -> argparse.Namespace:
         "pair_precision": resolve_pair_precision(cfg_pair_precision, cfg_fp8_activations),
         "linear_precision": resolve_linear_precision(OmegaConf.select(cfg, "linear_precision")),
         "bf16_native_rung": resolve_bf16_native_rung(OmegaConf.select(cfg, "bf16_native_rung")),
+        "mixed_tail_blocks": int(OmegaConf.select(cfg, "mixed_tail.tail_bf16_native_blocks", default=0)),
+        "mixed_tail_bf16_native_rung": resolve_bf16_native_rung(
+            OmegaConf.select(cfg, "mixed_tail.bf16_native_rung", default="B3")
+        )
+        or "B3",
         "fp8_activations": cfg_fp8_activations,
         "warmup": cfg.warmup,
         "iters": cfg.iters,
@@ -101,6 +112,17 @@ def load_config(args: argparse.Namespace) -> argparse.Namespace:
         merged["tri_impl"],
         merged.get("bf16_native_rung"),
     )
+    mixed_tail = validate_fp8_native_mixed_tail_configuration(
+        merged["pair_precision"],
+        merged["linear_precision"],
+        merged["tri_impl"],
+        int(merged["num_blocks"]),
+        {
+            "tail_bf16_native_blocks": int(merged.get("mixed_tail_blocks", 0)),
+            "bf16_native_rung": merged.get("mixed_tail_bf16_native_rung"),
+        },
+    )
+    merged["mixed_tail"] = {"tail_bf16_native_blocks": mixed_tail.tail_bf16_native_blocks, "bf16_native_rung": mixed_tail.bf16_native_rung}
     merged["fp8_activations"] = merged["pair_precision"] not in (PAIR_PRECISION_BF16, PAIR_PRECISION_BF16_NATIVE)
     return argparse.Namespace(**merged)
 
@@ -124,12 +146,14 @@ def build_model(args: argparse.Namespace, device: torch.device) -> FoldingTrunk:
         pair_precision=args.pair_precision,
         linear_precision=args.linear_precision,
         bf16_native_rung=args.bf16_native_rung,
+        mixed_tail=args.mixed_tail,
     ).to(device=device, dtype=torch.bfloat16)
     configure_linear_precision(
         model,
         args.linear_precision,
         include_transition=args.pair_precision in FP8_BLOCK32_PAIR_PRECISIONS,
     )
+    configure_mixed_tail_runtime(model, args.pair_precision, args.mixed_tail)
     model.eval()
     return model
 
@@ -163,6 +187,7 @@ def benchmark(model: FoldingTrunk, batch: dict[str, torch.Tensor], args: argpars
         PAIR_PRECISION_FP8_HYBRID,
         PAIR_PRECISION_FP8_NATIVE,
         PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
+        PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
     )
     for _ in range(args.warmup):
         forward_once(model, batch, args.num_recycling, use_bf16_autocast=use_bf16_autocast)
@@ -241,6 +266,10 @@ def render_markdown(args: argparse.Namespace, result: dict[str, float]) -> str:
         notes.append(f"linear={linear_precision}")
     if pair_precision == PAIR_PRECISION_BF16_NATIVE and getattr(args, "bf16_native_rung", None):
         notes.append(f"rung={args.bf16_native_rung}")
+    if pair_precision == PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL:
+        mixed_tail = resolve_mixed_tail_config(getattr(args, "mixed_tail", None))
+        notes.append(f"tail_k={mixed_tail.tail_bf16_native_blocks}")
+        notes.append(f"tail_rung={mixed_tail.bf16_native_rung}")
     return "\n".join(
         [
             "| tri_impl | pair precision | linear precision | seq_len | mbs | median (ms) | prot/s | tok/s | peak mem (GiB) | notes |",
@@ -277,6 +306,7 @@ def main() -> None:
             "pair_precision": args.pair_precision,
             "linear_precision": args.linear_precision,
             "bf16_native_rung": args.bf16_native_rung,
+            "mixed_tail": args.mixed_tail,
             "fp8_activations": args.fp8_activations,
             "warmup": args.warmup,
             "iters": args.iters,

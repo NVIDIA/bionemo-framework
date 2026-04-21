@@ -325,9 +325,9 @@ def _load_compiled_module(module_name: str, so_path: Path):
 
 
 def _prepare_plain_module(pair_precision: str, tri_impl: str, artifact_root: Path, status_path: Path):
-    if tri_impl == "cublas_xbdnn":
+    if tri_impl == "cublas_xbdnn" or pair_precision == "fp8_native_mixed_tail":
         _build_repo_tri_mul_extension(artifact_root, status_path)
-    if pair_precision in {"fp8_extreme", "fp8_hybrid", "fp8_native", "fp8_native_gold_packs"}:
+    if pair_precision in {"fp8_extreme", "fp8_hybrid", "fp8_native", "fp8_native_gold_packs", "fp8_native_mixed_tail"}:
         _build_repo_bmm_extension(artifact_root, status_path)
 
     import importlib
@@ -339,7 +339,7 @@ def _prepare_plain_module(pair_precision: str, tri_impl: str, artifact_root: Pat
     native_so_path = Path(native_build_info["compiled_binary"])
     plain_infer.minifold_native_raw = _load_compiled_module("minifold_native_ext._C", native_so_path)
 
-    if pair_precision in {"fp8_native", "fp8_native_gold_packs"} and plain_infer.bmm_ext_raw is None:
+    if pair_precision in {"fp8_native", "fp8_native_gold_packs", "fp8_native_mixed_tail"} and plain_infer.bmm_ext_raw is None:
         raise RuntimeError(
             "plain_minifold_infer.bmm_ext_raw is unavailable; fp8_native-style paths require the repo-local fp8_bmm_ext build"
         )
@@ -458,6 +458,13 @@ def _build_plain_runtime(
         args.component_precision.tri_impl,
         args.get("bf16_native_rung"),
     )
+    mixed_tail = plain_infer.validate_fp8_native_mixed_tail_configuration(
+        pair_precision,
+        linear_precision,
+        args.component_precision.tri_impl,
+        int(args.model.num_blocks),
+        OmegaConf.to_container(args.get("mixed_tail"), resolve=True) if args.get("mixed_tail") is not None else None,
+    )
 
     model = plain_infer.PlainESM2MiniFold(
         esm_model_name=args.esm_model_name,
@@ -473,6 +480,7 @@ def _build_plain_runtime(
         hybrid_precision=OmegaConf.to_container(args.get("hybrid_precision"), resolve=True)
         if args.get("hybrid_precision") is not None
         else None,
+        mixed_tail=mixed_tail,
     ).to(device=device, dtype=torch.bfloat16)
 
     plain_state_dict = filter_state_dict_for_plain_runtime(state_dict)
@@ -487,6 +495,7 @@ def _build_plain_runtime(
         linear_precision,
         include_transition=pair_precision in plain_infer.FP8_BLOCK32_PAIR_PRECISIONS,
     )
+    plain_infer.configure_mixed_tail_runtime(model, pair_precision, mixed_tail)
     model.eval()
     return model, plain_infer, native_build_info
 
@@ -561,15 +570,22 @@ def _write_run_markdown(payload: dict, markdown_path: Path) -> None:
     checkpoint = payload["checkpoint"]
     dataset = payload["dataset"]
     environment = payload["environment"]
-    markdown = "\n".join(
+    markdown_lines = [
+        f"# {payload['run_label']}",
+        "",
+        f"- Timestamp: {payload['timestamp_utc']}",
+        f"- Runtime: {payload['runtime_impl']}",
+        f"- Pair precision: {payload['config']['pair_precision']}",
+        f"- Linear precision: {payload['config']['linear_precision']}",
+        f"- Tri backend: {payload['config']['tri_impl']}",
+    ]
+    if payload["config"].get("mixed_tail") is not None:
+        markdown_lines.append(
+            f"- Mixed tail: K={payload['config']['mixed_tail']['tail_bf16_native_blocks']} "
+            f"tail_rung={payload['config']['mixed_tail']['bf16_native_rung']}"
+        )
+    markdown_lines.extend(
         [
-            f"# {payload['run_label']}",
-            "",
-            f"- Timestamp: {payload['timestamp_utc']}",
-            f"- Runtime: {payload['runtime_impl']}",
-            f"- Pair precision: {payload['config']['pair_precision']}",
-            f"- Linear precision: {payload['config']['linear_precision']}",
-            f"- Tri backend: {payload['config']['tri_impl']}",
             f"- Checkpoint dir: {checkpoint['resolved_ckpt_dir']}",
             f"- Checkpoint step: {checkpoint['latest_step']}",
             f"- Eval parquet: {dataset['mirrored_parquet_path']}",
@@ -586,7 +602,7 @@ def _write_run_markdown(payload: dict, markdown_path: Path) -> None:
             f"| contact_recall_8A | {summary['contact_recall_8A']:.6f} |",
         ]
     )
-    markdown_path.write_text(markdown + "\n", encoding="utf-8")
+    markdown_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
 
 
 def _write_comparison_csv(rows: list[dict[str, Any]], csv_path: Path) -> None:
@@ -764,6 +780,7 @@ def _evaluate_plain_runtime(model, plain_infer, dataloader: DataLoader, device: 
         plain_infer.PAIR_PRECISION_FP8_HYBRID,
         plain_infer.PAIR_PRECISION_FP8_NATIVE,
         plain_infer.PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
+        plain_infer.PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
     )
     eval_rows: list[dict[str, Any]] = []
     progress = tqdm(dataloader, desc="Evaluating", leave=False)
@@ -837,6 +854,7 @@ def main(args: DictConfig) -> None:
             f"linear_precision={args.linear_precision}",
             f"artifact_root={artifact_root}",
             f"report_path={report_path}",
+            f"mixed_tail={OmegaConf.to_container(args.get('mixed_tail'), resolve=True) if args.get('mixed_tail') is not None else None}",
         ],
     )
 
@@ -935,7 +953,8 @@ def main(args: DictConfig) -> None:
     protein_ids_path = artifact_root / "data" / "eval_protein_ids_runtime.txt"
     protein_ids_path.write_text("\n".join(row["protein_id"] for row in eval_rows) + "\n", encoding="utf-8")
 
-    run_stem = select_eval_stem(args.pair_precision, args.linear_precision)
+    mixed_tail_cfg = OmegaConf.to_container(args.get("mixed_tail"), resolve=True) if args.get("mixed_tail") is not None else None
+    run_stem = select_eval_stem(args.pair_precision, args.linear_precision, mixed_tail=mixed_tail_cfg)
     json_path = artifacts_dir / f"{run_stem}.json"
     markdown_path = artifacts_dir / f"{run_stem}.md"
     payload = {
@@ -953,6 +972,7 @@ def main(args: DictConfig) -> None:
             "c_z": int(args.model.c_z),
             "no_bins": int(args.model.no_bins),
             "num_recycling": int(args.model.get("num_recycling", 0)),
+            "mixed_tail": mixed_tail_cfg,
         },
         "checkpoint": checkpoint_info,
         "dataset": {
