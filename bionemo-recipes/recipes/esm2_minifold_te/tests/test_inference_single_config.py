@@ -97,6 +97,16 @@ def test_fp8_native_config_loads():
     assert cfg.tri_impl == "fp8_cublaslt"
 
 
+def test_fp8_native_gold_packs_config_loads():
+    args = SCRIPT_MODULE.build_arg_parser().parse_args(
+        ["--pair_precision", "fp8_native_gold_packs", "--linear_precision", "fp8", "--tri_impl", "fp8_cublaslt"]
+    )
+    cfg = SCRIPT_MODULE.load_config(args)
+    assert cfg.pair_precision == "fp8_native_gold_packs"
+    assert cfg.linear_precision == "fp8"
+    assert cfg.tri_impl == "fp8_cublaslt"
+
+
 def test_fp8_hybrid_config_loads():
     args = SCRIPT_MODULE.build_arg_parser().parse_args(
         ["--pair_precision", "fp8_hybrid", "--linear_precision", "fp8", "--tri_impl", "fp8_cublaslt"]
@@ -115,6 +125,11 @@ def test_fp8_extreme_validation_rejects_non_fp8_tri_backend():
 def test_fp8_native_validation_rejects_non_fp8_tri_backend():
     with pytest.raises(ValueError, match="pair_precision=fp8_native.*requires tri_impl"):
         PLAIN_MODULE.validate_fp8_extreme_configuration("fp8_native", "fp8", "bmm")
+
+
+def test_fp8_native_gold_packs_validation_rejects_non_fp8_tri_backend():
+    with pytest.raises(ValueError, match="pair_precision=fp8_native_gold_packs.*requires tri_impl"):
+        PLAIN_MODULE.validate_fp8_extreme_configuration("fp8_native_gold_packs", "fp8", "bmm")
 
 
 def test_fp8_hybrid_validation_rejects_non_fp8_tri_backend():

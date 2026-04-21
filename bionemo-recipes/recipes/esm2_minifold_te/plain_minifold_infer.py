@@ -76,6 +76,7 @@ PAIR_PRECISION_FP8_RESIDENT = "fp8_resident"
 PAIR_PRECISION_FP8_EXTREME = "fp8_extreme"
 PAIR_PRECISION_FP8_HYBRID = "fp8_hybrid"
 PAIR_PRECISION_FP8_NATIVE = "fp8_native"
+PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS = "fp8_native_gold_packs"
 SUPPORTED_PAIR_PRECISION = (
     PAIR_PRECISION_BF16,
     PAIR_PRECISION_BF16_NATIVE,
@@ -84,6 +85,13 @@ SUPPORTED_PAIR_PRECISION = (
     PAIR_PRECISION_FP8_EXTREME,
     PAIR_PRECISION_FP8_HYBRID,
     PAIR_PRECISION_FP8_NATIVE,
+    PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
+)
+FP8_BLOCK32_PAIR_PRECISIONS = (
+    PAIR_PRECISION_FP8_EXTREME,
+    PAIR_PRECISION_FP8_HYBRID,
+    PAIR_PRECISION_FP8_NATIVE,
+    PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
 )
 LINEAR_PRECISION_BF16 = "bf16"
 LINEAR_PRECISION_BF16_NATIVE = "bf16_native"
@@ -748,6 +756,30 @@ def _materialize_pair_tensor(
     return tensor
 
 
+def _gold_pack_block32_tensor(
+    dense: torch.Tensor,
+    logical_dtype: torch.dtype,
+    stats: FP8ActivationStats | None,
+    boundary: str,
+) -> Mxfp8PairTensor:
+    payload, scale = fp8_requantize_block32(dense.to(torch.float32), scale_dtype=torch.float32)
+    if stats is not None:
+        stats.record_linear_requant(payload, scale)
+        stats.record_boundary(boundary)
+    return Mxfp8PairTensor(payload=payload, scale=scale, logical_dtype=logical_dtype)
+
+
+def _tri_mask_from_mask(mask: torch.Tensor | None, mode_name: str) -> torch.Tensor | None:
+    if mask is None:
+        return None
+    mask_bool = mask.to(torch.bool)
+    if mask_bool.dim() == 2:
+        return (mask_bool[:, :, None] & mask_bool[:, None, :]).contiguous()
+    if mask_bool.dim() == 3:
+        return mask_bool.contiguous()
+    raise ValueError(f"Unsupported mask rank for {mode_name}: {mask_bool.dim()}")
+
+
 def quantize_linear_weight_to_fp8(weight: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
     return quantize_to_fp8(weight.detach().to(torch.bfloat16), scale_dtype=torch.float32)
 
@@ -962,6 +994,7 @@ def native_linear_forward_quantized(
     direct_fp8_output: bool = False,
     fuse_bias_epilogue: bool = False,
     residual: Mxfp8PairTensor | None = None,
+    use_gold_output_pack: bool = False,
 ) -> Mxfp8PairTensor:
     if minifold_native_raw is None or not _has_mxfp8_linear_weight(module):
         raise RuntimeError(
@@ -997,6 +1030,7 @@ def native_linear_forward_quantized(
             apply_relu
             and residual_payload_chunk is None
             and residual_scale_chunk is None
+            and not use_gold_output_pack
             and in_dim == 128
             and out_dim == 512
             and getattr(module, "_native_fc1_direct_enabled", False)
@@ -1033,19 +1067,36 @@ def native_linear_forward_quantized(
         current_fused_bias_epilogue = use_fused_bias_epilogue
         while True:
             try:
-                payload, scale = minifold_native_raw.linear_block32_fused(
-                    payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
-                    module.weight_mxfp8.contiguous(),
-                    scale_swizzled,
-                    module.scale_w_mxfp8_swizzled.contiguous(),
-                    None if module.bias is None else module.bias.contiguous(),
-                    "bfloat16",
-                    apply_relu,
-                    current_direct_output,
-                    current_fused_bias_epilogue,
-                    residual_payload_3d,
-                    residual_scale_3d,
-                )
+                if use_gold_output_pack:
+                    if not hasattr(minifold_native_raw, "linear_block32_raw_debug"):
+                        raise RuntimeError("Native gold-pack linear debug binding is unavailable")
+                    dense = minifold_native_raw.linear_block32_raw_debug(
+                        payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
+                        module.weight_mxfp8.contiguous(),
+                        scale_swizzled,
+                        module.scale_w_mxfp8_swizzled.contiguous(),
+                        None if module.bias is None else module.bias.contiguous(),
+                        "bfloat16",
+                        apply_relu,
+                        current_direct_output,
+                        current_fused_bias_epilogue,
+                        residual_payload_3d,
+                        residual_scale_3d,
+                    )
+                else:
+                    payload, scale = minifold_native_raw.linear_block32_fused(
+                        payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
+                        module.weight_mxfp8.contiguous(),
+                        scale_swizzled,
+                        module.scale_w_mxfp8_swizzled.contiguous(),
+                        None if module.bias is None else module.bias.contiguous(),
+                        "bfloat16",
+                        apply_relu,
+                        current_direct_output,
+                        current_fused_bias_epilogue,
+                        residual_payload_3d,
+                        residual_scale_3d,
+                    )
                 break
             except RuntimeError as exc:
                 exc_text = str(exc)
@@ -1062,6 +1113,17 @@ def native_linear_forward_quantized(
                     current_fused_bias_epilogue = False
                     continue
                 raise
+        if use_gold_output_pack:
+            dense = dense.reshape(payload_chunk.shape[0], out_dim).contiguous()
+            pair = _gold_pack_block32_tensor(
+                dense,
+                x.logical_dtype,
+                stats,
+                boundary="native_linear_gold_output_pack",
+            )
+            if stats is not None:
+                stats.record_native_linear_fused(pair.payload, pair.scale)
+            return pair.payload, pair.scale
         payload = payload.reshape(payload_chunk.shape[0], out_dim)
         scale = scale.reshape(payload_chunk.shape[0], out_dim // 32)
         if stats is not None:
@@ -1106,6 +1168,7 @@ def native_gate_sigmoid_mul_quantized(
     x: Mxfp8PairTensor,
     stats: FP8ActivationStats | None = None,
     residual: Mxfp8PairTensor | None = None,
+    use_gold_output_pack: bool = False,
 ) -> Mxfp8PairTensor:
     if minifold_native_raw is None or not _has_mxfp8_linear_weight(lhs_module) or not _has_mxfp8_linear_weight(rhs_module):
         raise RuntimeError(
@@ -1130,21 +1193,46 @@ def native_gate_sigmoid_mul_quantized(
             )
         residual_payload_3d = residual.payload.reshape(1, rows, out_dim).contiguous()
         residual_scale_3d = residual.scale.reshape(1, rows, out_dim // 32).contiguous()
-    payload, scale = minifold_native_raw.gate_sigmoid_mul_block32_fused(
-        payload_2d.reshape(1, rows, in_dim).contiguous(),
-        scale_swizzled,
-        lhs_module.weight_mxfp8.contiguous(),
-        lhs_module.scale_w_mxfp8_swizzled.contiguous(),
-        None if lhs_module.bias is None else lhs_module.bias.contiguous(),
-        rhs_module.weight_mxfp8.contiguous(),
-        rhs_module.scale_w_mxfp8_swizzled.contiguous(),
-        None if rhs_module.bias is None else rhs_module.bias.contiguous(),
-        "bfloat16",
-        residual_payload_3d,
-        residual_scale_3d,
-    )
-    payload = payload.reshape(*original_shape, out_dim).contiguous()
-    scale = scale.reshape(*original_shape, out_dim // 32).contiguous()
+    if use_gold_output_pack:
+        if not hasattr(minifold_native_raw, "gate_sigmoid_mul_block32_raw_debug"):
+            raise RuntimeError("Native gold-pack gate debug binding is unavailable")
+        dense = minifold_native_raw.gate_sigmoid_mul_block32_raw_debug(
+            payload_2d.reshape(1, rows, in_dim).contiguous(),
+            scale_swizzled,
+            lhs_module.weight_mxfp8.contiguous(),
+            lhs_module.scale_w_mxfp8_swizzled.contiguous(),
+            None if lhs_module.bias is None else lhs_module.bias.contiguous(),
+            rhs_module.weight_mxfp8.contiguous(),
+            rhs_module.scale_w_mxfp8_swizzled.contiguous(),
+            None if rhs_module.bias is None else rhs_module.bias.contiguous(),
+            "bfloat16",
+            residual_payload_3d,
+            residual_scale_3d,
+        )
+        pair = _gold_pack_block32_tensor(
+            dense.reshape(*original_shape, out_dim).contiguous(),
+            x.logical_dtype,
+            stats,
+            boundary="native_gate_gold_output_pack",
+        )
+        payload = pair.payload
+        scale = pair.scale
+    else:
+        payload, scale = minifold_native_raw.gate_sigmoid_mul_block32_fused(
+            payload_2d.reshape(1, rows, in_dim).contiguous(),
+            scale_swizzled,
+            lhs_module.weight_mxfp8.contiguous(),
+            lhs_module.scale_w_mxfp8_swizzled.contiguous(),
+            None if lhs_module.bias is None else lhs_module.bias.contiguous(),
+            rhs_module.weight_mxfp8.contiguous(),
+            rhs_module.scale_w_mxfp8_swizzled.contiguous(),
+            None if rhs_module.bias is None else rhs_module.bias.contiguous(),
+            "bfloat16",
+            residual_payload_3d,
+            residual_scale_3d,
+        )
+        payload = payload.reshape(*original_shape, out_dim).contiguous()
+        scale = scale.reshape(*original_shape, out_dim // 32).contiguous()
     if stats is not None:
         stats.record_native_gate_fused(payload, scale)
     return Mxfp8PairTensor(payload=payload, scale=scale, logical_dtype=x.logical_dtype)
@@ -1154,18 +1242,61 @@ def native_tri_mul_from_block32_quantized(
     x: Mxfp8PairTensor,
     mask: torch.Tensor | None = None,
     stats: FP8ActivationStats | None = None,
+    *,
+    use_gold_input_pack: bool = False,
+    use_gold_output_pack: bool = False,
 ) -> Mxfp8PairTensor:
     if minifold_native_raw is None:
         raise RuntimeError("Native MXFP8 tri extension is not importable")
-    tri_mask = None
-    if mask is not None:
-        mask_bool = mask.to(torch.bool)
-        if mask_bool.dim() == 2:
-            tri_mask = (mask_bool[:, :, None] & mask_bool[:, None, :]).contiguous()
-        elif mask_bool.dim() == 3:
-            tri_mask = mask_bool.contiguous()
+    tri_mask = _tri_mask_from_mask(mask, "native MXFP8 tri path")
+    if use_gold_input_pack or use_gold_output_pack:
+        if not hasattr(minifold_native_raw, "tri_mul_pair_from_packed_debug"):
+            raise RuntimeError("Native gold-pack tri debug bindings are unavailable")
+        batch = x.payload.shape[0]
+        if use_gold_input_pack:
+            a1, a1_scale = fp8_pack_block32_carrier_to_mxfp8_lhs(
+                x.payload, x.scale, mask=tri_mask, channel_group=0, transpose=False
+            )
+            b1, b1_scale = fp8_pack_block32_carrier_to_mxfp8_lhs(
+                x.payload, x.scale, mask=tri_mask, channel_group=1, transpose=False
+            )
+            a2_t, a2_t_scale = fp8_pack_block32_carrier_to_mxfp8_lhs(
+                x.payload, x.scale, mask=tri_mask, channel_group=2, transpose=True
+            )
+            b2_rhs, b2_rhs_scale = fp8_pack_block32_carrier_to_mxfp8_rhs(
+                x.payload, x.scale, mask=tri_mask, channel_group=3
+            )
         else:
-            raise ValueError(f"Unsupported mask rank for native MXFP8 tri path: {mask_bool.dim()}")
+            a1, a1_scale, b1, b1_scale, a2_t, a2_t_scale, b2_rhs, b2_rhs_scale = (
+                minifold_native_raw.pack_block32_to_mxfp8_fused_debug(
+                    x.payload.contiguous(),
+                    x.scale.contiguous(),
+                    tri_mask,
+                )
+            )
+        if stats is not None:
+            stats.record_tri_pack((a1, b1, a2_t, b2_rhs), (a1_scale, b1_scale, a2_t_scale, b2_rhs_scale))
+        x1, x2 = minifold_native_raw.tri_mul_pair_from_packed_debug(
+            a1,
+            b1,
+            a2_t,
+            b2_rhs,
+            a1_scale,
+            b1_scale,
+            a2_t_scale,
+            b2_rhs_scale,
+            "float16",
+        )
+        if use_gold_output_pack:
+            payload, scale = fp8_tri_outputs_to_block32_carrier(x1, x2, batch=batch, scale_dtype=x.scale.dtype)
+            if stats is not None:
+                stats.record_tri_output_requant(payload, scale)
+                stats.record_boundary("native_tri_gold_output_pack")
+        else:
+            payload, scale = minifold_native_raw.tri_pair_to_block32_carrier_debug(x1, x2, batch)
+        if stats is not None:
+            stats.record_native_tri_fused(payload, scale)
+        return Mxfp8PairTensor(payload=payload, scale=scale, logical_dtype=x.logical_dtype)
     payload, scale = minifold_native_raw.tri_mul_pair_from_block32_carrier(
         x.payload.contiguous(),
         x.scale.contiguous(),
@@ -1602,6 +1733,55 @@ class TransitionUpdate(nn.Module):
         )
         return x
 
+    def forward_fp8_native_gold_packs(
+        self,
+        x: Mxfp8PairTensor,
+        stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> Mxfp8PairTensor:
+        if self.linear_precision != LINEAR_PRECISION_FP8 or not _has_mxfp8_linear_weight(self.fc1) or not _has_mxfp8_linear_weight(self.fc2):
+            raise RuntimeError("fp8_native_gold_packs requires TransitionUpdate.fc1/fc2 to be quantized; build with linear_precision=fp8.")
+        residual = x
+        x = native_mxfp8_layernorm_quantized(self.norm, x)
+        _record_probe(activation_probe, block_idx, "transition_norm", x)
+        x = native_linear_forward_quantized(
+            self.fc1,
+            x,
+            stats=stats,
+            apply_relu=True,
+            direct_fp8_output=True,
+            fuse_bias_epilogue=True,
+            use_gold_output_pack=True,
+        )
+        _record_probe(
+            activation_probe,
+            block_idx,
+            "transition_fc1_relu",
+            x,
+            mode_op_name="transition_native_gold_fc1_out",
+        )
+        if stats is not None:
+            stats.record_boundary("fp8_residual_add")
+        x = native_linear_forward_quantized(
+            self.fc2,
+            x,
+            stats=stats,
+            direct_fp8_output=True,
+            fuse_bias_epilogue=True,
+            residual=residual,
+            use_gold_output_pack=True,
+        )
+        _record_probe(
+            activation_probe,
+            block_idx,
+            "transition_fc2",
+            x,
+            mode_op_name="transition_native_gold_fc2_out",
+        )
+        return x
+
     def forward_bf16_native(
         self,
         x: torch.Tensor,
@@ -1840,6 +2020,71 @@ class TriangularUpdate(nn.Module):
         )
         return x
 
+    def forward_fp8_native_gold_packs(
+        self,
+        x: Mxfp8PairTensor,
+        mask: torch.Tensor,
+        stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> Mxfp8PairTensor:
+        if self.linear_precision != LINEAR_PRECISION_FP8:
+            raise RuntimeError("fp8_native_gold_packs requires linear_precision=fp8 for TriangularUpdate.")
+        if self.tri_impl != "fp8_cublaslt":
+            raise RuntimeError("fp8_native_gold_packs currently requires tri_impl=fp8_cublaslt.")
+        residual = x
+        x = native_mxfp8_layernorm_quantized(self.input_norm, x)
+        _record_probe(activation_probe, block_idx, "tri_input_norm", x)
+        gated = native_gate_sigmoid_mul_quantized(
+            self.pi,
+            self.gi,
+            x,
+            stats=stats,
+            use_gold_output_pack=True,
+        )
+        _record_probe(
+            activation_probe,
+            block_idx,
+            "tri_gated",
+            gated,
+            mode_op_name="tri_native_gold_input_gate_out",
+        )
+        tri_out_q = native_tri_mul_from_block32_quantized(
+            gated,
+            mask=mask,
+            stats=stats,
+            use_gold_input_pack=True,
+            use_gold_output_pack=True,
+        )
+        _record_probe(
+            activation_probe,
+            block_idx,
+            "tri_mul_out",
+            tri_out_q,
+            mode_op_name="tri_native_gold_mul_out",
+        )
+        tri_out_q = native_mxfp8_layernorm_quantized(self.output_norm, tri_out_q)
+        _record_probe(activation_probe, block_idx, "tri_output_norm", tri_out_q)
+        if stats is not None:
+            stats.record_boundary("fp8_residual_add")
+        x = native_gate_sigmoid_mul_quantized(
+            self.po,
+            self.go,
+            tri_out_q,
+            stats=stats,
+            residual=residual,
+            use_gold_output_pack=True,
+        )
+        _record_probe(
+            activation_probe,
+            block_idx,
+            "tri_residual_out",
+            x,
+            mode_op_name="tri_native_gold_output_gate_out",
+        )
+        return x
+
     def forward_bf16_native(
         self,
         x: torch.Tensor,
@@ -2041,6 +2286,28 @@ class Block(nn.Module):
                 mode_op_name="transition_native_fc2_out",
             )
             return x
+        if isinstance(x, Mxfp8PairTensor) and stats is not None and stats.pair_precision_mode == PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS:
+            x = self.triangular.forward_fp8_native_gold_packs(
+                x,
+                mask,
+                stats=stats,
+                block_idx=block_idx,
+                activation_probe=activation_probe,
+            )
+            x = self.transition.forward_fp8_native_gold_packs(
+                x,
+                stats=stats,
+                block_idx=block_idx,
+                activation_probe=activation_probe,
+            )
+            _record_probe(
+                activation_probe,
+                block_idx,
+                "block_output",
+                x,
+                mode_op_name="transition_native_gold_fc2_out",
+            )
+            return x
         if isinstance(x, Mxfp8PairTensor) and stats is not None and stats.pair_precision_mode == PAIR_PRECISION_FP8_HYBRID:
             tri_out = self.triangular.forward_fp8_hybrid(
                 x,
@@ -2177,7 +2444,7 @@ class MiniFormer(nn.Module):
         stats = None if self.pair_precision in (PAIR_PRECISION_BF16, PAIR_PRECISION_BF16_NATIVE) else FP8ActivationStats(pair_precision_mode=self.pair_precision)
         if dump_activation_stats and activation_probe is None:
             activation_probe = ActivationProbe(pair_precision_mode=self.pair_precision)
-        if self.pair_precision in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_HYBRID, PAIR_PRECISION_FP8_NATIVE):
+        if self.pair_precision in FP8_BLOCK32_PAIR_PRECISIONS:
             x = Mxfp8PairTensor.from_tensor(x, scale_dtype=torch.float32)
             if stats is not None:
                 stats.record_quantize(x)
@@ -2186,7 +2453,7 @@ class MiniFormer(nn.Module):
                 x = block.forward_bf16_native(x, mask, block_idx=idx, activation_probe=activation_probe)
                 continue
             x = block(x, mask, stats=stats, block_idx=idx, activation_probe=activation_probe)
-            if self.pair_precision in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_HYBRID, PAIR_PRECISION_FP8_NATIVE):
+            if self.pair_precision in FP8_BLOCK32_PAIR_PRECISIONS:
                 if stats is not None and isinstance(x, Mxfp8PairTensor):
                     stats.record_quantize(x)
                 continue
@@ -2381,7 +2648,7 @@ def validate_bf16_native_configuration(
 
 
 def validate_fp8_extreme_configuration(pair_precision: str, linear_precision: str, tri_impl: str) -> None:
-    if pair_precision not in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_HYBRID, PAIR_PRECISION_FP8_NATIVE):
+    if pair_precision not in FP8_BLOCK32_PAIR_PRECISIONS:
         return
     if linear_precision != LINEAR_PRECISION_FP8:
         raise ValueError(f"pair_precision={pair_precision} requires linear_precision=fp8.")

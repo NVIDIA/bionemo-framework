@@ -2463,6 +2463,39 @@ void validate_block32_carrier(const at::Tensor& payload, const at::Tensor& scale
   TORCH_CHECK(scale.size(3) == payload.size(3) / 32, "scale last dim must be payload channels / 32");
 }
 
+at::Tensor dequantize_block32_to_bf16(const at::Tensor& payload, const at::Tensor& scale) {
+  check_cuda_tensor(payload, "payload");
+  check_cuda_tensor(scale, "scale");
+  TORCH_CHECK(payload.scalar_type() == c10::ScalarType::Float8_e4m3fn, "payload must use float8_e4m3fn");
+  TORCH_CHECK(scale.scalar_type() == c10::ScalarType::Float, "scale must use float32");
+  TORCH_CHECK(
+      (payload.dim() == 3 && scale.dim() == 3) || (payload.dim() == 4 && scale.dim() == 4),
+      "block32 dequantization expects matching 3D or 4D payload/scale tensors");
+  TORCH_CHECK(payload.dim() == scale.dim(), "payload and scale must have matching ranks");
+  TORCH_CHECK(payload.sizes().slice(0, payload.dim() - 1) == scale.sizes().slice(0, scale.dim() - 1),
+              "payload and scale leading dimensions must match");
+  TORCH_CHECK(payload.size(-1) % 32 == 0, "payload channel dim must be divisible by 32");
+  const int64_t groups = scale.size(-1);
+  TORCH_CHECK(groups * 32 == payload.size(-1), "scale last dim must be payload channels / 32");
+  auto expanded_sizes = scale.sizes().vec();
+  expanded_sizes.push_back(32);
+  auto payload_sizes = payload.sizes().vec();
+  auto expanded_scale = scale.to(at::kFloat).unsqueeze(-1).expand(expanded_sizes).reshape(payload_sizes);
+  return (payload.to(at::kFloat) * expanded_scale).to(at::kBFloat16);
+}
+
+at::Tensor add_block32_residual_if_present(
+    at::Tensor dense,
+    const c10::optional<at::Tensor>& residual_payload,
+    const c10::optional<at::Tensor>& residual_scale) {
+  if (residual_payload.has_value() || residual_scale.has_value()) {
+    TORCH_CHECK(residual_payload.has_value() && residual_scale.has_value(),
+                "residual_payload and residual_scale must be provided together");
+    dense = dense + dequantize_block32_to_bf16(residual_payload.value(), residual_scale.value());
+  }
+  return dense;
+}
+
 }  // namespace
 
 std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
@@ -2533,6 +2566,81 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
     return quantize_block32_bf16(dense, residual_payload, residual_scale);
   }
   return quantize_block32_bf16_with_bias(dense, bias, residual_payload, residual_scale, apply_relu);
+}
+
+at::Tensor linear_block32_raw_debug_cuda(
+    const at::Tensor& a,
+    const at::Tensor& b_t,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& b_scale_swizzled,
+    const c10::optional<at::Tensor>& bias,
+    const std::string& out_dtype_str,
+    bool apply_relu,
+    bool direct_fp8_output,
+    bool fuse_bias_epilogue,
+    const c10::optional<at::Tensor>& residual_payload,
+    const c10::optional<at::Tensor>& residual_scale) {
+  const auto out_dtype = parse_out_dtype(out_dtype_str);
+  TORCH_CHECK(out_dtype == c10::ScalarType::BFloat16,
+              "MiniFold native linear raw debug path currently supports out_dtype='bfloat16' only");
+
+  check_cuda_tensor(a, "a");
+  check_cuda_tensor(b_t, "b_t");
+  check_cuda_tensor(a_scale_swizzled, "a_scale_swizzled");
+  check_cuda_tensor(b_scale_swizzled, "b_scale_swizzled");
+  TORCH_CHECK(a.dim() == 3 && b_t.dim() == 3, "linear_block32_raw_debug expects 3D tensors");
+  TORCH_CHECK(
+      a.scalar_type() == c10::ScalarType::Float8_e4m3fn || a.scalar_type() == c10::ScalarType::Float8_e5m2,
+      "a must be FP8");
+  TORCH_CHECK(b_t.scalar_type() == a.scalar_type(), "a and b_t must have matching FP8 dtype");
+  TORCH_CHECK(a_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu,
+              "a_scale_swizzled must use torch.float8_e8m0fnu");
+  TORCH_CHECK(b_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu,
+              "b_scale_swizzled must use torch.float8_e8m0fnu");
+  TORCH_CHECK(a.size(0) == b_t.size(0), "batch dimensions must match");
+  TORCH_CHECK(a.size(2) == b_t.size(2), "K dimensions must match");
+  TORCH_CHECK(a.size(1) % 32 == 0 && a.size(2) % 32 == 0 && b_t.size(1) % 32 == 0,
+              "MiniFold native linear raw debug path requires M, N, and K divisible by 32");
+
+  set_cuda_device(a);
+  validate_sm100_plus();
+  check_same_device(a, b_t, a_scale_swizzled, b_scale_swizzled);
+  if (bias.has_value()) {
+    check_cuda_tensor(bias.value(), "bias");
+    TORCH_CHECK(bias.value().device() == a.device(), "bias must be on the same CUDA device as a");
+  }
+  if (residual_payload.has_value() || residual_scale.has_value()) {
+    TORCH_CHECK(residual_payload.has_value() && residual_scale.has_value(),
+                "residual_payload and residual_scale must be provided together");
+    check_cuda_tensor(residual_payload.value(), "residual_payload");
+    check_cuda_tensor(residual_scale.value(), "residual_scale");
+    TORCH_CHECK(residual_payload.value().device() == a.device() && residual_scale.value().device() == a.device(),
+                "residual tensors must be on the same CUDA device as a");
+  }
+
+  const bool use_direct_output = direct_fp8_output && bias.has_value() && !apply_relu;
+  const bool use_fused_bias_epilogue = fuse_bias_epilogue && bias.has_value();
+  const auto epilogue =
+      use_fused_bias_epilogue ? (apply_relu ? CUBLASLT_EPILOGUE_RELU_BIAS : CUBLASLT_EPILOGUE_BIAS)
+                              : CUBLASLT_EPILOGUE_DEFAULT;
+  auto dense = run_mxfp8_cublaslt_bmm(
+      a,
+      b_t,
+      a_scale_swizzled,
+      b_scale_swizzled,
+      out_dtype,
+      false,
+      (use_direct_output || use_fused_bias_epilogue) ? bias : c10::nullopt,
+      epilogue);
+  if (!(use_direct_output || use_fused_bias_epilogue)) {
+    if (bias.has_value()) {
+      dense = dense + bias.value().view({1, 1, bias.value().size(0)});
+    }
+    if (apply_relu) {
+      dense = at::relu(dense);
+    }
+  }
+  return add_block32_residual_if_present(dense, residual_payload, residual_scale);
 }
 
 std::tuple<at::Tensor, at::Tensor> transition_norm_fc1_block32_fused_cuda(
@@ -2659,6 +2767,55 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_cuda(
   auto lhs_dense = run_mxfp8_cublaslt_bmm(a, lhs_b_t, a_scale_swizzled, lhs_scale_swizzled, out_dtype, false);
   auto rhs_dense = run_mxfp8_cublaslt_bmm(a, rhs_b_t, a_scale_swizzled, rhs_scale_swizzled, out_dtype, false);
   return gate_sigmoid_mul_quantize_bf16(lhs_dense, rhs_dense, lhs_bias, rhs_bias, residual_payload, residual_scale);
+}
+
+at::Tensor gate_sigmoid_mul_block32_raw_debug_cuda(
+    const at::Tensor& a,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& lhs_b_t,
+    const at::Tensor& lhs_scale_swizzled,
+    const c10::optional<at::Tensor>& lhs_bias,
+    const at::Tensor& rhs_b_t,
+    const at::Tensor& rhs_scale_swizzled,
+    const c10::optional<at::Tensor>& rhs_bias,
+    const std::string& out_dtype_str,
+    const c10::optional<at::Tensor>& residual_payload,
+    const c10::optional<at::Tensor>& residual_scale) {
+  const auto out_dtype = parse_out_dtype(out_dtype_str);
+  TORCH_CHECK(out_dtype == c10::ScalarType::BFloat16,
+              "MiniFold native gate raw debug path currently supports out_dtype='bfloat16' only");
+
+  check_cuda_tensor(a, "a");
+  check_cuda_tensor(lhs_b_t, "lhs_b_t");
+  check_cuda_tensor(rhs_b_t, "rhs_b_t");
+  check_cuda_tensor(a_scale_swizzled, "a_scale_swizzled");
+  check_cuda_tensor(lhs_scale_swizzled, "lhs_scale_swizzled");
+  check_cuda_tensor(rhs_scale_swizzled, "rhs_scale_swizzled");
+  TORCH_CHECK(a.dim() == 3 && lhs_b_t.dim() == 3 && rhs_b_t.dim() == 3, "gate_sigmoid_mul_block32_raw_debug expects 3D tensors");
+  TORCH_CHECK(a.size(0) == lhs_b_t.size(0) && a.size(0) == rhs_b_t.size(0), "batch dimensions must match");
+  TORCH_CHECK(a.size(2) == lhs_b_t.size(2) && a.size(2) == rhs_b_t.size(2), "K dimensions must match");
+  TORCH_CHECK(lhs_b_t.size(1) == rhs_b_t.size(1), "lhs and rhs gate outputs must have matching width");
+  if (residual_payload.has_value() || residual_scale.has_value()) {
+    TORCH_CHECK(residual_payload.has_value() && residual_scale.has_value(),
+                "residual_payload and residual_scale must be provided together");
+    check_cuda_tensor(residual_payload.value(), "residual_payload");
+    check_cuda_tensor(residual_scale.value(), "residual_scale");
+    TORCH_CHECK(residual_payload.value().device() == a.device() && residual_scale.value().device() == a.device(),
+                "residual tensors must be on the same CUDA device as a");
+  }
+
+  set_cuda_device(a);
+  validate_sm100_plus();
+  auto lhs_dense = run_mxfp8_cublaslt_bmm(a, lhs_b_t, a_scale_swizzled, lhs_scale_swizzled, out_dtype, false);
+  auto rhs_dense = run_mxfp8_cublaslt_bmm(a, rhs_b_t, a_scale_swizzled, rhs_scale_swizzled, out_dtype, false);
+  if (lhs_bias.has_value()) {
+    lhs_dense = lhs_dense + lhs_bias.value().view({1, 1, lhs_bias.value().size(0)});
+  }
+  if (rhs_bias.has_value()) {
+    rhs_dense = rhs_dense + rhs_bias.value().view({1, 1, rhs_bias.value().size(0)});
+  }
+  auto dense = lhs_dense * at::sigmoid(rhs_dense);
+  return add_block32_residual_if_present(dense, residual_payload, residual_scale);
 }
 
 std::tuple<at::Tensor, at::Tensor> tri_mul_pair_from_block32_carrier_cuda(

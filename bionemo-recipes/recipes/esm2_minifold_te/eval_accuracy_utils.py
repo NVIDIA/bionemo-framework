@@ -113,6 +113,8 @@ def select_eval_stem(pair_precision: str, linear_precision: str) -> str:
         return "bf16_baseline_eval_metrics"
     if pair_precision == "fp8_native" and linear_precision == "fp8":
         return "fp8_native_eval_metrics"
+    if pair_precision == "fp8_native_gold_packs" and linear_precision == "fp8":
+        return "fp8_native_gold_packs_eval_metrics"
     return f"{pair_precision}_{linear_precision}_eval_metrics".replace("/", "_").replace(" ", "_")
 
 

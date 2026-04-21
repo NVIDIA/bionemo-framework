@@ -19,7 +19,9 @@ from plain_minifold_infer import (
     PAIR_PRECISION_FP8_EXTREME,
     PAIR_PRECISION_FP8_HYBRID,
     PAIR_PRECISION_FP8_NATIVE,
+    PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
     SUPPORTED_BF16_NATIVE_RUNGS,
+    FP8_BLOCK32_PAIR_PRECISIONS,
     SUPPORTED_PAIR_PRECISION,
     SUPPORTED_TRI_IMPLS,
     FoldingTrunk,
@@ -126,7 +128,7 @@ def build_model(args: argparse.Namespace, device: torch.device) -> FoldingTrunk:
     configure_linear_precision(
         model,
         args.linear_precision,
-        include_transition=args.pair_precision in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_HYBRID, PAIR_PRECISION_FP8_NATIVE),
+        include_transition=args.pair_precision in FP8_BLOCK32_PAIR_PRECISIONS,
     )
     model.eval()
     return model
@@ -160,6 +162,7 @@ def benchmark(model: FoldingTrunk, batch: dict[str, torch.Tensor], args: argpars
         PAIR_PRECISION_FP8_EXTREME,
         PAIR_PRECISION_FP8_HYBRID,
         PAIR_PRECISION_FP8_NATIVE,
+        PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
     )
     for _ in range(args.warmup):
         forward_once(model, batch, args.num_recycling, use_bf16_autocast=use_bf16_autocast)

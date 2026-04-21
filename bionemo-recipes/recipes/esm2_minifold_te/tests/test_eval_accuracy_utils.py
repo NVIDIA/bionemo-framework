@@ -60,6 +60,7 @@ def test_compute_distogram_metrics_per_sample_match_aggregate_mean():
 def test_select_eval_stem_uses_expected_artifact_names():
     assert select_eval_stem("bf16", "bf16") == "bf16_baseline_eval_metrics"
     assert select_eval_stem("fp8_native", "fp8") == "fp8_native_eval_metrics"
+    assert select_eval_stem("fp8_native_gold_packs", "fp8") == "fp8_native_gold_packs_eval_metrics"
     assert select_eval_stem("fp8_storage", "bf16") == "fp8_storage_bf16_eval_metrics"
 
 

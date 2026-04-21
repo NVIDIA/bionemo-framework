@@ -45,6 +45,11 @@ MODE_PRESETS = {
         "linear_precision": "fp8",
         "tri_impl": "fp8_cublaslt",
     },
+    "fp8_native_gold_packs": {
+        "pair_precision": "fp8_native_gold_packs",
+        "linear_precision": "fp8",
+        "tri_impl": "fp8_cublaslt",
+    },
 }
 
 def _cuda_ms(fn) -> float:
@@ -64,6 +69,7 @@ def _run_mode_benchmark(model, batch, mode_args, plain_infer, warmup_steps: int,
         plain_infer.PAIR_PRECISION_FP8_EXTREME,
         plain_infer.PAIR_PRECISION_FP8_HYBRID,
         plain_infer.PAIR_PRECISION_FP8_NATIVE,
+        plain_infer.PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
     )
 
     with torch.no_grad():
