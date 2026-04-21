@@ -56,6 +56,27 @@ def test_linear_precision_flag_loads():
     assert cfg.linear_precision == "fp8"
 
 
+def test_bf16_native_b2_config_loads():
+    args = SCRIPT_MODULE.build_arg_parser().parse_args(
+        ["--pair_precision", "bf16_native", "--linear_precision", "bf16", "--tri_impl", "cublas_xbdnn", "--bf16_native_rung", "B2"]
+    )
+    cfg = SCRIPT_MODULE.load_config(args)
+    assert cfg.pair_precision == "bf16_native"
+    assert cfg.linear_precision == "bf16"
+    assert cfg.tri_impl == "cublas_xbdnn"
+    assert cfg.bf16_native_rung == "B2"
+
+
+def test_bf16_native_b4_defaults_rung():
+    args = SCRIPT_MODULE.build_arg_parser().parse_args(
+        ["--pair_precision", "bf16_native", "--linear_precision", "bf16_native", "--tri_impl", "cublas_xbdnn"]
+    )
+    cfg = SCRIPT_MODULE.load_config(args)
+    assert cfg.pair_precision == "bf16_native"
+    assert cfg.linear_precision == "bf16_native"
+    assert cfg.bf16_native_rung == "B4"
+
+
 def test_fp8_extreme_config_loads():
     args = SCRIPT_MODULE.build_arg_parser().parse_args(
         ["--pair_precision", "fp8_extreme", "--linear_precision", "fp8", "--tri_impl", "fp8_cublaslt"]
@@ -76,6 +97,16 @@ def test_fp8_native_config_loads():
     assert cfg.tri_impl == "fp8_cublaslt"
 
 
+def test_fp8_hybrid_config_loads():
+    args = SCRIPT_MODULE.build_arg_parser().parse_args(
+        ["--pair_precision", "fp8_hybrid", "--linear_precision", "fp8", "--tri_impl", "fp8_cublaslt"]
+    )
+    cfg = SCRIPT_MODULE.load_config(args)
+    assert cfg.pair_precision == "fp8_hybrid"
+    assert cfg.linear_precision == "fp8"
+    assert cfg.tri_impl == "fp8_cublaslt"
+
+
 def test_fp8_extreme_validation_rejects_non_fp8_tri_backend():
     with pytest.raises(ValueError, match="pair_precision=fp8_extreme.*requires tri_impl"):
         PLAIN_MODULE.validate_fp8_extreme_configuration("fp8_extreme", "fp8", "bmm")
@@ -84,6 +115,26 @@ def test_fp8_extreme_validation_rejects_non_fp8_tri_backend():
 def test_fp8_native_validation_rejects_non_fp8_tri_backend():
     with pytest.raises(ValueError, match="pair_precision=fp8_native.*requires tri_impl"):
         PLAIN_MODULE.validate_fp8_extreme_configuration("fp8_native", "fp8", "bmm")
+
+
+def test_fp8_hybrid_validation_rejects_non_fp8_tri_backend():
+    with pytest.raises(ValueError, match="pair_precision=fp8_hybrid.*requires tri_impl"):
+        PLAIN_MODULE.validate_fp8_extreme_configuration("fp8_hybrid", "fp8", "bmm")
+
+
+def test_bf16_native_validation_rejects_non_xbdnn_tri_backend():
+    with pytest.raises(ValueError, match="pair_precision=bf16_native.*requires tri_impl"):
+        PLAIN_MODULE.validate_bf16_native_configuration("bf16_native", "bf16_native", "bmm", "B4")
+
+
+def test_bf16_native_validation_rejects_wrong_b2_linear_precision():
+    with pytest.raises(ValueError, match="rung B2.*linear_precision=bf16"):
+        PLAIN_MODULE.validate_bf16_native_configuration("bf16_native", "bf16_native", "cublas_xbdnn", "B2")
+
+
+def test_bf16_native_validation_rejects_wrong_b4_linear_precision():
+    with pytest.raises(ValueError, match="rung B4.*linear_precision=bf16_native"):
+        PLAIN_MODULE.validate_bf16_native_configuration("bf16_native", "bf16", "cublas_xbdnn", "B4")
 
 
 def test_render_markdown():
@@ -125,6 +176,96 @@ def test_configure_linear_precision_transition_buffers():
     block.set_linear_precision("fp8", include_transition=True)
     assert block.fc1.weight_fp8.dtype == torch.float8_e4m3fn
     assert block.fc2.scale_w.dtype == torch.float32
+
+
+def test_miniformer_bf16_native_forward_cpu():
+    model = PLAIN_MODULE.MiniFormer(
+        dim=128,
+        blocks=1,
+        tri_impl="bmm",
+        pair_precision="bf16_native",
+        linear_precision="bf16_native",
+        bf16_native_rung="B4",
+    ).to(dtype=torch.bfloat16)
+    x = torch.randn(1, 8, 8, 128, dtype=torch.bfloat16)
+    mask = torch.ones(1, 8, 8, dtype=torch.bfloat16)
+    y = model(x, mask)
+    assert y.shape == x.shape
+    assert y.dtype == torch.bfloat16
+    assert model.last_pair_precision_stats is None
+
+
+def test_transition_bf16_native_b3_matches_eager_cpu():
+    module = PLAIN_MODULE.TransitionUpdate(dim=128, hidden=512, linear_precision="bf16_native").to(dtype=torch.bfloat16)
+    x = torch.randn(1, 4, 4, 128, dtype=torch.bfloat16)
+    y_native = module.forward_bf16_native(x, PLAIN_MODULE.BF16_NATIVE_RUNG_B3)
+    y_ref = module.forward(x)
+    torch.testing.assert_close(y_native.float(), y_ref.float(), atol=1e-4, rtol=1e-4)
+
+
+def test_transition_bf16_native_b4_returns_post_residual_cpu():
+    module = PLAIN_MODULE.TransitionUpdate(dim=128, hidden=512, linear_precision="bf16_native").to(dtype=torch.bfloat16)
+    x = torch.randn(1, 4, 4, 128, dtype=torch.bfloat16)
+    y_native = module.forward_bf16_native(x, PLAIN_MODULE.BF16_NATIVE_RUNG_B4)
+    y_ref = x + module.forward(x)
+    torch.testing.assert_close(y_native.float(), y_ref.float(), atol=1e-4, rtol=1e-4)
+
+
+def test_block_bf16_native_b3_matches_eager_cpu():
+    block = PLAIN_MODULE.Block(
+        dim=128,
+        tri_impl="bmm",
+        linear_precision="bf16_native",
+        bf16_native_rung="B3",
+    ).to(dtype=torch.bfloat16)
+    x = torch.randn(1, 8, 8, 128, dtype=torch.bfloat16)
+    mask = torch.ones(1, 8, 8, dtype=torch.bfloat16)
+    y_native = block.forward_bf16_native(x, mask)
+    y_ref = block.forward(x, mask)
+    torch.testing.assert_close(y_native.float(), y_ref.float(), atol=1e-4, rtol=1e-4)
+
+
+def test_block_bf16_native_b4_matches_eager_cpu():
+    block = PLAIN_MODULE.Block(
+        dim=128,
+        tri_impl="bmm",
+        linear_precision="bf16_native",
+        bf16_native_rung="B4",
+    ).to(dtype=torch.bfloat16)
+    x = torch.randn(1, 8, 8, 128, dtype=torch.bfloat16)
+    mask = torch.ones(1, 8, 8, dtype=torch.bfloat16)
+    y_native = block.forward_bf16_native(x, mask)
+    y_ref = block.forward(x, mask)
+    torch.testing.assert_close(y_native.float(), y_ref.float(), atol=1e-4, rtol=1e-4)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or PLAIN_MODULE.minifold_native_raw is None
+    or not hasattr(PLAIN_MODULE.minifold_native_raw, "transition_norm_fc1_bf16_fused"),
+    reason="CUDA native BF16 transition helper is unavailable",
+)
+def test_native_transition_norm_fc1_bf16_matches_eager_cuda():
+    module = PLAIN_MODULE.TransitionUpdate(dim=128, hidden=512, linear_precision="bf16_native").cuda().to(dtype=torch.bfloat16)
+    x = torch.randn(1, 8, 8, 128, device="cuda", dtype=torch.bfloat16)
+    y_native = PLAIN_MODULE.native_transition_norm_fc1_bf16(module.norm, module.fc1, x)
+    y_ref = torch.relu(module.fc1(module.norm(x)))
+    torch.testing.assert_close(y_native.float(), y_ref.float(), atol=2e-2, rtol=2e-2)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or PLAIN_MODULE.minifold_native_raw is None
+    or not hasattr(PLAIN_MODULE.minifold_native_raw, "transition_fc2_residual_bf16_fused"),
+    reason="CUDA native BF16 transition helper is unavailable",
+)
+def test_native_transition_fc2_residual_bf16_matches_eager_cuda():
+    module = PLAIN_MODULE.TransitionUpdate(dim=128, hidden=512, linear_precision="bf16_native").cuda().to(dtype=torch.bfloat16)
+    x = torch.randn(1, 8, 8, 512, device="cuda", dtype=torch.bfloat16)
+    residual = torch.randn(1, 8, 8, 128, device="cuda", dtype=torch.bfloat16)
+    y_native = PLAIN_MODULE.native_transition_fc2_residual_bf16(module.fc2, x, residual)
+    y_ref = module.fc2(x) + residual
+    torch.testing.assert_close(y_native.float(), y_ref.float(), atol=2e-2, rtol=2e-2)
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required for fused tri-output smoke")

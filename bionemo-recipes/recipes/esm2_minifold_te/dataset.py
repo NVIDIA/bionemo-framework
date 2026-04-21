@@ -84,6 +84,8 @@ class SyntheticStructureDataset(Dataset):
             "attention_mask": attention_mask,
             "mask": mask,
             "coords": coords,
+            "sample_id": f"synthetic_{idx}",
+            "num_residues": seq_len,
         }
 
 
@@ -146,6 +148,9 @@ class ParquetStructureDataset(Dataset):
             "attention_mask": attention_mask,
             "mask": mask,
             "coords": coords,
+            "pdb_id": row["pdb_id"] if "pdb_id" in row.index else f"row_{idx}",
+            "chain_id": row["chain_id"] if "chain_id" in row.index else "",
+            "num_residues": int(row["num_residues"]) if "num_residues" in row.index else len(sequence),
         }
 
 
@@ -270,9 +275,11 @@ class MmcifStructureDataset(Dataset):
     def __getitem__(self, idx):
         try:
             sequence, ca_coords, ca_mask = self._parse_cif(self.files[idx])
+            source_file = self.files[idx]
         except Exception as e:
             logger.warning("Failed to parse %s: %s, falling back to index 0", self.files[idx].name, e)
             sequence, ca_coords, ca_mask = self._parse_cif(self.files[0])
+            source_file = self.files[0]
 
         # Tokenize
         encoded = self.tokenizer(
@@ -302,7 +309,57 @@ class MmcifStructureDataset(Dataset):
             "attention_mask": attention_mask,
             "mask": mask,
             "coords": coords,
+            "pdb_id": source_file.stem.upper(),
+            "chain_id": "",
+            "num_residues": seq_len,
         }
+
+
+def create_dataset(
+    micro_batch_size: int = 2,
+    max_seq_length: int = 128,
+    num_workers: int = 0,
+    dataset_type: str = "synthetic",
+    parquet_path: str | None = None,
+    tokenizer_name: str | None = None,
+    num_samples: int = 1000,
+    seed: int = 42,
+    cif_dir: str | None = None,
+    pdb_ids: list[str] | None = None,
+    shuffle: bool = True,
+    drop_last: bool = True,
+    **kwargs,
+):
+    """Create a dataset for structure prediction training or evaluation."""
+    if dataset_type == "synthetic":
+        dataset = SyntheticStructureDataset(
+            num_samples=num_samples,
+            max_seq_length=max_seq_length,
+            seed=seed,
+        )
+    elif dataset_type == "parquet":
+        from transformers import EsmTokenizer
+
+        tokenizer = EsmTokenizer.from_pretrained(tokenizer_name)
+        dataset = ParquetStructureDataset(
+            parquet_path=parquet_path,
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+        )
+    elif dataset_type == "mmcif":
+        from transformers import EsmTokenizer
+
+        tokenizer = EsmTokenizer.from_pretrained(tokenizer_name)
+        dataset = MmcifStructureDataset(
+            cif_dir=cif_dir,
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+            pdb_ids=pdb_ids,
+        )
+    else:
+        raise ValueError(f"Unknown dataset_type: {dataset_type}")
+
+    return dataset
 
 
 def create_dataloader(
@@ -341,33 +398,21 @@ def create_dataloader(
     Returns:
         Tuple of (DataLoader, DistributedSampler).
     """
-    if dataset_type == "synthetic":
-        dataset = SyntheticStructureDataset(
-            num_samples=num_samples,
-            max_seq_length=max_seq_length,
-            seed=seed,
-        )
-    elif dataset_type == "parquet":
-        from transformers import EsmTokenizer
-
-        tokenizer = EsmTokenizer.from_pretrained(tokenizer_name)
-        dataset = ParquetStructureDataset(
-            parquet_path=parquet_path,
-            tokenizer=tokenizer,
-            max_seq_length=max_seq_length,
-        )
-    elif dataset_type == "mmcif":
-        from transformers import EsmTokenizer
-
-        tokenizer = EsmTokenizer.from_pretrained(tokenizer_name)
-        dataset = MmcifStructureDataset(
-            cif_dir=cif_dir,
-            tokenizer=tokenizer,
-            max_seq_length=max_seq_length,
-            pdb_ids=pdb_ids,
-        )
-    else:
-        raise ValueError(f"Unknown dataset_type: {dataset_type}")
+    dataset = create_dataset(
+        micro_batch_size=micro_batch_size,
+        max_seq_length=max_seq_length,
+        num_workers=num_workers,
+        dataset_type=dataset_type,
+        parquet_path=parquet_path,
+        tokenizer_name=tokenizer_name,
+        num_samples=num_samples,
+        seed=seed,
+        cif_dir=cif_dir,
+        pdb_ids=pdb_ids,
+        shuffle=shuffle,
+        drop_last=drop_last,
+        **kwargs,
+    )
 
     sampler = DistributedSampler(
         dataset,

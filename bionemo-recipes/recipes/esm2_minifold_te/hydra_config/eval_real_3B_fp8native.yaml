@@ -1,0 +1,88 @@
+# ESM2-MiniFold TE: real-weight 3B accuracy validation via production eval entrypoint
+# Usage:
+#   torchrun --nproc_per_node=1 eval_fsdp2.py --config-name eval_real_3B_fp8native
+#   torchrun --nproc_per_node=1 eval_fsdp2.py --config-name eval_real_3B_fp8native pair_precision=fp8_native linear_precision=fp8 component_precision.tri_impl=fp8_cublaslt
+
+esm_model_name: facebook/esm2_t36_3B_UR50D
+
+pair_precision: bf16
+linear_precision: bf16
+artifact_root: /scratch/claude_tasks/accuracy_validation
+report_path: projects/blackwell_native_folding/accuracy_validation_2026_04_21.md
+
+model:
+  c_s: 1024
+  c_z: 128
+  num_blocks: 48
+  no_bins: 64
+  use_structure_module: false
+  num_recycling: 0
+
+eval_dataset:
+  dataset_type: parquet
+  parquet_path: /scratch/pdb_eval_data/eval_structures.parquet
+  tokenizer_name: ${esm_model_name}
+  micro_batch_size: 1
+  max_seq_length: 320
+  num_workers: 2
+  shuffle: false
+  drop_last: false
+
+hybrid_precision:
+  use_native_layernorm: false
+  use_native_linear: false
+  use_native_gate: false
+  use_native_tri: false
+  use_resident_fp8_residual: false
+
+checkpoint:
+  ckpt_dir: /minifold_home/checkpoints/3B/bf16_baseline_50ksteps_multirun
+  fallback_ckpt_dir: /scratch/minifold_ckpts/3B/bf16_baseline
+  checkpoint_type: fsdp2
+
+fp8_config:
+  enabled: false
+  fp8_recipe: transformer_engine.common.recipe.DelayedScaling
+  fp8_format: "HYBRID"
+  fp8_recipe_kwargs: {}
+
+fp4_config:
+  enabled: false
+  fp4_recipe: transformer_engine.common.recipe.NVFP4BlockScaling
+  fp4_format: "E2M1"
+  fp4_recipe_kwargs: {}
+
+fp8_layers: null
+fp4_layers: null
+
+component_precision:
+  tri_proj: false
+  tri_gate: false
+  tri_einsum: "bf16"
+  tri_impl: "cublas_xbdnn"
+  ffn: true
+  struct_attn: false
+  struct_ffn: false
+  seq_proj: false
+  dist_head: false
+  tri_saved_tensors_fp8: false
+  tri_gating_chain_fp8: false
+  ffn_saved_tensors_fp8: false
+  ffn_relu_native_fp8: false
+  ffn_fused_subgraph_fp8: false
+  tri_checkpoint_reentrant: false
+  tri_prefix_checkpoint_reentrant: false
+  saved_tensors_fp8_include_fp32: false
+  ffn_checkpoint_reentrant: false
+
+quant_stats_config:
+  enabled: false
+  quant_stats_file: ./fp8_debugging_stats.yaml
+  quant_log_dir: ./log_quant_stats
+  log_to_wandb: false
+  log_heatmap: false
+
+wandb_init_args:
+  project: esm2_minifold_te
+  name: eval_real_3B_${pair_precision}_${linear_precision}
+  mode: offline
