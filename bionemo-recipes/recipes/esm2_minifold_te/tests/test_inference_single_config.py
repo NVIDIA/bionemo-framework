@@ -359,3 +359,144 @@ def test_native_tri_mul_from_input_quantized_shapes():
     assert y.scale.shape == (1, 32, 32, 2)
     assert y.payload.dtype == torch.float8_e4m3fn
     assert y.scale.dtype == torch.float32
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or PLAIN_MODULE.minifold_native_raw is None
+    or not hasattr(PLAIN_MODULE.minifold_native_raw, "_debug_gate_sigmoid_mul_pack_to_mxfp8_reference"),
+    reason="CUDA and debug gate-pack bindings are required for operand equivalence",
+)
+def test_debug_gate_pack_warp_matches_reference():
+    torch.manual_seed(0)
+    rows = 32 * 32
+    lhs = torch.randn(1, rows, 128, device="cuda", dtype=torch.bfloat16)
+    rhs = torch.randn(1, rows, 128, device="cuda", dtype=torch.bfloat16)
+    lhs_bias = torch.randn(128, device="cuda", dtype=torch.bfloat16)
+    rhs_bias = torch.randn(128, device="cuda", dtype=torch.bfloat16)
+    mask = torch.randint(0, 2, (1, 32, 32), device="cuda", dtype=torch.bool)
+
+    ref = PLAIN_MODULE.minifold_native_raw._debug_gate_sigmoid_mul_pack_to_mxfp8_reference(
+        lhs, rhs, lhs_bias, rhs_bias, mask
+    )
+    warp = PLAIN_MODULE.minifold_native_raw._debug_gate_sigmoid_mul_pack_to_mxfp8_warp(
+        lhs, rhs, lhs_bias, rhs_bias, mask
+    )
+
+    assert len(ref) == len(warp) == 8
+    for ref_tensor, warp_tensor in zip(ref, warp):
+        assert ref_tensor.dtype == warp_tensor.dtype
+        assert ref_tensor.shape == warp_tensor.shape
+        assert torch.equal(ref_tensor, warp_tensor)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available()
+    or PLAIN_MODULE.minifold_native_raw is None
+    or not hasattr(PLAIN_MODULE.minifold_native_raw, "_debug_tri_input_norm_gate_block32_reference_stages"),
+    reason="CUDA and staged tri-input debug bindings are required for stage equivalence",
+)
+def test_debug_tri_input_stages_reference_match_warp():
+    torch.manual_seed(0)
+    input_norm = torch.nn.LayerNorm(128, eps=1e-5, device="cuda", dtype=torch.bfloat16)
+    pi = torch.nn.Linear(128, 128, bias=True, device="cuda", dtype=torch.bfloat16)
+    gi = torch.nn.Linear(128, 128, bias=True, device="cuda", dtype=torch.bfloat16)
+    PLAIN_MODULE.configure_fp8_linear_weight_(pi, enabled=True)
+    PLAIN_MODULE.configure_fp8_linear_weight_(gi, enabled=True)
+    x = PLAIN_MODULE.Mxfp8PairTensor.from_tensor(
+        torch.randn(1, 32, 32, 128, device="cuda", dtype=torch.bfloat16),
+        scale_dtype=torch.float32,
+    )
+    mask = torch.randint(0, 2, (1, 32, 32), device="cuda", dtype=torch.bool)
+
+    ref = PLAIN_MODULE.minifold_native_raw._debug_tri_input_norm_gate_block32_reference_stages(
+        x.payload.contiguous(),
+        x.scale.contiguous(),
+        input_norm.weight.contiguous(),
+        input_norm.bias.contiguous(),
+        float(input_norm.eps),
+        pi.weight_mxfp8.contiguous(),
+        pi.scale_w_mxfp8_swizzled.contiguous(),
+        pi.bias.contiguous(),
+        gi.weight_mxfp8.contiguous(),
+        gi.scale_w_mxfp8_swizzled.contiguous(),
+        gi.bias.contiguous(),
+        mask,
+        "float16",
+    )
+    warp = PLAIN_MODULE.minifold_native_raw._debug_tri_input_norm_gate_block32_warp_stages(
+        x.payload.contiguous(),
+        x.scale.contiguous(),
+        input_norm.weight.contiguous(),
+        input_norm.bias.contiguous(),
+        float(input_norm.eps),
+        pi.weight_mxfp8.contiguous(),
+        pi.scale_w_mxfp8_swizzled.contiguous(),
+        pi.bias.contiguous(),
+        gi.weight_mxfp8.contiguous(),
+        gi.scale_w_mxfp8_swizzled.contiguous(),
+        gi.bias.contiguous(),
+        mask,
+        "float16",
+    )
+
+    assert len(ref) == len(warp) == 16
+    for ref_tensor, warp_tensor in zip(ref, warp):
+        assert ref_tensor.dtype == warp_tensor.dtype
+        assert ref_tensor.shape == warp_tensor.shape
+        if ref_tensor.dtype in (torch.float8_e4m3fn, torch.float8_e8m0fnu):
+            ref_fp32 = ref_tensor.float()
+            warp_fp32 = warp_tensor.float()
+            ref_nan = torch.isnan(ref_fp32)
+            warp_nan = torch.isnan(warp_fp32)
+            assert torch.equal(ref_nan, warp_nan)
+            finite_mask = torch.isfinite(ref_fp32) & torch.isfinite(warp_fp32)
+            if finite_mask.any():
+                torch.testing.assert_close(ref_fp32[finite_mask], warp_fp32[finite_mask], rtol=0.0, atol=0.0)
+        elif ref_tensor.is_floating_point():
+            ref_nan = torch.isnan(ref_tensor)
+            warp_nan = torch.isnan(warp_tensor)
+            assert torch.equal(ref_nan, warp_nan)
+            finite_mask = torch.isfinite(ref_tensor) & torch.isfinite(warp_tensor)
+            if finite_mask.any():
+                torch.testing.assert_close(ref_tensor[finite_mask], warp_tensor[finite_mask], rtol=0.0, atol=0.0)
+        else:
+            assert torch.equal(ref_tensor, warp_tensor)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or PLAIN_MODULE.minifold_native_raw is None,
+    reason="CUDA and minifold_native_ext are required for native tri input-norm equivalence",
+)
+def test_native_tri_mul_from_input_quantized_matches_fallback(monkeypatch):
+    torch.manual_seed(0)
+    input_norm = torch.nn.LayerNorm(128, eps=1e-5, device="cuda", dtype=torch.bfloat16)
+    pi = torch.nn.Linear(128, 128, bias=True, device="cuda", dtype=torch.bfloat16)
+    gi = torch.nn.Linear(128, 128, bias=True, device="cuda", dtype=torch.bfloat16)
+    PLAIN_MODULE.configure_fp8_linear_weight_(pi, enabled=True)
+    PLAIN_MODULE.configure_fp8_linear_weight_(gi, enabled=True)
+    x = PLAIN_MODULE.Mxfp8PairTensor.from_tensor(
+        torch.randn(1, 256, 256, 128, device="cuda", dtype=torch.bfloat16),
+        scale_dtype=torch.float32,
+    )
+    mask = torch.randint(0, 2, (1, 256), device="cuda", dtype=torch.bool)
+
+    y_fast = PLAIN_MODULE.native_tri_mul_from_input_quantized(input_norm, pi, gi, x, mask=mask)
+
+    monkeypatch.delattr(PLAIN_MODULE.minifold_native_raw, "tri_input_norm_gate_block32_fused", raising=False)
+    monkeypatch.delattr(PLAIN_MODULE.minifold_native_raw, "tri_gate_block32_fused", raising=False)
+    y_fallback = PLAIN_MODULE.native_tri_mul_from_input_quantized(input_norm, pi, gi, x, mask=mask)
+
+    assert y_fast.payload.shape == y_fallback.payload.shape == (1, 256, 256, 64)
+    assert y_fast.scale.shape == y_fallback.scale.shape == (1, 256, 256, 2)
+    assert y_fast.payload.dtype == y_fallback.payload.dtype == torch.float8_e4m3fn
+    assert y_fast.scale.dtype == y_fallback.scale.dtype == torch.float32
+
+    y_fast_bf16 = y_fast.dequantize(torch.float32)
+    y_fallback_bf16 = y_fallback.dequantize(torch.float32)
+    fast_nan_mask = torch.isnan(y_fast_bf16)
+    fallback_nan_mask = torch.isnan(y_fallback_bf16)
+    assert torch.equal(fast_nan_mask, fallback_nan_mask)
+    finite_mask = torch.isfinite(y_fast_bf16) & torch.isfinite(y_fallback_bf16)
+    assert finite_mask.any()
+    torch.testing.assert_close(y_fast_bf16[finite_mask], y_fallback_bf16[finite_mask], rtol=0.0, atol=0.0)

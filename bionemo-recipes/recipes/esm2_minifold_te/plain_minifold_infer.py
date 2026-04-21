@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import importlib.util
+import os
 from pathlib import Path
 import sys
 
@@ -91,6 +92,13 @@ SUPPORTED_TRI_IMPLS = ("bmm", "cublas_xbdnn", "fp8_cublaslt", "fp8_grouped")
 _FP8_MAX = 448.0
 _FP8_LINEAR_MAX_ROWS = 1 << 22
 _NATIVE_FC1_DIRECT_MAX_ROWS = 1 << 16
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def resolve_pair_precision(pair_precision: str | None = None, fp8_activations: bool | None = None) -> str:
@@ -1007,6 +1015,9 @@ def native_tri_mul_from_input_quantized(
     mask: torch.Tensor,
     stats: FP8ActivationStats | None = None,
 ) -> Mxfp8PairTensor:
+    if _env_flag("MINIFOLD_NATIVE_TRI_INPUT_FORCE_FALLBACK", False):
+        normalized = native_mxfp8_layernorm_quantized(input_norm_module, x)
+        return native_tri_mul_from_gate_quantized(lhs_module, rhs_module, normalized, mask=mask, stats=stats)
     if (
         minifold_native_raw is None
         or not hasattr(minifold_native_raw, "tri_input_norm_gate_block32_fused")
@@ -1279,9 +1290,9 @@ class TransitionUpdate(nn.Module):
         # The chunked CUTLASS transition-entry path remains in-tree but
         # non-default on this node/build. When disabled, forward_fp8_native()
         # falls back to the stable resident-LN + native fc1 flow.
-        self.fc1._native_transition_norm_fc1_enabled = False
+        self.fc1._native_transition_norm_fc1_enabled = enabled and _env_flag("MINIFOLD_NATIVE_TRANSITION_FC1", False)
         self.fc1._native_transition_norm_fc1_supported = True
-        self.fc1._native_fc1_direct_enabled = False
+        self.fc1._native_fc1_direct_enabled = enabled and _env_flag("MINIFOLD_NATIVE_FC1_DIRECT", False)
         self.fc2._native_fc1_direct_enabled = False
 
     def _apply_linear(self, module: nn.Linear, x: torch.Tensor) -> torch.Tensor:

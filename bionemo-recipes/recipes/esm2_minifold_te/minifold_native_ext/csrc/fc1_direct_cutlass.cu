@@ -166,20 +166,24 @@ auto make_packed_stride(ShapeType shape) {
 
 }  // namespace
 
-std::tuple<at::Tensor, at::Tensor> linear_block32_fc1_direct_cuda(
+namespace {
+
+#if defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
+void run_linear_block32_fc1_direct(
     const at::Tensor& a,
     const at::Tensor& b_cutlass_col,
     const at::Tensor& a_scale_swizzled,
     const at::Tensor& b_scale_swizzled,
-    const at::Tensor& bias) {
-#if !defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
-  TORCH_CHECK(false, "CUTLASS SM100 support is unavailable in this build");
-#else
+    const at::Tensor& bias,
+    const at::Tensor& out,
+    const at::Tensor& out_scale_swizzled) {
   check_cuda_tensor(a, "a");
   check_cuda_tensor(b_cutlass_col, "b_cutlass_col");
   check_cuda_tensor(a_scale_swizzled, "a_scale_swizzled");
   check_cuda_tensor(b_scale_swizzled, "b_scale_swizzled");
   check_cuda_tensor(bias, "bias");
+  check_cuda_tensor(out, "out");
+  check_cuda_tensor(out_scale_swizzled, "out_scale_swizzled");
   TORCH_CHECK(a.scalar_type() == c10::ScalarType::Float8_e4m3fn, "a must use float8_e4m3fn");
   TORCH_CHECK(b_cutlass_col.scalar_type() == c10::ScalarType::Float8_e4m3fn, "b_cutlass_col must use float8_e4m3fn");
   TORCH_CHECK(a_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu,
@@ -187,8 +191,12 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fc1_direct_cuda(
   TORCH_CHECK(b_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu,
               "b_scale_swizzled must use float8_e8m0fnu");
   TORCH_CHECK(bias.scalar_type() == c10::ScalarType::BFloat16, "bias must be bfloat16");
+  TORCH_CHECK(out.scalar_type() == c10::ScalarType::Float8_e4m3fn, "out must use float8_e4m3fn");
+  TORCH_CHECK(out_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu,
+              "out_scale_swizzled must use float8_e8m0fnu");
   TORCH_CHECK(a.device() == b_cutlass_col.device() && a.device() == a_scale_swizzled.device() &&
-                  a.device() == b_scale_swizzled.device() && a.device() == bias.device(),
+                  a.device() == b_scale_swizzled.device() && a.device() == bias.device() &&
+                  a.device() == out.device() && a.device() == out_scale_swizzled.device(),
               "all tensors must be on the same CUDA device");
   TORCH_CHECK(a.dim() == 3 && a.size(0) == 1, "a must have shape [1, M, 128]");
   TORCH_CHECK(a.size(2) == 128, "a must have width 128");
@@ -210,12 +218,12 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fc1_direct_cuda(
   const int64_t groups = n / 32;
   const int64_t padded_rows = ((m + 127) / 128) * 128;
   const int64_t padded_cols = ((groups + 3) / 4) * 4;
+  TORCH_CHECK(out.dim() == 3 && out.size(0) == batch && out.size(1) == m && out.size(2) == n, "out has incompatible shape");
+  TORCH_CHECK(
+      out_scale_swizzled.dim() == 3 && out_scale_swizzled.size(0) == batch && out_scale_swizzled.size(1) == padded_rows &&
+          out_scale_swizzled.size(2) == padded_cols,
+      "out_scale_swizzled has incompatible shape");
 
-  auto out = at::empty({batch, m, n}, a.options().dtype(at::kFloat8_e4m3fn));
-  auto out_scale_swizzled = at::full(
-      {batch, padded_rows, padded_cols},
-      kMinPow2Scale,
-      a.options().dtype(at::kFloat8_e8m0fnu));
   auto norm_constant = at::ones({1}, a.options().dtype(at::kFloat));
 
   auto stride_a = make_packed_stride<StrideA>(cute::make_shape(static_cast<int>(m), static_cast<int>(k), 1));
@@ -277,8 +285,6 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fc1_direct_cuda(
   status = gemm.run(stream);
   TORCH_CHECK(status == cutlass::Status::kSuccess, "CUTLASS fc1 direct-output run failed: ", cutlassGetStatusString(status));
   TORCH_CHECK(cudaGetLastError() == cudaSuccess, "CUTLASS fc1 direct-output launch failed after run()");
-  const cudaError_t sync_status = cudaStreamSynchronize(stream);
-  TORCH_CHECK(sync_status == cudaSuccess, "CUTLASS fc1 direct-output stream sync failed: ", cudaGetErrorString(sync_status));
 
   record_tensor_on_current_stream(norm_constant);
   record_tensor_on_current_stream(out_scale_swizzled);
@@ -286,9 +292,49 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fc1_direct_cuda(
   if (workspace_size > 0) {
     record_tensor_on_current_stream(workspace);
   }
+}
+#endif
 
+}  // namespace
+
+std::tuple<at::Tensor, at::Tensor> linear_block32_fc1_direct_cuda(
+    const at::Tensor& a,
+    const at::Tensor& b_cutlass_col,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& b_scale_swizzled,
+    const at::Tensor& bias) {
+#if !defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
+  TORCH_CHECK(false, "CUTLASS SM100 support is unavailable in this build");
+#else
+  const int64_t batch = a.size(0);
+  const int64_t m = a.size(1);
+  const int64_t n = b_cutlass_col.size(2);
+  const int64_t groups = n / 32;
+  const int64_t padded_rows = ((m + 127) / 128) * 128;
+  const int64_t padded_cols = ((groups + 3) / 4) * 4;
+  auto out = at::empty({batch, m, n}, a.options().dtype(at::kFloat8_e4m3fn));
+  auto out_scale_swizzled = at::full(
+      {batch, padded_rows, padded_cols},
+      kMinPow2Scale,
+      a.options().dtype(at::kFloat8_e8m0fnu));
+  run_linear_block32_fc1_direct(a, b_cutlass_col, a_scale_swizzled, b_scale_swizzled, bias, out, out_scale_swizzled);
   auto out_scale = unswizzle_scale_rowwise(out_scale_swizzled, m, groups).to(at::kFloat).contiguous();
   return {out, out_scale};
+#endif
+}
+
+void linear_block32_fc1_direct_into_cuda(
+    const at::Tensor& a,
+    const at::Tensor& b_cutlass_col,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& b_scale_swizzled,
+    const at::Tensor& bias,
+    const at::Tensor& out,
+    const at::Tensor& out_scale_swizzled) {
+#if !defined(CUTLASS_ARCH_MMA_SM100_SUPPORTED)
+  TORCH_CHECK(false, "CUTLASS SM100 support is unavailable in this build");
+#else
+  run_linear_block32_fc1_direct(a, b_cutlass_col, a_scale_swizzled, b_scale_swizzled, bias, out, out_scale_swizzled);
 #endif
 }
 

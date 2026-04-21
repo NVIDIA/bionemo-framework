@@ -8,6 +8,7 @@
 #include <torch/extension.h>
 
 #include <cmath>
+#include <cstdlib>
 #include <memory>
 
 namespace minifold_native_ext {
@@ -41,6 +42,29 @@ void validate_sm100_plus() {
   TORCH_CHECK(props != nullptr, "could not query CUDA device properties");
   const int sm = props->major * 10 + props->minor;
   TORCH_CHECK(sm >= 100, "MiniFold native FP8 kernels require SM100+, found SM", sm);
+}
+
+int64_t get_transition_norm_fc1_chunk_rows() {
+  constexpr int64_t kDefaultChunkRows = 1 << 16;
+  const char* value = std::getenv("MINIFOLD_NATIVE_TRANSITION_FC1_CHUNK_ROWS");
+  if (value == nullptr || value[0] == '\0') {
+    return kDefaultChunkRows;
+  }
+  char* end = nullptr;
+  const long long parsed = std::strtoll(value, &end, 10);
+  if (end == value || parsed <= 0) {
+    return kDefaultChunkRows;
+  }
+  const int64_t aligned = std::max<int64_t>(32, (static_cast<int64_t>(parsed) / 32) * 32);
+  return aligned > 0 ? aligned : kDefaultChunkRows;
+}
+
+bool get_gatepack_use_warp() {
+  const char* value = std::getenv("MINIFOLD_NATIVE_GATEPACK_WARP");
+  if (value == nullptr) {
+    return false;
+  }
+  return value[0] == '1' || value[0] == 't' || value[0] == 'T' || value[0] == 'y' || value[0] == 'Y';
 }
 
 inline cudaStream_t current_cuda_stream() {
@@ -1344,6 +1368,90 @@ __global__ void gate_sigmoid_mul_pack_rowk_mxfp8_kernel(
   }
 }
 
+__global__ void gate_sigmoid_mul_pack_to_mxfp8_warp_kernel(
+    const __nv_bfloat16* lhs,
+    const __nv_bfloat16* rhs,
+    const __nv_bfloat16* lhs_bias,
+    const __nv_bfloat16* rhs_bias,
+    const bool* mask,
+    __nv_fp8_storage_t* a1,
+    __nv_fp8_storage_t* a1_scale,
+    __nv_fp8_storage_t* b1,
+    __nv_fp8_storage_t* b1_scale,
+    __nv_fp8_storage_t* a2_t,
+    __nv_fp8_storage_t* a2_t_scale,
+    __nv_fp8_storage_t* b2_rhs,
+    __nv_fp8_storage_t* b2_rhs_scale,
+    int batch,
+    int n,
+    int padded_rows,
+    int padded_cols) {
+  const int plane = blockIdx.x;
+  const int row = blockIdx.y;
+  const int kblock = blockIdx.z;
+  const int warp_id = threadIdx.x >> 5;
+  const int lane = threadIdx.x & 31;
+  if (warp_id >= 4) {
+    return;
+  }
+
+  const int batch_idx = plane / 32;
+  const int channel = plane % 32;
+  const int k = kblock * 32 + lane;
+  if (batch_idx >= batch || row >= n || k >= n) {
+    return;
+  }
+
+  const int64_t rowk_position = static_cast<int64_t>(batch_idx) * n * n + static_cast<int64_t>(row) * n + k;
+  const int64_t krow_position = static_cast<int64_t>(batch_idx) * n * n + static_cast<int64_t>(k) * n + row;
+  const int rowk_base = static_cast<int>(rowk_position * 128);
+  const int krow_base = static_cast<int>(krow_position * 128);
+  const float mask_rowk = (mask == nullptr || mask[(batch_idx * n + row) * n + k]) ? 1.0f : 0.0f;
+  const float mask_krow = (mask == nullptr || mask[(batch_idx * n + k) * n + row]) ? 1.0f : 0.0f;
+
+  float value = 0.0f;
+  __nv_fp8_storage_t* output = nullptr;
+  __nv_fp8_storage_t* output_scale = nullptr;
+  int out_i = row;
+  int out_j = k;
+
+  if (warp_id == 0) {
+    const float lhs_value = __bfloat162float(lhs[rowk_base + channel]) + __bfloat162float(lhs_bias[channel]);
+    const float rhs_value = __bfloat162float(rhs[rowk_base + channel]) + __bfloat162float(rhs_bias[channel]);
+    value = lhs_value * (1.0f / (1.0f + __expf(-rhs_value))) * mask_rowk;
+    output = a1;
+    output_scale = a1_scale;
+  } else if (warp_id == 1) {
+    const float lhs_value = __bfloat162float(lhs[rowk_base + 32 + channel]) + __bfloat162float(lhs_bias[32 + channel]);
+    const float rhs_value = __bfloat162float(rhs[rowk_base + 32 + channel]) + __bfloat162float(rhs_bias[32 + channel]);
+    value = lhs_value * (1.0f / (1.0f + __expf(-rhs_value))) * mask_rowk;
+    output = b1;
+    output_scale = b1_scale;
+  } else if (warp_id == 2) {
+    const float lhs_value = __bfloat162float(lhs[krow_base + 64 + channel]) + __bfloat162float(lhs_bias[64 + channel]);
+    const float rhs_value = __bfloat162float(rhs[krow_base + 64 + channel]) + __bfloat162float(rhs_bias[64 + channel]);
+    value = lhs_value * (1.0f / (1.0f + __expf(-rhs_value))) * mask_krow;
+    output = a2_t;
+    output_scale = a2_t_scale;
+  } else {
+    const float lhs_value = __bfloat162float(lhs[krow_base + 96 + channel]) + __bfloat162float(lhs_bias[96 + channel]);
+    const float rhs_value = __bfloat162float(rhs[krow_base + 96 + channel]) + __bfloat162float(rhs_bias[96 + channel]);
+    value = lhs_value * (1.0f / (1.0f + __expf(-rhs_value))) * mask_krow;
+    output = b2_rhs;
+    output_scale = b2_rhs_scale;
+    out_i = k;
+    out_j = row;
+  }
+
+  const float block_scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(value)), 0));
+  output[((plane * n + out_i) * n) + out_j] = float_to_fp8_storage(value / block_scale);
+  if (lane == 0) {
+    const int plane_offset = plane * padded_rows * padded_cols;
+    const int scale_offset = plane_offset + swizzled_scale_offset(row, kblock, padded_cols);
+    output_scale[scale_offset] = float_to_e8m0_storage(block_scale);
+  }
+}
+
 __global__ void gate_sigmoid_mul_pack_to_mxfp8_fused_kernel(
     const __nv_bfloat16* lhs,
     const __nv_bfloat16* rhs,
@@ -2320,12 +2428,13 @@ pack_block32_to_mxfp8_fused(
 }
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
-gate_sigmoid_mul_pack_to_mxfp8_fused(
+gate_sigmoid_mul_pack_to_mxfp8_impl(
     const at::Tensor& lhs,
     const at::Tensor& rhs,
     const c10::optional<at::Tensor>& lhs_bias_opt,
     const c10::optional<at::Tensor>& rhs_bias_opt,
-    const at::Tensor& mask) {
+    const at::Tensor& mask,
+    bool use_warp_kernel) {
   TORCH_CHECK(lhs.scalar_type() == c10::ScalarType::BFloat16 && rhs.scalar_type() == c10::ScalarType::BFloat16,
               "gate_sigmoid_mul_pack_to_mxfp8_fused expects bfloat16 inputs");
   TORCH_CHECK(lhs.sizes() == rhs.sizes(), "lhs and rhs must match");
@@ -2367,30 +2476,66 @@ gate_sigmoid_mul_pack_to_mxfp8_fused(
   auto b1_scale = at::full({batch * 32, padded_rows, padded_cols}, kMinPow2Scale, lhs.options().dtype(at::kFloat8_e8m0fnu));
   auto a2_t_scale = at::full({batch * 32, padded_rows, padded_cols}, kMinPow2Scale, lhs.options().dtype(at::kFloat8_e8m0fnu));
   auto b2_rhs_scale = at::full({batch * 32, padded_rows, padded_cols}, kMinPow2Scale, lhs.options().dtype(at::kFloat8_e8m0fnu));
-  const dim3 grid(
-      static_cast<unsigned int>(batch * 4),
-      static_cast<unsigned int>((n + 1) / 2),
-      static_cast<unsigned int>(n / 32));
-  gate_sigmoid_mul_pack_to_mxfp8_fused_kernel<<<grid, 512, 0, current_cuda_stream()>>>(
-      reinterpret_cast<const __nv_bfloat16*>(lhs.data_ptr()),
-      reinterpret_cast<const __nv_bfloat16*>(rhs.data_ptr()),
-      lhs_bias_ptr,
-      rhs_bias_ptr,
-      mask.data_ptr<bool>(),
-      reinterpret_cast<__nv_fp8_storage_t*>(a1.data_ptr()),
-      reinterpret_cast<__nv_fp8_storage_t*>(a1_scale.data_ptr()),
-      reinterpret_cast<__nv_fp8_storage_t*>(b1.data_ptr()),
-      reinterpret_cast<__nv_fp8_storage_t*>(b1_scale.data_ptr()),
-      reinterpret_cast<__nv_fp8_storage_t*>(a2_t.data_ptr()),
-      reinterpret_cast<__nv_fp8_storage_t*>(a2_t_scale.data_ptr()),
-      reinterpret_cast<__nv_fp8_storage_t*>(b2_rhs.data_ptr()),
-      reinterpret_cast<__nv_fp8_storage_t*>(b2_rhs_scale.data_ptr()),
-      static_cast<int>(batch),
-      static_cast<int>(n),
-      static_cast<int>(padded_rows),
-      static_cast<int>(padded_cols));
+  if (use_warp_kernel) {
+    const dim3 grid(
+        static_cast<unsigned int>(batch * 32),
+        static_cast<unsigned int>(n),
+        static_cast<unsigned int>(n / 32));
+    gate_sigmoid_mul_pack_to_mxfp8_warp_kernel<<<grid, 128, 0, current_cuda_stream()>>>(
+        reinterpret_cast<const __nv_bfloat16*>(lhs.data_ptr()),
+        reinterpret_cast<const __nv_bfloat16*>(rhs.data_ptr()),
+        lhs_bias_ptr,
+        rhs_bias_ptr,
+        mask.data_ptr<bool>(),
+        reinterpret_cast<__nv_fp8_storage_t*>(a1.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(a1_scale.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(b1.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(b1_scale.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(a2_t.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(a2_t_scale.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(b2_rhs.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(b2_rhs_scale.data_ptr()),
+        static_cast<int>(batch),
+        static_cast<int>(n),
+        static_cast<int>(padded_rows),
+        static_cast<int>(padded_cols));
+  } else {
+    const dim3 grid(
+        static_cast<unsigned int>(batch * 4),
+        static_cast<unsigned int>((n + 1) / 2),
+        static_cast<unsigned int>(n / 32));
+    gate_sigmoid_mul_pack_to_mxfp8_fused_kernel<<<grid, 512, 0, current_cuda_stream()>>>(
+        reinterpret_cast<const __nv_bfloat16*>(lhs.data_ptr()),
+        reinterpret_cast<const __nv_bfloat16*>(rhs.data_ptr()),
+        lhs_bias_ptr,
+        rhs_bias_ptr,
+        mask.data_ptr<bool>(),
+        reinterpret_cast<__nv_fp8_storage_t*>(a1.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(a1_scale.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(b1.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(b1_scale.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(a2_t.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(a2_t_scale.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(b2_rhs.data_ptr()),
+        reinterpret_cast<__nv_fp8_storage_t*>(b2_rhs_scale.data_ptr()),
+        static_cast<int>(batch),
+        static_cast<int>(n),
+        static_cast<int>(padded_rows),
+        static_cast<int>(padded_cols));
+  }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {a1, a1_scale, b1, b1_scale, a2_t, a2_t_scale, b2_rhs, b2_rhs_scale};
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+gate_sigmoid_mul_pack_to_mxfp8_fused(
+    const at::Tensor& lhs,
+    const at::Tensor& rhs,
+    const c10::optional<at::Tensor>& lhs_bias_opt,
+    const c10::optional<at::Tensor>& rhs_bias_opt,
+    const at::Tensor& mask) {
+  const bool use_warp_kernel = get_gatepack_use_warp();
+  return gate_sigmoid_mul_pack_to_mxfp8_impl(lhs, rhs, lhs_bias_opt, rhs_bias_opt, mask, use_warp_kernel);
 }
 
 std::tuple<at::Tensor, at::Tensor> tri_pair_to_block32_carrier(
@@ -2452,6 +2597,109 @@ std::tuple<at::Tensor, at::Tensor> tri_pair_layernorm_to_block32_carrier(
   return {output, output_scale};
 }
 
+void validate_block32_carrier(const at::Tensor& payload, const at::Tensor& scale);
+
+std::vector<at::Tensor> debug_tri_input_norm_gate_block32_stages_impl(
+    const at::Tensor& payload,
+    const at::Tensor& scale,
+    const at::Tensor& input_norm_weight,
+    const at::Tensor& input_norm_bias,
+    double input_norm_eps,
+    const at::Tensor& lhs_b_t,
+    const at::Tensor& lhs_scale_swizzled,
+    const c10::optional<at::Tensor>& lhs_bias,
+    const at::Tensor& rhs_b_t,
+    const at::Tensor& rhs_scale_swizzled,
+    const c10::optional<at::Tensor>& rhs_bias,
+    const at::Tensor& mask,
+    const std::string& tri_out_dtype_str,
+    bool use_warp_kernel) {
+  const auto tri_out_dtype = parse_out_dtype(tri_out_dtype_str);
+  TORCH_CHECK(tri_out_dtype == c10::ScalarType::Half,
+              "debug tri input-norm gate stages currently support tri_out_dtype='float16' only");
+  validate_block32_carrier(payload, scale);
+  TORCH_CHECK(payload.size(3) == 128, "debug tri input-norm gate stages expect payload width 128");
+  check_cuda_tensor(input_norm_weight, "input_norm_weight");
+  check_cuda_tensor(input_norm_bias, "input_norm_bias");
+  TORCH_CHECK(input_norm_weight.dim() == 1 && input_norm_weight.size(0) == 128,
+              "input_norm_weight must have width 128");
+  TORCH_CHECK(input_norm_bias.dim() == 1 && input_norm_bias.size(0) == 128,
+              "input_norm_bias must have width 128");
+  TORCH_CHECK(
+      input_norm_weight.scalar_type() == c10::ScalarType::BFloat16 &&
+          input_norm_bias.scalar_type() == c10::ScalarType::BFloat16,
+      "input_norm weight and bias must be bfloat16");
+  check_cuda_tensor(lhs_b_t, "lhs_b_t");
+  check_cuda_tensor(lhs_scale_swizzled, "lhs_scale_swizzled");
+  check_cuda_tensor(rhs_b_t, "rhs_b_t");
+  check_cuda_tensor(rhs_scale_swizzled, "rhs_scale_swizzled");
+  check_cuda_tensor(mask, "mask");
+  TORCH_CHECK(mask.scalar_type() == c10::ScalarType::Bool && mask.dim() == 3 && mask.size(1) == mask.size(2),
+              "mask must have shape [B, N, N] and bool dtype");
+  if (lhs_bias.has_value()) {
+    check_cuda_tensor(lhs_bias.value(), "lhs_bias");
+  }
+  if (rhs_bias.has_value()) {
+    check_cuda_tensor(rhs_bias.value(), "rhs_bias");
+  }
+
+  set_cuda_device(payload);
+  validate_sm100_plus();
+  const int64_t batch = payload.size(0);
+  const int64_t n = payload.size(1);
+  const int64_t cols = payload.size(3);
+  const int64_t rows = batch * n * n;
+  TORCH_CHECK(rows % 32 == 0, "debug tri input-norm gate stages require rows divisible by 32, got ", rows);
+
+  auto a = at::empty({1, rows, cols}, payload.options().dtype(at::kFloat8_e4m3fn));
+  const int64_t padded_rows = ((rows + 127) / 128) * 128;
+  auto a_scale_swizzled = at::full(
+      {1, padded_rows, 4},
+      kMinPow2Scale,
+      payload.options().dtype(at::kFloat8_e8m0fnu));
+  const int layernorm_blocks = static_cast<int>((rows + 3) / 4);
+  transition_norm_to_mxfp8_input_kernel<<<layernorm_blocks, 128, 0, current_cuda_stream()>>>(
+      reinterpret_cast<const __nv_fp8_storage_t*>(payload.data_ptr()),
+      scale.data_ptr<float>(),
+      reinterpret_cast<const __nv_bfloat16*>(input_norm_weight.data_ptr()),
+      reinterpret_cast<const __nv_bfloat16*>(input_norm_bias.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(a.data_ptr()),
+      reinterpret_cast<__nv_fp8_storage_t*>(a_scale_swizzled.data_ptr()),
+      static_cast<int>(rows),
+      static_cast<float>(input_norm_eps));
+  C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+  auto lhs_dense = run_mxfp8_cublaslt_bmm(
+      a, lhs_b_t, a_scale_swizzled, lhs_scale_swizzled, c10::ScalarType::BFloat16, false);
+  auto rhs_dense = run_mxfp8_cublaslt_bmm(
+      a, rhs_b_t, a_scale_swizzled, rhs_scale_swizzled, c10::ScalarType::BFloat16, false);
+  auto packed = gate_sigmoid_mul_pack_to_mxfp8_impl(lhs_dense, rhs_dense, lhs_bias, rhs_bias, mask, use_warp_kernel);
+  auto x1 = run_mxfp8_cublaslt_bmm(
+      std::get<0>(packed), std::get<2>(packed), std::get<1>(packed), std::get<3>(packed), tri_out_dtype, false);
+  auto x2 = run_mxfp8_cublaslt_bmm(
+      std::get<4>(packed), std::get<6>(packed), std::get<5>(packed), std::get<7>(packed), tri_out_dtype, true);
+  auto output = tri_pair_to_block32_carrier(x1, x2, batch);
+
+  return {
+      a,
+      a_scale_swizzled,
+      lhs_dense,
+      rhs_dense,
+      std::get<0>(packed),
+      std::get<1>(packed),
+      std::get<2>(packed),
+      std::get<3>(packed),
+      std::get<4>(packed),
+      std::get<5>(packed),
+      std::get<6>(packed),
+      std::get<7>(packed),
+      x1,
+      x2,
+      std::get<0>(output),
+      std::get<1>(output),
+  };
+}
+
 void validate_block32_carrier(const at::Tensor& payload, const at::Tensor& scale) {
   check_cuda_tensor(payload, "payload");
   check_cuda_tensor(scale, "scale");
@@ -2467,6 +2715,88 @@ void validate_block32_carrier(const at::Tensor& payload, const at::Tensor& scale
 }
 
 }  // namespace
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+debug_gate_sigmoid_mul_pack_to_mxfp8_reference_cuda(
+    const at::Tensor& lhs,
+    const at::Tensor& rhs,
+    const at::Tensor& lhs_bias,
+    const at::Tensor& rhs_bias,
+    const at::Tensor& mask) {
+  return gate_sigmoid_mul_pack_to_mxfp8_impl(lhs, rhs, lhs_bias, rhs_bias, mask, false);
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+debug_gate_sigmoid_mul_pack_to_mxfp8_warp_cuda(
+    const at::Tensor& lhs,
+    const at::Tensor& rhs,
+    const at::Tensor& lhs_bias,
+    const at::Tensor& rhs_bias,
+    const at::Tensor& mask) {
+  return gate_sigmoid_mul_pack_to_mxfp8_impl(lhs, rhs, lhs_bias, rhs_bias, mask, true);
+}
+
+std::vector<at::Tensor> debug_tri_input_norm_gate_block32_reference_stages_cuda(
+    const at::Tensor& payload,
+    const at::Tensor& scale,
+    const at::Tensor& input_norm_weight,
+    const at::Tensor& input_norm_bias,
+    double input_norm_eps,
+    const at::Tensor& lhs_b_t,
+    const at::Tensor& lhs_scale_swizzled,
+    const c10::optional<at::Tensor>& lhs_bias,
+    const at::Tensor& rhs_b_t,
+    const at::Tensor& rhs_scale_swizzled,
+    const c10::optional<at::Tensor>& rhs_bias,
+    const at::Tensor& mask,
+    const std::string& tri_out_dtype) {
+  return debug_tri_input_norm_gate_block32_stages_impl(
+      payload,
+      scale,
+      input_norm_weight,
+      input_norm_bias,
+      input_norm_eps,
+      lhs_b_t,
+      lhs_scale_swizzled,
+      lhs_bias,
+      rhs_b_t,
+      rhs_scale_swizzled,
+      rhs_bias,
+      mask,
+      tri_out_dtype,
+      false);
+}
+
+std::vector<at::Tensor> debug_tri_input_norm_gate_block32_warp_stages_cuda(
+    const at::Tensor& payload,
+    const at::Tensor& scale,
+    const at::Tensor& input_norm_weight,
+    const at::Tensor& input_norm_bias,
+    double input_norm_eps,
+    const at::Tensor& lhs_b_t,
+    const at::Tensor& lhs_scale_swizzled,
+    const c10::optional<at::Tensor>& lhs_bias,
+    const at::Tensor& rhs_b_t,
+    const at::Tensor& rhs_scale_swizzled,
+    const c10::optional<at::Tensor>& rhs_bias,
+    const at::Tensor& mask,
+    const std::string& tri_out_dtype) {
+  return debug_tri_input_norm_gate_block32_stages_impl(
+      payload,
+      scale,
+      input_norm_weight,
+      input_norm_bias,
+      input_norm_eps,
+      lhs_b_t,
+      lhs_scale_swizzled,
+      lhs_bias,
+      rhs_b_t,
+      rhs_scale_swizzled,
+      rhs_bias,
+      mask,
+      tri_out_dtype,
+      true);
+}
 
 std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
     const at::Tensor& a,
@@ -2583,11 +2913,11 @@ std::tuple<at::Tensor, at::Tensor> transition_norm_fc1_block32_fused_cuda(
   const int64_t cols = payload.size(3);
   const int64_t rows = batch * n * n;
   TORCH_CHECK(rows % 32 == 0, "transition_norm_fc1_block32_fused requires rows divisible by 32, got ", rows);
-  constexpr int64_t kChunkRows = 1 << 16;
+  const int64_t kChunkRows = get_transition_norm_fc1_chunk_rows();
   auto payload_2d = payload.view({rows, cols});
   auto scale_2d = scale.view({rows, cols / 32});
-  auto output = at::empty({1, rows, 512}, payload.options().dtype(at::kFloat8_e4m3fn));
-  auto output_scale = at::empty({1, rows, 16}, payload.options().dtype(at::kFloat));
+  auto output_2d = at::empty({rows, 512}, payload.options().dtype(at::kFloat8_e4m3fn));
+  auto output_scale_2d = at::empty({rows, 16}, payload.options().dtype(at::kFloat));
 
   for (int64_t start = 0; start < rows; start += kChunkRows) {
     const int64_t chunk_rows = std::min<int64_t>(kChunkRows, rows - start);
@@ -2611,16 +2941,23 @@ std::tuple<at::Tensor, at::Tensor> transition_norm_fc1_block32_fused_cuda(
         static_cast<float>(norm_eps));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
 
-    auto chunk_out = linear_block32_fc1_direct_cuda(
+    auto output_chunk = output_2d.narrow(0, start, chunk_rows).view({1, chunk_rows, 512});
+    auto output_scale_swizzled = at::full(
+        {1, padded_rows, 4},
+        kMinPow2Scale,
+        payload.options().dtype(at::kFloat8_e8m0fnu));
+    linear_block32_fc1_direct_into_cuda(
         a,
         b_cutlass_col,
         a_scale_swizzled,
         b_scale_swizzled,
-        bias.value());
-    output.narrow(1, start, chunk_rows).copy_(std::get<0>(chunk_out));
-    output_scale.narrow(1, start, chunk_rows).copy_(std::get<1>(chunk_out));
+        bias.value(),
+        output_chunk,
+        output_scale_swizzled);
+    output_scale_2d.narrow(0, start, chunk_rows).copy_(
+        unswizzle_scale_rowwise(output_scale_swizzled, chunk_rows, 16).to(at::kFloat));
   }
-  return {output, output_scale};
+  return {output_2d.view({1, rows, 512}), output_scale_2d.view({1, rows, 16})};
 }
 
 std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_cuda(
