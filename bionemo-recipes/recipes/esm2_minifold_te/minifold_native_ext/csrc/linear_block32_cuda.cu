@@ -567,17 +567,14 @@ std::tuple<at::Tensor, at::Tensor> run_mxfp8_cublaslt_bmm_direct_output(
 }
 
 __device__ inline float fp8_storage_to_float(__nv_fp8_storage_t value) {
-  const __half_raw raw = __nv_cvt_fp8_to_halfraw(value, __NV_E4M3);
-  union {
-    __half_raw raw_bits;
-    __half half_value;
-  } half_union;
-  half_union.raw_bits = raw;
-  return __half2float(half_union.half_value);
+  __nv_fp8_e4m3 fp8_value;
+  fp8_value.__x = value;
+  return static_cast<float>(fp8_value);
 }
 
 __device__ inline __nv_fp8_storage_t float_to_fp8_storage(float value) {
-  return __nv_cvt_float_to_fp8(value, __NV_SATFINITE, __NV_E4M3);
+  const float clamped = fminf(fmaxf(value, -kFp8Max), kFp8Max);
+  return __nv_fp8_e4m3(clamped).__x;
 }
 
 __device__ inline __nv_fp8_storage_t float_to_e8m0_storage(float value) {
@@ -2686,6 +2683,83 @@ std::tuple<at::Tensor, at::Tensor> tri_mul_pair_from_block32_carrier_cuda(
   auto x2 = run_mxfp8_cublaslt_bmm(
       std::get<4>(packed), std::get<6>(packed), std::get<5>(packed), std::get<7>(packed), out_dtype, true);
   return tri_pair_to_block32_carrier(x1, x2, payload.size(0));
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+pack_block32_to_mxfp8_fused_debug_cuda(
+    const at::Tensor& payload,
+    const at::Tensor& scale,
+    const c10::optional<at::Tensor>& mask) {
+  validate_block32_carrier(payload, scale);
+  set_cuda_device(payload);
+  validate_sm100_plus();
+  if (mask.has_value()) {
+    check_cuda_tensor(mask.value(), "mask");
+    TORCH_CHECK(mask.value().scalar_type() == c10::ScalarType::Bool, "mask must be bool");
+  }
+  return pack_block32_to_mxfp8_fused(payload, scale, mask);
+}
+
+std::tuple<at::Tensor, at::Tensor> tri_mul_pair_from_packed_debug_cuda(
+    const at::Tensor& a1,
+    const at::Tensor& b1,
+    const at::Tensor& a2_t,
+    const at::Tensor& b2_rhs,
+    const at::Tensor& a1_scale_swizzled,
+    const at::Tensor& b1_scale_swizzled,
+    const at::Tensor& a2_t_scale_swizzled,
+    const at::Tensor& b2_rhs_scale_swizzled,
+    const std::string& out_dtype_str) {
+  const auto out_dtype = parse_out_dtype(out_dtype_str);
+  TORCH_CHECK(
+      out_dtype == c10::ScalarType::Half || out_dtype == c10::ScalarType::BFloat16 || out_dtype == c10::ScalarType::Float,
+      "tri_mul_pair_from_packed_debug supports out_dtype in {float16, bfloat16, float32}");
+  check_cuda_tensor(a1, "a1");
+  check_cuda_tensor(b1, "b1");
+  check_cuda_tensor(a2_t, "a2_t");
+  check_cuda_tensor(b2_rhs, "b2_rhs");
+  check_cuda_tensor(a1_scale_swizzled, "a1_scale_swizzled");
+  check_cuda_tensor(b1_scale_swizzled, "b1_scale_swizzled");
+  check_cuda_tensor(a2_t_scale_swizzled, "a2_t_scale_swizzled");
+  check_cuda_tensor(b2_rhs_scale_swizzled, "b2_rhs_scale_swizzled");
+  TORCH_CHECK(a1.dim() == 3 && b1.dim() == 3 && a2_t.dim() == 3 && b2_rhs.dim() == 3, "packed tri inputs must be 3D");
+  TORCH_CHECK(a1.sizes() == b1.sizes(), "a1 and b1 must match");
+  TORCH_CHECK(a2_t.sizes() == b2_rhs.sizes(), "a2_t and b2_rhs must match");
+  TORCH_CHECK(a1.scalar_type() == b1.scalar_type() && a1.scalar_type() == a2_t.scalar_type() && a1.scalar_type() == b2_rhs.scalar_type(),
+              "packed tri inputs must share the same FP8 dtype");
+  TORCH_CHECK(
+      a1.scalar_type() == c10::ScalarType::Float8_e4m3fn || a1.scalar_type() == c10::ScalarType::Float8_e5m2,
+      "packed tri inputs must use FP8 dtype");
+  TORCH_CHECK(
+      a1_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu &&
+          b1_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu &&
+          a2_t_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu &&
+          b2_rhs_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu,
+      "packed tri scales must use torch.float8_e8m0fnu");
+
+  set_cuda_device(a1);
+  validate_sm100_plus();
+  check_same_device(a1, b1, a1_scale_swizzled, b1_scale_swizzled);
+  check_same_device(a2_t, b2_rhs, a2_t_scale_swizzled, b2_rhs_scale_swizzled);
+  TORCH_CHECK(
+      a1.device() == a2_t.device() && a1.device() == a2_t_scale_swizzled.device() && a1.device() == b2_rhs_scale_swizzled.device(),
+      "all packed tri inputs must be on the same CUDA device");
+
+  auto x1 = run_mxfp8_cublaslt_bmm(a1, b1, a1_scale_swizzled, b1_scale_swizzled, out_dtype, false);
+  auto x2 = run_mxfp8_cublaslt_bmm(a2_t, b2_rhs, a2_t_scale_swizzled, b2_rhs_scale_swizzled, out_dtype, true);
+  return {x1, x2};
+}
+
+std::tuple<at::Tensor, at::Tensor> tri_pair_to_block32_carrier_debug_cuda(
+    const at::Tensor& x1,
+    const at::Tensor& x2,
+    int64_t batch) {
+  check_cuda_tensor(x1, "x1");
+  check_cuda_tensor(x2, "x2");
+  set_cuda_device(x1);
+  validate_sm100_plus();
+  TORCH_CHECK(x1.device() == x2.device(), "x1 and x2 must be on the same CUDA device");
+  return tri_pair_to_block32_carrier(x1, x2, batch);
 }
 
 std::tuple<at::Tensor, at::Tensor> tri_gate_block32_fused_cuda(

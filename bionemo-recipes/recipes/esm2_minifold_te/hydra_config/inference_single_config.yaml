@@ -4,6 +4,7 @@ tri_impl: bmm
 tri_einsum: bf16
 pair_precision: bf16
 linear_precision: bf16
+bf16_native_rung: null
 fp8_activations: false
 warmup: 5
 iters: 20

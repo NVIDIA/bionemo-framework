@@ -181,7 +181,7 @@ class TestMmcifStructureDataset:
     def test_batch_keys(self, cif_dir, tokenizer):
         ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH, min_residues=20)
         sample = ds[0]
-        assert set(sample.keys()) == {"input_ids", "attention_mask", "mask", "coords"}
+        assert set(sample.keys()) == {"input_ids", "attention_mask", "mask", "coords", "pdb_id", "chain_id", "num_residues"}
 
     def test_batch_shapes(self, cif_dir, tokenizer):
         ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH, min_residues=20)
@@ -214,6 +214,13 @@ class TestMmcifStructureDataset:
         assert (sample["attention_mask"][int(real_len) :] == 0).all()
         assert (sample["coords"][TEST_SEQ_LENGTH:] == 0).all()
 
+    def test_metadata_fields(self, cif_dir, tokenizer):
+        ds = MmcifStructureDataset(cif_dir, tokenizer, max_seq_length=MAX_SEQ_LENGTH, min_residues=20)
+        sample = ds[0]
+        assert sample["pdb_id"] == TEST_PDB_ID
+        assert sample["chain_id"] == ""
+        assert sample["num_residues"] == TEST_SEQ_LENGTH
+
 
 # ===========================================================================
 # ParquetStructureDataset
@@ -224,7 +231,7 @@ class TestParquetStructureDataset:
     def test_batch_keys(self, parquet_path, tokenizer):
         ds = ParquetStructureDataset(parquet_path, tokenizer, max_seq_length=MAX_SEQ_LENGTH)
         sample = ds[0]
-        assert set(sample.keys()) == {"input_ids", "attention_mask", "mask", "coords"}
+        assert set(sample.keys()) == {"input_ids", "attention_mask", "mask", "coords", "pdb_id", "chain_id", "num_residues"}
 
     def test_batch_shapes(self, parquet_path, tokenizer):
         ds = ParquetStructureDataset(parquet_path, tokenizer, max_seq_length=MAX_SEQ_LENGTH)
@@ -237,6 +244,13 @@ class TestParquetStructureDataset:
         sample = ds[0]
         assert sample["input_ids"].dtype == torch.long
         assert sample["coords"].dtype == torch.float32
+
+    def test_metadata_fields(self, parquet_path, tokenizer):
+        ds = ParquetStructureDataset(parquet_path, tokenizer, max_seq_length=MAX_SEQ_LENGTH)
+        sample = ds[0]
+        assert sample["pdb_id"] == TEST_PDB_ID
+        assert sample["chain_id"] == ""
+        assert sample["num_residues"] == TEST_SEQ_LENGTH
 
 
 # ===========================================================================

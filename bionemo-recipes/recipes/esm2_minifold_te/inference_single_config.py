@@ -15,15 +15,20 @@ from plain_minifold_infer import (
     LINEAR_PRECISION_FP8,
     SUPPORTED_LINEAR_PRECISION,
     PAIR_PRECISION_BF16,
+    PAIR_PRECISION_BF16_NATIVE,
     PAIR_PRECISION_FP8_EXTREME,
+    PAIR_PRECISION_FP8_HYBRID,
     PAIR_PRECISION_FP8_NATIVE,
+    SUPPORTED_BF16_NATIVE_RUNGS,
     SUPPORTED_PAIR_PRECISION,
     SUPPORTED_TRI_IMPLS,
     FoldingTrunk,
     collect_fp8_linear_storage_stats,
     configure_linear_precision,
+    resolve_bf16_native_rung,
     resolve_linear_precision,
     resolve_pair_precision,
+    validate_bf16_native_configuration,
     validate_fp8_extreme_configuration,
 )
 
@@ -40,6 +45,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--tri_einsum", choices=["off", "bf16"])
     parser.add_argument("--pair_precision", choices=SUPPORTED_PAIR_PRECISION)
     parser.add_argument("--linear_precision", choices=SUPPORTED_LINEAR_PRECISION)
+    parser.add_argument("--bf16_native_rung", choices=SUPPORTED_BF16_NATIVE_RUNGS)
     parser.add_argument("--fp8_activations", action="store_const", const=True, default=None)
     parser.add_argument("--warmup", type=int)
     parser.add_argument("--iters", type=int)
@@ -65,6 +71,7 @@ def load_config(args: argparse.Namespace) -> argparse.Namespace:
         "tri_einsum": cfg.tri_einsum,
         "pair_precision": resolve_pair_precision(cfg_pair_precision, cfg_fp8_activations),
         "linear_precision": resolve_linear_precision(OmegaConf.select(cfg, "linear_precision")),
+        "bf16_native_rung": resolve_bf16_native_rung(OmegaConf.select(cfg, "bf16_native_rung")),
         "fp8_activations": cfg_fp8_activations,
         "warmup": cfg.warmup,
         "iters": cfg.iters,
@@ -86,7 +93,13 @@ def load_config(args: argparse.Namespace) -> argparse.Namespace:
         merged["pair_precision"] = None
     merged["pair_precision"] = resolve_pair_precision(merged.get("pair_precision"), merged.get("fp8_activations"))
     merged["linear_precision"] = resolve_linear_precision(merged.get("linear_precision"))
-    merged["fp8_activations"] = merged["pair_precision"] != PAIR_PRECISION_BF16
+    merged["bf16_native_rung"] = validate_bf16_native_configuration(
+        merged["pair_precision"],
+        merged["linear_precision"],
+        merged["tri_impl"],
+        merged.get("bf16_native_rung"),
+    )
+    merged["fp8_activations"] = merged["pair_precision"] not in (PAIR_PRECISION_BF16, PAIR_PRECISION_BF16_NATIVE)
     return argparse.Namespace(**merged)
 
 
@@ -108,11 +121,12 @@ def build_model(args: argparse.Namespace, device: torch.device) -> FoldingTrunk:
         tri_einsum=args.tri_einsum,
         pair_precision=args.pair_precision,
         linear_precision=args.linear_precision,
+        bf16_native_rung=args.bf16_native_rung,
     ).to(device=device, dtype=torch.bfloat16)
     configure_linear_precision(
         model,
         args.linear_precision,
-        include_transition=args.pair_precision in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_NATIVE),
+        include_transition=args.pair_precision in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_HYBRID, PAIR_PRECISION_FP8_NATIVE),
     )
     model.eval()
     return model
@@ -141,7 +155,12 @@ def forward_once(
 def benchmark(model: FoldingTrunk, batch: dict[str, torch.Tensor], args: argparse.Namespace, device: torch.device) -> dict[str, float]:
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats(device)
-    use_bf16_autocast = args.pair_precision not in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_NATIVE)
+    use_bf16_autocast = args.pair_precision not in (
+        PAIR_PRECISION_BF16_NATIVE,
+        PAIR_PRECISION_FP8_EXTREME,
+        PAIR_PRECISION_FP8_HYBRID,
+        PAIR_PRECISION_FP8_NATIVE,
+    )
     for _ in range(args.warmup):
         forward_once(model, batch, args.num_recycling, use_bf16_autocast=use_bf16_autocast)
         torch.cuda.synchronize(device)
@@ -160,6 +179,7 @@ def benchmark(model: FoldingTrunk, batch: dict[str, torch.Tensor], args: argpars
     result = {
         "pair_precision_mode": args.pair_precision,
         "linear_precision_mode": args.linear_precision,
+        "bf16_native_rung": args.bf16_native_rung,
         "fp8_weights": args.linear_precision == LINEAR_PRECISION_FP8,
         "median_ms": median_ms,
         "mean_ms": float(statistics.mean(times_ms)),
@@ -216,6 +236,8 @@ def render_markdown(args: argparse.Namespace, result: dict[str, float]) -> str:
         notes.append(pair_precision)
     if linear_precision != LINEAR_PRECISION_BF16:
         notes.append(f"linear={linear_precision}")
+    if pair_precision == PAIR_PRECISION_BF16_NATIVE and getattr(args, "bf16_native_rung", None):
+        notes.append(f"rung={args.bf16_native_rung}")
     return "\n".join(
         [
             "| tri_impl | pair precision | linear precision | seq_len | mbs | median (ms) | prot/s | tok/s | peak mem (GiB) | notes |",
@@ -251,6 +273,7 @@ def main() -> None:
             "tri_einsum": args.tri_einsum,
             "pair_precision": args.pair_precision,
             "linear_precision": args.linear_precision,
+            "bf16_native_rung": args.bf16_native_rung,
             "fp8_activations": args.fp8_activations,
             "warmup": args.warmup,
             "iters": args.iters,

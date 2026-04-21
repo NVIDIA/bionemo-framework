@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 import importlib.util
 from pathlib import Path
 import sys
@@ -70,24 +70,40 @@ except Exception:
 
 
 PAIR_PRECISION_BF16 = "bf16"
+PAIR_PRECISION_BF16_NATIVE = "bf16_native"
 PAIR_PRECISION_FP8_STORAGE = "fp8_storage"
 PAIR_PRECISION_FP8_RESIDENT = "fp8_resident"
 PAIR_PRECISION_FP8_EXTREME = "fp8_extreme"
+PAIR_PRECISION_FP8_HYBRID = "fp8_hybrid"
 PAIR_PRECISION_FP8_NATIVE = "fp8_native"
 SUPPORTED_PAIR_PRECISION = (
     PAIR_PRECISION_BF16,
+    PAIR_PRECISION_BF16_NATIVE,
     PAIR_PRECISION_FP8_STORAGE,
     PAIR_PRECISION_FP8_RESIDENT,
     PAIR_PRECISION_FP8_EXTREME,
+    PAIR_PRECISION_FP8_HYBRID,
     PAIR_PRECISION_FP8_NATIVE,
 )
 LINEAR_PRECISION_BF16 = "bf16"
+LINEAR_PRECISION_BF16_NATIVE = "bf16_native"
 LINEAR_PRECISION_FP8 = "fp8"
 SUPPORTED_LINEAR_PRECISION = (
     LINEAR_PRECISION_BF16,
+    LINEAR_PRECISION_BF16_NATIVE,
     LINEAR_PRECISION_FP8,
 )
 SUPPORTED_TRI_IMPLS = ("bmm", "cublas_xbdnn", "fp8_cublaslt", "fp8_grouped")
+BF16_NATIVE_RUNG_B2 = "B2"
+BF16_NATIVE_RUNG_B3 = "B3"
+BF16_NATIVE_RUNG_B4 = "B4"
+BF16_NATIVE_RUNG_B5 = "B5"
+SUPPORTED_BF16_NATIVE_RUNGS = (
+    BF16_NATIVE_RUNG_B2,
+    BF16_NATIVE_RUNG_B3,
+    BF16_NATIVE_RUNG_B4,
+    BF16_NATIVE_RUNG_B5,
+)
 _FP8_MAX = 448.0
 _FP8_LINEAR_MAX_ROWS = 1 << 22
 _NATIVE_FC1_DIRECT_MAX_ROWS = 1 << 16
@@ -107,6 +123,15 @@ def resolve_linear_precision(linear_precision: str | None = None) -> str:
     if linear_precision not in SUPPORTED_LINEAR_PRECISION:
         raise ValueError(f"Unsupported linear_precision {linear_precision!r}; expected one of {SUPPORTED_LINEAR_PRECISION!r}")
     return linear_precision
+
+
+def resolve_bf16_native_rung(bf16_native_rung: str | None = None) -> str | None:
+    if bf16_native_rung is None:
+        return None
+    rung = bf16_native_rung.upper()
+    if rung not in SUPPORTED_BF16_NATIVE_RUNGS:
+        raise ValueError(f"Unsupported bf16_native_rung {bf16_native_rung!r}; expected one of {SUPPORTED_BF16_NATIVE_RUNGS!r}")
+    return rung
 
 
 def tri_mul_bmm_bdnn(a: torch.Tensor, b: torch.Tensor, k_dim: int) -> torch.Tensor:
@@ -242,6 +267,152 @@ class Mxfp8PairTensor:
     @property
     def scale_bytes(self) -> int:
         return self.scale.numel() * self.scale.element_size()
+
+
+@dataclass(frozen=True)
+class HybridPrecisionConfig:
+    use_native_layernorm: bool = False
+    use_native_linear: bool = False
+    use_native_gate: bool = False
+    use_native_tri: bool = False
+    use_resident_fp8_residual: bool = False
+
+
+def resolve_hybrid_precision_config(
+    hybrid_precision: HybridPrecisionConfig | dict[str, bool] | None = None,
+) -> HybridPrecisionConfig:
+    if hybrid_precision is None:
+        return HybridPrecisionConfig()
+    if isinstance(hybrid_precision, HybridPrecisionConfig):
+        return HybridPrecisionConfig(**asdict(hybrid_precision))
+    if isinstance(hybrid_precision, dict):
+        return HybridPrecisionConfig(**hybrid_precision)
+    raise TypeError(
+        "hybrid_precision must be a HybridPrecisionConfig, a dict of booleans, or None; "
+        f"got {type(hybrid_precision)!r}"
+    )
+
+
+@dataclass(frozen=True)
+class ActivationTraceEvent:
+    block_idx: int
+    op_name: str
+    mode_op_name: str
+    mode: str
+    tensor_format: str
+    shape: tuple[int, ...]
+    payload_shape: tuple[int, ...] | None
+    scale_shape: tuple[int, ...] | None
+    max_abs: float
+    mean_abs: float
+    nan_count: int
+    inf_count: int
+    scale_max_abs: float | None
+    scale_mean_abs: float | None
+    snapshot_index: int | None = None
+
+
+@dataclass
+class ActivationProbe:
+    pair_precision_mode: str
+    retain_tensors: bool = False
+    events: list[ActivationTraceEvent] = field(default_factory=list)
+    tensor_snapshots: list[torch.Tensor] = field(default_factory=list, repr=False)
+
+    def record(
+        self,
+        block_idx: int,
+        op_name: str,
+        tensor: torch.Tensor | QuantizedPairTensor | Mxfp8PairTensor,
+        *,
+        mode_op_name: str | None = None,
+    ) -> None:
+        dequantized, payload_shape, scale_shape, tensor_format = _unwrap_trace_tensor(tensor)
+        if dequantized.numel() == 0:
+            max_abs = 0.0
+            mean_abs = 0.0
+            nan_count = 0
+            inf_count = 0
+        else:
+            dequantized_f32 = dequantized.detach().to(torch.float32)
+            abs_tensor = dequantized_f32.abs()
+            max_abs = float(abs_tensor.amax().item())
+            mean_abs = float(abs_tensor.mean().item())
+            nan_count = int(torch.isnan(dequantized_f32).sum().item())
+            inf_count = int(torch.isinf(dequantized_f32).sum().item())
+
+        scale_max_abs = None
+        scale_mean_abs = None
+        if isinstance(tensor, (QuantizedPairTensor, Mxfp8PairTensor)):
+            scale_f32 = tensor.scale.detach().to(torch.float32)
+            scale_abs = scale_f32.abs()
+            if scale_abs.numel() > 0:
+                scale_max_abs = float(scale_abs.amax().item())
+                scale_mean_abs = float(scale_abs.mean().item())
+
+        snapshot_index = None
+        if self.retain_tensors:
+            snapshot_index = len(self.tensor_snapshots)
+            self.tensor_snapshots.append(dequantized.detach().cpu())
+
+        self.events.append(
+            ActivationTraceEvent(
+                block_idx=int(block_idx),
+                op_name=op_name,
+                mode_op_name=mode_op_name or op_name,
+                mode=self.pair_precision_mode,
+                tensor_format=tensor_format,
+                shape=tuple(dequantized.shape),
+                payload_shape=payload_shape,
+                scale_shape=scale_shape,
+                max_abs=max_abs,
+                mean_abs=mean_abs,
+                nan_count=nan_count,
+                inf_count=inf_count,
+                scale_max_abs=scale_max_abs,
+                scale_mean_abs=scale_mean_abs,
+                snapshot_index=snapshot_index,
+            )
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "pair_precision_mode": self.pair_precision_mode,
+            "events": [asdict(event) for event in self.events],
+        }
+
+
+def _unwrap_trace_tensor(
+    tensor: torch.Tensor | QuantizedPairTensor | Mxfp8PairTensor,
+) -> tuple[torch.Tensor, tuple[int, ...] | None, tuple[int, ...] | None, str]:
+    if isinstance(tensor, QuantizedPairTensor):
+        return (
+            tensor.dequantize(dtype=torch.float32),
+            tuple(tensor.payload.shape),
+            tuple(tensor.scale.shape),
+            "quantized_fp8",
+        )
+    if isinstance(tensor, Mxfp8PairTensor):
+        return (
+            tensor.dequantize(dtype=torch.float32),
+            tuple(tensor.payload.shape),
+            tuple(tensor.scale.shape),
+            "mxfp8_block32",
+        )
+    tensor_kind = str(tensor.dtype).replace("torch.", "")
+    return tensor.detach(), None, None, tensor_kind
+
+
+def _record_probe(
+    probe: ActivationProbe | None,
+    block_idx: int | None,
+    op_name: str,
+    tensor: torch.Tensor | QuantizedPairTensor | Mxfp8PairTensor,
+    *,
+    mode_op_name: str | None = None,
+) -> None:
+    if probe is not None and block_idx is not None:
+        probe.record(block_idx, op_name, tensor, mode_op_name=mode_op_name)
 
 
 def fp8_relu_quantized(tensor: QuantizedPairTensor) -> QuantizedPairTensor:
@@ -387,6 +558,62 @@ def native_transition_norm_fc1_quantized(
     if stats is not None:
         stats.record_native_linear_fused(payload, scale)
     return Mxfp8PairTensor(payload=payload, scale=scale, logical_dtype=x.logical_dtype)
+
+
+def native_transition_norm_fc1_bf16(
+    norm_module: nn.LayerNorm,
+    fc1_module: nn.Linear,
+    x: torch.Tensor,
+) -> torch.Tensor:
+    fallback = lambda: F.relu(fc1_module(norm_module(x)))
+    if (
+        minifold_native_raw is None
+        or not hasattr(minifold_native_raw, "transition_norm_fc1_bf16_fused")
+        or x.device.type != "cuda"
+        or x.dtype != torch.bfloat16
+        or x.shape[-1] != 128
+        or fc1_module.weight.shape != (512, 128)
+    ):
+        return fallback()
+    original_shape = x.shape[:-1]
+    rows = x.numel() // x.shape[-1]
+    out = minifold_native_raw.transition_norm_fc1_bf16_fused(
+        x.reshape(1, rows, x.shape[-1]).contiguous(),
+        norm_module.weight.to(device=x.device, dtype=torch.bfloat16).contiguous(),
+        norm_module.bias.to(device=x.device, dtype=torch.bfloat16).contiguous(),
+        float(norm_module.eps),
+        fc1_module.weight.to(device=x.device, dtype=torch.bfloat16).contiguous(),
+        None if fc1_module.bias is None else fc1_module.bias.to(device=x.device, dtype=torch.bfloat16).contiguous(),
+    )
+    return out.reshape(*original_shape, fc1_module.weight.shape[0]).contiguous()
+
+
+def native_transition_fc2_residual_bf16(
+    fc2_module: nn.Linear,
+    x: torch.Tensor,
+    residual: torch.Tensor,
+) -> torch.Tensor:
+    fallback = lambda: fc2_module(x) + residual
+    if (
+        minifold_native_raw is None
+        or not hasattr(minifold_native_raw, "transition_fc2_residual_bf16_fused")
+        or x.device.type != "cuda"
+        or x.dtype != torch.bfloat16
+        or residual.dtype != torch.bfloat16
+        or x.shape[-1] != 512
+        or residual.shape[-1] != 128
+        or fc2_module.weight.shape != (128, 512)
+    ):
+        return fallback()
+    original_shape = residual.shape[:-1]
+    rows = residual.numel() // residual.shape[-1]
+    out = minifold_native_raw.transition_fc2_residual_bf16_fused(
+        x.reshape(1, rows, x.shape[-1]).contiguous(),
+        fc2_module.weight.to(device=x.device, dtype=torch.bfloat16).contiguous(),
+        None if fc2_module.bias is None else fc2_module.bias.to(device=x.device, dtype=torch.bfloat16).contiguous(),
+        residual.reshape(1, rows, residual.shape[-1]).contiguous(),
+    )
+    return out.reshape(*original_shape, residual.shape[-1]).contiguous()
 
 
 @dataclass
@@ -1264,9 +1491,16 @@ class SequenceToPair(nn.Module):
 
 
 class TransitionUpdate(nn.Module):
-    def __init__(self, dim: int = 128, hidden: int = 512, linear_precision: str | None = None):
+    def __init__(
+        self,
+        dim: int = 128,
+        hidden: int = 512,
+        linear_precision: str | None = None,
+        hybrid_precision: HybridPrecisionConfig | dict[str, bool] | None = None,
+    ):
         super().__init__()
         self.linear_precision = resolve_linear_precision(linear_precision)
+        self.hybrid_precision = resolve_hybrid_precision_config(hybrid_precision)
         self.norm = nn.LayerNorm(dim, eps=1e-5)
         self.fc1 = nn.Linear(dim, hidden)
         self.fc2 = nn.Linear(hidden, dim)
@@ -1289,30 +1523,69 @@ class TransitionUpdate(nn.Module):
             return fp8_linear_forward(module, x)
         return module(x)
 
-    def forward(self, x: torch.Tensor, stats: FP8ActivationStats | None = None) -> torch.Tensor:
+    def _hybrid_fuses_residual(self) -> bool:
+        return self.hybrid_precision.use_resident_fp8_residual and self.hybrid_precision.use_native_linear
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> torch.Tensor:
         _record_boundary(stats, "layernorm")
         x = self.norm(x)
+        _record_probe(activation_probe, block_idx, "transition_norm", x)
         x = self._apply_linear(self.fc1, x)
         _record_boundary(stats, "relu")
         x = F.relu(x)
-        return self._apply_linear(self.fc2, x)
+        _record_probe(activation_probe, block_idx, "transition_fc1_relu", x)
+        x = self._apply_linear(self.fc2, x)
+        _record_probe(activation_probe, block_idx, "transition_fc2", x)
+        return x
 
-    def forward_fp8_extreme(self, x: Mxfp8PairTensor, stats: FP8ActivationStats | None = None) -> Mxfp8PairTensor:
+    def forward_fp8_extreme(
+        self,
+        x: Mxfp8PairTensor,
+        stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> Mxfp8PairTensor:
         if self.linear_precision != LINEAR_PRECISION_FP8 or not _has_mxfp8_linear_weight(self.fc1) or not _has_mxfp8_linear_weight(self.fc2):
             raise RuntimeError("fp8_extreme requires TransitionUpdate.fc1/fc2 to be quantized; build with linear_precision=fp8.")
         x = mxfp8_layernorm_quantized(self.norm, x)
+        _record_probe(activation_probe, block_idx, "transition_norm", x)
         x = mxfp8_linear_forward_quantized(self.fc1, x, stats=stats)
         x = mxfp8_relu_quantized(x)
-        return mxfp8_linear_forward_quantized(self.fc2, x, stats=stats)
+        _record_probe(activation_probe, block_idx, "transition_fc1_relu", x)
+        x = mxfp8_linear_forward_quantized(self.fc2, x, stats=stats)
+        _record_probe(activation_probe, block_idx, "transition_fc2", x)
+        return x
 
-    def forward_fp8_native(self, x: Mxfp8PairTensor, stats: FP8ActivationStats | None = None) -> Mxfp8PairTensor:
+    def forward_fp8_native(
+        self,
+        x: Mxfp8PairTensor,
+        stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> Mxfp8PairTensor:
         if self.linear_precision != LINEAR_PRECISION_FP8 or not _has_mxfp8_linear_weight(self.fc1) or not _has_mxfp8_linear_weight(self.fc2):
             raise RuntimeError("fp8_native requires TransitionUpdate.fc1/fc2 to be quantized; build with linear_precision=fp8.")
         residual = x
         x = native_transition_norm_fc1_quantized(self.norm, self.fc1, x, stats=stats)
+        _record_probe(
+            activation_probe,
+            block_idx,
+            "transition_fc1_relu",
+            x,
+            mode_op_name="transition_native_norm_fc1_out",
+        )
         if stats is not None:
             stats.record_boundary("fp8_residual_add")
-        return native_linear_forward_quantized(
+        x = native_linear_forward_quantized(
             self.fc2,
             x,
             stats=stats,
@@ -1320,14 +1593,110 @@ class TransitionUpdate(nn.Module):
             fuse_bias_epilogue=True,
             residual=residual,
         )
+        _record_probe(
+            activation_probe,
+            block_idx,
+            "transition_fc2",
+            x,
+            mode_op_name="transition_native_fc2_out",
+        )
+        return x
+
+    def forward_bf16_native(
+        self,
+        x: torch.Tensor,
+        bf16_native_rung: str,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> torch.Tensor:
+        if bf16_native_rung == BF16_NATIVE_RUNG_B2:
+            return self.forward(x, stats=None, block_idx=block_idx, activation_probe=activation_probe)
+        residual = x
+        if bf16_native_rung == BF16_NATIVE_RUNG_B3:
+            x = native_transition_norm_fc1_bf16(self.norm, self.fc1, x)
+            _record_probe(activation_probe, block_idx, "transition_fc1_relu", x)
+            x = self._apply_linear(self.fc2, x)
+            _record_probe(activation_probe, block_idx, "transition_fc2", x)
+            return x
+        x = native_transition_norm_fc1_bf16(self.norm, self.fc1, x)
+        _record_probe(activation_probe, block_idx, "transition_fc1_relu", x)
+        x = native_transition_fc2_residual_bf16(self.fc2, x, residual)
+        _record_probe(activation_probe, block_idx, "transition_fc2", x)
+        return x
+
+    def forward_fp8_hybrid(
+        self,
+        x: Mxfp8PairTensor,
+        stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> Mxfp8PairTensor:
+        if self.linear_precision != LINEAR_PRECISION_FP8 or not _has_mxfp8_linear_weight(self.fc1) or not _has_mxfp8_linear_weight(self.fc2):
+            raise RuntimeError("fp8_hybrid requires TransitionUpdate.fc1/fc2 to be quantized; build with linear_precision=fp8.")
+        residual = x
+        if self.hybrid_precision.use_native_layernorm:
+            x = native_mxfp8_layernorm_quantized(self.norm, x)
+        else:
+            x = mxfp8_layernorm_quantized(self.norm, x)
+        _record_probe(activation_probe, block_idx, "transition_norm", x)
+
+        if self.hybrid_precision.use_native_linear:
+            x = native_linear_forward_quantized(
+                self.fc1,
+                x,
+                stats=stats,
+                apply_relu=True,
+                direct_fp8_output=True,
+                fuse_bias_epilogue=True,
+            )
+            _record_probe(
+                activation_probe,
+                block_idx,
+                "transition_fc1_relu",
+                x,
+                mode_op_name="transition_native_fc1_relu_out",
+            )
+            x = native_linear_forward_quantized(
+                self.fc2,
+                x,
+                stats=stats,
+                direct_fp8_output=True,
+                fuse_bias_epilogue=True,
+                residual=residual if self._hybrid_fuses_residual() else None,
+            )
+            _record_probe(
+                activation_probe,
+                block_idx,
+                "transition_fc2",
+                x,
+                mode_op_name="transition_native_fc2_out",
+            )
+            return x
+
+        x = mxfp8_linear_forward_quantized(self.fc1, x, stats=stats)
+        x = mxfp8_relu_quantized(x)
+        _record_probe(activation_probe, block_idx, "transition_fc1_relu", x)
+        x = mxfp8_linear_forward_quantized(self.fc2, x, stats=stats)
+        _record_probe(activation_probe, block_idx, "transition_fc2", x)
+        return x
 
 
 class TriangularUpdate(nn.Module):
-    def __init__(self, dim: int = 128, tri_impl: str = "bmm", tri_einsum: str = "bf16", linear_precision: str | None = None):
+    def __init__(
+        self,
+        dim: int = 128,
+        tri_impl: str = "bmm",
+        tri_einsum: str = "bf16",
+        linear_precision: str | None = None,
+        hybrid_precision: HybridPrecisionConfig | dict[str, bool] | None = None,
+    ):
         super().__init__()
         self.tri_impl = tri_impl
         self.tri_einsum = tri_einsum
         self.linear_precision = resolve_linear_precision(linear_precision)
+        self.hybrid_precision = resolve_hybrid_precision_config(hybrid_precision)
         self.input_norm = nn.LayerNorm(dim, eps=1e-5)
         self.pi = nn.Linear(dim, dim)
         self.gi = nn.Linear(dim, dim)
@@ -1346,96 +1715,417 @@ class TriangularUpdate(nn.Module):
             return fp8_linear_forward(module, x)
         return module(x)
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor, stats: FP8ActivationStats | None = None) -> torch.Tensor:
+    def _hybrid_fuses_residual(self) -> bool:
+        return self.hybrid_precision.use_resident_fp8_residual and self.hybrid_precision.use_native_gate
+
+    def _run_tri_backend(self, x_bdnn: torch.Tensor, out_dtype: torch.dtype) -> torch.Tensor:
+        if self.tri_impl == "cublas_xbdnn":
+            return tri_mul_xbdnn(x_bdnn, out_dtype=out_dtype)
+        if self.tri_impl == "bmm":
+            a1, b1, a2, b2 = torch.chunk(x_bdnn, 4, dim=1)
+            x1 = tri_mul_bmm_bdnn(a1, b1, k_dim=2)
+            x2 = tri_mul_bmm_bdnn(a2, b2, k_dim=1)
+            return torch.cat([x1, x2], dim=-1)
+        if self.tri_impl == "fp8_cublaslt":
+            return tri_mul_fp8_cublaslt(x_bdnn, out_dtype=out_dtype)
+        if self.tri_impl == "fp8_grouped":
+            return tri_mul_fp8_grouped(x_bdnn, out_dtype=out_dtype)
+        raise ValueError(f"Unsupported tri_impl: {self.tri_impl}")
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor,
+        stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> torch.Tensor:
         _record_boundary(stats, "layernorm")
         x = self.input_norm(x)
+        _record_probe(activation_probe, block_idx, "tri_input_norm", x)
         pi = self._apply_linear(self.pi, x)
+        _record_probe(activation_probe, block_idx, "tri_pi", pi)
         gi = self._apply_linear(self.gi, x)
+        _record_probe(activation_probe, block_idx, "tri_gi", gi)
         _record_boundary(stats, "sigmoid")
         x = pi * torch.sigmoid(gi)
+        _record_probe(activation_probe, block_idx, "tri_gated", x)
         _record_boundary(stats, "mask_mul")
         x = x * mask.unsqueeze(-1)
         if self.tri_einsum == "off":
             x = x.float()
         x_bdnn = x.permute(0, 3, 1, 2).contiguous()
-        if self.tri_impl == "cublas_xbdnn":
-            x = tri_mul_xbdnn(x_bdnn, out_dtype=x.dtype)
-        elif self.tri_impl == "bmm":
-            a1, b1, a2, b2 = torch.chunk(x_bdnn, 4, dim=1)
-            x1 = tri_mul_bmm_bdnn(a1, b1, k_dim=2)
-            x2 = tri_mul_bmm_bdnn(a2, b2, k_dim=1)
-            x = torch.cat([x1, x2], dim=-1)
-        elif self.tri_impl == "fp8_cublaslt":
-            x = tri_mul_fp8_cublaslt(x_bdnn, out_dtype=x.dtype)
-        elif self.tri_impl == "fp8_grouped":
-            x = tri_mul_fp8_grouped(x_bdnn, out_dtype=x.dtype)
-        else:
-            raise ValueError(f"Unsupported tri_impl: {self.tri_impl}")
+        x = self._run_tri_backend(x_bdnn, out_dtype=x.dtype)
         x = x.to(self.output_norm.weight.dtype)
+        _record_probe(activation_probe, block_idx, "tri_mul_out", x)
         _record_boundary(stats, "layernorm")
         x = self.output_norm(x)
+        _record_probe(activation_probe, block_idx, "tri_output_norm", x)
         po = self._apply_linear(self.po, x)
+        _record_probe(activation_probe, block_idx, "tri_po", po)
         go = self._apply_linear(self.go, x)
+        _record_probe(activation_probe, block_idx, "tri_go", go)
         _record_boundary(stats, "sigmoid")
-        return po * torch.sigmoid(go)
+        x = po * torch.sigmoid(go)
+        _record_probe(activation_probe, block_idx, "tri_out", x)
+        return x
 
-    def forward_fp8_extreme(self, x: Mxfp8PairTensor, mask: torch.Tensor, stats: FP8ActivationStats | None = None) -> Mxfp8PairTensor:
+    def forward_fp8_extreme(
+        self,
+        x: Mxfp8PairTensor,
+        mask: torch.Tensor,
+        stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> Mxfp8PairTensor:
         if self.linear_precision != LINEAR_PRECISION_FP8:
             raise RuntimeError("fp8_extreme requires linear_precision=fp8 for TriangularUpdate.")
         if self.tri_impl != "fp8_cublaslt":
             raise RuntimeError("fp8_extreme currently requires tri_impl=fp8_cublaslt.")
         x = mxfp8_layernorm_quantized(self.input_norm, x)
+        _record_probe(activation_probe, block_idx, "tri_input_norm", x)
         pi = mxfp8_linear_forward_quantized(self.pi, x, stats=stats)
+        _record_probe(activation_probe, block_idx, "tri_pi", pi)
         gi = mxfp8_linear_forward_quantized(self.gi, x, stats=stats)
+        _record_probe(activation_probe, block_idx, "tri_gi", gi)
         gated = mxfp8_mul_quantized(pi, mxfp8_sigmoid_quantized(gi))
+        _record_probe(activation_probe, block_idx, "tri_gated", gated)
         tri_out_q = mxfp8_tri_mul_fp8_cublaslt_quantized(gated, stats=stats, out_dtype=torch.float16, mask=mask)
+        _record_probe(activation_probe, block_idx, "tri_mul_out", tri_out_q)
         tri_out_q = mxfp8_layernorm_quantized(self.output_norm, tri_out_q)
+        _record_probe(activation_probe, block_idx, "tri_output_norm", tri_out_q)
         po = mxfp8_linear_forward_quantized(self.po, tri_out_q, stats=stats)
+        _record_probe(activation_probe, block_idx, "tri_po", po)
         go = mxfp8_linear_forward_quantized(self.go, tri_out_q, stats=stats)
-        return mxfp8_mul_quantized(po, mxfp8_sigmoid_quantized(go))
+        _record_probe(activation_probe, block_idx, "tri_go", go)
+        x = mxfp8_mul_quantized(po, mxfp8_sigmoid_quantized(go))
+        _record_probe(activation_probe, block_idx, "tri_out", x)
+        return x
 
-    def forward_fp8_native(self, x: Mxfp8PairTensor, mask: torch.Tensor, stats: FP8ActivationStats | None = None) -> Mxfp8PairTensor:
+    def forward_fp8_native(
+        self,
+        x: Mxfp8PairTensor,
+        mask: torch.Tensor,
+        stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> Mxfp8PairTensor:
         if self.linear_precision != LINEAR_PRECISION_FP8:
             raise RuntimeError("fp8_native requires linear_precision=fp8 for TriangularUpdate.")
         if self.tri_impl != "fp8_cublaslt":
             raise RuntimeError("fp8_native currently requires tri_impl=fp8_cublaslt.")
         residual = x
         tri_out_q = native_tri_mul_from_input_quantized(self.input_norm, self.pi, self.gi, x, mask=mask, stats=stats)
+        _record_probe(
+            activation_probe,
+            block_idx,
+            "tri_mul_out",
+            tri_out_q,
+            mode_op_name="tri_native_input_gate_mul_out",
+        )
         tri_out_q = native_mxfp8_layernorm_quantized(self.output_norm, tri_out_q)
+        _record_probe(activation_probe, block_idx, "tri_output_norm", tri_out_q)
         if stats is not None:
             stats.record_boundary("fp8_residual_add")
-        return native_gate_sigmoid_mul_quantized(self.po, self.go, tri_out_q, stats=stats, residual=residual)
+        x = native_gate_sigmoid_mul_quantized(self.po, self.go, tri_out_q, stats=stats, residual=residual)
+        _record_probe(
+            activation_probe,
+            block_idx,
+            "tri_residual_out",
+            x,
+            mode_op_name="tri_native_output_gate_out",
+        )
+        return x
+
+    def forward_bf16_native(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor,
+        bf16_native_rung: str,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> torch.Tensor:
+        x = self.input_norm(x)
+        _record_probe(activation_probe, block_idx, "tri_input_norm", x)
+        pi = self._apply_linear(self.pi, x)
+        _record_probe(activation_probe, block_idx, "tri_pi", pi)
+        gi = self._apply_linear(self.gi, x)
+        _record_probe(activation_probe, block_idx, "tri_gi", gi)
+        x = pi * torch.sigmoid(gi)
+        _record_probe(activation_probe, block_idx, "tri_gated", x)
+        x = x * mask.unsqueeze(-1)
+        x_bdnn = x.permute(0, 3, 1, 2).contiguous()
+        x = self._run_tri_backend(x_bdnn, out_dtype=x.dtype)
+        x = x.to(self.output_norm.weight.dtype)
+        _record_probe(activation_probe, block_idx, "tri_mul_out", x)
+        x = self.output_norm(x)
+        _record_probe(activation_probe, block_idx, "tri_output_norm", x)
+        po = self._apply_linear(self.po, x)
+        _record_probe(activation_probe, block_idx, "tri_po", po)
+        go = self._apply_linear(self.go, x)
+        _record_probe(activation_probe, block_idx, "tri_go", go)
+        x = po * torch.sigmoid(go)
+        _record_probe(activation_probe, block_idx, "tri_out", x)
+        return x
+
+    def forward_fp8_hybrid(
+        self,
+        x: Mxfp8PairTensor,
+        mask: torch.Tensor,
+        stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> Mxfp8PairTensor:
+        if self.linear_precision != LINEAR_PRECISION_FP8:
+            raise RuntimeError("fp8_hybrid requires linear_precision=fp8 for TriangularUpdate.")
+        if self.tri_impl != "fp8_cublaslt":
+            raise RuntimeError("fp8_hybrid currently requires tri_impl=fp8_cublaslt.")
+
+        residual = x
+        if self.hybrid_precision.use_native_layernorm:
+            x = native_mxfp8_layernorm_quantized(self.input_norm, x)
+        else:
+            x = mxfp8_layernorm_quantized(self.input_norm, x)
+        _record_probe(activation_probe, block_idx, "tri_input_norm", x)
+
+        if self.hybrid_precision.use_native_gate:
+            gated = native_gate_sigmoid_mul_quantized(self.pi, self.gi, x, stats=stats)
+            _record_probe(
+                activation_probe,
+                block_idx,
+                "tri_gated",
+                gated,
+                mode_op_name="tri_native_input_gate_out",
+            )
+        else:
+            pi = mxfp8_linear_forward_quantized(self.pi, x, stats=stats)
+            _record_probe(activation_probe, block_idx, "tri_pi", pi)
+            gi = mxfp8_linear_forward_quantized(self.gi, x, stats=stats)
+            _record_probe(activation_probe, block_idx, "tri_gi", gi)
+            gated = mxfp8_mul_quantized(pi, mxfp8_sigmoid_quantized(gi))
+            _record_probe(activation_probe, block_idx, "tri_gated", gated)
+
+        if self.hybrid_precision.use_native_tri:
+            tri_out_q = native_tri_mul_from_block32_quantized(gated, mask=mask, stats=stats)
+            _record_probe(
+                activation_probe,
+                block_idx,
+                "tri_mul_out",
+                tri_out_q,
+                mode_op_name="tri_native_mul_out",
+            )
+        else:
+            tri_out_q = mxfp8_tri_mul_fp8_cublaslt_quantized(gated, stats=stats, out_dtype=torch.float16, mask=mask)
+            _record_probe(activation_probe, block_idx, "tri_mul_out", tri_out_q)
+
+        if self.hybrid_precision.use_native_layernorm:
+            tri_out_q = native_mxfp8_layernorm_quantized(self.output_norm, tri_out_q)
+        else:
+            tri_out_q = mxfp8_layernorm_quantized(self.output_norm, tri_out_q)
+        _record_probe(activation_probe, block_idx, "tri_output_norm", tri_out_q)
+
+        if self.hybrid_precision.use_native_gate:
+            tri_out = native_gate_sigmoid_mul_quantized(
+                self.po,
+                self.go,
+                tri_out_q,
+                stats=stats,
+                residual=residual if self._hybrid_fuses_residual() else None,
+            )
+            _record_probe(
+                activation_probe,
+                block_idx,
+                "tri_residual_out" if self._hybrid_fuses_residual() else "tri_out",
+                tri_out,
+                mode_op_name="tri_native_output_gate_out",
+            )
+            return tri_out
+
+        po = mxfp8_linear_forward_quantized(self.po, tri_out_q, stats=stats)
+        _record_probe(activation_probe, block_idx, "tri_po", po)
+        go = mxfp8_linear_forward_quantized(self.go, tri_out_q, stats=stats)
+        _record_probe(activation_probe, block_idx, "tri_go", go)
+        tri_out = mxfp8_mul_quantized(po, mxfp8_sigmoid_quantized(go))
+        _record_probe(activation_probe, block_idx, "tri_out", tri_out)
+        return tri_out
 
 
 class Block(nn.Module):
-    def __init__(self, dim: int = 128, tri_impl: str = "bmm", tri_einsum: str = "bf16", linear_precision: str | None = None):
+    def __init__(
+        self,
+        dim: int = 128,
+        tri_impl: str = "bmm",
+        tri_einsum: str = "bf16",
+        linear_precision: str | None = None,
+        hybrid_precision: HybridPrecisionConfig | dict[str, bool] | None = None,
+        bf16_native_rung: str | None = None,
+    ):
         super().__init__()
-        self.triangular = TriangularUpdate(dim=dim, tri_impl=tri_impl, tri_einsum=tri_einsum, linear_precision=linear_precision)
-        self.transition = TransitionUpdate(dim=dim, hidden=dim * 4, linear_precision=linear_precision)
+        self.hybrid_precision = resolve_hybrid_precision_config(hybrid_precision)
+        self.bf16_native_rung = resolve_bf16_native_rung(bf16_native_rung) or BF16_NATIVE_RUNG_B4
+        self.triangular = TriangularUpdate(
+            dim=dim,
+            tri_impl=tri_impl,
+            tri_einsum=tri_einsum,
+            linear_precision=linear_precision,
+            hybrid_precision=self.hybrid_precision,
+        )
+        self.transition = TransitionUpdate(
+            dim=dim,
+            hidden=dim * 4,
+            linear_precision=linear_precision,
+            hybrid_precision=self.hybrid_precision,
+        )
+
+    def _hybrid_uses_tri_residual_fusion(self) -> bool:
+        return self.hybrid_precision.use_resident_fp8_residual and self.hybrid_precision.use_native_gate
+
+    def _hybrid_uses_transition_residual_fusion(self) -> bool:
+        return self.hybrid_precision.use_resident_fp8_residual and self.hybrid_precision.use_native_linear
 
     def forward(
         self,
         x: torch.Tensor | QuantizedPairTensor | Mxfp8PairTensor,
         mask: torch.Tensor,
         stats: FP8ActivationStats | None = None,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
     ) -> torch.Tensor:
+        _record_probe(activation_probe, block_idx, "block_input", x)
         if isinstance(x, Mxfp8PairTensor) and stats is not None and stats.pair_precision_mode == PAIR_PRECISION_FP8_EXTREME:
-            tri_out = self.triangular.forward_fp8_extreme(x, mask, stats=stats)
+            tri_out = self.triangular.forward_fp8_extreme(
+                x,
+                mask,
+                stats=stats,
+                block_idx=block_idx,
+                activation_probe=activation_probe,
+            )
             _record_boundary(stats, "fp8_residual_add")
             x = mxfp8_add_quantized(x, tri_out)
-            trans_out = self.transition.forward_fp8_extreme(x, stats=stats)
+            _record_probe(activation_probe, block_idx, "tri_residual_out", x)
+            trans_out = self.transition.forward_fp8_extreme(
+                x,
+                stats=stats,
+                block_idx=block_idx,
+                activation_probe=activation_probe,
+            )
             _record_boundary(stats, "fp8_residual_add")
-            return mxfp8_add_quantized(x, trans_out)
+            x = mxfp8_add_quantized(x, trans_out)
+            _record_probe(activation_probe, block_idx, "block_output", x)
+            return x
         if isinstance(x, Mxfp8PairTensor) and stats is not None and stats.pair_precision_mode == PAIR_PRECISION_FP8_NATIVE:
-            x = self.triangular.forward_fp8_native(x, mask, stats=stats)
-            return self.transition.forward_fp8_native(x, stats=stats)
+            x = self.triangular.forward_fp8_native(
+                x,
+                mask,
+                stats=stats,
+                block_idx=block_idx,
+                activation_probe=activation_probe,
+            )
+            x = self.transition.forward_fp8_native(
+                x,
+                stats=stats,
+                block_idx=block_idx,
+                activation_probe=activation_probe,
+            )
+            _record_probe(
+                activation_probe,
+                block_idx,
+                "block_output",
+                x,
+                mode_op_name="transition_native_fc2_out",
+            )
+            return x
+        if isinstance(x, Mxfp8PairTensor) and stats is not None and stats.pair_precision_mode == PAIR_PRECISION_FP8_HYBRID:
+            tri_out = self.triangular.forward_fp8_hybrid(
+                x,
+                mask,
+                stats=stats,
+                block_idx=block_idx,
+                activation_probe=activation_probe,
+            )
+            if self._hybrid_uses_tri_residual_fusion():
+                x = tri_out
+            else:
+                _record_boundary(stats, "fp8_residual_add")
+                x = mxfp8_add_quantized(x, tri_out)
+                _record_probe(activation_probe, block_idx, "tri_residual_out", x)
+            trans_out = self.transition.forward_fp8_hybrid(
+                x,
+                stats=stats,
+                block_idx=block_idx,
+                activation_probe=activation_probe,
+            )
+            if self._hybrid_uses_transition_residual_fusion():
+                x = trans_out
+            else:
+                _record_boundary(stats, "fp8_residual_add")
+                x = mxfp8_add_quantized(x, trans_out)
+            _record_probe(
+                activation_probe,
+                block_idx,
+                "block_output",
+                x,
+                mode_op_name="transition_native_fc2_out" if self._hybrid_uses_transition_residual_fusion() else "block_output",
+            )
+            return x
         x = _materialize_pair_tensor(x, stats, "layernorm")
-        tri_out = self.triangular(x, mask, stats=stats)
+        tri_out = self.triangular(
+            x,
+            mask,
+            stats=stats,
+            block_idx=block_idx,
+            activation_probe=activation_probe,
+        )
         _record_boundary(stats, "residual_add")
         x = x + tri_out
-        trans_out = self.transition(x, stats=stats)
+        _record_probe(activation_probe, block_idx, "tri_residual_out", x)
+        trans_out = self.transition(
+            x,
+            stats=stats,
+            block_idx=block_idx,
+            activation_probe=activation_probe,
+        )
         _record_boundary(stats, "residual_add")
-        return x + trans_out
+        x = x + trans_out
+        _record_probe(activation_probe, block_idx, "block_output", x)
+        return x
+
+    def forward_bf16_native(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor,
+        *,
+        block_idx: int | None = None,
+        activation_probe: ActivationProbe | None = None,
+    ) -> torch.Tensor:
+        _record_probe(activation_probe, block_idx, "block_input", x)
+        tri_out = self.triangular.forward_bf16_native(
+            x,
+            mask,
+            self.bf16_native_rung,
+            block_idx=block_idx,
+            activation_probe=activation_probe,
+        )
+        x = x + tri_out
+        _record_probe(activation_probe, block_idx, "tri_residual_out", x)
+        trans_out = self.transition.forward_bf16_native(
+            x,
+            self.bf16_native_rung,
+            block_idx=block_idx,
+            activation_probe=activation_probe,
+        )
+        if self.bf16_native_rung in (BF16_NATIVE_RUNG_B4, BF16_NATIVE_RUNG_B5):
+            x = trans_out
+        else:
+            x = x + trans_out
+        _record_probe(activation_probe, block_idx, "block_output", x)
+        return x
 
 
 class MiniFormer(nn.Module):
@@ -1448,26 +2138,55 @@ class MiniFormer(nn.Module):
         pair_precision: str | None = None,
         linear_precision: str | None = None,
         fp8_activations: bool | None = None,
+        hybrid_precision: HybridPrecisionConfig | dict[str, bool] | None = None,
+        bf16_native_rung: str | None = None,
     ):
         super().__init__()
         self.pair_precision = resolve_pair_precision(pair_precision=pair_precision, fp8_activations=fp8_activations)
         self.linear_precision = resolve_linear_precision(linear_precision)
-        self.fp8_activations = self.pair_precision != PAIR_PRECISION_BF16
+        self.hybrid_precision = resolve_hybrid_precision_config(hybrid_precision)
+        self.bf16_native_rung = resolve_bf16_native_rung(bf16_native_rung)
+        if self.pair_precision == PAIR_PRECISION_BF16_NATIVE and self.bf16_native_rung is None:
+            self.bf16_native_rung = BF16_NATIVE_RUNG_B4
+        self.fp8_activations = self.pair_precision not in (PAIR_PRECISION_BF16, PAIR_PRECISION_BF16_NATIVE)
         self.blocks = nn.ModuleList(
-            [Block(dim=dim, tri_impl=tri_impl, tri_einsum=tri_einsum, linear_precision=self.linear_precision) for _ in range(blocks)]
+            [
+                Block(
+                    dim=dim,
+                    tri_impl=tri_impl,
+                    tri_einsum=tri_einsum,
+                    linear_precision=self.linear_precision,
+                    hybrid_precision=self.hybrid_precision,
+                    bf16_native_rung=self.bf16_native_rung,
+                )
+                for _ in range(blocks)
+            ]
         )
         self.last_pair_precision_stats: FP8ActivationStats | None = None
         self.last_fp8_stats: FP8ActivationStats | None = None
+        self.last_activation_probe: ActivationProbe | None = None
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
-        stats = None if self.pair_precision == PAIR_PRECISION_BF16 else FP8ActivationStats(pair_precision_mode=self.pair_precision)
-        if self.pair_precision in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_NATIVE):
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor,
+        *,
+        activation_probe: ActivationProbe | None = None,
+        dump_activation_stats: bool = False,
+    ) -> torch.Tensor:
+        stats = None if self.pair_precision in (PAIR_PRECISION_BF16, PAIR_PRECISION_BF16_NATIVE) else FP8ActivationStats(pair_precision_mode=self.pair_precision)
+        if dump_activation_stats and activation_probe is None:
+            activation_probe = ActivationProbe(pair_precision_mode=self.pair_precision)
+        if self.pair_precision in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_HYBRID, PAIR_PRECISION_FP8_NATIVE):
             x = Mxfp8PairTensor.from_tensor(x, scale_dtype=torch.float32)
             if stats is not None:
                 stats.record_quantize(x)
         for idx, block in enumerate(self.blocks):
-            x = block(x, mask, stats=stats)
-            if self.pair_precision in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_NATIVE):
+            if self.pair_precision == PAIR_PRECISION_BF16_NATIVE:
+                x = block.forward_bf16_native(x, mask, block_idx=idx, activation_probe=activation_probe)
+                continue
+            x = block(x, mask, stats=stats, block_idx=idx, activation_probe=activation_probe)
+            if self.pair_precision in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_HYBRID, PAIR_PRECISION_FP8_NATIVE):
                 if stats is not None and isinstance(x, Mxfp8PairTensor):
                     stats.record_quantize(x)
                 continue
@@ -1487,6 +2206,7 @@ class MiniFormer(nn.Module):
             x = _materialize_pair_tensor(x, stats, "miniformer_exit")
         self.last_pair_precision_stats = stats
         self.last_fp8_stats = stats
+        self.last_activation_probe = activation_probe
         return x
 
 
@@ -1503,6 +2223,8 @@ class FoldingTrunk(nn.Module):
         pair_precision: str | None = None,
         linear_precision: str | None = None,
         fp8_activations: bool | None = None,
+        hybrid_precision: HybridPrecisionConfig | dict[str, bool] | None = None,
+        bf16_native_rung: str | None = None,
     ):
         super().__init__()
         self.disto_bins = disto_bins
@@ -1518,13 +2240,24 @@ class FoldingTrunk(nn.Module):
             pair_precision=pair_precision,
             linear_precision=linear_precision,
             fp8_activations=fp8_activations,
+            hybrid_precision=hybrid_precision,
+            bf16_native_rung=bf16_native_rung,
         )
         self.fc_out_1 = nn.Linear(c_z, c_z)
         self.fc_out_2 = nn.Linear(c_z, disto_bins)
         nn.init.zeros_(self.seq_to_pair.o_proj.weight)
         nn.init.zeros_(self.seq_to_pair.o_proj.bias)
 
-    def forward(self, s_s: torch.Tensor, s_z: torch.Tensor, mask: torch.Tensor, num_recycling: int = 0) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self,
+        s_s: torch.Tensor,
+        s_z: torch.Tensor,
+        mask: torch.Tensor,
+        num_recycling: int = 0,
+        *,
+        activation_probe: ActivationProbe | None = None,
+        dump_activation_stats: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         pair_mask = mask[:, None, :] * mask[:, :, None]
         residx = torch.arange(s_s.shape[1], device=s_s.device).unsqueeze(0).expand(s_s.shape[0], -1)
         s_z = torch.cat([s_z, self.seq_to_pair(s_s), self.positional_embedding(residx, mask=pair_mask)], dim=-1)
@@ -1534,7 +2267,12 @@ class FoldingTrunk(nn.Module):
         dists = torch.zeros(shape, device=s_z.device, dtype=s_z.dtype)
         for _ in range(num_recycling + 1):
             s_z_c = s_z + self.recycle(dists)
-            s_z_c = self.miniformer(s_z_c, pair_mask)
+            s_z_c = self.miniformer(
+                s_z_c,
+                pair_mask,
+                activation_probe=activation_probe,
+                dump_activation_stats=dump_activation_stats,
+            )
             fc_out = self.fc_out_1(s_z_c + s_z_c.transpose(1, 2))
             fc_out = F.relu(fc_out)
             preds = self.fc_out_2(fc_out)
@@ -1556,6 +2294,8 @@ class PlainESM2MiniFold(nn.Module):
         pair_precision: str | None = None,
         linear_precision: str | None = None,
         fp8_activations: bool | None = None,
+        hybrid_precision: HybridPrecisionConfig | dict[str, bool] | None = None,
+        bf16_native_rung: str | None = None,
     ):
         super().__init__()
         from esm_backbone import ESM2Backbone
@@ -1578,14 +2318,32 @@ class PlainESM2MiniFold(nn.Module):
             pair_precision=pair_precision,
             linear_precision=linear_precision,
             fp8_activations=fp8_activations,
+            hybrid_precision=hybrid_precision,
+            bf16_native_rung=bf16_native_rung,
         )
 
-    def forward(self, batch: dict[str, torch.Tensor], num_recycling: int = 0) -> dict[str, torch.Tensor]:
+    def forward(
+        self,
+        batch: dict[str, torch.Tensor],
+        num_recycling: int = 0,
+        *,
+        activation_probe: ActivationProbe | None = None,
+        dump_activation_stats: bool = False,
+    ) -> dict[str, torch.Tensor]:
         esm_out = self.backbone(input_ids=batch["input_ids"], attention_mask=batch.get("attention_mask"))
         s_s = self.fc_s_2(F.relu(self.fc_s_1(esm_out["representations"])))
         s_z = self.fc_z_2(F.relu(self.fc_z_1(esm_out["attentions"])))
-        preds, pair = self.fold(s_s, s_z, mask=batch["mask"], num_recycling=num_recycling)
+        preds, pair = self.fold(
+            s_s,
+            s_z,
+            mask=batch["mask"],
+            num_recycling=num_recycling,
+            activation_probe=activation_probe,
+            dump_activation_stats=dump_activation_stats,
+        )
         return {"preds": preds, "pair": pair}
+
+
 def configure_linear_precision(
     module: nn.Module,
     linear_precision: str | None = None,
@@ -1601,8 +2359,29 @@ def configure_linear_precision(
     return resolved
 
 
+def validate_bf16_native_configuration(
+    pair_precision: str,
+    linear_precision: str,
+    tri_impl: str,
+    bf16_native_rung: str | None = None,
+) -> str | None:
+    rung = resolve_bf16_native_rung(bf16_native_rung)
+    if pair_precision != PAIR_PRECISION_BF16_NATIVE:
+        return rung
+    if rung is None:
+        rung = BF16_NATIVE_RUNG_B4
+    if tri_impl != "cublas_xbdnn":
+        raise ValueError("pair_precision=bf16_native currently requires tri_impl=cublas_xbdnn.")
+    if rung == BF16_NATIVE_RUNG_B2:
+        if linear_precision != LINEAR_PRECISION_BF16:
+            raise ValueError("bf16_native rung B2 currently requires linear_precision=bf16.")
+    elif linear_precision != LINEAR_PRECISION_BF16_NATIVE:
+        raise ValueError(f"bf16_native rung {rung} currently requires linear_precision=bf16_native.")
+    return rung
+
+
 def validate_fp8_extreme_configuration(pair_precision: str, linear_precision: str, tri_impl: str) -> None:
-    if pair_precision not in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_NATIVE):
+    if pair_precision not in (PAIR_PRECISION_FP8_EXTREME, PAIR_PRECISION_FP8_HYBRID, PAIR_PRECISION_FP8_NATIVE):
         return
     if linear_precision != LINEAR_PRECISION_FP8:
         raise ValueError(f"pair_precision={pair_precision} requires linear_precision=fp8.")

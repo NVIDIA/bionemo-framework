@@ -161,6 +161,16 @@ def _copy_layernorm_from_te(te_ln, orig_ln):
     _copy_param(te_ln.bias, orig_ln.bias)
 
 
+def copy_linear_from_te(te_linear, orig_linear):
+    """Public wrapper for copying a TE linear module into a plain nn.Linear."""
+    _copy_linear_from_te(te_linear, orig_linear)
+
+
+def copy_layernorm_from_te(te_ln, orig_ln):
+    """Public wrapper for copying a TE layer norm into a plain nn.LayerNorm."""
+    _copy_layernorm_from_te(te_ln, orig_ln)
+
+
 # ---------------------------------------------------------------------------
 # SequenceToPair <-> SequenceToPairTE
 # ---------------------------------------------------------------------------
@@ -224,6 +234,16 @@ def copy_folding_trunk_from_te(te_mod, orig):
     copy_miniformer_from_te(te_mod.miniformer, orig.miniformer)
     _copy_linear_from_te(te_mod.fc_out_1, orig.fc_out[0])
     _copy_linear_from_te(te_mod.fc_out_2, orig.fc_out[2])
+
+
+def copy_plain_esm2_minifold_from_te(te_mod, plain_mod):
+    """Copy a loaded TE ESM2-MiniFold model into the plain inference runtime."""
+    plain_mod.backbone.load_state_dict(te_mod.backbone.state_dict(), strict=True)
+    copy_linear_from_te(te_mod.fc_s_1, plain_mod.fc_s_1)
+    copy_linear_from_te(te_mod.fc_s_2, plain_mod.fc_s_2)
+    copy_linear_from_te(te_mod.fc_z_1, plain_mod.fc_z_1)
+    copy_linear_from_te(te_mod.fc_z_2, plain_mod.fc_z_2)
+    copy_folding_trunk_from_te(te_mod.fold, plain_mod.fold)
 
 
 # ---------------------------------------------------------------------------

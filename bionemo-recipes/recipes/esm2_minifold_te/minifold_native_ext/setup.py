@@ -17,6 +17,7 @@ setup(
         CUDAExtension(
             name="minifold_native_ext._C",
             sources=[
+                "csrc/bf16_transition_cuda.cu",
                 "csrc/bindings.cpp",
                 "csrc/fc1_direct_cutlass.cu",
                 "csrc/linear_block32_cuda.cu",

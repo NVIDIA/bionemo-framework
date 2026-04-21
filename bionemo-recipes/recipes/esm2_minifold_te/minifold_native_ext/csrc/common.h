@@ -51,6 +51,20 @@ std::tuple<at::Tensor, at::Tensor> transition_norm_fc1_block32_fused_cuda(
     const at::Tensor& b_scale_swizzled,
     const c10::optional<at::Tensor>& bias = c10::nullopt);
 
+at::Tensor transition_norm_fc1_bf16_fused_cuda(
+    const at::Tensor& input,
+    const at::Tensor& norm_weight,
+    const at::Tensor& norm_bias,
+    double norm_eps,
+    const at::Tensor& fc1_weight,
+    const c10::optional<at::Tensor>& fc1_bias = c10::nullopt);
+
+at::Tensor transition_fc2_residual_bf16_fused_cuda(
+    const at::Tensor& input,
+    const at::Tensor& fc2_weight,
+    const c10::optional<at::Tensor>& fc2_bias,
+    const at::Tensor& residual);
+
 std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_cuda(
     const at::Tensor& a,
     const at::Tensor& a_scale_swizzled,
@@ -69,6 +83,28 @@ std::tuple<at::Tensor, at::Tensor> tri_mul_pair_from_block32_carrier_cuda(
     const at::Tensor& scale,
     const c10::optional<at::Tensor>& mask,
     const std::string& out_dtype);
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+pack_block32_to_mxfp8_fused_debug_cuda(
+    const at::Tensor& payload,
+    const at::Tensor& scale,
+    const c10::optional<at::Tensor>& mask = c10::nullopt);
+
+std::tuple<at::Tensor, at::Tensor> tri_mul_pair_from_packed_debug_cuda(
+    const at::Tensor& a1,
+    const at::Tensor& b1,
+    const at::Tensor& a2_t,
+    const at::Tensor& b2_rhs,
+    const at::Tensor& a1_scale_swizzled,
+    const at::Tensor& b1_scale_swizzled,
+    const at::Tensor& a2_t_scale_swizzled,
+    const at::Tensor& b2_rhs_scale_swizzled,
+    const std::string& out_dtype = "float16");
+
+std::tuple<at::Tensor, at::Tensor> tri_pair_to_block32_carrier_debug_cuda(
+    const at::Tensor& x1,
+    const at::Tensor& x2,
+    int64_t batch);
 
 std::tuple<at::Tensor, at::Tensor> tri_gate_block32_fused_cuda(
     const at::Tensor& a,
