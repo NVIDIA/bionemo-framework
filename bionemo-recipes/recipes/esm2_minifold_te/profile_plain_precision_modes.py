@@ -5,6 +5,7 @@ import json
 import logging
 from pathlib import Path
 
+from omegaconf import OmegaConf
 import torch
 
 from distributed_config import DistributedConfig
@@ -50,6 +51,24 @@ MODE_PRESETS = {
         "linear_precision": "fp8",
         "tri_impl": "fp8_cublaslt",
     },
+    "fp8_native_mixed_tail_k0": {
+        "pair_precision": "fp8_native_mixed_tail",
+        "linear_precision": "fp8",
+        "tri_impl": "fp8_cublaslt",
+        "mixed_tail": {"tail_bf16_native_blocks": 0, "bf16_native_rung": "B3"},
+    },
+    "fp8_native_mixed_tail_k2": {
+        "pair_precision": "fp8_native_mixed_tail",
+        "linear_precision": "fp8",
+        "tri_impl": "fp8_cublaslt",
+        "mixed_tail": {"tail_bf16_native_blocks": 2, "bf16_native_rung": "B3"},
+    },
+    "fp8_native_mixed_tail_k4": {
+        "pair_precision": "fp8_native_mixed_tail",
+        "linear_precision": "fp8",
+        "tri_impl": "fp8_cublaslt",
+        "mixed_tail": {"tail_bf16_native_blocks": 4, "bf16_native_rung": "B3"},
+    },
 }
 
 def _cuda_ms(fn) -> float:
@@ -70,6 +89,7 @@ def _run_mode_benchmark(model, batch, mode_args, plain_infer, warmup_steps: int,
         plain_infer.PAIR_PRECISION_FP8_HYBRID,
         plain_infer.PAIR_PRECISION_FP8_NATIVE,
         plain_infer.PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
+        plain_infer.PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
     )
 
     with torch.no_grad():
@@ -101,6 +121,9 @@ def _run_mode_benchmark(model, batch, mode_args, plain_infer, warmup_steps: int,
         "mode": mode_args.pair_precision,
         "linear_precision": mode_args.linear_precision,
         "tri_impl": mode_args.component_precision.tri_impl,
+        "mixed_tail": OmegaConf.to_container(mode_args.mixed_tail, resolve=True)
+        if getattr(mode_args, "mixed_tail", None) is not None
+        else None,
         "tokens": tokens,
         "warmup_steps": warmup_steps,
         "measure_steps": measure_steps,
@@ -148,6 +171,8 @@ def main():
             pair_precision=preset["pair_precision"],
             linear_precision=preset["linear_precision"],
             tri_impl=preset["tri_impl"],
+            bf16_native_rung=preset.get("bf16_native_rung"),
+            mixed_tail=preset.get("mixed_tail"),
         )
         logger.info("Benchmarking mode=%s pair_precision=%s tri_impl=%s", mode_name, mode_args.pair_precision, mode_args.component_precision.tri_impl)
         model, plain_infer, native_build_info = build_plain_runtime_from_args(

@@ -45,6 +45,8 @@ def build_mode_args(
     linear_precision: str,
     tri_impl: str | None = None,
     hybrid_precision: dict[str, bool] | None = None,
+    bf16_native_rung: str | None = None,
+    mixed_tail: dict[str, object] | None = None,
 ):
     args = clone_args(base_args)
     args.pair_precision = pair_precision
@@ -53,6 +55,10 @@ def build_mode_args(
         args.component_precision.tri_impl = tri_impl
     if hybrid_precision is not None:
         args.hybrid_precision = hybrid_precision
+    if bf16_native_rung is not None:
+        args.bf16_native_rung = bf16_native_rung
+    if mixed_tail is not None:
+        args.mixed_tail = mixed_tail
     return args
 
 
@@ -132,6 +138,7 @@ def run_plain_forward(model, batch: dict[str, torch.Tensor], args, plain_infer, 
         plain_infer.PAIR_PRECISION_FP8_HYBRID,
         plain_infer.PAIR_PRECISION_FP8_NATIVE,
         plain_infer.PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
+        plain_infer.PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
     )
     autocast_ctx = torch.autocast(device_type="cuda", dtype=torch.bfloat16) if use_bf16_autocast else nullcontext()
     with torch.no_grad(), autocast_ctx:

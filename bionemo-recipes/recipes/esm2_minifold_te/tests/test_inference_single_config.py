@@ -117,6 +117,29 @@ def test_fp8_hybrid_config_loads():
     assert cfg.tri_impl == "fp8_cublaslt"
 
 
+def test_fp8_native_mixed_tail_config_loads():
+    args = SCRIPT_MODULE.build_arg_parser().parse_args(
+        [
+            "--pair_precision",
+            "fp8_native_mixed_tail",
+            "--linear_precision",
+            "fp8",
+            "--tri_impl",
+            "fp8_cublaslt",
+            "--mixed_tail_blocks",
+            "2",
+            "--mixed_tail_bf16_native_rung",
+            "B3",
+        ]
+    )
+    cfg = SCRIPT_MODULE.load_config(args)
+    assert cfg.pair_precision == "fp8_native_mixed_tail"
+    assert cfg.linear_precision == "fp8"
+    assert cfg.tri_impl == "fp8_cublaslt"
+    assert cfg.mixed_tail["tail_bf16_native_blocks"] == 2
+    assert cfg.mixed_tail["bf16_native_rung"] == "B3"
+
+
 def test_fp8_extreme_validation_rejects_non_fp8_tri_backend():
     with pytest.raises(ValueError, match="pair_precision=fp8_extreme.*requires tri_impl"):
         PLAIN_MODULE.validate_fp8_extreme_configuration("fp8_extreme", "fp8", "bmm")
@@ -137,6 +160,11 @@ def test_fp8_hybrid_validation_rejects_non_fp8_tri_backend():
         PLAIN_MODULE.validate_fp8_extreme_configuration("fp8_hybrid", "fp8", "bmm")
 
 
+def test_fp8_native_mixed_tail_validation_rejects_non_fp8_tri_backend():
+    with pytest.raises(ValueError, match="pair_precision=fp8_native_mixed_tail.*requires tri_impl"):
+        PLAIN_MODULE.validate_fp8_extreme_configuration("fp8_native_mixed_tail", "fp8", "bmm")
+
+
 def test_bf16_native_validation_rejects_non_xbdnn_tri_backend():
     with pytest.raises(ValueError, match="pair_precision=bf16_native.*requires tri_impl"):
         PLAIN_MODULE.validate_bf16_native_configuration("bf16_native", "bf16_native", "bmm", "B4")
@@ -150,6 +178,28 @@ def test_bf16_native_validation_rejects_wrong_b2_linear_precision():
 def test_bf16_native_validation_rejects_wrong_b4_linear_precision():
     with pytest.raises(ValueError, match="rung B4.*linear_precision=bf16_native"):
         PLAIN_MODULE.validate_bf16_native_configuration("bf16_native", "bf16", "cublas_xbdnn", "B4")
+
+
+def test_fp8_native_mixed_tail_validation_rejects_wrong_rung():
+    with pytest.raises(ValueError, match="mixed_tail.bf16_native_rung=B3"):
+        PLAIN_MODULE.validate_fp8_native_mixed_tail_configuration(
+            "fp8_native_mixed_tail",
+            "fp8",
+            "fp8_cublaslt",
+            48,
+            {"tail_bf16_native_blocks": 2, "bf16_native_rung": "B4"},
+        )
+
+
+def test_fp8_native_mixed_tail_validation_rejects_out_of_range_k():
+    with pytest.raises(ValueError, match="between 0 and 48"):
+        PLAIN_MODULE.validate_fp8_native_mixed_tail_configuration(
+            "fp8_native_mixed_tail",
+            "fp8",
+            "fp8_cublaslt",
+            48,
+            {"tail_bf16_native_blocks": 49, "bf16_native_rung": "B3"},
+        )
 
 
 def test_render_markdown():
@@ -169,6 +219,35 @@ def test_render_markdown():
     assert "| cublas_xbdnn | fp8_storage | fp8 | 1024 | 8 | 12.50 |" in table
     assert "fp8_storage" in table
     assert "linear=fp8" in table
+
+
+def test_render_markdown_includes_mixed_tail_notes():
+    args = SCRIPT_MODULE.build_arg_parser().parse_args(
+        [
+            "--pair_precision",
+            "fp8_native_mixed_tail",
+            "--linear_precision",
+            "fp8",
+            "--tri_impl",
+            "fp8_cublaslt",
+            "--mixed_tail_blocks",
+            "2",
+            "--mixed_tail_bf16_native_rung",
+            "B3",
+        ]
+    )
+    cfg = SCRIPT_MODULE.load_config(args)
+    table = SCRIPT_MODULE.render_markdown(
+        cfg,
+        {
+            "median_ms": 200.0,
+            "proteins_per_sec": 80.0,
+            "unpadded_tokens_per_sec": 10240.0,
+            "peak_memory_allocated_gib": 4.0,
+        },
+    )
+    assert "tail_k=2" in table
+    assert "tail_rung=B3" in table
 
 
 def test_quantized_pair_tensor_storage_accounting():
@@ -208,6 +287,35 @@ def test_miniformer_bf16_native_forward_cpu():
     assert y.shape == x.shape
     assert y.dtype == torch.bfloat16
     assert model.last_pair_precision_stats is None
+
+
+def test_configure_mixed_tail_runtime_reconfigures_tail_blocks_cpu():
+    model = PLAIN_MODULE.MiniFormer(
+        dim=128,
+        blocks=4,
+        tri_impl="fp8_cublaslt",
+        pair_precision="fp8_native_mixed_tail",
+        linear_precision="fp8",
+        mixed_tail={"tail_bf16_native_blocks": 2, "bf16_native_rung": "B3"},
+    ).to(dtype=torch.bfloat16)
+    PLAIN_MODULE.configure_linear_precision(model, "fp8", include_transition=True)
+    PLAIN_MODULE.configure_mixed_tail_runtime(
+        model,
+        "fp8_native_mixed_tail",
+        {"tail_bf16_native_blocks": 2, "bf16_native_rung": "B3"},
+    )
+
+    prefix_block = model.blocks[1]
+    tail_block = model.blocks[2]
+
+    assert prefix_block.triangular.tri_impl == "fp8_cublaslt"
+    assert prefix_block.triangular.linear_precision == "fp8"
+    assert prefix_block.transition.linear_precision == "fp8"
+
+    assert tail_block.bf16_native_rung == "B3"
+    assert tail_block.triangular.tri_impl == "cublas_xbdnn"
+    assert tail_block.triangular.linear_precision == "bf16_native"
+    assert tail_block.transition.linear_precision == "bf16_native"
 
 
 def test_transition_bf16_native_b3_matches_eager_cpu():
