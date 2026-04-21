@@ -429,13 +429,42 @@ def test_predict_evo2_equivalent_with_log_probs(
         assert log_probs.item() == pytest.approx(baseline_predictions_7b_1m_results[original_idx.item()], rel=rel)
 
 
-# Note: The PEFT/LoRA test is commented out as it requires training infrastructure and LoRA support
-# which may need additional updates for the Megatron Bridge API
-# @pytest.mark.timeout(512)
-# @pytest.mark.slow
-# def test_different_results_with_without_peft(tmp_path):
-#     """Test that predictions differ when using PEFT/LoRA adapters."""
-#     pass
+@pytest.mark.timeout(512)
+@pytest.mark.slow
+def test_different_results_with_without_peft(tmp_path, mbridge_checkpoint_1b_8k_bf16_path, lora_finetune_checkpoint):
+    """Predict on base vs. LoRA ckpt and assert logits differ."""
+    env = copy.deepcopy(PRETEST_ENV)
+    if is_a6000_gpu():
+        env["NCCL_P2P_DISABLE"] = "1"
+
+    fasta_file_path = tmp_path / "test.fasta"
+    create_fasta_file(fasta_file_path, 3, sequence_lengths=[32, 65, 129], repeating_dna_pattern=ALU_SEQUENCE)
+
+    def _run_predict(ckpt: Path, output_dir: Path) -> None:
+        port = find_free_network_port()
+        cmd = (
+            f"torchrun --nproc_per_node 1 --nnodes 1 --master_port {port} "
+            f"-m bionemo.evo2.run.predict --fasta {fasta_file_path} --ckpt-dir {ckpt} "
+            f"--output-dir {output_dir} --micro-batch-size 3 --write-interval epoch "
+            f"--pipeline-model-parallel-size 1 --num-nodes 1 --devices 1"
+        )
+        r = subprocess.run(shlex.split(cmd), check=False, cwd=tmp_path, capture_output=True, text=True, env=env)
+        assert r.returncode == 0, f"predict_evo2 failed:\nSTDOUT:\n{r.stdout}\nSTDERR:\n{r.stderr}"
+
+    out_base = tmp_path / "out_base"
+    out_lora = tmp_path / "out_lora"
+    _run_predict(mbridge_checkpoint_1b_8k_bf16_path, out_base)
+    _run_predict(lora_finetune_checkpoint, out_lora)
+
+    base_files = glob.glob(str(out_base / "predictions__rank_*__dp_rank_*.pt"))
+    lora_files = glob.glob(str(out_lora / "predictions__rank_*__dp_rank_*.pt"))
+    assert len(base_files) == 1 and len(lora_files) == 1
+
+    base = torch.load(base_files[0], weights_only=False)
+    lora = torch.load(lora_files[0], weights_only=False)
+    assert torch.equal(base["seq_idx"], lora["seq_idx"])
+    assert base["token_logits"].shape == lora["token_logits"].shape
+    assert (base["token_logits"] != lora["token_logits"]).any(), "LoRA adapter had no effect on logits"
 
 
 @pytest.mark.parametrize(

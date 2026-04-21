@@ -395,6 +395,40 @@ rather than silently producing asymmetric behaviour.
   weights are always treated as a unit, and any asymmetric configuration will
   raise an error.
 
+### Running inference on a LoRA checkpoint
+
+A LoRA training checkpoint contains only adapter tensors — the base model weights
+are not duplicated. Point `--ckpt-dir` at the LoRA `iter_*` directory as usual:
+
+```bash
+torchrun --nproc_per_node 1 --no-python \
+  infer_evo2 \
+  --ckpt-dir </path/to/lora_run/checkpoints/> \
+  --prompt "ATCGATCGATCGATCG" \
+  --max-new-tokens 200
+```
+
+```bash
+torchrun --nproc_per_node 1 --no-python \
+  predict_evo2 \
+  --fasta <path/to/fasta/sequences> \
+  --ckpt-dir </path/to/lora_run/checkpoints/> \
+  --output-dir ./predictions
+```
+
+When `infer_evo2` / `predict_evo2` detect a `peft` section in the checkpoint's
+`run_config.yaml`, they:
+
+1. load dense base weights from `checkpoint.pretrained_checkpoint` (the same
+   value that was supplied during LoRA training),
+2. apply the stored PEFT config (`run_config["peft"]`) to graft `LoRALinear`
+   wrappers onto the base modules,
+3. load only the adapter tensors from `--ckpt-dir`.
+
+No merge step is required. The base checkpoint referenced by
+`pretrained_checkpoint` must still exist on disk at the path recorded in
+`run_config.yaml`.
+
 ## Exporting to Vortex format
 
 Vortex is ARC Institute's inference format for Evo2 Hyena models, used by the

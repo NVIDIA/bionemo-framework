@@ -896,6 +896,56 @@ def test_savanna_to_mbridge_inference_accuracy_7b(mbridge_checkpoint_7b_from_sav
     )
 
 
+@pytest.mark.timeout(512)
+@pytest.mark.slow
+def test_different_results_with_without_peft(tmp_path, mbridge_checkpoint_path, lora_finetune_checkpoint):
+    """Greedy-generate from the base ckpt vs. the LoRA ckpt and assert the logprobs differ."""
+    env = copy.deepcopy(PRETEST_ENV)
+    # 64-char prompt for FP8 divisibility.
+    prompt = "ATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCGATCG"
+
+    def _run_infer(ckpt: Path, output_file: Path) -> dict:
+        port = find_free_network_port()
+        cmd = [
+            "torchrun",
+            "--nproc_per_node",
+            "1",
+            "--nnodes",
+            "1",
+            "--master_port",
+            str(port),
+            "-m",
+            "bionemo.evo2.run.infer",
+            "--ckpt-dir",
+            str(ckpt),
+            "--prompt",
+            prompt,
+            "--max-new-tokens",
+            "10",
+            "--temperature",
+            "1.0",
+            "--top-k",
+            "1",
+            "--seed",
+            "0",
+            "--return-log-probs",
+            "--output-file",
+            str(output_file),
+        ]
+        r = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=300, env=env)
+        assert r.returncode == 0, f"infer_evo2 failed:\nSTDOUT:\n{r.stdout}\nSTDERR:\n{r.stderr}"
+        with open(output_file) as f:
+            return json.loads(f.readline())
+
+    base = _run_infer(mbridge_checkpoint_path, tmp_path / "out_base.jsonl")
+    lora = _run_infer(lora_finetune_checkpoint, tmp_path / "out_lora.jsonl")
+
+    base_lp = base["logprobs"]["completion_logprobs"]
+    lora_lp = lora["logprobs"]["completion_logprobs"]
+    assert len(base_lp) == len(lora_lp), f"Different completion lengths: {len(base_lp)} vs {len(lora_lp)}"
+    assert base_lp != lora_lp, "LoRA adapter had no effect on completion logprobs"
+
+
 class TestHyenaInferenceContext:
     """Unit tests for the Hyena-specific inference context."""
 
