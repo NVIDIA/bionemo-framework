@@ -19,6 +19,21 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("residual_payload") = pybind11::none(),
       pybind11::arg("residual_scale") = pybind11::none());
   m.def(
+      "linear_block32_raw_debug",
+      &minifold_native_ext::linear_block32_raw_debug_cuda,
+      "Debug-only native MXFP8 linear forward returning dense BF16 output before block32 carrier requantization",
+      pybind11::arg("a"),
+      pybind11::arg("b_t"),
+      pybind11::arg("a_scale_swizzled"),
+      pybind11::arg("b_scale_swizzled"),
+      pybind11::arg("bias") = pybind11::none(),
+      pybind11::arg("out_dtype") = "bfloat16",
+      pybind11::arg("apply_relu") = false,
+      pybind11::arg("direct_fp8_output") = false,
+      pybind11::arg("fuse_bias_epilogue") = false,
+      pybind11::arg("residual_payload") = pybind11::none(),
+      pybind11::arg("residual_scale") = pybind11::none());
+  m.def(
       "linear_block32_fc1_direct",
       &minifold_native_ext::linear_block32_fc1_direct_cuda,
       "MiniFold native canonical fc1 path with direct FP8 block32 output",
@@ -61,6 +76,21 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       "gate_sigmoid_mul_block32_fused",
       &minifold_native_ext::gate_sigmoid_mul_block32_fused_cuda,
       "MiniFold native fused gate path: two MXFP8 GEMMs plus sigmoid-mul block32 output",
+      pybind11::arg("a"),
+      pybind11::arg("a_scale_swizzled"),
+      pybind11::arg("lhs_b_t"),
+      pybind11::arg("lhs_scale_swizzled"),
+      pybind11::arg("lhs_bias") = pybind11::none(),
+      pybind11::arg("rhs_b_t"),
+      pybind11::arg("rhs_scale_swizzled"),
+      pybind11::arg("rhs_bias") = pybind11::none(),
+      pybind11::arg("out_dtype") = "bfloat16",
+      pybind11::arg("residual_payload") = pybind11::none(),
+      pybind11::arg("residual_scale") = pybind11::none());
+  m.def(
+      "gate_sigmoid_mul_block32_raw_debug",
+      &minifold_native_ext::gate_sigmoid_mul_block32_raw_debug_cuda,
+      "Debug-only native fused gate path returning dense BF16 output before block32 carrier requantization",
       pybind11::arg("a"),
       pybind11::arg("a_scale_swizzled"),
       pybind11::arg("lhs_b_t"),

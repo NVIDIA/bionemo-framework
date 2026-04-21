@@ -131,6 +131,7 @@ def run_plain_forward(model, batch: dict[str, torch.Tensor], args, plain_infer, 
         plain_infer.PAIR_PRECISION_FP8_EXTREME,
         plain_infer.PAIR_PRECISION_FP8_HYBRID,
         plain_infer.PAIR_PRECISION_FP8_NATIVE,
+        plain_infer.PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
     )
     autocast_ctx = torch.autocast(device_type="cuda", dtype=torch.bfloat16) if use_bf16_autocast else nullcontext()
     with torch.no_grad(), autocast_ctx:

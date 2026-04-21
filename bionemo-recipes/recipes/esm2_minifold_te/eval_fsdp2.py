@@ -327,7 +327,7 @@ def _load_compiled_module(module_name: str, so_path: Path):
 def _prepare_plain_module(pair_precision: str, tri_impl: str, artifact_root: Path, status_path: Path):
     if tri_impl == "cublas_xbdnn":
         _build_repo_tri_mul_extension(artifact_root, status_path)
-    if pair_precision in {"fp8_extreme", "fp8_hybrid", "fp8_native"}:
+    if pair_precision in {"fp8_extreme", "fp8_hybrid", "fp8_native", "fp8_native_gold_packs"}:
         _build_repo_bmm_extension(artifact_root, status_path)
 
     import importlib
@@ -339,9 +339,9 @@ def _prepare_plain_module(pair_precision: str, tri_impl: str, artifact_root: Pat
     native_so_path = Path(native_build_info["compiled_binary"])
     plain_infer.minifold_native_raw = _load_compiled_module("minifold_native_ext._C", native_so_path)
 
-    if pair_precision == "fp8_native" and plain_infer.bmm_ext_raw is None:
+    if pair_precision in {"fp8_native", "fp8_native_gold_packs"} and plain_infer.bmm_ext_raw is None:
         raise RuntimeError(
-            "plain_minifold_infer.bmm_ext_raw is unavailable; fp8_native requires the repo-local fp8_bmm_ext build"
+            "plain_minifold_infer.bmm_ext_raw is unavailable; fp8_native-style paths require the repo-local fp8_bmm_ext build"
         )
     return plain_infer, native_build_info
 
@@ -485,12 +485,7 @@ def _build_plain_runtime(
     plain_infer.configure_linear_precision(
         model,
         linear_precision,
-        include_transition=pair_precision
-        in (
-            plain_infer.PAIR_PRECISION_FP8_EXTREME,
-            plain_infer.PAIR_PRECISION_FP8_HYBRID,
-            plain_infer.PAIR_PRECISION_FP8_NATIVE,
-        ),
+        include_transition=pair_precision in plain_infer.FP8_BLOCK32_PAIR_PRECISIONS,
     )
     model.eval()
     return model, plain_infer, native_build_info
@@ -613,6 +608,7 @@ def _write_counsel_report(
     acceptance: dict[str, Any],
     comparison_csv_path: Path,
 ) -> None:
+    fp8_label = fp8_payload["config"]["pair_precision"]
     outliers = acceptance["outliers"][:10]
     bands = acceptance["bands"]
     report_lines = [
@@ -633,7 +629,7 @@ def _write_counsel_report(
         "",
         "## Acceptance Bands",
         "",
-        "| Band | BF16 | FP8-native | Delta | Extra | Passed |",
+        f"| Band | BF16 | {fp8_label} | Delta | Extra | Passed |",
         "|------|------|------------|-------|-------|--------|",
         (
             f"| lDDT | {bf16_payload['summary']['lddt_from_distogram']:.6f} | "
@@ -662,7 +658,7 @@ def _write_counsel_report(
         "",
         "## Aggregate Metrics",
         "",
-        "| Metric | BF16 | FP8-native | Delta |",
+        f"| Metric | BF16 | {fp8_label} | Delta |",
         "|--------|------|------------|-------|",
     ]
 
@@ -696,7 +692,7 @@ def _write_counsel_report(
     else:
         report_lines.extend(
             [
-                "| Protein | Residues | BF16 lDDT | FP8 lDDT | Delta |",
+                f"| Protein | Residues | BF16 lDDT | {fp8_label} lDDT | Delta |",
                 "|---------|----------|-----------|-----------|-------|",
             ]
         )
@@ -723,17 +719,28 @@ def _write_counsel_report(
     report_path.write_text("\n".join(report_lines) + "\n", encoding="utf-8")
 
 
-def _maybe_write_comparison_outputs(artifact_root: Path, report_path: Path | None) -> dict[str, Any] | None:
+def _comparison_csv_path_for_run(artifacts_dir: Path, run_stem: str) -> Path:
+    if run_stem == "fp8_native_eval_metrics":
+        return artifacts_dir / "per_protein_comparison.csv"
+    suffix = run_stem.removesuffix("_eval_metrics")
+    return artifacts_dir / f"per_protein_comparison_{suffix}.csv"
+
+
+def _maybe_write_comparison_outputs(
+    artifact_root: Path,
+    report_path: Path | None,
+    current_run_stem: str,
+) -> dict[str, Any] | None:
     artifacts_dir = artifact_root / "artifacts"
     bf16_json = artifacts_dir / "bf16_baseline_eval_metrics.json"
-    fp8_json = artifacts_dir / "fp8_native_eval_metrics.json"
-    if not bf16_json.exists() or not fp8_json.exists():
+    current_json = artifacts_dir / f"{current_run_stem}.json"
+    if current_run_stem == "bf16_baseline_eval_metrics" or not bf16_json.exists() or not current_json.exists():
         return None
 
     bf16_payload = json.loads(bf16_json.read_text(encoding="utf-8"))
-    fp8_payload = json.loads(fp8_json.read_text(encoding="utf-8"))
+    fp8_payload = json.loads(current_json.read_text(encoding="utf-8"))
     comparison_rows = build_comparison_rows(bf16_payload, fp8_payload)
-    comparison_csv_path = artifacts_dir / "per_protein_comparison.csv"
+    comparison_csv_path = _comparison_csv_path_for_run(artifacts_dir, current_run_stem)
     _write_comparison_csv(comparison_rows, comparison_csv_path)
     acceptance = evaluate_acceptance(bf16_payload, fp8_payload, comparison_rows)
 
@@ -756,6 +763,7 @@ def _evaluate_plain_runtime(model, plain_infer, dataloader: DataLoader, device: 
         plain_infer.PAIR_PRECISION_FP8_EXTREME,
         plain_infer.PAIR_PRECISION_FP8_HYBRID,
         plain_infer.PAIR_PRECISION_FP8_NATIVE,
+        plain_infer.PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
     )
     eval_rows: list[dict[str, Any]] = []
     progress = tqdm(dataloader, desc="Evaluating", leave=False)
@@ -963,7 +971,7 @@ def main(args: DictConfig) -> None:
     write_json(json_path, payload)
     _write_run_markdown(payload, markdown_path)
 
-    comparison_output = _maybe_write_comparison_outputs(artifact_root, report_path)
+    comparison_output = _maybe_write_comparison_outputs(artifact_root, report_path, run_stem)
     append_status_report(
         status_path,
         "Artifacts Written",
