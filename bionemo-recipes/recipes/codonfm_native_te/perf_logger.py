@@ -359,9 +359,16 @@ class PerfLogger:
                     if self._peak_tflops is not None:
                         self.metrics["train/mfu_pct"].update(tflops_per_gpu / self._peak_tflops * 100.0)
 
-                memory_allocated = torch.cuda.memory_allocated() / (1024**3)
-                self.metrics["train/gpu_memory_allocated_max_gb"].update(memory_allocated)
-                self.metrics["train/gpu_memory_allocated_mean_gb"].update(memory_allocated)
+                # Report TRUE peak memory across the logging window (FSDP-gathered params +
+                # activations held for backward), not just the post-step resting footprint.
+                # Reset the peak counter so each window reports its own peak instead of a
+                # running max since process start. Both calls are pure host-side counter ops
+                # -- no sync, no kernel launch.
+                peak_gb = torch.cuda.max_memory_allocated() / (1024**3)
+                current_gb = torch.cuda.memory_allocated() / (1024**3)
+                torch.cuda.reset_peak_memory_stats()
+                self.metrics["train/gpu_memory_allocated_max_gb"].update(peak_gb)
+                self.metrics["train/gpu_memory_allocated_mean_gb"].update(current_gb)
 
                 metrics = self.metrics.compute()
                 self.metrics.reset()
