@@ -150,15 +150,22 @@ def _compute_attn_flop_coeff(model_config_dict: dict) -> int:
     return 3 * num_layers * 4 * h
 
 
-def _attn_work_from_batch(batch: dict, device: torch.device) -> torch.Tensor:
-    """Return Σ(Lᵢ²) for this batch as a GPU int64 scalar tensor.
+def _attn_work_from_batch(batch: dict, device: torch.device, cp_size: int = 1) -> torch.Tensor:
+    """Return GLOBAL Σ(Lᵢ²) for this batch as an int64 scalar tensor.
 
-    THD: uses ``cu_seq_lens_q`` (real per-doc lengths — excludes CP zigzag padding
-    that FA processes as cycles but contributes nothing to the training signal).
-    Falls back to ``cu_seq_lens_q_padded`` if only the padded variant is present.
-    BSHD: no cu_seq_lens in batch → each of B rows is a single "doc" of length S,
-    so Σ(Lᵢ²) = B·S². Int32 lens are cast to int64 BEFORE squaring (overflow at
-    L ≈ 46k otherwise).
+    The caller divides by cp_size in log_step to convert this global number into
+    per-rank attention work, so this helper always returns a pre-CP-shard quantity.
+
+    * THD: uses ``cu_seq_lens_q`` (real per-doc lengths — already global, the collator
+      emits boundaries before per-rank sharding). Falls back to ``cu_seq_lens_q_padded``
+      if only the padded variant is present. Excludes CP zigzag padding that FA
+      processes as cycles but contributes nothing to the training signal.
+    * BSHD: ``batch["input_ids"].shape`` per rank is ``(B, S/cp)`` when CP is active
+      because ``ContextParallelDataLoaderWrapper`` pre-splits along the seq dim. To
+      recover the global B·S² from a per-rank shape, multiply by cp_size². When
+      cp_size=1 this is a no-op (per-rank shape == global shape).
+
+    Int32 lens cast to int64 BEFORE squaring (overflow at L ≈ 46k otherwise).
     """
     cu = batch.get("cu_seq_lens_q")
     if cu is None:
@@ -167,8 +174,12 @@ def _attn_work_from_batch(batch: dict, device: torch.device) -> torch.Tensor:
         lens = (cu[1:] - cu[:-1]).to(torch.int64)
         return (lens * lens).sum()
     shape = batch["input_ids"].shape
-    batch_size, seq_len = int(shape[0]), int(shape[-1])
-    return torch.tensor(batch_size * seq_len * seq_len, dtype=torch.int64, device=device)
+    batch_size, seq_len_per_rank = int(shape[0]), int(shape[-1])
+    return torch.tensor(
+        batch_size * seq_len_per_rank * seq_len_per_rank * cp_size * cp_size,
+        dtype=torch.int64,
+        device=device,
+    )
 
 
 class PerfLogger:
@@ -295,8 +306,9 @@ class PerfLogger:
                     self.num_unpadded_tokens += batch["input_ids"].numel()
                 if self._log_mfu:
                     # Σ(Lᵢ²) from cu_seq_lens (THD) or B·S² from input_ids shape (BSHD).
+                    # Helper returns a GLOBAL value (pre-CP-shard); log_step divides by cp_size.
                     # Accumulates across grad-acc micro-batches; drained in log_step.
-                    self._attn_work_accum += _attn_work_from_batch(batch, self._device)
+                    self._attn_work_accum += _attn_work_from_batch(batch, self._device, self._cp_size)
 
     @nvtx.annotate("PerfLogger.log_step", color="purple")
     def log_step(

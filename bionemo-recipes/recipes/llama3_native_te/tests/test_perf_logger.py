@@ -403,3 +403,28 @@ class TestFlopSplitAndAttention:
             "cu_seq_lens_q_padded": torch.tensor([0, 8, 16], dtype=torch.int32),
         }
         assert _attn_work_from_batch(batch, torch.device("cpu")).item() == 8**2 + 8**2
+
+    def test_bshd_cp_correction(self):
+        """BSHD with CP: per-rank shape (B, S/cp) → helper must return global B*S².
+
+        ContextParallelDataLoaderWrapper pre-splits the sequence so each rank's
+        input_ids.shape is (B, S/cp), not (B, S). The helper returns a GLOBAL
+        quantity (the caller divides by cp_size), so the BSHD synthesis branch
+        must multiply per-rank shape² by cp_size² to recover global B*S².
+        Without this correction, BSHD+CP attention FLOPs would be undercounted
+        by a factor of cp² (the bug surfaced when running real-data llama3/og2
+        BSHD benchmarks at cp=8).
+        """
+        # Pretend a rank has shape (1, 16) — this would correspond to global S=16*cp.
+        batch = {"input_ids": torch.zeros(1, 16, dtype=torch.long)}
+        # cp_size=1 → per-rank shape == global shape: 1*16² = 256
+        assert _attn_work_from_batch(batch, torch.device("cpu"), cp_size=1).item() == 1 * 16 * 16
+        # cp_size=8 → global S = 16*8 = 128, global B*S² = 128² = 16384
+        assert _attn_work_from_batch(batch, torch.device("cpu"), cp_size=8).item() == 128 * 128
+        # THD path is unaffected by cp_size since cu_seq_lens_q is already global
+        thd = {
+            "input_ids": torch.zeros(1, 64, dtype=torch.long),
+            "cu_seq_lens_q": torch.tensor([0, 3, 8, 15], dtype=torch.int32),
+        }
+        assert _attn_work_from_batch(thd, torch.device("cpu"), cp_size=1).item() == 3**2 + 5**2 + 7**2
+        assert _attn_work_from_batch(thd, torch.device("cpu"), cp_size=8).item() == 3**2 + 5**2 + 7**2

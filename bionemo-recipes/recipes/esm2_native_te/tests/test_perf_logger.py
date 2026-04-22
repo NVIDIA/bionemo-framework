@@ -167,6 +167,18 @@ class TestFlopSplitAndAttention:
         }
         assert _attn_work_from_batch(batch, torch.device("cpu")).item() == 8**2 + 8**2
 
+    def test_bshd_cp_correction(self):
+        """BSHD with CP: per-rank shape (B, S/cp) → helper must return global B*S²."""
+        batch = {"input_ids": torch.zeros(1, 16, dtype=torch.long)}
+        assert _attn_work_from_batch(batch, torch.device("cpu"), cp_size=1).item() == 1 * 16 * 16
+        assert _attn_work_from_batch(batch, torch.device("cpu"), cp_size=8).item() == 128 * 128
+        thd = {
+            "input_ids": torch.zeros(1, 64, dtype=torch.long),
+            "cu_seq_lens_q": torch.tensor([0, 3, 8, 15], dtype=torch.int32),
+        }
+        assert _attn_work_from_batch(thd, torch.device("cpu"), cp_size=1).item() == 3**2 + 5**2 + 7**2
+        assert _attn_work_from_batch(thd, torch.device("cpu"), cp_size=8).item() == 3**2 + 5**2 + 7**2
+
 
 class TestGradAccAccumulation:
     """Lock in ESM-2's new log_micro_step/log_step split under gradient accumulation.
