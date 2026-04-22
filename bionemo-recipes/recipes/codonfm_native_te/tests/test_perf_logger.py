@@ -21,7 +21,13 @@ import pytest
 import torch
 from distributed_config import DistributedConfig
 from omegaconf import OmegaConf
-from perf_logger import PerfLogger
+from perf_logger import (
+    PerfLogger,
+    _attn_work_from_batch,
+    _compute_attn_flop_coeff,
+    _compute_non_attn_per_token_flops,
+    _compute_per_token_flops,
+)
 from transformers.modeling_outputs import MaskedLMOutput
 
 
@@ -210,3 +216,89 @@ class TestPerfLoggerLoss:
         _run_steps(perf_logger, losses)
 
         assert perf_logger.min_loss.item() == pytest.approx(1.0)
+
+
+def _codon_cfg():
+    """CodonFM-like config for the split-formula tests (MLM encoder)."""
+    return {
+        "model_type": "codonfm",  # not in _GATED_MLP_MODEL_TYPES → standard 2-proj MLP
+        "hidden_size": 1024,
+        "num_hidden_layers": 24,
+        "num_attention_heads": 16,
+        "intermediate_size": 4096,
+        "vocab_size": VOCAB_SIZE,
+    }
+
+
+class TestFlopSplitAndAttention:
+    """Verify the split non-attn + Σ(Lᵢ²) attention formula."""
+
+    def test_algebraic_identity(self):
+        """non_attn + coeff·S ≡ _compute_per_token_flops(cfg, S) for all S."""
+        cfg = _codon_cfg()
+        for s in (256, 512, 1024, 8192):
+            lhs = _compute_non_attn_per_token_flops(cfg) + _compute_attn_flop_coeff(cfg) * s
+            rhs = _compute_per_token_flops(cfg, s)
+            assert lhs == rhs, f"S={s}: {lhs} != {rhs}"
+
+    def test_bshd_no_op(self):
+        """BSHD batch (no cu_seq_lens) with cp=1 matches legacy formula exactly."""
+        cfg = _codon_cfg()
+        b, s = 4, 512
+        batch = {"input_ids": torch.zeros(b, s, dtype=torch.long)}
+        sigma_l_sq = _attn_work_from_batch(batch, torch.device("cpu")).item()
+        assert sigma_l_sq == b * s * s
+        new_flops = _compute_non_attn_per_token_flops(cfg) * b * s + _compute_attn_flop_coeff(cfg) * sigma_l_sq
+        legacy_flops = _compute_per_token_flops(cfg, s) * b * s
+        assert new_flops == legacy_flops
+
+    def test_thd_single_doc_matches_bshd(self):
+        """cu_seq_lens_q=[0, S] reproduces BSHD's Σ(Lᵢ²)=S²."""
+        s = 512
+        bshd = {"input_ids": torch.zeros(1, s, dtype=torch.long)}
+        thd = {
+            "input_ids": torch.zeros(1, s, dtype=torch.long),
+            "cu_seq_lens_q": torch.tensor([0, s], dtype=torch.int32),
+        }
+        assert _attn_work_from_batch(bshd, torch.device("cpu")).item() == s * s
+        assert _attn_work_from_batch(thd, torch.device("cpu")).item() == s * s
+
+    def test_thd_multi_doc_uses_squared_sum(self):
+        """Multi-doc pack computes Σ(Lᵢ²), not (ΣLᵢ)²."""
+        cu = torch.tensor([0, 3, 8, 15], dtype=torch.int32)
+        batch = {"input_ids": torch.zeros(1, 15, dtype=torch.long), "cu_seq_lens_q": cu}
+        work = _attn_work_from_batch(batch, torch.device("cpu")).item()
+        assert work == 3**2 + 5**2 + 7**2
+        assert work < 15 * 15
+
+    def test_cp_size_divides_attention_only(self):
+        """cp_size divides the attention term only; non-attn stays untouched.
+        Codonfm doesn't support CP, but the formula must still respect cp_size=1 default."""
+        cfg = _codon_cfg()
+        non_attn_per_token = _compute_non_attn_per_token_flops(cfg)
+        coeff = _compute_attn_flop_coeff(cfg)
+        num_tokens, attn_work = 100, 10_000
+        non_attn = non_attn_per_token * num_tokens
+        flops_cp1 = non_attn + (coeff * attn_work) // 1
+        flops_cp4 = non_attn + (coeff * attn_work) // 4
+        assert flops_cp1 - non_attn == coeff * attn_work
+        assert flops_cp4 - non_attn == (coeff * attn_work) // 4
+
+    def test_unpadded_preferred_over_padded(self):
+        """When both cu_seq_lens_q and cu_seq_lens_q_padded are present, _q wins."""
+        batch = {
+            "input_ids": torch.zeros(1, 16, dtype=torch.long),
+            "cu_seq_lens_q": torch.tensor([0, 5, 11], dtype=torch.int32),
+            "cu_seq_lens_q_padded": torch.tensor([0, 8, 16], dtype=torch.int32),
+        }
+        work = _attn_work_from_batch(batch, torch.device("cpu")).item()
+        assert work == 5**2 + 6**2
+        assert work != 8**2 + 8**2
+
+    def test_padded_fallback_when_unpadded_absent(self):
+        """If only cu_seq_lens_q_padded is present, it is used as a fallback."""
+        batch = {
+            "input_ids": torch.zeros(1, 16, dtype=torch.long),
+            "cu_seq_lens_q_padded": torch.tensor([0, 8, 16], dtype=torch.int32),
+        }
+        assert _attn_work_from_batch(batch, torch.device("cpu")).item() == 8**2 + 8**2

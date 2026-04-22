@@ -25,6 +25,9 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 from distributed_config import DistributedConfig
 from perf_logger import (
     PerfLogger,
+    _attn_work_from_batch,
+    _compute_attn_flop_coeff,
+    _compute_non_attn_per_token_flops,
     _compute_per_token_flops,
     _detect_peak_tflops_bf16,
 )
@@ -308,3 +311,95 @@ class TestDetectPeakTflops:
         peak, name = _detect_peak_tflops_bf16()
         assert isinstance(name, str)
         assert peak is None or isinstance(peak, float)
+
+
+def _llama_cfg():
+    """Small llama-like config used by the split-formula tests."""
+    return {
+        "model_type": "llama",
+        "hidden_size": 1024,
+        "num_hidden_layers": 8,
+        "num_attention_heads": 16,
+        "num_key_value_heads": 4,
+        "intermediate_size": 4096,
+        "vocab_size": 32000,
+    }
+
+
+class TestFlopSplitAndAttention:
+    """Verify the split non-attn + Σ(Lᵢ²) attention formula.
+
+    The old single-term ``_per_token_flops * num_tokens`` formula treats a packed
+    batch as one giant S*S attention. Real Flash-Attention work is Σ(Lᵢ²) over
+    packed segments. These tests lock in the new split and its invariants.
+    """
+
+    def test_algebraic_identity(self):
+        """non_attn + coeff·S ≡ _compute_per_token_flops(cfg, S) for all S."""
+        cfg = _llama_cfg()
+        for s in (256, 1024, 8192):
+            lhs = _compute_non_attn_per_token_flops(cfg) + _compute_attn_flop_coeff(cfg) * s
+            rhs = _compute_per_token_flops(cfg, s)
+            assert lhs == rhs, f"S={s}: {lhs} != {rhs}"
+
+    def test_bshd_no_op(self):
+        """BSHD batch (no cu_seq_lens) with cp=1 matches legacy formula exactly."""
+        cfg = _llama_cfg()
+        b, s = 2, 512
+        batch = {"input_ids": torch.zeros(b, s, dtype=torch.long)}
+        sigma_l_sq = _attn_work_from_batch(batch, torch.device("cpu")).item()
+        assert sigma_l_sq == b * s * s
+        new_flops = _compute_non_attn_per_token_flops(cfg) * b * s + _compute_attn_flop_coeff(cfg) * sigma_l_sq
+        legacy_flops = _compute_per_token_flops(cfg, s) * b * s
+        assert new_flops == legacy_flops
+
+    def test_thd_single_doc_matches_bshd(self):
+        """cu_seq_lens_q=[0, S] (synthetic-single-doc) reproduces BSHD's Σ(Lᵢ²)=S²."""
+        s = 512
+        bshd = {"input_ids": torch.zeros(1, s, dtype=torch.long)}
+        thd = {
+            "input_ids": torch.zeros(1, s, dtype=torch.long),
+            "cu_seq_lens_q": torch.tensor([0, s], dtype=torch.int32),
+        }
+        assert _attn_work_from_batch(bshd, torch.device("cpu")).item() == s * s
+        assert _attn_work_from_batch(thd, torch.device("cpu")).item() == s * s
+
+    def test_thd_multi_doc_uses_squared_sum(self):
+        """Multi-doc pack computes Σ(Lᵢ²), not (ΣLᵢ)² — the whole point of the fix."""
+        # Doc lengths 3, 5, 7 → cumulative [0, 3, 8, 15]
+        cu = torch.tensor([0, 3, 8, 15], dtype=torch.int32)
+        batch = {"input_ids": torch.zeros(1, 15, dtype=torch.long), "cu_seq_lens_q": cu}
+        work = _attn_work_from_batch(batch, torch.device("cpu")).item()
+        assert work == 3**2 + 5**2 + 7**2  # 83 real QK pairs per layer
+        assert work < 15 * 15  # old formula would have said 225
+
+    def test_cp_size_divides_attention_only(self):
+        """Dividing attention by cp_size must leave the non-attention term untouched."""
+        cfg = _llama_cfg()
+        non_attn_per_token = _compute_non_attn_per_token_flops(cfg)
+        coeff = _compute_attn_flop_coeff(cfg)
+        num_tokens, attn_work = 100, 10_000
+        non_attn = non_attn_per_token * num_tokens
+        flops_cp1 = non_attn + (coeff * attn_work) // 1
+        flops_cp4 = non_attn + (coeff * attn_work) // 4
+        assert flops_cp1 - non_attn == coeff * attn_work
+        assert flops_cp4 - non_attn == (coeff * attn_work) // 4
+
+    def test_unpadded_preferred_over_padded(self):
+        """When both cu_seq_lens_q and cu_seq_lens_q_padded are present, _q wins."""
+        batch = {
+            "input_ids": torch.zeros(1, 16, dtype=torch.long),
+            "cu_seq_lens_q": torch.tensor([0, 5, 11], dtype=torch.int32),
+            "cu_seq_lens_q_padded": torch.tensor([0, 8, 16], dtype=torch.int32),
+        }
+        work = _attn_work_from_batch(batch, torch.device("cpu")).item()
+        assert work == 5**2 + 6**2  # 61 (unpadded doc lens 5 and 6)
+        assert work != 8**2 + 8**2  # 128 (padded slot lens 8 and 8)
+
+    def test_padded_fallback_when_unpadded_absent(self):
+        """If only cu_seq_lens_q_padded is present, it is used as a fallback."""
+        batch = {
+            "input_ids": torch.zeros(1, 16, dtype=torch.long),
+            "cu_seq_lens_q_padded": torch.tensor([0, 8, 16], dtype=torch.int32),
+        }
+        assert _attn_work_from_batch(batch, torch.device("cpu")).item() == 8**2 + 8**2
