@@ -28,7 +28,6 @@ from perf_logger import (
     _attn_work_from_batch,
     _compute_attn_flop_coeff,
     _compute_non_attn_per_token_flops,
-    _compute_per_token_flops,
     _detect_peak_tflops_bf16,
 )
 
@@ -219,90 +218,6 @@ class TestPerfLoggerLoss:
         assert perf_logger.min_loss.item() == pytest.approx(1.0)
 
 
-class TestComputePerTokenFlops:
-    """Test that the per-token training FLOPs formula matches hand-calculated values."""
-
-    def test_llama_gqa_swiglu(self):
-        """Llama-style config: GQA (n_kv=8 < n_heads=32) + SwiGLU (3 MLP projections)."""
-        config = {
-            "model_type": "llama",
-            "hidden_size": 4096,
-            "num_hidden_layers": 32,
-            "num_attention_heads": 32,
-            "num_key_value_heads": 8,  # GQA
-            "intermediate_size": 14336,
-            "vocab_size": 128256,
-        }
-        seq_len = 8192
-        h, i, v, kv_dim, layers = 4096, 14336, 128256, 8 * 128, 32
-        # Per-layer: Q (2h^2) + K+V (4h*kv_dim) + O (2h^2) + attn (4*S*h) + MLP (2*3*h*i)
-        per_layer = 2 * h * h + 4 * h * kv_dim + 2 * h * h + 4 * seq_len * h + 2 * 3 * h * i
-        expected_fwd = layers * per_layer + 2 * h * v
-        assert _compute_per_token_flops(config, seq_len) == 3 * expected_fwd
-
-    def test_esm_mha_gelu(self):
-        """ESM2-style config: MHA (no num_key_value_heads) + standard FFN (2 MLP projections)."""
-        config = {
-            "model_type": "esm",
-            "hidden_size": 1280,
-            "num_hidden_layers": 33,
-            "num_attention_heads": 20,
-            "intermediate_size": 5120,
-            "vocab_size": 33,
-        }
-        seq_len = 1024
-        h, i, v, kv_dim, layers = 1280, 5120, 33, (1280 // 20) * 20, 33  # kv_dim=h for MHA
-        per_layer = 2 * h * h + 4 * h * kv_dim + 2 * h * h + 4 * seq_len * h + 2 * 2 * h * i
-        expected_fwd = layers * per_layer + 2 * h * v
-        assert _compute_per_token_flops(config, seq_len) == 3 * expected_fwd
-
-    def test_scales_with_seq_len(self):
-        """Only the attention S^2 term should vary with seq_len."""
-        config = {
-            "model_type": "llama",
-            "hidden_size": 2048,
-            "num_hidden_layers": 16,
-            "num_attention_heads": 16,
-            "num_key_value_heads": 8,
-            "intermediate_size": 8192,
-            "vocab_size": 32000,
-        }
-        h, layers = 2048, 16
-        # Difference per token between seq_len=1024 and seq_len=2048:
-        #   layers * 4 * (2048 - 1024) * h, times 3 (forward+backward)
-        diff = _compute_per_token_flops(config, 2048) - _compute_per_token_flops(config, 1024)
-        assert diff == 3 * layers * 4 * 1024 * h
-
-    def test_linear_in_unpadded_tokens(self):
-        """Multiplying per-token FLOPs by N tokens is linear (MFU formula relies on this)."""
-        config = {
-            "model_type": "llama",
-            "hidden_size": 1024,
-            "num_hidden_layers": 8,
-            "num_attention_heads": 8,
-            "intermediate_size": 4096,
-            "vocab_size": 32000,
-        }
-        per_token = _compute_per_token_flops(config, seq_len=512)
-        assert per_token * 100 == 100 * per_token
-        # Sanity: doubling unpadded token count doubles total FLOPs
-        assert per_token * 200 == 2 * (per_token * 100)
-
-    def test_no_lm_head_when_vocab_zero(self):
-        """vocab_size=0 should drop the LM head term."""
-        config_base = {
-            "model_type": "llama",
-            "hidden_size": 512,
-            "num_hidden_layers": 4,
-            "num_attention_heads": 8,
-            "intermediate_size": 2048,
-        }
-        with_vocab = _compute_per_token_flops({**config_base, "vocab_size": 32000}, seq_len=256)
-        no_vocab = _compute_per_token_flops({**config_base, "vocab_size": 0}, seq_len=256)
-        # Difference = 3 (training) * 2 * h * vocab
-        assert with_vocab - no_vocab == 3 * 2 * 512 * 32000
-
-
 class TestDetectPeakTflops:
     """Smoke test for GPU peak TFLOPS detection."""
 
@@ -327,31 +242,20 @@ def _llama_cfg():
 
 
 class TestFlopSplitAndAttention:
-    """Verify the split non-attn + Σ(Lᵢ²) attention formula.
+    """Verify the non-attn + Σ(Lᵢ²) attention formula is correctly computed.
 
-    The old single-term ``_per_token_flops * num_tokens`` formula treats a packed
-    batch as one giant S*S attention. Real Flash-Attention work is Σ(Lᵢ²) over
-    packed segments. These tests lock in the new split and its invariants.
+    Non-attention FLOPs are tracked per real token; attention FLOPs are tracked as
+    coeff * Σ(Lᵢ²) over per-doc real lengths. These tests lock in the formula and
+    its invariants (shape synthesis for BSHD, cu_seq_lens handling for THD, CP
+    division, unpadded/padded behavior, fallbacks).
     """
 
-    def test_algebraic_identity(self):
-        """non_attn + coeff·S ≡ _compute_per_token_flops(cfg, S) for all S."""
-        cfg = _llama_cfg()
-        for s in (256, 1024, 8192):
-            lhs = _compute_non_attn_per_token_flops(cfg) + _compute_attn_flop_coeff(cfg) * s
-            rhs = _compute_per_token_flops(cfg, s)
-            assert lhs == rhs, f"S={s}: {lhs} != {rhs}"
-
-    def test_bshd_no_op(self):
-        """BSHD batch (no cu_seq_lens) with cp=1 matches legacy formula exactly."""
-        cfg = _llama_cfg()
+    def test_bshd_shape_synthesis(self):
+        """BSHD batch (no cu_seq_lens) synthesizes Σ(Lᵢ²) = B·S² from input_ids shape."""
         b, s = 2, 512
         batch = {"input_ids": torch.zeros(b, s, dtype=torch.long)}
         sigma_l_sq = _attn_work_from_batch(batch, torch.device("cpu")).item()
         assert sigma_l_sq == b * s * s
-        new_flops = _compute_non_attn_per_token_flops(cfg) * b * s + _compute_attn_flop_coeff(cfg) * sigma_l_sq
-        legacy_flops = _compute_per_token_flops(cfg, s) * b * s
-        assert new_flops == legacy_flops
 
     def test_thd_single_doc_matches_bshd(self):
         """cu_seq_lens_q=[0, S] (synthetic-single-doc) reproduces BSHD's Σ(Lᵢ²)=S²."""

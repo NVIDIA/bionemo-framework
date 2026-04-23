@@ -65,50 +65,13 @@ def _detect_peak_tflops_bf16():
     return None, name
 
 
-def _compute_per_token_flops(model_config_dict: dict, seq_len: int) -> int:
-    """Training FLOPs per token for a transformer (forward + backward = 3x forward).
-
-    First-principles matmul count: Q/K/V/O projections (GQA-aware), attention
-    logits/values (the S^2 cost expressed per-token as 4*S*H for a uniform
-    BSHD batch of length seq_len), 2-or-3-projection MLP (SwiGLU detected via
-    model_type), and LM head.
-
-    Kept for back-compat. For accurate per-step accounting use
-    ``_compute_non_attn_per_token_flops`` (applied to the total token count)
-    together with ``_compute_attn_flop_coeff`` (applied to Σ(Lᵢ²) from
-    cu_seq_lens), since a packed THD batch of total length S containing docs
-    L₁, L₂, … has actual attention work Σ(Lᵢ²) ≤ S², not B·S².
-    """
-    h = model_config_dict["hidden_size"]
-    n_heads = model_config_dict["num_attention_heads"]
-    n_kv = model_config_dict.get("num_key_value_heads", n_heads)
-    head_dim = h // n_heads
-    kv_dim = n_kv * head_dim
-    ffn = model_config_dict["intermediate_size"]
-    vocab = model_config_dict.get("vocab_size", 0)
-    num_layers = model_config_dict["num_hidden_layers"]
-    model_type = model_config_dict.get("model_type", "")
-    num_mlp_proj = 3 if model_type in _GATED_MLP_MODEL_TYPES else 2
-
-    per_layer = (
-        2 * h * h  # Q projection
-        + 4 * h * kv_dim  # K + V projections (GQA-aware)
-        + 2 * h * h  # O projection
-        + 4 * seq_len * h  # attention logits + values (S^2 -> S per token)
-        + 2 * num_mlp_proj * h * ffn  # MLP (2 or 3 projections)
-    )
-    lm_head = 2 * h * vocab if vocab > 0 else 0
-    per_token_fwd = num_layers * per_layer + lm_head
-    return 3 * per_token_fwd
-
-
 def _compute_non_attn_per_token_flops(model_config_dict: dict) -> int:
     """Per-token FLOPs for everything EXCEPT the S² attention term.
 
     Q/K/V/O projections (GQA-aware) + MLP + LM head, 3x for fwd+bwd. Multiply by the
     actual total token count of the batch to get per-step non-attention FLOPs. Pairs
-    with ``_compute_attn_flop_coeff`` so that
-    ``non_attn + coeff·S ≡ _compute_per_token_flops(cfg, S)``.
+    with ``_compute_attn_flop_coeff``, which contributes the attention term as
+    ``coeff · Σ(Lᵢ²)`` from cu_seq_lens.
     """
     h = model_config_dict["hidden_size"]
     n_heads = model_config_dict["num_attention_heads"]
@@ -231,26 +194,23 @@ class PerfLogger:
         # step are derived at log time from the accumulated token count + Σ(Lᵢ²), which
         # already reflects each rank's share under DP/CP and sequence packing.
         self._log_mfu = bool(args.get("log_mfu", False)) and model_config_dict is not None
-        self._per_token_flops = 0
         self._non_attn_per_token_flops = 0
         self._attn_flop_coeff = 0
         self._cp_size = int(args.get("cp_size", 1))
         self._peak_tflops: float | None = None
         if self._log_mfu:
-            self._per_token_flops = _compute_per_token_flops(model_config_dict, args.dataset.max_seq_length)
             self._non_attn_per_token_flops = _compute_non_attn_per_token_flops(model_config_dict)
             self._attn_flop_coeff = _compute_attn_flop_coeff(model_config_dict)
             self._peak_tflops, gpu_name = _detect_peak_tflops_bf16()
             if dist_config.local_rank == 0:
                 logger.info(
-                    "MFU tracking enabled: GPU=%s, peak=%s TFLOPS BF16, per-token FLOPs=%.3e, seq_len=%d, "
-                    "non_attn_per_token=%.3e, attn_coeff=%.3e, cp_size=%d",
+                    "MFU tracking enabled: GPU=%s, peak=%s TFLOPS BF16, "
+                    "non_attn_per_token=%.3e, attn_coeff=%.3e, seq_len=%d, cp_size=%d",
                     gpu_name,
                     f"{self._peak_tflops:.1f}" if self._peak_tflops else "unknown",
-                    float(self._per_token_flops),
-                    args.dataset.max_seq_length,
                     float(self._non_attn_per_token_flops),
                     float(self._attn_flop_coeff),
+                    args.dataset.max_seq_length,
                     self._cp_size,
                 )
 

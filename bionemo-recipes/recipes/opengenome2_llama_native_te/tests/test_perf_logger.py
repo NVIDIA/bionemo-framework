@@ -13,12 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for the split non-attention + Σ(Lᵢ²) attention FLOP formula.
+"""Tests for the non-attention + Σ(Lᵢ²) attention FLOP formula.
 
-The old single-term ``_per_token_flops * num_tokens`` formula treats a packed batch
-as one giant S*S attention. Real Flash-Attention work is Σ(Lᵢ²) over packed
-segments. These tests lock in the new split and its invariants so future drift
-between sibling recipes is caught immediately.
+Non-attention FLOPs are tracked per real token; attention FLOPs are tracked as
+coeff * Σ(Lᵢ²) over per-doc real lengths. These tests lock in the formula and its
+invariants so future drift between sibling recipes is caught immediately.
 """
 
 import torch
@@ -27,7 +26,6 @@ from perf_logger import (
     _attn_work_from_batch,
     _compute_attn_flop_coeff,
     _compute_non_attn_per_token_flops,
-    _compute_per_token_flops,
 )
 
 
@@ -45,26 +43,14 @@ def _llama_cfg():
 
 
 class TestFlopSplitAndAttention:
-    """Verify the split formula matches the legacy one and correctly handles THD."""
+    """Verify the non-attn + Σ(Lᵢ²) attention formula is correctly computed."""
 
-    def test_algebraic_identity(self):
-        """non_attn + coeff·S ≡ _compute_per_token_flops(cfg, S) for all S."""
-        cfg = _llama_cfg()
-        for s in (256, 1024, 8192, 131072):
-            lhs = _compute_non_attn_per_token_flops(cfg) + _compute_attn_flop_coeff(cfg) * s
-            rhs = _compute_per_token_flops(cfg, s)
-            assert lhs == rhs, f"S={s}: {lhs} != {rhs}"
-
-    def test_bshd_no_op(self):
-        """BSHD batch (no cu_seq_lens) with cp=1 matches legacy formula exactly."""
-        cfg = _llama_cfg()
+    def test_bshd_shape_synthesis(self):
+        """BSHD batch (no cu_seq_lens) synthesizes Σ(Lᵢ²) = B·S² from input_ids shape."""
         b, s = 2, 512
         batch = {"input_ids": torch.zeros(b, s, dtype=torch.long)}
         sigma_l_sq = _attn_work_from_batch(batch, torch.device("cpu")).item()
         assert sigma_l_sq == b * s * s
-        new_flops = _compute_non_attn_per_token_flops(cfg) * b * s + _compute_attn_flop_coeff(cfg) * sigma_l_sq
-        legacy_flops = _compute_per_token_flops(cfg, s) * b * s
-        assert new_flops == legacy_flops
 
     def test_thd_single_doc_matches_bshd(self):
         """cu_seq_lens_q=[0, S] (synthetic-single-doc) reproduces BSHD's Σ(Lᵢ²)=S²."""
