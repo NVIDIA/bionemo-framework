@@ -376,22 +376,25 @@ output = model(**inputs)
 
 ## MFU Tracking
 
-Enable per-step Model FLOPs Utilization (MFU) logging during training by adding `log_mfu=true`:
+Enable per-step MFU logging by adding `log_mfu=true`:
 
 ```bash
 torchrun --nproc_per_node=2 train_fsdp2.py --config-name L1_3B log_mfu=true
 ```
 
-This adds two metrics at each logging interval, emitted alongside existing metrics via WANDB and
-stdout:
+Two pairs of metrics are emitted per logging interval:
 
-- `train/tflops_per_gpu` — achieved BF16 TFLOPS per GPU
-- `train/mfu_pct` — MFU as a percentage of the GPU's peak dense BF16 TFLOPS
+- `train/mfu_pct` / `train/tflops_per_gpu` — useful-work rate. Excludes padding of all kinds.
+  Non-attention uses the unpadded token count; attention uses `Σ(Lᵢ²)` from `cu_seq_lens_q` (THD)
+  or per-row `attention_mask.sum()` (BSHD).
+- `train/mfu_padded_pct` / `train/tflops_per_gpu_padded` — hardware view. Counts every slot the
+  GPU processes, including CP-zigzag and BSHD row padding. HFU-like.
 
-The FLOPs formula auto-detects model architecture from the HF config (MHA vs. GQA, gated vs.
-standard FFN, LM head presence) and scales with the actual unpadded token count on each rank. This
-means it naturally handles data parallelism, context parallelism, BSHD, and THD (sequence packing)
-without per-strategy code paths. The implementation lives in `perf_logger.py`.
+The two pairs agree when the batch has no padding. The formula is CP-aware and auto-detects
+MHA/GQA and FFN layout from the HF config. Implementation in `perf_logger.py`.
+
+Memory: `train/gpu_memory_allocated_max_gb` is the true transient peak per window
+(`torch.cuda.max_memory_allocated()` + `reset_peak_memory_stats()`); `_mean_gb` is resting.
 
 ## Developer Guide
 
