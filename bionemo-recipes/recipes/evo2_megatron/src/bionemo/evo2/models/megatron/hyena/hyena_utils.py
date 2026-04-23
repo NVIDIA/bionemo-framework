@@ -783,23 +783,19 @@ def small_init_init_method(dim):
     Improving the Normalization of Self-Attention - Nguyen, T. & Salazar, J. (2010), using a normal distribution.
     """
     std = math.sqrt(2 / (5 * dim))
-
-    def init_(tensor):
-        res = torch.nn.init.normal_(tensor, mean=0.0, std=std)
-        return res
-
-    return init_
+    # Return functools.partial instead of a nested closure so the resulting callable has an
+    # importable qualified name. Closures get serialized as `...<locals>.init_` in run_config.yaml
+    # and cannot be re-instantiated during inference/checkpoint load.
+    return partial(torch.nn.init.normal_, mean=0.0, std=std)
 
 
 def wang_init_method(n_layers, dim):
     """Initialize the weights of the model using the Wang initialization method."""
     std = 2 / n_layers / math.sqrt(dim)
-
-    def init_(tensor):
-        res = torch.nn.init.normal_(tensor, mean=0.0, std=std)
-        return res
-
-    return init_
+    # Return functools.partial instead of a nested closure so the resulting callable has an
+    # importable qualified name. Closures get serialized as `...<locals>.init_` in run_config.yaml
+    # and cannot be re-instantiated during inference/checkpoint load.
+    return partial(torch.nn.init.normal_, mean=0.0, std=std)
 
 
 def get_init_method(init_method_name, num_layers, hidden_size):

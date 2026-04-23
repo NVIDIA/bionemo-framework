@@ -69,7 +69,11 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from megatron.bridge.data.samplers import build_pretraining_data_loader
-from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
+from megatron.bridge.training.checkpointing import (
+    _generate_model_state_dict,
+    _load_model_weights_from_checkpoint,
+    apply_peft_adapter_filter_to_state_dict,
+)
 from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
 from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES, get_mixed_precision_config
 from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer
@@ -86,7 +90,7 @@ from megatron.bridge.utils.common_utils import (
     get_world_size_safe,
 )
 from megatron.bridge.utils.instantiate_utils import instantiate
-from megatron.core import parallel_state, tensor_parallel
+from megatron.core import dist_checkpointing, parallel_state, tensor_parallel
 from megatron.core.num_microbatches_calculator import init_num_microbatches_calculator
 from megatron.core.tensor_parallel.mappings import _gather_along_last_dim
 from megatron.core.transformer.module import Float16Module
@@ -1117,12 +1121,36 @@ def predict(
     else:
         logger.warning("Could not determine number of layers from model structure")
 
-    logger.info(f"Loading weights from: {resolved_ckpt_dir}")
-    _load_model_weights_from_checkpoint(
-        checkpoint_path=str(resolved_ckpt_dir),
-        model=model,
-        dist_ckpt_strictness="ignore_all",
-    )
+    peft_section = run_config.get("peft")
+    if peft_section is not None:
+        pretrained_ckpt = resolve_checkpoint_path(Path(run_config["checkpoint"]["pretrained_checkpoint"]))
+        logger.info(f"Loading base model weights from: {pretrained_ckpt}")
+        _load_model_weights_from_checkpoint(
+            checkpoint_path=str(pretrained_ckpt),
+            model=model,
+            dist_ckpt_strictness="ignore_all",
+        )
+
+        unwrapped = [m.module for m in model]
+        peft_cfg = instantiate(peft_section)
+        peft_cfg(unwrapped, training=False)
+
+        logger.info(f"Loading adapter weights from: {resolved_ckpt_dir}")
+        sharded_sd = _generate_model_state_dict(unwrapped, {})
+        sharded_sd = apply_peft_adapter_filter_to_state_dict(sharded_sd, peft_cfg)
+        loaded = dist_checkpointing.load(sharded_sd, str(resolved_ckpt_dir), strict="ignore_all")
+        if len(unwrapped) == 1:
+            unwrapped[0].load_state_dict(loaded["model"], strict=False)
+        else:
+            for i, inner in enumerate(unwrapped):
+                inner.load_state_dict(loaded[f"model{i}"], strict=False)
+    else:
+        logger.info(f"Loading weights from: {resolved_ckpt_dir}")
+        _load_model_weights_from_checkpoint(
+            checkpoint_path=str(resolved_ckpt_dir),
+            model=model,
+            dist_ckpt_strictness="ignore_all",
+        )
     logger.info("Weights loaded successfully")
 
     # -------------------------------------------------------------------------

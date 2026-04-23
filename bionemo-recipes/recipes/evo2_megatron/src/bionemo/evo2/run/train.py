@@ -594,9 +594,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     #     help="Disable saving the last checkpoint.",
     # )  # TODO implement
     # parser.add_argument(
-    #     "--lora-finetune", action="store_true", help="Use LoRA fine-tuning", default=False
-    # )  # TODO implement
-    # parser.add_argument(
     #     "--lora-checkpoint-path", type=str, default=None, help="LoRA checkpoint path"
     # )  # TODO implement
     parser.add_argument(
@@ -618,18 +615,6 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=False,
         help="Enable CUDA memory cleanup before validation to prevent initialization errors.",
     )  # DONE
-    parser.add_argument(
-        "--lora-alpha",
-        type=int,
-        default=None,
-        help="Alpha parameter for LoRA fine-tuning.",
-    )  # TODO implement
-    parser.add_argument(
-        "--lora-dim",
-        type=int,
-        default=None,
-        help="Dim parameter for LoRA fine-tuning.",
-    )  # TODO implement
     parser.add_argument(
         "--debug",
         action="store_true",
@@ -670,6 +655,44 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
     mutex_hf_tokenizer_group.add_argument(
         "--hf-tokenizer-model-name", type=str, help="Name of a remote HF tokenizer model."
     )  # DONE
+
+    # LoRA
+    parser.add_argument(
+        "--lora-finetune",
+        action="store_true",
+        default=False,
+        help="Use LoRA fine-tuning.",
+    )
+    parser.add_argument(
+        "--lora-alpha",
+        type=int,
+        default=32,
+        help="Alpha parameter for LoRA fine-tuning.",
+    )
+    parser.add_argument(
+        "--lora-dim",
+        type=int,
+        default=16,
+        help="Dim parameter for LoRA fine-tuning.",
+    )
+    parser.add_argument(
+        "--lora-dropout",
+        type=float,
+        default=0.1,
+        help="Dropout parameter for LoRA fine-tuning.",
+    )
+    parser.add_argument(
+        "--lora-target-modules",
+        type=lambda s: [m.strip() for m in s.split(",")],
+        default=["dense_projection", "dense", "linear_qkv", "linear_proj", "linear_fc1", "linear_fc2"],
+        help="Target modules for LoRA fine-tuning, as a comma-separated list.",
+    )
+    parser.add_argument(
+        "--lora-skip-freeze-modules",
+        type=lambda s: [m.strip() for m in s.split(",")],
+        default=[],
+        help="Skip freeze modules for LoRA fine-tuning, as a comma-separated list.",
+    )
 
     return parser.parse_args(args=args)
 
@@ -793,6 +816,14 @@ def train(args: argparse.Namespace) -> None:
 
     if args.no_weight_decay_embeddings:
         recipe_kwargs["no_weight_decay_embeddings"] = True
+
+    # LoRA
+    recipe_kwargs["lora_finetune"] = args.lora_finetune
+    recipe_kwargs["lora_alpha"] = args.lora_alpha
+    recipe_kwargs["lora_dim"] = args.lora_dim
+    recipe_kwargs["lora_dropout"] = args.lora_dropout
+    recipe_kwargs["lora_target_modules"] = args.lora_target_modules
+    recipe_kwargs["lora_skip_freeze_modules"] = args.lora_skip_freeze_modules
 
     # 2. Generate Base Configuration
     cfg: ConfigContainer = pretrain_config(**recipe_kwargs)
