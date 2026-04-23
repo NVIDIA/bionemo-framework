@@ -133,3 +133,22 @@ class TestFlopSplitAndAttention:
         }
         assert _attn_work_from_batch(thd, torch.device("cpu"), cp_size=1).item() == 3**2 + 5**2 + 7**2
         assert _attn_work_from_batch(thd, torch.device("cpu"), cp_size=8).item() == 3**2 + 5**2 + 7**2
+
+    def test_include_padding_thd(self):
+        """THD include_padding=True uses cu_seq_lens_q_padded; False uses cu_seq_lens_q."""
+        batch = {
+            "input_ids": torch.zeros(1, 16, dtype=torch.long),
+            "cu_seq_lens_q": torch.tensor([0, 5, 11], dtype=torch.int32),
+            "cu_seq_lens_q_padded": torch.tensor([0, 8, 16], dtype=torch.int32),
+        }
+        dev = torch.device("cpu")
+        assert _attn_work_from_batch(batch, dev, cp_size=1, include_padding=False).item() == 5**2 + 6**2
+        assert _attn_work_from_batch(batch, dev, cp_size=1, include_padding=True).item() == 8**2 + 8**2
+
+    def test_include_padding_bshd_with_attention_mask(self):
+        """BSHD include_padding=False uses attention_mask; True uses full shape."""
+        mask = torch.tensor([[1, 1, 1, 1, 1, 0, 0, 0], [1, 1, 1, 0, 0, 0, 0, 0]], dtype=torch.int64)
+        batch = {"input_ids": torch.zeros(2, 8, dtype=torch.long), "attention_mask": mask}
+        dev = torch.device("cpu")
+        assert _attn_work_from_batch(batch, dev, cp_size=1, include_padding=False).item() == 5**2 + 3**2
+        assert _attn_work_from_batch(batch, dev, cp_size=1, include_padding=True).item() == 2 * 8 * 8

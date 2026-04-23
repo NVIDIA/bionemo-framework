@@ -145,28 +145,50 @@ def _compute_attn_flop_coeff(model_config_dict: dict) -> int:
     return 3 * num_layers * 4 * h
 
 
-def _attn_work_from_batch(batch: dict, device: torch.device, cp_size: int = 1) -> torch.Tensor:
+def _attn_work_from_batch(
+    batch: dict, device: torch.device, cp_size: int = 1, include_padding: bool = False
+) -> torch.Tensor:
     """Return GLOBAL Σ(Lᵢ²) for this batch as an int64 scalar tensor.
 
     The caller divides by cp_size in log_step to convert this global number into
-    per-rank attention work, so this helper always returns a pre-CP-shard quantity.
+    per-rank attention work; this helper always returns a pre-CP-shard quantity.
 
-    * THD: uses ``cu_seq_lens_q`` (real per-doc lengths — already global, the collator
-      emits boundaries before per-rank sharding). Falls back to ``cu_seq_lens_q_padded``
-      if only the padded variant is present. Excludes CP zigzag padding that FA
-      processes as cycles but contributes nothing to the training signal.
-    * BSHD: ``batch["input_ids"].shape`` per rank is ``(B, S/cp)`` when CP is active
-      because ``ContextParallelDataLoaderWrapper`` pre-splits along the seq dim. To
-      recover the global B·S² from a per-rank shape, multiply by cp_size². When
-      cp_size=1 this is a no-op (per-rank shape == global shape). CodonFM runs FSDP
-      without CP, so cp_size=1 always here, but the formula stays correct if CP is
-      added later.
+    ``include_padding=False`` (default) counts only real tokens — "useful work":
+      * THD: uses ``cu_seq_lens_q`` (real per-doc lengths, already global).
+      * BSHD: uses ``attention_mask.sum(dim=-1)`` per row, scaled by ``cp_size²`` to
+        recover global.
 
+    ``include_padding=True`` counts padded positions too — "hardware view":
+      * THD: uses ``cu_seq_lens_q_padded`` (includes CP zigzag-divisibility padding).
+      * BSHD: uses full ``input_ids.shape``, scaled by ``cp_size²``.
+
+    CodonFM currently runs FSDP without CP (cp_size=1), but the formula stays correct
+    if CP is added later.
     Int32 lens cast to int64 BEFORE squaring (overflow at L ≈ 46k otherwise).
     """
-    cu = batch.get("cu_seq_lens_q")
-    if cu is None:
+    if include_padding:
         cu = batch.get("cu_seq_lens_q_padded")
+        if cu is None:
+            cu = batch.get("cu_seq_lens_q")
+        if cu is not None:
+            lens = (cu[1:] - cu[:-1]).to(torch.int64)
+            return (lens * lens).sum()
+        shape = batch["input_ids"].shape
+        batch_size, seq_len_per_rank = int(shape[0]), int(shape[-1])
+        return torch.tensor(
+            batch_size * seq_len_per_rank * seq_len_per_rank * cp_size * cp_size,
+            dtype=torch.int64,
+            device=device,
+        )
+    cu = batch.get("cu_seq_lens_q")
+    if cu is not None:
+        lens = (cu[1:] - cu[:-1]).to(torch.int64)
+        return (lens * lens).sum()
+    mask = batch.get("attention_mask")
+    if mask is not None:
+        per_row_real = mask.sum(dim=-1).to(torch.int64)
+        return (per_row_real * per_row_real).sum() * cp_size * cp_size
+    cu = batch.get("cu_seq_lens_q_padded")
     if cu is not None:
         lens = (cu[1:] - cu[:-1]).to(torch.int64)
         return (lens * lens).sum()
@@ -241,9 +263,14 @@ class PerfLogger:
             "train/gpu_memory_allocated_mean_gb": torchmetrics.MeanMetric(),
         }
         if self._log_mfu:
+            # Two TFLOPS/MFU pairs:
+            #   * tflops_per_gpu / mfu_pct           — useful work only (no padding)
+            #   * tflops_per_gpu_padded / mfu_padded_pct — hardware view (counts padding slots)
             metrics_dict["train/tflops_per_gpu"] = torchmetrics.MeanMetric()
+            metrics_dict["train/tflops_per_gpu_padded"] = torchmetrics.MeanMetric()
             if self._peak_tflops is not None:
                 metrics_dict["train/mfu_pct"] = torchmetrics.MeanMetric()
+                metrics_dict["train/mfu_padded_pct"] = torchmetrics.MeanMetric()
 
         self.metrics = torchmetrics.MetricCollection(metrics_dict)
         self.metrics.to(self._device)
@@ -259,8 +286,11 @@ class PerfLogger:
         # Gradient accumulation tracking
         self.num_tokens = 0
         self.num_unpadded_tokens = torch.tensor(0, dtype=torch.int64, device=self._device)
-        # Σ(Lᵢ²) over grad-acc micro-batches — drives the attention-FLOP term at log time.
-        self._attn_work_accum = torch.tensor(0, dtype=torch.int64, device=self._device)
+        # Σ(Lᵢ²) over grad-acc micro-batches — two flavors:
+        #   unpadded: only real tokens (useful work), drives mfu_pct
+        #   padded:   all slots including CP-zigzag / BSHD row padding, drives mfu_padded_pct
+        self._attn_work_unpadded_accum = torch.tensor(0, dtype=torch.int64, device=self._device)
+        self._attn_work_padded_accum = torch.tensor(0, dtype=torch.int64, device=self._device)
         self.running_loss = torch.tensor(0.0, device=self._device)
         self.grad_acc_step_count = 0
 
@@ -283,10 +313,14 @@ class PerfLogger:
                 num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != PAD_TOKEN_ID].numel()
                 self.num_unpadded_tokens += num_unpadded_tokens
                 if self._log_mfu:
-                    # Σ(Lᵢ²) from cu_seq_lens (THD) or B·S² from input_ids shape (BSHD).
+                    # Accumulate both unpadded (useful) and padded (hardware) Σ(Lᵢ²).
                     # Helper returns a GLOBAL value (pre-CP-shard); log_step divides by cp_size.
-                    # Accumulates across grad-acc micro-batches; drained in log_step.
-                    self._attn_work_accum += _attn_work_from_batch(batch, self._device, self._cp_size)
+                    self._attn_work_unpadded_accum += _attn_work_from_batch(
+                        batch, self._device, self._cp_size, include_padding=False
+                    )
+                    self._attn_work_padded_accum += _attn_work_from_batch(
+                        batch, self._device, self._cp_size, include_padding=True
+                    )
 
                 # Update perplexity per micro-batch since it needs logits + labels
                 logits = outputs.logits
@@ -340,24 +374,30 @@ class PerfLogger:
                 self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(self.num_unpadded_tokens / step_time)
 
                 if self._log_mfu:
-                    # Two-term FLOP accounting:
-                    #   non_attn_flops = non_attn_per_token * num_tokens
-                    #   attn_flops     = attn_flop_coeff * Σ(Lᵢ²) / cp_size
-                    # num_tokens follows the PaLM/Megatron/MosaicML convention of counting
-                    # every slot in input_ids (hardware runs QKV/MLP/LM-head matmuls over
-                    # padded positions too). The attention term uses the real per-doc
-                    # Σ(Lᵢ²) from cu_seq_lens because FA gates the score matrix on doc
-                    # boundaries, so a packed batch with fragmented docs does genuinely
-                    # less attention work than a uniform B·S² would imply — the old
-                    # single-term formula overstated MFU in exactly that regime.
-                    attn_work = int(self._attn_work_accum.item())
-                    non_attn_flops = self._non_attn_per_token_flops * self.num_tokens
-                    attn_flops = (self._attn_flop_coeff * attn_work) // self._cp_size
-                    flops_per_step = non_attn_flops + attn_flops
-                    tflops_per_gpu = flops_per_step / step_time / 1e12
-                    self.metrics["train/tflops_per_gpu"].update(tflops_per_gpu)
+                    # Two MFU flavors reported side-by-side:
+                    #   mfu_pct        = useful-work rate. Non-attn over real tokens,
+                    #                    attn over real Σ(Lᵢ²). Drops both padding types.
+                    #   mfu_padded_pct = hardware view. Non-attn over all slots, attn over
+                    #                    padded Σ(Lᵢ²) (includes CP zigzag + BSHD row pad).
+                    attn_unpadded = int(self._attn_work_unpadded_accum.item())
+                    attn_padded = int(self._attn_work_padded_accum.item())
+                    num_unpadded = int(self.num_unpadded_tokens.item())
+
+                    non_attn_unpadded = self._non_attn_per_token_flops * num_unpadded
+                    attn_flops_unpadded = (self._attn_flop_coeff * attn_unpadded) // self._cp_size
+                    flops_unpadded = non_attn_unpadded + attn_flops_unpadded
+                    tflops_unpadded = flops_unpadded / step_time / 1e12
+
+                    non_attn_padded = self._non_attn_per_token_flops * self.num_tokens
+                    attn_flops_padded = (self._attn_flop_coeff * attn_padded) // self._cp_size
+                    flops_padded = non_attn_padded + attn_flops_padded
+                    tflops_padded = flops_padded / step_time / 1e12
+
+                    self.metrics["train/tflops_per_gpu"].update(tflops_unpadded)
+                    self.metrics["train/tflops_per_gpu_padded"].update(tflops_padded)
                     if self._peak_tflops is not None:
-                        self.metrics["train/mfu_pct"].update(tflops_per_gpu / self._peak_tflops * 100.0)
+                        self.metrics["train/mfu_pct"].update(tflops_unpadded / self._peak_tflops * 100.0)
+                        self.metrics["train/mfu_padded_pct"].update(tflops_padded / self._peak_tflops * 100.0)
 
                 # Report TRUE peak memory across the logging window (FSDP-gathered params +
                 # activations held for backward), not just the post-step resting footprint.
@@ -390,7 +430,8 @@ class PerfLogger:
                 self.running_loss.zero_()
                 self.num_tokens = 0
                 self.num_unpadded_tokens.zero_()
-                self._attn_work_accum.zero_()
+                self._attn_work_unpadded_accum.zero_()
+                self._attn_work_padded_accum.zero_()
                 self.grad_acc_step_count = 0
 
     def finish(self):
