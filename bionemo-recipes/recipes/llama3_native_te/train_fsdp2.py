@@ -246,7 +246,7 @@ def main(args: DictConfig) -> float | None:
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
         logger.info("Attempting to load checkpoint from %s", ckpt_path)
-        model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_fsdp2(
+        model, optimizer, scheduler, _dl, start_step, epoch = load_checkpoint_fsdp2(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
@@ -255,6 +255,8 @@ def main(args: DictConfig) -> float | None:
             dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
             process_group=device_mesh.get_group("dp"),
         )
+        if _dl is not None:
+            train_dataloader = _dl
         logger.info("Checkpoint loaded, resuming from step %s, epoch %s", start_step, epoch)
     else:
         logger.info("No checkpoint to load, starting from scratch")
