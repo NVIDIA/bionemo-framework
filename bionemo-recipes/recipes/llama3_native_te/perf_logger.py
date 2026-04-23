@@ -63,7 +63,7 @@ def _detect_peak_tflops_bf16():
     return None, name
 
 
-def _compute_non_attn_per_token_flops(model_config_dict: dict) -> int:
+def _compute_non_attn_per_token_flops(model_config_dict: dict, use_padded_vocab: bool = False) -> int:
     """Per-token FLOPs for everything EXCEPT the S² attention term.
 
     Q/K/V/O projections (GQA-aware) + MLP + LM head, 3x for fwd+bwd. Multiply by the
@@ -78,6 +78,10 @@ def _compute_non_attn_per_token_flops(model_config_dict: dict) -> int:
     kv_dim = n_kv * head_dim
     ffn = model_config_dict["intermediate_size"]
     vocab = model_config_dict.get("vocab_size", 0)
+    if use_padded_vocab:
+        # LM-head matmul runs at padded width (e.g. ESM-2: vocab=33 → padded=64 for
+        # FP8/tensor-core friendliness); logits are sliced back post-matmul.
+        vocab = model_config_dict.get("padded_vocab_size") or vocab
     num_layers = model_config_dict["num_hidden_layers"]
     model_type = model_config_dict.get("model_type", "")
     num_mlp_proj = 3 if model_type in _GATED_MLP_MODEL_TYPES else 2
@@ -201,11 +205,15 @@ class PerfLogger:
         # reflects each rank's share under DP/CP and sequence packing.
         self._log_mfu = bool(args.get("log_mfu", False)) and model_config_dict is not None
         self._non_attn_per_token_flops = 0
+        self._non_attn_per_token_flops_padded = 0
         self._attn_flop_coeff = 0
         self._cp_size = int(args.get("cp_size", 1))
         self._peak_tflops: float | None = None
         if self._log_mfu:
             self._non_attn_per_token_flops = _compute_non_attn_per_token_flops(model_config_dict)
+            self._non_attn_per_token_flops_padded = _compute_non_attn_per_token_flops(
+                model_config_dict, use_padded_vocab=True
+            )
             self._attn_flop_coeff = _compute_attn_flop_coeff(model_config_dict)
             self._peak_tflops, gpu_name = _detect_peak_tflops_bf16()
             if dist_config.local_rank == 0:
@@ -384,7 +392,7 @@ class PerfLogger:
                     flops_unpadded = non_attn_unpadded + attn_flops_unpadded
                     tflops_unpadded = flops_unpadded / step_time / 1e12
 
-                    non_attn_padded = self._non_attn_per_token_flops * self.num_tokens
+                    non_attn_padded = self._non_attn_per_token_flops_padded * self.num_tokens
                     attn_flops_padded = (self._attn_flop_coeff * attn_padded) // self._cp_size
                     flops_padded = non_attn_padded + attn_flops_padded
                     tflops_padded = flops_padded / step_time / 1e12
