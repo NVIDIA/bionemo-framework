@@ -213,7 +213,7 @@ class TestGradAccAccumulation:
         assert perf_logger.running_loss.item() == pytest.approx(4.0)
 
     def test_attn_work_accumulates_across_grad_acc(self, mock_wandb, mock_tqdm):
-        """_attn_work_accum sums Σ(Lᵢ²) over all micro-batches when log_mfu=True."""
+        """Both _attn_work_*_accum buffers sum Σ(Lᵢ²) over all micro-batches when log_mfu=True."""
         dist_config = DistributedConfig()
         args = _make_args(logging_frequency=1, log_mfu=True, max_seq_length=128)
         perf_logger = PerfLogger(dist_config, args, model_config_dict=_esm_cfg())
@@ -230,8 +230,11 @@ class TestGradAccAccumulation:
             outputs.logits = torch.randn(2, 64, ESM2_VOCAB, device=device)
             perf_logger.log_micro_step(step=1, batch=batch, outputs=outputs)
 
-        # Accumulator should hold 3 * 2 * 64² = 24576
-        assert perf_logger._attn_work_accum.item() == 3 * 2 * 64 * 64
+        # With no attention_mask and no cu_seq_lens, both unpadded and padded paths fall
+        # through to the shape-synthesis branch, so both accumulators hold 3 * 2 * 64² = 24576.
+        expected = 3 * 2 * 64 * 64
+        assert perf_logger._attn_work_unpadded_accum.item() == expected
+        assert perf_logger._attn_work_padded_accum.item() == expected
 
     def test_reset_on_log_boundary(self, mock_wandb, mock_tqdm):
         """Calling log_step on a logging-boundary step drains all accumulators."""
@@ -248,5 +251,6 @@ class TestGradAccAccumulation:
         assert perf_logger.grad_acc_step_count == 0
         assert perf_logger.num_tokens == 0
         assert perf_logger.num_unpadded_tokens.item() == 0
-        assert perf_logger._attn_work_accum.item() == 0
+        assert perf_logger._attn_work_unpadded_accum.item() == 0
+        assert perf_logger._attn_work_padded_accum.item() == 0
         assert perf_logger.running_loss.item() == pytest.approx(0.0)
