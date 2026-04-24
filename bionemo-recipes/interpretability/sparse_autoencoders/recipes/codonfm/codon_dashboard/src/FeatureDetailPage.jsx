@@ -369,6 +369,53 @@ export default function FeatureDetailPage({ feature, examples, vocabLogits, feat
           <VocabLogitChart logits={logits} />
         </div>
 
+        {/* Gene-Level GSEA Enrichment */}
+        {(() => {
+          const gseaFields = [
+            { key: 'gsea_GO_Biological_Process', label: 'GO Biological Process' },
+            { key: 'gsea_GO_Molecular_Function', label: 'GO Molecular Function' },
+            { key: 'gsea_GO_Cellular_Component', label: 'GO Cellular Component' },
+            { key: 'gsea_InterPro_Domains', label: 'InterPro Domains' },
+            { key: 'gsea_GO_Slim', label: 'GO Slim' },
+          ]
+          const gseaEntries = gseaFields
+            .map(({ key, label }) => ({ label, value: feature[key] }))
+            .filter(e => e.value && e.value !== 'unlabeled' && e.value !== 'other')
+          const overallBest = feature.gsea_overall_best
+          if (gseaEntries.length === 0 && (!overallBest || overallBest === 'unlabeled')) return null
+          return (
+            <div style={styles.section}>
+              <div style={styles.sectionTitle}>Gene-Level Enrichment (GSEA)</div>
+              <div style={styles.sectionSubtitle}>
+                Genes ranked by activation strength, tested against GO and InterPro databases.
+              </div>
+              {overallBest && overallBest !== 'unlabeled' && (
+                <div style={{
+                  padding: '8px 12px', marginBottom: '8px', borderRadius: '6px',
+                  background: 'var(--bg-card-expanded)', border: '1px solid var(--accent)',
+                  fontSize: '13px', fontWeight: '600', color: 'var(--text-heading)',
+                }}>
+                  Best: {overallBest}
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                {gseaEntries.map(({ label, value }) => (
+                  <div key={label} style={{
+                    padding: '6px 10px', borderRadius: '4px',
+                    background: 'var(--bg-card)', border: '1px solid var(--border-card)',
+                    fontSize: '11px',
+                  }}>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '9px', fontWeight: '600', marginBottom: '2px' }}>
+                      {label}
+                    </div>
+                    <div style={{ color: 'var(--text-primary)' }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
+
         {/* Codon Annotations */}
         <div style={styles.section}>
           <div style={styles.sectionTitle}>Codon-Level Annotations</div>

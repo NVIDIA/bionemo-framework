@@ -16,7 +16,7 @@
 """Gene-level GSEA enrichment metric for CodonFM SAE features.
 
 For each SAE feature, ranks genes by activation strength and runs GSEA
-(Gene Set Enrichment Analysis) against GO, InterPro, and Pfam databases.
+(Gene Set Enrichment Analysis) against GO and InterPro databases.
 This captures functional/pathway-level interpretability that residue-level
 F1 misses (e.g., a feature that fires on all ribosomal protein genes).
 
@@ -43,7 +43,6 @@ ANNOTATION_DATABASES = [
     "GO_Molecular_Function_2023",
     "GO_Cellular_Component_2023",
     "InterPro_Domains_2019",
-    "Pfam_Domains_2019",
 ]
 
 _GO_ID_PATTERN = re.compile(r"\((GO:\d+)\)")
@@ -187,6 +186,8 @@ def run_gsea_for_feature(
                 res = gseapy.prerank(
                     rnk=series,
                     gene_sets=db,
+                    min_size=5,
+                    max_size=1000,
                     no_plot=True,
                     outdir=None,
                     verbose=False,
@@ -201,8 +202,6 @@ def run_gsea_for_feature(
             fdr_col = "FDR q-val" if "FDR q-val" in df.columns else "fdr"
             es_col = "NES" if "NES" in df.columns else "nes"
             pval_col = "NOM p-val" if "NOM p-val" in df.columns else "pval"
-            geneset_size_col = "Gene %" if "Gene %" in df.columns else "geneset_size"
-
             df[fdr_col] = pd.to_numeric(df[fdr_col], errors="coerce")
             df = df.dropna(subset=[fdr_col])
 
@@ -221,7 +220,15 @@ def run_gsea_for_feature(
             fdr_val = float(best_row[fdr_col])
             es_val = float(best_row.get(es_col, 0.0))
             pval = float(best_row.get(pval_col, 1.0))
-            n_genes = int(best_row.get(geneset_size_col, 0)) if geneset_size_col in df.columns else 0
+
+            # Parse n_genes from "Tag %" column (format: "6/200") or fall back to 0
+            n_genes = 0
+            tag_pct = str(best_row.get("Tag %", ""))
+            if "/" in tag_pct:
+                try:
+                    n_genes = int(tag_pct.split("/")[1])
+                except (ValueError, IndexError):
+                    pass
 
             result = EnrichmentResult(
                 feature_idx=feature_idx,
@@ -248,6 +255,13 @@ def run_gsea_for_feature(
                     continue  # Already added the best
                 t_id = _parse_go_id(t_raw) if is_go else t_raw
                 t_name = _parse_term_name(t_raw) if is_go else t_raw
+                row_n_genes = 0
+                row_tag = str(row.get("Tag %", ""))
+                if "/" in row_tag:
+                    try:
+                        row_n_genes = int(row_tag.split("/")[1])
+                    except (ValueError, IndexError):
+                        pass
                 all_significant.append(
                     EnrichmentResult(
                         feature_idx=feature_idx,
@@ -257,7 +271,7 @@ def run_gsea_for_feature(
                         enrichment_score=float(row.get(es_col, 0.0)),
                         pvalue=float(row.get(pval_col, 1.0)),
                         fdr=float(row[fdr_col]),
-                        n_genes_in_term=int(row.get(geneset_size_col, 0)) if geneset_size_col in df.columns else 0,
+                        n_genes_in_term=row_n_genes,
                     )
                 )
 
@@ -475,24 +489,126 @@ def rollup_go_slim(
     return feature_labels
 
 
+# ── Gene family detection ────────────────────────────────────────────────
+
+
+def _gene_prefix(gene_name: str) -> str:
+    """Extract the alphabetic prefix of a gene name (letters before first digit)."""
+    prefix = ""
+    for c in gene_name:
+        if c.isdigit():
+            break
+        prefix += c
+    return prefix
+
+
+def detect_gene_families(
+    gene_activations: Dict[int, Dict[str, float]],
+    top_k: int = 10,
+    min_fraction: float = 0.5,
+) -> Dict[int, str]:
+    """Detect dominant gene family for each feature based on top-K gene name prefixes.
+
+    Args:
+        gene_activations: feature_idx -> gene_name -> activation score.
+        top_k: Number of top genes to examine per feature.
+        min_fraction: Minimum fraction of top-K genes sharing a prefix to call it a family.
+
+    Returns:
+        feature_idx -> gene family label (e.g., "OR family (8/10)") or absent if no family.
+    """
+    from collections import Counter
+
+    result = {}
+    for feat_idx, gene_scores in gene_activations.items():
+        top_genes = sorted(gene_scores.keys(), key=lambda g: gene_scores[g], reverse=True)[:top_k]
+        if len(top_genes) < 3:
+            continue
+        prefixes = [_gene_prefix(g) for g in top_genes]
+        counts = Counter(p for p in prefixes if len(p) >= 2)
+        if not counts:
+            continue
+        top_prefix, top_count = counts.most_common(1)[0]
+        if top_count / len(top_genes) >= min_fraction:
+            result[feat_idx] = f"{top_prefix} family ({top_count}/{len(top_genes)})"
+    return result
+
+
+# ── pLI scores ──────────────────────────────────────────────────────────
+
+
+def load_pli_scores(pli_path: str) -> Dict[str, float]:
+    """Load gnomAD pLI scores from the constraint metrics TSV.
+
+    Supports both plain TSV and bgzipped (.bgz/.gz) files.
+    The file should have 'gene' and 'pLI' columns (gnomAD v2.1.1 format).
+
+    Returns:
+        gene_name -> pLI score
+    """
+    if str(pli_path).endswith(".bgz") or str(pli_path).endswith(".gz"):
+        df = pd.read_csv(pli_path, sep="\t", compression="gzip", usecols=["gene", "pLI"])
+    else:
+        df = pd.read_csv(pli_path, sep="\t", usecols=["gene", "pLI"])
+
+    df = df.dropna(subset=["pLI"])
+    # Keep first occurrence per gene (canonical transcript)
+    df = df.drop_duplicates(subset=["gene"], keep="first")
+    return dict(zip(df["gene"], df["pLI"].astype(float)))
+
+
+def compute_feature_pli(
+    gene_activations: Dict[int, Dict[str, float]],
+    pli_scores: Dict[str, float],
+    top_k: int = 20,
+) -> Dict[int, Dict[str, float]]:
+    """Compute pLI-based metrics for each feature.
+
+    For each feature, looks at the top-K genes by activation and computes:
+    - mean_pli: mean pLI score of top-K genes (with known pLI)
+    - frac_constrained: fraction of top-K genes with pLI > 0.9
+    - max_pli: max pLI among top-K genes
+
+    Args:
+        gene_activations: feature_idx -> gene_name -> activation score.
+        pli_scores: gene_name -> pLI score.
+        top_k: Number of top genes to examine per feature.
+
+    Returns:
+        feature_idx -> {"mean_pli": float, "frac_constrained": float, "max_pli": float}
+    """
+    result = {}
+    for feat_idx, gene_scores in gene_activations.items():
+        top_genes = sorted(gene_scores.keys(), key=lambda g: gene_scores[g], reverse=True)[:top_k]
+        pli_vals = [pli_scores[g] for g in top_genes if g in pli_scores]
+        if not pli_vals:
+            continue
+        result[feat_idx] = {
+            "mean_pli": float(np.mean(pli_vals)),
+            "frac_constrained": float(np.mean([1.0 if v > 0.9 else 0.0 for v in pli_vals])),
+            "max_pli": float(np.max(pli_vals)),
+        }
+    return result
+
+
 # ── Label columns for UMAP ──────────────────────────────────────────────
 
 
 def build_feature_label_columns(
     per_feature: List[FeatureLabels],
     n_features: int,
+    gene_families: Optional[Dict[int, str]] = None,
 ) -> Dict[str, Dict[int, str]]:
     """Build dict[column_name, dict[feature_idx, label]] for UMAP dropdown.
 
     Keys: overall_best, GO_Biological_Process, GO_Molecular_Function,
-          GO_Cellular_Component, InterPro_Domains, Pfam_Domains, GO_Slim
+          GO_Cellular_Component, InterPro_Domains, GO_Slim
     """
     db_to_column = {
         "GO_Biological_Process_2023": "GO_Biological_Process",
         "GO_Molecular_Function_2023": "GO_Molecular_Function",
         "GO_Cellular_Component_2023": "GO_Cellular_Component",
         "InterPro_Domains_2019": "InterPro_Domains",
-        "Pfam_Domains_2019": "Pfam_Domains",
     }
 
     columns: Dict[str, Dict[int, str]] = {
@@ -501,8 +617,8 @@ def build_feature_label_columns(
         "GO_Molecular_Function": {},
         "GO_Cellular_Component": {},
         "InterPro_Domains": {},
-        "Pfam_Domains": {},
         "GO_Slim": {},
+        "gene_family": {},
     }
 
     for fl in per_feature:
@@ -524,6 +640,11 @@ def build_feature_label_columns(
             columns["GO_Slim"][idx] = fl.go_slim_name
         else:
             columns["GO_Slim"][idx] = "unlabeled"
+
+        if gene_families and idx in gene_families:
+            columns["gene_family"][idx] = gene_families[idx]
+        else:
+            columns["gene_family"][idx] = "unlabeled"
 
     # Fill missing feature indices with "unlabeled"
     for col in columns:

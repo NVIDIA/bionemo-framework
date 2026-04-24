@@ -20,6 +20,7 @@ separating training logic from the SAE model architecture.
 """
 
 import contextlib
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,6 +65,10 @@ class TrainingConfig:
         lr_reference_hidden_dim: Reference hidden_dim for LR scaling (default 2048)
         warmup_steps: Number of steps for linear LR warmup (0 = no warmup)
         grad_accumulation_steps: Number of microsteps to accumulate gradients before an optimizer step (1 = no accumulation)
+        max_grad_norm: Max gradient norm for clipping (None = no clipping)
+        lr_schedule: LR schedule after warmup ('constant', 'cosine', 'linear')
+        lr_min: Minimum LR for decay schedules
+        lr_decay_steps: Total steps for LR decay (None = use full training duration)
     """
 
     lr: float = 3e-4
@@ -80,6 +85,10 @@ class TrainingConfig:
     lr_reference_hidden_dim: int = 2048
     warmup_steps: int = 0
     grad_accumulation_steps: int = 1
+    max_grad_norm: Optional[float] = None
+    lr_schedule: str = "constant"
+    lr_min: float = 0.0
+    lr_decay_steps: Optional[int] = None
 
 
 @dataclass
@@ -178,12 +187,18 @@ class Trainer:
         self.is_distributed: bool = False
         self._data_sharded: bool = False
 
+        # Validate lr_schedule
+        valid_schedules = ("constant", "cosine", "linear")
+        if self.config.lr_schedule not in valid_schedules:
+            raise ValueError(f"Unknown lr_schedule: {self.config.lr_schedule!r}. Expected one of {valid_schedules}.")
+
         # Will be set during training
         self.dataloader: Optional[DataLoader] = None
         self.wandb_run = None
         self.global_step: int = 0
         self.current_epoch: int = 0
         self._target_lr: float = config.lr if config else 3e-4
+        self._total_decay_steps: int = 0  # computed in fit() once we know total steps
 
     def _setup_dataloader(self, data: Union[torch.Tensor, DataLoader]) -> DataLoader:
         """Setup dataloader from tensor or existing dataloader."""
@@ -234,8 +249,6 @@ class Trainer:
 
         # Scale: lr ∝ 1/sqrt(hidden_dim)
         # effective_lr = base_lr * sqrt(reference_dim / hidden_dim)
-        import math
-
         scale_factor = math.sqrt(reference_dim / hidden_dim)
         effective_lr = base_lr * scale_factor
 
@@ -256,16 +269,51 @@ class Trainer:
         self._target_lr = self.config.lr
         return self.optimizer
 
-    def _get_warmup_lr(self, step: int) -> float:
-        """Compute learning rate with linear warmup."""
-        if self.config.warmup_steps == 0 or step >= self.config.warmup_steps:
-            return self._target_lr
-        # Linear warmup: lr = target_lr * (step / warmup_steps)
-        return self._target_lr * (step / self.config.warmup_steps)
+    def _get_lr(self, step: int) -> float:
+        """Compute learning rate with warmup and optional decay schedule.
+
+        The schedule has two phases:
+        1. Warmup (steps 0..warmup_steps-1): linear ramp from 0 to target_lr
+        2. Decay (steps warmup_steps..warmup_steps+decay_steps): schedule-dependent decay
+
+        Args:
+            step: Current global training step.
+
+        Returns:
+            Learning rate for this step.
+        """
+        warmup_steps = self.config.warmup_steps
+        target_lr = self._target_lr
+        lr_min = self.config.lr_min
+
+        # Phase 1: warmup
+        if warmup_steps > 0 and step < warmup_steps:
+            return target_lr * (step / warmup_steps)
+
+        # Phase 2: decay (or constant)
+        schedule = self.config.lr_schedule
+        if schedule == "constant":
+            return target_lr
+
+        decay_steps = self._total_decay_steps
+        if decay_steps <= 0:
+            return target_lr
+
+        # How far through the decay phase we are (0.0 to 1.0, clamped)
+        steps_since_warmup = step - warmup_steps
+        progress = min(steps_since_warmup / decay_steps, 1.0)
+
+        if schedule == "cosine":
+            # Cosine annealing: lr_min + 0.5 * (target - lr_min) * (1 + cos(pi * progress))
+            return lr_min + 0.5 * (target_lr - lr_min) * (1.0 + math.cos(math.pi * progress))
+        elif schedule == "linear":
+            return target_lr + (lr_min - target_lr) * progress
+        else:
+            raise ValueError(f"Unknown lr_schedule: {schedule!r}. Expected 'constant', 'cosine', or 'linear'.")
 
     def _update_lr(self, optimizer: torch.optim.Optimizer, step: int) -> float:
-        """Update learning rate based on warmup schedule."""
-        lr = self._get_warmup_lr(step)
+        """Update learning rate based on schedule."""
+        lr = self._get_lr(step)
         for param_group in optimizer.param_groups:
             param_group["lr"] = lr
         return lr
@@ -369,6 +417,7 @@ class Trainer:
                 group=self.wandb_config.group,
                 job_type=self.wandb_config.job_type,
                 config=config,
+                settings=wandb.Settings(init_timeout=300),
             )
             print(f"wandb run: {self.wandb_run.url}")
         else:
@@ -462,7 +511,7 @@ class Trainer:
 
         Args:
             data: Training data (tensor or dataloader)
-            max_grad_norm: Max gradient norm for clipping (None = no clipping)
+            max_grad_norm: Max gradient norm for clipping (overrides config.max_grad_norm if set)
             resume_from: Path to checkpoint to resume training from (optional)
             data_sharded: If True, data is already sharded per rank — skip DistributedSampler
             **loss_kwargs: Additional arguments passed to loss function
@@ -470,6 +519,9 @@ class Trainer:
         Returns:
             Final training loss
         """
+        # Resolve grad clipping: fit() arg overrides config
+        if max_grad_norm is None:
+            max_grad_norm = self.config.max_grad_norm
         self._data_sharded = data_sharded
 
         # Setup distributed training first (before moving model to device)
@@ -504,6 +556,25 @@ class Trainer:
         accum_steps = self.config.grad_accumulation_steps
         global_batch_size = self.config.batch_size * self.parallel_config.dp_size * accum_steps
 
+        # Compute total decay steps for LR schedule
+        if self.config.lr_decay_steps is not None:
+            self._total_decay_steps = self.config.lr_decay_steps
+        elif self.config.lr_schedule != "constant":
+            # Estimate total optimizer steps from dataloader length
+            try:
+                batches_per_epoch = len(self.dataloader)
+                steps_per_epoch = batches_per_epoch // accum_steps
+                total_steps = steps_per_epoch * self.config.n_epochs
+                self._total_decay_steps = max(0, total_steps - self.config.warmup_steps)
+            except TypeError:
+                self._total_decay_steps = 0
+                self._print_rank0(
+                    "WARNING: Cannot compute decay steps for streaming dataloader. "
+                    "Set lr_decay_steps explicitly or use lr_schedule='constant'."
+                )
+        else:
+            self._total_decay_steps = 0
+
         remaining_info = ""
         if resume_from is not None:
             remaining_info = f" (resuming from epoch {self.current_epoch})"
@@ -518,6 +589,13 @@ class Trainer:
             self._print_rank0(f"Gradient accumulation: {accum_steps} microsteps")
         if self.config.warmup_steps > 0:
             self._print_rank0(f"LR warmup: {self.config.warmup_steps} steps")
+        if self.config.lr_schedule != "constant":
+            self._print_rank0(
+                f"LR schedule: {self.config.lr_schedule} decay over {self._total_decay_steps} steps "
+                f"(lr_min={self.config.lr_min:.2e})"
+            )
+        if max_grad_norm is not None:
+            self._print_rank0(f"Gradient clipping: max_norm={max_grad_norm}")
 
         # If resuming, keep restored global_step and current_epoch; otherwise start fresh
         if resume_from is None:
@@ -693,6 +771,9 @@ def train_sae(
     device: str = "cuda",
     log_interval: int = 1,
     warmup_steps: int = 0,
+    max_grad_norm: Optional[float] = None,
+    lr_schedule: str = "constant",
+    lr_min: float = 0.0,
     **loss_kwargs,
 ) -> float:
     """Convenience function to train an SAE model.
@@ -708,6 +789,9 @@ def train_sae(
         device: Device to train on
         log_interval: Print loss every N epochs
         warmup_steps: Number of steps for linear LR warmup (0 = no warmup)
+        max_grad_norm: Max gradient norm for clipping (None = no clipping)
+        lr_schedule: LR schedule after warmup ('constant', 'cosine', 'linear')
+        lr_min: Minimum LR for decay schedules
         **loss_kwargs: Additional arguments for loss function
 
     Returns:
@@ -727,6 +811,9 @@ def train_sae(
         device=device,
         log_interval=log_interval,
         warmup_steps=warmup_steps,
+        max_grad_norm=max_grad_norm,
+        lr_schedule=lr_schedule,
+        lr_min=lr_min,
     )
 
     trainer = Trainer(

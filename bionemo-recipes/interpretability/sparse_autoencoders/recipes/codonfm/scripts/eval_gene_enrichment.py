@@ -52,7 +52,10 @@ from codonfm_sae.data import read_codon_csv  # noqa: E402
 from codonfm_sae.eval.gene_enrichment import (  # noqa: E402
     ANNOTATION_DATABASES,
     GeneEnrichmentReport,
+    compute_feature_pli,
+    detect_gene_families,
     download_obo_files,
+    load_pli_scores,
     rollup_go_slim,
     run_gene_enrichment,
 )
@@ -325,6 +328,30 @@ def update_atlas_with_gsea(report: GeneEnrichmentReport, atlas_path: Path):
     print(f"  Updated {atlas_path} with {len(report.feature_label_columns)} GSEA columns")
 
 
+def update_atlas_with_pli(feature_pli: Dict[int, Dict[str, float]], atlas_path: Path):
+    """Append pLI metric columns to features_atlas.parquet."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    if not atlas_path.exists():
+        print(f"  WARNING: {atlas_path} does not exist, skipping pLI atlas update")
+        return
+
+    table = pq.read_table(atlas_path)
+    n = table.num_rows
+
+    for metric in ["mean_pli", "frac_constrained", "max_pli"]:
+        col_name = f"pli_{metric}"
+        values = [feature_pli.get(i, {}).get(metric) for i in range(n)]
+
+        if col_name in table.column_names:
+            table = table.drop(col_name)
+        table = table.append_column(col_name, pa.array(values, type=pa.float32()))
+
+    pq.write_table(table, atlas_path, compression="snappy")
+    print(f"  Updated {atlas_path} with 3 pLI columns")
+
+
 # ── CLI ──────────────────────────────────────────────────────────────────
 
 
@@ -368,6 +395,14 @@ def parse_args():
         type=str,
         default=None,
         help="If provided, updates features_atlas.parquet with GSEA columns",
+    )
+
+    # pLI scores
+    p.add_argument(
+        "--pli-path",
+        type=str,
+        default=None,
+        help="Path to gnomAD pLI constraint file (gnomad.v2.1.1.lof_metrics.by_gene.txt.bgz)",
     )
 
     p.add_argument("--seed", type=int, default=42)
@@ -499,6 +534,27 @@ def main():
     gsea_time = time.time() - t0
     print(f"\n  GSEA completed in {gsea_time:.1f}s")
 
+    # 6b. Detect gene families
+    print("  Detecting gene families...")
+    gene_families = detect_gene_families(gene_activations)
+    print(f"  {len(gene_families)} features with dominant gene family")
+
+    # 6c. Compute pLI metrics (optional)
+    feature_pli = {}
+    if args.pli_path:
+        print(f"  Loading pLI scores from {args.pli_path}...")
+        pli_scores = load_pli_scores(args.pli_path)
+        print(f"  Loaded pLI for {len(pli_scores)} genes")
+        feature_pli = compute_feature_pli(gene_activations, pli_scores)
+        print(f"  {len(feature_pli)} features with pLI metrics")
+
+    # Update report label columns with gene families
+    from codonfm_sae.eval.gene_enrichment import build_feature_label_columns
+
+    report.feature_label_columns = build_feature_label_columns(
+        report.per_feature, report.n_features_total, gene_families=gene_families
+    )
+
     # 7. Save results (before GO Slim so we don't lose GSEA work on failure)
     print("\n" + "=" * 60)
     print("SAVING RESULTS")
@@ -524,7 +580,9 @@ def main():
         # Rebuild label columns with GO Slim info
         from codonfm_sae.eval.gene_enrichment import build_feature_label_columns
 
-        report.feature_label_columns = build_feature_label_columns(report.per_feature, report.n_features_total)
+        report.feature_label_columns = build_feature_label_columns(
+            report.per_feature, report.n_features_total, gene_families=gene_families
+        )
 
         n_slim = sum(1 for fl in report.per_feature if fl.go_slim_name is not None)
         slim_names = {fl.go_slim_name for fl in report.per_feature if fl.go_slim_name is not None}
@@ -539,6 +597,8 @@ def main():
         dashboard_dir = Path(args.dashboard_dir)
         atlas_path = dashboard_dir / "features_atlas.parquet"
         update_atlas_with_gsea(report, atlas_path)
+        if feature_pli:
+            update_atlas_with_pli(feature_pli, atlas_path)
 
     # Summary
     print("\n" + "=" * 60)

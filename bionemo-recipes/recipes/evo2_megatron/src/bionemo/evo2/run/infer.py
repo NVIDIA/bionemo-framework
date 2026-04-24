@@ -70,7 +70,11 @@ from typing import Any, Dict, List, Optional
 
 import torch
 import torch.distributed as dist
-from megatron.bridge.training.checkpointing import _load_model_weights_from_checkpoint
+from megatron.bridge.training.checkpointing import (
+    _generate_model_state_dict,
+    _load_model_weights_from_checkpoint,
+    apply_peft_adapter_filter_to_state_dict,
+)
 from megatron.bridge.training.config import DistributedInitConfig, RNGConfig
 from megatron.bridge.training.mixed_precision import get_mixed_precision_config
 from megatron.bridge.training.tokenizers.tokenizer import _HuggingFaceTokenizer
@@ -81,7 +85,7 @@ from megatron.bridge.training.utils.checkpoint_utils import (
 )
 from megatron.bridge.utils.common_utils import get_world_size_safe
 from megatron.bridge.utils.instantiate_utils import instantiate
-from megatron.core import parallel_state
+from megatron.core import dist_checkpointing, parallel_state
 from megatron.core.inference.contexts import StaticInferenceContext
 from megatron.core.inference.engines.static_engine import StaticInferenceEngine
 from megatron.core.inference.model_inference_wrappers.abstract_model_inference_wrapper import (
@@ -462,12 +466,35 @@ def setup_inference_engine(
 
     raw_model = model_provider.provide().eval().cuda()
 
-    logger.info(f"Loading weights from: {resolved_ckpt_dir}")
-    _load_model_weights_from_checkpoint(
-        checkpoint_path=str(resolved_ckpt_dir),
-        model=[raw_model],
-        dist_ckpt_strictness="ignore_all",
-    )
+    # A LoRA finetune checkpoint only contains adapter tensors; the base weights live in
+    # run_config["checkpoint"]["pretrained_checkpoint"]. Detect via the top-level `peft:`
+    # section (same signal `peft_pre_wrap_hook` uses during training).
+    peft_node = run_config.get("peft")
+    if peft_node is not None:
+        # pretrained_checkpoint may point at a training-output parent containing iter_*; resolve.
+        resolved_pretrained_dir = resolve_checkpoint_path(Path(run_config["checkpoint"]["pretrained_checkpoint"]))
+        logger.info(f"PEFT checkpoint detected. Loading base weights from: {resolved_pretrained_dir}")
+        _load_model_weights_from_checkpoint(
+            checkpoint_path=str(resolved_pretrained_dir),
+            model=[raw_model],
+            dist_ckpt_strictness="ignore_all",
+        )
+
+        logger.info("Applying PEFT adapter structure to base model")
+        peft_cfg = instantiate(peft_node)
+        raw_model = peft_cfg(raw_model, training=False)
+
+        logger.info(f"Loading adapter weights from: {resolved_ckpt_dir}")
+        sharded_sd = apply_peft_adapter_filter_to_state_dict(_generate_model_state_dict([raw_model], {}), peft_cfg)
+        loaded = dist_checkpointing.load(sharded_sd, str(resolved_ckpt_dir), strict="ignore_all")
+        raw_model.load_state_dict(loaded["model"], strict=False)
+    else:
+        logger.info(f"Loading weights from: {resolved_ckpt_dir}")
+        _load_model_weights_from_checkpoint(
+            checkpoint_path=str(resolved_ckpt_dir),
+            model=[raw_model],
+            dist_ckpt_strictness="ignore_all",
+        )
     logger.info("Weights loaded successfully")
 
     # Wrap with Float16Module
