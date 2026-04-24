@@ -132,6 +132,15 @@ def _attn_work_from_batch(
     CodonFM currently runs FSDP without CP (cp_size=1), but the formula stays correct
     if CP is added later.
     Int32 lens cast to int64 BEFORE squaring (overflow at L ≈ 46k otherwise).
+
+    NOTE: With the collator's ``pad_to_multiple_of`` option (FP8/FP4 alignment, inlined
+    in ``CodonTHDCollator.__call__`` in dataset.py), the cu_seq_lens_q tensor is mutated
+    in place to include one or more appended mock pad sequences and no
+    ``cu_seq_lens_q_padded`` key is written (that key is reserved for TE's per-sequence
+    CP padding). In that path the unpadded and padded metrics collapse, inflated by
+    ≤``pad_to_multiple_of²`` relative to the real Σ(Lᵢ²) — typically <10⁻⁵ and below
+    measurement noise. Known limitation; see
+    https://github.com/NVIDIA/bionemo-framework/issues/1561.
     """
     if include_padding:
         cu = batch.get("cu_seq_lens_q_padded")
