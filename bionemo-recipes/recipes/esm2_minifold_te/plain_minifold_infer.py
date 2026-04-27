@@ -1096,6 +1096,10 @@ def native_linear_forward_quantized(
                 return payload, scale
         current_direct_output = use_direct_output
         current_fused_bias_epilogue = use_fused_bias_epilogue
+        if module.bias is not None and (in_dim, out_dim) in ((128, 512), (512, 128)):
+            # These transition epilogues have no stable cuBLASLt heuristic on this node.
+            current_direct_output = False
+            current_fused_bias_epilogue = False
         while True:
             try:
                 if use_gold_output_pack:

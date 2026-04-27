@@ -40,6 +40,19 @@ def test_default_config_loads():
     assert cfg.tri_impl == "bmm"
     assert cfg.pair_precision == "bf16"
     assert cfg.linear_precision == "bf16"
+    assert cfg.use_torch_compile is False
+    assert cfg.torch_compile_mode == "default"
+    assert cfg.diagnostics_output is None
+
+
+def test_compile_flags_load():
+    args = SCRIPT_MODULE.build_arg_parser().parse_args(
+        ["--use_torch_compile", "--torch_compile_mode", "reduce-overhead", "--diagnostics_output", "/tmp/diag.json"]
+    )
+    cfg = SCRIPT_MODULE.load_config(args)
+    assert cfg.use_torch_compile is True
+    assert cfg.torch_compile_mode == "reduce-overhead"
+    assert str(cfg.diagnostics_output) == "/tmp/diag.json"
 
 
 def test_compat_flag_maps_to_fp8_storage():

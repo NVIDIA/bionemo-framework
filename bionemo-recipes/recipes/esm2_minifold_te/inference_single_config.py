@@ -37,6 +37,7 @@ from plain_minifold_infer import (
     validate_fp8_extreme_configuration,
     validate_fp8_native_mixed_tail_configuration,
 )
+from torch_compile_diagnostics import add_torch_compile_arguments, maybe_capture_dynamo_diagnostics, maybe_compile
 
 
 DEFAULT_CONFIG = Path(__file__).resolve().parent / "hydra_config" / "inference_single_config.yaml"
@@ -65,6 +66,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bins", type=int)
     parser.add_argument("--num_recycling", type=int)
     parser.add_argument("--output", default="")
+    add_torch_compile_arguments(parser)
     return parser
 
 
@@ -97,6 +99,9 @@ def load_config(args: argparse.Namespace) -> argparse.Namespace:
         "num_recycling": cfg.num_recycling,
         "output": cfg.output,
         "config": args.config,
+        "use_torch_compile": False,
+        "torch_compile_mode": "default",
+        "diagnostics_output": None,
     }
     for key in merged:
         value = getattr(args, key, None)
@@ -167,7 +172,7 @@ def generate_inputs(args: argparse.Namespace, device: torch.device) -> dict[str,
 
 
 def forward_once(
-    model: FoldingTrunk,
+    model_runner,
     batch: dict[str, torch.Tensor],
     num_recycling: int,
     *,
@@ -175,22 +180,22 @@ def forward_once(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     autocast_ctx = torch.autocast(device_type="cuda", dtype=torch.bfloat16) if use_bf16_autocast else nullcontext()
     with torch.no_grad(), autocast_ctx:
-        return model(batch["s_s"], batch["s_z"], batch["mask"], num_recycling=num_recycling)
+        return model_runner(batch["s_s"], batch["s_z"], batch["mask"], num_recycling=num_recycling)
 
 
-def benchmark(model: FoldingTrunk, batch: dict[str, torch.Tensor], args: argparse.Namespace, device: torch.device) -> dict[str, float]:
+def benchmark(
+    model: FoldingTrunk,
+    model_runner,
+    batch: dict[str, torch.Tensor],
+    args: argparse.Namespace,
+    device: torch.device,
+    *,
+    use_bf16_autocast: bool,
+) -> dict[str, float]:
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats(device)
-    use_bf16_autocast = args.pair_precision not in (
-        PAIR_PRECISION_BF16_NATIVE,
-        PAIR_PRECISION_FP8_EXTREME,
-        PAIR_PRECISION_FP8_HYBRID,
-        PAIR_PRECISION_FP8_NATIVE,
-        PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
-        PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
-    )
     for _ in range(args.warmup):
-        forward_once(model, batch, args.num_recycling, use_bf16_autocast=use_bf16_autocast)
+        forward_once(model_runner, batch, args.num_recycling, use_bf16_autocast=use_bf16_autocast)
         torch.cuda.synchronize(device)
     torch.cuda.reset_peak_memory_stats(device)
     times_ms: list[float] = []
@@ -198,7 +203,7 @@ def benchmark(model: FoldingTrunk, batch: dict[str, torch.Tensor], args: argpars
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
         start.record()
-        forward_once(model, batch, args.num_recycling, use_bf16_autocast=use_bf16_autocast)
+        forward_once(model_runner, batch, args.num_recycling, use_bf16_autocast=use_bf16_autocast)
         end.record()
         torch.cuda.synchronize(device)
         times_ms.append(float(start.elapsed_time(end)))
@@ -294,7 +299,43 @@ def main() -> None:
 
     model = build_model(args, device)
     batch = generate_inputs(args, device)
-    result = benchmark(model, batch, args, device)
+    model_runner = maybe_compile(model, enabled=args.use_torch_compile, mode=args.torch_compile_mode)
+    use_bf16_autocast = args.pair_precision not in (
+        PAIR_PRECISION_BF16_NATIVE,
+        PAIR_PRECISION_FP8_EXTREME,
+        PAIR_PRECISION_FP8_HYBRID,
+        PAIR_PRECISION_FP8_NATIVE,
+        PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
+        PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
+    )
+
+    def _diagnostic_call(s_s: torch.Tensor, s_z: torch.Tensor, mask: torch.Tensor):
+        return forward_once(
+            model_runner,
+            {"s_s": s_s, "s_z": s_z, "mask": mask},
+            args.num_recycling,
+            use_bf16_autocast=use_bf16_autocast,
+        )
+
+    diagnostics = maybe_capture_dynamo_diagnostics(
+        _diagnostic_call,
+        args=(batch["s_s"], batch["s_z"], batch["mask"]),
+        output_path=args.diagnostics_output,
+        label="inference_single_config",
+        rank=0,
+        world_size=1,
+        extra_metadata={
+            "use_torch_compile": args.use_torch_compile,
+            "torch_compile_mode": args.torch_compile_mode,
+            "tri_impl": args.tri_impl,
+            "pair_precision": args.pair_precision,
+            "linear_precision": args.linear_precision,
+            "bf16_native_rung": args.bf16_native_rung,
+            "mixed_tail": args.mixed_tail,
+        },
+    )
+
+    result = benchmark(model, model_runner, batch, args, device, use_bf16_autocast=use_bf16_autocast)
     markdown = render_markdown(args, result)
     payload = {
         "config": {
@@ -319,8 +360,12 @@ def main() -> None:
             "num_recycling": args.num_recycling,
             "implementation": "plain_pytorch_single_config",
             "mode": "mock_backbone_only",
+            "use_torch_compile": args.use_torch_compile,
+            "torch_compile_mode": args.torch_compile_mode,
+            "diagnostics_output": str(args.diagnostics_output) if args.diagnostics_output else None,
         },
         "result": result,
+        "dynamo_diagnostics": diagnostics,
         "markdown_summary": markdown,
     }
     if args.output:
