@@ -196,10 +196,6 @@ def main(args: DictConfig) -> float | None:
             loss = outputs.loss
             loss.backward()
 
-            # Record per-micro-batch metrics (loss, num_tokens, Σ(Lᵢ²), perplexity).
-            # With future gradient accumulation, this would be called once per micro-batch.
-            perf_logger.log_micro_step(step=step, batch=batch, outputs=outputs)
-
             # Compute and clip gradient norms.
             total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
 
@@ -210,6 +206,8 @@ def main(args: DictConfig) -> float | None:
 
             perf_logger.log_step(
                 step=step,
+                batch=batch,
+                outputs=outputs,
                 grad_norm=total_norm,
                 lr=optimizer.param_groups[0]["lr"],
             )

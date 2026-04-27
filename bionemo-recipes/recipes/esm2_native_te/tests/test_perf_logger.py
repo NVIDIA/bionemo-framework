@@ -13,25 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Tests for ESM-2's PerfLogger: FLOP formula split + grad-acc accumulator pattern.
+"""Tests for ESM-2's PerfLogger: non-attn + Σ(Lᵢ²) attention FLOP formula.
 
-ESM-2 was previously the odd-one-out: its PerfLogger read num_tokens from the *last*
-micro-batch at log time, so any future gradient accumulation would have undercounted
-FLOPs by 1/grad_acc_steps. This retrofit introduces the ``log_micro_step`` /
-``log_step`` split shared with the other MFU-tracking recipes (llama3, og2, codonfm)
-and fixes attention-FLOP overcounting on packed (THD) batches.
+ESM-2 does not perform gradient accumulation — each optimizer step is a single
+forward+backward — so PerfLogger has a single ``log_step`` entry point that reads
+the batch and outputs directly. The other MFU-tracking recipes (llama3, og2,
+codonfm) do grad-accumulate and use a ``log_micro_step`` / ``log_step`` split in
+their own perf_logger modules.
 """
 
-from unittest import mock
-
-import pytest
 import torch
-from omegaconf import OmegaConf
-from transformers.modeling_outputs import MaskedLMOutput
 
-from distributed_config import DistributedConfig
 from perf_logger import (
-    PerfLogger,
     _attn_work_from_batch,
     _compute_attn_flop_coeff,
     _compute_non_attn_per_token_flops,
@@ -39,47 +32,6 @@ from perf_logger import (
 
 
 ESM2_VOCAB = 33
-
-
-def _make_args(logging_frequency=1, num_train_steps=100, log_mfu=False, max_seq_length=128):
-    """Create a minimal args config for PerfLogger."""
-    return OmegaConf.create(
-        {
-            "logger": {"frequency": logging_frequency},
-            "wandb_init_args": {"project": "test", "mode": "disabled"},
-            "num_train_steps": num_train_steps,
-            "quant_stats_config": {"enabled": False},
-            "log_mfu": log_mfu,
-            "dataset": {"max_seq_length": max_seq_length},
-        }
-    )
-
-
-def _make_batch(seq_len=128, device="cuda:0"):
-    """Create a minimal batch dict."""
-    return {
-        "input_ids": torch.ones(1, seq_len, dtype=torch.long, device=device),
-        "labels": torch.ones(1, seq_len, dtype=torch.long, device=device),
-    }
-
-
-def _make_outputs(loss_value, seq_len=128, device="cuda:0"):
-    """Create MaskedLMOutput with loss + logits."""
-    logits = torch.randn(1, seq_len, ESM2_VOCAB, device=device)
-    return MaskedLMOutput(loss=torch.tensor(loss_value, device=device), logits=logits)
-
-
-@pytest.fixture
-def mock_wandb():
-    with mock.patch("perf_logger.wandb") as mocked:
-        mocked.init.return_value = mock.MagicMock()
-        yield mocked
-
-
-@pytest.fixture
-def mock_tqdm():
-    with mock.patch("perf_logger.tqdm") as mocked:
-        yield mocked
 
 
 def _esm_cfg():
@@ -184,73 +136,3 @@ class TestFlopSplitAndAttention:
         dev = torch.device("cpu")
         assert _attn_work_from_batch(batch, dev, cp_size=1, include_padding=False).item() == 5**2 + 3**2
         assert _attn_work_from_batch(batch, dev, cp_size=1, include_padding=True).item() == 2 * 8 * 8
-
-
-class TestGradAccAccumulation:
-    """Lock in ESM-2's new log_micro_step/log_step split under gradient accumulation.
-
-    Before this retrofit ESM-2 read num_tokens from only the last micro-batch of an
-    optimizer step, so with grad_acc_steps > 1 it would have reported 1/grad_acc the
-    true FLOP count. The new accumulator pattern sums across micro-batches.
-    """
-
-    def test_num_tokens_accumulates_across_grad_acc(self, mock_wandb, mock_tqdm):
-        """4 micro-batches of seq_len=128 → num_tokens = 4*128 at log boundary."""
-        dist_config = DistributedConfig()
-        args = _make_args(logging_frequency=1, max_seq_length=128)
-        perf_logger = PerfLogger(dist_config, args)
-        device = perf_logger._device
-
-        # One optimizer step with 4 micro-batches of shape (1, 128).
-        for _ in range(4):
-            batch = _make_batch(seq_len=128, device=device)
-            outputs = _make_outputs(1.0, seq_len=128, device=device)
-            perf_logger.log_micro_step(step=1, batch=batch, outputs=outputs)
-
-        assert perf_logger.grad_acc_step_count == 4
-        assert perf_logger.num_tokens == 4 * 128  # 4 micro-batches * 128 tokens each
-        # running_loss should sum 4 losses of 1.0 each
-        assert perf_logger.running_loss.item() == pytest.approx(4.0)
-
-    def test_attn_work_accumulates_across_grad_acc(self, mock_wandb, mock_tqdm):
-        """Both _attn_work_*_accum buffers sum Σ(Lᵢ²) over all micro-batches when log_mfu=True."""
-        dist_config = DistributedConfig()
-        args = _make_args(logging_frequency=1, log_mfu=True, max_seq_length=128)
-        perf_logger = PerfLogger(dist_config, args, model_config_dict=_esm_cfg())
-        device = perf_logger._device
-
-        # 3 micro-batches of shape (2, 64) → each batch has Σ(Lᵢ²) = 2 * 64² = 8192
-        for _ in range(3):
-            batch = {
-                "input_ids": torch.ones(2, 64, dtype=torch.long, device=device),
-                "labels": torch.ones(2, 64, dtype=torch.long, device=device),
-            }
-            outputs = _make_outputs(1.0, seq_len=64, device=device)
-            # Perplexity expects (B, S, V) logits
-            outputs.logits = torch.randn(2, 64, ESM2_VOCAB, device=device)
-            perf_logger.log_micro_step(step=1, batch=batch, outputs=outputs)
-
-        # With no attention_mask and no cu_seq_lens, both unpadded and padded paths fall
-        # through to the shape-synthesis branch, so both accumulators hold 3 * 2 * 64² = 24576.
-        expected = 3 * 2 * 64 * 64
-        assert perf_logger._attn_work_unpadded_accum.item() == expected
-        assert perf_logger._attn_work_padded_accum.item() == expected
-
-    def test_reset_on_log_boundary(self, mock_wandb, mock_tqdm):
-        """Calling log_step on a logging-boundary step drains all accumulators."""
-        dist_config = DistributedConfig()
-        args = _make_args(logging_frequency=1, log_mfu=True, max_seq_length=128)
-        perf_logger = PerfLogger(dist_config, args, model_config_dict=_esm_cfg())
-        device = perf_logger._device
-
-        batch = _make_batch(seq_len=128, device=device)
-        outputs = _make_outputs(1.0, seq_len=128, device=device)
-        perf_logger.log_micro_step(step=1, batch=batch, outputs=outputs)
-        perf_logger.log_step(step=1, grad_norm=torch.tensor(1.0, device=device), lr=1e-4)
-
-        assert perf_logger.grad_acc_step_count == 0
-        assert perf_logger.num_tokens == 0
-        assert perf_logger.num_unpadded_tokens.item() == 0
-        assert perf_logger._attn_work_unpadded_accum.item() == 0
-        assert perf_logger._attn_work_padded_accum.item() == 0
-        assert perf_logger.running_loss.item() == pytest.approx(0.0)

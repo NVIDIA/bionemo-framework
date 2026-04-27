@@ -182,9 +182,6 @@ def main(args: DictConfig) -> float | None:
             loss = outputs.loss
             loss.backward()
 
-            # Record per-micro-batch metrics (loss, num_tokens, Σ(Lᵢ²), perplexity).
-            perf_logger.log_micro_step(step=step, batch=batch, outputs=outputs)
-
             # Compute and clip gradient norms.
             # This is causing training to hang in 26.01 torch base image for multi-process mFSDP.
             # total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0).item()
@@ -196,6 +193,8 @@ def main(args: DictConfig) -> float | None:
 
             perf_logger.log_step(
                 step=step,
+                batch=batch,
+                outputs=outputs,
                 grad_norm=0.0,  # total_norm,
                 lr=optimizer.param_groups[0]["lr"],
             )

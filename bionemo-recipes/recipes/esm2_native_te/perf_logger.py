@@ -176,10 +176,11 @@ def _attn_work_from_batch(
 class PerfLogger:
     """Class to log performance metrics to stdout and wandb, and print final averaged metrics at the end of training.
 
-    Uses the ``log_micro_step`` / ``log_step`` accumulator pattern (shared with the
-    llama3/og2/codonfm recipes) so gradient accumulation is correctly handled:
-    token counts, Σ(Lᵢ²), perplexity updates, and loss accumulate across every
-    micro-batch of an optimizer step; metrics are reported once per logging window.
+    ESM-2 does not perform gradient accumulation — each optimizer step is a single
+    forward+backward — so ``log_step`` reads the batch and outputs directly without
+    cross-micro-batch accumulators. The other MFU-tracking recipes (llama3, og2,
+    codonfm) do grad-accumulate and use a separate ``log_micro_step`` / ``log_step``
+    split in their own perf_logger modules.
 
     Args:
         dist_config: The distributed configuration.
@@ -265,55 +266,11 @@ class PerfLogger:
         # Whether to step debug_api.step() after each step
         self.quant_stats_config = args.quant_stats_config.enabled
 
-        # Gradient accumulation tracking (accumulated over the grad-acc micro-batches of
-        # the last optimizer step in the logging window, then drained in log_step).
-        self.num_tokens = 0
-        self.num_unpadded_tokens = torch.tensor(0, dtype=torch.int64, device=self._device)
-        # Σ(Lᵢ²) over grad-acc micro-batches — two flavors:
-        #   unpadded: only real tokens (useful work), drives mfu_pct
-        #   padded:   all slots including CP-zigzag / BSHD row padding, drives mfu_padded_pct
-        self._attn_work_unpadded_accum = torch.tensor(0, dtype=torch.int64, device=self._device)
-        self._attn_work_padded_accum = torch.tensor(0, dtype=torch.int64, device=self._device)
-        self.running_loss = torch.tensor(0.0, device=self._device)
-        self.grad_acc_step_count = 0
-
-    def log_micro_step(self, step: int, batch: dict[str, torch.Tensor], outputs: MaskedLMOutput):
-        """Store data on micro step for gradient accumulation metrics.
-
-        Args:
-            step: The current optimizer step number (shared across all micro-batches).
-            batch: The input batch for this micro-step.
-            outputs: Model outputs for this micro-step (with unscaled loss).
-        """
-        assert outputs.loss is not None, "Loss is None"
-
-        with torch.no_grad():
-            self.grad_acc_step_count += 1
-            self.running_loss += outputs.loss
-
-            if step % self.logging_frequency == 0 and step > 0:
-                self.num_tokens += batch["input_ids"].numel()
-                num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != ESM2_PAD_TOKEN_ID].numel()
-                self.num_unpadded_tokens += num_unpadded_tokens
-                if self._log_mfu:
-                    # Accumulate both unpadded (useful) and padded (hardware) Σ(Lᵢ²).
-                    # Helper returns a GLOBAL value (pre-CP-shard); log_step divides by cp_size.
-                    self._attn_work_unpadded_accum += _attn_work_from_batch(
-                        batch, self._device, self._cp_size, include_padding=False
-                    )
-                    self._attn_work_padded_accum += _attn_work_from_batch(
-                        batch, self._device, self._cp_size, include_padding=True
-                    )
-
-                # Update perplexity per micro-batch since it needs logits + labels.
-                logits = outputs.logits
-                if logits.dim() < 3:
-                    logits = logits.unsqueeze(0)
-                self.metrics["train/perplexity"].update(logits, batch["labels"])
-
     def log_step(
         self,
         step: int,
+        batch: dict[str, torch.Tensor],
+        outputs: MaskedLMOutput,
         grad_norm: torch.Tensor | DTensor | float,
         lr: float,
     ):
@@ -321,15 +278,14 @@ class PerfLogger:
 
         Args:
             step: Current optimizer step.
+            batch: The input batch for this step.
+            outputs: Model outputs for this step (with loss + logits).
             grad_norm: Gradient norm value.
             lr: Current learning rate.
         """
-        with torch.no_grad():
-            assert self.grad_acc_step_count > 0, (
-                f"Gradient accumulation steps ({self.grad_acc_step_count}) must be greater than 0, "
-                f"and can be incremented by log_micro_step()."
-            )
+        assert outputs.loss is not None, "Loss is None"
 
+        with torch.no_grad():
             # FSDP2's clip_grad_norm_ returns a DTensor; convert to local tensor for torchmetrics compatibility.
             if isinstance(grad_norm, DTensor):
                 grad_norm = grad_norm.to_local()
@@ -337,9 +293,7 @@ class PerfLogger:
             if self.quant_stats_config:
                 debug_api.step()
 
-            # Calculate average loss over all micro steps in the logging window.
-            avg_loss = self.running_loss / self.grad_acc_step_count
-            self.min_loss = torch.minimum(self.min_loss, avg_loss)
+            self.min_loss = torch.minimum(self.min_loss, outputs.loss)
 
             if step % self.logging_frequency == 0 and step > 0:
                 elapsed_time, self.previous_step_time = (
@@ -348,15 +302,24 @@ class PerfLogger:
                 )
                 step_time = elapsed_time / self.logging_frequency
 
-                self.metrics["train/loss"].update(avg_loss)
+                num_tokens = batch["input_ids"].numel()
+                num_unpadded_tokens = batch["input_ids"][batch["input_ids"] != ESM2_PAD_TOKEN_ID].numel()
+
+                # Update perplexity from logits + labels (logits get a leading batch dim if absent).
+                logits = outputs.logits
+                if logits.dim() < 3:
+                    logits = logits.unsqueeze(0)
+                self.metrics["train/perplexity"].update(logits, batch["labels"])
+
+                self.metrics["train/loss"].update(outputs.loss)
                 self.metrics["train/learning_rate"].update(lr)
                 self.metrics["train/grad_norm"].update(
                     grad_norm if isinstance(grad_norm, torch.Tensor) else torch.tensor(grad_norm)
                 )
                 self.metrics["train/step_time"].update(step_time)
-                self.metrics["train/tokens_per_second_per_gpu"].update(self.num_tokens / step_time)
-                self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(self.num_unpadded_tokens / step_time)
-                self.metrics["train/total_unpadded_tokens_per_batch"].update(self.num_unpadded_tokens)
+                self.metrics["train/tokens_per_second_per_gpu"].update(num_tokens / step_time)
+                self.metrics["train/unpadded_tokens_per_second_per_gpu"].update(num_unpadded_tokens / step_time)
+                self.metrics["train/total_unpadded_tokens_per_batch"].update(num_unpadded_tokens)
 
                 if self._log_mfu:
                     # Two MFU flavors reported side-by-side:
@@ -364,16 +327,20 @@ class PerfLogger:
                     #                    attn over real Σ(Lᵢ²). Drops both padding types.
                     #   mfu_padded_pct = hardware view. Non-attn over all slots, attn over
                     #                    padded Σ(Lᵢ²) (includes CP zigzag + BSHD row pad).
-                    attn_unpadded = int(self._attn_work_unpadded_accum.item())
-                    attn_padded = int(self._attn_work_padded_accum.item())
-                    num_unpadded = int(self.num_unpadded_tokens.item())
+                    # Helper returns GLOBAL Σ(Lᵢ²); divide by cp_size to convert to per-rank.
+                    attn_unpadded = int(
+                        _attn_work_from_batch(batch, self._device, self._cp_size, include_padding=False).item()
+                    )
+                    attn_padded = int(
+                        _attn_work_from_batch(batch, self._device, self._cp_size, include_padding=True).item()
+                    )
 
-                    non_attn_unpadded = self._non_attn_per_token_flops * num_unpadded
+                    non_attn_unpadded = self._non_attn_per_token_flops * num_unpadded_tokens
                     attn_flops_unpadded = (self._attn_flop_coeff * attn_unpadded) // self._cp_size
                     flops_unpadded = non_attn_unpadded + attn_flops_unpadded
                     tflops_unpadded = flops_unpadded / step_time / 1e12
 
-                    non_attn_padded = self._non_attn_per_token_flops_padded * self.num_tokens
+                    non_attn_padded = self._non_attn_per_token_flops_padded * num_tokens
                     attn_flops_padded = (self._attn_flop_coeff * attn_padded) // self._cp_size
                     flops_padded = non_attn_padded + attn_flops_padded
                     tflops_padded = flops_padded / step_time / 1e12
@@ -406,18 +373,10 @@ class PerfLogger:
                 if self._dist_config.is_main_process():
                     wandb.log(metrics, step=step)
                     self._progress_bar.update(self.logging_frequency)
-                    self._progress_bar.set_postfix({"loss": avg_loss.item()})
+                    self._progress_bar.set_postfix({"loss": outputs.loss.item()})
 
                 if self._dist_config.local_rank == 0:
                     logger.info(", ".join([f"{k.split('/')[1]}: {v:.3g}" for k, v in metrics.items()]))
-
-                # Reset running accumulators for next logging window.
-                self.running_loss.zero_()
-                self.num_tokens = 0
-                self.num_unpadded_tokens.zero_()
-                self._attn_work_unpadded_accum.zero_()
-                self._attn_work_padded_accum.zero_()
-                self.grad_acc_step_count = 0
 
     def finish(self):
         """Finish the logger and close the progress bar."""
