@@ -211,7 +211,7 @@ class PerfLogger:
         # MFU setup: compute per-token FLOPs and peak TFLOPS once at init. Actual FLOPs per
         # step are derived at log time from the tracked unpadded token count, which already
         # reflects each rank's share under DP/CP and sequence packing.
-        self._log_mfu = bool(args.get("log_mfu", False)) and model_config_dict is not None
+        self._log_mfu = args.log_mfu and model_config_dict is not None
         self._non_attn_per_token_flops = 0
         self._non_attn_per_token_flops_padded = 0
         self._attn_flop_coeff = 0

@@ -168,7 +168,7 @@ def main(args: DictConfig) -> float | None:
     perf_logger = PerfLogger(
         dist_config,
         args,
-        model_config_dict=config.to_dict() if args.get("log_mfu", False) else None,
+        model_config_dict=config.to_dict(),
     )
 
     # Training loop

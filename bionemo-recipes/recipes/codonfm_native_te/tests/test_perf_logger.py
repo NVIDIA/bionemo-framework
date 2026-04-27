@@ -33,7 +33,7 @@ from transformers.modeling_outputs import MaskedLMOutput
 VOCAB_SIZE = 69  # CodonFM vocabulary size
 
 
-def _make_args(logging_frequency=1, num_train_steps=100):
+def _make_args(logging_frequency=1, num_train_steps=100, log_mfu=False):
     """Create a minimal args config for PerfLogger."""
     return OmegaConf.create(
         {
@@ -41,6 +41,7 @@ def _make_args(logging_frequency=1, num_train_steps=100):
             "wandb_init_args": {"project": "test", "mode": "disabled"},
             "num_train_steps": num_train_steps,
             "quant_stats_config": {"enabled": False},
+            "log_mfu": log_mfu,
         }
     )
 

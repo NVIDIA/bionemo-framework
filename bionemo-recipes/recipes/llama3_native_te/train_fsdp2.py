@@ -159,7 +159,7 @@ def main(args: DictConfig) -> float | None:
         dist_config,
         args,
         start_step=start_step,
-        model_config_dict=config.to_dict() if args.get("log_mfu", False) else None,
+        model_config_dict=config.to_dict(),
     )
 
     gc.collect()
