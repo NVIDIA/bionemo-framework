@@ -83,8 +83,8 @@ python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit \
   checkpoint.save_every_n_steps=1500 \
   checkpoint.resume_from_checkpoint=true \
   logger.frequency=100 \
-  wandb.name=${EXP_NAME} \
-  wandb.id=${EXP_NAME} \
+  wandb.name=lingua_7b_mxfp8_qinit_v8_resume_fix_prenyx \
+  wandb.id=lingua_7b_mxfp8_qinit_v8_resume_fix_prenyx \
   wandb.project=lingua-7b
 
 echo "========================================="
