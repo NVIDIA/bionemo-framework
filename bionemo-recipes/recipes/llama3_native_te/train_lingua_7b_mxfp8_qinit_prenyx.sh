@@ -92,10 +92,9 @@ echo "Training complete!"
 echo "========================================="
 OUTER_EOF
 
-# Inject credentials and offline mode into the command.
-# TRANSFORMERS_OFFLINE / HF_HUB_OFFLINE: the container already has the tokenizer cached,
-# so prevent all HF API calls (avoids 429 rate-limit crashes with 64 ranks).
-COMMAND="export EXP_NAME=\"${EXP_NAME}\"; export WANDB_API_KEY=\"${WANDB_API_KEY}\"; export HUGGING_FACE_HUB_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; export HF_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; export TRANSFORMERS_OFFLINE=1; export HF_HUB_OFFLINE=1; ${COMMAND}"
+# Inject credentials into the command.
+# HF_TOKEN: newer transformers/huggingface_hub versions prefer this over HUGGING_FACE_HUB_TOKEN.
+COMMAND="export EXP_NAME=\"${EXP_NAME}\"; export WANDB_API_KEY=\"${WANDB_API_KEY}\"; export HUGGING_FACE_HUB_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; export HF_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; ${COMMAND}"
 
 echo "Launching: ${EXP_NAME}"
 
