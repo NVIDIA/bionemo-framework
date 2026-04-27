@@ -282,7 +282,21 @@ def main(args: DictConfig) -> float | None:
     step = start_step
     micro_step = 0  # Gradient accumulation step counter
     while step < args.num_train_steps:
-        for batch in train_dataloader:
+        try:
+            dataloader_iter = iter(train_dataloader)
+        except ValueError as e:
+            if "last_yielded_worker_id does not match" in str(e):
+                # StatefulDataLoader's naive fast-forward replayed all items but ended on a
+                # different worker than saved — the streaming IterableDataset is non-deterministic
+                # across restarts (tokenize-with-windowing produces variable items per document).
+                # Clear the saved state and restart the dataloader from the beginning of the stream.
+                logger.warning("Dataloader state incompatible after fast-forward (%s), restarting from scratch.", e)
+                train_dataloader.next_iter_state = None
+                train_dataloader._iterator = None
+                dataloader_iter = iter(train_dataloader)
+            else:
+                raise
+        for batch in dataloader_iter:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
             micro_step += 1

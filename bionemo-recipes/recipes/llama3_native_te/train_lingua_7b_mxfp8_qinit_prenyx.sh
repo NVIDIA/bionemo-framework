@@ -30,9 +30,11 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_v8_resume_fix_prenyx}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_v9_dl_fix_prenyx}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
-# Resume from v6 checkpoints (step 9000) to test the reset_sharded_param fix
+# Resume from v6/v8 checkpoints (step 18000 is latest).
+# v9 fix: catch StatefulDataLoader worker-id mismatch on chain resume
+# and gracefully restart the dataloader from the stream beginning.
 CKPT_ROOT="${SCRATCH}/checkpoints/lingua_7b_mxfp8_qinit_v6_te_main_8n_prenyx"
 
 mkdir -p "${RESULTS_DIR}" "${CKPT_ROOT}"
