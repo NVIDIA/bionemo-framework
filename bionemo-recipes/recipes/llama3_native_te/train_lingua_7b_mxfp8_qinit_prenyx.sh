@@ -42,10 +42,7 @@ mkdir -p "${RESULTS_DIR}" "${CKPT_ROOT}"
 : "${WANDB_API_KEY:?Set WANDB_API_KEY in ~/.bashrc}"
 : "${HUGGING_FACE_HUB_TOKEN:?Set HUGGING_FACE_HUB_TOKEN in ~/.bashrc}"
 
-# Mount persistent HF cache so tokenizer downloads survive across jobs/nodes
-HF_CACHE="${SCRATCH}/hf_cache"
-mkdir -p "${HF_CACHE}"
-MOUNTS="${CODE_DIR}:${CODE_MOUNT},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CODE_MOUNT}/results,${CKPT_ROOT}:${CODE_MOUNT}/checkpoints,${TE_DIR}:${TE_MOUNT},${HF_CACHE}:/root/.cache/huggingface"
+MOUNTS="${CODE_DIR}:${CODE_MOUNT},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CODE_MOUNT}/results,${CKPT_ROOT}:${CODE_MOUNT}/checkpoints,${TE_DIR}:${TE_MOUNT}"
 
 read -r -d '' COMMAND <<'OUTER_EOF' || true
 set -euxo pipefail
@@ -95,8 +92,10 @@ echo "Training complete!"
 echo "========================================="
 OUTER_EOF
 
-# Inject credentials into the command
-COMMAND="export EXP_NAME=\"${EXP_NAME}\"; export WANDB_API_KEY=\"${WANDB_API_KEY}\"; export HUGGING_FACE_HUB_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; export HF_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; ${COMMAND}"
+# Inject credentials and offline mode into the command.
+# TRANSFORMERS_OFFLINE / HF_HUB_OFFLINE: the container already has the tokenizer cached,
+# so prevent all HF API calls (avoids 429 rate-limit crashes with 64 ranks).
+COMMAND="export EXP_NAME=\"${EXP_NAME}\"; export WANDB_API_KEY=\"${WANDB_API_KEY}\"; export HUGGING_FACE_HUB_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; export HF_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; export TRANSFORMERS_OFFLINE=1; export HF_HUB_OFFLINE=1; ${COMMAND}"
 
 echo "Launching: ${EXP_NAME}"
 
