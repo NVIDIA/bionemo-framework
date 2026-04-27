@@ -42,7 +42,10 @@ mkdir -p "${RESULTS_DIR}" "${CKPT_ROOT}"
 : "${WANDB_API_KEY:?Set WANDB_API_KEY in ~/.bashrc}"
 : "${HUGGING_FACE_HUB_TOKEN:?Set HUGGING_FACE_HUB_TOKEN in ~/.bashrc}"
 
-MOUNTS="${CODE_DIR}:${CODE_MOUNT},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CODE_MOUNT}/results,${CKPT_ROOT}:${CODE_MOUNT}/checkpoints,${TE_DIR}:${TE_MOUNT}"
+# Mount persistent HF cache so tokenizer downloads survive across jobs/nodes
+HF_CACHE="${SCRATCH}/hf_cache"
+mkdir -p "${HF_CACHE}"
+MOUNTS="${CODE_DIR}:${CODE_MOUNT},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CODE_MOUNT}/results,${CKPT_ROOT}:${CODE_MOUNT}/checkpoints,${TE_DIR}:${TE_MOUNT},${HF_CACHE}:/root/.cache/huggingface"
 
 read -r -d '' COMMAND <<'OUTER_EOF' || true
 set -euxo pipefail
