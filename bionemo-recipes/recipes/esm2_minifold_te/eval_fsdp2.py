@@ -29,6 +29,7 @@ Usage:
         checkpoint.checkpoint_type=safetensors
 """
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -47,6 +48,7 @@ from distributed_config import DistributedConfig
 from modeling_esm2_minifold_te import ESM2MiniFoldTE
 from quantization import ComponentPrecisionConfig, resolve_layer_precision
 from scheduler import get_linear_schedule_with_warmup
+from torch_compile_diagnostics import maybe_capture_dynamo_diagnostics, maybe_compile
 from train_fsdp2 import compute_distogram_loss, compute_distogram_metrics
 
 
@@ -54,10 +56,30 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def _resolve_fsdp2_checkpoint_path(ckpt_dir: Path) -> Path:
+    if ckpt_dir.name.startswith("step_"):
+        return ckpt_dir
+    train_fsdp2_dir = ckpt_dir / "train_fsdp2"
+    if train_fsdp2_dir.exists():
+        return train_fsdp2_dir
+    return ckpt_dir
+
+
+def _move_batch_to_device(batch, device: torch.device):
+    return {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+
+
+def _forward_once(model_runner, batch, *, num_recycling: int):
+    with torch.no_grad():
+        return model_runner(batch, num_recycling=num_recycling)
+
+
 @hydra.main(config_path="hydra_config", config_name="eval", version_base="1.2")
 def main(args: DictConfig) -> None:
     """Evaluate ESM2-MiniFold TE on a held-out dataset."""
     os.environ["HF_HUB_TRUST_REMOTE_CODE"] = "1"
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    os.environ.setdefault("BIONEMO_ALLOW_CONFIG_ONLY_ESM2_INIT", "1")
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
     # Initialize distributed
@@ -117,6 +139,7 @@ def main(args: DictConfig) -> None:
     # Load checkpoint
     ckpt_dir = Path(args.checkpoint.ckpt_dir)
     checkpoint_type = args.checkpoint.get("checkpoint_type", "fsdp2")
+    loaded_step = None
 
     if checkpoint_type == "safetensors":
         # Load safetensors BEFORE FSDP2 sharding (plain tensors -> plain params)
@@ -137,7 +160,7 @@ def main(args: DictConfig) -> None:
         # Need dummy optimizer/scheduler for the checkpoint loader
         dummy_optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
         dummy_scheduler = get_linear_schedule_with_warmup(dummy_optimizer, num_warmup_steps=0, num_training_steps=1)
-        ckpt_path = ckpt_dir / "train_fsdp2"
+        ckpt_path = _resolve_fsdp2_checkpoint_path(ckpt_dir)
         model, _, _, _, loaded_step, _ = load_checkpoint_fsdp2(
             model=model,
             optimizer=dummy_optimizer,
@@ -156,13 +179,40 @@ def main(args: DictConfig) -> None:
     eval_dataloader, _ = create_dataloader(dist_config, **args.eval_dataset)
     logger.info("Eval dataset: %d batches", len(eval_dataloader))
 
+    use_torch_compile = bool(args.get("use_torch_compile", False))
+    torch_compile_mode = str(args.get("torch_compile_mode", "default"))
+    diagnostics_output = args.get("diagnostics_output")
+    output_json = args.get("output_json")
+    model.eval()
+    model_runner = maybe_compile(model, enabled=use_torch_compile, mode=torch_compile_mode)
+
+    diagnostics = None
+    if diagnostics_output:
+        diagnostics_batch = _move_batch_to_device(next(iter(eval_dataloader)), device)
+        diagnostics = maybe_capture_dynamo_diagnostics(
+            _forward_once,
+            args=(model_runner, diagnostics_batch),
+            kwargs={"num_recycling": args.model.get("num_recycling", 0)},
+            output_path=Path(str(diagnostics_output)),
+            label="eval_fsdp2",
+            rank=dist_config.rank,
+            world_size=dist_config.world_size,
+            extra_metadata={
+                "use_torch_compile": use_torch_compile,
+                "torch_compile_mode": torch_compile_mode,
+                "checkpoint_dir": str(ckpt_dir),
+                "checkpoint_type": checkpoint_type,
+                "loaded_step": loaded_step,
+                "tri_impl": args.component_precision.tri_impl,
+            },
+        )
+
     # Initialize WandB
     run_config = OmegaConf.to_container(args, resolve=True, throw_on_missing=True)
     if dist_config.is_main_process():
         wandb.init(**args.wandb_init_args, config=run_config)
 
     # Eval loop
-    model.eval()
     all_metrics = {
         "loss": [],
         "disto_loss": [],
@@ -177,9 +227,9 @@ def main(args: DictConfig) -> None:
 
     with torch.no_grad():
         for batch in progress:
-            batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+            batch = _move_batch_to_device(batch, device)
 
-            r_dict = model(batch, num_recycling=args.model.get("num_recycling", 0))
+            r_dict = _forward_once(model_runner, batch, num_recycling=args.model.get("num_recycling", 0))
 
             # Distogram loss
             disto_loss = compute_distogram_loss(
@@ -219,6 +269,23 @@ def main(args: DictConfig) -> None:
     if dist_config.is_main_process():
         wandb.log(summary)
         wandb.finish()
+
+    payload = {
+        "checkpoint_dir": str(ckpt_dir),
+        "checkpoint_type": checkpoint_type,
+        "loaded_step": loaded_step,
+        "dataset_path": str(args.eval_dataset.parquet_path),
+        "use_torch_compile": use_torch_compile,
+        "torch_compile_mode": torch_compile_mode,
+        "diagnostics_output": str(diagnostics_output) if diagnostics_output else None,
+        "dynamo_diagnostics": diagnostics,
+        "summary": summary,
+        "batches_evaluated": len(all_metrics["loss"]),
+    }
+    if output_json and dist_config.is_main_process():
+        output_path = Path(str(output_json))
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(payload, indent=2))
 
     if dist_config.local_rank == 0:
         logger.info("=== Evaluation Results ===")

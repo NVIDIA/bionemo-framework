@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import importlib.util
 import os
 from pathlib import Path
 import sys
@@ -44,29 +43,16 @@ if str(MINIFOLD_NATIVE_EXT_ROOT) not in sys.path:
 from tri_mul_ext import tri_mul_xbdnn_cublas
 
 try:
+    import bmm_ext as bmm_ext_raw
     from bmm_ext import mxfp8_cublaslt_tri_mul_xbdnn, mxfp8_cublaslt_tri_mul_xbdnn_inference
 except ImportError:
+    bmm_ext_raw = None
     mxfp8_cublaslt_tri_mul_xbdnn = None
     mxfp8_cublaslt_tri_mul_xbdnn_inference = None
 
 try:
-    _raw_ext_path = next((FP8_BMM_EXT_ROOT / "bmm_ext").glob("_C*.so"))
-    _raw_ext_spec = importlib.util.spec_from_file_location("bmm_ext._C", _raw_ext_path)
-    if _raw_ext_spec is None or _raw_ext_spec.loader is None:
-        raise ImportError(f"Could not create module spec for {_raw_ext_path}")
-    bmm_ext_raw = importlib.util.module_from_spec(_raw_ext_spec)
-    _raw_ext_spec.loader.exec_module(bmm_ext_raw)
-except Exception:
-    bmm_ext_raw = None
-
-try:
-    _native_ext_path = next((MINIFOLD_NATIVE_EXT_ROOT / "minifold_native_ext").glob("_C*.so"))
-    _native_ext_spec = importlib.util.spec_from_file_location("minifold_native_ext._C", _native_ext_path)
-    if _native_ext_spec is None or _native_ext_spec.loader is None:
-        raise ImportError(f"Could not create module spec for {_native_ext_path}")
-    minifold_native_raw = importlib.util.module_from_spec(_native_ext_spec)
-    _native_ext_spec.loader.exec_module(minifold_native_raw)
-except Exception:
+    import minifold_native_ext as minifold_native_raw
+except ImportError:
     minifold_native_raw = None
 
 
@@ -700,7 +686,7 @@ def mxfp8_linear_forward_quantized(
     def run_raw_linear(payload_chunk: torch.Tensor, scale_chunk: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         scale_e8 = scale_chunk.to(torch.float8_e8m0fnu).reshape(1, payload_chunk.shape[0], groups).contiguous()
         scale_swizzled = _swizzle_mxfp8_scale_rowwise(scale_e8)
-        y = bmm_ext_raw.mxfp8_cublaslt_bmm(
+        y = bmm_ext_raw.mxfp8_cublaslt_bmm_raw(
             payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
             module.weight_mxfp8.contiguous(),
             scale_swizzled,
@@ -1162,7 +1148,7 @@ def tri_mul_fp8_cublaslt_quantized(
     }
     if out_dtype not in out_map:
         raise ValueError(f"Unsupported raw FP8 tri out_dtype {out_dtype}")
-    x1, x2 = bmm_ext_raw.mxfp8_cublaslt_tri_mul_pair(
+    x1, x2 = bmm_ext_raw.mxfp8_cublaslt_tri_mul_pair_raw(
         a1,
         b1,
         a2_t,
@@ -1225,7 +1211,7 @@ def mxfp8_tri_mul_fp8_cublaslt_quantized(
     }
     if out_dtype not in out_map:
         raise ValueError(f"Unsupported raw FP8 tri out_dtype {out_dtype}")
-    x1, x2 = bmm_ext_raw.mxfp8_cublaslt_tri_mul_pair(
+    x1, x2 = bmm_ext_raw.mxfp8_cublaslt_tri_mul_pair_raw(
         a1,
         b1,
         a2_t,

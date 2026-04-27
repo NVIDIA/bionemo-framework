@@ -21,6 +21,25 @@ _SUPPORTED_OUT_DTYPES = {
     torch.bfloat16: "bfloat16",
     torch.float32: "float32",
 }
+_SUPPORTED_OUT_DTYPE_NAMES = {value: key for key, value in _SUPPORTED_OUT_DTYPES.items()}
+
+
+def _extension_unavailable(name: str) -> RuntimeError:
+    return RuntimeError(f"bmm_ext._C is not available for {name}")
+
+
+def _normalize_out_dtype_name(out_dtype: torch.dtype) -> str:
+    try:
+        return _SUPPORTED_OUT_DTYPES[out_dtype]
+    except KeyError as exc:
+        raise TypeError(f"unsupported out_dtype {out_dtype}") from exc
+
+
+def _dtype_from_name(out_dtype: str) -> torch.dtype:
+    try:
+        return _SUPPORTED_OUT_DTYPE_NAMES[out_dtype]
+    except KeyError as exc:
+        raise ValueError(f"unsupported out_dtype {out_dtype!r}") from exc
 
 
 @dataclass(frozen=True)
@@ -295,6 +314,156 @@ def _validate_common(
         )
 
 
+@torch.library.custom_op("bmm_ext::bmm_block_scaled", mutates_args=(), device_types="cuda")
+def _bmm_block_scaled_op(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_scale: torch.Tensor,
+    b_scale: torch.Tensor,
+    a_amax: torch.Tensor,
+    b_amax: torch.Tensor,
+    format: str,
+    out_dtype: str,
+    sf_vec_size: int,
+    a_shape_override: list[int],
+    b_shape_override: list[int],
+    a_rhs_transposed: bool,
+    b_rhs_transposed: bool,
+) -> torch.Tensor:
+    if _C is None:
+        raise _extension_unavailable("bmm_block_scaled")
+    return _C.bmm_block_scaled(
+        a,
+        b,
+        a_scale,
+        b_scale,
+        a_amax,
+        b_amax,
+        format,
+        out_dtype,
+        int(sf_vec_size),
+        a_shape_override,
+        b_shape_override,
+        bool(a_rhs_transposed),
+        bool(b_rhs_transposed),
+    )
+
+
+@_bmm_block_scaled_op.register_fake
+def _bmm_block_scaled_fake(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_scale: torch.Tensor,
+    b_scale: torch.Tensor,
+    a_amax: torch.Tensor,
+    b_amax: torch.Tensor,
+    format: str,
+    out_dtype: str,
+    sf_vec_size: int,
+    a_shape_override: list[int],
+    b_shape_override: list[int],
+    a_rhs_transposed: bool,
+    b_rhs_transposed: bool,
+) -> torch.Tensor:
+    if format == "nvfp4" and len(a_shape_override) == 3 and len(b_shape_override) == 3:
+        batch, rows, cols = int(a_shape_override[0]), int(a_shape_override[1]), int(b_shape_override[2])
+    else:
+        batch, rows, cols = int(a.shape[0]), int(a.shape[1]), int(b.shape[2])
+    return a.new_empty((batch, rows, cols), dtype=_dtype_from_name(out_dtype))
+
+
+@torch.library.custom_op("bmm_ext::mxfp8_cublaslt_bmm", mutates_args=(), device_types="cuda")
+def _mxfp8_cublaslt_bmm_raw_op(
+    a: torch.Tensor,
+    b_t: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    b_scale_swizzled: torch.Tensor,
+    out_dtype: str,
+) -> torch.Tensor:
+    if _C is None:
+        raise _extension_unavailable("mxfp8_cublaslt_bmm")
+    return _C.mxfp8_cublaslt_bmm(a, b_t, a_scale_swizzled, b_scale_swizzled, out_dtype)
+
+
+@_mxfp8_cublaslt_bmm_raw_op.register_fake
+def _mxfp8_cublaslt_bmm_raw_fake(
+    a: torch.Tensor,
+    b_t: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    b_scale_swizzled: torch.Tensor,
+    out_dtype: str,
+) -> torch.Tensor:
+    return a.new_empty((a.shape[0], a.shape[1], b_t.shape[1]), dtype=_dtype_from_name(out_dtype))
+
+
+@torch.library.custom_op("bmm_ext::mxfp8_cublaslt_bmm_rhs", mutates_args=(), device_types="cuda")
+def _mxfp8_cublaslt_bmm_rhs_raw_op(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    b_scale_swizzled: torch.Tensor,
+    out_dtype: str,
+) -> torch.Tensor:
+    if _C is None:
+        raise _extension_unavailable("mxfp8_cublaslt_bmm_rhs")
+    return _C.mxfp8_cublaslt_bmm_rhs(a, b, a_scale_swizzled, b_scale_swizzled, out_dtype)
+
+
+@_mxfp8_cublaslt_bmm_rhs_raw_op.register_fake
+def _mxfp8_cublaslt_bmm_rhs_raw_fake(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    b_scale_swizzled: torch.Tensor,
+    out_dtype: str,
+) -> torch.Tensor:
+    return a.new_empty((a.shape[0], a.shape[1], b.shape[2]), dtype=_dtype_from_name(out_dtype))
+
+
+@torch.library.custom_op("bmm_ext::mxfp8_cublaslt_tri_mul_pair", mutates_args=(), device_types="cuda")
+def _mxfp8_cublaslt_tri_mul_pair_raw_op(
+    a1: torch.Tensor,
+    b1: torch.Tensor,
+    a2_t: torch.Tensor,
+    b2_rhs: torch.Tensor,
+    a1_scale_swizzled: torch.Tensor,
+    b1_scale_swizzled: torch.Tensor,
+    a2_t_scale_swizzled: torch.Tensor,
+    b2_rhs_scale_swizzled: torch.Tensor,
+    out_dtype: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    if _C is None:
+        raise _extension_unavailable("mxfp8_cublaslt_tri_mul_pair")
+    x1, x2 = _C.mxfp8_cublaslt_tri_mul_pair(
+        a1,
+        b1,
+        a2_t,
+        b2_rhs,
+        a1_scale_swizzled,
+        b1_scale_swizzled,
+        a2_t_scale_swizzled,
+        b2_rhs_scale_swizzled,
+        out_dtype,
+    )
+    return x1, x2
+
+
+@_mxfp8_cublaslt_tri_mul_pair_raw_op.register_fake
+def _mxfp8_cublaslt_tri_mul_pair_raw_fake(
+    a1: torch.Tensor,
+    b1: torch.Tensor,
+    a2_t: torch.Tensor,
+    b2_rhs: torch.Tensor,
+    a1_scale_swizzled: torch.Tensor,
+    b1_scale_swizzled: torch.Tensor,
+    a2_t_scale_swizzled: torch.Tensor,
+    b2_rhs_scale_swizzled: torch.Tensor,
+    out_dtype: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    dtype = _dtype_from_name(out_dtype)
+    return a1.new_empty(a1.shape, dtype=dtype), a2_t.new_empty(a2_t.shape, dtype=dtype)
+
+
 def bmm_block_scaled(
     a,
     b,
@@ -306,8 +475,7 @@ def bmm_block_scaled(
     sf_vec_size: int = 32,
 ) -> torch.Tensor:
     format = format.lower()
-    if out_dtype not in _SUPPORTED_OUT_DTYPES:
-        raise TypeError(f"unsupported out_dtype {out_dtype}")
+    _normalize_out_dtype_name(out_dtype)
     _check_cuda_tensor(a_scale, "a_scale")
     _check_cuda_tensor(b_scale, "b_scale")
 
@@ -338,7 +506,7 @@ def bmm_block_scaled(
     else:
         raise ValueError("format must be 'mxfp8' or 'nvfp4'")
 
-    return _C.bmm_block_scaled(
+    return _bmm_block_scaled_op(
         a_tensor,
         b_tensor,
         a_scale.contiguous(),
@@ -363,58 +531,66 @@ def bmm_block_scaled(
     )
 
 
-class _MXFP8Bmm(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, a: torch.Tensor, b: torch.Tensor, out_dtype: torch.dtype) -> torch.Tensor:
-        if a.dim() != 3 or b.dim() != 3:
-            raise ValueError("mxfp8_bmm expects 3D tensors")
-        if a.shape[0] != b.shape[0] or a.shape[2] != b.shape[1]:
-            raise ValueError(f"incompatible bmm shapes: {tuple(a.shape)} and {tuple(b.shape)}")
+@torch.library.custom_op("bmm_ext::mxfp8_bmm", mutates_args=(), device_types="cuda")
+def _mxfp8_bmm_op(a: torch.Tensor, b: torch.Tensor, out_dtype: str) -> torch.Tensor:
+    a_fp8, a_scale = quantize_mxfp8(a.detach(), role="lhs")
+    b_fp8, b_scale = quantize_mxfp8(b.detach(), role="rhs")
+    return bmm_block_scaled(
+        a_fp8,
+        b_fp8,
+        a_scale=a_scale,
+        b_scale=b_scale,
+        format="mxfp8",
+        out_dtype=_dtype_from_name(out_dtype),
+        sf_vec_size=32,
+    )
 
-        a_fp8, a_scale = quantize_mxfp8(a.detach(), role="lhs")
-        b_fp8, b_scale = quantize_mxfp8(b.detach(), role="rhs")
-        a_t_fp8, a_t_scale = quantize_mxfp8(a.detach().transpose(1, 2).contiguous(), role="lhs")
-        b_t_fp8, b_t_scale = quantize_mxfp8(b.detach().transpose(1, 2).contiguous(), role="rhs")
 
-        ctx.save_for_backward(a_fp8, a_scale, a_t_fp8, a_t_scale, b_fp8, b_scale, b_t_fp8, b_t_scale)
-        ctx.a_dtype = a.dtype
-        ctx.b_dtype = b.dtype
+@_mxfp8_bmm_op.register_fake
+def _mxfp8_bmm_fake(a: torch.Tensor, b: torch.Tensor, out_dtype: str) -> torch.Tensor:
+    return a.new_empty((a.shape[0], a.shape[1], b.shape[2]), dtype=_dtype_from_name(out_dtype))
 
-        return bmm_block_scaled(
-            a_fp8,
-            b_fp8,
-            a_scale=a_scale,
-            b_scale=b_scale,
-            format="mxfp8",
-            out_dtype=out_dtype,
-            sf_vec_size=32,
-        )
 
-    @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):
-        a_fp8, a_scale, a_t_fp8, a_t_scale, b_fp8, b_scale, b_t_fp8, b_t_scale = ctx.saved_tensors
-        g_lhs_fp8, g_lhs_scale = quantize_mxfp8(grad_output.detach(), role="lhs")
-        g_rhs_fp8, g_rhs_scale = quantize_mxfp8(grad_output.detach(), role="rhs")
+def _mxfp8_bmm_setup_context(ctx, inputs, output) -> None:
+    a, b, _ = inputs
+    a_detached = a.detach()
+    b_detached = b.detach()
+    a_fp8, a_scale = quantize_mxfp8(a_detached, role="lhs")
+    b_fp8, b_scale = quantize_mxfp8(b_detached, role="rhs")
+    a_t_fp8, a_t_scale = quantize_mxfp8(a_detached.transpose(1, 2).contiguous(), role="lhs")
+    b_t_fp8, b_t_scale = quantize_mxfp8(b_detached.transpose(1, 2).contiguous(), role="rhs")
+    ctx.save_for_backward(a_fp8, a_scale, a_t_fp8, a_t_scale, b_fp8, b_scale, b_t_fp8, b_t_scale)
+    ctx.a_dtype = a.dtype
+    ctx.b_dtype = b.dtype
 
-        grad_a = bmm_block_scaled(
-            g_lhs_fp8,
-            b_t_fp8,
-            a_scale=g_lhs_scale,
-            b_scale=b_t_scale,
-            format="mxfp8",
-            out_dtype=torch.float32,
-            sf_vec_size=32,
-        )
-        grad_b = bmm_block_scaled(
-            a_t_fp8,
-            g_rhs_fp8,
-            a_scale=a_t_scale,
-            b_scale=g_rhs_scale,
-            format="mxfp8",
-            out_dtype=torch.float32,
-            sf_vec_size=32,
-        )
-        return grad_a.to(ctx.a_dtype), grad_b.to(ctx.b_dtype), None
+
+def _mxfp8_bmm_backward(ctx, grad_output: torch.Tensor):
+    a_fp8, a_scale, a_t_fp8, a_t_scale, b_fp8, b_scale, b_t_fp8, b_t_scale = ctx.saved_tensors
+    g_lhs_fp8, g_lhs_scale = quantize_mxfp8(grad_output.detach(), role="lhs")
+    g_rhs_fp8, g_rhs_scale = quantize_mxfp8(grad_output.detach(), role="rhs")
+
+    grad_a = bmm_block_scaled(
+        g_lhs_fp8,
+        b_t_fp8,
+        a_scale=g_lhs_scale,
+        b_scale=b_t_scale,
+        format="mxfp8",
+        out_dtype=torch.float32,
+        sf_vec_size=32,
+    )
+    grad_b = bmm_block_scaled(
+        a_t_fp8,
+        g_rhs_fp8,
+        a_scale=a_t_scale,
+        b_scale=g_rhs_scale,
+        format="mxfp8",
+        out_dtype=torch.float32,
+        sf_vec_size=32,
+    )
+    return grad_a.to(ctx.a_dtype), grad_b.to(ctx.b_dtype), None
+
+
+torch.library.register_autograd(_mxfp8_bmm_op, _mxfp8_bmm_backward, setup_context=_mxfp8_bmm_setup_context)
 
 
 def mxfp8_bmm(
@@ -424,15 +600,46 @@ def mxfp8_bmm(
     out_dtype: torch.dtype = torch.bfloat16,
 ) -> torch.Tensor:
     """Autograd-backed MXFP8 batched GEMM with FP32 accumulation."""
-    if out_dtype not in _SUPPORTED_OUT_DTYPES:
-        raise TypeError(f"unsupported out_dtype {out_dtype}")
+    _normalize_out_dtype_name(out_dtype)
     if a.dim() != 3 or b.dim() != 3:
         raise ValueError("mxfp8_bmm expects 3D tensors")
     if a.shape[0] != b.shape[0] or a.shape[2] != b.shape[1]:
         raise ValueError(f"incompatible bmm shapes: {tuple(a.shape)} and {tuple(b.shape)}")
     if any(dim % 32 != 0 for dim in (a.shape[1], a.shape[2], b.shape[1], b.shape[2])):
         raise ValueError("mxfp8_bmm requires M, K, and N dimensions to be divisible by 32")
-    return _MXFP8Bmm.apply(a, b, out_dtype)
+    return _mxfp8_bmm_op(a, b, _SUPPORTED_OUT_DTYPES[out_dtype])
+
+
+def mxfp8_cublaslt_bmm_raw(
+    a: torch.Tensor,
+    b_t: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    b_scale_swizzled: torch.Tensor,
+    out_dtype: str,
+) -> torch.Tensor:
+    return _mxfp8_cublaslt_bmm_raw_op(
+        a,
+        b_t,
+        a_scale_swizzled,
+        b_scale_swizzled,
+        out_dtype,
+    )
+
+
+def mxfp8_cublaslt_bmm_rhs_raw(
+    a: torch.Tensor,
+    b: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    b_scale_swizzled: torch.Tensor,
+    out_dtype: str,
+) -> torch.Tensor:
+    return _mxfp8_cublaslt_bmm_rhs_raw_op(
+        a,
+        b,
+        a_scale_swizzled,
+        b_scale_swizzled,
+        out_dtype,
+    )
 
 
 def mxfp8_cublaslt_bmm(
@@ -441,14 +648,8 @@ def mxfp8_cublaslt_bmm(
     *,
     out_dtype: torch.dtype = torch.bfloat16,
 ) -> torch.Tensor:
-    """Raw cuBLASLt MXFP8 strided batched GEMM benchmark path.
-
-    This path quantizes `a` and `b` once in Python, materializes `b^T` as the
-    column-major operand expected by cuBLASLt, swizzles scales into the tiled
-    UE8M0 layout documented by cuBLASLt, and calls the native matmul directly.
-    """
-    if out_dtype not in _SUPPORTED_OUT_DTYPES:
-        raise TypeError(f"unsupported out_dtype {out_dtype}")
+    """Raw cuBLASLt MXFP8 strided batched GEMM benchmark path."""
+    _normalize_out_dtype_name(out_dtype)
     if a.dim() != 3 or b.dim() != 3:
         raise ValueError("mxfp8_cublaslt_bmm expects 3D tensors")
     if a.shape[0] != b.shape[0] or a.shape[2] != b.shape[1]:
@@ -461,7 +662,7 @@ def mxfp8_cublaslt_bmm(
     b_t_fp8, b_t_scale = quantize_mxfp8(b_t, role="lhs")
     a_scale_swizzled = _swizzle_mxfp8_scale_rowwise(a_scale)
     b_scale_swizzled = _swizzle_mxfp8_scale_rowwise(b_t_scale)
-    return _C.mxfp8_cublaslt_bmm(
+    return mxfp8_cublaslt_bmm_raw(
         a_fp8,
         b_t_fp8,
         a_scale_swizzled,
@@ -477,141 +678,216 @@ def _reshape_chunk(x: torch.Tensor) -> tuple[torch.Tensor, int, int, int]:
     return x.reshape(bsz * d_chunk, n1, n2), bsz, d_chunk, n1
 
 
-class _MXFP8TriMulXBDNN(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, x_bdnn: torch.Tensor, out_dtype: torch.dtype) -> torch.Tensor:
-        if x_bdnn.dim() != 4:
-            raise ValueError("x_bdnn must have shape (B, D, N, N)")
-        if x_bdnn.shape[1] % 4 != 0:
-            raise ValueError("x_bdnn channel dimension must be divisible by 4")
-        if x_bdnn.shape[2] != x_bdnn.shape[3]:
-            raise ValueError("x_bdnn must have square sequence dimensions")
-        if x_bdnn.shape[2] % 32 != 0 or (x_bdnn.shape[1] // 4) % 32 != 0:
-            raise ValueError("packed fp8 tri-mul requires N and D_chunk divisible by 32")
+def _validate_tri_mul_xbdnn_input(x_bdnn: torch.Tensor, *, impl: str) -> tuple[int, int, int]:
+    if x_bdnn.dim() != 4:
+        raise ValueError("x_bdnn must have shape (B, D, N, N)")
+    if x_bdnn.shape[1] % 4 != 0:
+        raise ValueError("x_bdnn channel dimension must be divisible by 4")
+    if x_bdnn.shape[2] != x_bdnn.shape[3]:
+        raise ValueError("x_bdnn must have square sequence dimensions")
+    if x_bdnn.shape[2] % 32 != 0 or (x_bdnn.shape[1] // 4) % 32 != 0:
+        raise ValueError(f"{impl} requires N and D_chunk divisible by 32")
+    return x_bdnn.shape[0], x_bdnn.shape[1] // 4, x_bdnn.shape[2]
 
-        a1, b1, a2, b2 = torch.chunk(x_bdnn.detach(), 4, dim=1)
-        a1_3d, bsz, d_chunk, n = _reshape_chunk(a1)
-        b1_3d, _, _, _ = _reshape_chunk(b1)
-        a2_3d, _, _, _ = _reshape_chunk(a2)
-        b2_3d, _, _, _ = _reshape_chunk(b2)
 
-        b1_t_3d = b1_3d.transpose(1, 2).contiguous()
-        a2_t_3d = a2_3d.transpose(1, 2).contiguous()
-        b2_t_3d = b2_3d.transpose(1, 2).contiguous()
-        a1_t_3d = a1_3d.transpose(1, 2).contiguous()
+def _tri_mul_xbdnn_forward_inputs(
+    x_bdnn: torch.Tensor,
+) -> tuple[tuple[torch.Tensor, ...], tuple[int, int, int], torch.dtype]:
+    bsz, d_chunk, n = _validate_tri_mul_xbdnn_input(x_bdnn, impl="packed fp8 tri-mul")
+    a1, b1, a2, b2 = torch.chunk(x_bdnn.detach(), 4, dim=1)
+    a1_3d, _, _, _ = _reshape_chunk(a1)
+    b1_3d, _, _, _ = _reshape_chunk(b1)
+    a2_3d, _, _, _ = _reshape_chunk(a2)
+    b2_3d, _, _, _ = _reshape_chunk(b2)
 
-        a1_fp8, a1_scale = quantize_mxfp8(a1_3d, role="lhs")
-        a1_t_fp8, a1_t_scale = quantize_mxfp8(a1_t_3d, role="lhs")
-        b1_fp8, b1_scale = quantize_mxfp8(b1_3d, role="rhs")
-        b1_t_fp8, b1_t_scale = quantize_mxfp8(b1_t_3d, role="rhs")
-        a2_fp8, a2_scale = quantize_mxfp8(a2_3d, role="lhs")
-        a2_t_fp8, a2_t_scale = quantize_mxfp8(a2_t_3d, role="lhs")
-        b2_fp8, b2_scale = quantize_mxfp8(b2_3d, role="rhs")
-        b2_t_fp8, b2_t_scale = quantize_mxfp8(b2_t_3d, role="rhs")
+    b1_t_3d = b1_3d.transpose(1, 2).contiguous()
+    a2_t_3d = a2_3d.transpose(1, 2).contiguous()
+    b2_t_3d = b2_3d.transpose(1, 2).contiguous()
+    a1_t_3d = a1_3d.transpose(1, 2).contiguous()
 
-        x1 = bmm_block_scaled(
-            a1_fp8,
-            b1_t_fp8,
-            a_scale=a1_scale,
-            b_scale=b1_t_scale,
-            format="mxfp8",
-            out_dtype=out_dtype,
-            sf_vec_size=32,
-        )
-        x2 = bmm_block_scaled(
-            a2_t_fp8,
-            b2_fp8,
-            a_scale=a2_t_scale,
-            b_scale=b2_scale,
-            format="mxfp8",
-            out_dtype=out_dtype,
-            sf_vec_size=32,
-        )
+    a1_fp8, a1_scale = quantize_mxfp8(a1_3d, role="lhs")
+    a1_t_fp8, a1_t_scale = quantize_mxfp8(a1_t_3d, role="lhs")
+    b1_fp8, b1_scale = quantize_mxfp8(b1_3d, role="rhs")
+    b1_t_fp8, b1_t_scale = quantize_mxfp8(b1_t_3d, role="rhs")
+    a2_fp8, a2_scale = quantize_mxfp8(a2_3d, role="lhs")
+    a2_t_fp8, a2_t_scale = quantize_mxfp8(a2_t_3d, role="lhs")
+    b2_fp8, b2_scale = quantize_mxfp8(b2_3d, role="rhs")
+    b2_t_fp8, b2_t_scale = quantize_mxfp8(b2_t_3d, role="rhs")
+    return (
+        a1_fp8,
+        a1_scale,
+        a1_t_fp8,
+        a1_t_scale,
+        b1_fp8,
+        b1_scale,
+        b1_t_fp8,
+        b1_t_scale,
+        a2_fp8,
+        a2_scale,
+        a2_t_fp8,
+        a2_t_scale,
+        b2_fp8,
+        b2_scale,
+        b2_t_fp8,
+        b2_t_scale,
+    ), (bsz, d_chunk, n), x_bdnn.dtype
 
-        ctx.save_for_backward(
-            a1_t_fp8,
-            a1_t_scale,
-            b1_fp8,
-            b1_scale,
-            a2_fp8,
-            a2_scale,
-            b2_t_fp8,
-            b2_t_scale,
-        )
-        ctx.shape = (bsz, d_chunk, n)
-        ctx.input_dtype = x_bdnn.dtype
 
-        x1 = x1.reshape(bsz, d_chunk, n, n)
-        x2 = x2.reshape(bsz, d_chunk, n, n)
-        return torch.cat([x1, x2], dim=1)
+@torch.library.custom_op("bmm_ext::mxfp8_tri_mul_xbdnn", mutates_args=(), device_types="cuda")
+def _mxfp8_tri_mul_xbdnn_op(x_bdnn: torch.Tensor, out_dtype: str) -> torch.Tensor:
+    (
+        a1_fp8,
+        a1_scale,
+        a1_t_fp8,
+        a1_t_scale,
+        b1_fp8,
+        b1_scale,
+        b1_t_fp8,
+        b1_t_scale,
+        a2_fp8,
+        a2_scale,
+        a2_t_fp8,
+        a2_t_scale,
+        b2_fp8,
+        b2_scale,
+        b2_t_fp8,
+        b2_t_scale,
+    ), (bsz, d_chunk, n), _ = _tri_mul_xbdnn_forward_inputs(x_bdnn)
+    resolved_out_dtype = _dtype_from_name(out_dtype)
+    x1 = bmm_block_scaled(
+        a1_fp8,
+        b1_t_fp8,
+        a_scale=a1_scale,
+        b_scale=b1_t_scale,
+        format="mxfp8",
+        out_dtype=resolved_out_dtype,
+        sf_vec_size=32,
+    )
+    x2 = bmm_block_scaled(
+        a2_t_fp8,
+        b2_fp8,
+        a_scale=a2_t_scale,
+        b_scale=b2_scale,
+        format="mxfp8",
+        out_dtype=resolved_out_dtype,
+        sf_vec_size=32,
+    )
+    return torch.cat([x1.reshape(bsz, d_chunk, n, n), x2.reshape(bsz, d_chunk, n, n)], dim=1)
 
-    @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):
-        a1_t_fp8, a1_t_scale, b1_fp8, b1_scale, a2_fp8, a2_scale, b2_t_fp8, b2_t_scale = ctx.saved_tensors
-        bsz, d_chunk, n = ctx.shape
-        g1, g2 = torch.chunk(grad_output.detach(), 2, dim=1)
-        g1 = g1.reshape(bsz * d_chunk, n, n)
-        g2 = g2.reshape(bsz * d_chunk, n, n)
-        g1_t = g1.transpose(1, 2).contiguous()
-        g2_t = g2.transpose(1, 2).contiguous()
 
-        g1_lhs_fp8, g1_lhs_scale = quantize_mxfp8(g1, role="lhs")
-        g1_rhs_fp8, g1_rhs_scale = quantize_mxfp8(g1, role="rhs")
-        g2_lhs_fp8, g2_lhs_scale = quantize_mxfp8(g2, role="lhs")
-        g2_rhs_fp8, g2_rhs_scale = quantize_mxfp8(g2, role="rhs")
-        g1_t_lhs_fp8, g1_t_lhs_scale = quantize_mxfp8(g1_t, role="lhs")
-        g2_t_lhs_fp8, g2_t_lhs_scale = quantize_mxfp8(g2_t, role="lhs")
+@_mxfp8_tri_mul_xbdnn_op.register_fake
+def _mxfp8_tri_mul_xbdnn_fake(x_bdnn: torch.Tensor, out_dtype: str) -> torch.Tensor:
+    return x_bdnn.new_empty(
+        (x_bdnn.shape[0], x_bdnn.shape[1] // 2, x_bdnn.shape[2], x_bdnn.shape[3]),
+        dtype=_dtype_from_name(out_dtype),
+    )
 
-        grad_a1 = bmm_block_scaled(
-            g1_lhs_fp8,
-            b1_fp8,
-            a_scale=g1_lhs_scale,
-            b_scale=b1_scale,
-            format="mxfp8",
-            out_dtype=torch.float32,
-            sf_vec_size=32,
-        )
-        grad_b1_t = bmm_block_scaled(
-            a1_t_fp8,
-            g1_rhs_fp8,
-            a_scale=a1_t_scale,
-            b_scale=g1_rhs_scale,
-            format="mxfp8",
-            out_dtype=torch.float32,
-            sf_vec_size=32,
-        )
-        grad_a2_t = bmm_block_scaled(
-            g2_lhs_fp8,
-            b2_t_fp8,
-            a_scale=g2_lhs_scale,
-            b_scale=b2_t_scale,
-            format="mxfp8",
-            out_dtype=torch.float32,
-            sf_vec_size=32,
-        )
-        grad_b2 = bmm_block_scaled(
-            a2_fp8,
-            g2_rhs_fp8,
-            a_scale=a2_scale,
-            b_scale=g2_rhs_scale,
-            format="mxfp8",
-            out_dtype=torch.float32,
-            sf_vec_size=32,
-        )
 
-        grad_b1 = grad_b1_t.transpose(1, 2).contiguous()
-        grad_a2 = grad_a2_t.transpose(1, 2).contiguous()
+def _mxfp8_tri_mul_xbdnn_setup_context(ctx, inputs, output) -> None:
+    (x_bdnn, _) = inputs
+    saved, shape, input_dtype = _tri_mul_xbdnn_forward_inputs(x_bdnn)
+    (
+        a1_fp8,
+        a1_scale,
+        a1_t_fp8,
+        a1_t_scale,
+        b1_fp8,
+        b1_scale,
+        b1_t_fp8,
+        b1_t_scale,
+        a2_fp8,
+        a2_scale,
+        a2_t_fp8,
+        a2_t_scale,
+        b2_fp8,
+        b2_scale,
+        b2_t_fp8,
+        b2_t_scale,
+    ) = saved
+    ctx.save_for_backward(
+        a1_t_fp8,
+        a1_t_scale,
+        b1_fp8,
+        b1_scale,
+        a2_fp8,
+        a2_scale,
+        b2_t_fp8,
+        b2_t_scale,
+    )
+    ctx.shape = shape
+    ctx.input_dtype = input_dtype
 
-        grad_x = torch.cat(
-            [
-                grad_a1.reshape(bsz, d_chunk, n, n),
-                grad_b1.reshape(bsz, d_chunk, n, n),
-                grad_a2.reshape(bsz, d_chunk, n, n),
-                grad_b2.reshape(bsz, d_chunk, n, n),
-            ],
-            dim=1,
-        )
-        return grad_x.to(ctx.input_dtype), None
+
+def _mxfp8_tri_mul_xbdnn_backward(ctx, grad_output: torch.Tensor):
+    a1_t_fp8, a1_t_scale, b1_fp8, b1_scale, a2_fp8, a2_scale, b2_t_fp8, b2_t_scale = ctx.saved_tensors
+    bsz, d_chunk, n = ctx.shape
+    g1, g2 = torch.chunk(grad_output.detach(), 2, dim=1)
+    g1 = g1.reshape(bsz * d_chunk, n, n)
+    g2 = g2.reshape(bsz * d_chunk, n, n)
+    g1_t = g1.transpose(1, 2).contiguous()
+    g2_t = g2.transpose(1, 2).contiguous()
+
+    g1_lhs_fp8, g1_lhs_scale = quantize_mxfp8(g1, role="lhs")
+    g1_rhs_fp8, g1_rhs_scale = quantize_mxfp8(g1, role="rhs")
+    g2_lhs_fp8, g2_lhs_scale = quantize_mxfp8(g2, role="lhs")
+    g2_rhs_fp8, g2_rhs_scale = quantize_mxfp8(g2, role="rhs")
+
+    grad_a1 = bmm_block_scaled(
+        g1_lhs_fp8,
+        b1_fp8,
+        a_scale=g1_lhs_scale,
+        b_scale=b1_scale,
+        format="mxfp8",
+        out_dtype=torch.float32,
+        sf_vec_size=32,
+    )
+    grad_b1_t = bmm_block_scaled(
+        a1_t_fp8,
+        g1_rhs_fp8,
+        a_scale=a1_t_scale,
+        b_scale=g1_rhs_scale,
+        format="mxfp8",
+        out_dtype=torch.float32,
+        sf_vec_size=32,
+    )
+    grad_a2_t = bmm_block_scaled(
+        g2_lhs_fp8,
+        b2_t_fp8,
+        a_scale=g2_lhs_scale,
+        b_scale=b2_t_scale,
+        format="mxfp8",
+        out_dtype=torch.float32,
+        sf_vec_size=32,
+    )
+    grad_b2 = bmm_block_scaled(
+        a2_fp8,
+        g2_rhs_fp8,
+        a_scale=a2_scale,
+        b_scale=g2_rhs_scale,
+        format="mxfp8",
+        out_dtype=torch.float32,
+        sf_vec_size=32,
+    )
+
+    grad_b1 = grad_b1_t.transpose(1, 2).contiguous()
+    grad_a2 = grad_a2_t.transpose(1, 2).contiguous()
+    grad_x = torch.cat(
+        [
+            grad_a1.reshape(bsz, d_chunk, n, n),
+            grad_b1.reshape(bsz, d_chunk, n, n),
+            grad_a2.reshape(bsz, d_chunk, n, n),
+            grad_b2.reshape(bsz, d_chunk, n, n),
+        ],
+        dim=1,
+    )
+    return grad_x.to(ctx.input_dtype), None
+
+
+torch.library.register_autograd(
+    _mxfp8_tri_mul_xbdnn_op,
+    _mxfp8_tri_mul_xbdnn_backward,
+    setup_context=_mxfp8_tri_mul_xbdnn_setup_context,
+)
 
 
 def mxfp8_tri_mul_xbdnn(
@@ -620,130 +896,213 @@ def mxfp8_tri_mul_xbdnn(
     out_dtype: torch.dtype = torch.bfloat16,
 ) -> torch.Tensor:
     """Packed MXFP8 triangular multiplication on a `(B, 128, N, N)` tensor."""
-    if out_dtype not in _SUPPORTED_OUT_DTYPES:
-        raise TypeError(f"unsupported out_dtype {out_dtype}")
-    return _MXFP8TriMulXBDNN.apply(x_bdnn, out_dtype)
+    _normalize_out_dtype_name(out_dtype)
+    _validate_tri_mul_xbdnn_input(x_bdnn, impl="packed fp8 tri-mul")
+    return _mxfp8_tri_mul_xbdnn_op(x_bdnn, _SUPPORTED_OUT_DTYPES[out_dtype])
 
 
-class _MXFP8CuBLASLtTriMulXBDNN(torch.autograd.Function):
-    @staticmethod
-    def _forward_impl(
-        x_bdnn: torch.Tensor,
-        out_dtype: torch.dtype,
-    ) -> tuple[torch.Tensor, tuple[torch.Tensor, ...], tuple[int, int, int], torch.dtype]:
-        if x_bdnn.dim() != 4:
-            raise ValueError("x_bdnn must have shape (B, D, N, N)")
-        if x_bdnn.shape[1] % 4 != 0:
-            raise ValueError("x_bdnn channel dimension must be divisible by 4")
-        if x_bdnn.shape[2] != x_bdnn.shape[3]:
-            raise ValueError("x_bdnn must have square sequence dimensions")
-        if x_bdnn.shape[2] % 32 != 0 or (x_bdnn.shape[1] // 4) % 32 != 0:
-            raise ValueError("packed fp8 tri-mul requires N and D_chunk divisible by 32")
+def _cublaslt_tri_mul_forward_inputs(
+    x_bdnn: torch.Tensor,
+) -> tuple[tuple[torch.Tensor, ...], tuple[int, int, int], torch.dtype]:
+    bsz, d_chunk, n = _validate_tri_mul_xbdnn_input(x_bdnn, impl="packed fp8 tri-mul")
+    a1, b1, a2, b2 = torch.chunk(x_bdnn.detach(), 4, dim=1)
+    a1_3d, _, _, _ = _reshape_chunk(a1)
+    b1_3d, _, _, _ = _reshape_chunk(b1)
+    a2_3d, _, _, _ = _reshape_chunk(a2)
+    b2_3d, _, _, _ = _reshape_chunk(b2)
+    packed_a1, packed_b1, packed_a2, packed_b2 = _split_quantize_mxfp8([a1_3d, b1_3d, a2_3d, b2_3d])
 
-        a1, b1, a2, b2 = torch.chunk(x_bdnn.detach(), 4, dim=1)
-        a1_3d, bsz, d_chunk, n = _reshape_chunk(a1)
-        b1_3d, _, _, _ = _reshape_chunk(b1)
-        a2_3d, _, _, _ = _reshape_chunk(a2)
-        b2_3d, _, _, _ = _reshape_chunk(b2)
-        packed_a1, packed_b1, packed_a2, packed_b2 = _split_quantize_mxfp8([a1_3d, b1_3d, a2_3d, b2_3d])
+    a1_fp8, a1_scale = _rowwise_mxfp8(packed_a1._rowwise_data, packed_a1._rowwise_scale_inv, bsz * d_chunk, n, n)
+    b1_fp8, b1_scale = _rowwise_mxfp8(packed_b1._rowwise_data, packed_b1._rowwise_scale_inv, bsz * d_chunk, n, n)
+    a1_t_fp8, a1_t_scale = _transpose_rowwise_mxfp8(
+        packed_a1._columnwise_data, packed_a1._columnwise_scale_inv, bsz * d_chunk, n, n
+    )
+    b1_t_fp8, b1_t_scale = _transpose_rowwise_mxfp8(
+        packed_b1._columnwise_data, packed_b1._columnwise_scale_inv, bsz * d_chunk, n, n
+    )
+    a2_fp8, a2_scale = _rowwise_mxfp8(packed_a2._rowwise_data, packed_a2._rowwise_scale_inv, bsz * d_chunk, n, n)
+    a2_t_fp8, a2_t_scale = _transpose_rowwise_mxfp8(
+        packed_a2._columnwise_data, packed_a2._columnwise_scale_inv, bsz * d_chunk, n, n
+    )
+    b2_fp8, b2_scale = _rowwise_mxfp8(packed_b2._rowwise_data, packed_b2._rowwise_scale_inv, bsz * d_chunk, n, n)
+    b2_rhs_fp8, b2_rhs_scale = _rhs_mxfp8(
+        packed_b2._columnwise_data, packed_b2._columnwise_scale_inv, bsz * d_chunk, n, n
+    )
+    return (
+        a1_fp8,
+        a1_scale,
+        a1_t_fp8,
+        a1_t_scale,
+        b1_fp8,
+        b1_scale,
+        b1_t_fp8,
+        b1_t_scale,
+        a2_fp8,
+        a2_scale,
+        a2_t_fp8,
+        a2_t_scale,
+        b2_fp8,
+        b2_scale,
+        b2_rhs_fp8,
+        b2_rhs_scale,
+    ), (bsz, d_chunk, n), x_bdnn.dtype
 
-        a1_fp8, a1_scale = _rowwise_mxfp8(packed_a1._rowwise_data, packed_a1._rowwise_scale_inv, bsz * d_chunk, n, n)
-        b1_fp8, b1_scale = _rowwise_mxfp8(packed_b1._rowwise_data, packed_b1._rowwise_scale_inv, bsz * d_chunk, n, n)
-        a1_t_fp8, a1_t_scale = _transpose_rowwise_mxfp8(
-            packed_a1._columnwise_data, packed_a1._columnwise_scale_inv, bsz * d_chunk, n, n
-        )
-        b1_t_fp8, b1_t_scale = _transpose_rowwise_mxfp8(
-            packed_b1._columnwise_data, packed_b1._columnwise_scale_inv, bsz * d_chunk, n, n
-        )
-        a2_fp8, a2_scale = _rowwise_mxfp8(packed_a2._rowwise_data, packed_a2._rowwise_scale_inv, bsz * d_chunk, n, n)
-        a2_t_fp8, a2_t_scale = _transpose_rowwise_mxfp8(
-            packed_a2._columnwise_data, packed_a2._columnwise_scale_inv, bsz * d_chunk, n, n
-        )
-        b2_fp8, b2_scale = _rowwise_mxfp8(packed_b2._rowwise_data, packed_b2._rowwise_scale_inv, bsz * d_chunk, n, n)
-        b2_rhs_fp8, b2_rhs_scale = _rhs_mxfp8(
-            packed_b2._columnwise_data, packed_b2._columnwise_scale_inv, bsz * d_chunk, n, n
-        )
 
-        x1, x2 = _C.mxfp8_cublaslt_tri_mul_pair(
-            a1_fp8,
-            b1_fp8,
-            a2_t_fp8,
-            b2_rhs_fp8,
-            a1_scale,
-            b1_scale,
-            a2_t_scale,
-            b2_rhs_scale,
-            _SUPPORTED_OUT_DTYPES[out_dtype],
-        )
-        saved = (
-            a1_t_fp8,
-            a1_t_scale,
-            b1_t_fp8,
-            b1_t_scale,
-            a2_fp8,
-            a2_scale,
-            b2_fp8,
-            b2_scale,
-        )
-        shape = (bsz, d_chunk, n)
-        input_dtype = x_bdnn.dtype
-        x = torch.cat([x1.reshape(bsz, d_chunk, n, n), x2.reshape(bsz, d_chunk, n, n)], dim=1)
-        return x, saved, shape, input_dtype
+def mxfp8_cublaslt_tri_mul_pair_raw(
+    a1: torch.Tensor,
+    b1: torch.Tensor,
+    a2_t: torch.Tensor,
+    b2_rhs: torch.Tensor,
+    a1_scale_swizzled: torch.Tensor,
+    b1_scale_swizzled: torch.Tensor,
+    a2_t_scale_swizzled: torch.Tensor,
+    b2_rhs_scale_swizzled: torch.Tensor,
+    out_dtype: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    return _mxfp8_cublaslt_tri_mul_pair_raw_op(
+        a1,
+        b1,
+        a2_t,
+        b2_rhs,
+        a1_scale_swizzled,
+        b1_scale_swizzled,
+        a2_t_scale_swizzled,
+        b2_rhs_scale_swizzled,
+        out_dtype,
+    )
 
-    @staticmethod
-    def forward(ctx, x_bdnn: torch.Tensor, out_dtype: torch.dtype) -> torch.Tensor:
-        x, saved, shape, input_dtype = _MXFP8CuBLASLtTriMulXBDNN._forward_impl(x_bdnn, out_dtype)
-        ctx.save_for_backward(*saved)
-        ctx.shape = shape
-        ctx.input_dtype = input_dtype
-        return x
 
-    @staticmethod
-    def backward(ctx, grad_output: torch.Tensor):
-        a1_t_fp8, a1_t_scale, b1_t_fp8, b1_t_scale, a2_fp8, a2_scale, b2_fp8, b2_scale = ctx.saved_tensors
-        bsz, d_chunk, n = ctx.shape
-        g1, g2 = torch.chunk(grad_output.detach(), 2, dim=1)
-        g1 = g1.reshape(bsz * d_chunk, n, n)
-        g2 = g2.reshape(bsz * d_chunk, n, n)
-        packed_g1, packed_g2 = _split_quantize_mxfp8([g1, g2])
-        g1_fp8, g1_scale = _rowwise_mxfp8(packed_g1._rowwise_data, packed_g1._rowwise_scale_inv, bsz * d_chunk, n, n)
-        g1_t_fp8, g1_t_scale = _transpose_rowwise_mxfp8(
-            packed_g1._columnwise_data, packed_g1._columnwise_scale_inv, bsz * d_chunk, n, n
-        )
-        g2_fp8, g2_scale = _rowwise_mxfp8(packed_g2._rowwise_data, packed_g2._rowwise_scale_inv, bsz * d_chunk, n, n)
-        g2_t_fp8, g2_t_scale = _transpose_rowwise_mxfp8(
-            packed_g2._columnwise_data, packed_g2._columnwise_scale_inv, bsz * d_chunk, n, n
-        )
+@torch.library.custom_op("bmm_ext::mxfp8_cublaslt_tri_mul_xbdnn", mutates_args=(), device_types="cuda")
+def _mxfp8_cublaslt_tri_mul_xbdnn_op(x_bdnn: torch.Tensor, out_dtype: str) -> torch.Tensor:
+    (
+        a1_fp8,
+        a1_scale,
+        a1_t_fp8,
+        a1_t_scale,
+        b1_fp8,
+        b1_scale,
+        b1_t_fp8,
+        b1_t_scale,
+        a2_fp8,
+        a2_scale,
+        a2_t_fp8,
+        a2_t_scale,
+        b2_fp8,
+        b2_scale,
+        b2_rhs_fp8,
+        b2_rhs_scale,
+    ), (bsz, d_chunk, n), _ = _cublaslt_tri_mul_forward_inputs(x_bdnn)
+    x1, x2 = mxfp8_cublaslt_tri_mul_pair_raw(
+        a1_fp8,
+        b1_fp8,
+        a2_t_fp8,
+        b2_rhs_fp8,
+        a1_scale,
+        b1_scale,
+        a2_t_scale,
+        b2_rhs_scale,
+        out_dtype,
+    )
+    return torch.cat([x1.reshape(bsz, d_chunk, n, n), x2.reshape(bsz, d_chunk, n, n)], dim=1)
 
-        grad_a1, grad_b1, grad_a2, grad_b2 = _C.mxfp8_cublaslt_tri_mul_pair_backward(
-            g1_fp8,
-            g1_t_fp8,
-            g2_fp8,
-            g2_t_fp8,
-            a1_t_fp8,
-            b1_t_fp8,
-            a2_fp8,
-            b2_fp8,
-            g1_scale,
-            g1_t_scale,
-            g2_scale,
-            g2_t_scale,
-            a1_t_scale,
-            b1_t_scale,
-            a2_scale,
-            b2_scale,
-        )
 
-        grad_x = torch.cat(
-            [
-                grad_a1.reshape(bsz, d_chunk, n, n),
-                grad_b1.reshape(bsz, d_chunk, n, n),
-                grad_a2.reshape(bsz, d_chunk, n, n),
-                grad_b2.reshape(bsz, d_chunk, n, n),
-            ],
-            dim=1,
-        )
-        return grad_x.to(ctx.input_dtype), None
+@_mxfp8_cublaslt_tri_mul_xbdnn_op.register_fake
+def _mxfp8_cublaslt_tri_mul_xbdnn_fake(x_bdnn: torch.Tensor, out_dtype: str) -> torch.Tensor:
+    return x_bdnn.new_empty(
+        (x_bdnn.shape[0], x_bdnn.shape[1] // 2, x_bdnn.shape[2], x_bdnn.shape[3]),
+        dtype=_dtype_from_name(out_dtype),
+    )
+
+
+def _mxfp8_cublaslt_tri_mul_xbdnn_setup_context(ctx, inputs, output) -> None:
+    (x_bdnn, _) = inputs
+    saved, shape, input_dtype = _cublaslt_tri_mul_forward_inputs(x_bdnn)
+    (
+        a1_fp8,
+        a1_scale,
+        a1_t_fp8,
+        a1_t_scale,
+        b1_fp8,
+        b1_scale,
+        b1_t_fp8,
+        b1_t_scale,
+        a2_fp8,
+        a2_scale,
+        a2_t_fp8,
+        a2_t_scale,
+        b2_fp8,
+        b2_scale,
+        b2_rhs_fp8,
+        b2_rhs_scale,
+    ) = saved
+    ctx.save_for_backward(
+        a1_t_fp8,
+        a1_t_scale,
+        b1_t_fp8,
+        b1_t_scale,
+        a2_fp8,
+        a2_scale,
+        b2_fp8,
+        b2_scale,
+    )
+    ctx.shape = shape
+    ctx.input_dtype = input_dtype
+
+
+def _mxfp8_cublaslt_tri_mul_xbdnn_backward(ctx, grad_output: torch.Tensor):
+    if _C is None:
+        raise _extension_unavailable("mxfp8_cublaslt_tri_mul_pair_backward")
+    a1_t_fp8, a1_t_scale, b1_t_fp8, b1_t_scale, a2_fp8, a2_scale, b2_fp8, b2_scale = ctx.saved_tensors
+    bsz, d_chunk, n = ctx.shape
+    g1, g2 = torch.chunk(grad_output.detach(), 2, dim=1)
+    g1 = g1.reshape(bsz * d_chunk, n, n)
+    g2 = g2.reshape(bsz * d_chunk, n, n)
+    packed_g1, packed_g2 = _split_quantize_mxfp8([g1, g2])
+    g1_fp8, g1_scale = _rowwise_mxfp8(packed_g1._rowwise_data, packed_g1._rowwise_scale_inv, bsz * d_chunk, n, n)
+    g1_t_fp8, g1_t_scale = _transpose_rowwise_mxfp8(
+        packed_g1._columnwise_data, packed_g1._columnwise_scale_inv, bsz * d_chunk, n, n
+    )
+    g2_fp8, g2_scale = _rowwise_mxfp8(packed_g2._rowwise_data, packed_g2._rowwise_scale_inv, bsz * d_chunk, n, n)
+    g2_t_fp8, g2_t_scale = _transpose_rowwise_mxfp8(
+        packed_g2._columnwise_data, packed_g2._columnwise_scale_inv, bsz * d_chunk, n, n
+    )
+
+    grad_a1, grad_b1, grad_a2, grad_b2 = _C.mxfp8_cublaslt_tri_mul_pair_backward(
+        g1_fp8,
+        g1_t_fp8,
+        g2_fp8,
+        g2_t_fp8,
+        a1_t_fp8,
+        b1_t_fp8,
+        a2_fp8,
+        b2_fp8,
+        g1_scale,
+        g1_t_scale,
+        g2_scale,
+        g2_t_scale,
+        a1_t_scale,
+        b1_t_scale,
+        a2_scale,
+        b2_scale,
+    )
+
+    grad_x = torch.cat(
+        [
+            grad_a1.reshape(bsz, d_chunk, n, n),
+            grad_b1.reshape(bsz, d_chunk, n, n),
+            grad_a2.reshape(bsz, d_chunk, n, n),
+            grad_b2.reshape(bsz, d_chunk, n, n),
+        ],
+        dim=1,
+    )
+    return grad_x.to(ctx.input_dtype), None
+
+
+torch.library.register_autograd(
+    _mxfp8_cublaslt_tri_mul_xbdnn_op,
+    _mxfp8_cublaslt_tri_mul_xbdnn_backward,
+    setup_context=_mxfp8_cublaslt_tri_mul_xbdnn_setup_context,
+)
 
 
 def mxfp8_cublaslt_tri_mul_xbdnn(
@@ -752,9 +1111,9 @@ def mxfp8_cublaslt_tri_mul_xbdnn(
     out_dtype: torch.dtype = torch.bfloat16,
 ) -> torch.Tensor:
     """Packed MXFP8 triangular multiplication backed by raw cuBLASLt batched GEMM."""
-    if out_dtype not in _SUPPORTED_OUT_DTYPES:
-        raise TypeError(f"unsupported out_dtype {out_dtype}")
-    return _MXFP8CuBLASLtTriMulXBDNN.apply(x_bdnn, out_dtype)
+    _normalize_out_dtype_name(out_dtype)
+    _validate_tri_mul_xbdnn_input(x_bdnn, impl="packed fp8 tri-mul")
+    return _mxfp8_cublaslt_tri_mul_xbdnn_op(x_bdnn, _SUPPORTED_OUT_DTYPES[out_dtype])
 
 
 def mxfp8_cublaslt_tri_mul_xbdnn_inference(
@@ -763,7 +1122,34 @@ def mxfp8_cublaslt_tri_mul_xbdnn_inference(
     out_dtype: torch.dtype = torch.bfloat16,
 ) -> torch.Tensor:
     """Forward-only packed MXFP8 triangular multiplication without autograd state."""
-    if out_dtype not in _SUPPORTED_OUT_DTYPES:
-        raise TypeError(f"unsupported out_dtype {out_dtype}")
-    x, _, _, _ = _MXFP8CuBLASLtTriMulXBDNN._forward_impl(x_bdnn, out_dtype)
-    return x
+    _normalize_out_dtype_name(out_dtype)
+    (
+        a1_fp8,
+        a1_scale,
+        a1_t_fp8,
+        a1_t_scale,
+        b1_fp8,
+        b1_scale,
+        b1_t_fp8,
+        b1_t_scale,
+        a2_fp8,
+        a2_scale,
+        a2_t_fp8,
+        a2_t_scale,
+        b2_fp8,
+        b2_scale,
+        b2_rhs_fp8,
+        b2_rhs_scale,
+    ), (bsz, d_chunk, n), _ = _cublaslt_tri_mul_forward_inputs(x_bdnn)
+    x1, x2 = mxfp8_cublaslt_tri_mul_pair_raw(
+        a1_fp8,
+        b1_fp8,
+        a2_t_fp8,
+        b2_rhs_fp8,
+        a1_scale,
+        b1_scale,
+        a2_t_scale,
+        b2_rhs_scale,
+        _SUPPORTED_OUT_DTYPES[out_dtype],
+    )
+    return torch.cat([x1.reshape(bsz, d_chunk, n, n), x2.reshape(bsz, d_chunk, n, n)], dim=1)

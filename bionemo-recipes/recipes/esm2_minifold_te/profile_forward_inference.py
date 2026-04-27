@@ -16,6 +16,7 @@ from dataset import create_dataloader
 from distributed_config import DistributedConfig
 from modeling_esm2_minifold_te import ESM2MiniFoldTE
 from quantization import ComponentPrecisionConfig, resolve_layer_precision
+from torch_compile_diagnostics import add_torch_compile_arguments, maybe_capture_dynamo_diagnostics, maybe_compile
 from train_fsdp2 import set_global_seed
 
 
@@ -70,16 +71,38 @@ def _make_model(args, dist_config: DistributedConfig, device: torch.device):
     return model
 
 
+def _move_batch_to_device(batch, device: torch.device):
+    return {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+
+
+def _next_batch(data_iter, sampler, dataloader, *, device: torch.device, step_idx: int):
+    try:
+        batch = next(data_iter)
+    except StopIteration:
+        sampler.set_epoch(step_idx + 1)
+        data_iter = iter(dataloader)
+        batch = next(data_iter)
+    return _move_batch_to_device(batch, device), data_iter
+
+
+def _forward_once(model_runner, batch, *, num_recycling: int):
+    with torch.no_grad():
+        return model_runner(batch, num_recycling=num_recycling)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Profile forward-only inference throughput for a chosen tri_impl backend.")
     parser.add_argument("--config-name", default="run_100_real_3B")
     parser.add_argument("--warmup-steps", type=int, default=3)
     parser.add_argument("--measure-steps", type=int, default=10)
     parser.add_argument("--output", type=Path, required=True)
+    add_torch_compile_arguments(parser)
     parser.add_argument("overrides", nargs="*")
     cli = parser.parse_args()
 
     os.environ["HF_HUB_TRUST_REMOTE_CODE"] = "1"
+    os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    os.environ.setdefault("BIONEMO_ALLOW_CONFIG_ONLY_ESM2_INIT", "1")
     config_dir = str((Path(__file__).resolve().parent / "hydra_config").resolve())
     with initialize_config_dir(config_dir=config_dir, version_base="1.2"):
         args = compose(config_name=cli.config_name, overrides=cli.overrides)
@@ -92,23 +115,40 @@ def main():
 
     model = _make_model(args, dist_config, device)
     model.eval()
+    model_runner = maybe_compile(model, enabled=cli.use_torch_compile, mode=cli.torch_compile_mode)
     dataloader, sampler = create_dataloader(dist_config, **args.dataset)
+    diagnostics = None
+    if cli.diagnostics_output is not None:
+        diagnostics_iter = iter(dataloader)
+        diagnostics_batch, diagnostics_iter = _next_batch(
+            diagnostics_iter, sampler, dataloader, device=device, step_idx=0
+        )
+        diagnostics = maybe_capture_dynamo_diagnostics(
+            _forward_once,
+            args=(model_runner, diagnostics_batch),
+            kwargs={"num_recycling": args.model.get("num_recycling", 0)},
+            output_path=cli.diagnostics_output,
+            label="profile_forward_inference",
+            rank=dist_config.rank,
+            world_size=dist_config.world_size,
+            extra_metadata={
+                "use_torch_compile": cli.use_torch_compile,
+                "torch_compile_mode": cli.torch_compile_mode,
+                "config_name": cli.config_name,
+                "tri_impl": args.component_precision.tri_impl,
+                "overrides": list(cli.overrides),
+            },
+        )
+
     data_iter = iter(dataloader)
 
     measured = []
     for step_idx in range(cli.warmup_steps + cli.measure_steps):
-        try:
-            batch = next(data_iter)
-        except StopIteration:
-            sampler.set_epoch(step_idx + 1)
-            data_iter = iter(dataloader)
-            batch = next(data_iter)
-        batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        batch, data_iter = _next_batch(data_iter, sampler, dataloader, device=device, step_idx=step_idx)
         unpadded_tokens = float(batch["mask"].sum().item()) * torch.distributed.get_world_size()
         torch.cuda.synchronize()
         start = time.perf_counter()
-        with torch.no_grad():
-            model(batch, num_recycling=args.model.get("num_recycling", 0))
+        _forward_once(model_runner, batch, num_recycling=args.model.get("num_recycling", 0))
         torch.cuda.synchronize()
         step_time_ms = (time.perf_counter() - start) * 1000.0
         row = {
@@ -127,9 +167,13 @@ def main():
         "rank": dist_config.rank,
         "world_size": dist_config.world_size,
         "measure_steps": cli.measure_steps,
+        "use_torch_compile": cli.use_torch_compile,
+        "torch_compile_mode": cli.torch_compile_mode,
+        "diagnostics_output": str(cli.diagnostics_output) if cli.diagnostics_output else None,
         "mean_step_time_ms": sum(r["step_time_ms"] for r in measured) / len(measured),
         "mean_unpadded_tokens_per_sec": sum(r["unpadded_tokens_per_sec"] for r in measured) / len(measured),
         "rows": measured,
+        "dynamo_diagnostics": diagnostics,
     }
 
     if dist_config.rank == 0:

@@ -33,6 +33,20 @@ from distributed_config import DistributedConfig
 
 
 logger = logging.getLogger(__name__)
+_TOKENIZER_FALLBACK = "facebook/esm2_t33_650M_UR50D"
+
+
+def _load_esm_tokenizer(tokenizer_name: str):
+    from transformers import EsmTokenizer
+
+    try:
+        return EsmTokenizer.from_pretrained(tokenizer_name, local_files_only=True)
+    except Exception:
+        try:
+            return EsmTokenizer.from_pretrained(tokenizer_name)
+        except Exception:
+            logger.warning("Falling back to cached ESM-2 tokenizer %s for %s", _TOKENIZER_FALLBACK, tokenizer_name)
+            return EsmTokenizer.from_pretrained(_TOKENIZER_FALLBACK, local_files_only=True)
 
 
 class SyntheticStructureDataset(Dataset):
@@ -348,18 +362,14 @@ def create_dataloader(
             seed=seed,
         )
     elif dataset_type == "parquet":
-        from transformers import EsmTokenizer
-
-        tokenizer = EsmTokenizer.from_pretrained(tokenizer_name)
+        tokenizer = _load_esm_tokenizer(tokenizer_name)
         dataset = ParquetStructureDataset(
             parquet_path=parquet_path,
             tokenizer=tokenizer,
             max_seq_length=max_seq_length,
         )
     elif dataset_type == "mmcif":
-        from transformers import EsmTokenizer
-
-        tokenizer = EsmTokenizer.from_pretrained(tokenizer_name)
+        tokenizer = _load_esm_tokenizer(tokenizer_name)
         dataset = MmcifStructureDataset(
             cif_dir=cif_dir,
             tokenizer=tokenizer,

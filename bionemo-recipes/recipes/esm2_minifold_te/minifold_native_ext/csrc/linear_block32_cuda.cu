@@ -184,6 +184,24 @@ struct CublasLtBmmPlan {
   }
 };
 
+void invalidate_cublaslt_bmm_plan(CublasLtBmmPlan* plan) {
+  plan->device_index = -1;
+  plan->batch = -1;
+  plan->m = -1;
+  plan->k = -1;
+  plan->n = -1;
+  plan->a_dtype = c10::ScalarType::Undefined;
+  plan->b_dtype = c10::ScalarType::Undefined;
+  plan->out_dtype = c10::ScalarType::Undefined;
+  plan->rhs_direct = false;
+  plan->use_bias = false;
+  plan->use_c_scale = false;
+  plan->use_d_scale = false;
+  plan->use_d_out_scale = false;
+  plan->bias_dtype = c10::ScalarType::Undefined;
+  plan->epilogue = static_cast<int>(CUBLASLT_EPILOGUE_DEFAULT);
+}
+
 void init_cublaslt_bmm_plan(
     CublasLtBmmPlan* plan,
     int device_index,
@@ -221,6 +239,7 @@ void init_cublaslt_bmm_plan(
   plan->c_desc = nullptr;
   plan->d_desc = nullptr;
   plan->op_desc = nullptr;
+  invalidate_cublaslt_bmm_plan(plan);
 
   const cublasOperation_t transa = CUBLAS_OP_N;
   const cublasOperation_t transb = CUBLAS_OP_N;

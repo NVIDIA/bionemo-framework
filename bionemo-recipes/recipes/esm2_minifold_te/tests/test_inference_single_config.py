@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 import torch
+import torch._dynamo as dynamo
 
 
 RECIPE_DIR = Path(__file__).parent.parent
@@ -21,6 +22,20 @@ SCRIPT_MODULE = importlib.util.module_from_spec(SCRIPT_SPEC)
 assert SCRIPT_SPEC is not None and SCRIPT_SPEC.loader is not None
 sys.modules[SCRIPT_SPEC.name] = SCRIPT_MODULE
 SCRIPT_SPEC.loader.exec_module(SCRIPT_MODULE)
+
+import minifold_native_ext.ops as MNE_OPS
+
+
+def _assert_no_graph_breaks(fn, *args) -> None:
+    dynamo.reset()
+    explain = dynamo.explain(fn)(*args)
+    assert explain.graph_break_count == 0
+    assert explain.graph_count == 1
+
+
+def _clear_linear_block32_retry_cache() -> None:
+    with MNE_OPS._LINEAR_BLOCK32_CACHE_LOCK:
+        MNE_OPS._LINEAR_BLOCK32_CAPABILITY_CACHE.clear()
 
 
 def test_fp8_roundtrip_shapes():
@@ -40,6 +55,9 @@ def test_default_config_loads():
     assert cfg.tri_impl == "bmm"
     assert cfg.pair_precision == "bf16"
     assert cfg.linear_precision == "bf16"
+    assert cfg.use_torch_compile is False
+    assert cfg.torch_compile_mode == "default"
+    assert cfg.diagnostics_output is None
 
 
 def test_compat_flag_maps_to_fp8_storage():
@@ -54,6 +72,22 @@ def test_linear_precision_flag_loads():
     args = SCRIPT_MODULE.build_arg_parser().parse_args(["--linear_precision", "fp8"])
     cfg = SCRIPT_MODULE.load_config(args)
     assert cfg.linear_precision == "fp8"
+
+
+def test_torch_compile_flags_load():
+    args = SCRIPT_MODULE.build_arg_parser().parse_args(
+        [
+            "--use_torch_compile",
+            "--torch_compile_mode",
+            "max-autotune",
+            "--diagnostics_output",
+            "/tmp/diag.json",
+        ]
+    )
+    cfg = SCRIPT_MODULE.load_config(args)
+    assert cfg.use_torch_compile is True
+    assert cfg.torch_compile_mode == "max-autotune"
+    assert str(cfg.diagnostics_output) == "/tmp/diag.json"
 
 
 def test_fp8_extreme_config_loads():
@@ -110,6 +144,274 @@ def test_quantized_pair_tensor_storage_accounting():
     q = PLAIN_MODULE.QuantizedPairTensor.from_tensor(x)
     assert q.quantized_bytes == q.payload.numel() * q.payload.element_size()
     assert q.scale_bytes == q.scale.numel() * q.scale.element_size()
+
+
+def test_linear_block32_backend_retries_and_caches(monkeypatch):
+    class StubExtension:
+        def __init__(self):
+            self.calls: list[tuple[bool, bool]] = []
+
+        def linear_block32_fused(
+            self,
+            a,
+            b_t,
+            a_scale_swizzled,
+            b_scale_swizzled,
+            bias,
+            out_dtype,
+            apply_relu,
+            direct_fp8_output,
+            fuse_bias_epilogue,
+            residual_payload,
+            residual_scale,
+        ):
+            self.calls.append((bool(direct_fp8_output), bool(fuse_bias_epilogue)))
+            if fuse_bias_epilogue:
+                raise RuntimeError("cuBLASLt error at cublasLtMatmulAlgoGetHeuristic(test)")
+            return MNE_OPS._linear_payload_and_scale(a, int(b_t.shape[1]))
+
+    stub = StubExtension()
+    monkeypatch.setattr(MNE_OPS, "_C", stub)
+    _clear_linear_block32_retry_cache()
+
+    a = torch.randn(1, 8, 160, dtype=torch.float32).to(torch.float8_e4m3fn)
+    b_t = torch.randn(1, 640, 160, dtype=torch.float32).to(torch.float8_e4m3fn)
+    a_scale = torch.randn(1, 8, 5, dtype=torch.float32)
+    b_scale = torch.randn(1, 640, 5, dtype=torch.float32)
+    bias = torch.randn(640, dtype=torch.bfloat16)
+
+    payload, scale = MNE_OPS._call_linear_block32_backend(
+        a,
+        b_t,
+        a_scale,
+        b_scale,
+        bias,
+        "bfloat16",
+        True,
+        False,
+        True,
+        None,
+        None,
+    )
+    assert payload.shape == (1, 8, 640)
+    assert scale.shape == (1, 8, 20)
+    assert stub.calls == [(False, True), (False, False)]
+
+    payload, scale = MNE_OPS._call_linear_block32_backend(
+        a,
+        b_t,
+        a_scale,
+        b_scale,
+        bias,
+        "bfloat16",
+        True,
+        False,
+        True,
+        None,
+        None,
+    )
+    assert payload.shape == (1, 8, 640)
+    assert scale.shape == (1, 8, 20)
+    assert stub.calls == [(False, True), (False, False), (False, False)]
+
+
+def test_linear_block32_backend_proactively_demotes_transition_fc1_epilogue(monkeypatch):
+    class StubExtension:
+        def __init__(self):
+            self.calls: list[tuple[bool, bool]] = []
+
+        def linear_block32_fused(
+            self,
+            a,
+            b_t,
+            a_scale_swizzled,
+            b_scale_swizzled,
+            bias,
+            out_dtype,
+            apply_relu,
+            direct_fp8_output,
+            fuse_bias_epilogue,
+            residual_payload,
+            residual_scale,
+        ):
+            self.calls.append((bool(direct_fp8_output), bool(fuse_bias_epilogue)))
+            return MNE_OPS._linear_payload_and_scale(a, int(b_t.shape[1]))
+
+    stub = StubExtension()
+    monkeypatch.setattr(MNE_OPS, "_C", stub)
+    _clear_linear_block32_retry_cache()
+
+    a = torch.randn(1, 8, 128, dtype=torch.float32).to(torch.float8_e4m3fn)
+    b_t = torch.randn(1, 512, 128, dtype=torch.float32).to(torch.float8_e4m3fn)
+    a_scale = torch.randn(1, 8, 4, dtype=torch.float32)
+    b_scale = torch.randn(1, 512, 4, dtype=torch.float32)
+    bias = torch.randn(512, dtype=torch.bfloat16)
+
+    payload, scale = MNE_OPS._call_linear_block32_backend(
+        a,
+        b_t,
+        a_scale,
+        b_scale,
+        bias,
+        "bfloat16",
+        True,
+        False,
+        True,
+        None,
+        None,
+    )
+
+    assert payload.shape == (1, 8, 512)
+    assert scale.shape == (1, 8, 16)
+    assert stub.calls == [(False, False)]
+
+
+def test_linear_block32_backend_proactively_demotes_transition_fc2_direct_output(monkeypatch):
+    class StubExtension:
+        def __init__(self):
+            self.calls: list[tuple[bool, bool]] = []
+
+        def linear_block32_fused(
+            self,
+            a,
+            b_t,
+            a_scale_swizzled,
+            b_scale_swizzled,
+            bias,
+            out_dtype,
+            apply_relu,
+            direct_fp8_output,
+            fuse_bias_epilogue,
+            residual_payload,
+            residual_scale,
+        ):
+            self.calls.append((bool(direct_fp8_output), bool(fuse_bias_epilogue)))
+            return MNE_OPS._linear_payload_and_scale(a, int(b_t.shape[1]))
+
+    stub = StubExtension()
+    monkeypatch.setattr(MNE_OPS, "_C", stub)
+    _clear_linear_block32_retry_cache()
+
+    a = torch.randn(1, 8, 512, dtype=torch.float32).to(torch.float8_e4m3fn)
+    b_t = torch.randn(1, 128, 512, dtype=torch.float32).to(torch.float8_e4m3fn)
+    a_scale = torch.randn(1, 8, 16, dtype=torch.float32)
+    b_scale = torch.randn(1, 128, 16, dtype=torch.float32)
+    bias = torch.randn(128, dtype=torch.bfloat16)
+    residual_payload = torch.randn(1, 8, 128, dtype=torch.float32).to(torch.float8_e4m3fn)
+    residual_scale = torch.randn(1, 8, 4, dtype=torch.float32)
+
+    payload, scale = MNE_OPS._call_linear_block32_backend(
+        a,
+        b_t,
+        a_scale,
+        b_scale,
+        bias,
+        "bfloat16",
+        False,
+        True,
+        False,
+        residual_payload,
+        residual_scale,
+    )
+
+    assert payload.shape == (1, 8, 128)
+    assert scale.shape == (1, 8, 4)
+    assert stub.calls == [(False, False)]
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required for torch.compile graph tests")
+def test_public_linear_block32_fused_compile_demotes_transition_epilogues(monkeypatch):
+    class StubExtension:
+        def __init__(self):
+            self.calls: list[tuple[bool, bool]] = []
+
+        def linear_block32_fused(
+            self,
+            a,
+            b_t,
+            a_scale_swizzled,
+            b_scale_swizzled,
+            bias,
+            out_dtype,
+            apply_relu,
+            direct_fp8_output,
+            fuse_bias_epilogue,
+            residual_payload,
+            residual_scale,
+        ):
+            self.calls.append((bool(direct_fp8_output), bool(fuse_bias_epilogue)))
+            return MNE_OPS._linear_payload_and_scale(a, int(b_t.shape[1]))
+
+    stub = StubExtension()
+    monkeypatch.setattr(MNE_OPS, "_C", stub)
+    _clear_linear_block32_retry_cache()
+
+    a = torch.randn(1, 16, 128, device="cuda", dtype=torch.float32).to(torch.float8_e4m3fn)
+    b_t = torch.randn(1, 512, 128, device="cuda", dtype=torch.float32).to(torch.float8_e4m3fn)
+    a_scale = torch.randn(1, 16, 4, device="cuda", dtype=torch.float32)
+    b_scale = torch.randn(1, 512, 4, device="cuda", dtype=torch.float32)
+    bias = torch.randn(512, device="cuda", dtype=torch.bfloat16)
+
+    def fn(a, b_t, a_scale, b_scale, bias):
+        return MNE_OPS.linear_block32_fused(
+            a,
+            b_t,
+            a_scale,
+            b_scale,
+            bias,
+            "bfloat16",
+            True,
+            False,
+            True,
+            None,
+            None,
+        )
+
+    _assert_no_graph_breaks(fn, a, b_t, a_scale, b_scale, bias)
+    payload, scale = fn(a, b_t, a_scale, b_scale, bias)
+    assert payload.shape == (1, 16, 512)
+    assert scale.shape == (1, 16, 16)
+    assert stub.calls
+    assert all(call == (False, False) for call in stub.calls)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required for torch.compile graph tests")
+def test_plain_tri_mul_xbdnn_compiles_without_graph_breaks():
+    x_bdnn = torch.randn((1, 128, 32, 32), device="cuda", dtype=torch.bfloat16)
+    _assert_no_graph_breaks(lambda tensor: PLAIN_MODULE.tri_mul_xbdnn(tensor, out_dtype=torch.bfloat16), x_bdnn)
+
+
+@pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA is required for torch.compile graph tests")
+def test_plain_tri_mul_fp8_cublaslt_compiles_without_graph_breaks():
+    x_bdnn = torch.randn((1, 128, 32, 32), device="cuda", dtype=torch.bfloat16)
+    _assert_no_graph_breaks(lambda tensor: PLAIN_MODULE.tri_mul_fp8_cublaslt(tensor, out_dtype=torch.bfloat16), x_bdnn)
+
+
+@pytest.mark.skipif(
+    not torch.cuda.is_available() or PLAIN_MODULE.minifold_native_raw is None,
+    reason="CUDA and minifold_native_ext are required for native fused linear compile regression",
+)
+def test_native_linear_forward_quantized_compile_retries_fused_epilogue():
+    _clear_linear_block32_retry_cache()
+    linear = torch.nn.Linear(128, 512, bias=True, device="cuda", dtype=torch.bfloat16)
+    PLAIN_MODULE.configure_fp8_linear_weight_(linear, enabled=True)
+    x = PLAIN_MODULE.Mxfp8PairTensor.from_tensor(
+        torch.randn(1, 32, 32, 128, device="cuda", dtype=torch.bfloat16),
+        scale_dtype=torch.float32,
+    )
+
+    def fn(inp):
+        return PLAIN_MODULE.native_linear_forward_quantized(linear, inp, apply_relu=True, fuse_bias_epilogue=True)
+
+    dynamo.reset()
+    explain = dynamo.explain(fn)(x)
+    assert explain.graph_break_count == 0
+    assert explain.graph_count == 1
+
+    y = fn(x)
+    assert isinstance(y, PLAIN_MODULE.Mxfp8PairTensor)
+    assert y.payload.shape == (1, 32, 32, 512)
+    assert y.scale.shape == (1, 32, 32, 16)
 
 
 def test_configure_linear_precision_registers_fp8_buffers():

@@ -22,9 +22,40 @@ Loads a pretrained ESM-2 model and extracts:
 The backbone is intended to be frozen during folding head training.
 """
 
+import logging
+import os
+
 import torch
 import torch.nn as nn
-from transformers import EsmModel, EsmTokenizer
+from transformers import EsmConfig, EsmModel, EsmTokenizer
+
+
+logger = logging.getLogger(__name__)
+_TOKENIZER_FALLBACK = "facebook/esm2_t33_650M_UR50D"
+
+
+def _load_tokenizer(model_name: str) -> EsmTokenizer:
+    try:
+        return EsmTokenizer.from_pretrained(model_name, local_files_only=True)
+    except OSError:
+        try:
+            return EsmTokenizer.from_pretrained(model_name)
+        except OSError:
+            logger.warning("Falling back to cached ESM-2 tokenizer %s for %s", _TOKENIZER_FALLBACK, model_name)
+            return EsmTokenizer.from_pretrained(_TOKENIZER_FALLBACK, local_files_only=True)
+
+
+def _load_model(model_name: str) -> EsmModel:
+    try:
+        return EsmModel.from_pretrained(model_name, attn_implementation="eager", local_files_only=True)
+    except OSError as local_error:
+        if os.environ.get("BIONEMO_ALLOW_CONFIG_ONLY_ESM2_INIT") == "1":
+            logger.warning("Initializing %s from config only: %s", model_name, local_error)
+            config = EsmConfig.from_pretrained(model_name)
+            if hasattr(config, "_attn_implementation"):
+                config._attn_implementation = "eager"
+            return EsmModel(config)
+        return EsmModel.from_pretrained(model_name, attn_implementation="eager")
 
 
 def load_esm2_backbone(model_name: str = "facebook/esm2_t33_650M_UR50D", device: str = "cuda"):
@@ -43,8 +74,8 @@ def load_esm2_backbone(model_name: str = "facebook/esm2_t33_650M_UR50D", device:
     Returns:
         Tuple of (model, tokenizer).
     """
-    tokenizer = EsmTokenizer.from_pretrained(model_name)
-    model = EsmModel.from_pretrained(model_name, attn_implementation="eager").to(device)
+    tokenizer = _load_tokenizer(model_name)
+    model = _load_model(model_name).to(device)
     return model, tokenizer
 
 
@@ -58,7 +89,7 @@ class ESM2Backbone(nn.Module):
 
     def __init__(self, model_name: str = "facebook/esm2_t33_650M_UR50D"):
         super().__init__()
-        self.model = EsmModel.from_pretrained(model_name, attn_implementation="eager")
+        self.model = _load_model(model_name)
         config = self.model.config
 
         self.embed_dim = config.hidden_size

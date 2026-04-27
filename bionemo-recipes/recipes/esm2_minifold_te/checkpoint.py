@@ -70,6 +70,12 @@ def get_latest_checkpoint(ckpt_path: str | os.PathLike) -> tuple[Path | None, in
     if not ckpt_path.exists():
         return None, 0
 
+    if ckpt_path.name.startswith("step_"):
+        try:
+            return ckpt_path, int(ckpt_path.stem.split("_")[1])
+        except (IndexError, ValueError):
+            return None, 0
+
     checkpoints = [f for f in ckpt_path.iterdir() if f.name.startswith("step_")]
 
     if not checkpoints:

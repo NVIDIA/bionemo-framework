@@ -58,6 +58,11 @@ quant_stats_config:
   log_to_wandb: false
   log_heatmap: false
 
+use_torch_compile: false
+torch_compile_mode: default
+diagnostics_output: null
+output_json: null
+
 wandb_init_args:
   project: esm2_minifold_te
   name: eval_${now:%Y%m%d_%H%M%S}

@@ -1,16 +1,34 @@
+import sys
+from pathlib import Path
+
 import pytest
 import torch
+import torch._dynamo as dynamo
+
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "fp8_bmm_ext"))
 
 import bmm_ext
 from bmm_ext import (
     mxfp8_bmm,
     mxfp8_cublaslt_bmm,
+    mxfp8_cublaslt_bmm_raw,
+    mxfp8_cublaslt_tri_mul_pair_raw,
     mxfp8_cublaslt_tri_mul_xbdnn,
     mxfp8_tri_mul_xbdnn,
     pack_nvfp4,
     quantize_mxfp8,
 )
 from bmm_ext.ops import PackedNVFP4Tensor, _swizzle_mxfp8_scale_rowwise, bmm_block_scaled
+
+
+def _assert_no_graph_breaks(fn, *args) -> None:
+    dynamo.reset()
+    explain = dynamo.explain(fn)(*args)
+    assert explain.graph_break_count == 0
+    assert explain.graph_count == 1
 
 
 def test_rejects_broadcastable_shapes():
@@ -117,6 +135,19 @@ def test_mxfp8_cublaslt_matches_te_raw_backend():
     assert torch.equal(out_lt, out_te)
 
 
+def test_mxfp8_cublaslt_raw_wrapper_matches_extension():
+    a = torch.randn((2, 64, 64), device="cuda", dtype=torch.bfloat16)
+    b = torch.randn((2, 64, 64), device="cuda", dtype=torch.bfloat16)
+    a_fp8, a_scale = quantize_mxfp8(a, role="lhs")
+    b_t_fp8, b_t_scale = quantize_mxfp8(b.transpose(1, 2).contiguous(), role="lhs")
+    a_scale_swizzled = _swizzle_mxfp8_scale_rowwise(a_scale)
+    b_scale_swizzled = _swizzle_mxfp8_scale_rowwise(b_t_scale)
+
+    out_raw = mxfp8_cublaslt_bmm_raw(a_fp8, b_t_fp8, a_scale_swizzled, b_scale_swizzled, "float32")
+    out_ext = bmm_ext._C.mxfp8_cublaslt_bmm(a_fp8, b_t_fp8, a_scale_swizzled, b_scale_swizzled, "float32")
+    assert torch.equal(out_raw, out_ext)
+
+
 def test_mxfp8_cublaslt_wrapper_produces_finite_output():
     a = torch.randn((8, 256, 256), device="cuda", dtype=torch.bfloat16)
     b = torch.randn((8, 256, 256), device="cuda", dtype=torch.bfloat16)
@@ -124,6 +155,12 @@ def test_mxfp8_cublaslt_wrapper_produces_finite_output():
     assert out.shape == (8, 256, 256)
     assert out.dtype == torch.float32
     assert torch.isfinite(out).all()
+
+
+def test_mxfp8_bmm_compiles_without_graph_breaks():
+    a = torch.randn((2, 32, 32), device="cuda", dtype=torch.bfloat16)
+    b = torch.randn((2, 32, 32), device="cuda", dtype=torch.bfloat16)
+    _assert_no_graph_breaks(lambda x, y: mxfp8_bmm(x, y, out_dtype=torch.float32), a, b)
 
 
 def test_mxfp8_tri_mul_xbdnn_forward_backward():
@@ -158,6 +195,53 @@ def test_mxfp8_cublaslt_tri_mul_xbdnn_forward_backward():
     assert torch.isfinite(out).all()
     assert torch.isfinite(x.grad).all()
     assert torch.equal(out, ref)
+
+
+def test_mxfp8_cublaslt_tri_mul_pair_raw_matches_extension():
+    x = torch.randn((1, 128, 32, 32), device="cuda", dtype=torch.bfloat16)
+    a1, b1, a2, b2 = torch.chunk(x, 4, dim=1)
+    a1_3d = a1.reshape(-1, 32, 32)
+    b1_3d = b1.reshape(-1, 32, 32)
+    a2_t_3d = a2.reshape(-1, 32, 32).transpose(1, 2).contiguous()
+    b2_rhs_3d = b2.reshape(-1, 32, 32)
+    a1_fp8, a1_scale = quantize_mxfp8(a1_3d, role="lhs")
+    b1_fp8, b1_scale = quantize_mxfp8(b1_3d, role="lhs")
+    a2_t_fp8, a2_t_scale = quantize_mxfp8(a2_t_3d, role="lhs")
+    b2_rhs_fp8, b2_rhs_scale = quantize_mxfp8(b2_rhs_3d, role="rhs")
+    a1_scale_swizzled = _swizzle_mxfp8_scale_rowwise(a1_scale)
+    b1_scale_swizzled = _swizzle_mxfp8_scale_rowwise(b1_scale)
+    a2_t_scale_swizzled = _swizzle_mxfp8_scale_rowwise(a2_t_scale)
+    b2_rhs_scale_swizzled = _swizzle_mxfp8_scale_rowwise(b2_rhs_scale.transpose(1, 2).contiguous())
+
+    out_raw = mxfp8_cublaslt_tri_mul_pair_raw(
+        a1_fp8,
+        b1_fp8,
+        a2_t_fp8,
+        b2_rhs_fp8,
+        a1_scale_swizzled,
+        b1_scale_swizzled,
+        a2_t_scale_swizzled,
+        b2_rhs_scale_swizzled,
+        "float32",
+    )
+    out_ext = bmm_ext._C.mxfp8_cublaslt_tri_mul_pair(
+        a1_fp8,
+        b1_fp8,
+        a2_t_fp8,
+        b2_rhs_fp8,
+        a1_scale_swizzled,
+        b1_scale_swizzled,
+        a2_t_scale_swizzled,
+        b2_rhs_scale_swizzled,
+        "float32",
+    )
+    assert torch.equal(out_raw[0], out_ext[0])
+    assert torch.equal(out_raw[1], out_ext[1])
+
+
+def test_mxfp8_cublaslt_tri_mul_xbdnn_compiles_without_graph_breaks():
+    x = torch.randn((1, 128, 32, 32), device="cuda", dtype=torch.bfloat16)
+    _assert_no_graph_breaks(lambda tensor: mxfp8_cublaslt_tri_mul_xbdnn(tensor, out_dtype=torch.float32), x)
 
 
 def test_nvfp4_smoke_returns_expected_shape():
