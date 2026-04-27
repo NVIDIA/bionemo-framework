@@ -59,12 +59,7 @@ except Exception:
     bmm_ext_raw = None
 
 try:
-    _native_ext_path = next((MINIFOLD_NATIVE_EXT_ROOT / "minifold_native_ext").glob("_C*.so"))
-    _native_ext_spec = importlib.util.spec_from_file_location("minifold_native_ext._C", _native_ext_path)
-    if _native_ext_spec is None or _native_ext_spec.loader is None:
-        raise ImportError(f"Could not create module spec for {_native_ext_path}")
-    minifold_native_raw = importlib.util.module_from_spec(_native_ext_spec)
-    _native_ext_spec.loader.exec_module(minifold_native_raw)
+    import minifold_native_ext as minifold_native_raw
 except Exception:
     minifold_native_raw = None
 

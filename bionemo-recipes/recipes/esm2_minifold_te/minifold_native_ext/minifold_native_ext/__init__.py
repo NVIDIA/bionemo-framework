@@ -1,1 +1,43 @@
 """MiniFold-specific native FP8 kernels."""
+
+from .ops import (
+    add_block32,
+    gate_sigmoid_mul_block32_fused,
+    gate_sigmoid_mul_block32_raw_debug,
+    layernorm_block32,
+    linear_block32_fc1_direct,
+    linear_block32_fused,
+    linear_block32_raw_debug,
+    pack_block32_to_mxfp8_fused_debug,
+    relu_block32,
+    transition_fc2_residual_bf16_fused,
+    transition_norm_fc1_bf16_fused,
+    transition_norm_fc1_block32_fused,
+    tri_gate_block32_fused,
+    tri_gate_layernorm_block32_fused,
+    tri_input_norm_gate_block32_fused,
+    tri_mul_pair_from_block32_carrier,
+    tri_mul_pair_from_packed_debug,
+    tri_pair_to_block32_carrier_debug,
+)
+
+__all__ = [
+    "add_block32",
+    "gate_sigmoid_mul_block32_fused",
+    "gate_sigmoid_mul_block32_raw_debug",
+    "layernorm_block32",
+    "linear_block32_fc1_direct",
+    "linear_block32_fused",
+    "linear_block32_raw_debug",
+    "pack_block32_to_mxfp8_fused_debug",
+    "relu_block32",
+    "transition_fc2_residual_bf16_fused",
+    "transition_norm_fc1_bf16_fused",
+    "transition_norm_fc1_block32_fused",
+    "tri_gate_block32_fused",
+    "tri_gate_layernorm_block32_fused",
+    "tri_input_norm_gate_block32_fused",
+    "tri_mul_pair_from_block32_carrier",
+    "tri_mul_pair_from_packed_debug",
+    "tri_pair_to_block32_carrier_debug",
+]
