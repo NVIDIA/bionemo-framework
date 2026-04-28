@@ -1,0 +1,12 @@
+# BF16 baseline for Lingua 7B — benchmarking step time / throughput against MXFP8.
+# Same model, dataset, and hyperparams as L2_lingua_7b_mxfp8_qinit but without FP8.
+
+defaults:
+  - L2_lingua_7b
+  - _self_
+
+num_train_steps: 1_000
+
+wandb:
+  name: lingua-7b-bf16-baseline
+  id: lingua-7b-bf16-baseline
