@@ -40,7 +40,7 @@ if str(FP8_BMM_EXT_ROOT) not in sys.path:
 if str(MINIFOLD_NATIVE_EXT_ROOT) not in sys.path:
     sys.path.insert(0, str(MINIFOLD_NATIVE_EXT_ROOT))
 
-from tri_mul_ext import tri_mul_xbdnn_cublas
+from tri_mul_ext import tri_mul_bdnn_cublas, tri_mul_xbdnn_cublas
 
 try:
     from bmm_ext import mxfp8_cublaslt_tri_mul_xbdnn, mxfp8_cublaslt_tri_mul_xbdnn_inference
@@ -140,6 +140,16 @@ def resolve_bf16_native_rung(bf16_native_rung: str | None = None) -> str | None:
     return rung
 
 
+def _is_torch_compiling() -> bool:
+    compiler = getattr(torch, "compiler", None)
+    if compiler is not None and hasattr(compiler, "is_compiling"):
+        return bool(compiler.is_compiling())
+    dynamo = getattr(torch, "_dynamo", None)
+    if dynamo is not None and hasattr(dynamo, "is_compiling"):
+        return bool(dynamo.is_compiling())
+    return False
+
+
 def tri_mul_bmm_bdnn(a: torch.Tensor, b: torch.Tensor, k_dim: int) -> torch.Tensor:
     if a.dim() != 4 or b.dim() != 4:
         raise ValueError("a and b must have shape (B, D, N, N)")
@@ -160,6 +170,11 @@ def tri_mul_bmm_bdnn(a: torch.Tensor, b: torch.Tensor, k_dim: int) -> torch.Tens
 
 def tri_mul_xbdnn(x_bdnn: torch.Tensor, out_dtype: torch.dtype | None = None) -> torch.Tensor:
     out_dtype = x_bdnn.dtype if out_dtype is None else out_dtype
+    if _is_torch_compiling():
+        a1, b1, a2, b2 = [t.contiguous() for t in torch.chunk(x_bdnn, 4, dim=1)]
+        x1 = tri_mul_bdnn_cublas(a1, b1, k_dim=2, out_dtype=out_dtype)
+        x2 = tri_mul_bdnn_cublas(a2, b2, k_dim=1, out_dtype=out_dtype)
+        return torch.cat([x1, x2], dim=-1)
     return tri_mul_xbdnn_cublas(x_bdnn, out_dtype=out_dtype)
 
 
