@@ -1,0 +1,29 @@
+# Lingua 70B MXFP8 THD with quantized model init (all layers FP8) + CP=2.
+# Quantized model init stores only FP8 weights (no BF16 copies), saving memory.
+# FP32 master weights are maintained in FusedAdam optimizer.
+# THD enables sequence packing for better GPU utilization.
+# Requires Blackwell GPUs (GB200) for hardware MXFP8 support.
+
+defaults:
+  - L2_lingua_70b
+  - _self_
+
+config_kwargs:
+  attn_input_format: thd
+  self_attn_mask_type: padding
+
+use_sequence_packing: true
+
+# All layers in FP8 (no FL1 exclusion) — compatible with quantized_model_init.
+fp8_config:
+  enabled: true
+  fp8_recipe: transformer_engine.common.recipe.MXFP8BlockScaling
+  fp8_format: E4M3
+  fp8_recipe_kwargs: {}
+  quantized_model_init_kwargs:
+    enabled: true
+    preserve_high_precision_init_val: true
+
+wandb:
+  name: lingua-70b-mxfp8-qinit-thd-cp2
+  id: lingua-70b-mxfp8-qinit-thd-cp2
