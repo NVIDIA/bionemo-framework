@@ -25,6 +25,11 @@ checkpoint:
   ckpt_dir: ???           # required: path to trained checkpoint or final model
   checkpoint_type: fsdp2  # "fsdp2" for distributed checkpoints, "safetensors" for exported model
 
+use_torch_compile: false
+torch_compile_mode: default
+diagnostics_output: null
+max_eval_proteins: null
+
 fp8_config:
   enabled: false
   fp8_recipe: transformer_engine.common.recipe.DelayedScaling
