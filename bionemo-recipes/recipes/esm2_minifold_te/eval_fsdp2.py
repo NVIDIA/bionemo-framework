@@ -34,6 +34,7 @@ import socket
 import subprocess
 import sys
 import tarfile
+import time
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
@@ -46,7 +47,7 @@ from safetensors.torch import load_file
 from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
 from checkpoint import get_latest_checkpoint, load_checkpoint_fsdp2
@@ -67,6 +68,7 @@ from eval_accuracy_utils import (
 from modeling_esm2_minifold_te import ESM2MiniFoldTE
 from quantization import ComponentPrecisionConfig, resolve_layer_precision
 from scheduler import get_linear_schedule_with_warmup
+from torch_compile_diagnostics import maybe_capture_dynamo_diagnostics, maybe_compile
 
 
 logger = logging.getLogger(__name__)
@@ -366,6 +368,16 @@ def _collect_environment_info(native_build_info: dict[str, Any] | None) -> dict[
     }
 
 
+def _mark_rotary_inv_freq_nonpersistent(model: torch.nn.Module) -> int:
+    """Treat HF rotary inv_freq as a deterministic runtime buffer for older checkpoints."""
+    count = 0
+    for module in model.modules():
+        if "inv_freq" in getattr(module, "_buffers", {}):
+            module._non_persistent_buffers_set.add("inv_freq")
+            count += 1
+    return count
+
+
 def _build_source_model(
     args: DictConfig,
     device: torch.device,
@@ -374,7 +386,7 @@ def _build_source_model(
     fp4_recipe,
     component_precision: ComponentPrecisionConfig,
 ) -> ESM2MiniFoldTE:
-    return ESM2MiniFoldTE(
+    model = ESM2MiniFoldTE(
         esm_model_name=args.esm_model_name,
         c_s=args.model.c_s,
         c_z=args.model.c_z,
@@ -385,7 +397,9 @@ def _build_source_model(
         fp8_recipe=fp8_recipe,
         fp4_recipe=fp4_recipe,
         component_precision=component_precision,
-    ).to(device)
+    )
+    _mark_rotary_inv_freq_nonpersistent(model)
+    return model.to(device)
 
 
 def _load_te_state_dict(
@@ -482,6 +496,7 @@ def _build_plain_runtime(
         else None,
         mixed_tail=mixed_tail,
     ).to(device=device, dtype=torch.bfloat16)
+    _mark_rotary_inv_freq_nonpersistent(model)
 
     plain_state_dict = filter_state_dict_for_plain_runtime(state_dict)
     load_result = model.load_state_dict(plain_state_dict, strict=False)
@@ -548,6 +563,12 @@ def _create_local_eval_dataloader(args: DictConfig, mirrored_dataset_info: dict[
     eval_kwargs = OmegaConf.to_container(args.eval_dataset, resolve=True)
     eval_kwargs["parquet_path"] = mirrored_dataset_info["mirrored_parquet_path"]
     dataset = create_dataset(**eval_kwargs)
+    max_eval_proteins = args.get("max_eval_proteins")
+    if max_eval_proteins is not None:
+        max_eval_proteins = int(max_eval_proteins)
+        if max_eval_proteins <= 0:
+            raise ValueError(f"max_eval_proteins must be positive when set, got {max_eval_proteins}")
+        dataset = Subset(dataset, range(min(max_eval_proteins, len(dataset))))
     return DataLoader(
         dataset,
         batch_size=int(args.eval_dataset.micro_batch_size),
@@ -563,6 +584,22 @@ def _summarize_rows(rows: list[dict[str, Any]]) -> dict[str, float]:
     for key in RUN_METRIC_KEYS:
         summary[key] = float(sum(row[key] for row in rows) / len(rows)) if rows else 0.0
     return summary
+
+
+def _select_run_stem(args: DictConfig, mixed_tail_cfg: dict[str, Any] | None) -> str:
+    if (
+        args.get("use_torch_compile", False)
+        and args.pair_precision == "bf16"
+        and args.linear_precision == "bf16"
+        and args.component_precision.tri_impl == "cublas_xbdnn"
+    ):
+        return "bf16_native_compile_eval_metrics"
+    return select_eval_stem(args.pair_precision, args.linear_precision, mixed_tail=mixed_tail_cfg)
+
+
+def _cuda_synchronize(device: torch.device) -> None:
+    if device.type == "cuda" and torch.cuda.is_available():
+        torch.cuda.synchronize(device)
 
 
 def _write_run_markdown(payload: dict, markdown_path: Path) -> None:
@@ -795,6 +832,8 @@ def _evaluate_plain_runtime(model, plain_infer, dataloader: DataLoader, device: 
             metadata = {key: value for key, value in batch.items() if key not in model_inputs}
 
             autocast_ctx = torch.autocast(device_type="cuda", dtype=torch.bfloat16) if use_bf16_autocast else nullcontext()
+            _cuda_synchronize(device)
+            batch_start = time.perf_counter()
             with autocast_ctx:
                 r_dict = model(model_inputs, num_recycling=args.model.get("num_recycling", 0))
 
@@ -810,6 +849,9 @@ def _evaluate_plain_runtime(model, plain_infer, dataloader: DataLoader, device: 
                 mask=model_inputs["mask"],
                 no_bins=args.model.no_bins,
             )
+            _cuda_synchronize(device)
+            batch_elapsed_ms = (time.perf_counter() - batch_start) * 1000.0
+            per_sample_elapsed_ms = batch_elapsed_ms / max(int(losses.shape[0]), 1)
 
             batch_lddt = metrics["lddt_from_distogram"].mean().item()
             progress.set_postfix({"lddt": f"{batch_lddt:.3f}"})
@@ -830,10 +872,65 @@ def _evaluate_plain_runtime(model, plain_infer, dataloader: DataLoader, device: 
                         "contact_recall_8A": float(metrics["contact_recall_8A"][sample_idx].item()),
                         "lddt_from_distogram": float(metrics["lddt_from_distogram"][sample_idx].item()),
                         "mean_distance_error": float(metrics["mean_distance_error"][sample_idx].item()),
+                        "wall_clock_ms": float(per_sample_elapsed_ms),
+                        "batch_wall_clock_ms": float(batch_elapsed_ms),
+                        "batch_idx": int(batch_idx),
                     }
                 )
     progress.close()
     return eval_rows
+
+
+def _capture_first_batch_diagnostics(
+    model,
+    plain_infer,
+    dataloader: DataLoader,
+    device: torch.device,
+    args: DictConfig,
+    output_path: Path | None,
+) -> dict[str, Any] | None:
+    if output_path is None:
+        return None
+
+    first_batch = next(iter(dataloader), None)
+    if first_batch is None:
+        return None
+    model_inputs = {
+        key: value.to(device)
+        for key, value in first_batch.items()
+        if key in FEATURE_TENSOR_KEYS and isinstance(value, torch.Tensor)
+    }
+    use_bf16_autocast = args.pair_precision not in (
+        plain_infer.PAIR_PRECISION_BF16_NATIVE,
+        plain_infer.PAIR_PRECISION_FP8_EXTREME,
+        plain_infer.PAIR_PRECISION_FP8_HYBRID,
+        plain_infer.PAIR_PRECISION_FP8_NATIVE,
+        plain_infer.PAIR_PRECISION_FP8_NATIVE_GOLD_PACKS,
+        plain_infer.PAIR_PRECISION_FP8_NATIVE_MIXED_TAIL,
+    )
+
+    def _diagnostic_call(inputs: dict[str, torch.Tensor]):
+        autocast_ctx = torch.autocast(device_type="cuda", dtype=torch.bfloat16) if use_bf16_autocast else nullcontext()
+        with torch.no_grad(), autocast_ctx:
+            return model(inputs, num_recycling=args.model.get("num_recycling", 0))
+
+    return maybe_capture_dynamo_diagnostics(
+        _diagnostic_call,
+        args=(model_inputs,),
+        output_path=output_path,
+        label="eval_fsdp2_real_weights",
+        rank=0,
+        world_size=1,
+        extra_metadata={
+            "use_torch_compile": bool(args.get("use_torch_compile", False)),
+            "torch_compile_mode": str(args.get("torch_compile_mode", "default")),
+            "pair_precision": args.pair_precision,
+            "linear_precision": args.linear_precision,
+            "tri_impl": args.component_precision.tri_impl,
+            "tri_einsum": args.component_precision.tri_einsum,
+            "max_eval_proteins": args.get("max_eval_proteins"),
+        },
+    )
 
 
 @hydra.main(config_path="hydra_config", config_name="eval", version_base="1.2")
@@ -843,6 +940,7 @@ def main(args: DictConfig) -> None:
 
     artifact_root = _abs_path(args.get("artifact_root"), relative_root=REPO_ROOT) or DEFAULT_ARTIFACT_ROOT
     report_path = _abs_path(args.get("report_path"), relative_root=REPO_ROOT)
+    diagnostics_output = _abs_path(args.get("diagnostics_output"), relative_root=REPO_ROOT)
     status_path = artifact_root / "status_report.md"
     artifacts_dir = _ensure_dir(artifact_root / "artifacts")
 
@@ -854,6 +952,10 @@ def main(args: DictConfig) -> None:
             f"linear_precision={args.linear_precision}",
             f"artifact_root={artifact_root}",
             f"report_path={report_path}",
+            f"use_torch_compile={bool(args.get('use_torch_compile', False))}",
+            f"torch_compile_mode={args.get('torch_compile_mode', 'default')}",
+            f"diagnostics_output={diagnostics_output}",
+            f"max_eval_proteins={args.get('max_eval_proteins')}",
             f"mixed_tail={OmegaConf.to_container(args.get('mixed_tail'), resolve=True) if args.get('mixed_tail') is not None else None}",
         ],
     )
@@ -947,14 +1049,39 @@ def main(args: DictConfig) -> None:
     )
 
     eval_dataloader = _create_local_eval_dataloader(args, mirrored_dataset_info)
-    eval_rows = _evaluate_plain_runtime(model, plain_infer, eval_dataloader, torch.device("cuda:0"), args)
+    model_runner = maybe_compile(
+        model,
+        enabled=bool(args.get("use_torch_compile", False)),
+        mode=str(args.get("torch_compile_mode", "default")),
+    )
+    diagnostics = _capture_first_batch_diagnostics(
+        model_runner,
+        plain_infer,
+        eval_dataloader,
+        torch.device("cuda:0"),
+        args,
+        diagnostics_output,
+    )
+    append_status_report(
+        status_path,
+        "Compile Diagnostics",
+        [
+            f"use_torch_compile={bool(args.get('use_torch_compile', False))}",
+            f"torch_compile_mode={args.get('torch_compile_mode', 'default')}",
+            f"diagnostics_output={diagnostics_output}",
+            f"graph_count={diagnostics.get('graph_count') if diagnostics else None}",
+            f"graph_break_count={diagnostics.get('graph_break_count') if diagnostics else None}",
+        ],
+    )
+
+    eval_rows = _evaluate_plain_runtime(model_runner, plain_infer, eval_dataloader, torch.device("cuda:0"), args)
     summary = _summarize_rows(eval_rows)
 
     protein_ids_path = artifact_root / "data" / "eval_protein_ids_runtime.txt"
     protein_ids_path.write_text("\n".join(row["protein_id"] for row in eval_rows) + "\n", encoding="utf-8")
 
     mixed_tail_cfg = OmegaConf.to_container(args.get("mixed_tail"), resolve=True) if args.get("mixed_tail") is not None else None
-    run_stem = select_eval_stem(args.pair_precision, args.linear_precision, mixed_tail=mixed_tail_cfg)
+    run_stem = _select_run_stem(args, mixed_tail_cfg)
     json_path = artifacts_dir / f"{run_stem}.json"
     markdown_path = artifacts_dir / f"{run_stem}.md"
     payload = {
@@ -973,6 +1100,10 @@ def main(args: DictConfig) -> None:
             "no_bins": int(args.model.no_bins),
             "num_recycling": int(args.model.get("num_recycling", 0)),
             "mixed_tail": mixed_tail_cfg,
+            "use_torch_compile": bool(args.get("use_torch_compile", False)),
+            "torch_compile_mode": str(args.get("torch_compile_mode", "default")),
+            "diagnostics_output": str(diagnostics_output) if diagnostics_output else None,
+            "max_eval_proteins": args.get("max_eval_proteins"),
         },
         "checkpoint": checkpoint_info,
         "dataset": {
@@ -982,6 +1113,7 @@ def main(args: DictConfig) -> None:
         },
         "environment": environment_info,
         "summary": summary,
+        "dynamo_diagnostics": diagnostics,
         "per_protein": eval_rows,
         "artifacts": {
             "json": str(json_path),

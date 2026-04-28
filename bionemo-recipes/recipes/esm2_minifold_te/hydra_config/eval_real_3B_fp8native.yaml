@@ -45,6 +45,11 @@ checkpoint:
   fallback_ckpt_dir: /scratch/minifold_ckpts/3B/bf16_baseline
   checkpoint_type: fsdp2
 
+use_torch_compile: false
+torch_compile_mode: default
+diagnostics_output: null
+max_eval_proteins: null
+
 fp8_config:
   enabled: false
   fp8_recipe: transformer_engine.common.recipe.DelayedScaling
