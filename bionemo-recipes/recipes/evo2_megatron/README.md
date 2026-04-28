@@ -276,6 +276,10 @@ freezes the entire base model and attaches low-rank adapter matrices to the
 modules you specify, with an optional escape hatch to keep selected modules
 fully trainable.
 
+> **End-to-end example:** see [`examples/lora-fine-tuning-tutorial.ipynb`](examples/lora-fine-tuning-tutorial.ipynb)
+> for a runnable walkthrough that fine-tunes the 1B checkpoint for splice-site
+> classification, including a head-only baseline for comparison.
+
 ### Basic usage
 
 Add `--lora-finetune` to any `train_evo2` command alongside a checkpoint:
@@ -509,10 +513,11 @@ checkpoint.
 
 The `examples/` directory contains Jupyter notebooks demonstrating common workflows:
 
-| Notebook                     | Description                                            |
-| ---------------------------- | ------------------------------------------------------ |
-| `zeroshot_brca1.ipynb`       | Zero-shot BRCA1 variant effect prediction with Evo2 1B |
-| `fine-tuning-tutorial.ipynb` | Fine-tune the 1B checkpoint on human chromosomes       |
+| Notebook                          | Description                                                                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `zeroshot_brca1.ipynb`            | Zero-shot BRCA1 variant effect prediction with Evo2 1B                                                                 |
+| `fine-tuning-tutorial.ipynb`      | Fine-tune the 1B checkpoint on human chromosomes                                                                       |
+| `lora-fine-tuning-tutorial.ipynb` | LoRA fine-tune the 1B checkpoint for splice-site classification, with a head-only baseline for trainable-param savings |
 
 ## Docker build
 
