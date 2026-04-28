@@ -123,7 +123,16 @@ def _tri_mul_bdnn_cublas_op(a: torch.Tensor, b: torch.Tensor, k_dim: int, out_dt
 
 @_tri_mul_bdnn_cublas_op.register_fake
 def _tri_mul_bdnn_cublas_fake(a: torch.Tensor, b: torch.Tensor, k_dim: int, out_dtype: str) -> torch.Tensor:
-    return a.new_empty((a.shape[0], a.shape[2], b.shape[2], a.shape[1]), dtype=_dtype_from_name(out_dtype))
+    batch = int(a.shape[0])
+    channels = int(a.shape[1])
+    n_i = int(a.shape[2])
+    n_j = int(b.shape[2])
+    return torch.empty_strided(
+        (batch, n_i, n_j, channels),
+        (channels * n_i * n_j, n_j, 1, n_i * n_j),
+        dtype=_dtype_from_name(out_dtype),
+        device=a.device,
+    )
 
 
 @torch.library.custom_op("tri_mul_ext::tri_mul_xbdnn_cublas", mutates_args=(), device_types="cuda")
