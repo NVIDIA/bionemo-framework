@@ -63,7 +63,7 @@ python train_fsdp2.py --config-name L2_lingua_7b_bf16_baseline \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   checkpoint.save_every_n_steps=500 \
   checkpoint.resume_from_checkpoint=true \
-  logger.frequency=10 \
+  logger.frequency=100 \
   wandb.project=lingua-7b
 
 echo "========================================="
