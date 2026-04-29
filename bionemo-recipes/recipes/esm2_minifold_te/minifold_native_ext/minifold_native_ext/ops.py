@@ -34,6 +34,12 @@ def _new_scale(
     return torch.empty(shape, device=ref.device, dtype=torch.float32)
 
 
+def _new_flat_swizzled_scale(ref: torch.Tensor, rows: int, groups: int) -> torch.Tensor:
+    padded_rows = ((int(rows) + 127) // 128) * 128
+    padded_groups = ((int(groups) + 3) // 4) * 4
+    return torch.empty((1, padded_rows, padded_groups), device=ref.device, dtype=torch.float8_e8m0fnu)
+
+
 def _linear_payload_and_scale(
     a: torch.Tensor,
     out_features: int,
@@ -43,6 +49,15 @@ def _linear_payload_and_scale(
     return payload, scale
 
 
+def _linear_payload_scale_and_swizzled(
+    a: torch.Tensor,
+    out_features: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    payload, scale = _linear_payload_and_scale(a, out_features)
+    scale_swizzled = _new_flat_swizzled_scale(a, int(a.shape[0]) * int(a.shape[1]), out_features // 32)
+    return payload, scale, scale_swizzled
+
+
 def _tri_payload_and_scale(
     payload: torch.Tensor,
     out_features: int,
@@ -50,6 +65,18 @@ def _tri_payload_and_scale(
     out_payload = payload.new_empty((*payload.shape[:-1], out_features))
     out_scale = _new_scale(payload, (*payload.shape[:-1], out_features // 32))
     return out_payload, out_scale
+
+
+def _tri_payload_scale_and_swizzled(
+    payload: torch.Tensor,
+    out_features: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    out_payload, out_scale = _tri_payload_and_scale(payload, out_features)
+    rows = 1
+    for dim in payload.shape[:-1]:
+        rows *= int(dim)
+    out_swizzled = _new_flat_swizzled_scale(payload, rows, out_features // 32)
+    return out_payload, out_scale, out_swizzled
 
 
 _SUPPORTED_OUT_DTYPE_NAMES = {
@@ -364,6 +391,54 @@ def _linear_block32_fused_fake(
     return _linear_payload_and_scale(a, int(b_t.shape[1]))
 
 
+@torch.library.custom_op("minifold_native_ext::linear_block32_fused_with_swizzled_scale", mutates_args=(), device_types="cuda")
+def _linear_block32_fused_with_swizzled_scale_op(
+    a: torch.Tensor,
+    b_t: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    b_scale_swizzled: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    out_dtype: str = "bfloat16",
+    apply_relu: bool = False,
+    direct_fp8_output: bool = False,
+    fuse_bias_epilogue: bool = False,
+    residual_payload: Optional[torch.Tensor] = None,
+    residual_scale: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if _C is None:
+        raise _extension_unavailable("linear_block32_fused_with_swizzled_scale")
+    return _C.linear_block32_fused_with_swizzled_scale(
+        a,
+        b_t,
+        a_scale_swizzled,
+        b_scale_swizzled,
+        bias,
+        out_dtype,
+        apply_relu,
+        direct_fp8_output,
+        fuse_bias_epilogue,
+        residual_payload,
+        residual_scale,
+    )
+
+
+@_linear_block32_fused_with_swizzled_scale_op.register_fake
+def _linear_block32_fused_with_swizzled_scale_fake(
+    a: torch.Tensor,
+    b_t: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    b_scale_swizzled: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    out_dtype: str = "bfloat16",
+    apply_relu: bool = False,
+    direct_fp8_output: bool = False,
+    fuse_bias_epilogue: bool = False,
+    residual_payload: Optional[torch.Tensor] = None,
+    residual_scale: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    return _linear_payload_scale_and_swizzled(a, int(b_t.shape[1]))
+
+
 @torch.library.custom_op("minifold_native_ext::linear_block32_raw_debug", mutates_args=(), device_types="cuda")
 def _linear_block32_raw_debug_op(
     a: torch.Tensor,
@@ -551,6 +626,60 @@ def _gate_sigmoid_mul_block32_fused_fake(
     residual_scale: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     return _linear_payload_and_scale(a, int(lhs_b_t.shape[1]))
+
+
+@torch.library.custom_op(
+    "minifold_native_ext::gate_sigmoid_mul_block32_fused_with_swizzled_scale",
+    mutates_args=(),
+    device_types="cuda",
+)
+def _gate_sigmoid_mul_block32_fused_with_swizzled_scale_op(
+    a: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    lhs_b_t: torch.Tensor,
+    lhs_scale_swizzled: torch.Tensor,
+    lhs_bias: Optional[torch.Tensor] = None,
+    rhs_b_t: torch.Tensor | None = None,
+    rhs_scale_swizzled: torch.Tensor | None = None,
+    rhs_bias: Optional[torch.Tensor] = None,
+    out_dtype: str = "bfloat16",
+    residual_payload: Optional[torch.Tensor] = None,
+    residual_scale: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if _C is None:
+        raise _extension_unavailable("gate_sigmoid_mul_block32_fused_with_swizzled_scale")
+    if rhs_b_t is None or rhs_scale_swizzled is None:
+        raise ValueError("rhs_b_t and rhs_scale_swizzled are required")
+    return _C.gate_sigmoid_mul_block32_fused_with_swizzled_scale(
+        a,
+        a_scale_swizzled,
+        lhs_b_t,
+        lhs_scale_swizzled,
+        lhs_bias,
+        rhs_b_t,
+        rhs_scale_swizzled,
+        rhs_bias,
+        out_dtype,
+        residual_payload,
+        residual_scale,
+    )
+
+
+@_gate_sigmoid_mul_block32_fused_with_swizzled_scale_op.register_fake
+def _gate_sigmoid_mul_block32_fused_with_swizzled_scale_fake(
+    a: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    lhs_b_t: torch.Tensor,
+    lhs_scale_swizzled: torch.Tensor,
+    lhs_bias: Optional[torch.Tensor] = None,
+    rhs_b_t: torch.Tensor | None = None,
+    rhs_scale_swizzled: torch.Tensor | None = None,
+    rhs_bias: Optional[torch.Tensor] = None,
+    out_dtype: str = "bfloat16",
+    residual_payload: Optional[torch.Tensor] = None,
+    residual_scale: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    return _linear_payload_scale_and_swizzled(a, int(lhs_b_t.shape[1]))
 
 
 @torch.library.custom_op("minifold_native_ext::gate_sigmoid_mul_block32_raw_debug", mutates_args=(), device_types="cuda")
@@ -958,6 +1087,36 @@ def _layernorm_block32_fake(
     return payload.new_empty(payload.shape), _new_scale(payload, scale.shape)
 
 
+@torch.library.custom_op("minifold_native_ext::layernorm_block32_with_swizzled_scale", mutates_args=(), device_types="cuda")
+def _layernorm_block32_with_swizzled_scale_op(
+    payload: torch.Tensor,
+    scale: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    eps: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if _C is None:
+        raise _extension_unavailable("layernorm_block32_with_swizzled_scale")
+    return _C.layernorm_block32_with_swizzled_scale(payload, scale, weight, bias, float(eps))
+
+
+@_layernorm_block32_with_swizzled_scale_op.register_fake
+def _layernorm_block32_with_swizzled_scale_fake(
+    payload: torch.Tensor,
+    scale: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    eps: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    out_payload = payload.new_empty(payload.shape)
+    out_scale = _new_scale(payload, scale.shape)
+    rows = 1
+    for dim in payload.shape[:-1]:
+        rows *= int(dim)
+    out_swizzled = _new_flat_swizzled_scale(payload, rows, int(payload.shape[-1]) // 32)
+    return out_payload, out_scale, out_swizzled
+
+
 def linear_block32_fused(
     a: torch.Tensor,
     b_t: torch.Tensor,
@@ -986,6 +1145,50 @@ def linear_block32_fused(
             residual_scale,
         )
     return _linear_block32_fused_op(
+        a,
+        b_t,
+        a_scale_swizzled,
+        b_scale_swizzled,
+        bias,
+        out_dtype,
+        apply_relu,
+        direct_fp8_output,
+        fuse_bias_epilogue,
+        residual_payload,
+        residual_scale,
+    )
+
+
+def linear_block32_fused_with_swizzled_scale(
+    a: torch.Tensor,
+    b_t: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    b_scale_swizzled: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    out_dtype: str = "bfloat16",
+    apply_relu: bool = False,
+    direct_fp8_output: bool = False,
+    fuse_bias_epilogue: bool = False,
+    residual_payload: Optional[torch.Tensor] = None,
+    residual_scale: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if not _is_torch_compiling():
+        if _C is None:
+            raise _extension_unavailable("linear_block32_fused_with_swizzled_scale")
+        return _C.linear_block32_fused_with_swizzled_scale(
+            a,
+            b_t,
+            a_scale_swizzled,
+            b_scale_swizzled,
+            bias,
+            out_dtype,
+            apply_relu,
+            direct_fp8_output,
+            fuse_bias_epilogue,
+            residual_payload,
+            residual_scale,
+        )
+    return _linear_block32_fused_with_swizzled_scale_op(
         a,
         b_t,
         a_scale_swizzled,
@@ -1151,6 +1354,52 @@ def gate_sigmoid_mul_block32_fused(
             residual_scale,
         )
     return _gate_sigmoid_mul_block32_fused_op(
+        a,
+        a_scale_swizzled,
+        lhs_b_t,
+        lhs_scale_swizzled,
+        lhs_bias,
+        rhs_b_t,
+        rhs_scale_swizzled,
+        rhs_bias,
+        out_dtype,
+        residual_payload,
+        residual_scale,
+    )
+
+
+def gate_sigmoid_mul_block32_fused_with_swizzled_scale(
+    a: torch.Tensor,
+    a_scale_swizzled: torch.Tensor,
+    lhs_b_t: torch.Tensor,
+    lhs_scale_swizzled: torch.Tensor,
+    lhs_bias: Optional[torch.Tensor] = None,
+    rhs_b_t: torch.Tensor | None = None,
+    rhs_scale_swizzled: torch.Tensor | None = None,
+    rhs_bias: Optional[torch.Tensor] = None,
+    out_dtype: str = "bfloat16",
+    residual_payload: Optional[torch.Tensor] = None,
+    residual_scale: Optional[torch.Tensor] = None,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if not _is_torch_compiling():
+        if _C is None:
+            raise _extension_unavailable("gate_sigmoid_mul_block32_fused_with_swizzled_scale")
+        if rhs_b_t is None or rhs_scale_swizzled is None:
+            raise ValueError("rhs_b_t and rhs_scale_swizzled are required")
+        return _C.gate_sigmoid_mul_block32_fused_with_swizzled_scale(
+            a,
+            a_scale_swizzled,
+            lhs_b_t,
+            lhs_scale_swizzled,
+            lhs_bias,
+            rhs_b_t,
+            rhs_scale_swizzled,
+            rhs_bias,
+            out_dtype,
+            residual_payload,
+            residual_scale,
+        )
+    return _gate_sigmoid_mul_block32_fused_with_swizzled_scale_op(
         a,
         a_scale_swizzled,
         lhs_b_t,
@@ -1472,6 +1721,20 @@ def layernorm_block32(
             raise _extension_unavailable("layernorm_block32")
         return _C.layernorm_block32(payload, scale, weight, bias, float(eps))
     return _layernorm_block32_op(payload, scale, weight, bias, eps)
+
+
+def layernorm_block32_with_swizzled_scale(
+    payload: torch.Tensor,
+    scale: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    eps: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    if not _is_torch_compiling():
+        if _C is None:
+            raise _extension_unavailable("layernorm_block32_with_swizzled_scale")
+        return _C.layernorm_block32_with_swizzled_scale(payload, scale, weight, bias, float(eps))
+    return _layernorm_block32_with_swizzled_scale_op(payload, scale, weight, bias, eps)
 
 
 def _debug_gate_sigmoid_mul_pack_to_mxfp8_reference(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 import importlib.util
+import os
 from pathlib import Path
 import sys
 
@@ -113,6 +114,22 @@ SUPPORTED_BF16_NATIVE_RUNGS = (
 _FP8_MAX = 448.0
 _FP8_LINEAR_MAX_ROWS = 1 << 22
 _NATIVE_FC1_DIRECT_MAX_ROWS = 1 << 16
+_NATIVE_SWIZZLED_SCALE_OUTPUT_MODE = os.getenv("MINIFOLD_NATIVE_SWIZZLED_SCALE_OUTPUT", "off").strip().lower()
+_NATIVE_SWIZZLED_SCALE_LAYER_NORM = _NATIVE_SWIZZLED_SCALE_OUTPUT_MODE in {
+    "1",
+    "all",
+    "selective",
+    "layernorm_linear",
+    "layernorm",
+}
+_NATIVE_SWIZZLED_SCALE_LINEAR = _NATIVE_SWIZZLED_SCALE_OUTPUT_MODE in {
+    "1",
+    "all",
+    "selective",
+    "layernorm_linear",
+    "linear",
+}
+_NATIVE_SWIZZLED_SCALE_GATE = _NATIVE_SWIZZLED_SCALE_OUTPUT_MODE in {"1", "all", "gate"}
 
 
 def resolve_pair_precision(pair_precision: str | None = None, fp8_activations: bool | None = None) -> str:
@@ -261,6 +278,7 @@ class Mxfp8PairTensor:
     payload: torch.Tensor
     scale: torch.Tensor
     logical_dtype: torch.dtype = torch.bfloat16
+    scale_swizzled: torch.Tensor | None = None
 
     @classmethod
     def from_tensor(cls, tensor: torch.Tensor, scale_dtype: torch.dtype = torch.float32) -> "Mxfp8PairTensor":
@@ -288,6 +306,28 @@ class Mxfp8PairTensor:
     @property
     def scale_bytes(self) -> int:
         return self.scale.numel() * self.scale.element_size()
+
+
+def _mxfp8_swizzled_scale_shape(rows: int, groups: int) -> tuple[int, int, int]:
+    padded_rows = ((int(rows) + 127) // 128) * 128
+    padded_groups = ((int(groups) + 3) // 4) * 4
+    return (1, padded_rows, padded_groups)
+
+
+def _mxfp8_scale_swizzled_for_gemm(tensor: Mxfp8PairTensor, rows: int, groups: int) -> torch.Tensor:
+    expected_shape = _mxfp8_swizzled_scale_shape(rows, groups)
+    scale_swizzled = tensor.scale_swizzled
+    if (
+        isinstance(scale_swizzled, torch.Tensor)
+        and tuple(scale_swizzled.shape) == expected_shape
+        and scale_swizzled.dtype == torch.float8_e8m0fnu
+        and scale_swizzled.device == tensor.payload.device
+        and scale_swizzled.is_contiguous()
+    ):
+        return scale_swizzled
+    scale_2d = tensor.scale.reshape(rows, groups).contiguous()
+    scale_e8 = scale_2d.to(torch.float8_e8m0fnu).reshape(1, rows, groups).contiguous()
+    return _swizzle_mxfp8_scale_rowwise(scale_e8)
 
 
 @dataclass(frozen=True)
@@ -551,6 +591,25 @@ def native_mxfp8_add_quantized(lhs: Mxfp8PairTensor, rhs: Mxfp8PairTensor) -> Mx
 def native_mxfp8_layernorm_quantized(module: nn.LayerNorm, tensor: Mxfp8PairTensor) -> Mxfp8PairTensor:
     if minifold_native_raw is None:
         return mxfp8_layernorm_quantized(module, tensor)
+    layernorm_op = (
+        getattr(minifold_native_raw, "layernorm_block32_with_swizzled_scale", None)
+        if _NATIVE_SWIZZLED_SCALE_LAYER_NORM
+        else None
+    )
+    if layernorm_op is not None:
+        payload, scale, scale_swizzled = layernorm_op(
+            tensor.payload.contiguous(),
+            tensor.scale.contiguous(),
+            module.weight.to(device=tensor.device, dtype=torch.bfloat16).contiguous(),
+            module.bias.to(device=tensor.device, dtype=torch.bfloat16).contiguous(),
+            float(module.eps),
+        )
+        return Mxfp8PairTensor(
+            payload=payload,
+            scale=scale,
+            logical_dtype=tensor.logical_dtype,
+            scale_swizzled=scale_swizzled,
+        )
     payload, scale = minifold_native_raw.layernorm_block32(
         tensor.payload.contiguous(),
         tensor.scale.contiguous(),
@@ -1064,9 +1123,13 @@ def native_linear_forward_quantized(
         scale_chunk: torch.Tensor,
         residual_payload_chunk: torch.Tensor | None = None,
         residual_scale_chunk: torch.Tensor | None = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        scale_e8 = scale_chunk.to(torch.float8_e8m0fnu).reshape(1, payload_chunk.shape[0], groups).contiguous()
-        scale_swizzled = _swizzle_mxfp8_scale_rowwise(scale_e8)
+        scale_swizzled_chunk: torch.Tensor | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        if scale_swizzled_chunk is None:
+            scale_e8 = scale_chunk.to(torch.float8_e8m0fnu).reshape(1, payload_chunk.shape[0], groups).contiguous()
+            scale_swizzled = _swizzle_mxfp8_scale_rowwise(scale_e8)
+        else:
+            scale_swizzled = scale_swizzled_chunk
         use_fc1_direct = (
             apply_relu
             and residual_payload_chunk is None
@@ -1103,7 +1166,7 @@ def native_linear_forward_quantized(
                 scale = scale.reshape(payload_chunk.shape[0], out_dim // 32)
                 if stats is not None:
                     stats.record_native_linear_fused(payload, scale)
-                return payload, scale
+                return payload, scale, None
         current_direct_output = use_direct_output
         current_fused_bias_epilogue = use_fused_bias_epilogue
         if module.bias is not None and (in_dim, out_dim) in ((128, 512), (512, 128)):
@@ -1129,19 +1192,40 @@ def native_linear_forward_quantized(
                         residual_scale_3d,
                     )
                 else:
-                    payload, scale = minifold_native_raw.linear_block32_fused(
-                        payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
-                        module.weight_mxfp8.contiguous(),
-                        scale_swizzled,
-                        module.scale_w_mxfp8_swizzled.contiguous(),
-                        None if module.bias is None else module.bias.contiguous(),
-                        "bfloat16",
-                        apply_relu,
-                        current_direct_output,
-                        current_fused_bias_epilogue,
-                        residual_payload_3d,
-                        residual_scale_3d,
+                    linear_op = (
+                        getattr(minifold_native_raw, "linear_block32_fused_with_swizzled_scale", None)
+                        if _NATIVE_SWIZZLED_SCALE_LINEAR and apply_relu
+                        else None
                     )
+                    if linear_op is None:
+                        payload, scale = minifold_native_raw.linear_block32_fused(
+                            payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
+                            module.weight_mxfp8.contiguous(),
+                            scale_swizzled,
+                            module.scale_w_mxfp8_swizzled.contiguous(),
+                            None if module.bias is None else module.bias.contiguous(),
+                            "bfloat16",
+                            apply_relu,
+                            current_direct_output,
+                            current_fused_bias_epilogue,
+                            residual_payload_3d,
+                            residual_scale_3d,
+                        )
+                        output_scale_swizzled = None
+                    else:
+                        payload, scale, output_scale_swizzled = linear_op(
+                            payload_chunk.reshape(1, payload_chunk.shape[0], in_dim).contiguous(),
+                            module.weight_mxfp8.contiguous(),
+                            scale_swizzled,
+                            module.scale_w_mxfp8_swizzled.contiguous(),
+                            None if module.bias is None else module.bias.contiguous(),
+                            "bfloat16",
+                            apply_relu,
+                            current_direct_output,
+                            current_fused_bias_epilogue,
+                            residual_payload_3d,
+                            residual_scale_3d,
+                        )
                 break
             except RuntimeError as exc:
                 exc_text = str(exc)
@@ -1168,12 +1252,12 @@ def native_linear_forward_quantized(
             )
             if stats is not None:
                 stats.record_native_linear_fused(pair.payload, pair.scale)
-            return pair.payload, pair.scale
+            return pair.payload, pair.scale, None
         payload = payload.reshape(payload_chunk.shape[0], out_dim)
         scale = scale.reshape(payload_chunk.shape[0], out_dim // 32)
         if stats is not None:
             stats.record_native_linear_fused(payload, scale)
-        return payload, scale
+        return payload, scale, output_scale_swizzled
 
     row_limit = _FP8_LINEAR_MAX_ROWS
     if (
@@ -1187,12 +1271,20 @@ def native_linear_forward_quantized(
         row_limit = min(row_limit, _NATIVE_FC1_DIRECT_MAX_ROWS)
 
     if rows <= row_limit:
-        payload_2d_out, scale_2d_out = run_native_linear(payload_2d, scale_2d, residual_payload_2d, residual_scale_2d)
+        scale_swizzled_in = _mxfp8_scale_swizzled_for_gemm(x, rows, groups)
+        payload_2d_out, scale_2d_out, scale_swizzled_out = run_native_linear(
+            payload_2d,
+            scale_2d,
+            residual_payload_2d,
+            residual_scale_2d,
+            scale_swizzled_in,
+        )
     else:
         payload_parts: list[torch.Tensor] = []
         scale_parts: list[torch.Tensor] = []
+        scale_swizzled_out = None
         for start in range(0, rows, row_limit):
-            payload_chunk, scale_chunk = run_native_linear(
+            payload_chunk, scale_chunk, _ = run_native_linear(
                 payload_2d[start : start + row_limit],
                 scale_2d[start : start + row_limit],
                 None if residual_payload_2d is None else residual_payload_2d[start : start + row_limit],
@@ -1204,7 +1296,7 @@ def native_linear_forward_quantized(
         scale_2d_out = torch.cat(scale_parts, dim=0)
     payload = payload_2d_out.reshape(*original_shape, out_dim).contiguous()
     scale = scale_2d_out.reshape(*original_shape, out_dim // 32).contiguous()
-    return Mxfp8PairTensor(payload=payload, scale=scale, logical_dtype=x.logical_dtype)
+    return Mxfp8PairTensor(payload=payload, scale=scale, logical_dtype=x.logical_dtype, scale_swizzled=scale_swizzled_out)
 
 
 def native_gate_sigmoid_mul_quantized(
@@ -1227,8 +1319,8 @@ def native_gate_sigmoid_mul_quantized(
 
     payload_2d = x.payload.reshape(rows, in_dim).contiguous()
     scale_2d = x.scale.reshape(rows, groups).contiguous()
-    scale_e8 = scale_2d.to(torch.float8_e8m0fnu).reshape(1, rows, groups).contiguous()
-    scale_swizzled = _swizzle_mxfp8_scale_rowwise(scale_e8)
+    scale_swizzled = _mxfp8_scale_swizzled_for_gemm(x, rows, groups)
+    output_scale_swizzled = None
     residual_payload_3d = None
     residual_scale_3d = None
     if residual is not None:
@@ -1263,24 +1355,49 @@ def native_gate_sigmoid_mul_quantized(
         payload = pair.payload
         scale = pair.scale
     else:
-        payload, scale = minifold_native_raw.gate_sigmoid_mul_block32_fused(
-            payload_2d.reshape(1, rows, in_dim).contiguous(),
-            scale_swizzled,
-            lhs_module.weight_mxfp8.contiguous(),
-            lhs_module.scale_w_mxfp8_swizzled.contiguous(),
-            None if lhs_module.bias is None else lhs_module.bias.contiguous(),
-            rhs_module.weight_mxfp8.contiguous(),
-            rhs_module.scale_w_mxfp8_swizzled.contiguous(),
-            None if rhs_module.bias is None else rhs_module.bias.contiguous(),
-            "bfloat16",
-            residual_payload_3d,
-            residual_scale_3d,
+        gate_op = (
+            getattr(minifold_native_raw, "gate_sigmoid_mul_block32_fused_with_swizzled_scale", None)
+            if _NATIVE_SWIZZLED_SCALE_GATE
+            else None
         )
+        if gate_op is None:
+            payload, scale = minifold_native_raw.gate_sigmoid_mul_block32_fused(
+                payload_2d.reshape(1, rows, in_dim).contiguous(),
+                scale_swizzled,
+                lhs_module.weight_mxfp8.contiguous(),
+                lhs_module.scale_w_mxfp8_swizzled.contiguous(),
+                None if lhs_module.bias is None else lhs_module.bias.contiguous(),
+                rhs_module.weight_mxfp8.contiguous(),
+                rhs_module.scale_w_mxfp8_swizzled.contiguous(),
+                None if rhs_module.bias is None else rhs_module.bias.contiguous(),
+                "bfloat16",
+                residual_payload_3d,
+                residual_scale_3d,
+            )
+        else:
+            payload, scale, output_scale_swizzled = gate_op(
+                payload_2d.reshape(1, rows, in_dim).contiguous(),
+                scale_swizzled,
+                lhs_module.weight_mxfp8.contiguous(),
+                lhs_module.scale_w_mxfp8_swizzled.contiguous(),
+                None if lhs_module.bias is None else lhs_module.bias.contiguous(),
+                rhs_module.weight_mxfp8.contiguous(),
+                rhs_module.scale_w_mxfp8_swizzled.contiguous(),
+                None if rhs_module.bias is None else rhs_module.bias.contiguous(),
+                "bfloat16",
+                residual_payload_3d,
+                residual_scale_3d,
+            )
         payload = payload.reshape(*original_shape, out_dim).contiguous()
         scale = scale.reshape(*original_shape, out_dim // 32).contiguous()
     if stats is not None:
         stats.record_native_gate_fused(payload, scale)
-    return Mxfp8PairTensor(payload=payload, scale=scale, logical_dtype=x.logical_dtype)
+    return Mxfp8PairTensor(
+        payload=payload,
+        scale=scale,
+        logical_dtype=x.logical_dtype,
+        scale_swizzled=output_scale_swizzled,
+    )
 
 
 def native_tri_mul_from_block32_quantized(
@@ -1373,9 +1490,7 @@ def native_tri_mul_from_gate_quantized(
     rows = x.payload.numel() // in_dim
     groups = in_dim // 32
     payload_2d = x.payload.reshape(rows, in_dim).contiguous()
-    scale_2d = x.scale.reshape(rows, groups).contiguous()
-    scale_e8 = scale_2d.to(torch.float8_e8m0fnu).reshape(1, rows, groups).contiguous()
-    scale_swizzled = _swizzle_mxfp8_scale_rowwise(scale_e8)
+    scale_swizzled = _mxfp8_scale_swizzled_for_gemm(x, rows, groups)
     mask_bool = mask.to(torch.bool)
     if mask_bool.dim() == 2:
         tri_mask = (mask_bool[:, :, None] & mask_bool[:, None, :]).contiguous()
@@ -1467,9 +1582,7 @@ def native_tri_gate_layernorm_quantized(
     rows = x.payload.numel() // in_dim
     groups = in_dim // 32
     payload_2d = x.payload.reshape(rows, in_dim).contiguous()
-    scale_2d = x.scale.reshape(rows, groups).contiguous()
-    scale_e8 = scale_2d.to(torch.float8_e8m0fnu).reshape(1, rows, groups).contiguous()
-    scale_swizzled = _swizzle_mxfp8_scale_rowwise(scale_e8)
+    scale_swizzled = _mxfp8_scale_swizzled_for_gemm(x, rows, groups)
     mask_bool = mask.to(torch.bool)
     if mask_bool.dim() == 2:
         tri_mask = (mask_bool[:, :, None] & mask_bool[:, None, :]).contiguous()

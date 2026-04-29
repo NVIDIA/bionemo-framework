@@ -103,6 +103,12 @@ at::Tensor unswizzle_scale_rowwise(const at::Tensor& scale, int64_t rows, int64_
   return unswizzled.slice(1, 0, rows).slice(2, 0, cols).contiguous();
 }
 
+at::Tensor make_flat_swizzled_scale(const at::Tensor& ref, int64_t rows, int64_t groups) {
+  const int64_t padded_rows = ((rows + 127) / 128) * 128;
+  const int64_t padded_groups = ((groups + 3) / 4) * 4;
+  return at::full({1, padded_rows, padded_groups}, kMinPow2Scale, ref.options().dtype(at::kFloat8_e8m0fnu));
+}
+
 struct CublasLtBmmPlan {
   cublasLtMatmulDesc_t op_desc = nullptr;
   cublasLtMatrixLayout_t a_desc = nullptr;
@@ -636,9 +642,11 @@ __global__ void quantize_block32_bf16_bias_generic_kernel(
     const float* residual_scale,
     __nv_fp8_storage_t* output,
     float* output_scale,
+    __nv_fp8_storage_t* output_scale_swizzled,
     int rows,
     int cols,
     int groups,
+    int padded_groups,
     bool apply_relu) {
   const int row = blockIdx.x;
   const int col = threadIdx.x;
@@ -665,6 +673,9 @@ __global__ void quantize_block32_bf16_bias_generic_kernel(
   const float scale = pow2_scale_from_max(__shfl_sync(0xffffffff, max_abs, 0));
   if (lane == 0) {
     output_scale[row * groups + warp_id] = scale;
+    if (output_scale_swizzled != nullptr) {
+      output_scale_swizzled[swizzled_scale_offset(row, warp_id, padded_groups)] = float_to_e8m0_storage(scale);
+    }
   }
   output[idx] = float_to_fp8_storage(value / scale);
 }
@@ -675,9 +686,11 @@ __global__ void quantize_block32_bf16_generic_kernel(
     const float* residual_scale,
     __nv_fp8_storage_t* output,
     float* output_scale,
+    __nv_fp8_storage_t* output_scale_swizzled,
     int rows,
     int cols,
-    int groups) {
+    int groups,
+    int padded_groups) {
   const int row = blockIdx.x;
   const int col = threadIdx.x;
   if (row >= rows || col >= cols) {
@@ -693,6 +706,9 @@ __global__ void quantize_block32_bf16_generic_kernel(
   const float scale = pow2_scale_from_max(__shfl_sync(0xffffffff, warp_reduce_max(fabsf(value)), 0));
   if (lane == 0) {
     output_scale[row * groups + warp_id] = scale;
+    if (output_scale_swizzled != nullptr) {
+      output_scale_swizzled[swizzled_scale_offset(row, warp_id, padded_groups)] = float_to_e8m0_storage(scale);
+    }
   }
   output[idx] = float_to_fp8_storage(value / scale);
 }
@@ -705,6 +721,8 @@ __global__ void quantize_block32_bf16_specialized_kernel(
     const float* residual_scale,
     __nv_fp8_storage_t* output,
     float* output_scale,
+    __nv_fp8_storage_t* output_scale_swizzled,
+    int padded_groups,
     int rows) {
   constexpr int kGroups = COLS / 32;
   constexpr int kGroupTile = (COLS == 128 || COLS == 512) ? 4 : 1;
@@ -743,6 +761,9 @@ __global__ void quantize_block32_bf16_specialized_kernel(
     const float scale = pow2_scale_from_max(__shfl_sync(0xffffffff, max_abs, 0));
     if (lane == 0) {
       output_scale[row * kGroups + group] = scale;
+      if (output_scale_swizzled != nullptr) {
+        output_scale_swizzled[swizzled_scale_offset(row, group, padded_groups)] = float_to_e8m0_storage(scale);
+      }
     }
     output[idx] = float_to_fp8_storage(value / scale);
   }
@@ -758,6 +779,8 @@ __global__ void gate_sigmoid_mul_quantize_bf16_128_kernel(
     const float* residual_scale,
     __nv_fp8_storage_t* output,
     float* output_scale,
+    __nv_fp8_storage_t* output_scale_swizzled,
+    int padded_groups,
     int rows) {
   constexpr int kCols = 128;
   constexpr int kGroups = 4;
@@ -788,6 +811,9 @@ __global__ void gate_sigmoid_mul_quantize_bf16_128_kernel(
   for (int group = 0; group < kGroups; ++group) {
     if (lane == 0) {
       output_scale[row * kGroups + group] = scales[group];
+      if (output_scale_swizzled != nullptr) {
+        output_scale_swizzled[swizzled_scale_offset(row, group, padded_groups)] = float_to_e8m0_storage(scales[group]);
+      }
     }
     const int col = lane + group * 32;
     output[row * kCols + col] = float_to_fp8_storage(values[group] / scales[group]);
@@ -803,9 +829,11 @@ __global__ void gate_sigmoid_mul_quantize_bf16_kernel(
     const float* residual_scale,
     __nv_fp8_storage_t* output,
     float* output_scale,
+    __nv_fp8_storage_t* output_scale_swizzled,
     int rows,
     int cols,
-    int groups) {
+    int groups,
+    int padded_groups) {
   const int row = blockIdx.x;
   const int col = threadIdx.x;
   if (row >= rows || col >= cols) {
@@ -833,6 +861,9 @@ __global__ void gate_sigmoid_mul_quantize_bf16_kernel(
   const float scale = pow2_scale_from_max(__shfl_sync(0xffffffff, max_abs, 0));
   if (lane == 0) {
     output_scale[row * groups + warp_id] = scale;
+    if (output_scale_swizzled != nullptr) {
+      output_scale_swizzled[swizzled_scale_offset(row, warp_id, padded_groups)] = float_to_e8m0_storage(scale);
+    }
   }
   output[idx] = float_to_fp8_storage(out_value / scale);
 }
@@ -911,9 +942,11 @@ __global__ void layernorm_block32_generic_kernel(
     const __nv_bfloat16* bias,
     __nv_fp8_storage_t* output,
     float* output_scale,
+    __nv_fp8_storage_t* output_scale_swizzled,
     int rows,
     int cols,
     int groups,
+    int padded_groups,
     float eps) {
   extern __shared__ float shared[];
   const int row = blockIdx.x;
@@ -957,6 +990,9 @@ __global__ void layernorm_block32_generic_kernel(
   const float scale = pow2_scale_from_max(__shfl_sync(0xffffffff, max_abs, 0));
   if (lane == 0) {
     output_scale[row * groups + warp_id] = scale;
+    if (output_scale_swizzled != nullptr) {
+      output_scale_swizzled[swizzled_scale_offset(row, warp_id, padded_groups)] = float_to_e8m0_storage(scale);
+    }
   }
   output[idx] = float_to_fp8_storage(y / scale);
 }
@@ -969,8 +1005,10 @@ __global__ void layernorm_block32_kernel_small(
     const __nv_bfloat16* bias,
     __nv_fp8_storage_t* output,
     float* output_scale,
+    __nv_fp8_storage_t* output_scale_swizzled,
     int rows,
     int groups,
+    int padded_groups,
     float eps) {
   constexpr int kRowsPerBlock = 8;
   const int warp_id = threadIdx.x >> 5;
@@ -1014,6 +1052,9 @@ __global__ void layernorm_block32_kernel_small(
   for (int group = 0; group < kGroups; ++group) {
     if (lane == 0) {
       output_scale[row * groups + group] = scales[group];
+      if (output_scale_swizzled != nullptr) {
+        output_scale_swizzled[swizzled_scale_offset(row, group, padded_groups)] = float_to_e8m0_storage(scales[group]);
+      }
     }
     const int col = lane + group * 32;
     output[row * COLS + col] = float_to_fp8_storage(y_vals[group] / scales[group]);
@@ -1758,7 +1799,8 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16_with_bias(
     const c10::optional<at::Tensor>& bias_opt,
     const c10::optional<at::Tensor>& residual_payload_opt = c10::nullopt,
     const c10::optional<at::Tensor>& residual_scale_opt = c10::nullopt,
-    bool apply_relu = false) {
+    bool apply_relu = false,
+    at::Tensor* output_scale_swizzled_out = nullptr) {
   TORCH_CHECK(input.scalar_type() == c10::ScalarType::BFloat16, "quantize_block32_bf16_with_bias expects bfloat16 input");
   TORCH_CHECK(input.dim() == 3, "quantize_block32_bf16_with_bias expects a 3D tensor");
   const int64_t batch = input.size(0);
@@ -1807,6 +1849,14 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16_with_bias(
 
   auto output = at::empty(input.sizes(), input.options().dtype(at::kFloat8_e4m3fn));
   auto output_scale = at::empty({batch, rows_per_batch, groups}, input.options().dtype(at::kFloat));
+  at::Tensor output_scale_swizzled;
+  __nv_fp8_storage_t* output_scale_swizzled_ptr = nullptr;
+  const int64_t padded_groups = ((groups + 3) / 4) * 4;
+  if (output_scale_swizzled_out != nullptr) {
+    output_scale_swizzled = make_flat_swizzled_scale(input, rows, groups);
+    output_scale_swizzled_ptr = reinterpret_cast<__nv_fp8_storage_t*>(output_scale_swizzled.data_ptr());
+    *output_scale_swizzled_out = output_scale_swizzled;
+  }
   auto* input_ptr = reinterpret_cast<const __nv_bfloat16*>(input.data_ptr());
   auto* output_ptr = reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr());
   auto* scale_ptr = output_scale.data_ptr<float>();
@@ -1816,18 +1866,18 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16_with_bias(
     if (apply_relu) {
       if (residual_payload_ptr != nullptr) {
         quantize_block32_bf16_specialized_kernel<128, true, true, true><<<quantize_blocks, 256, 0, stream>>>(
-            input_ptr, bias_ptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, static_cast<int>(rows));
+            input_ptr, bias_ptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
       } else {
         quantize_block32_bf16_specialized_kernel<128, true, true, false><<<quantize_blocks, 256, 0, stream>>>(
-            input_ptr, bias_ptr, nullptr, nullptr, output_ptr, scale_ptr, static_cast<int>(rows));
+            input_ptr, bias_ptr, nullptr, nullptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
       }
     } else {
       if (residual_payload_ptr != nullptr) {
         quantize_block32_bf16_specialized_kernel<128, true, false, true><<<quantize_blocks, 256, 0, stream>>>(
-            input_ptr, bias_ptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, static_cast<int>(rows));
+            input_ptr, bias_ptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
       } else {
         quantize_block32_bf16_specialized_kernel<128, true, false, false><<<quantize_blocks, 256, 0, stream>>>(
-            input_ptr, bias_ptr, nullptr, nullptr, output_ptr, scale_ptr, static_cast<int>(rows));
+            input_ptr, bias_ptr, nullptr, nullptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
       }
     }
   } else if (cols == 512) {
@@ -1835,18 +1885,18 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16_with_bias(
     if (apply_relu) {
       if (residual_payload_ptr != nullptr) {
         quantize_block32_bf16_specialized_kernel<512, true, true, true><<<quantize_blocks, 256, 0, stream>>>(
-            input_ptr, bias_ptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, static_cast<int>(rows));
+            input_ptr, bias_ptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
       } else {
         quantize_block32_bf16_specialized_kernel<512, true, true, false><<<quantize_blocks, 256, 0, stream>>>(
-            input_ptr, bias_ptr, nullptr, nullptr, output_ptr, scale_ptr, static_cast<int>(rows));
+            input_ptr, bias_ptr, nullptr, nullptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
       }
     } else {
       if (residual_payload_ptr != nullptr) {
         quantize_block32_bf16_specialized_kernel<512, true, false, true><<<quantize_blocks, 256, 0, stream>>>(
-            input_ptr, bias_ptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, static_cast<int>(rows));
+            input_ptr, bias_ptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
       } else {
         quantize_block32_bf16_specialized_kernel<512, true, false, false><<<quantize_blocks, 256, 0, stream>>>(
-            input_ptr, bias_ptr, nullptr, nullptr, output_ptr, scale_ptr, static_cast<int>(rows));
+            input_ptr, bias_ptr, nullptr, nullptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
       }
     }
   } else {
@@ -1857,9 +1907,11 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16_with_bias(
         residual_scale_ptr,
         output_ptr,
         scale_ptr,
+        output_scale_swizzled_ptr,
         static_cast<int>(rows),
         static_cast<int>(cols),
         static_cast<int>(groups),
+        static_cast<int>(padded_groups),
         apply_relu);
   }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -1869,7 +1921,8 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16_with_bias(
 std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16(
     const at::Tensor& input,
     const c10::optional<at::Tensor>& residual_payload_opt = c10::nullopt,
-    const c10::optional<at::Tensor>& residual_scale_opt = c10::nullopt) {
+    const c10::optional<at::Tensor>& residual_scale_opt = c10::nullopt,
+    at::Tensor* output_scale_swizzled_out = nullptr) {
   TORCH_CHECK(input.scalar_type() == c10::ScalarType::BFloat16, "quantize_block32_bf16 expects bfloat16 input");
   TORCH_CHECK(input.dim() == 3, "quantize_block32_bf16 expects a 3D tensor");
   const int64_t batch = input.size(0);
@@ -1908,6 +1961,14 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16(
 
   auto output = at::empty(input.sizes(), input.options().dtype(at::kFloat8_e4m3fn));
   auto output_scale = at::empty({batch, rows_per_batch, groups}, input.options().dtype(at::kFloat));
+  at::Tensor output_scale_swizzled;
+  __nv_fp8_storage_t* output_scale_swizzled_ptr = nullptr;
+  const int64_t padded_groups = ((groups + 3) / 4) * 4;
+  if (output_scale_swizzled_out != nullptr) {
+    output_scale_swizzled = make_flat_swizzled_scale(input, rows, groups);
+    output_scale_swizzled_ptr = reinterpret_cast<__nv_fp8_storage_t*>(output_scale_swizzled.data_ptr());
+    *output_scale_swizzled_out = output_scale_swizzled;
+  }
   auto* input_ptr = reinterpret_cast<const __nv_bfloat16*>(input.data_ptr());
   auto* output_ptr = reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr());
   auto* scale_ptr = output_scale.data_ptr<float>();
@@ -1916,19 +1977,19 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16(
     const int quantize_blocks = static_cast<int>((rows + 7) / 8);
     if (residual_payload_ptr != nullptr) {
       quantize_block32_bf16_specialized_kernel<128, false, false, true><<<quantize_blocks, 256, 0, stream>>>(
-          input_ptr, nullptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, static_cast<int>(rows));
+          input_ptr, nullptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
     } else {
       quantize_block32_bf16_specialized_kernel<128, false, false, false><<<quantize_blocks, 256, 0, stream>>>(
-          input_ptr, nullptr, nullptr, nullptr, output_ptr, scale_ptr, static_cast<int>(rows));
+          input_ptr, nullptr, nullptr, nullptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
     }
   } else if (cols == 512) {
     const int quantize_blocks = static_cast<int>((rows + 1) / 2);
     if (residual_payload_ptr != nullptr) {
       quantize_block32_bf16_specialized_kernel<512, false, false, true><<<quantize_blocks, 256, 0, stream>>>(
-          input_ptr, nullptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, static_cast<int>(rows));
+          input_ptr, nullptr, residual_payload_ptr, residual_scale_ptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
     } else {
       quantize_block32_bf16_specialized_kernel<512, false, false, false><<<quantize_blocks, 256, 0, stream>>>(
-          input_ptr, nullptr, nullptr, nullptr, output_ptr, scale_ptr, static_cast<int>(rows));
+          input_ptr, nullptr, nullptr, nullptr, output_ptr, scale_ptr, output_scale_swizzled_ptr, static_cast<int>(padded_groups), static_cast<int>(rows));
     }
   } else {
     quantize_block32_bf16_generic_kernel<<<rows, cols, 0, stream>>>(
@@ -1937,9 +1998,11 @@ std::tuple<at::Tensor, at::Tensor> quantize_block32_bf16(
         residual_scale_ptr,
         output_ptr,
         scale_ptr,
+        output_scale_swizzled_ptr,
         static_cast<int>(rows),
         static_cast<int>(cols),
-        static_cast<int>(groups));
+        static_cast<int>(groups),
+        static_cast<int>(padded_groups));
   }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {output, output_scale};
@@ -1951,7 +2014,8 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_quantize_bf16(
     const c10::optional<at::Tensor>& lhs_bias_opt,
     const c10::optional<at::Tensor>& rhs_bias_opt,
     const c10::optional<at::Tensor>& residual_payload_opt = c10::nullopt,
-    const c10::optional<at::Tensor>& residual_scale_opt = c10::nullopt) {
+    const c10::optional<at::Tensor>& residual_scale_opt = c10::nullopt,
+    at::Tensor* output_scale_swizzled_out = nullptr) {
   TORCH_CHECK(lhs.scalar_type() == c10::ScalarType::BFloat16 && rhs.scalar_type() == c10::ScalarType::BFloat16,
               "gate_sigmoid_mul_quantize_bf16 expects bfloat16 inputs");
   TORCH_CHECK(lhs.sizes() == rhs.sizes(), "lhs and rhs gate inputs must have the same shape");
@@ -2008,6 +2072,14 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_quantize_bf16(
 
   auto output = at::empty(lhs.sizes(), lhs.options().dtype(at::kFloat8_e4m3fn));
   auto output_scale = at::empty({batch, rows_per_batch, groups}, lhs.options().dtype(at::kFloat));
+  at::Tensor output_scale_swizzled;
+  __nv_fp8_storage_t* output_scale_swizzled_ptr = nullptr;
+  const int64_t padded_groups = ((groups + 3) / 4) * 4;
+  if (output_scale_swizzled_out != nullptr) {
+    output_scale_swizzled = make_flat_swizzled_scale(lhs, rows, groups);
+    output_scale_swizzled_ptr = reinterpret_cast<__nv_fp8_storage_t*>(output_scale_swizzled.data_ptr());
+    *output_scale_swizzled_out = output_scale_swizzled;
+  }
   if (cols == 128 && lhs_bias_ptr != nullptr && rhs_bias_ptr != nullptr) {
     const int gate_blocks = static_cast<int>((rows + 7) / 8);
     if (residual_payload_ptr != nullptr) {
@@ -2020,6 +2092,8 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_quantize_bf16(
           residual_scale_ptr,
           reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr()),
           output_scale.data_ptr<float>(),
+          output_scale_swizzled_ptr,
+          static_cast<int>(padded_groups),
           static_cast<int>(rows));
     } else {
       gate_sigmoid_mul_quantize_bf16_128_kernel<false><<<gate_blocks, 256, 0, current_cuda_stream()>>>(
@@ -2031,6 +2105,8 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_quantize_bf16(
           nullptr,
           reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr()),
           output_scale.data_ptr<float>(),
+          output_scale_swizzled_ptr,
+          static_cast<int>(padded_groups),
           static_cast<int>(rows));
     }
   } else {
@@ -2043,9 +2119,11 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_quantize_bf16(
         residual_scale_ptr,
         reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr()),
         output_scale.data_ptr<float>(),
+        output_scale_swizzled_ptr,
         static_cast<int>(rows),
         static_cast<int>(cols),
-        static_cast<int>(groups));
+        static_cast<int>(groups),
+        static_cast<int>(padded_groups));
   }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
   return {output, output_scale};
@@ -2117,7 +2195,8 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_impl(
     const at::Tensor& scale,
     const at::Tensor& weight,
     const at::Tensor& bias,
-    float eps) {
+    float eps,
+    at::Tensor* output_scale_swizzled_out = nullptr) {
   check_cuda_tensor(payload, "payload");
   check_cuda_tensor(scale, "scale");
   check_cuda_tensor(weight, "weight");
@@ -2134,6 +2213,14 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_impl(
               "weight and bias must be bfloat16");
   auto output = at::empty_like(payload);
   auto output_scale = at::empty_like(scale);
+  at::Tensor output_scale_swizzled;
+  __nv_fp8_storage_t* output_scale_swizzled_ptr = nullptr;
+  const int64_t padded_groups = ((groups + 3) / 4) * 4;
+  if (output_scale_swizzled_out != nullptr) {
+    output_scale_swizzled = make_flat_swizzled_scale(payload, rows, groups);
+    output_scale_swizzled_ptr = reinterpret_cast<__nv_fp8_storage_t*>(output_scale_swizzled.data_ptr());
+    *output_scale_swizzled_out = output_scale_swizzled;
+  }
   if (cols == 64) {
     const int layernorm_blocks_small = static_cast<int>((rows + 7) / 8);
     layernorm_block32_kernel_small<64><<<layernorm_blocks_small, 256, 0, current_cuda_stream()>>>(
@@ -2143,8 +2230,10 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_impl(
         reinterpret_cast<const __nv_bfloat16*>(bias.data_ptr()),
         reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr()),
         output_scale.data_ptr<float>(),
+        output_scale_swizzled_ptr,
         static_cast<int>(rows),
         static_cast<int>(groups),
+        static_cast<int>(padded_groups),
         eps);
   } else if (cols == 128) {
     const int layernorm_blocks_small = static_cast<int>((rows + 7) / 8);
@@ -2155,8 +2244,10 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_impl(
         reinterpret_cast<const __nv_bfloat16*>(bias.data_ptr()),
         reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr()),
         output_scale.data_ptr<float>(),
+        output_scale_swizzled_ptr,
         static_cast<int>(rows),
         static_cast<int>(groups),
+        static_cast<int>(padded_groups),
         eps);
   } else {
     const size_t shared_bytes = static_cast<size_t>(cols) * sizeof(float);
@@ -2167,9 +2258,11 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_impl(
         reinterpret_cast<const __nv_bfloat16*>(bias.data_ptr()),
         reinterpret_cast<__nv_fp8_storage_t*>(output.data_ptr()),
         output_scale.data_ptr<float>(),
+        output_scale_swizzled_ptr,
         static_cast<int>(rows),
         static_cast<int>(cols),
         static_cast<int>(groups),
+        static_cast<int>(padded_groups),
         eps);
   }
   C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -2567,11 +2660,6 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
                 "residual tensors must be on the same CUDA device as a");
   }
 
-  const bool use_direct_output = direct_fp8_output && bias.has_value() && !apply_relu;
-  const bool use_fused_bias_epilogue = fuse_bias_epilogue && bias.has_value();
-  const auto epilogue =
-      use_fused_bias_epilogue ? (apply_relu ? CUBLASLT_EPILOGUE_RELU_BIAS : CUBLASLT_EPILOGUE_BIAS)
-                              : CUBLASLT_EPILOGUE_DEFAULT;
   auto dense = run_mxfp8_cublaslt_bmm(
       a,
       b_t,
@@ -2579,12 +2667,75 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
       b_scale_swizzled,
       out_dtype,
       false,
-      (use_direct_output || use_fused_bias_epilogue) ? bias : c10::nullopt,
-      epilogue);
-  if (use_direct_output || use_fused_bias_epilogue) {
-    return quantize_block32_bf16(dense, residual_payload, residual_scale);
-  }
+      c10::nullopt,
+      CUBLASLT_EPILOGUE_DEFAULT);
   return quantize_block32_bf16_with_bias(dense, bias, residual_payload, residual_scale, apply_relu);
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> linear_block32_fused_with_swizzled_scale_cuda(
+    const at::Tensor& a,
+    const at::Tensor& b_t,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& b_scale_swizzled,
+    const c10::optional<at::Tensor>& bias,
+    const std::string& out_dtype_str,
+    bool apply_relu,
+    bool direct_fp8_output,
+    bool fuse_bias_epilogue,
+    const c10::optional<at::Tensor>& residual_payload,
+    const c10::optional<at::Tensor>& residual_scale) {
+  const auto out_dtype = parse_out_dtype(out_dtype_str);
+  TORCH_CHECK(out_dtype == c10::ScalarType::BFloat16,
+              "MiniFold native fused linear path currently supports out_dtype='bfloat16' only");
+
+  check_cuda_tensor(a, "a");
+  check_cuda_tensor(b_t, "b_t");
+  check_cuda_tensor(a_scale_swizzled, "a_scale_swizzled");
+  check_cuda_tensor(b_scale_swizzled, "b_scale_swizzled");
+  TORCH_CHECK(a.dim() == 3 && b_t.dim() == 3, "linear_block32_fused expects 3D tensors");
+  TORCH_CHECK(
+      a.scalar_type() == c10::ScalarType::Float8_e4m3fn || a.scalar_type() == c10::ScalarType::Float8_e5m2,
+      "a must be FP8");
+  TORCH_CHECK(b_t.scalar_type() == a.scalar_type(), "a and b_t must have matching FP8 dtype");
+  TORCH_CHECK(a_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu,
+              "a_scale_swizzled must use torch.float8_e8m0fnu");
+  TORCH_CHECK(b_scale_swizzled.scalar_type() == c10::ScalarType::Float8_e8m0fnu,
+              "b_scale_swizzled must use torch.float8_e8m0fnu");
+  TORCH_CHECK(a.size(0) == b_t.size(0), "batch dimensions must match");
+  TORCH_CHECK(a.size(2) == b_t.size(2), "K dimensions must match");
+  TORCH_CHECK(a.size(1) % 32 == 0 && a.size(2) % 32 == 0 && b_t.size(1) % 32 == 0,
+              "MiniFold native fused linear path requires M, N, and K divisible by 32");
+
+  set_cuda_device(a);
+  validate_sm100_plus();
+  check_same_device(a, b_t, a_scale_swizzled, b_scale_swizzled);
+  if (bias.has_value()) {
+    check_cuda_tensor(bias.value(), "bias");
+    TORCH_CHECK(bias.value().device() == a.device(), "bias must be on the same CUDA device as a");
+  }
+  if (residual_payload.has_value() || residual_scale.has_value()) {
+    TORCH_CHECK(residual_payload.has_value() && residual_scale.has_value(),
+                "residual_payload and residual_scale must be provided together");
+    check_cuda_tensor(residual_payload.value(), "residual_payload");
+    check_cuda_tensor(residual_scale.value(), "residual_scale");
+    TORCH_CHECK(residual_payload.value().device() == a.device() && residual_scale.value().device() == a.device(),
+                "residual tensors must be on the same CUDA device as a");
+  }
+
+  auto dense = run_mxfp8_cublaslt_bmm(
+      a,
+      b_t,
+      a_scale_swizzled,
+      b_scale_swizzled,
+      out_dtype,
+      false,
+      c10::nullopt,
+      CUBLASLT_EPILOGUE_DEFAULT);
+  at::Tensor output_scale_swizzled;
+  std::tuple<at::Tensor, at::Tensor> result;
+  result = quantize_block32_bf16_with_bias(
+      dense, bias, residual_payload, residual_scale, apply_relu, &output_scale_swizzled);
+  return {std::get<0>(result), std::get<1>(result), output_scale_swizzled};
 }
 
 at::Tensor linear_block32_raw_debug_cuda(
@@ -2637,11 +2788,6 @@ at::Tensor linear_block32_raw_debug_cuda(
                 "residual tensors must be on the same CUDA device as a");
   }
 
-  const bool use_direct_output = direct_fp8_output && bias.has_value() && !apply_relu;
-  const bool use_fused_bias_epilogue = fuse_bias_epilogue && bias.has_value();
-  const auto epilogue =
-      use_fused_bias_epilogue ? (apply_relu ? CUBLASLT_EPILOGUE_RELU_BIAS : CUBLASLT_EPILOGUE_BIAS)
-                              : CUBLASLT_EPILOGUE_DEFAULT;
   auto dense = run_mxfp8_cublaslt_bmm(
       a,
       b_t,
@@ -2649,15 +2795,13 @@ at::Tensor linear_block32_raw_debug_cuda(
       b_scale_swizzled,
       out_dtype,
       false,
-      (use_direct_output || use_fused_bias_epilogue) ? bias : c10::nullopt,
-      epilogue);
-  if (!(use_direct_output || use_fused_bias_epilogue)) {
-    if (bias.has_value()) {
-      dense = dense + bias.value().view({1, 1, bias.value().size(0)});
-    }
-    if (apply_relu) {
-      dense = at::relu(dense);
-    }
+      c10::nullopt,
+      CUBLASLT_EPILOGUE_DEFAULT);
+  if (bias.has_value()) {
+    dense = dense + bias.value().view({1, 1, bias.value().size(0)});
+  }
+  if (apply_relu) {
+    dense = at::relu(dense);
   }
   return add_block32_residual_if_present(dense, residual_payload, residual_scale);
 }
@@ -2786,6 +2930,50 @@ std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_cuda(
   auto lhs_dense = run_mxfp8_cublaslt_bmm(a, lhs_b_t, a_scale_swizzled, lhs_scale_swizzled, out_dtype, false);
   auto rhs_dense = run_mxfp8_cublaslt_bmm(a, rhs_b_t, a_scale_swizzled, rhs_scale_swizzled, out_dtype, false);
   return gate_sigmoid_mul_quantize_bf16(lhs_dense, rhs_dense, lhs_bias, rhs_bias, residual_payload, residual_scale);
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_with_swizzled_scale_cuda(
+    const at::Tensor& a,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& lhs_b_t,
+    const at::Tensor& lhs_scale_swizzled,
+    const c10::optional<at::Tensor>& lhs_bias,
+    const at::Tensor& rhs_b_t,
+    const at::Tensor& rhs_scale_swizzled,
+    const c10::optional<at::Tensor>& rhs_bias,
+    const std::string& out_dtype_str,
+    const c10::optional<at::Tensor>& residual_payload,
+    const c10::optional<at::Tensor>& residual_scale) {
+  const auto out_dtype = parse_out_dtype(out_dtype_str);
+  TORCH_CHECK(out_dtype == c10::ScalarType::BFloat16,
+              "gate_sigmoid_mul_block32_fused currently supports out_dtype='bfloat16' only");
+  check_cuda_tensor(a, "a");
+  check_cuda_tensor(lhs_b_t, "lhs_b_t");
+  check_cuda_tensor(rhs_b_t, "rhs_b_t");
+  check_cuda_tensor(a_scale_swizzled, "a_scale_swizzled");
+  check_cuda_tensor(lhs_scale_swizzled, "lhs_scale_swizzled");
+  check_cuda_tensor(rhs_scale_swizzled, "rhs_scale_swizzled");
+  TORCH_CHECK(a.dim() == 3 && lhs_b_t.dim() == 3 && rhs_b_t.dim() == 3, "gate_sigmoid_mul_block32_fused expects 3D tensors");
+  TORCH_CHECK(a.size(0) == lhs_b_t.size(0) && a.size(0) == rhs_b_t.size(0), "batch dimensions must match");
+  TORCH_CHECK(a.size(2) == lhs_b_t.size(2) && a.size(2) == rhs_b_t.size(2), "K dimensions must match");
+  TORCH_CHECK(lhs_b_t.size(1) == rhs_b_t.size(1), "lhs and rhs gate outputs must have matching width");
+  if (residual_payload.has_value() || residual_scale.has_value()) {
+    TORCH_CHECK(residual_payload.has_value() && residual_scale.has_value(),
+                "residual_payload and residual_scale must be provided together");
+    check_cuda_tensor(residual_payload.value(), "residual_payload");
+    check_cuda_tensor(residual_scale.value(), "residual_scale");
+    TORCH_CHECK(residual_payload.value().device() == a.device() && residual_scale.value().device() == a.device(),
+                "residual tensors must be on the same CUDA device as a");
+  }
+
+  set_cuda_device(a);
+  validate_sm100_plus();
+  auto lhs_dense = run_mxfp8_cublaslt_bmm(a, lhs_b_t, a_scale_swizzled, lhs_scale_swizzled, out_dtype, false);
+  auto rhs_dense = run_mxfp8_cublaslt_bmm(a, rhs_b_t, a_scale_swizzled, rhs_scale_swizzled, out_dtype, false);
+  at::Tensor output_scale_swizzled;
+  auto result = gate_sigmoid_mul_quantize_bf16(
+      lhs_dense, rhs_dense, lhs_bias, rhs_bias, residual_payload, residual_scale, &output_scale_swizzled);
+  return {std::get<0>(result), std::get<1>(result), output_scale_swizzled};
 }
 
 at::Tensor gate_sigmoid_mul_block32_raw_debug_cuda(
@@ -3150,6 +3338,17 @@ std::tuple<at::Tensor, at::Tensor> layernorm_block32_cuda(
     const at::Tensor& bias,
     double eps) {
   return layernorm_block32_impl(payload, scale, weight, bias, static_cast<float>(eps));
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> layernorm_block32_with_swizzled_scale_cuda(
+    const at::Tensor& payload,
+    const at::Tensor& scale,
+    const at::Tensor& weight,
+    const at::Tensor& bias,
+    double eps) {
+  at::Tensor output_scale_swizzled;
+  auto result = layernorm_block32_impl(payload, scale, weight, bias, static_cast<float>(eps), &output_scale_swizzled);
+  return {std::get<0>(result), std::get<1>(result), output_scale_swizzled};
 }
 
 }  // namespace minifold_native_ext

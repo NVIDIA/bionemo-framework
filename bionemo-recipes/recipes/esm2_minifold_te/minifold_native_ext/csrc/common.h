@@ -34,6 +34,19 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
     const c10::optional<at::Tensor>& residual_payload = c10::nullopt,
     const c10::optional<at::Tensor>& residual_scale = c10::nullopt);
 
+std::tuple<at::Tensor, at::Tensor, at::Tensor> linear_block32_fused_with_swizzled_scale_cuda(
+    const at::Tensor& a,
+    const at::Tensor& b_t,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& b_scale_swizzled,
+    const c10::optional<at::Tensor>& bias,
+    const std::string& out_dtype,
+    bool apply_relu = false,
+    bool direct_fp8_output = false,
+    bool fuse_bias_epilogue = false,
+    const c10::optional<at::Tensor>& residual_payload = c10::nullopt,
+    const c10::optional<at::Tensor>& residual_scale = c10::nullopt);
+
 at::Tensor linear_block32_raw_debug_cuda(
     const at::Tensor& a,
     const at::Tensor& b_t,
@@ -79,6 +92,19 @@ at::Tensor transition_fc2_residual_bf16_fused_cuda(
     const at::Tensor& residual);
 
 std::tuple<at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_cuda(
+    const at::Tensor& a,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& lhs_b_t,
+    const at::Tensor& lhs_scale_swizzled,
+    const c10::optional<at::Tensor>& lhs_bias,
+    const at::Tensor& rhs_b_t,
+    const at::Tensor& rhs_scale_swizzled,
+    const c10::optional<at::Tensor>& rhs_bias,
+    const std::string& out_dtype,
+    const c10::optional<at::Tensor>& residual_payload = c10::nullopt,
+    const c10::optional<at::Tensor>& residual_scale = c10::nullopt);
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> gate_sigmoid_mul_block32_fused_with_swizzled_scale_cuda(
     const at::Tensor& a,
     const at::Tensor& a_scale_swizzled,
     const at::Tensor& lhs_b_t,
@@ -185,6 +211,13 @@ std::tuple<at::Tensor, at::Tensor> add_block32_cuda(
     const at::Tensor& rhs_scale);
 
 std::tuple<at::Tensor, at::Tensor> layernorm_block32_cuda(
+    const at::Tensor& payload,
+    const at::Tensor& scale,
+    const at::Tensor& weight,
+    const at::Tensor& bias,
+    double eps);
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> layernorm_block32_with_swizzled_scale_cuda(
     const at::Tensor& payload,
     const at::Tensor& scale,
     const at::Tensor& weight,
