@@ -130,6 +130,8 @@ _NATIVE_SWIZZLED_SCALE_LINEAR = _NATIVE_SWIZZLED_SCALE_OUTPUT_MODE in {
     "linear",
 }
 _NATIVE_SWIZZLED_SCALE_GATE = _NATIVE_SWIZZLED_SCALE_OUTPUT_MODE in {"1", "all", "gate"}
+_NATIVE_DIRECT_MXFP8_OUTPUT_MODE = os.getenv("MINIFOLD_NATIVE_DIRECT_MXFP8_OUTPUT", "off").strip().lower()
+_NATIVE_DIRECT_MXFP8_OUTPUT = _NATIVE_DIRECT_MXFP8_OUTPUT_MODE in {"1", "true", "on", "yes", "all"}
 
 
 def resolve_pair_precision(pair_precision: str | None = None, fp8_activations: bool | None = None) -> str:
@@ -1143,6 +1145,17 @@ def native_linear_forward_quantized(
             and getattr(module, "_native_fc1_direct_supported", True)
         )
         use_direct_output = direct_fp8_output and getattr(module, "_native_direct_fp8_output_supported", True)
+        b_col_direct = None
+        if (
+            _NATIVE_DIRECT_MXFP8_OUTPUT
+            and use_direct_output
+            and not apply_relu
+            and residual_payload_chunk is None
+            and residual_scale_chunk is None
+            and not use_gold_output_pack
+            and isinstance(getattr(module, "weight_mxfp8_cutlass_col", None), torch.Tensor)
+        ):
+            b_col_direct = module.weight_mxfp8_cutlass_col.contiguous()
         support_attr = "_native_relu_bias_epilogue_supported" if apply_relu else "_native_bias_epilogue_supported"
         use_fused_bias_epilogue = fuse_bias_epilogue and getattr(module, support_attr, True)
         residual_payload_3d = None
@@ -1169,7 +1182,7 @@ def native_linear_forward_quantized(
                 return payload, scale, None
         current_direct_output = use_direct_output
         current_fused_bias_epilogue = use_fused_bias_epilogue
-        if module.bias is not None and (in_dim, out_dim) in ((128, 512), (512, 128)):
+        if module.bias is not None and b_col_direct is None and (in_dim, out_dim) in ((128, 512), (512, 128)):
             # These transition epilogues have no stable cuBLASLt heuristic on this node.
             current_direct_output = False
             current_fused_bias_epilogue = False
@@ -1190,6 +1203,7 @@ def native_linear_forward_quantized(
                         current_fused_bias_epilogue,
                         residual_payload_3d,
                         residual_scale_3d,
+                        b_col_direct,
                     )
                 else:
                     linear_op = (
@@ -1210,6 +1224,7 @@ def native_linear_forward_quantized(
                             current_fused_bias_epilogue,
                             residual_payload_3d,
                             residual_scale_3d,
+                            b_col_direct,
                         )
                         output_scale_swizzled = None
                     else:
@@ -1225,6 +1240,7 @@ def native_linear_forward_quantized(
                             current_fused_bias_epilogue,
                             residual_payload_3d,
                             residual_scale_3d,
+                            b_col_direct,
                         )
                 break
             except RuntimeError as exc:

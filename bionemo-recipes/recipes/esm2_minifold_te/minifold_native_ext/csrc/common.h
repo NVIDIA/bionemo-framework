@@ -32,7 +32,8 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
     bool direct_fp8_output = false,
     bool fuse_bias_epilogue = false,
     const c10::optional<at::Tensor>& residual_payload = c10::nullopt,
-    const c10::optional<at::Tensor>& residual_scale = c10::nullopt);
+    const c10::optional<at::Tensor>& residual_scale = c10::nullopt,
+    const c10::optional<at::Tensor>& b_col_direct = c10::nullopt);
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> linear_block32_fused_with_swizzled_scale_cuda(
     const at::Tensor& a,
@@ -45,7 +46,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> linear_block32_fused_with_swizzle
     bool direct_fp8_output = false,
     bool fuse_bias_epilogue = false,
     const c10::optional<at::Tensor>& residual_payload = c10::nullopt,
-    const c10::optional<at::Tensor>& residual_scale = c10::nullopt);
+    const c10::optional<at::Tensor>& residual_scale = c10::nullopt,
+    const c10::optional<at::Tensor>& b_col_direct = c10::nullopt);
 
 at::Tensor linear_block32_raw_debug_cuda(
     const at::Tensor& a,
@@ -58,7 +60,8 @@ at::Tensor linear_block32_raw_debug_cuda(
     bool direct_fp8_output = false,
     bool fuse_bias_epilogue = false,
     const c10::optional<at::Tensor>& residual_payload = c10::nullopt,
-    const c10::optional<at::Tensor>& residual_scale = c10::nullopt);
+    const c10::optional<at::Tensor>& residual_scale = c10::nullopt,
+    const c10::optional<at::Tensor>& b_col_direct = c10::nullopt);
 
 std::tuple<at::Tensor, at::Tensor> linear_block32_fc1_direct_cuda(
     const at::Tensor& a,

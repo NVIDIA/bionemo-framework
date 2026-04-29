@@ -7,8 +7,14 @@
 #include <cublasLt.h>
 #include <torch/extension.h>
 
+#include <algorithm>
 #include <cmath>
+#include <cctype>
+#include <cstdlib>
+#include <cstring>
+#include <limits>
 #include <memory>
+#include <string>
 
 namespace minifold_native_ext {
 
@@ -46,6 +52,20 @@ void validate_sm100_plus() {
 inline cudaStream_t current_cuda_stream() {
   return static_cast<cudaStream_t>(0);
 }
+
+bool read_env_flag(const char* name) {
+  const char* raw = std::getenv(name);
+  if (raw == nullptr) {
+    return false;
+  }
+  std::string value(raw);
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return value == "1" || value == "true" || value == "on" || value == "yes" || value == "all";
+}
+
+const bool kDirectMxFp8OutputEnabled = read_env_flag("MINIFOLD_NATIVE_DIRECT_MXFP8_OUTPUT");
 
 void set_cuda_device(const at::Tensor& t) {
   TORCH_CHECK(cudaSetDevice(static_cast<int>(t.get_device())) == cudaSuccess, "failed to set CUDA device");
@@ -589,6 +609,273 @@ std::tuple<at::Tensor, at::Tensor> run_mxfp8_cublaslt_bmm_direct_output(
     return run_mxfp8_cublaslt_bmm_direct_output_impl(
         a, b, a_scale_swizzled, b_scale_swizzled, bias, epilogue, false);
   }
+}
+
+struct CublasLtDirectMxFp8TransposePlan {
+  cublasLtMatmulDesc_t op_desc = nullptr;
+  cublasLtMatrixLayout_t a_desc = nullptr;
+  cublasLtMatrixLayout_t b_desc = nullptr;
+  cublasLtMatrixLayout_t c_desc = nullptr;
+  cublasLtMatrixLayout_t d_desc = nullptr;
+  cublasLtMatmulPreference_t preference = nullptr;
+  cublasLtMatmulHeuristicResult_t heuristic{};
+  int device_index = -1;
+  int64_t batch = -1;
+  int64_t m = -1;
+  int64_t k = -1;
+  int64_t n = -1;
+  c10::ScalarType bias_dtype = c10::ScalarType::Undefined;
+  bool use_bias = false;
+
+  ~CublasLtDirectMxFp8TransposePlan() {
+    if (preference != nullptr) cublasLtMatmulPreferenceDestroy(preference);
+    if (a_desc != nullptr) cublasLtMatrixLayoutDestroy(a_desc);
+    if (b_desc != nullptr) cublasLtMatrixLayoutDestroy(b_desc);
+    if (c_desc != nullptr) cublasLtMatrixLayoutDestroy(c_desc);
+    if (d_desc != nullptr) cublasLtMatrixLayoutDestroy(d_desc);
+    if (op_desc != nullptr) cublasLtMatmulDescDestroy(op_desc);
+  }
+
+  bool matches(
+      int device,
+      int64_t batch_,
+      int64_t m_,
+      int64_t k_,
+      int64_t n_,
+      bool use_bias_,
+      c10::ScalarType bias_dtype_) const {
+    return device_index == device && batch == batch_ && m == m_ && k == k_ && n == n_ &&
+        use_bias == use_bias_ && bias_dtype == bias_dtype_;
+  }
+};
+
+void invalidate_direct_mxfp8_transpose_plan(CublasLtDirectMxFp8TransposePlan* plan) {
+  plan->device_index = -1;
+  plan->batch = -1;
+  plan->m = -1;
+  plan->k = -1;
+  plan->n = -1;
+  plan->bias_dtype = c10::ScalarType::Undefined;
+  plan->use_bias = false;
+  plan->heuristic = {};
+}
+
+void init_direct_mxfp8_transpose_plan(
+    CublasLtDirectMxFp8TransposePlan* plan,
+    int device_index,
+    int64_t batch,
+    int64_t m,
+    int64_t k,
+    int64_t n,
+    bool use_bias,
+    c10::ScalarType bias_dtype,
+    const void* a_scale_ptr,
+    const void* b_scale_ptr,
+    const void* bias_ptr,
+    const void* d_out_scale_ptr,
+    cublasLtHandle_t lt_handle) {
+  if (plan->preference != nullptr) cublasLtMatmulPreferenceDestroy(plan->preference);
+  if (plan->a_desc != nullptr) cublasLtMatrixLayoutDestroy(plan->a_desc);
+  if (plan->b_desc != nullptr) cublasLtMatrixLayoutDestroy(plan->b_desc);
+  if (plan->c_desc != nullptr) cublasLtMatrixLayoutDestroy(plan->c_desc);
+  if (plan->d_desc != nullptr) cublasLtMatrixLayoutDestroy(plan->d_desc);
+  if (plan->op_desc != nullptr) cublasLtMatmulDescDestroy(plan->op_desc);
+  plan->preference = nullptr;
+  plan->a_desc = nullptr;
+  plan->b_desc = nullptr;
+  plan->c_desc = nullptr;
+  plan->d_desc = nullptr;
+  plan->op_desc = nullptr;
+  invalidate_direct_mxfp8_transpose_plan(plan);
+
+  const cublasOperation_t transa = CUBLAS_OP_N;
+  const cublasOperation_t transb = CUBLAS_OP_N;
+  const cublasLtEpilogue_t epilogue = use_bias ? CUBLASLT_EPILOGUE_BIAS : CUBLASLT_EPILOGUE_DEFAULT;
+  const int32_t order_col = CUBLASLT_ORDER_COL;
+  const int32_t batch_count_i32 = static_cast<int32_t>(batch);
+  const int64_t a_batch_stride = k * n;
+  const int64_t b_batch_stride = m * k;
+  const int64_t cd_batch_stride = m * n;
+  const int32_t scale_mode = CUBLASLT_MATMUL_MATRIX_SCALE_VEC32_UE8M0;
+  const size_t workspace_size = kWorkspaceBytes;
+
+  CUBLASLT_CHECK(cublasLtMatmulDescCreate(&plan->op_desc, CUBLAS_COMPUTE_32F, CUDA_R_32F));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(plan->op_desc, CUBLASLT_MATMUL_DESC_TRANSA, &transa, sizeof(transa)));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(plan->op_desc, CUBLASLT_MATMUL_DESC_TRANSB, &transb, sizeof(transb)));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+      plan->op_desc, CUBLASLT_MATMUL_DESC_EPILOGUE, &epilogue, sizeof(epilogue)));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+      plan->op_desc, CUBLASLT_MATMUL_DESC_A_SCALE_MODE, &scale_mode, sizeof(scale_mode)));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+      plan->op_desc, CUBLASLT_MATMUL_DESC_B_SCALE_MODE, &scale_mode, sizeof(scale_mode)));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+      plan->op_desc, CUBLASLT_MATMUL_DESC_A_SCALE_POINTER, &a_scale_ptr, sizeof(a_scale_ptr)));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+      plan->op_desc, CUBLASLT_MATMUL_DESC_B_SCALE_POINTER, &b_scale_ptr, sizeof(b_scale_ptr)));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+      plan->op_desc, CUBLASLT_MATMUL_DESC_D_OUT_SCALE_MODE, &scale_mode, sizeof(scale_mode)));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+      plan->op_desc, CUBLASLT_MATMUL_DESC_D_OUT_SCALE_POINTER, &d_out_scale_ptr, sizeof(d_out_scale_ptr)));
+  if (use_bias) {
+    const auto bias_cuda_dtype = to_cuda_dtype(bias_dtype);
+    CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+        plan->op_desc, CUBLASLT_MATMUL_DESC_BIAS_DATA_TYPE, &bias_cuda_dtype, sizeof(bias_cuda_dtype)));
+    CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+        plan->op_desc, CUBLASLT_MATMUL_DESC_BIAS_POINTER, &bias_ptr, sizeof(bias_ptr)));
+  }
+
+  // Transpose trick: cuBLAS sees D as col-major NxM, while bytes remain row-major MxN.
+  CUBLASLT_CHECK(cublasLtMatrixLayoutCreate(&plan->a_desc, CUDA_R_8F_E4M3, n, k, n));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutCreate(&plan->b_desc, CUDA_R_8F_E4M3, k, m, k));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutCreate(&plan->c_desc, CUDA_R_16BF, n, m, n));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutCreate(&plan->d_desc, CUDA_R_8F_E4M3, n, m, n));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->a_desc, CUBLASLT_MATRIX_LAYOUT_ORDER, &order_col, sizeof(order_col)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->b_desc, CUBLASLT_MATRIX_LAYOUT_ORDER, &order_col, sizeof(order_col)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->c_desc, CUBLASLT_MATRIX_LAYOUT_ORDER, &order_col, sizeof(order_col)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->d_desc, CUBLASLT_MATRIX_LAYOUT_ORDER, &order_col, sizeof(order_col)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->a_desc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_count_i32, sizeof(batch_count_i32)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->b_desc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_count_i32, sizeof(batch_count_i32)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->c_desc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_count_i32, sizeof(batch_count_i32)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->d_desc, CUBLASLT_MATRIX_LAYOUT_BATCH_COUNT, &batch_count_i32, sizeof(batch_count_i32)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->a_desc, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &a_batch_stride, sizeof(a_batch_stride)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->b_desc, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &b_batch_stride, sizeof(b_batch_stride)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->c_desc, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &cd_batch_stride, sizeof(cd_batch_stride)));
+  CUBLASLT_CHECK(cublasLtMatrixLayoutSetAttribute(
+      plan->d_desc, CUBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET, &cd_batch_stride, sizeof(cd_batch_stride)));
+
+  CUBLASLT_CHECK(cublasLtMatmulPreferenceCreate(&plan->preference));
+  CUBLASLT_CHECK(cublasLtMatmulPreferenceSetAttribute(
+      plan->preference, CUBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES, &workspace_size, sizeof(workspace_size)));
+  int returned_results = 0;
+  CUBLASLT_CHECK(cublasLtMatmulAlgoGetHeuristic(
+      lt_handle,
+      plan->op_desc,
+      plan->a_desc,
+      plan->b_desc,
+      plan->c_desc,
+      plan->d_desc,
+      plan->preference,
+      1,
+      &plan->heuristic,
+      &returned_results));
+  TORCH_CHECK(returned_results > 0, "cuBLASLt found no heuristic for direct MXFP8-output transpose GEMM");
+
+  plan->device_index = device_index;
+  plan->batch = batch;
+  plan->m = m;
+  plan->k = k;
+  plan->n = n;
+  plan->use_bias = use_bias;
+  plan->bias_dtype = bias_dtype;
+}
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> run_mxfp8_cublaslt_bmm_direct_output_transposed(
+    const at::Tensor& a,
+    const at::Tensor& b_col,
+    const at::Tensor& a_scale_swizzled,
+    const at::Tensor& b_scale_swizzled,
+    const c10::optional<at::Tensor>& bias) {
+  static cublasLtHandle_t lt_handle = nullptr;
+  if (lt_handle == nullptr) {
+    CUBLASLT_CHECK(cublasLtCreate(&lt_handle));
+  }
+
+  const int64_t batch = a.size(0);
+  const int64_t m = a.size(1);
+  const int64_t k = a.size(2);
+  const int64_t n = b_col.size(2);
+  TORCH_CHECK(a.scalar_type() == c10::ScalarType::Float8_e4m3fn, "direct MXFP8 output requires E4M3 activations");
+  TORCH_CHECK(b_col.scalar_type() == c10::ScalarType::Float8_e4m3fn, "direct MXFP8 output requires E4M3 weights");
+  TORCH_CHECK(b_col.dim() == 3, "b_col must be 3D");
+  TORCH_CHECK(b_col.size(0) == batch && b_col.size(1) == k, "b_col must have shape [batch, K, N]");
+  TORCH_CHECK(n % 32 == 0, "direct MXFP8 output requires output width divisible by 32, got ", n);
+  TORCH_CHECK(batch <= std::numeric_limits<int32_t>::max(), "batch count exceeds cuBLASLt int32 limit");
+  if (bias.has_value()) {
+    TORCH_CHECK(bias->dim() == 1 && bias->size(0) == n, "bias shape must match output width");
+    TORCH_CHECK(bias->scalar_type() == c10::ScalarType::BFloat16, "direct MXFP8 output bias must be bfloat16");
+  }
+
+  auto out = at::empty({batch, m, n}, a.options().dtype(at::kFloat8_e4m3fn));
+  auto c = at::empty({batch, m, n}, a.options().dtype(at::kBFloat16));
+  const int64_t groups = n / 32;
+  const int64_t padded_rows = ((m + 127) / 128) * 128;
+  const int64_t padded_cols = ((groups + 3) / 4) * 4;
+  auto out_scale_swizzled = at::full(
+      {batch, padded_rows, padded_cols},
+      kMinPow2Scale,
+      a.options().dtype(at::kFloat8_e8m0fnu));
+  auto workspace = at::empty({static_cast<int64_t>(kWorkspaceBytes)}, a.options().dtype(at::kByte));
+  const float alpha = 1.0f;
+  const float beta = 0.0f;
+
+  thread_local std::unique_ptr<CublasLtDirectMxFp8TransposePlan> cached_plan;
+  if (cached_plan == nullptr) {
+    cached_plan = std::make_unique<CublasLtDirectMxFp8TransposePlan>();
+  }
+  const int device_index = static_cast<int>(a.get_device());
+  const bool use_bias = bias.has_value();
+  const auto bias_dtype = use_bias ? bias->scalar_type() : c10::ScalarType::Undefined;
+  const void* a_scale_ptr = b_scale_swizzled.data_ptr();
+  const void* b_scale_ptr = a_scale_swizzled.data_ptr();
+  const void* bias_ptr = use_bias ? bias->data_ptr() : nullptr;
+  const void* d_out_scale_ptr = out_scale_swizzled.data_ptr();
+  if (!cached_plan->matches(device_index, batch, m, k, n, use_bias, bias_dtype)) {
+    init_direct_mxfp8_transpose_plan(
+        cached_plan.get(),
+        device_index,
+        batch,
+        m,
+        k,
+        n,
+        use_bias,
+        bias_dtype,
+        a_scale_ptr,
+        b_scale_ptr,
+        bias_ptr,
+        d_out_scale_ptr,
+        lt_handle);
+  }
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+      cached_plan->op_desc, CUBLASLT_MATMUL_DESC_A_SCALE_POINTER, &a_scale_ptr, sizeof(a_scale_ptr)));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+      cached_plan->op_desc, CUBLASLT_MATMUL_DESC_B_SCALE_POINTER, &b_scale_ptr, sizeof(b_scale_ptr)));
+  CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+      cached_plan->op_desc, CUBLASLT_MATMUL_DESC_D_OUT_SCALE_POINTER, &d_out_scale_ptr, sizeof(d_out_scale_ptr)));
+  if (use_bias) {
+    CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
+        cached_plan->op_desc, CUBLASLT_MATMUL_DESC_BIAS_POINTER, &bias_ptr, sizeof(bias_ptr)));
+  }
+
+  CUBLASLT_CHECK(cublasLtMatmul(
+      lt_handle,
+      cached_plan->op_desc,
+      &alpha,
+      b_col.data_ptr(),
+      cached_plan->a_desc,
+      a.data_ptr(),
+      cached_plan->b_desc,
+      &beta,
+      c.data_ptr(),
+      cached_plan->c_desc,
+      out.data_ptr(),
+      cached_plan->d_desc,
+      &cached_plan->heuristic.algo,
+      workspace.data_ptr(),
+      kWorkspaceBytes,
+      current_cuda_stream()));
+  auto out_scale = unswizzle_scale_rowwise(out_scale_swizzled, m, groups).to(at::kFloat).contiguous();
+  return {out, out_scale, out_scale_swizzled};
 }
 
 __device__ inline float fp8_storage_to_float(__nv_fp8_storage_t value) {
@@ -2608,6 +2895,19 @@ at::Tensor add_block32_residual_if_present(
   return dense;
 }
 
+bool should_use_direct_mxfp8_output(
+    const at::Tensor& a,
+    bool direct_fp8_output,
+    bool apply_relu,
+    const c10::optional<at::Tensor>& residual_payload,
+    const c10::optional<at::Tensor>& residual_scale,
+    const c10::optional<at::Tensor>& b_col_direct) {
+  return kDirectMxFp8OutputEnabled && direct_fp8_output && b_col_direct.has_value() && !apply_relu &&
+      !residual_payload.has_value() && !residual_scale.has_value() &&
+      a.scalar_type() == c10::ScalarType::Float8_e4m3fn &&
+      b_col_direct->scalar_type() == c10::ScalarType::Float8_e4m3fn;
+}
+
 }  // namespace
 
 std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
@@ -2621,7 +2921,8 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
     bool direct_fp8_output,
     bool fuse_bias_epilogue,
     const c10::optional<at::Tensor>& residual_payload,
-    const c10::optional<at::Tensor>& residual_scale) {
+    const c10::optional<at::Tensor>& residual_scale,
+    const c10::optional<at::Tensor>& b_col_direct) {
   const auto out_dtype = parse_out_dtype(out_dtype_str);
   TORCH_CHECK(out_dtype == c10::ScalarType::BFloat16,
               "MiniFold native fused linear path currently supports out_dtype='bfloat16' only");
@@ -2658,6 +2959,20 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
     check_cuda_tensor(residual_scale.value(), "residual_scale");
     TORCH_CHECK(residual_payload.value().device() == a.device() && residual_scale.value().device() == a.device(),
                 "residual tensors must be on the same CUDA device as a");
+  }
+  if (b_col_direct.has_value()) {
+    check_cuda_tensor(b_col_direct.value(), "b_col_direct");
+    TORCH_CHECK(b_col_direct.value().device() == a.device(), "b_col_direct must be on the same CUDA device as a");
+  }
+
+  if (should_use_direct_mxfp8_output(a, direct_fp8_output, apply_relu, residual_payload, residual_scale, b_col_direct)) {
+    auto direct = run_mxfp8_cublaslt_bmm_direct_output_transposed(
+        a,
+        b_col_direct.value(),
+        a_scale_swizzled,
+        b_scale_swizzled,
+        bias);
+    return {std::get<0>(direct), std::get<1>(direct)};
   }
 
   auto dense = run_mxfp8_cublaslt_bmm(
@@ -2683,7 +2998,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> linear_block32_fused_with_swizzle
     bool direct_fp8_output,
     bool fuse_bias_epilogue,
     const c10::optional<at::Tensor>& residual_payload,
-    const c10::optional<at::Tensor>& residual_scale) {
+    const c10::optional<at::Tensor>& residual_scale,
+    const c10::optional<at::Tensor>& b_col_direct) {
   const auto out_dtype = parse_out_dtype(out_dtype_str);
   TORCH_CHECK(out_dtype == c10::ScalarType::BFloat16,
               "MiniFold native fused linear path currently supports out_dtype='bfloat16' only");
@@ -2720,6 +3036,20 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> linear_block32_fused_with_swizzle
     check_cuda_tensor(residual_scale.value(), "residual_scale");
     TORCH_CHECK(residual_payload.value().device() == a.device() && residual_scale.value().device() == a.device(),
                 "residual tensors must be on the same CUDA device as a");
+  }
+  if (b_col_direct.has_value()) {
+    check_cuda_tensor(b_col_direct.value(), "b_col_direct");
+    TORCH_CHECK(b_col_direct.value().device() == a.device(), "b_col_direct must be on the same CUDA device as a");
+  }
+
+  if (should_use_direct_mxfp8_output(a, direct_fp8_output, apply_relu, residual_payload, residual_scale, b_col_direct)) {
+    auto direct = run_mxfp8_cublaslt_bmm_direct_output_transposed(
+        a,
+        b_col_direct.value(),
+        a_scale_swizzled,
+        b_scale_swizzled,
+        bias);
+    return {std::get<0>(direct), std::get<1>(direct), std::get<2>(direct)};
   }
 
   auto dense = run_mxfp8_cublaslt_bmm(
@@ -2749,7 +3079,8 @@ at::Tensor linear_block32_raw_debug_cuda(
     bool direct_fp8_output,
     bool fuse_bias_epilogue,
     const c10::optional<at::Tensor>& residual_payload,
-    const c10::optional<at::Tensor>& residual_scale) {
+    const c10::optional<at::Tensor>& residual_scale,
+    const c10::optional<at::Tensor>& b_col_direct) {
   const auto out_dtype = parse_out_dtype(out_dtype_str);
   TORCH_CHECK(out_dtype == c10::ScalarType::BFloat16,
               "MiniFold native linear raw debug path currently supports out_dtype='bfloat16' only");
@@ -2786,6 +3117,20 @@ at::Tensor linear_block32_raw_debug_cuda(
     check_cuda_tensor(residual_scale.value(), "residual_scale");
     TORCH_CHECK(residual_payload.value().device() == a.device() && residual_scale.value().device() == a.device(),
                 "residual tensors must be on the same CUDA device as a");
+  }
+  if (b_col_direct.has_value()) {
+    check_cuda_tensor(b_col_direct.value(), "b_col_direct");
+    TORCH_CHECK(b_col_direct.value().device() == a.device(), "b_col_direct must be on the same CUDA device as a");
+  }
+
+  if (should_use_direct_mxfp8_output(a, direct_fp8_output, apply_relu, residual_payload, residual_scale, b_col_direct)) {
+    auto direct = run_mxfp8_cublaslt_bmm_direct_output_transposed(
+        a,
+        b_col_direct.value(),
+        a_scale_swizzled,
+        b_scale_swizzled,
+        bias);
+    return dequantize_block32_to_bf16(std::get<0>(direct), std::get<1>(direct));
   }
 
   auto dense = run_mxfp8_cublaslt_bmm(
