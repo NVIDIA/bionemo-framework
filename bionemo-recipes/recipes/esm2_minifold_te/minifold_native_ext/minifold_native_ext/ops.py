@@ -153,6 +153,7 @@ def _linear_block32_retry_key(
     fuse_bias_epilogue: bool,
     residual_payload: Optional[torch.Tensor],
     residual_scale: Optional[torch.Tensor],
+    b_col_direct: Optional[torch.Tensor],
 ) -> tuple[Any, ...]:
     return (
         int(a.device.index if a.device.index is not None else -1),
@@ -166,6 +167,7 @@ def _linear_block32_retry_key(
         bool(direct_fp8_output),
         bool(fuse_bias_epilogue),
         bool(residual_payload is not None and residual_scale is not None),
+        bool(b_col_direct is not None),
     )
 
 
@@ -211,6 +213,7 @@ def _linear_block32_proactive_attempts(
     out_dtype: str,
     direct_fp8_output: bool,
     fuse_bias_epilogue: bool,
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> tuple[list[tuple[bool, bool]], str | None]:
     attempts = _linear_block32_attempts(
         direct_fp8_output=direct_fp8_output,
@@ -221,6 +224,8 @@ def _linear_block32_proactive_attempts(
     if not (direct_fp8_output or fuse_bias_epilogue):
         return attempts, None
     if not _linear_block32_transition_linear_dims(a, b_t):
+        return attempts, None
+    if direct_fp8_output and b_col_direct is not None:
         return attempts, None
 
     # The transition FC1/FC2 optimized cuBLASLt epilogues currently fail at runtime
@@ -240,6 +245,7 @@ def _call_linear_block32_backend(
     fuse_bias_epilogue: bool,
     residual_payload: Optional[torch.Tensor],
     residual_scale: Optional[torch.Tensor],
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if _C is None:
         raise _extension_unavailable("linear_block32_fused")
@@ -254,6 +260,7 @@ def _call_linear_block32_backend(
         fuse_bias_epilogue=fuse_bias_epilogue,
         residual_payload=residual_payload,
         residual_scale=residual_scale,
+        b_col_direct=b_col_direct,
     )
     attempts, proactive_demote_reason = _linear_block32_proactive_attempts(
         a,
@@ -262,6 +269,7 @@ def _call_linear_block32_backend(
         out_dtype=out_dtype,
         direct_fp8_output=direct_fp8_output,
         fuse_bias_epilogue=fuse_bias_epilogue,
+        b_col_direct=b_col_direct,
     )
     with _LINEAR_BLOCK32_CACHE_LOCK:
         cached_attempt = _LINEAR_BLOCK32_CAPABILITY_CACHE.get(cache_key)
@@ -285,6 +293,7 @@ def _call_linear_block32_backend(
             "bias": _tensor_debug_metadata(bias),
             "residual_payload": _tensor_debug_metadata(residual_payload),
             "residual_scale": _tensor_debug_metadata(residual_scale),
+            "b_col_direct": _tensor_debug_metadata(b_col_direct),
         },
         "attempts": [],
     }
@@ -304,6 +313,7 @@ def _call_linear_block32_backend(
                 current_fused,
                 residual_payload,
                 residual_scale,
+                b_col_direct,
             )
         except RuntimeError as exc:
             debug_record["attempts"].append(
@@ -358,6 +368,7 @@ def _linear_block32_fused_op(
     fuse_bias_epilogue: bool = False,
     residual_payload: Optional[torch.Tensor] = None,
     residual_scale: Optional[torch.Tensor] = None,
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     return _call_linear_block32_backend(
         a,
@@ -371,6 +382,7 @@ def _linear_block32_fused_op(
         fuse_bias_epilogue,
         residual_payload,
         residual_scale,
+        b_col_direct,
     )
 
 
@@ -387,6 +399,7 @@ def _linear_block32_fused_fake(
     fuse_bias_epilogue: bool = False,
     residual_payload: Optional[torch.Tensor] = None,
     residual_scale: Optional[torch.Tensor] = None,
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     return _linear_payload_and_scale(a, int(b_t.shape[1]))
 
@@ -404,6 +417,7 @@ def _linear_block32_fused_with_swizzled_scale_op(
     fuse_bias_epilogue: bool = False,
     residual_payload: Optional[torch.Tensor] = None,
     residual_scale: Optional[torch.Tensor] = None,
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if _C is None:
         raise _extension_unavailable("linear_block32_fused_with_swizzled_scale")
@@ -419,6 +433,7 @@ def _linear_block32_fused_with_swizzled_scale_op(
         fuse_bias_epilogue,
         residual_payload,
         residual_scale,
+        b_col_direct,
     )
 
 
@@ -435,6 +450,7 @@ def _linear_block32_fused_with_swizzled_scale_fake(
     fuse_bias_epilogue: bool = False,
     residual_payload: Optional[torch.Tensor] = None,
     residual_scale: Optional[torch.Tensor] = None,
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     return _linear_payload_scale_and_swizzled(a, int(b_t.shape[1]))
 
@@ -452,6 +468,7 @@ def _linear_block32_raw_debug_op(
     fuse_bias_epilogue: bool = False,
     residual_payload: Optional[torch.Tensor] = None,
     residual_scale: Optional[torch.Tensor] = None,
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     if _C is None:
         raise _extension_unavailable("linear_block32_raw_debug")
@@ -467,6 +484,7 @@ def _linear_block32_raw_debug_op(
         fuse_bias_epilogue,
         residual_payload,
         residual_scale,
+        b_col_direct,
     )
 
 
@@ -483,6 +501,7 @@ def _linear_block32_raw_debug_fake(
     fuse_bias_epilogue: bool = False,
     residual_payload: Optional[torch.Tensor] = None,
     residual_scale: Optional[torch.Tensor] = None,
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     return torch.empty((a.shape[0], a.shape[1], b_t.shape[1]), device=a.device, dtype=_dtype_from_name(out_dtype))
 
@@ -1129,6 +1148,7 @@ def linear_block32_fused(
     fuse_bias_epilogue: bool = False,
     residual_payload: Optional[torch.Tensor] = None,
     residual_scale: Optional[torch.Tensor] = None,
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     if not _is_torch_compiling():
         return _call_linear_block32_backend(
@@ -1143,6 +1163,7 @@ def linear_block32_fused(
             fuse_bias_epilogue,
             residual_payload,
             residual_scale,
+            b_col_direct,
         )
     return _linear_block32_fused_op(
         a,
@@ -1156,6 +1177,7 @@ def linear_block32_fused(
         fuse_bias_epilogue,
         residual_payload,
         residual_scale,
+        b_col_direct,
     )
 
 
@@ -1171,6 +1193,7 @@ def linear_block32_fused_with_swizzled_scale(
     fuse_bias_epilogue: bool = False,
     residual_payload: Optional[torch.Tensor] = None,
     residual_scale: Optional[torch.Tensor] = None,
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     if not _is_torch_compiling():
         if _C is None:
@@ -1187,6 +1210,7 @@ def linear_block32_fused_with_swizzled_scale(
             fuse_bias_epilogue,
             residual_payload,
             residual_scale,
+            b_col_direct,
         )
     return _linear_block32_fused_with_swizzled_scale_op(
         a,
@@ -1200,6 +1224,7 @@ def linear_block32_fused_with_swizzled_scale(
         fuse_bias_epilogue,
         residual_payload,
         residual_scale,
+        b_col_direct,
     )
 
 
@@ -1215,6 +1240,7 @@ def linear_block32_raw_debug(
     fuse_bias_epilogue: bool = False,
     residual_payload: Optional[torch.Tensor] = None,
     residual_scale: Optional[torch.Tensor] = None,
+    b_col_direct: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     if not _is_torch_compiling():
         if _C is None:
@@ -1231,6 +1257,7 @@ def linear_block32_raw_debug(
             fuse_bias_epilogue,
             residual_payload,
             residual_scale,
+            b_col_direct,
         )
     return _linear_block32_raw_debug_op(
         a,
@@ -1244,6 +1271,7 @@ def linear_block32_raw_debug(
         fuse_bias_epilogue,
         residual_payload,
         residual_scale,
+        b_col_direct,
     )
 
 

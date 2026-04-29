@@ -17,7 +17,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("direct_fp8_output") = false,
       pybind11::arg("fuse_bias_epilogue") = false,
       pybind11::arg("residual_payload") = pybind11::none(),
-      pybind11::arg("residual_scale") = pybind11::none());
+      pybind11::arg("residual_scale") = pybind11::none(),
+      pybind11::arg("b_col_direct") = pybind11::none());
   m.def(
       "linear_block32_fused_with_swizzled_scale",
       &minifold_native_ext::linear_block32_fused_with_swizzled_scale_cuda,
@@ -32,7 +33,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("direct_fp8_output") = false,
       pybind11::arg("fuse_bias_epilogue") = false,
       pybind11::arg("residual_payload") = pybind11::none(),
-      pybind11::arg("residual_scale") = pybind11::none());
+      pybind11::arg("residual_scale") = pybind11::none(),
+      pybind11::arg("b_col_direct") = pybind11::none());
   m.def(
       "linear_block32_raw_debug",
       &minifold_native_ext::linear_block32_raw_debug_cuda,
@@ -47,7 +49,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("direct_fp8_output") = false,
       pybind11::arg("fuse_bias_epilogue") = false,
       pybind11::arg("residual_payload") = pybind11::none(),
-      pybind11::arg("residual_scale") = pybind11::none());
+      pybind11::arg("residual_scale") = pybind11::none(),
+      pybind11::arg("b_col_direct") = pybind11::none());
   m.def(
       "linear_block32_fc1_direct",
       &minifold_native_ext::linear_block32_fc1_direct_cuda,
