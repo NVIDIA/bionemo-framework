@@ -36,8 +36,10 @@ import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
+from torch.distributed.tensor import DTensor
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
+from transformer_engine.pytorch.optimizers import FusedAdam
 
 from checkpoint import (
     _ckpt_futures,
@@ -57,6 +59,31 @@ from scheduler import get_cosine_annealing_schedule_with_warmup
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+def _init_master_weights_from_high_precision(
+    optimizer: FusedAdam, model: torch.nn.Module, device: torch.device
+) -> None:
+    """Initialize optimizer master weights from high-precision init values.
+
+    When quantized_model_init is used with preserve_high_precision_init_val=True, each FP8 parameter
+    stores the original BF16 init values in CPU memory. This function initializes optimizer state
+    for all parameters, then overwrites master weights for quantized params with the preserved
+    high-precision values instead of dequantized FP8 values.
+    """
+    count = 0
+    for name, param in model.named_parameters():
+        optimizer.initialize_state(param, store_param_remainders=False)
+        local = param._local_tensor if isinstance(param, DTensor) else param
+        if hasattr(local, "get_high_precision_init_val"):
+            hp_val = local.get_high_precision_init_val()
+            if hp_val is not None:
+                optimizer.set_scaled_state(param, "master_param", hp_val.to(device=device, dtype=torch.float32))
+                local.clear_high_precision_init_val()
+                count += 1
+                logger.debug("Seeded master weight for %s from high-precision init val", name)
+    if count > 0:
+        logger.info("Initialized %d master weight(s) from high-precision init values", count)
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity_cp", version_base="1.2")
@@ -81,9 +108,12 @@ def main(args: DictConfig) -> float | None:
     logger.info("Created device mesh: %s", device_mesh)
 
     # --- Model Configuration ---
+    # FusedAdam maintains its own FP32 master weights, so model stays BF16.
+    # MixedPrecisionPolicy path inits in FP32 and casts to BF16 via FSDP.
+    use_fp32_mp = args.use_fp32_master_weights and not args.use_fp32_master_weights_fused
     config = NVLlamaConfig.from_pretrained(
         args.config_name_or_path,
-        dtype=torch.float32 if args.use_fp32_master_weights else torch.bfloat16,
+        dtype=torch.float32 if use_fp32_mp else torch.bfloat16,
         **args.config_kwargs,
     )
 
@@ -142,7 +172,7 @@ def main(args: DictConfig) -> float | None:
     # --- Distributed Wrapping (FSDP2 + CP) ---
     cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
 
-    if args.use_fp32_master_weights:
+    if use_fp32_mp:
         mp_policy = MixedPrecisionPolicy(
             param_dtype=torch.bfloat16,
             reduce_dtype=torch.float32,
@@ -179,7 +209,15 @@ def main(args: DictConfig) -> float | None:
 
     # --- Optimizer & Scheduler ---
     # Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
+    if args.use_fp32_master_weights_fused:
+        # TE FusedAdam maintains FP32 master copies of BF16 params internally.
+        # 'fused' kwarg is not used by TE's FusedAdam (it's always fused).
+        adamw_kwargs.pop("fused", None)
+        optimizer = FusedAdam(model.parameters(), master_weights=True, **adamw_kwargs)  # type: ignore
+        logger.info("Using TE FusedAdam with FP32 master weights")
+    else:
+        optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
 
     if args.use_torch_compile:
@@ -234,6 +272,11 @@ def main(args: DictConfig) -> float | None:
         logger.info("No checkpoint to load, starting from scratch")
         start_step = 0
         epoch = 0
+
+        if args.use_fp32_master_weights_fused and args.fp8_config.quantized_model_init_kwargs.get(
+            "preserve_high_precision_init_val", False
+        ):
+            _init_master_weights_from_high_precision(optimizer, model, device)
 
     perf_logger = PerfLogger(dist_config, args, start_step=start_step)
 
