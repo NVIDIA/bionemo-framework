@@ -358,6 +358,7 @@ def setup_inference_engine(
     vortex_style_fp8: bool = False,
     random_seed: int = 1234,
     prompt_segmentation_threshold: Optional[int] = None,
+    use_subquadratic_ops: bool = False,
 ) -> Evo2InferenceComponents:
     """Setup the Evo2 inference engine and related components.
 
@@ -379,6 +380,9 @@ def setup_inference_engine(
             segmented during prefill to reduce peak memory. The first segment
             runs as a normal prefill; remaining tokens are processed one at a
             time before generation begins.
+        use_subquadratic_ops: Use fused subquadratic-ops kernels (b2b causal
+            conv1d in prefill, fft_causal_conv1d / causal_conv1d in
+            parallel_fir).
 
     Returns:
         Evo2InferenceComponents containing all inference components.
@@ -412,6 +416,7 @@ def setup_inference_engine(
     model_provider.sequence_parallel = False
 
     model_provider.flash_decode = True
+    model_provider.use_subquadratic_ops = use_subquadratic_ops
 
     if vortex_style_fp8:
         model_provider.vortex_style_fp8 = True
@@ -808,6 +813,14 @@ def parse_args() -> argparse.Namespace:
         "generation begins. Useful for long prompts that would otherwise OOM. "
         "Also settable via EVO2_PST env var.",
     )
+    ap.add_argument(
+        "--use-subquadratic-ops",
+        action="store_true",
+        default=False,
+        help="Use fused subquadratic-ops CUDA kernels (b2b causal conv1d in prefill, "
+        "fft_causal_conv1d / causal_conv1d in parallel_fir). Speeds up prompt processing "
+        "but has no effect on per-token decode throughput.",
+    )
 
     return ap.parse_args()
 
@@ -831,6 +844,7 @@ def infer(
     max_seq_length: int = 8192,
     max_batch_size: int = 1,
     prompt_segmentation_threshold: Optional[int] = None,
+    use_subquadratic_ops: bool = False,
 ) -> List[Dict[str, Any]]:
     """Run autoregressive text generation with Evo2 using MCore inference.
 
@@ -858,6 +872,7 @@ def infer(
             GPU memory proportional to this value. For large models, only 1 may fit.
         prompt_segmentation_threshold: If set, prompts longer than this are segmented
             during prefill to reduce peak memory.
+        use_subquadratic_ops: Use fused subquadratic-ops kernels in the inference path.
 
     Returns:
         List of JSONL-serialisable result dicts.
@@ -878,6 +893,7 @@ def infer(
         vortex_style_fp8=vortex_style_fp8,
         random_seed=random_seed,
         prompt_segmentation_threshold=prompt_segmentation_threshold,
+        use_subquadratic_ops=use_subquadratic_ops,
     )
 
     mem_after_setup_gb = torch.cuda.max_memory_allocated() / (1024**3)
@@ -1003,6 +1019,7 @@ def main() -> None:
         max_seq_length=max_seq_length,
         max_batch_size=args.max_batch_size,
         prompt_segmentation_threshold=prompt_segmentation_threshold,
+        use_subquadratic_ops=args.use_subquadratic_ops,
     )
 
 

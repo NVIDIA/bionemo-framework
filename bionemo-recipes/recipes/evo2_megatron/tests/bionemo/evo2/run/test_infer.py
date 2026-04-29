@@ -284,6 +284,7 @@ def run_infer_subprocess(
     temperature: float = 1.0,
     top_k: int = 1,
     seed: int = 42,
+    use_subquadratic_ops: bool = False,
 ):
     """Helper function to run inference as a subprocess.
 
@@ -295,6 +296,7 @@ def run_infer_subprocess(
         temperature: Sampling temperature
         top_k: Top-k sampling parameter (1 for greedy)
         seed: Random seed for reproducibility
+        use_subquadratic_ops: Pass --use-subquadratic-ops to the CLI.
 
     Returns:
         The generated completion text from the first JSONL record
@@ -326,6 +328,8 @@ def run_infer_subprocess(
         "--seed",
         str(seed),
     ]
+    if use_subquadratic_ops:
+        cmd.append("--use-subquadratic-ops")
 
     env = copy.deepcopy(PRETEST_ENV)
 
@@ -514,6 +518,47 @@ def test_identical_prompts_should_be_identical(mbridge_checkpoint_path, tmp_path
         f"Identical prompts with same seed and greedy decoding produced different outputs:\n"
         f"Run 1: {generated_1}\n"
         f"Run 2: {generated_2}"
+    )
+
+
+def test_subquadratic_ops_matches_baseline(mbridge_checkpoint_path, tmp_path):
+    """Greedy generation with --use-subquadratic-ops must match the standard path.
+
+    This is the end-to-end correctness check for the subq-ops inference path:
+    Phase 1 routes engine.parallel_fir through subq-ops kernels during prefill,
+    Phase 2 fuses proj+mixer convs via b2b_causal_conv1d during prefill and
+    populates FIR caches for the subsequent decode steps. With greedy decoding
+    (top_k=1) and the same seed, both paths must produce identical output.
+    """
+    output_baseline = tmp_path / "output_baseline.jsonl"
+    output_subq = tmp_path / "output_subq.jsonl"
+
+    generated_baseline = run_infer_subprocess(
+        mbridge_checkpoint_path,
+        prompt=PROMPT_1,
+        output_file=output_baseline,
+        max_new_tokens=20,
+        temperature=1.0,
+        top_k=1,
+        seed=42,
+        use_subquadratic_ops=False,
+    )
+
+    generated_subq = run_infer_subprocess(
+        mbridge_checkpoint_path,
+        prompt=PROMPT_1,
+        output_file=output_subq,
+        max_new_tokens=20,
+        temperature=1.0,
+        top_k=1,
+        seed=42,
+        use_subquadratic_ops=True,
+    )
+
+    assert len(generated_baseline) > 0, "Baseline generation produced empty output"
+    assert len(generated_subq) > 0, "Subq-ops generation produced empty output"
+    assert generated_baseline == generated_subq, (
+        f"Subq-ops path diverged from baseline:\nBaseline: {generated_baseline}\nSubq-ops: {generated_subq}"
     )
 
 
