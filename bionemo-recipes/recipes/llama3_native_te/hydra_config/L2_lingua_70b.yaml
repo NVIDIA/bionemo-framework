@@ -31,7 +31,7 @@ wandb:
 num_train_steps: 60_000
 
 dataset:
-  tokenizer_name_or_path: meta-llama/Meta-Llama-3-8B
+  tokenizer_name_or_path: ./tokenizers/Meta-Llama-3-8B
   micro_batch_size: 1
   num_workers: 4
   max_seq_length: 8192
