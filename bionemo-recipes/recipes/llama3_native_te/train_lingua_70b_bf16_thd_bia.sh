@@ -12,53 +12,50 @@
 set -euxo pipefail
 
 # ============================================================================
-# PATHS
+# Lingua 70B BF16 THD + CP=2 benchmark (4 nodes, bia B300)
+# BF16 baseline for comparison against MXFP8 quantized init.
 # ============================================================================
-CONTAINER="/lustre/fsw/healthcareeng_bionemo/savithas/enroot/llama3_native_te.sqsh"
-CODE_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/bionemo-framework"
-DATA_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/data"
 
-export EXP_NAME="${EXP_NAME:-lingua_70b_bf16_thd_bench_4n_cp2_pad64_bia}"
-RESULTS_DIR="/lustre/fsw/healthcareeng_bionemo/savithas/results/${EXP_NAME}"
-CKPT_ROOT="/lustre/fsw/healthcareeng_bionemo/savithas/checkpoints/${EXP_NAME}"
+SCRATCH="/lustre/fsw/healthcareeng_bionemo/savithas"
+CONTAINER="${SCRATCH}/enroot/llama3_native_te_te-main-26.03.sqsh"
+CODE_DIR="${SCRATCH}/bionemo-framework"
+DATA_DIR="${SCRATCH}/data"
+TE_DIR="${SCRATCH}/TransformerEngine"
+
+CODE_MOUNT="/workspace/bionemo"
+TE_MOUNT="/workspace/transformer_engine"
+
+export EXP_NAME="${EXP_NAME:-lingua_70b_bf16_thd_bench_4n_cp2_bia}"
+RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
+CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
 
 mkdir -p "${RESULTS_DIR}" "${CKPT_ROOT}"
 
-# ============================================================================
-# SECRETS - read from environment (set in ~/.bashrc, never hardcode here)
-# ============================================================================
 : "${WANDB_API_KEY:?Set WANDB_API_KEY in ~/.bashrc}"
 : "${HUGGING_FACE_HUB_TOKEN:?Set HUGGING_FACE_HUB_TOKEN in ~/.bashrc}"
 
-# ============================================================================
-# CONTAINER MOUNTS
-# ============================================================================
-CONTAINER_WORKDIR="/workspace/bionemo"
-MOUNTS="${CODE_DIR}:${CONTAINER_WORKDIR},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CONTAINER_WORKDIR}/results,${CKPT_ROOT}:${CONTAINER_WORKDIR}/checkpoints"
+MOUNTS="${CODE_DIR}:${CODE_MOUNT},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CODE_MOUNT}/results,${CKPT_ROOT}:${CODE_MOUNT}/checkpoints,${TE_DIR}:${TE_MOUNT}"
 
-# ============================================================================
-# TRAINING COMMAND
-# ============================================================================
-read -r -d '' COMMAND <<EOF || true
-export EXP_NAME="${EXP_NAME}"
-export WANDB_API_KEY="${WANDB_API_KEY}"
-export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN}"
-
+read -r -d '' COMMAND <<'OUTER_EOF' || true
 set -euxo pipefail
 
+TE_MOUNT="/workspace/transformer_engine"
+
 echo "========================================="
-echo "Starting Lingua 70B BF16 THD Benchmark (4 nodes, CP=2, bia B300, GBS=16)"
-echo "Job ID: \${SLURM_JOB_ID}"
-echo "Nodes: \${SLURM_JOB_NUM_NODES}"
-echo "Tasks per node: \${SLURM_NTASKS_PER_NODE}"
+echo "Lingua 70B BF16 THD Baseline (4 nodes, CP=2, bia B300)"
+echo "Job ID: ${SLURM_JOB_ID}"
+echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
+
+# Use same TE main build as MXFP8 run for apples-to-apples comparison
+TE_SITE="/usr/local/lib/python3.12/dist-packages/transformer_engine"
+cp "$TE_MOUNT"/transformer_engine_torch*.so "$TE_SITE"/ 2>/dev/null || true
+cp "$TE_MOUNT"/transformer_engine_cu12*.so "$TE_SITE"/ 2>/dev/null || true
+export PYTHONPATH="$TE_MOUNT:${PYTHONPATH:-}"
+
+python -c "import transformer_engine; print(f'TE version: {transformer_engine.__version__}')"
 
 cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
-
-echo "Verifying mounts..."
-ls -la /workspace/data/dclm-baseline/global-shard_01_of_10/ | head -5
-echo "Checkpoints:" && ls -la /workspace/bionemo/checkpoints/
-echo "Results:" && ls -la /workspace/bionemo/results/
 
 echo "Starting training..."
 python train_fsdp2_cp.py --config-name L2_lingua_70b_thd \
@@ -70,21 +67,19 @@ python train_fsdp2_cp.py --config-name L2_lingua_70b_thd \
   logger.frequency=10 \
   checkpoint.save_every_n_steps=999999 \
   checkpoint.resume_from_checkpoint=false \
-  wandb.name=\${EXP_NAME} \
-  wandb.id=\${EXP_NAME} \
+  wandb.name=${EXP_NAME} \
+  wandb.id=${EXP_NAME} \
   wandb.project=lingua-70b
 
 echo "========================================="
 echo "Training complete!"
 echo "========================================="
-EOF
+OUTER_EOF
 
-# ============================================================================
-# LAUNCH JOB
-# ============================================================================
-echo "Launching training: ${EXP_NAME}"
-echo "Results: ${RESULTS_DIR}"
-echo "Checkpoints: ${CKPT_ROOT}"
+# Inject credentials into the command.
+COMMAND="export EXP_NAME=\"${EXP_NAME}\"; export WANDB_API_KEY=\"${WANDB_API_KEY}\"; export HUGGING_FACE_HUB_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; export HF_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; ${COMMAND}"
+
+echo "Launching: ${EXP_NAME}"
 
 srun \
   --output "${RESULTS_DIR}/slurm-%j-%n.out" \

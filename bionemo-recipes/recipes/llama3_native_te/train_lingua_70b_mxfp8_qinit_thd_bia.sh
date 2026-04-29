@@ -17,7 +17,7 @@ set -euxo pipefail
 # ============================================================================
 
 SCRATCH="/lustre/fsw/healthcareeng_bionemo/savithas"
-CONTAINER="${SCRATCH}/enroot/llama3_native_te.sqsh"
+CONTAINER="${SCRATCH}/enroot/llama3_native_te_te-main-26.03.sqsh"
 CODE_DIR="${SCRATCH}/bionemo-framework"
 DATA_DIR="${SCRATCH}/data"
 TE_DIR="${SCRATCH}/TransformerEngine"
