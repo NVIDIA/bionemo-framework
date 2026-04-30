@@ -33,20 +33,28 @@ Run with: torchrun --nproc_per_node=2 test_mxfp8_fsdp2_checkpoint_resume.py
 """
 
 import argparse
-import tempfile
+import shutil
 
 import torch
 import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
-import torch.nn as nn
 import transformer_engine.pytorch as te
-from torch.distributed.checkpoint.state_dict import StateDictOptions, get_state_dict, set_state_dict
-from torch.distributed.device_mesh import init_device_mesh
+from torch.distributed.device_mesh import DeviceMesh
 from torch.distributed.fsdp import fully_shard
 from torch.distributed.fsdp._fully_shard._fsdp_param import FSDPParam
 from torch.distributed.tensor import DTensor
+from torch.nn import functional as f_nn
 from transformer_engine.common.recipe import MXFP8BlockScaling
 from transformer_engine.pytorch.optimizers import FusedAdam
+from transformer_engine.pytorch.quantized_tensor import QuantizedTensor
+
+
+HIDDEN = 256
+FFN_HIDDEN = 1024
+NUM_HEADS = 8
+NUM_LAYERS = 2
+SEQ_LEN = 32
+BATCH = 2
 
 
 def apply_reset_sharded_param_fix():
@@ -119,68 +127,109 @@ def apply_reset_sharded_param_fix():
     FSDPParam.reset_sharded_param = _patched_reset_sharded_param
 
 
-class SmallModel(nn.Module):
-    """Tiny model using TE layers for testing."""
+def _save_custom_attrs(model):
+    """Save custom attrs on QuantizedTensor params (lost during fully_shard + reset_parameters)."""
+    attrs = {}
+    for name, param in model.named_parameters():
+        local = param._local_tensor if isinstance(param, DTensor) else param
+        if isinstance(local, QuantizedTensor):
+            param_attrs = {}
+            for attr_name in dir(local):
+                if not attr_name.startswith("_") and not callable(getattr(local, attr_name, None)):
+                    try:
+                        param_attrs[attr_name] = getattr(local, attr_name)
+                    except Exception:
+                        pass
+            attrs[name] = param_attrs
+    return attrs
 
-    def __init__(self, hidden=256, num_layers=2, recipe=None):
-        super().__init__()
-        self.layers = nn.ModuleList([te.Linear(hidden, hidden, bias=False) for _ in range(num_layers)])
-        self.head = te.Linear(hidden, hidden, bias=False)
 
-    def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
-        return self.head(x)
+def _restore_custom_attrs(model, attrs):
+    """Restore custom attrs on QuantizedTensor params."""
+    for name, param in model.named_parameters():
+        if name in attrs:
+            local = param._local_tensor if isinstance(param, DTensor) else param
+            if isinstance(local, QuantizedTensor):
+                for attr_name, attr_val in attrs[name].items():
+                    try:
+                        setattr(local, attr_name, attr_val)
+                    except Exception:
+                        pass
 
 
-def build_model_and_optimizer(device_mesh, recipe):
-    """Build model with quantized_model_init, shard with FSDP2, create optimizer."""
-    with te.quantized_model_init(recipe=recipe, enabled=True, preserve_high_precision_init_val=True):
-        model = SmallModel(hidden=256, num_layers=2, recipe=recipe)
+def build_model(recipe):
+    """Build model with quantized_model_init on meta device."""
+    with te.quantized_model_init(
+        recipe=recipe,
+        enabled=True,
+        preserve_high_precision_init_val=True,
+    ):
+        model = torch.nn.Sequential(
+            *[
+                te.TransformerLayer(
+                    HIDDEN,
+                    FFN_HIDDEN,
+                    NUM_HEADS,
+                    fuse_qkv_params=True,
+                    params_dtype=torch.bfloat16,
+                    hidden_dropout=0.0,
+                    attention_dropout=0.0,
+                    device="meta",
+                )
+                for _ in range(NUM_LAYERS)
+            ]
+        )
+    return model
 
-    for layer in model.layers:
-        fully_shard(layer, mesh=device_mesh)
-    fully_shard(model, mesh=device_mesh)
 
-    optimizer = FusedAdam(model.parameters(), lr=1e-3, master_weights=True)
+def shard_model(model, mesh):
+    """Apply FSDP2 sharding, then materialize meta params via reset_parameters."""
+    has_meta = any(p.is_meta for p in model.parameters())
+    custom_attrs = _save_custom_attrs(model)
+    for child in model.children():
+        fully_shard(child, mesh=mesh)
+    fully_shard(model, mesh=mesh)
+    if has_meta:
+        for module in model.modules():
+            if hasattr(module, "reset_parameters"):
+                module.reset_parameters()
+    _restore_custom_attrs(model, custom_attrs)
+    return model
 
-    # Initialize optimizer state
-    for param in model.parameters():
-        optimizer.initialize_state(param, store_param_remainders=False)
+
+def build_and_shard(recipe, mesh, device):
+    """Build model, shard, create optimizer, run one step to populate optimizer state."""
+    model = build_model(recipe)
+    model = shard_model(model, mesh)
+
+    optimizer = FusedAdam(
+        model.parameters(),
+        lr=1e-3,
+        master_weights=True,
+        master_weight_dtype=torch.float32,
+    )
+
+    # Run one training step to populate optimizer state
+    x = torch.randn(SEQ_LEN, BATCH, HIDDEN, dtype=torch.bfloat16, device=device)
+    target = torch.randn_like(x)
+    optimizer.zero_grad(set_to_none=True)
+    with te.autocast(enabled=True, recipe=recipe):
+        out = model(x)
+    loss = f_nn.mse_loss(out, target)
+    loss.backward()
+    optimizer.step()
 
     return model, optimizer
 
 
-def save_checkpoint(model, optimizer, ckpt_dir):
-    """Save DCP checkpoint."""
-    model_sd, optim_sd = get_state_dict(model, optimizer)
-    # Filter _extra_state (not serializable for FP8)
-    model_sd = {k: v for k, v in model_sd.items() if not k.endswith("_extra_state")}
-    dcp.save({"model": model_sd, "optim": optim_sd}, checkpoint_id=ckpt_dir)
-
-
-def load_checkpoint(model, optimizer, ckpt_dir):
-    """Load DCP checkpoint using set_state_dict (the crash path)."""
-    model_sd, optim_sd = get_state_dict(model, optimizer)
-    model_sd = {k: v for k, v in model_sd.items() if not k.endswith("_extra_state")}
-    state_dict = {"model": model_sd, "optim": optim_sd}
-    dcp.load(state_dict, checkpoint_id=ckpt_dir)
-    set_state_dict(
-        model,
-        optimizer,
-        model_state_dict=state_dict["model"],
-        optim_state_dict=state_dict["optim"],
-        options=StateDictOptions(strict=False),
-    )
-
-
 def run(apply_fix: bool):
-    """Run the reproduction: save checkpoint, load it, run forward pass."""
-    dist.init_process_group(backend="nccl")
+    """Run the reproduction: save checkpoint, load it, verify forward pass."""
+    dist.init_process_group(backend="cpu:gloo,cuda:nccl")
     rank = dist.get_rank()
     torch.cuda.set_device(rank)
     device = torch.device(f"cuda:{rank}")
-    device_mesh = init_device_mesh("cuda", mesh_shape=(dist.get_world_size(),))
+    world_size = dist.get_world_size()
+    mesh = DeviceMesh("cuda", list(range(world_size)))
 
     recipe = MXFP8BlockScaling()
 
@@ -189,38 +238,64 @@ def run(apply_fix: bool):
         if rank == 0:
             print("Applied reset_sharded_param fix")
 
-    # Build model, do one forward pass, save checkpoint
-    model, optimizer = build_model_and_optimizer(device_mesh, recipe)
-    x = torch.randn(4, 256, device=device, dtype=torch.bfloat16)
-    with te.autocast(enabled=True, recipe=recipe):
-        out1 = model(x)
-    loss1 = out1.sum()
+    # Build model, train one step, save checkpoint
+    model, optimizer = build_and_shard(recipe, mesh, device)
     if rank == 0:
-        print(f"Pre-save forward pass OK, loss={loss1.item():.4f}")
+        print("Model built and trained for 1 step")
 
-    with tempfile.TemporaryDirectory() as ckpt_dir:
-        save_checkpoint(model, optimizer, ckpt_dir)
+    # Record reference output
+    x = torch.randn(SEQ_LEN, BATCH, HIDDEN, dtype=torch.bfloat16, device=device)
+    with torch.no_grad(), te.autocast(enabled=True, recipe=recipe):
+        ref_output = model(x).clone()
+    if rank == 0:
+        print(f"Reference output recorded, norm={ref_output.norm().item():.4f}")
+
+    checkpoint_dir = "/tmp/te_test_mxfp8_fsdp2_ckpt_resume"
+    if rank == 0:
+        shutil.rmtree(checkpoint_dir, ignore_errors=True)
+    dist.barrier()
+
+    try:
+        # Save checkpoint
+        model_state = {k: v for k, v in model.state_dict().items() if not k.endswith("_extra_state")}
+        dcp.save({"model": model_state, "optimizer": optimizer.state_dict()}, checkpoint_id=checkpoint_dir)
         dist.barrier()
         if rank == 0:
-            print(f"Checkpoint saved to {ckpt_dir}")
+            print(f"Checkpoint saved to {checkpoint_dir}")
 
-        # Build fresh model, load checkpoint — this is where the crash happens
-        model2, optimizer2 = build_model_and_optimizer(device_mesh, recipe)
+        # Build fresh model
+        model2, optimizer2 = build_and_shard(recipe, mesh, device)
         if rank == 0:
-            print("Loading checkpoint (this crashes without the fix)...")
+            print("Fresh model built, loading checkpoint...")
 
-        load_checkpoint(model2, optimizer2, ckpt_dir)
+        # Load checkpoint — THIS IS WHERE THE CRASH HAPPENS WITHOUT THE FIX
+        model2_state = {k: v for k, v in model2.state_dict().items() if not k.endswith("_extra_state")}
+        state_to_load = {"model": model2_state, "optimizer": optimizer2.state_dict()}
+        dcp.load(state_to_load, checkpoint_id=checkpoint_dir)
+        model2.load_state_dict(state_to_load["model"], strict=False)
+        optimizer2.load_state_dict(state_to_load["optimizer"])
         dist.barrier()
         if rank == 0:
             print("Checkpoint loaded successfully!")
 
-        # Forward pass after resume — triggers lazy_init -> reset_sharded_param
-        with te.autocast(enabled=True, recipe=recipe):
-            out2 = model2(x)
-        loss2 = out2.sum()
+        # Verify output matches
+        with torch.no_grad(), te.autocast(enabled=True, recipe=recipe):
+            loaded_output = model2(x)
+
+        torch.testing.assert_close(
+            loaded_output,
+            ref_output,
+            rtol=0,
+            atol=0,
+            msg=lambda m: f"Output mismatch after checkpoint load: {m}",
+        )
         if rank == 0:
-            print(f"Post-load forward pass OK, loss={loss2.item():.4f}")
-            print(f"Losses match: {torch.allclose(loss1, loss2)}")
+            print("Output parity verified — bitwise identical!")
+
+    finally:
+        dist.barrier()
+        if rank == 0:
+            shutil.rmtree(checkpoint_dir, ignore_errors=True)
 
     dist.destroy_process_group()
     if rank == 0:
@@ -231,4 +306,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--fix", action="store_true", help="Apply the reset_sharded_param monkey-patch fix")
     args = parser.parse_args()
+    torch.manual_seed(42)
+    torch.cuda.manual_seed(42)
     run(apply_fix=args.fix)
