@@ -192,7 +192,8 @@ def run(apply_fix: bool):
     # Build model, do one forward pass, save checkpoint
     model, optimizer = build_model_and_optimizer(device_mesh, recipe)
     x = torch.randn(4, 256, device=device, dtype=torch.bfloat16)
-    out1 = model(x)
+    with te.autocast(enabled=True, recipe=recipe):
+        out1 = model(x)
     loss1 = out1.sum()
     if rank == 0:
         print(f"Pre-save forward pass OK, loss={loss1.item():.4f}")
@@ -214,7 +215,8 @@ def run(apply_fix: bool):
             print("Checkpoint loaded successfully!")
 
         # Forward pass after resume — triggers lazy_init -> reset_sharded_param
-        out2 = model2(x)
+        with te.autocast(enabled=True, recipe=recipe):
+            out2 = model2(x)
         loss2 = out2.sum()
         if rank == 0:
             print(f"Post-load forward pass OK, loss={loss2.item():.4f}")
