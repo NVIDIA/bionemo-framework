@@ -9,7 +9,7 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 
 srun --account=healthcareeng_bionemo \
   --job-name=healthcareeng_bionemo-te.debug \
-  --nodes=1 --ntasks-per-node=1 --gpus-per-node=2 \
+  --nodes=1 --ntasks-per-node=1 \
   --time=02:00:00 --partition=batch \
   --container-image="${CONTAINER}" \
   --container-mounts="${CODE_DIR}:/workspace/bionemo,${TE_DIR}:/workspace/transformer_engine" \
