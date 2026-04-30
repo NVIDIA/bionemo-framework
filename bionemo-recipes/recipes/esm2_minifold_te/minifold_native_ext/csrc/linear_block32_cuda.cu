@@ -626,6 +626,7 @@ struct CublasLtDirectMxFp8TransposePlan {
   int64_t n = -1;
   c10::ScalarType bias_dtype = c10::ScalarType::Undefined;
   bool use_bias = false;
+  int epilogue = static_cast<int>(CUBLASLT_EPILOGUE_DEFAULT);
 
   ~CublasLtDirectMxFp8TransposePlan() {
     if (preference != nullptr) cublasLtMatmulPreferenceDestroy(preference);
@@ -643,9 +644,10 @@ struct CublasLtDirectMxFp8TransposePlan {
       int64_t k_,
       int64_t n_,
       bool use_bias_,
-      c10::ScalarType bias_dtype_) const {
+      c10::ScalarType bias_dtype_,
+      int epilogue_) const {
     return device_index == device && batch == batch_ && m == m_ && k == k_ && n == n_ &&
-        use_bias == use_bias_ && bias_dtype == bias_dtype_;
+        use_bias == use_bias_ && bias_dtype == bias_dtype_ && epilogue == epilogue_;
   }
 };
 
@@ -657,6 +659,7 @@ void invalidate_direct_mxfp8_transpose_plan(CublasLtDirectMxFp8TransposePlan* pl
   plan->n = -1;
   plan->bias_dtype = c10::ScalarType::Undefined;
   plan->use_bias = false;
+  plan->epilogue = static_cast<int>(CUBLASLT_EPILOGUE_DEFAULT);
   plan->heuristic = {};
 }
 
@@ -673,6 +676,7 @@ void init_direct_mxfp8_transpose_plan(
     const void* b_scale_ptr,
     const void* bias_ptr,
     const void* d_out_scale_ptr,
+    cublasLtEpilogue_t epilogue,
     cublasLtHandle_t lt_handle) {
   if (plan->preference != nullptr) cublasLtMatmulPreferenceDestroy(plan->preference);
   if (plan->a_desc != nullptr) cublasLtMatrixLayoutDestroy(plan->a_desc);
@@ -690,7 +694,6 @@ void init_direct_mxfp8_transpose_plan(
 
   const cublasOperation_t transa = CUBLAS_OP_N;
   const cublasOperation_t transb = CUBLAS_OP_N;
-  const cublasLtEpilogue_t epilogue = use_bias ? CUBLASLT_EPILOGUE_BIAS : CUBLASLT_EPILOGUE_DEFAULT;
   const int32_t order_col = CUBLASLT_ORDER_COL;
   const int32_t batch_count_i32 = static_cast<int32_t>(batch);
   const int64_t a_batch_stride = k * n;
@@ -778,6 +781,7 @@ void init_direct_mxfp8_transpose_plan(
   plan->n = n;
   plan->use_bias = use_bias;
   plan->bias_dtype = bias_dtype;
+  plan->epilogue = static_cast<int>(epilogue);
 }
 
 std::tuple<at::Tensor, at::Tensor, at::Tensor> run_mxfp8_cublaslt_bmm_direct_output_transposed(
@@ -785,7 +789,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> run_mxfp8_cublaslt_bmm_direct_out
     const at::Tensor& b_col,
     const at::Tensor& a_scale_swizzled,
     const at::Tensor& b_scale_swizzled,
-    const c10::optional<at::Tensor>& bias) {
+    const c10::optional<at::Tensor>& bias,
+    cublasLtEpilogue_t epilogue) {
   static cublasLtHandle_t lt_handle = nullptr;
   if (lt_handle == nullptr) {
     CUBLASLT_CHECK(cublasLtCreate(&lt_handle));
@@ -830,7 +835,8 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> run_mxfp8_cublaslt_bmm_direct_out
   const void* b_scale_ptr = a_scale_swizzled.data_ptr();
   const void* bias_ptr = use_bias ? bias->data_ptr() : nullptr;
   const void* d_out_scale_ptr = out_scale_swizzled.data_ptr();
-  if (!cached_plan->matches(device_index, batch, m, k, n, use_bias, bias_dtype)) {
+  if (!cached_plan->matches(
+          device_index, batch, m, k, n, use_bias, bias_dtype, static_cast<int>(epilogue))) {
     init_direct_mxfp8_transpose_plan(
         cached_plan.get(),
         device_index,
@@ -844,6 +850,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> run_mxfp8_cublaslt_bmm_direct_out
         b_scale_ptr,
         bias_ptr,
         d_out_scale_ptr,
+        epilogue,
         lt_handle);
   }
   CUBLASLT_CHECK(cublasLtMatmulDescSetAttribute(
@@ -2899,13 +2906,25 @@ bool should_use_direct_mxfp8_output(
     const at::Tensor& a,
     bool direct_fp8_output,
     bool apply_relu,
+    const c10::optional<at::Tensor>& bias,
     const c10::optional<at::Tensor>& residual_payload,
     const c10::optional<at::Tensor>& residual_scale,
     const c10::optional<at::Tensor>& b_col_direct) {
-  return kDirectMxFp8OutputEnabled && direct_fp8_output && b_col_direct.has_value() && !apply_relu &&
+  const bool epilogue_supported = !apply_relu || bias.has_value();
+  return kDirectMxFp8OutputEnabled && direct_fp8_output && b_col_direct.has_value() && epilogue_supported &&
       !residual_payload.has_value() && !residual_scale.has_value() &&
       a.scalar_type() == c10::ScalarType::Float8_e4m3fn &&
       b_col_direct->scalar_type() == c10::ScalarType::Float8_e4m3fn;
+}
+
+cublasLtEpilogue_t direct_mxfp8_output_epilogue(
+    bool apply_relu,
+    const c10::optional<at::Tensor>& bias) {
+  if (apply_relu) {
+    TORCH_CHECK(bias.has_value(), "direct MXFP8 ReLU output requires bias for RELU_BIAS epilogue");
+    return CUBLASLT_EPILOGUE_RELU_BIAS;
+  }
+  return bias.has_value() ? CUBLASLT_EPILOGUE_BIAS : CUBLASLT_EPILOGUE_DEFAULT;
 }
 
 }  // namespace
@@ -2965,13 +2984,16 @@ std::tuple<at::Tensor, at::Tensor> linear_block32_fused_cuda(
     TORCH_CHECK(b_col_direct.value().device() == a.device(), "b_col_direct must be on the same CUDA device as a");
   }
 
-  if (should_use_direct_mxfp8_output(a, direct_fp8_output, apply_relu, residual_payload, residual_scale, b_col_direct)) {
+  if (should_use_direct_mxfp8_output(
+          a, direct_fp8_output, apply_relu, bias, residual_payload, residual_scale, b_col_direct)) {
+    const auto epilogue = direct_mxfp8_output_epilogue(apply_relu, bias);
     auto direct = run_mxfp8_cublaslt_bmm_direct_output_transposed(
         a,
         b_col_direct.value(),
         a_scale_swizzled,
         b_scale_swizzled,
-        bias);
+        bias,
+        epilogue);
     return {std::get<0>(direct), std::get<1>(direct)};
   }
 
@@ -3042,13 +3064,16 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> linear_block32_fused_with_swizzle
     TORCH_CHECK(b_col_direct.value().device() == a.device(), "b_col_direct must be on the same CUDA device as a");
   }
 
-  if (should_use_direct_mxfp8_output(a, direct_fp8_output, apply_relu, residual_payload, residual_scale, b_col_direct)) {
+  if (should_use_direct_mxfp8_output(
+          a, direct_fp8_output, apply_relu, bias, residual_payload, residual_scale, b_col_direct)) {
+    const auto epilogue = direct_mxfp8_output_epilogue(apply_relu, bias);
     auto direct = run_mxfp8_cublaslt_bmm_direct_output_transposed(
         a,
         b_col_direct.value(),
         a_scale_swizzled,
         b_scale_swizzled,
-        bias);
+        bias,
+        epilogue);
     return {std::get<0>(direct), std::get<1>(direct), std::get<2>(direct)};
   }
 
@@ -3123,13 +3148,16 @@ at::Tensor linear_block32_raw_debug_cuda(
     TORCH_CHECK(b_col_direct.value().device() == a.device(), "b_col_direct must be on the same CUDA device as a");
   }
 
-  if (should_use_direct_mxfp8_output(a, direct_fp8_output, apply_relu, residual_payload, residual_scale, b_col_direct)) {
+  if (should_use_direct_mxfp8_output(
+          a, direct_fp8_output, apply_relu, bias, residual_payload, residual_scale, b_col_direct)) {
+    const auto epilogue = direct_mxfp8_output_epilogue(apply_relu, bias);
     auto direct = run_mxfp8_cublaslt_bmm_direct_output_transposed(
         a,
         b_col_direct.value(),
         a_scale_swizzled,
         b_scale_swizzled,
-        bias);
+        bias,
+        epilogue);
     return dequantize_block32_to_bf16(std::get<0>(direct), std::get<1>(direct));
   }
 

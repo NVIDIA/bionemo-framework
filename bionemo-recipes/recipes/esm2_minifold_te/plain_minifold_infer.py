@@ -633,6 +633,7 @@ def native_transition_norm_fc1_quantized(
         native_mxfp8_layernorm_quantized(norm_module, x),
         stats=stats,
         apply_relu=True,
+        direct_fp8_output=True,
         fuse_bias_epilogue=True,
     )
     if (
@@ -1149,7 +1150,7 @@ def native_linear_forward_quantized(
         if (
             _NATIVE_DIRECT_MXFP8_OUTPUT
             and use_direct_output
-            and not apply_relu
+            and (not apply_relu or module.bias is not None)
             and residual_payload_chunk is None
             and residual_scale_chunk is None
             and not use_gold_output_pack
