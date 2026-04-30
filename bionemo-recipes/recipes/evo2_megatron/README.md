@@ -67,12 +67,12 @@ torchrun --nproc-per-node 2 --no-python \
   --use-subquadratic-ops
 ```
 
-> **Tip:** The `--use-subquadratic-ops` flag enables a fused back-to-back
-> causal convolution CUDA kernel for the Hyena short-conv layers. This
-> provides a meaningful speed-up for training and prediction and is
-> recommended for all production runs. It does not apply to autoregressive
-> inference (`infer_evo2`). There is a one-time compilation cost on first
-> use.
+> **Tip:** The `--use-subquadratic-ops` flag enables fused subquadratic-ops
+> CUDA kernels (`b2b_causal_conv1d` for proj+mixer fusion in prefill,
+> `fft_causal_conv1d` / `causal_conv1d` inside `engine.parallel_fir`). It
+> applies to training, batch prediction (`predict_evo2`), and the prefill
+> phase of autoregressive inference (`infer_evo2`); per-token decode is
+> already in optimal recurrent form and is unaffected.
 
 ### Autoregressive generation (`infer_evo2`)
 
@@ -97,6 +97,9 @@ Options:
 - `--top-k` / `--top-p` — top-k or nucleus sampling (0 = disabled).
 - `--tensor-parallel-size` — tensor parallelism for large models (default: 1).
 - `--max-seq-length` — maximum sequence length (default: 8192).
+- `--use-subquadratic-ops` — use fused subquadratic-ops kernels for prefill
+  (b2b causal conv, FFT/causal conv1d in `parallel_fir`). Recommended when
+  processing many prompts in one process.
 
 ### Batch sequence scoring (`predict_evo2`)
 
