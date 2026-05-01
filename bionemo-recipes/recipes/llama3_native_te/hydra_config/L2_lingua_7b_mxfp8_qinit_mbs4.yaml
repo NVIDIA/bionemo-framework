@@ -1,6 +1,7 @@
-# Lingua 7B MXFP8 with quantized init — MBS=4 benchmark.
-# Same as L2_lingua_7b_mxfp8_qinit but with micro_batch_size=4
+# Lingua 7B MXFP8 with quantized init — MBS=3 benchmark.
+# Same as L2_lingua_7b_mxfp8_qinit but with micro_batch_size=3
 # to test whether quantized init frees enough memory for larger batches.
+# MBS=4 OOMs on B200 at cross_entropy (128k vocab logits).
 # Requires Blackwell GPUs (GB200/B300) for hardware MXFP8 support.
 
 defaults:
@@ -8,12 +9,12 @@ defaults:
   - _self_
 
 dataset:
-  micro_batch_size: 4
+  micro_batch_size: 3
   use_stateful_dataloader: true
 
 # 1000 steps, no checkpointing — benchmark only.
 num_train_steps: 1_000
 
 wandb:
-  name: lingua-7b-mxfp8-qinit-mbs4-bench
-  id: lingua-7b-mxfp8-qinit-mbs4-bench
+  name: lingua-7b-mxfp8-qinit-mbs3-bench
+  id: lingua-7b-mxfp8-qinit-mbs3-bench

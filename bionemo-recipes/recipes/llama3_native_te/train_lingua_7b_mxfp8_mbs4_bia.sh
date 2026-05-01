@@ -25,7 +25,7 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_mbs4_bench_bia}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_mbs3_bench_bia}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
 CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
 
@@ -42,7 +42,7 @@ set -euxo pipefail
 TE_MOUNT="/workspace/transformer_engine"
 
 echo "========================================="
-echo "Lingua 7B MXFP8 Quantized Init — MBS=4 Benchmark (8 nodes, bia B300)"
+echo "Lingua 7B MXFP8 Quantized Init — MBS=3 Benchmark (8 nodes, bia B300)"
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
@@ -64,6 +64,7 @@ cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
 echo "Starting training..."
 python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit_mbs4 \
+  dataset.micro_batch_size=3 \
   grad_acc_steps=1 \
   num_train_steps=1000 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
