@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=healthcareeng_bionemo
-#SBATCH --nodes=8
+#SBATCH --nodes=1
 #SBATCH --partition=batch,backfill
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=01:30:00
@@ -12,8 +12,8 @@
 set -euxo pipefail
 
 # ============================================================================
-# Lingua 7B MXFP8 quantized init — MBS=4 multinode benchmark (8 nodes, bia B300)
-# MBS=4, grad_acc=1, GBS=256.
+# Lingua 7B MXFP8 quantized init — MBS=4 benchmark (1 node, bia B300)
+# Single node perf benchmark: max MBS with grad_acc=1.
 # ============================================================================
 
 SCRATCH="/lustre/fsw/healthcareeng_bionemo/savithas"
@@ -25,7 +25,7 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_mbs4_8n_bia}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_mbs4_1n_bia}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
 CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
 
@@ -42,7 +42,7 @@ set -euxo pipefail
 TE_MOUNT="/workspace/transformer_engine"
 
 echo "========================================="
-echo "Lingua 7B MXFP8 Quantized Init — MBS=4 Benchmark (8 nodes, bia B300)"
+echo "Lingua 7B MXFP8 Quantized Init — MBS=4 Benchmark (1 node, bia B300)"
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
