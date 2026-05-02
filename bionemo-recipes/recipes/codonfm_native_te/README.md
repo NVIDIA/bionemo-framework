@@ -177,6 +177,27 @@ python train_fsdp2.py \
 A final model suitable for uploading to the Hugging Face Hub can be exported at the end of training by setting
 `checkpoint.save_final_model=true`.
 
+## MFU Tracking
+
+Enable per-step MFU logging by adding `log_mfu=true`:
+
+```bash
+torchrun --nproc_per_node=1 train_fsdp2.py --config-name encodon_1b log_mfu=true
+```
+
+Two pairs of metrics are emitted per logging interval:
+
+- `train/mfu_pct` / `train/tflops_per_gpu` — useful-work rate. Excludes padding of all kinds.
+- `train/mfu_padded_pct` / `train/tflops_per_gpu_padded` — hardware view (HFU-like). Counts
+  every slot the GPU processes, including BSHD row padding.
+
+Non-attention uses the unpadded/padded token count respectively; attention uses `Σ(Lᵢ²)` from
+`cu_seq_lens_q` (THD) or per-row `attention_mask.sum()` (BSHD) for the unpadded variant and
+`cu_seq_lens_q_padded` / full `B·S²` for the padded variant. Implementation in `perf_logger.py`.
+
+Memory: `train/gpu_memory_allocated_max_gb` is the true transient peak per window; `_mean_gb` is
+the post-step resting footprint.
+
 ## Developer Guide
 
 ### Running Tests
