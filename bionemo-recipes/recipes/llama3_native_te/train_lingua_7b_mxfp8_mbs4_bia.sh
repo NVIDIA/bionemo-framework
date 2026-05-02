@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --account=healthcareeng_bionemo
-#SBATCH --nodes=8
+#SBATCH --nodes=1
 #SBATCH --partition=batch,backfill
 #SBATCH --ntasks-per-node=8
 #SBATCH --time=01:30:00
@@ -12,8 +12,8 @@
 set -euxo pipefail
 
 # ============================================================================
-# Lingua 7B MXFP8 quantized init — MBS=4 benchmark (4 nodes, bia B300)
-# Testing whether quantized init frees enough memory for larger batch size.
+# Lingua 7B MXFP8 quantized init — MBS=4 benchmark (1 node, bia B300)
+# Single node perf benchmark: max MBS with grad_acc=1.
 # ============================================================================
 
 SCRATCH="/lustre/fsw/healthcareeng_bionemo/savithas"
@@ -25,7 +25,7 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_mbs3_bench_bia}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_qinit_mbs4_1n_bia}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
 CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
 
@@ -42,7 +42,7 @@ set -euxo pipefail
 TE_MOUNT="/workspace/transformer_engine"
 
 echo "========================================="
-echo "Lingua 7B MXFP8 Quantized Init — MBS=3 Benchmark (8 nodes, bia B300)"
+echo "Lingua 7B MXFP8 Quantized Init — MBS=4 Benchmark (1 node, bia B300)"
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
@@ -63,10 +63,11 @@ print('FusedAdam has QuantizedTensor support')
 cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
 echo "Starting training..."
-python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit_mbs4 \
-  dataset.micro_batch_size=3 \
+python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_qinit \
+  dataset.micro_batch_size=4 \
+  dataset.use_stateful_dataloader=true \
   grad_acc_steps=1 \
-  num_train_steps=1000 \
+  num_train_steps=100 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   logger.frequency=10 \
   checkpoint.save_every_n_steps=999999 \
