@@ -40,7 +40,13 @@ setup(
             libraries=["cublasLt", "cublas"],
             extra_compile_args={
                 "cxx": ["-O3", "-std=c++17"],
-                "nvcc": ["-O3", "-std=c++17", "--use_fast_math", "--expt-relaxed-constexpr"],
+                "nvcc": [
+                    "-O3",
+                    "-std=c++17",
+                    "--use_fast_math",
+                    "--expt-relaxed-constexpr",
+                    "-gencode=arch=compute_103a,code=sm_103a",
+                ],
             },
         )
     ],

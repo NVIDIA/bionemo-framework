@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 import torch
+import torch._dynamo as dynamo
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,6 +18,13 @@ def _rel_error(actual: torch.Tensor, ref: torch.Tensor) -> float:
     diff = (actual.float() - ref.float()).norm()
     base = ref.float().norm().clamp_min(1e-12)
     return float((diff / base).item())
+
+
+def _assert_no_graph_breaks(fn, *args) -> None:
+    dynamo.reset()
+    explain = dynamo.explain(fn)(*args)
+    assert explain.graph_break_count == 0
+    assert explain.graph_count == 1
 
 
 def test_tri_mul_fused_matches_reference_kdim2():
@@ -39,6 +47,18 @@ def test_tri_mul_fused_matches_reference_kdim1():
     assert torch.allclose(out, ref, atol=2e-2, rtol=2e-2)
 
 
+def test_tri_mul_fused_compiles_without_graph_breaks():
+    if not torch.cuda.is_available():
+        return
+
+    def fn(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+        return tri_mul_fused(a, b, k_dim=2, out_dtype=torch.bfloat16)
+
+    a = torch.randn((1, 32, 32, 32), device="cuda", dtype=torch.bfloat16)
+    b = torch.randn((1, 32, 32, 32), device="cuda", dtype=torch.bfloat16)
+    _assert_no_graph_breaks(fn, a, b)
+
+
 def test_tri_mul_xbdnn_cublas_matches_reference():
     if not torch.cuda.is_available():
         return
@@ -50,6 +70,7 @@ def test_tri_mul_xbdnn_cublas_matches_reference():
     ref = torch.cat([ref1, ref2], dim=-1).to(torch.bfloat16)
     out = tri_mul_xbdnn_cublas(x_bdnn, out_dtype=torch.bfloat16)
     assert torch.allclose(out, ref, atol=2e-2, rtol=2e-2)
+    assert out.stride() == (8 * 8 * 64, 8, 1, 8 * 8)
 
 
 def test_tri_mul_xbdnn_cublas_backward_populates_input_grad():
@@ -63,6 +84,17 @@ def test_tri_mul_xbdnn_cublas_backward_populates_input_grad():
     assert x.grad is not None
     assert torch.isfinite(x.grad).all()
     assert x.grad.abs().max().item() > 0
+
+
+def test_tri_mul_xbdnn_cublas_compiles_without_graph_breaks():
+    if not torch.cuda.is_available():
+        return
+
+    def fn(x_bdnn: torch.Tensor) -> torch.Tensor:
+        return tri_mul_xbdnn_cublas(x_bdnn, out_dtype=torch.bfloat16)
+
+    x = torch.randn((1, 128, 32, 32), device="cuda", dtype=torch.bfloat16)
+    _assert_no_graph_breaks(fn, x)
 
 
 def test_tri_mul_xbdnn_cublas_3b_shape_backward_matches_reference():

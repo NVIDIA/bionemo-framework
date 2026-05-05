@@ -1,0 +1,2 @@
+/docs/docs/assets/images/esm2/esm2_low_precision/esm2-15b-b300-mxfp8-10node-conv.svg filter=lfs diff=lfs merge=lfs -text
+/docs/docs/assets/images/esm2/esm2_low_precision/esm2-15b-b300-nvfp4-10node-conv.svg filter=lfs diff=lfs merge=lfs -text
