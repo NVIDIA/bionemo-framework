@@ -30,7 +30,7 @@ TE_MOUNT="/workspace/transformer_engine"
 # (the main run's ckpt dir has newer checkpoints that would be loaded instead).
 MAIN_EXP="lingua_7b_mxfp8_fl1_qinit_8n_prenyx"
 MAIN_CKPT="${SCRATCH}/checkpoints/${MAIN_EXP}/train_fsdp2/step_54000"
-export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_fl1_qinit_repro_54k}"
+export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_fl1_qinit_repro_54k_epoch_test}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
 CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
 
