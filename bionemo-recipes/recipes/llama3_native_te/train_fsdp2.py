@@ -412,6 +412,7 @@ def main(args: DictConfig) -> float | None:
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1
+        logger.warning("Dataloader exhausted at step %s, incrementing epoch to %s", step, epoch)
         dataset_or_sampler.set_epoch(epoch)
 
     # --- Cleanup ---
