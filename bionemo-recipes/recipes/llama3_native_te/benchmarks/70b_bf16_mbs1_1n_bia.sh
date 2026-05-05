@@ -25,7 +25,7 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
-export EXP_NAME="${EXP_NAME:-lingua_70b_bf16_mbs1_1n_bia_v2}"
+export EXP_NAME="${EXP_NAME:-lingua_70b_bf16_mbs1_1n_bia_v3}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
 CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
 
@@ -57,6 +57,7 @@ echo "Starting training..."
 python train_fsdp2_cp.py --config-name L2_lingua_70b_thd \
   dataset.micro_batch_size=1 \
   dataset.use_stateful_dataloader=true \
+  dataset.pad_sequences_to_be_divisible_by=64 \
   grad_acc_steps=1 \
   num_train_steps=100 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
