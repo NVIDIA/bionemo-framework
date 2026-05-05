@@ -25,7 +25,7 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
-export EXP_NAME="${EXP_NAME:-lingua_70b_mxfp8_no_qinit_mbs1_1n_bia}"
+export EXP_NAME="${EXP_NAME:-lingua_70b_mxfp8_no_qinit_mbs1_1n_bia_v2}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
 CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
 
