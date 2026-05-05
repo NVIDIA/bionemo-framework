@@ -26,13 +26,20 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
-# Use the SAME checkpoint dir as the main convergence run so we resume from step 54000
+# Copy step_54000 checkpoint to an isolated dir so get_latest_checkpoint picks it
+# (the main run's ckpt dir has newer checkpoints that would be loaded instead).
 MAIN_EXP="lingua_7b_mxfp8_fl1_qinit_8n_prenyx"
+MAIN_CKPT="${SCRATCH}/checkpoints/${MAIN_EXP}/train_fsdp2/step_54000"
 export EXP_NAME="${EXP_NAME:-lingua_7b_mxfp8_fl1_qinit_repro_54k}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
-CKPT_ROOT="${SCRATCH}/checkpoints/${MAIN_EXP}"
+CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
 
-mkdir -p "${RESULTS_DIR}"
+mkdir -p "${RESULTS_DIR}" "${CKPT_ROOT}/train_fsdp2"
+
+if [ ! -d "${CKPT_ROOT}/train_fsdp2/step_54000" ]; then
+  echo "Copying step_54000 checkpoint to isolated dir..."
+  cp -a "${MAIN_CKPT}" "${CKPT_ROOT}/train_fsdp2/step_54000"
+fi
 
 : "${WANDB_API_KEY:?Set WANDB_API_KEY in ~/.bashrc}"
 : "${HUGGING_FACE_HUB_TOKEN:?Set HUGGING_FACE_HUB_TOKEN in ~/.bashrc}"
