@@ -12,8 +12,8 @@
 set -euxo pipefail
 
 # ============================================================================
-# Lingua 70B MXFP8 WITH quantized init — MBS=2 benchmark (1 node, bia B300)
-# CP=2, dp_size=4. All layers FP8 with quantized init.
+# Lingua 70B MXFP8 THD WITH quantized init — MBS=2 benchmark (1 node, bia B300)
+# CP=2, dp_size=4. All layers FP8 with quantized init. THD + sequence packing.
 # Tests whether qinit memory savings unlock MBS=2 (vs MBS=1 baseline).
 # ============================================================================
 
@@ -43,7 +43,7 @@ set -euxo pipefail
 TE_MOUNT="/workspace/transformer_engine"
 
 echo "========================================="
-echo "Lingua 70B MXFP8 Quantized Init — MBS=2 Benchmark (1 node, bia B300)"
+echo "Lingua 70B MXFP8 THD Quantized Init — MBS=2 Benchmark (1 node, bia B300)"
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
@@ -55,7 +55,7 @@ python -c "import transformer_engine; print(f'TE version: {transformer_engine.__
 cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
 echo "Starting training..."
-python train_fsdp2_cp.py --config-name L2_lingua_70b_mxfp8_qinit \
+python train_fsdp2_cp.py --config-name L2_lingua_70b_mxfp8_qinit_thd \
   dataset.micro_batch_size=2 \
   dataset.use_stateful_dataloader=true \
   dataset.pad_sequences_to_be_divisible_by=64 \

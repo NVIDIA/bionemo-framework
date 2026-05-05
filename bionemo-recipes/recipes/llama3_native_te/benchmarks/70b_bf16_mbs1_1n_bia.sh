@@ -12,8 +12,8 @@
 set -euxo pipefail
 
 # ============================================================================
-# Lingua 70B BF16 — MBS=1 benchmark (1 node, bia B300)
-# CP=2, dp_size=4. Single node perf benchmark.
+# Lingua 70B BF16 THD — MBS=1 benchmark (1 node, bia B300)
+# CP=2, dp_size=4. THD + sequence packing. Single node perf benchmark.
 # ============================================================================
 
 SCRATCH="/lustre/fsw/healthcareeng_bionemo/savithas"
@@ -42,7 +42,7 @@ set -euxo pipefail
 TE_MOUNT="/workspace/transformer_engine"
 
 echo "========================================="
-echo "Lingua 70B BF16 — MBS=1 Benchmark (1 node, bia B300)"
+echo "Lingua 70B BF16 THD — MBS=1 Benchmark (1 node, bia B300)"
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
@@ -54,7 +54,7 @@ python -c "import transformer_engine; print(f'TE version: {transformer_engine.__
 cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
 echo "Starting training..."
-python train_fsdp2_cp.py --config-name L2_lingua_70b \
+python train_fsdp2_cp.py --config-name L2_lingua_70b_thd \
   dataset.micro_batch_size=1 \
   dataset.use_stateful_dataloader=true \
   grad_acc_steps=1 \
