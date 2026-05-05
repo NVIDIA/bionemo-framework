@@ -84,7 +84,7 @@ python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_fl1_qinit \
   checkpoint.resume_from_checkpoint=true \
   logger.frequency=10 \
   quant_stats_config.enabled=true \
-  quant_stats_config.quant_stats_file=./fp8_debugging_stats.yaml \
+  quant_stats_config.quant_stats_file=./fp8_debugging_stats_mxfp8.yaml \
   quant_stats_config.quant_log_dir=/workspace/bionemo/results/log_quant_stats \
   wandb.name=${EXP_NAME} \
   wandb.id=${EXP_NAME} \

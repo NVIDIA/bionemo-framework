@@ -1,0 +1,16 @@
+# MXFP8-compatible variant of fp8_debugging_stats.yaml.
+# LogFp8TensorStats is DISABLED because it requires per-tensor delayed scaling
+# internals (column-wise FP8 data) that MXFP8 block scaling does not produce.
+# LogTensorStats (dgrad/wgrad) works fine with MXFP8.
+example_fp8_tensor_stat_collection:
+    enabled: True
+    layers:
+        layer_types: [layernorm_qkv, proj, fc1, fc2]
+    transformer_engine:
+        LogFp8TensorStats:
+            enabled: False
+        LogTensorStats:
+          enabled: True
+          stats: [max, min, mean, std, l1_norm]
+          tensors: [dgrad, wgrad]
+          freq: 1
