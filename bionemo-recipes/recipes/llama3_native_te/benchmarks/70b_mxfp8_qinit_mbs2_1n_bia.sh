@@ -58,7 +58,7 @@ echo "Starting training..."
 python train_fsdp2_cp.py --config-name L2_lingua_70b_mxfp8_qinit \
   dataset.micro_batch_size=2 \
   dataset.use_stateful_dataloader=true \
-  dataset.pad_sequences_to_be_divisible_by=16 \
+  dataset.pad_sequences_to_be_divisible_by=64 \
   grad_acc_steps=1 \
   num_train_steps=100 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
