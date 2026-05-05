@@ -57,6 +57,7 @@ cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 
 echo "Starting training..."
 python train_fsdp2_cp.py --config-name L2_lingua_70b_mxfp8_qinit_thd \
+  fp8_config.quantized_model_init_kwargs.preserve_high_precision_init_val=false \
   dataset.micro_batch_size=1 \
   dataset.use_stateful_dataloader=true \
   dataset.pad_sequences_to_be_divisible_by=64 \
