@@ -48,6 +48,8 @@ echo "Nodes: ${SLURM_JOB_NUM_NODES}"
 echo "========================================="
 
 export PYTHONPATH="$TE_MOUNT:${PYTHONPATH:-}"
+export HYDRA_FULL_ERROR=1
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 python -c "import transformer_engine; print(f'TE version: {transformer_engine.__version__}')"
 
