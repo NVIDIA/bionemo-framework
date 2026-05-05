@@ -60,6 +60,60 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
+def _log_per_layer_gradient_norms(model: torch.nn.Module, step: int) -> dict[str, float]:
+    """Log per-layer gradient L2 norms, weight norms, and zero-gradient fractions.
+
+    Debugging tool for FP8 gradient underflow. Groups parameters by decoder layer,
+    embed, and lm_head, then computes grad_norm, weight_norm, and the fraction of
+    gradient elements that are exactly zero (underflow indicator).
+
+    Args:
+        model: The model to inspect (must have gradients populated, before optimizer.step).
+        step: Current training step (for logging context).
+
+    Returns:
+        Dictionary of metric_name -> value, ready for wandb.log().
+    """
+    metrics: dict[str, float] = {}
+    layer_groups: dict[str, list[tuple[str, torch.nn.Parameter]]] = {}
+
+    for name, param in model.named_parameters():
+        if param.grad is None:
+            continue
+        if "model.layers." in name:
+            parts = name.split(".")
+            idx = parts[parts.index("layers") + 1]
+            group = f"layer_{idx}"
+        elif "embed_tokens" in name:
+            group = "embed"
+        elif "lm_head" in name:
+            group = "lm_head"
+        elif "norm" in name and "layers" not in name:
+            group = "final_norm"
+        else:
+            group = "other"
+        layer_groups.setdefault(group, []).append((name, param))
+
+    for group, params in sorted(layer_groups.items()):
+        grad_sq, weight_sq, total_el, zero_el = 0.0, 0.0, 0, 0
+        for _name, param in params:
+            grad = param.grad
+            if isinstance(grad, DTensor):
+                grad = grad.to_local()
+            local_param = param._local_tensor if isinstance(param, DTensor) else param
+            g = grad.float().flatten()
+            grad_sq += (g * g).sum().item()
+            weight_sq += (local_param.float().flatten() ** 2).sum().item()
+            total_el += g.numel()
+            zero_el += (g == 0).sum().item()
+
+        metrics[f"grad_debug/{group}/grad_norm"] = grad_sq**0.5
+        metrics[f"grad_debug/{group}/weight_norm"] = weight_sq**0.5
+        metrics[f"grad_debug/{group}/grad_zero_frac"] = zero_el / max(total_el, 1)
+
+    return metrics
+
+
 def _init_master_weights_from_high_precision(
     optimizer: FusedAdam, model: torch.nn.Module, device: torch.device
 ) -> None:
@@ -317,6 +371,14 @@ def main(args: DictConfig) -> float | None:
 
                 # Compute and clip gradient norms.
                 total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+                # Per-layer gradient debug logging (before optimizer.step clears grads).
+                if args.gradient_debug.enabled and step % args.gradient_debug.log_every_n_steps == 0:
+                    grad_metrics = _log_per_layer_gradient_norms(model, step)
+                    if dist_config.is_main_process():
+                        import wandb as _wandb
+
+                        _wandb.log(grad_metrics, step=step)
 
                 # Step optimizer.
                 optimizer.step()
