@@ -63,6 +63,14 @@ at::Tensor linear_block32_raw_debug_cuda(
     const c10::optional<at::Tensor>& residual_scale = c10::nullopt,
     const c10::optional<at::Tensor>& b_col_direct = c10::nullopt);
 
+std::tuple<at::Tensor, at::Tensor, at::Tensor> quantize_block32_bf16_baseline_512_debug_cuda(
+    const at::Tensor& input,
+    const at::Tensor& bias);
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor> quantize_block32_bf16_optimized_512_debug_cuda(
+    const at::Tensor& input,
+    const at::Tensor& bias);
+
 std::tuple<at::Tensor, at::Tensor> linear_block32_fc1_direct_cuda(
     const at::Tensor& a,
     const at::Tensor& b_cutlass_col,
@@ -144,6 +152,22 @@ pack_block32_to_mxfp8_fused_debug_cuda(
     const at::Tensor& payload,
     const at::Tensor& scale,
     const c10::optional<at::Tensor>& mask = c10::nullopt);
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+debug_gate_sigmoid_mul_pack_to_mxfp8_baseline_cuda(
+    const at::Tensor& lhs,
+    const at::Tensor& rhs,
+    const c10::optional<at::Tensor>& lhs_bias,
+    const c10::optional<at::Tensor>& rhs_bias,
+    const at::Tensor& mask);
+
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
+debug_gate_sigmoid_mul_pack_to_mxfp8_optimized_cuda(
+    const at::Tensor& lhs,
+    const at::Tensor& rhs,
+    const c10::optional<at::Tensor>& lhs_bias,
+    const c10::optional<at::Tensor>& rhs_bias,
+    const at::Tensor& mask);
 
 std::tuple<at::Tensor, at::Tensor> tri_mul_pair_from_packed_debug_cuda(
     const at::Tensor& a1,

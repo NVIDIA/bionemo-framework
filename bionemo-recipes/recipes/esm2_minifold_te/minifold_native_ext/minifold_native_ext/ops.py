@@ -1789,6 +1789,30 @@ def _debug_gate_sigmoid_mul_pack_to_mxfp8_warp(
     return _C._debug_gate_sigmoid_mul_pack_to_mxfp8_warp(lhs, rhs, lhs_bias, rhs_bias, mask)
 
 
+def _debug_gate_sigmoid_mul_pack_to_mxfp8_baseline(
+    lhs: torch.Tensor,
+    rhs: torch.Tensor,
+    lhs_bias: torch.Tensor,
+    rhs_bias: torch.Tensor,
+    mask: torch.Tensor,
+):
+    if _C is None:
+        raise _extension_unavailable("_debug_gate_sigmoid_mul_pack_to_mxfp8_baseline")
+    return _C._debug_gate_sigmoid_mul_pack_to_mxfp8_baseline(lhs, rhs, lhs_bias, rhs_bias, mask)
+
+
+def _debug_gate_sigmoid_mul_pack_to_mxfp8_optimized(
+    lhs: torch.Tensor,
+    rhs: torch.Tensor,
+    lhs_bias: torch.Tensor,
+    rhs_bias: torch.Tensor,
+    mask: torch.Tensor,
+):
+    if _C is None:
+        raise _extension_unavailable("_debug_gate_sigmoid_mul_pack_to_mxfp8_optimized")
+    return _C._debug_gate_sigmoid_mul_pack_to_mxfp8_optimized(lhs, rhs, lhs_bias, rhs_bias, mask)
+
+
 def _debug_tri_input_norm_gate_block32_reference_stages(
     payload: torch.Tensor,
     scale: torch.Tensor,

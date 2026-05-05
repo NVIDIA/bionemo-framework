@@ -52,6 +52,18 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("residual_scale") = pybind11::none(),
       pybind11::arg("b_col_direct") = pybind11::none());
   m.def(
+      "_quantize_block32_bf16_baseline_512",
+      &minifold_native_ext::quantize_block32_bf16_baseline_512_debug_cuda,
+      "Debug-only baseline quantize_block32_bf16_specialized<512, bias, relu, no residual>",
+      pybind11::arg("input"),
+      pybind11::arg("bias"));
+  m.def(
+      "_quantize_block32_bf16_optimized_512",
+      &minifold_native_ext::quantize_block32_bf16_optimized_512_debug_cuda,
+      "Debug-only optimized quantize_block32_bf16_specialized<512, bias, relu, no residual>",
+      pybind11::arg("input"),
+      pybind11::arg("bias"));
+  m.def(
       "linear_block32_fc1_direct",
       &minifold_native_ext::linear_block32_fc1_direct_cuda,
       "MiniFold native canonical fc1 path with direct FP8 block32 output",
@@ -150,6 +162,24 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
       pybind11::arg("payload"),
       pybind11::arg("scale"),
       pybind11::arg("mask") = pybind11::none());
+  m.def(
+      "_debug_gate_sigmoid_mul_pack_to_mxfp8_baseline",
+      &minifold_native_ext::debug_gate_sigmoid_mul_pack_to_mxfp8_baseline_cuda,
+      "Debug-only baseline gate sigmoid/mul pack using the original 512-thread kernel",
+      pybind11::arg("lhs"),
+      pybind11::arg("rhs"),
+      pybind11::arg("lhs_bias") = pybind11::none(),
+      pybind11::arg("rhs_bias") = pybind11::none(),
+      pybind11::arg("mask"));
+  m.def(
+      "_debug_gate_sigmoid_mul_pack_to_mxfp8_optimized",
+      &minifold_native_ext::debug_gate_sigmoid_mul_pack_to_mxfp8_optimized_cuda,
+      "Debug-only optimized gate sigmoid/mul pack using the production kernel",
+      pybind11::arg("lhs"),
+      pybind11::arg("rhs"),
+      pybind11::arg("lhs_bias") = pybind11::none(),
+      pybind11::arg("rhs_bias") = pybind11::none(),
+      pybind11::arg("mask"));
   m.def(
       "tri_mul_pair_from_packed_debug",
       &minifold_native_ext::tri_mul_pair_from_packed_debug_cuda,
