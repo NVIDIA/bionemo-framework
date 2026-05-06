@@ -50,7 +50,7 @@ for s in shards:
     pattern = f'global-shard_{s}_of_10/*'
     print(f'Downloading {pattern}...')
     snapshot_download(
-        'mlfoundations/dclm-baseline-1.0',
+        'mlfoundations/dclm-baseline-1.0-parquet',
         repo_type='dataset',
         allow_patterns=[pattern],
         local_dir='/workspace/data/dclm-baseline',
