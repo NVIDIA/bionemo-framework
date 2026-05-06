@@ -21,6 +21,9 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # We create it one level up (/workspace/.venv) to keep it out of the source dir
 RUN uv venv --system-site-packages --seed $VIRTUAL_ENV
 
+# FIXME: Pin warp-lang<1.13.0 until subquadratic-ops is compatible with warp 1.13+
+RUN uv pip install 'warp-lang<1.13.0'
+
 # 4. Pin transformer_engine to the version pre-installed in the base image.
 # Without this constraint uv may try to upgrade or rebuild TE, which breaks the build.
 RUN pip freeze | grep transformer_engine > pip-constraints.txt
