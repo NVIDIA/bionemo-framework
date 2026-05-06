@@ -42,10 +42,21 @@ echo "========================================="
 echo "Downloading DCLM shard(s): ${SHARD}"
 echo "========================================="
 
-python -m huggingface_hub.commands.huggingface_cli download mlfoundations/dclm-baseline-1.0 \
-    --repo-type dataset \
-    ${INCLUDE_ARGS} \
-    --local-dir /workspace/data/dclm-baseline
+python -c "
+from huggingface_hub import snapshot_download
+import os
+shards = os.environ['SHARD'].split()
+for s in shards:
+    pattern = f'global-shard_{s}_of_10/*'
+    print(f'Downloading {pattern}...')
+    snapshot_download(
+        'mlfoundations/dclm-baseline-1.0',
+        repo_type='dataset',
+        allow_patterns=[pattern],
+        local_dir='/workspace/data/dclm-baseline',
+    )
+    print(f'Done: {pattern}')
+"
 
 echo "========================================="
 echo "Download complete! Contents:"
