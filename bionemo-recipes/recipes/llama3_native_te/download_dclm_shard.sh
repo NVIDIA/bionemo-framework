@@ -42,6 +42,8 @@ echo "========================================="
 echo "Downloading DCLM shard(s): ${SHARD}"
 echo "========================================="
 
+pip install -q huggingface_hub[cli]
+
 huggingface-cli download mlfoundations/dclm-baseline-1.0 \
     --repo-type dataset \
     ${INCLUDE_ARGS} \
