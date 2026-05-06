@@ -113,7 +113,7 @@ jobs:
             map({
               dir: .,
               name: (. | sub("^bionemo-recipes/"; "")),
-              image: "svcbionemo023/bionemo-framework:pytorch26.03-py3-squashed"
+              image: "svcbionemo023/bionemo-framework:pytorch26.04-py3-squashed"
             })
           ')
           echo "dirs=$DIRS_WITH_IMAGES" >> $GITHUB_OUTPUT
