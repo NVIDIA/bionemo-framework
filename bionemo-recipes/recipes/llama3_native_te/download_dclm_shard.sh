@@ -53,7 +53,7 @@ for s in shards:
         'mlfoundations/dclm-baseline-1.0-parquet',
         repo_type='dataset',
         allow_patterns=[pattern],
-        local_dir='/workspace/data/dclm-baseline-parquet',
+        local_dir='/workspace/data/dclm-baseline',
     )
     print(f'Done: {pattern}')
 "
