@@ -1,0 +1,89 @@
+#!/bin/bash
+#SBATCH --account=healthcareeng_bionemo
+#SBATCH --nodes=1
+#SBATCH --partition=batch,backfill
+#SBATCH --ntasks-per-node=8
+#SBATCH --time=00:45:00
+#SBATCH --mem=0
+#SBATCH --job-name=healthcareeng_bionemo-mp.70b-bf16
+#SBATCH --mail-type=FAIL
+#SBATCH --overcommit
+#SBATCH --exclusive
+set -euxo pipefail
+
+# ============================================================================
+# Memory Profiler: Lingua 70B BF16 THD — MBS=1 (1 node, bia B300)
+# CP=2, dp_size=4. Runs 10 steps, dumps torch memory snapshot after step 0.
+# ============================================================================
+
+SCRATCH="/lustre/fsw/healthcareeng_bionemo/savithas"
+CONTAINER="${SCRATCH}/enroot/llama3_native_te_te-main-26.03.sqsh"
+CODE_DIR="${SCRATCH}/bionemo-framework"
+DATA_DIR="${SCRATCH}/data"
+TE_DIR="${SCRATCH}/TransformerEngine"
+
+CODE_MOUNT="/workspace/bionemo"
+TE_MOUNT="/workspace/transformer_engine"
+
+export EXP_NAME="${EXP_NAME:-mp_70b_bf16}"
+RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
+CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
+SNAP_DIR="${SCRATCH}/memory_snapshots/70b_bf16"
+
+mkdir -p "${RESULTS_DIR}" "${CKPT_ROOT}" "${SNAP_DIR}"
+
+: "${WANDB_API_KEY:?Set WANDB_API_KEY in ~/.bashrc}"
+: "${HUGGING_FACE_HUB_TOKEN:?Set HUGGING_FACE_HUB_TOKEN in ~/.bashrc}"
+
+MOUNTS="${CODE_DIR}:${CODE_MOUNT},${DATA_DIR}:/workspace/data,${RESULTS_DIR}:${CODE_MOUNT}/results,${CKPT_ROOT}:${CODE_MOUNT}/checkpoints,${TE_DIR}:${TE_MOUNT},${SNAP_DIR}:/workspace/snapshots"
+
+read -r -d '' COMMAND <<'OUTER_EOF' || true
+set -euxo pipefail
+
+TE_MOUNT="/workspace/transformer_engine"
+
+echo "========================================="
+echo "Memory Profiler: 70B BF16 THD — MBS=1 (1 node, bia B300)"
+echo "Job ID: ${SLURM_JOB_ID}"
+echo "Nodes: ${SLURM_JOB_NUM_NODES}"
+echo "========================================="
+
+export PYTHONPATH="$TE_MOUNT:${PYTHONPATH:-}"
+
+python -c "import transformer_engine; print(f'TE version: {transformer_engine.__version__}')"
+
+cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
+
+echo "Starting memory profiler run..."
+python train_fsdp2_cp.py --config-name L2_lingua_70b_thd \
+  dataset.micro_batch_size=1 \
+  dataset.use_stateful_dataloader=true \
+  dataset.pad_sequences_to_be_divisible_by=64 \
+  grad_acc_steps=1 \
+  num_train_steps=10 \
+  checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
+  logger.frequency=1 \
+  checkpoint.save_every_n_steps=999999 \
+  checkpoint.resume_from_checkpoint=false \
+  memory_profiler.enabled=true \
+  memory_profiler.snapshot_dir=/workspace/snapshots \
+  wandb.name=${EXP_NAME} \
+  wandb.id=${EXP_NAME} \
+  wandb.project=lingua-70b
+
+echo "========================================="
+echo "Memory profiler complete!"
+echo "Snapshot: /workspace/snapshots/memory_snapshot.pickle"
+echo "========================================="
+OUTER_EOF
+
+COMMAND="export EXP_NAME=\"${EXP_NAME}\"; export WANDB_API_KEY=\"${WANDB_API_KEY}\"; export HUGGING_FACE_HUB_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; export HF_TOKEN=\"${HUGGING_FACE_HUB_TOKEN}\"; ${COMMAND}"
+
+echo "Launching: ${EXP_NAME}"
+
+srun \
+  --output "${RESULTS_DIR}/slurm-%j-%n.out" \
+  --error  "${RESULTS_DIR}/error-%j-%n.out" \
+  --container-image "${CONTAINER}" \
+  --container-mounts "${MOUNTS}" \
+  bash -c "${COMMAND}"

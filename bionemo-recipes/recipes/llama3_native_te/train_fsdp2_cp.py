@@ -169,6 +169,21 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
+    # --- Memory Profiling ---
+    _mem_prof_enabled = getattr(args, "memory_profiler", None) and args.memory_profiler.enabled
+    if _mem_prof_enabled:
+        torch.cuda.memory._record_memory_history(max_entries=100000)
+        logger.info("Memory profiler enabled — recording allocation history")
+
+    def _log_memory(tag: str) -> None:
+        """Log GPU memory stats."""
+        alloc = torch.cuda.memory_allocated() / (1024**3)
+        reserved = torch.cuda.memory_reserved() / (1024**3)
+        peak = torch.cuda.max_memory_allocated() / (1024**3)
+        logger.info("[Memory: %s] allocated=%.2f GB, reserved=%.2f GB, peak=%.2f GB", tag, alloc, reserved, peak)
+
+    _log_memory("after_model_init")
+
     # --- Distributed Wrapping (FSDP2 + CP) ---
     cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
 
@@ -187,6 +202,8 @@ def main(args: DictConfig) -> float | None:
     for layer in model.model.layers:
         fully_shard(layer, mesh=cp_dp_mesh, mp_policy=mp_policy)
     fully_shard(model, mesh=cp_dp_mesh, mp_policy=mp_policy)
+
+    _log_memory("after_fsdp_wrap")
 
     # Attach the CP group to the model.
     for layer in model.model.layers:
@@ -323,6 +340,17 @@ def main(args: DictConfig) -> float | None:
                     grad_norm=total_norm,
                     lr=optimizer.param_groups[0]["lr"],
                 )
+
+                # Dump memory snapshot after first training step (peak memory).
+                if step == start_step and _mem_prof_enabled:
+                    _log_memory("after_first_step")
+                    if dist_config.is_main_process() and args.memory_profiler.snapshot_after_first_step:
+                        snap_dir = Path(args.memory_profiler.snapshot_dir)
+                        snap_dir.mkdir(parents=True, exist_ok=True)
+                        snap_path = snap_dir / "memory_snapshot.pickle"
+                        torch.cuda.memory._dump_snapshot(str(snap_path))
+                        logger.info("Memory snapshot saved to %s", snap_path)
+                        torch.cuda.memory._record_memory_history(enabled=None)  # stop recording
 
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
                     save_checkpoint_fsdp2(
