@@ -26,10 +26,10 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
-export EXP_NAME="${EXP_NAME:-mp_8b_mxfp8_qinit}"
+export EXP_NAME="${EXP_NAME:-mp_8b_mxfp8_qinit_3step}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
 CKPT_ROOT="${SCRATCH}/checkpoints/${EXP_NAME}"
-SNAP_DIR="${SCRATCH}/memory_snapshots/8b_mxfp8_qinit"
+SNAP_DIR="${SCRATCH}/memory_snapshots/8b_mxfp8_qinit_3step"
 
 mkdir -p "${RESULTS_DIR}" "${CKPT_ROOT}" "${SNAP_DIR}"
 
