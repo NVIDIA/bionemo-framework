@@ -96,7 +96,7 @@ gradient_debug:
 memory_profiler:
   enabled: false
   snapshot_dir: ./results  # directory to save .pickle snapshots
-  snapshot_after_first_step: true  # dump snapshot after first optimizer step (peak training memory)
+  snapshot_after_n_steps: 3  # dump snapshot after N optimizer steps (captures steady-state + one-time overhead)
 
 profiler:
   enabled: false

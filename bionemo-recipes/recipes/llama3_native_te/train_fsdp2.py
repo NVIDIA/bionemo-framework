@@ -243,7 +243,7 @@ def main(args: DictConfig) -> float | None:
     # --- Memory Profiling ---
     _mem_prof_enabled = getattr(args, "memory_profiler", None) and args.memory_profiler.enabled
     if _mem_prof_enabled:
-        torch.cuda.memory._record_memory_history(max_entries=100000)
+        torch.cuda.memory._record_memory_history(max_entries=500000)
         logger.info("Memory profiler enabled — recording allocation history")
 
     def _log_memory(tag: str) -> None:
@@ -409,15 +409,16 @@ def main(args: DictConfig) -> float | None:
                     lr=optimizer.param_groups[0]["lr"],
                 )
 
-                # Dump memory snapshot after first training step (peak memory).
-                if step == start_step and _mem_prof_enabled:
-                    _log_memory("after_first_step")
-                    if dist_config.is_main_process() and args.memory_profiler.snapshot_after_first_step:
+                # Dump memory snapshot after N training steps (captures steady-state memory).
+                _mp_n_steps = getattr(args.memory_profiler, "snapshot_after_n_steps", 3) if _mem_prof_enabled else 0
+                if _mem_prof_enabled and step == start_step + _mp_n_steps - 1:
+                    _log_memory(f"after_step_{step}")
+                    if dist_config.is_main_process():
                         snap_dir = Path(args.memory_profiler.snapshot_dir)
                         snap_dir.mkdir(parents=True, exist_ok=True)
                         snap_path = snap_dir / "memory_snapshot.pickle"
                         torch.cuda.memory._dump_snapshot(str(snap_path))
-                        logger.info("Memory snapshot saved to %s", snap_path)
+                        logger.info("Memory snapshot saved to %s (after %d steps)", snap_path, _mp_n_steps)
                         torch.cuda.memory._record_memory_history(enabled=None)  # stop recording
 
                 if ckpt_path and should_save_checkpoint(step, args.checkpoint.save_every_n_steps):
