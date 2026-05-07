@@ -69,7 +69,7 @@ cd /workspace/bionemo/bionemo-recipes/recipes/llama3_native_te
 python train_fsdp2.py --config-name L2_lingua_7b_mxfp8_fl1_qinit \
   dataset.micro_batch_size=2 \
   dataset.use_stateful_dataloader=true \
-  'dataset.load_dataset_kwargs.data_files=/workspace/data/dclm-baseline/**/global-shard_02_of_10/**/*.parquet' \
+  'dataset.load_dataset_kwargs.data_files=/workspace/data/dclm-baseline/filtered/OH_eli5_vs_rw_v2_bigram_200k_train/fasttext_openhermes_reddit_eli5_vs_rw_v2_bigram_200k_train/processed_data/global-shard_02_of_10/**/*.parquet' \
   grad_acc_steps=2 \
   checkpoint.ckpt_dir=/workspace/bionemo/checkpoints \
   checkpoint.save_every_n_steps=1500 \
