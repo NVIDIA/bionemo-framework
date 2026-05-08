@@ -80,7 +80,8 @@ def log_memory(tag: str):
 
 def main():  # noqa: D103
     parser = argparse.ArgumentParser()
-    parser.add_argument("--no-qinit", action="store_true", help="Disable quantized_model_init")
+    parser.add_argument("--no-qinit", action="store_true", help="Disable quantized_model_init (BF16 baseline)")
+    parser.add_argument("--mxfp8-no-qinit", action="store_true", help="MXFP8 via autocast but no quantized_model_init")
     parser.add_argument("--no-hpiv", action="store_true", help="Set preserve_high_precision_init_val=False")
     parser.add_argument("--snapshot-dir", type=str, default="/tmp/memory_snapshots", help="Where to save .pickle")
     parser.add_argument(
@@ -88,13 +89,19 @@ def main():  # noqa: D103
     )
     args = parser.parse_args()
 
-    use_qinit = not args.no_qinit
+    use_qinit = not args.no_qinit and not args.mxfp8_no_qinit
+    use_fp8_autocast = use_qinit or args.mxfp8_no_qinit
     use_hpiv = not args.no_hpiv and use_qinit  # HPIV only makes sense with qinit
 
-    mode = "bf16" if not use_qinit else f"qinit_hpiv={'T' if use_hpiv else 'F'}"
+    if args.no_qinit:
+        mode = "bf16"
+    elif args.mxfp8_no_qinit:
+        mode = "mxfp8_no_qinit"
+    else:
+        mode = f"qinit_hpiv={'T' if use_hpiv else 'F'}"
     dist_print(f"\n{'=' * 60}")
     dist_print(f"Memory Profiler: fully_shard — mode={mode}")
-    dist_print(f"  qinit={use_qinit}, hpiv={use_hpiv}")
+    dist_print(f"  qinit={use_qinit}, fp8_autocast={use_fp8_autocast}, hpiv={use_hpiv}")
     dist_print(f"  model: {NUM_LAYERS} layers, hidden={HIDDEN_SIZE}, ffn={FFN_HIDDEN_SIZE}")
     dist_print(f"  snapshot after {args.snapshot_after_n_steps} steps → {args.snapshot_dir}")
     dist_print(f"{'=' * 60}\n")
@@ -222,7 +229,7 @@ def main():  # noqa: D103
     for step in range(NUM_STEPS):
         optimizer.zero_grad(set_to_none=True)
 
-        if use_qinit:
+        if use_fp8_autocast:
             with te.autocast(enabled=True, recipe=MXFP8BlockScaling()):
                 output = model(x)
         else:
