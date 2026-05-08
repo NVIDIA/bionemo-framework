@@ -27,7 +27,7 @@ Profiles:
   4. Optimizer creation + master weight seeding
   5. Three training steps (forward + backward + optimizer.step)
 
-Dumps a .pickle snapshot after step 2 that can be visualized at
+Dumps a .pickle snapshot after 3 training steps that can be visualized at
 https://pytorch.org/memory_viz
 
 Usage::
@@ -83,7 +83,9 @@ def main():  # noqa: D103
     parser.add_argument("--no-qinit", action="store_true", help="Disable quantized_model_init")
     parser.add_argument("--no-hpiv", action="store_true", help="Set preserve_high_precision_init_val=False")
     parser.add_argument("--snapshot-dir", type=str, default="/tmp/memory_snapshots", help="Where to save .pickle")
-    parser.add_argument("--snapshot-after-n-steps", type=int, default=3, help="Dump snapshot after N steps")
+    parser.add_argument(
+        "--snapshot-after-n-steps", type=int, default=3, help="Dump snapshot after N steps (default 3)"
+    )
     args = parser.parse_args()
 
     use_qinit = not args.no_qinit
