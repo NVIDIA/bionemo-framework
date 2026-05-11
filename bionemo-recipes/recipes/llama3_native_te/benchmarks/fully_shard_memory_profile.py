@@ -117,9 +117,6 @@ def main():  # noqa: D103
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
 
-    # Start memory profiler
-    torch.cuda.memory._record_memory_history(max_entries=500000)
-    dist_print("Memory profiler started — recording allocation history")
     log_memory("before_model_init")
 
     # ── 2. Create model on meta device ───────────────────────────────
@@ -223,6 +220,10 @@ def main():  # noqa: D103
     # ── 7. Training loop ─────────────────────────────────────────────
     x = torch.randn(SEQ_LEN, BATCH_PER_RANK, HIDDEN_SIZE, dtype=DTYPE, device=device)
     target = torch.randn(SEQ_LEN, BATCH_PER_RANK, HIDDEN_SIZE, dtype=DTYPE, device=device)
+
+    # Start memory profiler here (after all init) to match recipe pattern
+    torch.cuda.memory._record_memory_history(max_entries=500000)
+    dist_print("Memory profiler started — recording allocation history")
 
     log_memory("before_training")
 
