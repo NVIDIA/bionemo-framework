@@ -59,7 +59,7 @@ NUM_LAYERS = 3
 SEQ_LEN = 32
 BATCH_PER_RANK = 2
 NUM_STEPS = 5
-DTYPE = torch.float32
+DTYPE = torch.bfloat16
 
 
 def dist_print(msg):
