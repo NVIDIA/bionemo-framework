@@ -159,6 +159,10 @@ def main():  # noqa: D103
     log_memory("after_model_init_meta")
     dist_print(f"Model created on meta device. use_qinit={use_qinit}")
 
+    # --- Memory Profiling (start after model init, before FSDP — matches recipe) ---
+    torch.cuda.memory._record_memory_history(max_entries=500000)
+    dist_print("Memory profiler started — recording allocation history")
+
     # ── 3. FSDP2 sharding ───────────────────────────────────────────
     mesh = DeviceMesh("cuda", list(range(world_size)))
     for child in model.children():
@@ -220,10 +224,6 @@ def main():  # noqa: D103
     # ── 7. Training loop ─────────────────────────────────────────────
     x = torch.randn(SEQ_LEN, BATCH_PER_RANK, HIDDEN_SIZE, dtype=DTYPE, device=device)
     target = torch.randn(SEQ_LEN, BATCH_PER_RANK, HIDDEN_SIZE, dtype=DTYPE, device=device)
-
-    # Start memory profiler here (after all init) to match recipe pattern
-    torch.cuda.memory._record_memory_history(max_entries=500000)
-    dist_print("Memory profiler started — recording allocation history")
 
     log_memory("before_training")
 
