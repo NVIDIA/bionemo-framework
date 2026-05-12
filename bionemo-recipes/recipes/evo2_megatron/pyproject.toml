@@ -32,16 +32,25 @@ dependencies = [
     "biopython",
     "openpyxl",
     "seaborn",
+
+    # evo2_serve: FastAPI service for in-process inference reuse.
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic>=2",
 ]
 
 [project.optional-dependencies]
-test = []
+test = [
+    "pytest",
+    "httpx",
+]
 
 [project.scripts]
 torchrun = "torch.distributed.run:main"
 infer_evo2 = "bionemo.evo2.run.infer:main"
 train_evo2 = "bionemo.evo2.run.train:main"
 predict_evo2 = "bionemo.evo2.run.predict:main"
+evo2_serve = "bionemo.evo2.run.serve:main"
 preprocess_evo2 = "bionemo.evo2.data.preprocess:main"
 splice_evo2 = "bionemo.evo2.data.transcript_extraction:main"
 evo2_convert_nemo2_to_mbridge = "bionemo.evo2.utils.checkpoint.nemo2_to_mbridge:main"

@@ -26,18 +26,19 @@ source ./.ci_test_env.sh  # source the virtualenv
 
 All CLI tools are defined in `pyproject.toml` under `[project.scripts]`.
 
-| Command                           | Description                                           |
-| --------------------------------- | ----------------------------------------------------- |
-| `train_evo2`                      | Train or fine-tune Hyena models                       |
-| `infer_evo2`                      | Autoregressive text generation (greedy/sampling)      |
-| `predict_evo2`                    | Batch log-likelihood scoring on FASTA sequences       |
-| `preprocess_evo2`                 | Convert FASTA files to Megatron indexed binary format |
-| `splice_evo2`                     | Extract spliced transcripts from FASTA + GTF files    |
-| `evo2_convert_nemo2_to_mbridge`   | Convert NeMo2 checkpoints to MBridge DCP format       |
-| `evo2_convert_savanna_to_mbridge` | Convert Savanna checkpoints to MBridge DCP format     |
-| `evo2_export_mbridge_to_vortex`   | Export MBridge checkpoint to Vortex `.pt` format      |
-| `evo2_remove_optimizer`           | Strip optimizer state from an MBridge checkpoint      |
-| `bionemo_fasta_to_jsonl`          | Convert FASTA files to JSONL format                   |
+| Command                           | Description                                               |
+| --------------------------------- | --------------------------------------------------------- |
+| `train_evo2`                      | Train or fine-tune Hyena models                           |
+| `infer_evo2`                      | Autoregressive text generation (greedy/sampling)          |
+| `predict_evo2`                    | Batch log-likelihood scoring on FASTA sequences           |
+| `evo2_serve`                      | FastAPI service exposing `/score` + `/generate` over HTTP |
+| `preprocess_evo2`                 | Convert FASTA files to Megatron indexed binary format     |
+| `splice_evo2`                     | Extract spliced transcripts from FASTA + GTF files        |
+| `evo2_convert_nemo2_to_mbridge`   | Convert NeMo2 checkpoints to MBridge DCP format           |
+| `evo2_convert_savanna_to_mbridge` | Convert Savanna checkpoints to MBridge DCP format         |
+| `evo2_export_mbridge_to_vortex`   | Export MBridge checkpoint to Vortex `.pt` format          |
+| `evo2_remove_optimizer`           | Strip optimizer state from an MBridge checkpoint          |
+| `bionemo_fasta_to_jsonl`          | Convert FASTA files to JSONL format                       |
 
 Run any tool with `--help` for full usage details.
 
@@ -128,6 +129,73 @@ Options:
 - `--mask-phylogenetic-tags` — mask phylogenetic tags in loss computation.
 - `--use-subquadratic-ops` — enable fused Hyena convolution kernels for faster
   scoring (recommended for larger datasets; has a one-time compilation cost).
+
+### Serve mode (`evo2_serve`)
+
+`evo2_serve` exposes `/score` (forward-pass log-probabilities) and `/generate`
+(autoregressive completion) as a FastAPI service over HTTP. Unlike
+`predict_evo2` and `infer_evo2`, which load the model once per batch invocation
+via `torchrun`, the serve process loads the model **once at startup** and
+reuses the same inference engine across requests — eliminating cold-start
+cost when a notebook or agent makes many small calls.
+
+Designed for single-process, single-GPU, single-flight serving. Tensor
+parallelism > 1 is not supported in v0; use `predict_evo2` for multi-GPU
+batch scoring.
+
+Start the service:
+
+```bash
+evo2_serve \
+  --ckpt-dir /path/to/mbridge/checkpoint \
+  --port 8000 --host 0.0.0.0 \
+  --mixed-precision-recipe bf16_mixed
+```
+
+Call it (intended use is via SSH tunnel; no auth is implemented):
+
+```bash
+# Health
+curl -s http://localhost:8000/health | jq
+
+# Score: per-sequence log-probability (forward pass)
+curl -s -X POST http://localhost:8000/score \
+  -H 'Content-Type: application/json' \
+  -d '{"sequences": ["ACGTACGT"], "collapse": "sum"}'
+
+# Score: from raw FASTA
+curl -s -X POST http://localhost:8000/score \
+  -H 'Content-Type: application/json' \
+  -d '{"fasta": ">ref\nACGTACGT\n>var\nACGTGCGT", "collapse": "sum"}'
+
+# Generate: autoregressive completion
+curl -s -X POST http://localhost:8000/generate \
+  -H 'Content-Type: application/json' \
+  -d '{"prompts": ["ACGT"], "max_new_tokens": 64, "top_k": 1}'
+```
+
+Endpoints:
+
+- `GET /health` — liveness, `model_id`, `ckpt_dir`, `tensor_parallel_size`,
+  uptime, requests served.
+- `POST /score` — `{sequences | fasta, collapse: "sum"|"mean"|"per_token"}` →
+  `{log_probs, seq_ids, collapse}`. Backed by the same `_compute_log_probs`
+  used by `predict_evo2`.
+- `POST /generate` — `{prompts, max_new_tokens, top_k, top_p, temperature, return_log_probs}` → `{completions, finish_reasons, generated_log_probs}`.
+  Backed by the same `generate(components, ...)` used by `infer_evo2`.
+
+Known limitations (v0):
+
+- TP/PP/CP must all equal 1.
+- No request queuing; concurrent requests are serialized.
+- No authentication; deploy behind an SSH tunnel (e.g.
+  `brev port-forward inst -p 8000:8000`).
+
+A reference orchestrator — provisioning a Brev L40s instance, building this
+container, downloading + converting the `arcinstitute/savanna_evo2_7b`
+HuggingFace checkpoint, starting `evo2_serve`, port-forwarding, and emitting
+a BRCA1 zero-shot variant scoring notebook — lives at
+`~/.claude/skills/evo2-brev/` (the user-side Claude Code skill).
 
 ### Data preprocessing (`preprocess_evo2`)
 
