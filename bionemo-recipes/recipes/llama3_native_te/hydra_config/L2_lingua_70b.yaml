@@ -21,7 +21,7 @@ use_sequence_packing: false
 use_meta_device: true
 
 # FP32 master weights via TE FusedAdam
-use_fp32_master_weights_fused: true
+use_fp32_master_weights: true
 
 wandb:
   name: lingua-70b-bf16-cp2

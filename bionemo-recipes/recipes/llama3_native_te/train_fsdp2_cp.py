@@ -210,7 +210,7 @@ def main(args: DictConfig) -> float | None:
     # --- Optimizer & Scheduler ---
     # Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
     adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
-    if args.use_fp32_master_weights_fused:
+    if args.use_fp32_master_weights:
         # TE FusedAdam maintains FP32 master copies of BF16 params internally.
         # 'fused' kwarg is not used by TE's FusedAdam (it's always fused).
         adamw_kwargs.pop("fused", None)
@@ -273,7 +273,7 @@ def main(args: DictConfig) -> float | None:
         start_step = 0
         epoch = 0
 
-        if args.use_fp32_master_weights_fused and args.fp8_config.quantized_model_init_kwargs.get(
+        if args.use_fp32_master_weights and args.fp8_config.quantized_model_init_kwargs.get(
             "preserve_high_precision_init_val", False
         ):
             _init_master_weights_from_high_precision(optimizer, model, device)

@@ -86,7 +86,7 @@ quant_stats_config:
 # Note: The layers are going to come in 1 indexed and we convert them to be 0 indexed at runtime.
 fp8_layers: null
 fp4_layers: null
-use_fp32_master_weights_fused: null  # Use TE FusedAdam for FP32 master weights
+use_fp32_master_weights: null  # Use TE FusedAdam for FP32 master weights
 
 gradient_debug:
   enabled: false

@@ -454,7 +454,7 @@ def test_sanity_convergence_fsdp2_te_fused_adam(tmp_path, recipe_path):
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "checkpoint.resume_from_checkpoint=false",
-                "use_fp32_master_weights_fused=true",
+                "use_fp32_master_weights=true",
             ],
         )
 
@@ -478,7 +478,7 @@ def test_sanity_convergence_fsdp2_te_fused_adam_fp8(tmp_path, recipe_path):
                 f"+wandb.dir={tmp_path}",
                 f"checkpoint.ckpt_dir={tmp_path}",
                 "checkpoint.resume_from_checkpoint=false",
-                "use_fp32_master_weights_fused=true",
+                "use_fp32_master_weights=true",
                 "fp8_config.enabled=true",
                 "use_sequence_packing=true",
                 "config_kwargs.attn_input_format=thd",

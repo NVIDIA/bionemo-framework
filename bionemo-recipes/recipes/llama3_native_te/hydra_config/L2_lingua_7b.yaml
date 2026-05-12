@@ -12,7 +12,7 @@ config_kwargs:
 use_sequence_packing: true
 
 # FP32 master weights via TE FusedAdam (recommended over MixedPrecisionPolicy)
-use_fp32_master_weights_fused: true
+use_fp32_master_weights: true
 
 wandb:
   name: lingua-7b-bf16
