@@ -247,8 +247,19 @@ def _score_sequences(
     position_ids = torch.arange(max_len, dtype=torch.long, device=device).unsqueeze(0).expand(len(encoded), -1)
     seq_idx = torch.arange(len(encoded), dtype=torch.long, device=device)
 
+    # The model returned by ``setup_inference_engine`` has ``flash_decode=True``,
+    # which requires an ``inference_context`` on every forward call. Pass the
+    # wrapper's context (which has ``materialize_only_last_token_logits=False``
+    # at setup time, so all-position logits are returned).
+    components.inference_context.reset()
     with torch.no_grad():
-        logits = model(input_ids=tokens, position_ids=position_ids, attention_mask=None)
+        logits = model(
+            input_ids=tokens,
+            position_ids=position_ids,
+            attention_mask=None,
+            inference_context=components.inference_context,
+            runtime_gather_output=True,
+        )
 
     return _compute_log_probs(
         logits=logits,
