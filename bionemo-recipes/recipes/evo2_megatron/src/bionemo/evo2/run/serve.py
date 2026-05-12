@@ -247,19 +247,35 @@ def _score_sequences(
     position_ids = torch.arange(max_len, dtype=torch.long, device=device).unsqueeze(0).expand(len(encoded), -1)
     seq_idx = torch.arange(len(encoded), dtype=torch.long, device=device)
 
-    # The model returned by ``setup_inference_engine`` has ``flash_decode=True``,
-    # which requires an ``inference_context`` on every forward call. Pass the
-    # wrapper's context (which has ``materialize_only_last_token_logits=False``
-    # at setup time, so all-position logits are returned).
-    components.inference_context.reset()
-    with torch.no_grad():
-        logits = model(
-            input_ids=tokens,
-            position_ids=position_ids,
-            attention_mask=None,
-            inference_context=components.inference_context,
-            runtime_gather_output=True,
-        )
+    # The model from ``setup_inference_engine`` has ``flash_decode=True`` so
+    # it can serve generation efficiently. But flash_decode's forward path
+    # expects an ``inference_context`` whose state is driven by the
+    # ``inference_engine`` (prefill → decode lifecycle). Calling ``model()``
+    # directly with that context returns 0-length logits — the model thinks
+    # it's mid-decode with no new tokens to produce.
+    #
+    # For one-shot forward-pass scoring we want the simple non-flash path
+    # (the same one ``predict.py`` uses). Toggle flash_decode off for the
+    # duration of the forward, then restore it so ``/generate`` keeps the
+    # fast path. Walks the Float16Module wrapper to reach the HyenaModel
+    # config that owns ``flash_decode``.
+    inner = model.module if hasattr(model, "module") else model
+    cfg = getattr(inner, "config", None)
+    prev_flash_decode = None
+    if cfg is not None and hasattr(cfg, "flash_decode"):
+        prev_flash_decode = cfg.flash_decode
+        cfg.flash_decode = False
+
+    try:
+        with torch.no_grad():
+            logits = model(
+                input_ids=tokens,
+                position_ids=position_ids,
+                attention_mask=None,
+            )
+    finally:
+        if prev_flash_decode is not None:
+            cfg.flash_decode = prev_flash_decode
 
     return _compute_log_probs(
         logits=logits,
