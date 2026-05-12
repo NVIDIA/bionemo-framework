@@ -1,0 +1,18 @@
+# Lingua 70B MXFP8 THD format with Context Parallelism (CP=2).
+# FL1: layers 2-79 in FP8, layers 1 and 80 in BF16.
+# THD enables sequence packing for better GPU utilization.
+# Requires Blackwell GPUs (GB200) for hardware MXFP8 support.
+
+defaults:
+  - L2_lingua_70b_mxfp8
+  - _self_
+
+config_kwargs:
+  attn_input_format: thd
+  self_attn_mask_type: padding
+
+use_sequence_packing: true
+
+wandb:
+  name: lingua-70b-mxfp8-fl1-thd-cp2
+  id: lingua-70b-mxfp8-fl1-thd-cp2

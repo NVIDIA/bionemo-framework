@@ -335,6 +335,19 @@ class TokenPackingDataset(torch.utils.data.IterableDataset):
         """Set the epoch for the dataset."""
         self.dataset.set_epoch(epoch)
 
+    def state_dict(self) -> dict:
+        """Delegate to the underlying HF IterableDataset's state tracking.
+
+        This enables StatefulDataLoader to save/restore the stream position instead of
+        falling back to naive fast-forward (which crashes on cross-process restarts due to
+        last_yielded_worker_id mismatch with non-deterministic streaming datasets).
+        """
+        return self.dataset.state_dict()
+
+    def load_state_dict(self, state_dict: dict) -> None:
+        """Restore the underlying HF IterableDataset's stream position."""
+        self.dataset.load_state_dict(state_dict)
+
 
 @dataclass
 class DataCollatorForContextParallel:

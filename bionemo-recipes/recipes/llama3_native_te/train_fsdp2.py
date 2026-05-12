@@ -33,9 +33,11 @@ import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import fully_shard
+from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
+from torch.distributed.tensor import DTensor
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
+from transformer_engine.pytorch.optimizers import FusedAdam
 from transformers.models.llama.configuration_llama import LlamaConfig
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
@@ -48,14 +50,105 @@ from checkpoint import (
 )
 from dataset import create_bshd_dataloader, create_thd_dataloader
 from distributed_config import DistributedConfig
-from fp8_debugging import initialize_fp8_debugging
 from modeling_llama_te import NVLlamaConfig, NVLlamaForCausalLM
 from perf_logger import PerfLogger
+from quantization import initialize_quant_stats_logging, resolve_layer_precision
 from scheduler import get_cosine_annealing_schedule_with_warmup
 
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+def _log_per_layer_gradient_norms(model: torch.nn.Module, step: int) -> dict[str, float]:
+    """Log per-layer gradient L2 norms, weight norms, and zero-gradient fractions.
+
+    Debugging tool for FP8 gradient underflow. Groups parameters by decoder layer,
+    embed, and lm_head, then computes grad_norm, weight_norm, and the fraction of
+    gradient elements that are exactly zero (underflow indicator).
+
+    Args:
+        model: The model to inspect (must have gradients populated, before optimizer.step).
+        step: Current training step (for logging context).
+
+    Returns:
+        Dictionary of metric_name -> value, ready for wandb.log().
+    """
+    metrics: dict[str, float] = {}
+    layer_groups: dict[str, list[tuple[str, torch.nn.Parameter]]] = {}
+
+    for name, param in model.named_parameters():
+        if param.grad is None:
+            continue
+        if "model.layers." in name:
+            parts = name.split(".")
+            idx = parts[parts.index("layers") + 1]
+            group = f"layer_{idx}"
+        elif "embed_tokens" in name:
+            group = "embed"
+        elif "lm_head" in name:
+            group = "lm_head"
+        elif "norm" in name and "layers" not in name:
+            group = "final_norm"
+        else:
+            group = "other"
+        layer_groups.setdefault(group, []).append((name, param))
+
+    for group, params in sorted(layer_groups.items()):
+        grad_sq, weight_sq, total_el, zero_el = 0.0, 0.0, 0, 0
+        for _name, param in params:
+            grad = param.grad
+            if isinstance(grad, DTensor):
+                grad = grad.to_local()
+            local_param = param._local_tensor if isinstance(param, DTensor) else param
+            g = grad.float().flatten()
+            grad_sq += (g * g).sum().item()
+            weight_sq += (local_param.float().flatten() ** 2).sum().item()
+            total_el += g.numel()
+            zero_el += (g == 0).sum().item()
+
+        metrics[f"grad_debug/{group}/grad_norm"] = grad_sq**0.5
+        metrics[f"grad_debug/{group}/weight_norm"] = weight_sq**0.5
+        metrics[f"grad_debug/{group}/grad_zero_frac"] = zero_el / max(total_el, 1)
+
+    return metrics
+
+
+def _init_master_weights_from_high_precision(
+    optimizer: FusedAdam, model: torch.nn.Module, device: torch.device
+) -> None:
+    """Initialize optimizer master weights from high-precision init values.
+
+    When quantized_model_init is used with preserve_high_precision_init_val=True, each FP8 parameter
+    stores the original BF16 init values in CPU memory. This function initializes optimizer state
+    for all parameters, then overwrites master weights for quantized params with the preserved
+    high-precision values instead of dequantized FP8 values.
+
+    Follows the TE example:
+    https://github.com/NVIDIA/TransformerEngine/blob/main/examples/pytorch/quantized_model_init/fully_shard.py
+    """
+    count = 0
+    for name, param in model.named_parameters():
+        # Eagerly initialize optimizer state for all parameters.
+        # TE main's FusedAdam handles DTensor + QuantizedTensor natively.
+        optimizer.initialize_state(param, store_param_remainders=False)
+
+        # For quantized params, overwrite master weights with the preserved high-precision
+        # init values (instead of the dequantized FP8 values set by initialize_state).
+        local = param._local_tensor if isinstance(param, DTensor) else param
+        if hasattr(local, "get_high_precision_init_val"):
+            hp_val = local.get_high_precision_init_val()
+            if hp_val is not None:
+                optimizer.set_scaled_state(param, "master_param", hp_val.to(device=device, dtype=torch.float32))
+                local.clear_high_precision_init_val()
+                count += 1
+                logger.debug("Seeded master weight for %s from high-precision init val", name)
+    if count > 0:
+        logger.info("Initialized %d master weight(s) from high-precision init values", count)
+    else:
+        logger.info(
+            "No parameters with high-precision init values found (quantized_model_init may not have been used)"
+        )
 
 
 @hydra.main(config_path="hydra_config", config_name="L0_sanity", version_base="1.2")
@@ -72,41 +165,100 @@ def main(args: DictConfig) -> float | None:
     torch.distributed.init_process_group(backend="cpu:gloo,cuda:nccl", device_id=device)
     torch.cuda.set_device(dist_config.local_rank)
 
-    # TE Debug feature logging - MUST be done BEFORE FSDP wrapping
-    if args.fp8_stats_config.enabled:
-        initialize_fp8_debugging(dist_config, **args.fp8_stats_config, fp8_enabled=args.fp8_config.enabled)
-
     device_mesh = init_device_mesh("cuda", mesh_shape=(dist_config.world_size,), mesh_dim_names=("dp",))
 
+    if args.use_te:
+        config_class = NVLlamaConfig
+        model_class = NVLlamaForCausalLM
+    else:
+        config_class = LlamaConfig
+        model_class = LlamaForCausalLM
+
     # --- Model Configuration ---
-    # Create quantization recipes -- only used if FP8/FP4 is enabled in the config.
+    config = config_class.from_pretrained(
+        args.config_name_or_path,
+        dtype=torch.bfloat16,
+        **args.config_kwargs,
+    )
+
+    # Resolve layer-wise quantization assignments and store on config.
+    layer_precision = resolve_layer_precision(
+        num_layers=config.num_hidden_layers,
+        fp8_enabled=args.fp8_config.enabled,
+        fp4_enabled=args.fp4_config.enabled,
+        fp8_layers=OmegaConf.to_container(args.fp8_layers, resolve=True) if args.fp8_layers is not None else None,
+        fp4_layers=OmegaConf.to_container(args.fp4_layers, resolve=True) if args.fp4_layers is not None else None,
+    )
+    config.layer_precision = layer_precision
+
+    if args.quant_stats_config.enabled:
+        initialize_quant_stats_logging(
+            quant_stats_file=args.quant_stats_config.quant_stats_file,
+            quant_log_dir=args.quant_stats_config.quant_log_dir,
+            rank=dist_config.rank,
+            layer_precision=layer_precision,
+        )
+
+    # Create quantization recipes -- these are only used if FP8/FP4 is enabled in the config.
     fp8_recipe = None
+    fp4_recipe = None
     if args.fp8_config.enabled:
         fp8_recipe = hydra.utils.get_class(args.fp8_config.fp8_recipe)(
             fp8_format=Format[args.fp8_config.fp8_format], **args.fp8_config.fp8_recipe_kwargs
         )
-
-    fp4_recipe = None
     if args.fp4_config.enabled:
-        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(**args.fp4_config.fp4_recipe_kwargs)
+        fp4_recipe = hydra.utils.get_class(args.fp4_config.fp4_recipe)(
+            fp4_format=Format[args.fp4_config.fp4_format], **args.fp4_config.fp4_recipe_kwargs
+        )
+
+    if args.fp8_config.quantized_model_init_kwargs.get("enabled", False) and not (
+        args.fp8_config.enabled or args.fp4_config.enabled
+    ):
+        raise ValueError(
+            "fp8_config.quantized_model_init_kwargs.enabled=true requires fp8_config.enabled=true or "
+            "fp4_config.enabled=true. Enable at least one quantization format to use quantized model initialization."
+        )
 
     # --- Model Initialization ---
-    if args.use_te:
-        config = NVLlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
-        with torch.device("meta") if args.use_meta_device else nullcontext():
-            model = NVLlamaForCausalLM(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
-    else:
-        config = LlamaConfig.from_pretrained(args.config_name_or_path, dtype=torch.bfloat16, **args.config_kwargs)
-        with torch.device("meta") if args.use_meta_device else nullcontext():
-            model = LlamaForCausalLM(config)
+    # Optionally use transformer engine to initialize only fp8 versions of weights by setting
+    # `fp8_config.quantized_model_init_kwargs.enabled` to `True`, as opposed to using the default where both bfloat16
+    # and fp8 versions of weights are kept.
+    with (
+        torch.device("meta") if args.use_meta_device else nullcontext(),
+        transformer_engine.pytorch.quantized_model_init(
+            recipe=fp8_recipe, **args.fp8_config.quantized_model_init_kwargs
+        ),
+    ):
+        model = (
+            model_class(config, fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
+            if model_class is NVLlamaForCausalLM
+            else model_class(config)
+        )
 
     logger.info("Initialized Model:\n%s", model)
 
+    def _log_memory(tag: str) -> None:
+        """Log GPU memory stats."""
+        alloc = torch.cuda.memory_allocated() / (1024**3)
+        reserved = torch.cuda.memory_reserved() / (1024**3)
+        peak = torch.cuda.max_memory_allocated() / (1024**3)
+        logger.info("[Memory: %s] allocated=%.2f GB, reserved=%.2f GB, peak=%.2f GB", tag, alloc, reserved, peak)
+
+    _log_memory("after_model_init")
+
     # --- Distributed Wrapping (FSDP2) ---
+    mp_policy = MixedPrecisionPolicy()
+
     # Each decoder layer should be individually sharded before sharding the full model.
     for layer in model.model.layers:
-        fully_shard(layer, mesh=device_mesh["dp"])
-    fully_shard(model, mesh=device_mesh["dp"])
+        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
+    fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
+
+    _log_memory("after_fsdp_wrap")
+
+    # Attach quantization recipes to the model (layer precision is already on config).
+    if isinstance(model, NVLlamaForCausalLM):
+        model.model.set_recipes(fp8_recipe=fp8_recipe, fp4_recipe=fp4_recipe)
 
     # If we're using meta device, we need to move sharded weights to the cuda device and initialize the parameters.
     if args.use_meta_device:
@@ -118,13 +270,22 @@ def main(args: DictConfig) -> float | None:
             model.apply(model._init_weights)
 
     # Assign names to layers so debug API can identify them
-    if args.fp8_stats_config.enabled:
+    if args.quant_stats_config.enabled:
         debug_api.infer_and_assign_layer_names(model)
 
     # --- Optimizer & Scheduler ---
     # Convert OmegaConf to regular dict to avoid serialization issues (BIONEMO-2873).
-    optimizer = AdamW(model.parameters(), **OmegaConf.to_container(args.adamw_kwargs, resolve=True))  # type: ignore
+    adamw_kwargs = OmegaConf.to_container(args.adamw_kwargs, resolve=True)
+    if args.use_fp32_master_weights_fused:
+        # TE FusedAdam maintains FP32 master copies of BF16 params internally.
+        # 'fused' kwarg is not used by TE's FusedAdam (it's always fused).
+        adamw_kwargs.pop("fused", None)
+        optimizer = FusedAdam(model.parameters(), master_weights=True, **adamw_kwargs)  # type: ignore
+        logger.info("Using TE FusedAdam with FP32 master weights")
+    else:
+        optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
+    _log_memory("after_optimizer_init")
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
@@ -140,20 +301,31 @@ def main(args: DictConfig) -> float | None:
     ckpt_path = Path(args.checkpoint.ckpt_dir) / "train_fsdp2" if args.checkpoint.ckpt_dir else None
     if args.checkpoint.resume_from_checkpoint and ckpt_path:
         logger.info("Attempting to load checkpoint from %s", ckpt_path)
-        model, optimizer, scheduler, train_dataloader, start_step, epoch = load_checkpoint_fsdp2(
+        model, optimizer, scheduler, _dl, start_step, epoch = load_checkpoint_fsdp2(
             model=model,
             optimizer=optimizer,
             scheduler=scheduler,
             ckpt_path=ckpt_path,
             dist_config=dist_config,
-            dataloader=train_dataloader,
+            dataloader=train_dataloader if args.dataset.use_stateful_dataloader else None,
             process_group=device_mesh.get_group("dp"),
         )
+        if _dl is not None:
+            train_dataloader = _dl
         logger.info("Checkpoint loaded, resuming from step %s, epoch %s", start_step, epoch)
     else:
         logger.info("No checkpoint to load, starting from scratch")
         start_step = 0
         epoch = 0
+
+        # When starting from scratch with quantized_model_init + preserve_high_precision_init_val,
+        # seed FP32 master weights from the original high-precision init values (not dequantized FP8).
+        # Skip on resume — checkpoint already has correct master weights, and eager dequantize() can
+        # invalidate QuantizedTensor storage causing FSDP2 forward failures.
+        if args.use_fp32_master_weights_fused and args.fp8_config.quantized_model_init_kwargs.get(
+            "preserve_high_precision_init_val", False
+        ):
+            _init_master_weights_from_high_precision(optimizer, model, device)
 
     perf_logger = PerfLogger(dist_config, args, start_step=start_step)
 
@@ -165,14 +337,27 @@ def main(args: DictConfig) -> float | None:
     step = start_step
     micro_step = 0  # Gradient accumulation step counter
     while step < args.num_train_steps:
-        for batch in train_dataloader:
+        try:
+            dataloader_iter = iter(train_dataloader)
+        except ValueError as e:
+            if "last_yielded_worker_id does not match" in str(e):
+                # StatefulDataLoader's naive fast-forward replayed all items but ended on a
+                # different worker than saved — the streaming IterableDataset is non-deterministic
+                # across restarts (tokenize-with-windowing produces variable items per document).
+                # Clear the saved state and restart the dataloader from the beginning of the stream.
+                logger.warning("Dataloader state incompatible after fast-forward (%s), restarting from scratch.", e)
+                train_dataloader.next_iter_state = None
+                train_dataloader._iterator = None
+                dataloader_iter = iter(train_dataloader)
+            else:
+                raise
+        for batch in dataloader_iter:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
             micro_step += 1
 
-            # Forward pass with mixed precision.
-            with transformer_engine.pytorch.autocast(enabled=args.fp8_config.enabled, recipe=fp8_recipe):
-                outputs = model(**batch)
+            # Forward pass - quantization autocast is handled inside the model via set_recipes().
+            outputs = model(**batch)
 
             # Backward pass - scale loss by grad_acc_steps for proper gradient averaging
             loss = outputs.loss / args.grad_acc_steps
@@ -187,6 +372,14 @@ def main(args: DictConfig) -> float | None:
 
                 # Compute and clip gradient norms.
                 total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+
+                # Per-layer gradient debug logging (before optimizer.step clears grads).
+                if args.gradient_debug.enabled and step % args.gradient_debug.log_every_n_steps == 0:
+                    grad_metrics = _log_per_layer_gradient_norms(model, step)
+                    if dist_config.is_main_process():
+                        import wandb as _wandb
+
+                        _wandb.log(grad_metrics, step=step)
 
                 # Step optimizer.
                 optimizer.step()
@@ -220,6 +413,7 @@ def main(args: DictConfig) -> float | None:
 
         # Dataloader exhausted, incrementing epoch
         epoch += 1
+        logger.warning("Dataloader exhausted at step %s, incrementing epoch to %s", step, epoch)
         dataset_or_sampler.set_epoch(epoch)
 
     # --- Cleanup ---

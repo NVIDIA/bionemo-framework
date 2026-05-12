@@ -1,0 +1,13 @@
+# Lingua 7B pure BF16 - no FP32 master weights
+
+defaults:
+  - L2_lingua_7b
+  - _self_
+
+# No FP32 master weights at all
+use_fp32_master_weights_fused: null
+use_fp32_master_weights: null
+
+wandb:
+  name: lingua-7b-pure-bf16
+  id: lingua-7b-pure-bf16

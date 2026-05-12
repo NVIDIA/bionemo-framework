@@ -1,0 +1,20 @@
+# Lingua 70B MXFP8 with Context Parallelism (CP=4).
+# FL1: layers 2-79 in FP8, layers 1 and 80 in BF16.
+# CP=4 reduces per-GPU activation memory, needed for B200 GPUs (192GB)
+# where CP=2 OOMs with FP32 master weights.
+# Requires Blackwell GPUs (GB200) for hardware MXFP8 support.
+
+defaults:
+  - L2_lingua_70b_mxfp8
+  - _self_
+
+cp_size: 4
+
+dataset:
+  # MXFP8 block size is 32. With CP=4, post-split dims must be divisible by 32.
+  # Pre-split: pad to 128 (= 32 * CP). After CP splits by 4, each chunk is divisible by 32.
+  pad_sequences_to_be_divisible_by: 128
+
+wandb:
+  name: lingua-70b-mxfp8-fl1-cp4
+  id: lingua-70b-mxfp8-fl1-cp4
