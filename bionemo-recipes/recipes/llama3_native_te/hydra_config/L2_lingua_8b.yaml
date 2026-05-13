@@ -15,9 +15,9 @@ use_sequence_packing: true
 use_fp32_master_weights: true
 
 wandb:
-  name: lingua-7b-bf16
-  project: lingua-7b
-  id: lingua-7b-bf16-v2
+  name: lingua-8b-bf16
+  project: lingua-8b
+  id: lingua-8b-bf16
 
 num_train_steps: 60_000
 
