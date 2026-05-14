@@ -12,25 +12,20 @@
 set -euxo pipefail
 
 # ============================================================================
-# Memory Profiler — runs all modes sequentially
+# Memory Profiler — NEW experiments only (original 4 modes already collected)
 #
-# Produces snapshots for:
-#   === Single-layer (original 4 modes) ===
-#   bare               BF16 baseline, no FSDP2
-#   mxfp8              MXFP8 + qinit + HPIV, no FSDP2
-#   bare-fsdp2         BF16 + FSDP2 (2 GPUs)
-#   mxfp8-fsdp2        MXFP8 + qinit + HPIV + FSDP2 (2 GPUs)
+# Tests two TE FSDP2 memory issues (Varun Thumbe):
 #
-#   === Issue 2: FP8 autocast without qinit ===
-#   fp8-no-qinit       BF16 weights + FP8 autocast, no FSDP2
-#   fp8-no-qinit-fsdp2 BF16 weights + FP8 autocast + FSDP2 (2 GPUs)
+#   Issue 2 (quantized weights not freed without qinit):
+#     fp8-no-qinit           BF16 weights + FP8 autocast, no FSDP2
+#     fp8-no-qinit-fsdp2     BF16 weights + FP8 autocast + FSDP2
 #
-#   === Issue 1: 4-layer FSDP2 for transpose accumulation ===
-#   bare-fsdp2-4L      BF16 + FSDP2 (4 layers, 2 GPUs)
-#   mxfp8-fsdp2-4L     MXFP8 + qinit + HPIV + FSDP2 (4 layers, 2 GPUs)
-#   fp8-no-qinit-fsdp2-4L  FP8 autocast + FSDP2 (4 layers, 2 GPUs)
+#   Issue 1 (transpose accumulation with qinit + FSDP2):
+#     bare-fsdp2-4L          BF16 + FSDP2, 4 layers (baseline)
+#     mxfp8-fsdp2-4L         MXFP8 + qinit + FSDP2, 4 layers
+#     fp8-no-qinit-fsdp2-4L  FP8 autocast + FSDP2, 4 layers
 #
-# Uses 70B Llama single-layer dimensions (~973M params/layer, ~1.95 GB BF16).
+# Uses 8B Llama dimensions (~490M params/layer) for manageable snapshot sizes.
 # ============================================================================
 
 SCRATCH="/lustre/fsw/healthcareeng_bionemo/savithas"
@@ -41,7 +36,7 @@ TE_DIR="${SCRATCH}/TransformerEngine"
 CODE_MOUNT="/workspace/bionemo"
 TE_MOUNT="/workspace/transformer_engine"
 
-export EXP_NAME="${EXP_NAME:-mp_single_block}"
+export EXP_NAME="${EXP_NAME:-mp_single_block_v2}"
 RESULTS_DIR="${SCRATCH}/results/${EXP_NAME}"
 SNAP_DIR="${SCRATCH}/memory_snapshots/single_block"
 
@@ -56,7 +51,7 @@ TE_MOUNT="/workspace/transformer_engine"
 SCRIPT="/workspace/bionemo/bionemo-recipes/recipes/llama3_native_te/benchmarks/single_block_memory_profile.py"
 
 echo "========================================="
-echo "Memory Profiler (all modes)"
+echo "Memory Profiler — new experiments"
 echo "Job ID: ${SLURM_JOB_ID}"
 echo "========================================="
 
@@ -64,46 +59,28 @@ export PYTHONPATH="$TE_MOUNT:${PYTHONPATH:-}"
 python -c "import transformer_engine; print(f'TE version: {transformer_engine.__version__}')"
 nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader
 
-# --- Original 4 single-layer modes ---
-
-echo ""
-echo "=== Mode 1/9: bare (BF16, no FSDP2) ==="
-python $SCRIPT --mode bare --snapshot-dir /workspace/snapshots
-
-echo ""
-echo "=== Mode 2/9: mxfp8 (MXFP8 + qinit, no FSDP2) ==="
-python $SCRIPT --mode mxfp8 --snapshot-dir /workspace/snapshots
-
-echo ""
-echo "=== Mode 3/9: bare-fsdp2 (BF16 + FSDP2, 2 GPUs) ==="
-torchrun --nproc-per-node 2 $SCRIPT --mode bare-fsdp2 --snapshot-dir /workspace/snapshots
-
-echo ""
-echo "=== Mode 4/9: mxfp8-fsdp2 (MXFP8 + qinit + FSDP2, 2 GPUs) ==="
-torchrun --nproc-per-node 2 $SCRIPT --mode mxfp8-fsdp2 --snapshot-dir /workspace/snapshots
-
 # --- Issue 2: FP8 autocast without qinit (quantized weights not freed) ---
 
 echo ""
-echo "=== Mode 5/9: fp8-no-qinit (FP8 autocast, BF16 weights, no FSDP2) ==="
+echo "=== 1/5: fp8-no-qinit (FP8 autocast, BF16 weights, no FSDP2) ==="
 python $SCRIPT --mode fp8-no-qinit --snapshot-dir /workspace/snapshots
 
 echo ""
-echo "=== Mode 6/9: fp8-no-qinit-fsdp2 (FP8 autocast, BF16 weights + FSDP2, 2 GPUs) ==="
+echo "=== 2/5: fp8-no-qinit-fsdp2 (FP8 autocast, BF16 weights + FSDP2, 2 GPUs) ==="
 torchrun --nproc-per-node 2 $SCRIPT --mode fp8-no-qinit-fsdp2 --snapshot-dir /workspace/snapshots
 
 # --- Issue 1: 4-layer FSDP2 for cross-layer transpose accumulation ---
 
 echo ""
-echo "=== Mode 7/9: bare-fsdp2 4-layer (BF16 + FSDP2, 4 layers, 2 GPUs) ==="
+echo "=== 3/5: bare-fsdp2 4-layer (BF16 baseline + FSDP2, 4 layers, 2 GPUs) ==="
 torchrun --nproc-per-node 2 $SCRIPT --mode bare-fsdp2 --num-layers 4 --snapshot-dir /workspace/snapshots
 
 echo ""
-echo "=== Mode 8/9: mxfp8-fsdp2 4-layer (MXFP8 + qinit + FSDP2, 4 layers, 2 GPUs) ==="
+echo "=== 4/5: mxfp8-fsdp2 4-layer (MXFP8 + qinit + FSDP2, 4 layers, 2 GPUs) ==="
 torchrun --nproc-per-node 2 $SCRIPT --mode mxfp8-fsdp2 --num-layers 4 --snapshot-dir /workspace/snapshots
 
 echo ""
-echo "=== Mode 9/9: fp8-no-qinit-fsdp2 4-layer (FP8 autocast + FSDP2, 4 layers, 2 GPUs) ==="
+echo "=== 5/5: fp8-no-qinit-fsdp2 4-layer (FP8 autocast + FSDP2, 4 layers, 2 GPUs) ==="
 torchrun --nproc-per-node 2 $SCRIPT --mode fp8-no-qinit-fsdp2 --num-layers 4 --snapshot-dir /workspace/snapshots
 
 echo ""
