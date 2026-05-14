@@ -175,11 +175,14 @@ def create_layers(num_layers: int, use_qinit: bool, use_hpiv: bool, device: str,
     return nn.ModuleList(layers)
 
 
-def _snapshot_subdir(mode: str, num_layers: int) -> str:
-    """Build snapshot subdirectory name, appending layer count when >1."""
+def _snapshot_subdir(mode: str, num_layers: int, no_hpiv: bool = False) -> str:
+    """Build snapshot subdirectory name, appending layer count and flags."""
+    name = mode
+    if no_hpiv and "mxfp8" in mode:
+        name += "-no-hpiv"
     if num_layers > 1:
-        return f"{mode}-{num_layers}L"
-    return mode
+        name += f"-{num_layers}L"
+    return name
 
 
 def _warmup_step(model, optimizer, x, target, use_fp8_autocast: bool, recipe):
@@ -285,7 +288,7 @@ def run_bare(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
         mode_name = "mxfp8"
     else:
         mode_name = "bare"
-    _dump_snapshot(args, _snapshot_subdir(mode_name, num_layers))
+    _dump_snapshot(args, _snapshot_subdir(mode_name, num_layers, no_hpiv=args.no_hpiv))
 
 
 def run_fsdp2(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
@@ -388,7 +391,7 @@ def run_fsdp2(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
         mode_name = "mxfp8-fsdp2"
     else:
         mode_name = "bare-fsdp2"
-    _dump_snapshot(args, _snapshot_subdir(mode_name, num_layers))
+    _dump_snapshot(args, _snapshot_subdir(mode_name, num_layers, no_hpiv=args.no_hpiv))
     dist.destroy_process_group()
 
 

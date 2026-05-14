@@ -16,6 +16,9 @@ set -euxo pipefail
 #
 # Tests two TE FSDP2 memory issues (Varun Thumbe):
 #
+#   HPIV isolation (single-layer, no FSDP2):
+#     mxfp8-no-hpiv          MXFP8 + qinit WITHOUT HPIV, no FSDP2
+#
 #   Issue 2 (quantized weights not freed without qinit):
 #     fp8-no-qinit           BF16 weights + FP8 autocast, no FSDP2
 #     fp8-no-qinit-fsdp2     BF16 weights + FP8 autocast + FSDP2
@@ -59,28 +62,34 @@ export PYTHONPATH="$TE_MOUNT:${PYTHONPATH:-}"
 python -c "import transformer_engine; print(f'TE version: {transformer_engine.__version__}')"
 nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader
 
+# --- HPIV isolation: qinit with and without HPIV ---
+
+echo ""
+echo "=== 1/6: mxfp8 --no-hpiv (MXFP8 + qinit, NO HPIV, no FSDP2) ==="
+python $SCRIPT --mode mxfp8 --no-hpiv --snapshot-dir /workspace/snapshots
+
 # --- Issue 2: FP8 autocast without qinit (quantized weights not freed) ---
 
 echo ""
-echo "=== 1/5: fp8-no-qinit (FP8 autocast, BF16 weights, no FSDP2) ==="
+echo "=== 2/6: fp8-no-qinit (FP8 autocast, BF16 weights, no FSDP2) ==="
 python $SCRIPT --mode fp8-no-qinit --snapshot-dir /workspace/snapshots
 
 echo ""
-echo "=== 2/5: fp8-no-qinit-fsdp2 (FP8 autocast, BF16 weights + FSDP2, 2 GPUs) ==="
+echo "=== 3/6: fp8-no-qinit-fsdp2 (FP8 autocast, BF16 weights + FSDP2, 2 GPUs) ==="
 torchrun --nproc-per-node 2 $SCRIPT --mode fp8-no-qinit-fsdp2 --snapshot-dir /workspace/snapshots
 
 # --- Issue 1: 4-layer FSDP2 for cross-layer transpose accumulation ---
 
 echo ""
-echo "=== 3/5: bare-fsdp2 4-layer (BF16 baseline + FSDP2, 4 layers, 2 GPUs) ==="
+echo "=== 4/6: bare-fsdp2 4-layer (BF16 baseline + FSDP2, 4 layers, 2 GPUs) ==="
 torchrun --nproc-per-node 2 $SCRIPT --mode bare-fsdp2 --num-layers 4 --snapshot-dir /workspace/snapshots
 
 echo ""
-echo "=== 4/5: mxfp8-fsdp2 4-layer (MXFP8 + qinit + FSDP2, 4 layers, 2 GPUs) ==="
+echo "=== 5/6: mxfp8-fsdp2 4-layer (MXFP8 + qinit + FSDP2, 4 layers, 2 GPUs) ==="
 torchrun --nproc-per-node 2 $SCRIPT --mode mxfp8-fsdp2 --num-layers 4 --snapshot-dir /workspace/snapshots
 
 echo ""
-echo "=== 5/5: fp8-no-qinit-fsdp2 4-layer (FP8 autocast + FSDP2, 4 layers, 2 GPUs) ==="
+echo "=== 6/6: fp8-no-qinit-fsdp2 4-layer (FP8 autocast + FSDP2, 4 layers, 2 GPUs) ==="
 torchrun --nproc-per-node 2 $SCRIPT --mode fp8-no-qinit-fsdp2 --num-layers 4 --snapshot-dir /workspace/snapshots
 
 echo ""
