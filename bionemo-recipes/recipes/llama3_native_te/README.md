@@ -70,6 +70,69 @@ def compute_model_pflops(seq_len, global_batch_size, step_time_s):
 ![Performance Benchmarks Low Precision](../../../docs/docs/assets/images/llama3/llama3_8gpu_tflops.png)
 In the above plot we can see the performance increases as we lower the precision of our transformer layers across the 1B and 8B variant of LLAMA3.
 
+#### MXFP8 vs BF16 throughput on Llama-3.1 (Lingua / DCLM)
+
+We benchmarked MXFP8 (`MXFP8BlockScaling`, E4M3) against the BF16 baseline using the Lingua / DCLM training setup on NVIDIA Blackwell GPUs. All runs use TransformerEngine, fused AdamW with FP32 master weights, and THD sequence packing.
+
+<p align="center">
+  <img src="../../../docs/docs/assets/images/llama3/lingua-8b-vs-70b-mxfp8-uplift.png" alt="MXFP8 throughput uplift over BF16 on Llama-3.1-8B vs 70B (single B300 node)" width="100%" />
+</p>
+
+**Key finding:** plain MXFP8 over BF16 gives roughly the same ~30% throughput uplift on both 8B and 70B. Quantized model init (`qinit`) adds essentially nothing on 8B (+0.8 pp) but **adds ~10 percentage points on 70B (+9.7 pp)** — the per-layer quantize/dequantize work saved by qinit scales with depth (80 vs 32 transformer layers). On 70B, MXFP8 + qinit delivers a **+38.4% throughput gain over BF16** on a single B300 node.
+
+<details>
+<summary><strong>Single-node detail: per-model 3-way comparisons</strong></summary>
+
+The per-model charts below show the 3-way (BF16 / MXFP8 no-qinit / MXFP8 + qinit) comparison underlying the headline figure above.
+
+**Llama-3.1-8B** (1 node / 8× B300 SXM6 AC, mbs=4, grad_acc=1, gbs = 32 seqs / 262k tokens, seq_len = 8192):
+
+<p align="center">
+  <img src="../../../docs/docs/assets/images/llama3/lingua-8b-mxfp8-1node.png" alt="Llama-3.1-8B MXFP8 vs BF16 throughput (single-node 3-way)" width="100%" />
+</p>
+
+On a single B300 node, **MXFP8 + qinit (+31.1%) and MXFP8 without qinit (+30.4%) deliver essentially the same throughput gain over BF16**. At this layer count the per-layer quantize/dequantize saving qinit provides is small; the speedup comes mainly from the FP8 GEMMs themselves. Averaged over global step ∈ [500, 990].
+
+**Llama-3.1-70B** (1 node / 8× B300 SXM6 AC, mbs=1, grad_acc=1, cp=2, dp=4, gbs = 4 seqs / ≈34k packed tokens, seq_len = 8192):
+
+<p align="center">
+  <img src="../../../docs/docs/assets/images/llama3/lingua-70b-mxfp8-1node.png" alt="Llama-3.1-70B MXFP8 vs BF16 throughput (single-node 3-way)" width="100%" />
+</p>
+
+On a single B300 node, **MXFP8 + qinit (+39.4%) pulls ahead of MXFP8 without qinit (+28.7%) — a ~10 percentage point gap that doesn't appear at 8B**. With 80 transformer layers, the per-step quantize/dequantize work avoided by qinit (the FP8 weight is already in compute format, so no on-the-fly cast every forward and backward) adds up to a meaningful throughput gain over the no-qinit path. Averaged over global step ∈ [500, 990]. We also separately measured `preserve_high_precision_init_val=True` (HPIV) and found it within 1% of the qinit-without-HPIV throughput, so HPIV's startup-time master-weight seeding is essentially free at steady state.
+
+</details>
+
+<details>
+<summary><strong>Multi-node throughput (B200, production-scale runs)</strong></summary>
+
+We also measured MXFP8 + qinit throughput at scale, on multi-node B200 with longer Lingua DCLM runs to confirm the single-node findings hold in production conditions.
+
+**Llama-3.1-8B** (8 nodes / 64× B200, mbs=2, grad_acc=2, global batch = 256 seqs, seq_len = 8192):
+
+<p align="center">
+  <img src="../../../docs/docs/assets/images/llama3/lingua-7b-mxfp8-multinode.png" alt="Llama-3.1-8B MXFP8 vs BF16 throughput (multi-node)" width="100%" />
+</p>
+
+MXFP8 + qinit reaches **22,517 unpadded tokens / s / GPU vs 17,644 for BF16 — a +27.6% throughput gain (×1.28 speedup, −21.7% step time)**. Averaged over global step ∈ [500, 1000].
+
+**Llama-3.1-70B** (4 nodes / 32× B200, cp=2, dp=16, mbs=1, grad_acc=1, gbs = 16 seqs, seq_len = 8192):
+
+<p align="center">
+  <img src="../../../docs/docs/assets/images/llama3/lingua-70b-mxfp8-multinode.png" alt="Llama-3.1-70B MXFP8 vs BF16 throughput (multi-node)" width="100%" />
+</p>
+
+MXFP8 + qinit reaches **2,725 unpadded tokens / s / GPU vs 1,972 for BF16 — a +38.2% throughput gain (×1.40 speedup, −27.6% step time)**. Averaged over global step ∈ [100, 490]. The larger relative gain on 70B vs 8B at scale matches the size-dependent pattern shown in the single-node headline above.
+
+</details>
+
+Wandb runs:
+
+- Single-node 8B — [BF16](https://wandb.ai/clara-discovery/lingua-7b/runs/lingua_7b_bf16_mbs4_1n_bia) / [MXFP8 + qinit](https://wandb.ai/clara-discovery/lingua-7b/runs/lingua_7b_mxfp8_qinit_mbs4_1n_bia) / [MXFP8 (no qinit)](https://wandb.ai/clara-discovery/lingua-7b/runs/lingua_7b_mxfp8_no_qinit_mbs4_1n_bia)
+- Single-node 70B (1k steps) — [BF16](https://wandb.ai/clara-discovery/lingua-70b/runs/lingua_70b_bf16_mbs1_1n_1k_bia) / [MXFP8 + qinit](https://wandb.ai/clara-discovery/lingua-70b/runs/lingua_70b_mxfp8_qinit_mbs1_1n_1k_bia) / [MXFP8 + qinit + HPIV](https://wandb.ai/clara-discovery/lingua-70b/runs/lingua_70b_mxfp8_qinit_hpiv_mbs1_1n_1k_bia) / [MXFP8 (no qinit)](https://wandb.ai/clara-discovery/lingua-70b/runs/lingua_70b_mxfp8_no_qinit_mbs1_1n_1k_bia)
+- Multi-node 8B — [BF16](https://wandb.ai/clara-discovery/lingua-7b/runs/lingua-7b-bf16-baseline) / [MXFP8 + qinit](https://wandb.ai/clara-discovery/lingua-7b/runs/lingua_7b_mxfp8_qinit_v6_te_main_8n_prenyx)
+- Multi-node 70B — [BF16](https://wandb.ai/clara-discovery/lingua-70b/runs/lingua_70b_bf16_thd_fusedadam_4n_cp2_bia) / [MXFP8 + qinit](https://wandb.ai/clara-discovery/lingua-70b/runs/lingua_70b_mxfp8_qinit_thd_fusedadam_4n_cp2_bia)
+
 ### Convergence Benchmarks
 
 <p align="center">
@@ -96,7 +159,7 @@ Training was performed with BF16 precision.
 
 ### Low Precision convergence benchmarks
 
-<!-- ....TODO from WandB once ready. -->
+For the multi-node 8B run on DCLM, the MXFP8 + quantized init training loss tracks the BF16 baseline to within ~0.1% over 60k steps, confirming the throughput gains above come with no measurable convergence regression. A small additional improvement is observed when keeping the first and last transformer layers in BF16 while running all other layers in MXFP8 (configurable via `fp8_layers`).
 
 ### Distributed Training
 
