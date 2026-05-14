@@ -13,18 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Single TE TransformerLayer memory profiler for MXFP8 / quantized_model_init analysis.
+"""TE TransformerLayer memory profiler for MXFP8 / quantized_model_init analysis.
 
-Isolates memory behavior of a single 8B-scale transformer block so allocations
-are unambiguous in the PyTorch memory visualizer.  Four modes let you
-progressively add complexity:
+Profiles memory behavior of one or more 8B-scale transformer blocks so
+allocations are unambiguous in the PyTorch memory visualizer.  Six modes let
+you progressively add complexity:
 
-  bare          BF16 baseline, no FSDP2, no qinit
-  mxfp8         MXFP8 with quantized_model_init, no FSDP2
-  bare-fsdp2    BF16 + FSDP2 sharding
-  mxfp8-fsdp2   MXFP8 + quantized_model_init + FSDP2
+  bare               BF16 baseline, no FSDP2, no qinit
+  mxfp8              MXFP8 with quantized_model_init, no FSDP2
+  fp8-no-qinit       FP8 autocast WITHOUT qinit (BF16 weights), no FSDP2
+  bare-fsdp2         BF16 + FSDP2 sharding
+  mxfp8-fsdp2        MXFP8 + quantized_model_init + FSDP2
+  fp8-no-qinit-fsdp2 FP8 autocast WITHOUT qinit + FSDP2
 
 Non-FSDP2 modes run with plain ``python``; FSDP2 modes require ``torchrun``.
+
+Use ``--num-layers N`` (default 1) to create multiple layers — needed to
+observe cross-layer memory accumulation (TE Issue 1: transpose of unsharded
+tensor accumulates and is not released after forward pass).
+
+The ``fp8-no-qinit`` modes test TE Issue 2: quantized weights created during
+forward pass are not freed when using ``te.autocast`` without
+``quantized_model_init``.
 
 Usage::
 
@@ -34,11 +44,17 @@ Usage::
     # MXFP8 with qinit (no distributed)
     python single_block_memory_profile.py --mode mxfp8
 
+    # FP8 autocast without qinit (no distributed)
+    python single_block_memory_profile.py --mode fp8-no-qinit
+
     # BF16 + FSDP2
     torchrun --nproc-per-node 2 single_block_memory_profile.py --mode bare-fsdp2
 
-    # MXFP8 + qinit + FSDP2
-    torchrun --nproc-per-node 2 single_block_memory_profile.py --mode mxfp8-fsdp2
+    # MXFP8 + qinit + FSDP2 (4 layers, to test transpose accumulation)
+    torchrun --nproc-per-node 2 single_block_memory_profile.py --mode mxfp8-fsdp2 --num-layers 4
+
+    # FP8 autocast without qinit + FSDP2
+    torchrun --nproc-per-node 2 single_block_memory_profile.py --mode fp8-no-qinit-fsdp2
 
 Snapshots are saved to ``--snapshot-dir`` and can be viewed at
 https://pytorch.org/memory_viz
@@ -50,6 +66,7 @@ from pathlib import Path
 
 import torch
 import transformer_engine.pytorch as te
+from torch import nn
 from torch.nn import functional as f
 from transformer_engine.common.recipe import Float8BlockScaling, MXFP8BlockScaling
 from transformer_engine.pytorch.module.base import TransformerEngineBaseModule
@@ -125,9 +142,23 @@ def resolve_recipe(args):
         return Float8BlockScaling()
 
 
-def create_layer(use_qinit: bool, use_hpiv: bool, device: str, recipe):  # noqa: D103
-    if use_qinit:
-        with te.quantized_model_init(recipe=recipe, enabled=True, preserve_high_precision_init_val=use_hpiv):
+def create_layers(num_layers: int, use_qinit: bool, use_hpiv: bool, device: str, recipe):
+    """Create N TransformerLayers, optionally inside quantized_model_init context."""
+    layers = []
+    for _ in range(num_layers):
+        if use_qinit:
+            with te.quantized_model_init(recipe=recipe, enabled=True, preserve_high_precision_init_val=use_hpiv):
+                layer = te.TransformerLayer(
+                    HIDDEN_SIZE,
+                    FFN_HIDDEN_SIZE,
+                    NUM_ATTENTION_HEADS,
+                    fuse_qkv_params=True,
+                    params_dtype=DTYPE,
+                    hidden_dropout=0.0,
+                    attention_dropout=0.0,
+                    device=device,
+                )
+        else:
             layer = te.TransformerLayer(
                 HIDDEN_SIZE,
                 FFN_HIDDEN_SIZE,
@@ -138,43 +169,77 @@ def create_layer(use_qinit: bool, use_hpiv: bool, device: str, recipe):  # noqa:
                 attention_dropout=0.0,
                 device=device,
             )
+        layers.append(layer)
+    return nn.ModuleList(layers)
+
+
+def _snapshot_subdir(mode: str, num_layers: int) -> str:
+    """Build snapshot subdirectory name, appending layer count when >1."""
+    if num_layers > 1:
+        return f"{mode}-{num_layers}L"
+    return mode
+
+
+def _warmup_step(model, optimizer, x, target, use_fp8_autocast: bool, recipe):
+    """Run one untimed forward+backward+step to warm up CUDA kernels."""
+    optimizer.zero_grad(set_to_none=True)
+    if use_fp8_autocast:
+        with te.autocast(enabled=True, recipe=recipe):
+            output = _forward(model, x)
     else:
-        layer = te.TransformerLayer(
-            HIDDEN_SIZE,
-            FFN_HIDDEN_SIZE,
-            NUM_ATTENTION_HEADS,
-            fuse_qkv_params=True,
-            params_dtype=DTYPE,
-            hidden_dropout=0.0,
-            attention_dropout=0.0,
-            device=device,
-        )
-    return layer
+        output = _forward(model, x)
+    loss = f.mse_loss(output, target)
+    loss.backward()
+    optimizer.step()
+    torch.cuda.synchronize()
+    dist_print(f"  Warmup step done (loss={loss.item():.6f})")
 
 
-def run_bare(args, use_fp8: bool):
-    """Single block on one GPU, no FSDP2."""
-    recipe = resolve_recipe(args) if use_fp8 else None
+def _forward(model, x):
+    """Sequential forward through ModuleList."""
+    out = x
+    for layer in model:
+        out = layer(out)
+    return out
+
+
+def run_bare(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
+    """N blocks on one GPU, no FSDP2.
+
+    Args:
+        args: CLI arguments.
+        use_fp8: If True and not use_fp8_autocast_only, use quantized_model_init.
+        use_fp8_autocast_only: If True, BF16 weights + te.autocast (no qinit).
+    """
+    use_qinit = use_fp8 and not use_fp8_autocast_only
+    use_autocast = use_fp8 or use_fp8_autocast_only
+    recipe = resolve_recipe(args) if use_autocast else None
     device = torch.device("cuda:0")
     torch.cuda.set_device(0)
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
+    num_layers = args.num_layers
 
     log_memory("before_model_init")
-    torch.cuda.memory._record_memory_history(max_entries=500000)
 
-    layer = create_layer(use_qinit=use_fp8, use_hpiv=not args.no_hpiv and use_fp8, device="cuda", recipe=recipe)
+    model = create_layers(
+        num_layers=num_layers,
+        use_qinit=use_qinit,
+        use_hpiv=not args.no_hpiv and use_qinit,
+        device="cuda",
+        recipe=recipe,
+    )
     log_memory("after_model_init")
-    print_param_info(layer)
+    print_param_info(model)
 
     optimizer = te.optimizers.FusedAdam(
-        layer.parameters(), lr=1e-3, master_weights=True, master_weight_dtype=torch.float32
+        model.parameters(), lr=1e-3, master_weights=True, master_weight_dtype=torch.float32
     )
     log_memory("after_optimizer_create")
 
-    if use_fp8 and not args.no_hpiv:
+    if use_qinit and not args.no_hpiv:
         count = 0
-        for name, param in layer.named_parameters():
+        for name, param in model.named_parameters():
             optimizer.initialize_state(param, store_param_remainders=False)
             if hasattr(param, "get_high_precision_init_val"):
                 hp_val = param.get_high_precision_init_val()
@@ -188,30 +253,52 @@ def run_bare(args, use_fp8: bool):
     x = torch.randn(SEQ_LEN, BATCH_SIZE, HIDDEN_SIZE, dtype=DTYPE, device=device)
     target = torch.randn(SEQ_LEN, BATCH_SIZE, HIDDEN_SIZE, dtype=DTYPE, device=device)
 
+    # Warmup: one untimed step to compile CUDA kernels before recording
+    _warmup_step(model, optimizer, x, target, use_fp8_autocast=use_autocast, recipe=recipe)
+    log_memory("after_warmup")
+
+    # Reset peak stats and start recording AFTER warmup
+    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.memory._record_memory_history(max_entries=500000)
+
     for step in range(NUM_STEPS):
         optimizer.zero_grad(set_to_none=True)
-        if use_fp8:
+        if use_autocast:
             with te.autocast(enabled=True, recipe=recipe):
-                output = layer(x)
+                output = _forward(model, x)
         else:
-            output = layer(x)
+            output = _forward(model, x)
         loss = f.mse_loss(output, target)
         loss.backward()
         optimizer.step()
         log_memory(f"after_step_{step}")
         dist_print(f"  Step {step}: loss = {loss.item():.6f}")
 
-    _dump_snapshot(args, "bare" if not use_fp8 else "mxfp8")
+    if use_fp8_autocast_only:
+        mode_name = "fp8-no-qinit"
+    elif use_fp8:
+        mode_name = "mxfp8"
+    else:
+        mode_name = "bare"
+    _dump_snapshot(args, _snapshot_subdir(mode_name, num_layers))
 
 
-def run_fsdp2(args, use_fp8: bool):
-    """Single block with FSDP2 sharding."""
+def run_fsdp2(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
+    """N blocks with FSDP2 sharding.
+
+    Args:
+        args: CLI arguments.
+        use_fp8: If True and not use_fp8_autocast_only, use quantized_model_init.
+        use_fp8_autocast_only: If True, BF16 weights + te.autocast (no qinit).
+    """
     import torch.distributed as dist
     from torch.distributed._composable.fsdp import fully_shard
     from torch.distributed.device_mesh import DeviceMesh
     from torch.distributed.tensor import DTensor
 
-    recipe = resolve_recipe(args) if use_fp8 else None
+    use_qinit = use_fp8 and not use_fp8_autocast_only
+    use_autocast = use_fp8 or use_fp8_autocast_only
+    recipe = resolve_recipe(args) if use_autocast else None
     world_size = int(os.environ["WORLD_SIZE"])
     local_rank = int(os.environ["LOCAL_RANK"])
     torch.cuda.set_device(local_rank)
@@ -219,31 +306,39 @@ def run_fsdp2(args, use_fp8: bool):
     device = torch.device(f"cuda:{local_rank}")
     torch.manual_seed(42)
     torch.cuda.manual_seed(42)
+    num_layers = args.num_layers
 
     log_memory("before_model_init")
-    torch.cuda.memory._record_memory_history(max_entries=500000)
 
-    layer = create_layer(use_qinit=use_fp8, use_hpiv=not args.no_hpiv and use_fp8, device="meta", recipe=recipe)
+    model = create_layers(
+        num_layers=num_layers,
+        use_qinit=use_qinit,
+        use_hpiv=not args.no_hpiv and use_qinit,
+        device="meta",
+        recipe=recipe,
+    )
     log_memory("after_model_init_meta")
 
     mesh = DeviceMesh("cuda", list(range(world_size)))
-    fully_shard(layer, mesh=mesh)
+    # Per-layer FSDP2 sharding (standard pattern for transformer stacks)
+    for layer in model:
+        fully_shard(layer, mesh=mesh)
     log_memory("after_fsdp_shard")
 
-    for module in layer.modules():
+    for module in model.modules():
         if isinstance(module, TransformerEngineBaseModule):
             module.reset_parameters()
     log_memory("after_materialize")
-    print_param_info(layer)
+    print_param_info(model)
 
     optimizer = te.optimizers.FusedAdam(
-        layer.parameters(), lr=1e-3, master_weights=True, master_weight_dtype=torch.float32
+        model.parameters(), lr=1e-3, master_weights=True, master_weight_dtype=torch.float32
     )
     log_memory("after_optimizer_create")
 
-    if use_fp8 and not args.no_hpiv:
+    if use_qinit and not args.no_hpiv:
         count = 0
-        for name, param in layer.named_parameters():
+        for name, param in model.named_parameters():
             optimizer.initialize_state(param, store_param_remainders=False)
             local = param._local_tensor if isinstance(param, DTensor) else param
             if hasattr(local, "get_high_precision_init_val"):
@@ -258,26 +353,40 @@ def run_fsdp2(args, use_fp8: bool):
     x = torch.randn(SEQ_LEN, BATCH_SIZE, HIDDEN_SIZE, dtype=DTYPE, device=device)
     target = torch.randn(SEQ_LEN, BATCH_SIZE, HIDDEN_SIZE, dtype=DTYPE, device=device)
 
+    # Warmup: one untimed step to compile CUDA kernels before recording
+    _warmup_step(model, optimizer, x, target, use_fp8_autocast=use_autocast, recipe=recipe)
+    log_memory("after_warmup")
+
+    # Reset peak stats and start recording AFTER warmup
+    torch.cuda.reset_peak_memory_stats()
+    torch.cuda.memory._record_memory_history(max_entries=500000)
+
     for step in range(NUM_STEPS):
         optimizer.zero_grad(set_to_none=True)
-        if use_fp8:
+        if use_autocast:
             with te.autocast(enabled=True, recipe=recipe):
-                output = layer(x)
+                output = _forward(model, x)
         else:
-            output = layer(x)
+            output = _forward(model, x)
         loss = f.mse_loss(output, target)
         loss.backward()
         optimizer.step()
         log_memory(f"after_step_{step}")
         dist_print(f"  Step {step}: loss = {loss.item():.6f}")
 
-    _dump_snapshot(args, "bare-fsdp2" if not use_fp8 else "mxfp8-fsdp2")
+    if use_fp8_autocast_only:
+        mode_name = "fp8-no-qinit-fsdp2"
+    elif use_fp8:
+        mode_name = "mxfp8-fsdp2"
+    else:
+        mode_name = "bare-fsdp2"
+    _dump_snapshot(args, _snapshot_subdir(mode_name, num_layers))
     dist.destroy_process_group()
 
 
-def _dump_snapshot(args, mode: str):
+def _dump_snapshot(args, subdir: str):
     if is_rank0():
-        snap_dir = Path(args.snapshot_dir) / mode
+        snap_dir = Path(args.snapshot_dir) / subdir
         snap_dir.mkdir(parents=True, exist_ok=True)
         snap_path = snap_dir / "memory_snapshot.pickle"
         torch.cuda.memory._dump_snapshot(str(snap_path))
@@ -286,13 +395,16 @@ def _dump_snapshot(args, mode: str):
 
 
 def main():  # noqa: D103
-    parser = argparse.ArgumentParser(description="Single-block MXFP8 memory profiler")
+    parser = argparse.ArgumentParser(description="TE TransformerLayer memory profiler")
     parser.add_argument(
         "--mode",
-        choices=["bare", "mxfp8", "bare-fsdp2", "mxfp8-fsdp2"],
+        choices=["bare", "mxfp8", "fp8-no-qinit", "bare-fsdp2", "mxfp8-fsdp2", "fp8-no-qinit-fsdp2"],
         required=True,
-        help="bare=BF16 no FSDP2, mxfp8=MXFP8+qinit no FSDP2, bare-fsdp2=BF16+FSDP2, mxfp8-fsdp2=MXFP8+qinit+FSDP2",
+        help=(
+            "bare=BF16, mxfp8=MXFP8+qinit, fp8-no-qinit=BF16 weights+FP8 autocast, *-fsdp2=same with FSDP2 sharding"
+        ),
     )
+    parser.add_argument("--num-layers", type=int, default=1, help="Number of TransformerLayers (default: 1)")
     parser.add_argument("--no-hpiv", action="store_true", help="Disable preserve_high_precision_init_val")
     parser.add_argument(
         "--recipe",
@@ -304,7 +416,7 @@ def main():  # noqa: D103
     args = parser.parse_args()
 
     dist_print(f"\n{'=' * 60}")
-    dist_print(f"Single-Block Memory Profiler — mode={args.mode}")
+    dist_print(f"Memory Profiler — mode={args.mode}, layers={args.num_layers}")
     dist_print(f"  hidden={HIDDEN_SIZE}, ffn={FFN_HIDDEN_SIZE}, heads={NUM_ATTENTION_HEADS}")
     dist_print(f"  seq_len={SEQ_LEN}, batch={BATCH_SIZE}, steps={NUM_STEPS}")
     dist_print(f"  recipe={args.recipe}, hpiv={'disabled' if args.no_hpiv else 'enabled'}")
@@ -314,10 +426,14 @@ def main():  # noqa: D103
         run_bare(args, use_fp8=False)
     elif args.mode == "mxfp8":
         run_bare(args, use_fp8=True)
+    elif args.mode == "fp8-no-qinit":
+        run_bare(args, use_fp8=False, use_fp8_autocast_only=True)
     elif args.mode == "bare-fsdp2":
         run_fsdp2(args, use_fp8=False)
     elif args.mode == "mxfp8-fsdp2":
         run_fsdp2(args, use_fp8=True)
+    elif args.mode == "fp8-no-qinit-fsdp2":
+        run_fsdp2(args, use_fp8=False, use_fp8_autocast_only=True)
 
 
 if __name__ == "__main__":
