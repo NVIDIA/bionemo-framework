@@ -73,10 +73,11 @@ from transformer_engine.pytorch.module.base import TransformerEngineBaseModule
 from transformer_engine.pytorch.quantized_tensor import QuantizedTensor
 
 
-# 70B Llama single-layer dimensions (~973M params = ~1.95 GB BF16)
-HIDDEN_SIZE = 8192
-FFN_HIDDEN_SIZE = 28672
-NUM_ATTENTION_HEADS = 64
+MODEL_SIZES = {
+    "8b": {"hidden_size": 4096, "ffn_hidden_size": 14336, "num_attention_heads": 32},
+    "70b": {"hidden_size": 8192, "ffn_hidden_size": 28672, "num_attention_heads": 64},
+}
+
 SEQ_LEN = 128
 BATCH_SIZE = 2
 NUM_STEPS = 3
@@ -142,16 +143,17 @@ def resolve_recipe(args):
         return Float8BlockScaling()
 
 
-def create_layers(num_layers: int, use_qinit: bool, use_hpiv: bool, device: str, recipe):
+def create_layers(num_layers: int, use_qinit: bool, use_hpiv: bool, device: str, recipe, dims: dict):
     """Create N TransformerLayers, optionally inside quantized_model_init context."""
+    hidden, ffn, heads = dims["hidden_size"], dims["ffn_hidden_size"], dims["num_attention_heads"]
     layers = []
     for _ in range(num_layers):
         if use_qinit:
             with te.quantized_model_init(recipe=recipe, enabled=True, preserve_high_precision_init_val=use_hpiv):
                 layer = te.TransformerLayer(
-                    HIDDEN_SIZE,
-                    FFN_HIDDEN_SIZE,
-                    NUM_ATTENTION_HEADS,
+                    hidden,
+                    ffn,
+                    heads,
                     fuse_qkv_params=True,
                     params_dtype=DTYPE,
                     hidden_dropout=0.0,
@@ -160,9 +162,9 @@ def create_layers(num_layers: int, use_qinit: bool, use_hpiv: bool, device: str,
                 )
         else:
             layer = te.TransformerLayer(
-                HIDDEN_SIZE,
-                FFN_HIDDEN_SIZE,
-                NUM_ATTENTION_HEADS,
+                hidden,
+                ffn,
+                heads,
                 fuse_qkv_params=True,
                 params_dtype=DTYPE,
                 hidden_dropout=0.0,
@@ -222,12 +224,14 @@ def run_bare(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
 
     log_memory("before_model_init")
 
+    dims = args.dims
     model = create_layers(
         num_layers=num_layers,
         use_qinit=use_qinit,
         use_hpiv=not args.no_hpiv and use_qinit,
         device="cuda",
         recipe=recipe,
+        dims=dims,
     )
     log_memory("after_model_init")
     print_param_info(model)
@@ -250,8 +254,9 @@ def run_bare(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
         dist_print(f"Seeded {count} master weights from HPIV.")
     log_memory("after_master_weight_seed")
 
-    x = torch.randn(SEQ_LEN, BATCH_SIZE, HIDDEN_SIZE, dtype=DTYPE, device=device)
-    target = torch.randn(SEQ_LEN, BATCH_SIZE, HIDDEN_SIZE, dtype=DTYPE, device=device)
+    hidden = dims["hidden_size"]
+    x = torch.randn(SEQ_LEN, BATCH_SIZE, hidden, dtype=DTYPE, device=device)
+    target = torch.randn(SEQ_LEN, BATCH_SIZE, hidden, dtype=DTYPE, device=device)
 
     # Warmup: one untimed step to compile CUDA kernels before recording
     _warmup_step(model, optimizer, x, target, use_fp8_autocast=use_autocast, recipe=recipe)
@@ -310,12 +315,14 @@ def run_fsdp2(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
 
     log_memory("before_model_init")
 
+    dims = args.dims
     model = create_layers(
         num_layers=num_layers,
         use_qinit=use_qinit,
         use_hpiv=not args.no_hpiv and use_qinit,
         device="meta",
         recipe=recipe,
+        dims=dims,
     )
     log_memory("after_model_init_meta")
 
@@ -350,8 +357,9 @@ def run_fsdp2(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
         dist_print(f"Seeded {count} master weights from HPIV.")
     log_memory("after_master_weight_seed")
 
-    x = torch.randn(SEQ_LEN, BATCH_SIZE, HIDDEN_SIZE, dtype=DTYPE, device=device)
-    target = torch.randn(SEQ_LEN, BATCH_SIZE, HIDDEN_SIZE, dtype=DTYPE, device=device)
+    hidden = dims["hidden_size"]
+    x = torch.randn(SEQ_LEN, BATCH_SIZE, hidden, dtype=DTYPE, device=device)
+    target = torch.randn(SEQ_LEN, BATCH_SIZE, hidden, dtype=DTYPE, device=device)
 
     # Warmup: one untimed step to compile CUDA kernels before recording
     _warmup_step(model, optimizer, x, target, use_fp8_autocast=use_autocast, recipe=recipe)
@@ -405,6 +413,12 @@ def main():  # noqa: D103
         ),
     )
     parser.add_argument("--num-layers", type=int, default=1, help="Number of TransformerLayers (default: 1)")
+    parser.add_argument(
+        "--model-size",
+        choices=list(MODEL_SIZES.keys()),
+        default="8b",
+        help="Layer dimensions: 8b (~490M params/layer) or 70b (~973M params/layer) (default: 8b)",
+    )
     parser.add_argument("--no-hpiv", action="store_true", help="Disable preserve_high_precision_init_val")
     parser.add_argument(
         "--recipe",
@@ -414,10 +428,12 @@ def main():  # noqa: D103
     )
     parser.add_argument("--snapshot-dir", type=str, default="/tmp/single_block_snapshots")
     args = parser.parse_args()
+    args.dims = MODEL_SIZES[args.model_size]
 
+    dims = args.dims
     dist_print(f"\n{'=' * 60}")
-    dist_print(f"Memory Profiler — mode={args.mode}, layers={args.num_layers}")
-    dist_print(f"  hidden={HIDDEN_SIZE}, ffn={FFN_HIDDEN_SIZE}, heads={NUM_ATTENTION_HEADS}")
+    dist_print(f"Memory Profiler — mode={args.mode}, layers={args.num_layers}, size={args.model_size}")
+    dist_print(f"  hidden={dims['hidden_size']}, ffn={dims['ffn_hidden_size']}, heads={dims['num_attention_heads']}")
     dist_print(f"  seq_len={SEQ_LEN}, batch={BATCH_SIZE}, steps={NUM_STEPS}")
     dist_print(f"  recipe={args.recipe}, hpiv={'disabled' if args.no_hpiv else 'enabled'}")
     dist_print(f"{'=' * 60}\n")
