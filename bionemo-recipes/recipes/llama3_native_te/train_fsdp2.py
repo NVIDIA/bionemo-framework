@@ -33,7 +33,7 @@ import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
+from torch.distributed.fsdp import fully_shard
 from torch.distributed.tensor import DTensor
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
@@ -58,60 +58,6 @@ from scheduler import get_cosine_annealing_schedule_with_warmup
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-
-def _log_per_layer_gradient_norms(model: torch.nn.Module, step: int) -> dict[str, float]:
-    """Log per-layer gradient L2 norms, weight norms, and zero-gradient fractions.
-
-    Debugging tool for FP8 gradient underflow. Groups parameters by decoder layer,
-    embed, and lm_head, then computes grad_norm, weight_norm, and the fraction of
-    gradient elements that are exactly zero (underflow indicator).
-
-    Args:
-        model: The model to inspect (must have gradients populated, before optimizer.step).
-        step: Current training step (for logging context).
-
-    Returns:
-        Dictionary of metric_name -> value, ready for wandb.log().
-    """
-    metrics: dict[str, float] = {}
-    layer_groups: dict[str, list[tuple[str, torch.nn.Parameter]]] = {}
-
-    for name, param in model.named_parameters():
-        if param.grad is None:
-            continue
-        if "model.layers." in name:
-            parts = name.split(".")
-            idx = parts[parts.index("layers") + 1]
-            group = f"layer_{idx}"
-        elif "embed_tokens" in name:
-            group = "embed"
-        elif "lm_head" in name:
-            group = "lm_head"
-        elif "norm" in name and "layers" not in name:
-            group = "final_norm"
-        else:
-            group = "other"
-        layer_groups.setdefault(group, []).append((name, param))
-
-    for group, params in sorted(layer_groups.items()):
-        grad_sq, weight_sq, total_el, zero_el = 0.0, 0.0, 0, 0
-        for _name, param in params:
-            grad = param.grad
-            if isinstance(grad, DTensor):
-                grad = grad.to_local()
-            local_param = param._local_tensor if isinstance(param, DTensor) else param
-            g = grad.float().flatten()
-            grad_sq += (g * g).sum().item()
-            weight_sq += (local_param.float().flatten() ** 2).sum().item()
-            total_el += g.numel()
-            zero_el += (g == 0).sum().item()
-
-        metrics[f"grad_debug/{group}/grad_norm"] = grad_sq**0.5
-        metrics[f"grad_debug/{group}/weight_norm"] = weight_sq**0.5
-        metrics[f"grad_debug/{group}/grad_zero_frac"] = zero_el / max(total_el, 1)
-
-    return metrics
 
 
 def _init_master_weights_from_high_precision(
@@ -237,24 +183,11 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
-    def _log_memory(tag: str) -> None:
-        """Log GPU memory stats."""
-        alloc = torch.cuda.memory_allocated() / (1024**3)
-        reserved = torch.cuda.memory_reserved() / (1024**3)
-        peak = torch.cuda.max_memory_allocated() / (1024**3)
-        logger.info("[Memory: %s] allocated=%.2f GB, reserved=%.2f GB, peak=%.2f GB", tag, alloc, reserved, peak)
-
-    _log_memory("after_model_init")
-
     # --- Distributed Wrapping (FSDP2) ---
-    mp_policy = MixedPrecisionPolicy()
-
     # Each decoder layer should be individually sharded before sharding the full model.
     for layer in model.model.layers:
-        fully_shard(layer, mesh=device_mesh["dp"], mp_policy=mp_policy)
-    fully_shard(model, mesh=device_mesh["dp"], mp_policy=mp_policy)
-
-    _log_memory("after_fsdp_wrap")
+        fully_shard(layer, mesh=device_mesh["dp"])
+    fully_shard(model, mesh=device_mesh["dp"])
 
     # Attach quantization recipes to the model (layer precision is already on config).
     if isinstance(model, NVLlamaForCausalLM):
@@ -285,7 +218,6 @@ def main(args: DictConfig) -> float | None:
     else:
         optimizer = AdamW(model.parameters(), **adamw_kwargs)  # type: ignore
     scheduler = get_cosine_annealing_schedule_with_warmup(optimizer, **args.lr_scheduler_kwargs)
-    _log_memory("after_optimizer_init")
 
     if args.use_torch_compile:
         # If we're using torch.compile, we need to do this before loading the checkpoint to ensure key consistency.
@@ -337,21 +269,7 @@ def main(args: DictConfig) -> float | None:
     step = start_step
     micro_step = 0  # Gradient accumulation step counter
     while step < args.num_train_steps:
-        try:
-            dataloader_iter = iter(train_dataloader)
-        except ValueError as e:
-            if "last_yielded_worker_id does not match" in str(e):
-                # StatefulDataLoader's naive fast-forward replayed all items but ended on a
-                # different worker than saved — the streaming IterableDataset is non-deterministic
-                # across restarts (tokenize-with-windowing produces variable items per document).
-                # Clear the saved state and restart the dataloader from the beginning of the stream.
-                logger.warning("Dataloader state incompatible after fast-forward (%s), restarting from scratch.", e)
-                train_dataloader.next_iter_state = None
-                train_dataloader._iterator = None
-                dataloader_iter = iter(train_dataloader)
-            else:
-                raise
-        for batch in dataloader_iter:
+        for batch in train_dataloader:
             batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}  # noqa: PLW2901
 
             micro_step += 1
@@ -372,14 +290,6 @@ def main(args: DictConfig) -> float | None:
 
                 # Compute and clip gradient norms.
                 total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-
-                # Per-layer gradient debug logging (before optimizer.step clears grads).
-                if args.gradient_debug.enabled and step % args.gradient_debug.log_every_n_steps == 0:
-                    grad_metrics = _log_per_layer_gradient_norms(model, step)
-                    if dist_config.is_main_process():
-                        import wandb as _wandb
-
-                        _wandb.log(grad_metrics, step=step)
 
                 # Step optimizer.
                 optimizer.step()

@@ -88,10 +88,6 @@ fp8_layers: null
 fp4_layers: null
 use_fp32_master_weights: null  # Use TE FusedAdam for FP32 master weights
 
-gradient_debug:
-  enabled: false
-  log_every_n_steps: 1
-
 profiler:
   enabled: false
   start_step: 10

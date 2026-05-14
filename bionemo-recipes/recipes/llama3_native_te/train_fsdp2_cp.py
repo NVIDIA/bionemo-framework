@@ -35,7 +35,7 @@ import torch
 import transformer_engine.pytorch
 from omegaconf import DictConfig, OmegaConf
 from torch.distributed.device_mesh import init_device_mesh
-from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
+from torch.distributed.fsdp import fully_shard
 from torch.distributed.tensor import DTensor
 from torch.optim import AdamW
 from transformer_engine.common.recipe import Format
@@ -166,27 +166,14 @@ def main(args: DictConfig) -> float | None:
 
     logger.info("Initialized Model:\n%s", model)
 
-    def _log_memory(tag: str) -> None:
-        """Log GPU memory stats."""
-        alloc = torch.cuda.memory_allocated() / (1024**3)
-        reserved = torch.cuda.memory_reserved() / (1024**3)
-        peak = torch.cuda.max_memory_allocated() / (1024**3)
-        logger.info("[Memory: %s] allocated=%.2f GB, reserved=%.2f GB, peak=%.2f GB", tag, alloc, reserved, peak)
-
-    _log_memory("after_model_init")
-
     # --- Distributed Wrapping (FSDP2 + CP) ---
     cp_dp_mesh = device_mesh["dp", "cp"]._flatten(mesh_dim_name="dp_shard_cp")
-
-    mp_policy = MixedPrecisionPolicy()
 
     # Shard the transformer layers with FSDP. For Llama3, the transformer stack is in model.model.layers.
     # Each decoder layer should be individually sharded before sharding the full model.
     for layer in model.model.layers:
-        fully_shard(layer, mesh=cp_dp_mesh, mp_policy=mp_policy)
-    fully_shard(model, mesh=cp_dp_mesh, mp_policy=mp_policy)
-
-    _log_memory("after_fsdp_wrap")
+        fully_shard(layer, mesh=cp_dp_mesh)
+    fully_shard(model, mesh=cp_dp_mesh)
 
     # Attach the CP group to the model.
     for layer in model.model.layers:

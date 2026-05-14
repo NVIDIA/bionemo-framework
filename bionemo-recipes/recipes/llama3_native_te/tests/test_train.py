@@ -445,7 +445,7 @@ def test_sanity_convergence_fsdp2_te_fused_adam(tmp_path, recipe_path):
     This test validates:
     - FusedAdam optimizer initializes correctly with FSDP2-wrapped model
     - Training converges with FP32 master weights maintained by FusedAdam
-    - FusedAdam is a drop-in replacement for the MixedPrecisionPolicy approach
+    - FusedAdam handles FP32 master weights at the optimizer level (no MixedPrecisionPolicy needed)
     """
     with initialize_config_dir(config_dir=str(recipe_path / "hydra_config"), version_base="1.2"):
         sanity_config = compose(
