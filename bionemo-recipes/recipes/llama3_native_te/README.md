@@ -412,6 +412,30 @@ Once converted, the model can be loaded by any library that supports Llama 3, su
 vllm serve path/to/hf_converted_model
 ```
 
+## MFU Tracking
+
+Enable per-step MFU logging by adding `log_mfu=true`:
+
+```bash
+torchrun --nproc_per_node=2 train_fsdp2_cp.py --config-name L2_lingua_1b log_mfu=true
+```
+
+Two pairs of metrics are emitted per logging interval:
+
+- `train/mfu_pct` / `train/tflops_per_gpu` — useful-work rate. Excludes padding of all kinds.
+  Non-attention uses the unpadded token count; attention uses `Σ(Lᵢ²)` from `cu_seq_lens_q` (THD)
+  or per-row `attention_mask.sum()` (BSHD).
+- `train/mfu_padded_pct` / `train/tflops_per_gpu_padded` — hardware view. Counts every slot the
+  GPU processes, including CP-zigzag and BSHD row padding. HFU-like.
+
+The two pairs agree when the batch has no padding (e.g. dense single-doc THD packs). The formula
+is CP-aware (global `Σ(Lᵢ²)` divided by `cp_size`) and auto-detects GQA/MHA and SwiGLU/standard
+FFN from the HF config. Implementation in `perf_logger.py`.
+
+Memory metrics: `train/gpu_memory_allocated_max_gb` is the true transient peak per logging window
+(via `torch.cuda.max_memory_allocated()` + `reset_peak_memory_stats()`); `_mean_gb` is the
+post-step resting footprint.
+
 ## Developer Guide
 
 ### Running tests
