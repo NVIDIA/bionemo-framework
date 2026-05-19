@@ -16,15 +16,17 @@
 """TE TransformerLayer memory profiler for MXFP8 / quantized_model_init analysis.
 
 Profiles memory behavior of one or more 8B-scale transformer blocks so
-allocations are unambiguous in the PyTorch memory visualizer.  Six modes let
+allocations are unambiguous in the PyTorch memory visualizer.  Eight modes let
 you progressively add complexity:
 
-  bare               BF16 baseline, no FSDP2, no qinit
-  mxfp8              MXFP8 with quantized_model_init, no FSDP2
-  fp8-no-qinit       FP8 autocast WITHOUT qinit (BF16 weights), no FSDP2
-  bare-fsdp2         BF16 + FSDP2 sharding
-  mxfp8-fsdp2        MXFP8 + quantized_model_init + FSDP2
-  fp8-no-qinit-fsdp2 FP8 autocast WITHOUT qinit + FSDP2
+  bare                    BF16 baseline, no FSDP2, no qinit
+  mxfp8                   MXFP8 with quantized_model_init, no FSDP2
+  fp8-no-qinit            FP8 autocast WITHOUT qinit (BF16 weights), no FSDP2
+  mxfp8-no-qinit          MXFP8 autocast WITHOUT qinit (BF16 weights), no FSDP2
+  bare-fsdp2              BF16 + FSDP2 sharding
+  mxfp8-fsdp2             MXFP8 + quantized_model_init + FSDP2
+  fp8-no-qinit-fsdp2      FP8 autocast WITHOUT qinit + FSDP2
+  mxfp8-no-qinit-fsdp2    MXFP8 autocast WITHOUT qinit + FSDP2
 
 Non-FSDP2 modes run with plain ``python``; FSDP2 modes require ``torchrun``.
 
@@ -32,9 +34,11 @@ Use ``--num-layers N`` (default 1) to create multiple layers — needed to
 observe cross-layer memory accumulation (TE Issue 1: transpose of unsharded
 tensor accumulates and is not released after forward pass).
 
-The ``fp8-no-qinit`` modes test TE Issue 2: quantized weights created during
+The ``*-no-qinit`` modes test TE Issue 2: quantized weights created during
 forward pass are not freed when using ``te.autocast`` without
-``quantized_model_init``.
+``quantized_model_init``.  The ``mxfp8-no-qinit*`` variants force the MXFP8
+block-scaling recipe; ``fp8-no-qinit*`` uses auto-detection (MXFP8 if the GPU
+supports it, else Float8BlockScaling).
 
 Usage::
 
@@ -47,6 +51,9 @@ Usage::
     # FP8 autocast without qinit (no distributed)
     python single_block_memory_profile.py --mode fp8-no-qinit
 
+    # MXFP8 autocast without qinit (no distributed)
+    python single_block_memory_profile.py --mode mxfp8-no-qinit
+
     # BF16 + FSDP2
     torchrun --nproc-per-node 2 single_block_memory_profile.py --mode bare-fsdp2
 
@@ -55,6 +62,9 @@ Usage::
 
     # FP8 autocast without qinit + FSDP2
     torchrun --nproc-per-node 2 single_block_memory_profile.py --mode fp8-no-qinit-fsdp2
+
+    # MXFP8 autocast without qinit + FSDP2
+    torchrun --nproc-per-node 2 single_block_memory_profile.py --mode mxfp8-no-qinit-fsdp2
 
 Snapshots are saved to ``--snapshot-dir`` and can be viewed at
 https://pytorch.org/memory_viz
@@ -282,13 +292,7 @@ def run_bare(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
         log_memory(f"after_step_{step}")
         dist_print(f"  Step {step}: loss = {loss.item():.6f}")
 
-    if use_fp8_autocast_only:
-        mode_name = "fp8-no-qinit"
-    elif use_fp8:
-        mode_name = "mxfp8"
-    else:
-        mode_name = "bare"
-    _dump_snapshot(args, _snapshot_subdir(mode_name, num_layers, no_hpiv=args.no_hpiv))
+    _dump_snapshot(args, _snapshot_subdir(args.mode, num_layers, no_hpiv=args.no_hpiv))
 
 
 def run_fsdp2(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
@@ -385,13 +389,7 @@ def run_fsdp2(args, use_fp8: bool, use_fp8_autocast_only: bool = False):
         log_memory(f"after_step_{step}")
         dist_print(f"  Step {step}: loss = {loss.item():.6f}")
 
-    if use_fp8_autocast_only:
-        mode_name = "fp8-no-qinit-fsdp2"
-    elif use_fp8:
-        mode_name = "mxfp8-fsdp2"
-    else:
-        mode_name = "bare-fsdp2"
-    _dump_snapshot(args, _snapshot_subdir(mode_name, num_layers, no_hpiv=args.no_hpiv))
+    _dump_snapshot(args, _snapshot_subdir(args.mode, num_layers, no_hpiv=args.no_hpiv))
     dist.destroy_process_group()
 
 
@@ -409,7 +407,16 @@ def main():  # noqa: D103
     parser = argparse.ArgumentParser(description="TE TransformerLayer memory profiler")
     parser.add_argument(
         "--mode",
-        choices=["bare", "mxfp8", "fp8-no-qinit", "bare-fsdp2", "mxfp8-fsdp2", "fp8-no-qinit-fsdp2"],
+        choices=[
+            "bare",
+            "mxfp8",
+            "fp8-no-qinit",
+            "mxfp8-no-qinit",
+            "bare-fsdp2",
+            "mxfp8-fsdp2",
+            "fp8-no-qinit-fsdp2",
+            "mxfp8-no-qinit-fsdp2",
+        ],
         required=True,
         help=(
             "bare=BF16, mxfp8=MXFP8+qinit, fp8-no-qinit=BF16 weights+FP8 autocast, *-fsdp2=same with FSDP2 sharding"
@@ -441,17 +448,20 @@ def main():  # noqa: D103
     dist_print(f"  recipe={args.recipe}, hpiv={'disabled' if args.no_hpiv else 'enabled'}")
     dist_print(f"{'=' * 60}\n")
 
+    if args.mode.startswith("mxfp8-no-qinit"):
+        args.recipe = "mxfp8"
+
     if args.mode == "bare":
         run_bare(args, use_fp8=False)
     elif args.mode == "mxfp8":
         run_bare(args, use_fp8=True)
-    elif args.mode == "fp8-no-qinit":
+    elif args.mode in ("fp8-no-qinit", "mxfp8-no-qinit"):
         run_bare(args, use_fp8=False, use_fp8_autocast_only=True)
     elif args.mode == "bare-fsdp2":
         run_fsdp2(args, use_fp8=False)
     elif args.mode == "mxfp8-fsdp2":
         run_fsdp2(args, use_fp8=True)
-    elif args.mode == "fp8-no-qinit-fsdp2":
+    elif args.mode in ("fp8-no-qinit-fsdp2", "mxfp8-no-qinit-fsdp2"):
         run_fsdp2(args, use_fp8=False, use_fp8_autocast_only=True)
 
 
