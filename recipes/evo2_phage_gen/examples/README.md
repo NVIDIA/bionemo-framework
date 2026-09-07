@@ -133,7 +133,9 @@ support so the length reward can teach termination. When qualifying another cuto
 deployed temperature, top-k, then shifted top-p chain: after top-k renormalization, EOD remains in
 support according to the cumulative mass strictly before EOD. Verify that deployed support includes
 EOD at the authentic boundary for every prompt stratum; checking its raw rank before top-p is not
-sufficient.
+sufficient. That verifies reachability only: fixed-bank monitoring must track authentic-EOD
+frequency and full-credit length placement separately, since both can fall while aggregate or
+gene-content reward rises.
 The decoder ceiling reaches approximately 5,436–5,444 nt across the prompt mixture, 10–18 nt past
 the length reward's 5,426-nt upper zero, so a no-EOD rollout receives no length credit. The broad
 3,000–5,359-nt lower shaping taper reaches initially short rollouts, while the 5,359–5,391-nt
