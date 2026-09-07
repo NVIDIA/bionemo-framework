@@ -24,6 +24,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import torch
 
 from bionemo.evo2_phage_gen import nemo_rl_setup
 
@@ -131,7 +132,7 @@ assert torch.equal(ordinary_mask, replay_mask)
     worker = (build / "nemo_rl" / "models" / "policy" / "workers" / "megatron_policy_worker.py").read_text()
     assert "self._generation_adapter_requires_persistent_model_storage()" in worker
     assert "self._generation_adapter_model_refit_complete()" in worker
-    assert 'getattr(self, "_generation_offload_before_refit_complete", False)' in worker
+    assert '"_generation_offload_before_refit_complete"' in worker
     assert "and not self._generation_adapter_preserves_optimizer_state()" in worker
     generation_worker = (build / "nemo_rl" / "models" / "generation" / "megatron" / "megatron_worker.py").read_text()
     assert "def _generation_adapter_requires_persistent_model_storage(" in generation_worker
@@ -182,12 +183,37 @@ def test_patch_preserves_response_termination_metadata(tmp_path: Path) -> None:
     assert helper(message_log, 5) is False
     message_log[-1]["token_ids"].append(5)
     assert helper(message_log, 5) is True
+
+    stop_helper_node = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_record_generation_stop_metadata"
+    )
+    stop_namespace = {"Any": object, "torch": torch}
+    exec(compile(ast.Module(body=[stop_helper_node], type_ignores=[]), str(rollout_path), "exec"), stop_namespace)
+    stop_helper = stop_namespace["_record_generation_stop_metadata"]
+    stop_metadata = [{}, {}, {}]
+    stop_helper(
+        stop_metadata,
+        [torch.tensor([5, 0]), torch.tensor([5, 6]), torch.tensor([5])],
+        torch.tensor([False, True, False]),
+        0,
+    )
+    assert stop_metadata == [
+        {"_generation_stopped_on_eod": True, "_generation_capped_without_eod": False},
+        {"_generation_stopped_on_eod": False, "_generation_capped_without_eod": True},
+        {"_generation_stopped_on_eod": False, "_generation_capped_without_eod": False},
+    ]
     assert "sample_terminated & ~sample_truncated & ~sample_max_turns_reached" in rollout_source
     assert 'm["terminated"] and not m["truncated"] and not m["max_turns_reached"]' in rollout_source
-    assert "max_total_tokens_per_sample" not in rollout_source[rollout_source.index("def run_async_nemo_gym_rollout") :]
+    assert '"_generation_stopped_on_eod"' in rollout_source
+    assert '"_generation_capped_without_eod"' in rollout_source
+    assert (
+        "max_total_tokens_per_sample" not in rollout_source[rollout_source.index("def run_async_nemo_gym_rollout") :]
+    )
 
     package_init = (build / "nemo_rl" / "__init__.py").read_text()
-    assert "EVO2_RESPONSE_TERMINATION_VERSION = 1" in package_init
+    assert "EVO2_RESPONSE_TERMINATION_VERSION = 2" in package_init
 
 
 def test_setup_patches_before_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,7 +255,7 @@ def test_runtime_capabilities(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def import_module(name):
         if name == "nemo_rl":
-            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=2, EVO2_RESPONSE_TERMINATION_VERSION=1)
+            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=2, EVO2_RESPONSE_TERMINATION_VERSION=2)
         if name.endswith(".grpo"):
             return SimpleNamespace(split_environment_timing_metrics=lambda metrics: (metrics, {}))
         if name.endswith(".datasets.utils"):
@@ -254,7 +280,7 @@ def test_runtime_capabilities_require_external_dataset_resolution(monkeypatch: p
 
     def import_module(name):
         if name == "nemo_rl":
-            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=2, EVO2_RESPONSE_TERMINATION_VERSION=1)
+            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=2, EVO2_RESPONSE_TERMINATION_VERSION=2)
         if name.endswith(".grpo"):
             return SimpleNamespace(split_environment_timing_metrics=lambda metrics: (metrics, {}))
         if name.endswith(".datasets.utils"):
@@ -282,7 +308,7 @@ def test_runtime_requires_sampled_action_support(monkeypatch: pytest.MonkeyPatch
 
     def import_module(name):
         if name == "nemo_rl":
-            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=2, EVO2_RESPONSE_TERMINATION_VERSION=1)
+            return SimpleNamespace(EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION=2, EVO2_RESPONSE_TERMINATION_VERSION=2)
         if name.endswith(".grpo"):
             return SimpleNamespace(split_environment_timing_metrics=lambda metrics: (metrics, {}))
         if name.endswith(".datasets.utils"):

@@ -26,7 +26,7 @@ diff --git a/nemo_rl/__init__.py b/nemo_rl/__init__.py
 +# Recipe-patch capability markers used by CUDA-free installation checks. Source-level
 +# recipe tests separately verify their implementation sites.
 +EVO2_GRAPH_STORAGE_LIFECYCLE_VERSION = 2
-+EVO2_RESPONSE_TERMINATION_VERSION = 1
++EVO2_RESPONSE_TERMINATION_VERSION = 2
 diff --git a/nemo_rl/algorithms/grpo.py b/nemo_rl/algorithms/grpo.py
 index e5647bae7..b8603d049 100644
 --- a/nemo_rl/algorithms/grpo.py
@@ -1192,3 +1192,73 @@ diff --git a/nemo_rl/models/generation/megatron/megatron_worker.py b/nemo_rl/mod
          }
 
          return BatchedDataDict.from_batches([out_dict]).to("cpu")
+
+diff --git a/nemo_rl/experience/rollouts.py b/nemo_rl/experience/rollouts.py
+--- a/nemo_rl/experience/rollouts.py
++++ b/nemo_rl/experience/rollouts.py
+@@ -604,6 +604,25 @@ def collect_environment_metrics(
+     return metrics
+
+
++def _record_generation_stop_metadata(
++    extra_env_info: list[dict[str, Any] | None],
++    generated_ids: list[torch.Tensor],
++    response_truncated: torch.Tensor | None,
++    eos_token_id: int | None,
++) -> None:
++    """Record exact EOD/cap evidence without sending full token rows to an environment."""
++    if response_truncated is None or eos_token_id is None:
++        return
++    if len(extra_env_info) != len(generated_ids) or len(generated_ids) != len(response_truncated):
++        raise ValueError("Generation stop metadata is not aligned with rollout rows.")
++    for index, token_ids in enumerate(generated_ids):
++        stopped_on_eod = len(token_ids) > 0 and int(token_ids[-1]) == int(eos_token_id)
++        metadata = dict(extra_env_info[index] or {})
++        metadata["_generation_stopped_on_eod"] = stopped_on_eod
++        metadata["_generation_capped_without_eod"] = bool(response_truncated[index]) and not stopped_on_eod
++        extra_env_info[index] = metadata
++
++
+ def run_multi_turn_rollout(
+     policy_generation: GenerationInterface,
+     input_batch: BatchedDataDict[DatumSpec],
+@@ -713,6 +732,9 @@ def run_multi_turn_rollout(
+             for i, global_idx in enumerate(active_indices.tolist()):
+                 if response_truncated[i]:
+                     sample_truncated[global_idx] = True
++        _record_generation_stop_metadata(
++            active_batch["extra_env_info"], generated_ids, response_truncated, tokenizer.eos_token_id
++        )
+
+         # Record token usage - assistant
+         for i, global_idx in enumerate(active_indices.tolist()):
+@@ -1011,6 +1033,11 @@ async def run_sample_multi_turn_rollout(
+             response_truncated = gen_metrics.pop("_response_truncated", None)
+             if response_truncated is not None and response_truncated[0]:
+                 truncated = True
++            stop_metadata = [current_extra_env_info]
++            _record_generation_stop_metadata(
++                stop_metadata, [generated_tokens], response_truncated, tokenizer.eos_token_id
++            )
++            current_extra_env_info = stop_metadata[0]
+
+             # Update token counts
+             gen_token_count = len(generated_tokens)
+@@ -1048,6 +1075,8 @@ async def run_sample_multi_turn_rollout(
+         env_output = await asyncio.to_thread(
+             calculate_rewards, sample_batch, task_to_env
+         )
++        if env_output.metadata[0] is not None:
++            current_extra_env_info = env_output.metadata[0]
+         # Update total reward and optional per-reward signals (reward1, reward2, ... rewardN)
+         if env_output.rewards.ndim == 2 and env_output.rewards.shape[1] >= 1:
+             multi_reward_seen = True
+@@ -1097,8 +1126,6 @@ async def run_sample_multi_turn_rollout(
+         if not terminated and not truncated:
+             if env_output.next_stop_strings[0] is not None:
+                 current_stop_strings = env_output.next_stop_strings[0]
+-            if env_output.metadata[0] is not None:
+-                current_extra_env_info = env_output.metadata[0]
+
+     # Check if max turns reached
+     if turn_count >= max_rollout_turns:

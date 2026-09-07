@@ -36,6 +36,7 @@ from bionemo.evo2_phage_gen.nemo_rl_env import (
     phage_qc_metrics_from_scored,
     score_message_logs,
 )
+from bionemo.evo2_phage_gen.qc import NucleotideQCConfig
 from bionemo.evo2_phage_gen.reward import TIMING_COLUMN_PREFIX, RewardWeights, SequenceSafetyRewardConfig
 
 
@@ -614,6 +615,66 @@ def test_phage_qc_metrics_from_scored_flattens_reward_components():
     assert metrics["binary_full_qc_pass_cluster_deduplicated_rate"] == 0.5
 
 
+def test_phage_qc_metrics_bin_authentic_eod_lengths() -> None:
+    """Fixed-bank telemetry must retain stop frequency and placement direction."""
+    scored = pd.DataFrame(
+        {
+            "genome_length": [2999, 3000, 5358, 5359, 5391, 5392, 5425, 5426, 5444],
+            "generation_stopped_on_eod": [True, True, True, True, True, True, True, True, False],
+            "generation_capped_without_eod": [False, False, False, False, False, False, False, False, True],
+            "reward_valid_nt_chars": [1.0] * 9,
+            "safety_gate_state": ["PASS"] * 9,
+            "safety_gate_pass": [1.0] * 9,
+            "reward": [1.0] * 9,
+        }
+    )
+    config = NucleotideQCConfig(
+        genome_length_reward_lower_zero=3000,
+        genome_length_reward_lower_full=5359,
+        genome_length_reward_upper_full=5391,
+        genome_length_reward_upper_zero=5426,
+    )
+
+    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0), config=config)
+
+    assert metrics["termination/authentic_eod_count"] == 8
+    assert metrics["termination/capped_without_eod_count"] == 1
+    assert metrics["termination/non_eod_below_cap_count"] == 0
+    assert metrics["termination/authentic_eod_rate"] == pytest.approx(8 / 9)
+    expected_bins = {
+        "below_lower_zero": 1,
+        "lower_taper": 2,
+        "full_credit": 2,
+        "upper_taper": 2,
+        "at_or_above_upper_zero": 1,
+    }
+    for name, count in expected_bins.items():
+        assert metrics[f"termination/authentic_eod_length/{name}_count"] == count
+        assert metrics[f"termination/authentic_eod_length/{name}_rate"] == pytest.approx(count / 8)
+
+
+def test_phage_qc_metrics_keep_non_eod_short_distinct_from_caps() -> None:
+    """A short response without a retained EOD is neither a cap nor an authentic stop."""
+    scored = pd.DataFrame(
+        {
+            "genome_length": [1000, 5444],
+            "generation_stopped_on_eod": [False, False],
+            "generation_capped_without_eod": [False, True],
+            "reward_valid_nt_chars": [1.0, 1.0],
+            "safety_gate_state": ["PASS", "PASS"],
+            "safety_gate_pass": [1.0, 1.0],
+            "reward": [0.0, 0.0],
+        }
+    )
+
+    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0))
+
+    assert metrics["termination/authentic_eod_count"] == 0
+    assert metrics["termination/capped_without_eod_count"] == 1
+    assert metrics["termination/non_eod_below_cap_count"] == 1
+    assert not any(key.startswith("termination/authentic_eod_length/") for key in metrics)
+
+
 def test_empty_phage_qc_metrics_publish_required_checkpoint_zero():
     """Checkpoint selection must receive an explicit safe zero for an empty batch."""
     metrics = phage_qc_metrics_from_scored(pd.DataFrame(), RewardWeights(valid_nt_chars=1.0))
@@ -786,6 +847,46 @@ def test_grpo_step_uses_final_reward_and_preserves_safety_evidence(monkeypatch, 
     assert scored_metadata["safety_amr_execution_status"] == "COMPLETED_AND_PARSED"
     assert scored_metadata["safety_amr_finding_count"] == 1
     assert scored_metadata["safety_amr_policy_id"] == "ema-phage-v1"
+
+
+def test_step_preserves_compact_generation_stop_evidence(monkeypatch) -> None:
+    """The environment must return token-derived stop flags with the scored row."""
+    env_cls, env = _new_step_environment(reward_output_mode="scalar", gdpo_objectives=())
+    env.config = NucleotideQCConfig(
+        genome_length_reward_lower_zero=3000,
+        genome_length_reward_lower_full=5359,
+        genome_length_reward_upper_full=5391,
+        genome_length_reward_upper_zero=5426,
+    )
+
+    def fake_score_message_logs(*_args, **_kwargs):
+        return pd.DataFrame(
+            {
+                "sequence": ["ACGT"],
+                "genome_length": [5359],
+                "reward": [1.0],
+                "safety_gate_state": ["PASS"],
+                "safety_gate_pass": [1.0],
+            }
+        )
+
+    monkeypatch.setattr(nemo_rl_env, "score_message_logs", fake_score_message_logs)
+
+    result = env_cls.step(
+        env,
+        [[{"role": "assistant", "content": "ACGT"}]],
+        [{"_generation_stopped_on_eod": True, "_generation_capped_without_eod": False}],
+    )
+
+    scored_metadata = result.metadata[0]["_phage_qc_scored"]
+    assert scored_metadata["generation_stopped_on_eod"] is True
+    assert scored_metadata["generation_capped_without_eod"] is False
+    _, metrics = env_cls.global_post_process_and_metrics(
+        env,
+        {"total_reward": result.rewards, "extra_env_info": result.metadata},
+    )
+    assert metrics["termination/authentic_eod_count"] == 1
+    assert metrics["termination/authentic_eod_length/full_credit_count"] == 1
 
 
 @pytest.mark.parametrize(

@@ -154,7 +154,7 @@
         "The response does not infer deployed EOD support from raw top-k rank alone.",
         "It applies temperature, top-k, and then shifted top-p, using cumulative renormalized top-k mass strictly before EOD.",
         "It requires EOD to remain in deployed support at every authentic prompt stratum for this PhiX mixture.",
-        "It treats deployed EOD support as reachability only and separately audits authentic-EOD frequency and full-credit length placement across held-out checkpoints.",
+        "It treats deployed EOD support as reachability only, separately audits authentic-EOD frequency and full-credit placement across held-out checkpoints, and retains direct length-bin counts that distinguish early stops from overshoot.",
         "It prefers disabling nucleus filtering with top-p 1.0 when top-k already bounds support, rather than choosing a margin-sensitive cutoff or adding a length schedule or EOD-reinsertion special case.",
         "It treats this as a PhiX-specific reachability decision rather than a portable top-p default and calls for target-specific length and support evidence before transfer.",
         "It treats the sampling change as a new SFT-anchored RL attempt rather than resuming an existing RL result root in place."

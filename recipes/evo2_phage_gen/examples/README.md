@@ -172,7 +172,9 @@ first sampled EOD and its log-probability, mask only synthetic padding, and excl
 post-EOD physical samples from biological QC. Filtered policy replay also keeps each sampled action
 in a normalized target-preserving support; generation-versus-replay error telemetry remains enabled.
 Qualification reports authentic EOD, capped-without-EOD, and below-cap-without-EOD as three
-exclusive outcomes, then evaluates length-band placement only for authentic stops.
+exclusive outcomes. The `phage_qc/termination/*` scalars retain counts and rates for those outcomes
+and place authentic-EOD genomes into below-lower-zero, lower-taper, full-credit, upper-taper, and
+at-or-above-upper-zero bins, so fixed-bank placement direction remains recoverable without raw rows.
 
 The policy defaults to global batch 768, candidate training microbatch 8, validation 96, and
 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. The standard pilot disables initial validation,

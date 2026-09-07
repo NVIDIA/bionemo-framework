@@ -465,6 +465,23 @@ def score_message_logs(
     )
 
 
+def _attach_generation_stop_columns(scored: pd.DataFrame, metadata: list[dict[str, Any]]) -> None:
+    """Attach compact token-level stop evidence when every rollout row provides it."""
+    if len(scored) != len(metadata) or not all(
+        isinstance(item, dict)
+        and isinstance(item.get("_generation_stopped_on_eod"), bool)
+        and isinstance(item.get("_generation_capped_without_eod"), bool)
+        for item in metadata
+    ):
+        return
+    stopped_on_eod = [item["_generation_stopped_on_eod"] for item in metadata]
+    capped_without_eod = [item["_generation_capped_without_eod"] for item in metadata]
+    if any(stopped and capped for stopped, capped in zip(stopped_on_eod, capped_without_eod, strict=True)):
+        raise ValueError("A generation cannot both stop on EOD and exhaust its token cap.")
+    scored["generation_stopped_on_eod"] = stopped_on_eod
+    scored["generation_capped_without_eod"] = capped_without_eod
+
+
 def _mean_numeric(scored: pd.DataFrame, column: str) -> float | None:
     """Return a numeric mean when at least one finite/coercible value exists."""
     values = pd.to_numeric(scored[column], errors="coerce")
@@ -528,7 +545,67 @@ def _add_binary_pass_metrics(
         )
 
 
-def phage_qc_metrics_from_scored(scored: pd.DataFrame, weights: RewardWeights) -> dict[str, float | int]:
+def _add_generation_termination_metrics(
+    metrics: dict[str, float | int],
+    scored: pd.DataFrame,
+    config: NucleotideQCConfig | None,
+) -> None:
+    """Add exact stop-class counts and authentic-EOD length placement."""
+    required_columns = {"generation_stopped_on_eod", "generation_capped_without_eod"}
+    if not required_columns.issubset(scored.columns):
+        return
+
+    stopped_on_eod = scored["generation_stopped_on_eod"].astype(bool)
+    capped_without_eod = scored["generation_capped_without_eod"].astype(bool)
+    if bool((stopped_on_eod & capped_without_eod).any()):
+        raise ValueError("A generation cannot both stop on EOD and exhaust its token cap.")
+    non_eod_below_cap = ~(stopped_on_eod | capped_without_eod)
+    batch_size = len(scored)
+    for name, mask in (
+        ("authentic_eod", stopped_on_eod),
+        ("capped_without_eod", capped_without_eod),
+        ("non_eod_below_cap", non_eod_below_cap),
+    ):
+        metrics[f"termination/{name}_count"] = int(mask.sum())
+        metrics[f"termination/{name}_rate"] = float(mask.mean()) if batch_size else 0.0
+
+    bounds = (
+        None
+        if config is None
+        else (
+            config.genome_length_reward_lower_zero,
+            config.genome_length_reward_lower_full,
+            config.genome_length_reward_upper_full,
+            config.genome_length_reward_upper_zero,
+        )
+    )
+    if bounds is None or any(bound is None for bound in bounds) or "genome_length" not in scored:
+        return
+    lower_zero, lower_full, upper_full, upper_zero = (float(bound) for bound in bounds)
+    eod_lengths = pd.to_numeric(scored.loc[stopped_on_eod, "genome_length"], errors="coerce")
+    if not eod_lengths.notna().all():
+        return
+
+    length_bins = {
+        "below_lower_zero": eod_lengths < lower_zero,
+        "lower_taper": (eod_lengths >= lower_zero) & (eod_lengths < lower_full),
+        "full_credit": (eod_lengths >= lower_full) & (eod_lengths <= upper_full),
+        "upper_taper": (eod_lengths > upper_full) & (eod_lengths < upper_zero),
+        "at_or_above_upper_zero": eod_lengths >= upper_zero,
+    }
+    eod_count = int(stopped_on_eod.sum())
+    for name, mask in length_bins.items():
+        count = int(mask.sum())
+        metrics[f"termination/authentic_eod_length/{name}_count"] = count
+        metrics[f"termination/authentic_eod_length/{name}_rate"] = count / eod_count if eod_count else 0.0
+
+
+def phage_qc_metrics_from_scored(
+    scored: pd.DataFrame,
+    weights: RewardWeights,
+    *,
+    config: NucleotideQCConfig | None = None,
+) -> dict[str, float | int]:
     """Summarize per-sequence phage QC scores into scalar logger metrics."""
     if scored.empty:
         return {
@@ -630,6 +707,8 @@ def phage_qc_metrics_from_scored(scored: pd.DataFrame, weights: RewardWeights) -
     if "external_qc_tool_succeeded" in scored:
         values = pd.to_numeric(scored["external_qc_tool_succeeded"], errors="coerce").fillna(0.0)
         metrics["external_qc_tool_succeeded_rate"] = float((values > 0.0).mean())
+
+    _add_generation_termination_metrics(metrics, scored, config)
 
     status_score_columns = {
         "protein_database_hit_count": "reward_external_protein_hit_count",
@@ -963,6 +1042,7 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 mmseqs_cluster_diversity=self.mmseqs_cluster_diversity,
                 sequence_safety=self.sequence_safety,
             )
+            _attach_generation_stop_columns(scored, metadata)
             reward_scoring_s = time.perf_counter() - phase_start
             qualified_scalar_rewards = _qualified_scalar_rewards(scored)
             if self.reward_output_mode == "gdpo":
@@ -1015,7 +1095,11 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
             gdpo_objectives = self.gdpo_objectives if reward_output_mode == "gdpo" else ()
             if not _batch_metadata_is_complete(batch_scored, int(rewards.shape[0]), gdpo_objectives):
                 batch_scored = pd.DataFrame()
-            phage_metrics = phage_qc_metrics_from_scored(batch_scored, self.weights)
+            phage_metrics = phage_qc_metrics_from_scored(
+                batch_scored,
+                self.weights,
+                config=getattr(self, "config", None),
+            )
             binary_pass_rate = float(phage_metrics.get("binary_safety_qualified_core_pass_rate", 0.0))
             cluster_deduplicated_pass_rate = float(
                 phage_metrics.get(
