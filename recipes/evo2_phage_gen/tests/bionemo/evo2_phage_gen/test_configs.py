@@ -178,10 +178,7 @@ def test_gdpo_config_uses_positional_objectives_and_mmseqs_diversity():
     assert config["policy"]["megatron_cfg"]["optimizer"]["lr"] == 1.0e-6
     assert config["policy"]["megatron_cfg"]["optimizer"]["min_lr"] == 1.0e-7
     assert config["policy"]["megatron_cfg"]["scheduler"]["lr_warmup_init"] == 1.0e-7
-    assert (
-        config["checkpointing"]["metric_name"]
-        == "val:phage_qc/binary_safety_qualified_full_qc_cluster_deduplicated_rate"
-    )
+    assert config["checkpointing"]["metric_name"] == "val:phage_qc/mean_reward"
     assert [objective["name"] for objective in objectives] == [
         "valid_nt_chars",
         "genome_length",
@@ -318,10 +315,8 @@ def test_every_inherited_grpo_and_gdpo_config_keeps_mandatory_safety_enabled():
             assert isinstance(safety[path_key], str) and safety[path_key], (config_path.name, path_key)
 
         if config_path.name.startswith("gdpo_"):
-            assert (
-                resolved["checkpointing"]["metric_name"]
-                == "val:phage_qc/binary_safety_qualified_full_qc_cluster_deduplicated_rate"
-            ), config_path.name
+            assert resolved["checkpointing"]["metric_name"] == "val:phage_qc/mean_reward", config_path.name
+            assert resolved["checkpointing"]["keep_top_k"] >= 3, config_path.name
             objectives = resolved["env"]["phage_qc"]["gdpo_objectives"]
             objective_by_name = {objective["name"]: objective for objective in objectives}
             assert {

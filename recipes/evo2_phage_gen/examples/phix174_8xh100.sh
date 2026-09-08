@@ -633,17 +633,22 @@ PY
 }
 
 select_checkpoint() {
-  local mode="$1" tensorboard_root="$2" checkpoint_root="$3" output="$4"
+  local mode="$1" tensorboard_root="$2" checkpoint_root="$3" output="$4" protected_root="${5:-}"
+  if [[ "${mode}" == "rl" ]]; then
+    python -m bionemo.evo2_phage_gen.rl_checkpoint_selection select \
+      --tensorboard-root "${tensorboard_root}" \
+      --checkpoint-root "${checkpoint_root}" \
+      --protected-root "${protected_root}" \
+      --output "${output}"
+    return
+  fi
   python - "${mode}" "${tensorboard_root}" "${checkpoint_root}" "${output}" <<'PY'
 import json, sys
 from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 
 mode, tb_root, ckpt_root, output = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4])
-tags = ["lm loss validation"] if mode == "sft" else [
-    "validation/phage_qc/binary_safety_qualified_full_qc_cluster_deduplicated_rate",
-    "val:phage_qc/binary_safety_qualified_full_qc_cluster_deduplicated_rate",
-]
+tags = ["lm loss validation"]
 points = {}
 chosen_tag = None
 for event in sorted(tb_root.rglob("events.out.tfevents*")):
@@ -658,14 +663,14 @@ for event in sorted(tb_root.rglob("events.out.tfevents*")):
 values = sorted((int(step), float(value[1])) for step, value in points.items())
 if len(values) < 3:
     raise SystemExit("need at least three comparable validation events")
-index = (min if mode == "sft" else max)(range(len(values)), key=lambda i: (values[i][1], values[i][0]))
-if (mode == "sft" and index > len(values) - 3) or (mode == "rl" and index in (0, len(values) - 1)):
+index = min(range(len(values)), key=lambda i: (values[i][1], values[i][0]))
+if index > len(values) - 3:
     raise SystemExit("best validation is at the run boundary; extend/inspect the run before selecting")
 step, value = values[index]
-checkpoint = ckpt_root / (f"iter_{step:07d}" if mode == "sft" else f"step_{step}/policy/weights/iter_0000000")
+checkpoint = ckpt_root / f"iter_{step:07d}"
 if not checkpoint.is_dir():
     raise SystemExit(f"selected validation step has no checkpoint: {checkpoint}")
-result = {"metric": chosen_tag, "direction": "minimize" if mode == "sft" else "maximize", "step": step, "value": value, "checkpoint": str(checkpoint.resolve())}
+result = {"metric": chosen_tag, "direction": "minimize", "step": step, "value": value, "checkpoint": str(checkpoint.resolve())}
 output.parent.mkdir(parents=True, exist_ok=True); output.write_text(json.dumps(result, indent=2) + "\n")
 print(result["checkpoint"])
 PY
@@ -1003,7 +1008,7 @@ stage_40() {
       evo2_phage_check_rl --config configs/gdpo_phage_megatron.yaml --checkpoint "${rl_checkpoint}" \
       --prompt-data "${rl}/train.jsonl" --gpus-per-node "${NUM_GPUS}" \
       --control-fasta "${control}/reference-rotations.fasta" --control-dir "${control}"
-    local common=(checkpointing.pretrained_checkpoint.path="${rl_checkpoint}" checkpointing.save_optimizer=true policy.model_name="${RL_MODEL_NAME}" data.train.data_path="${rl}/train.jsonl" data.validation.data_path="${rl}/validation.jsonl" cluster.gpus_per_node="${NUM_GPUS}" policy.train_micro_batch_size="${RL_TRAIN_MICRO_BATCH_SIZE}" policy.generation.max_new_tokens="${SAMPLING_MAX_NEW_TOKENS}" policy.generation.temperature="${SAMPLING_TEMPERATURE}" policy.generation.top_k="${SAMPLING_TOP_K}" policy.generation.top_p="${SAMPLING_TOP_P}" policy.generation.mcore_generation_config.max_model_len="${RL_MAX_MODEL_LEN}" policy.generation.mcore_generation_config.max_requests="${RL_PROMPT_BATCH_SIZE}" policy.generation.mcore_generation_config.prompt_batch_size="${RL_PROMPT_BATCH_SIZE}" policy.generation.mcore_generation_config.kv_cache_management_mode=offload policy.generation.mcore_generation_config.generation_adapter_config.seed="${SAMPLING_RL_SEED}" policy.generation.mcore_generation_config.generation_adapter_config.seed_stride="${SAMPLING_SEED_STRIDE}" env.phage_qc.external_qc.lovis4u_parallel_jobs=64 env.phage_qc.external_qc.lovis4u_mmseqs_threads=2 env.phage_qc.mmseqs_cluster_diversity.parallel_jobs=16 env.phage_qc.mmseqs_cluster_diversity.threads=8)
+    local common=(checkpointing.pretrained_checkpoint.path="${rl_checkpoint}" checkpointing.save_optimizer=true checkpointing.metric_name=val:phage_qc/mean_reward policy.model_name="${RL_MODEL_NAME}" data.train.data_path="${rl}/train.jsonl" data.validation.data_path="${rl}/validation.jsonl" cluster.gpus_per_node="${NUM_GPUS}" policy.train_micro_batch_size="${RL_TRAIN_MICRO_BATCH_SIZE}" policy.generation.max_new_tokens="${SAMPLING_MAX_NEW_TOKENS}" policy.generation.temperature="${SAMPLING_TEMPERATURE}" policy.generation.top_k="${SAMPLING_TOP_K}" policy.generation.top_p="${SAMPLING_TOP_P}" policy.generation.mcore_generation_config.max_model_len="${RL_MAX_MODEL_LEN}" policy.generation.mcore_generation_config.max_requests="${RL_PROMPT_BATCH_SIZE}" policy.generation.mcore_generation_config.prompt_batch_size="${RL_PROMPT_BATCH_SIZE}" policy.generation.mcore_generation_config.kv_cache_management_mode=offload policy.generation.mcore_generation_config.generation_adapter_config.seed="${SAMPLING_RL_SEED}" policy.generation.mcore_generation_config.generation_adapter_config.seed_stride="${SAMPLING_SEED_STRIDE}" env.phage_qc.external_qc.lovis4u_parallel_jobs=64 env.phage_qc.external_qc.lovis4u_mmseqs_threads=2 env.phage_qc.mmseqs_cluster_diversity.parallel_jobs=16 env.phage_qc.mmseqs_cluster_diversity.threads=8)
     note "RL policy train microbatch: ${RL_TRAIN_MICRO_BATCH_SIZE}; native packed mixed-length decode group size: ${RL_PROMPT_BATCH_SIZE}; generation context ceiling: ${RL_MAX_MODEL_LEN}"
     if [[ -f "${STAGE_DIR}/40-pilot.done" ]]; then
       note 'substage 40-pilot already complete'
@@ -1031,12 +1036,18 @@ stage_40() {
       check_objectives "${RESULT_ROOT}/rl-pilot/objective-health.json"
       [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/40-pilot-check.done"
     fi
-    monitored "500-step DP${NUM_GPUS} GDPO" "${rl}/runner.log" evo2_phage_run_gdpo --config configs/gdpo_phage_megatron.yaml "${common[@]}" "${RL_WANDB_ARGS[@]}" checkpointing.checkpoint_dir="${rl}/checkpoints" env.phage_qc.external_qc.work_dir="${RL_EXTERNAL_QC_WORK_ROOT}/full" env.phage_qc.mmseqs_cluster_diversity.work_dir="${rl}/mmseqs" env.phage_qc.sequence_safety.work_dir="${rl}/safety" logger.log_dir="${rl}/logs"
+    monitored "500-step DP${NUM_GPUS} GDPO" "${rl}/runner.log" \
+      python -m bionemo.evo2_phage_gen.rl_checkpoint_selection supervise \
+        --tensorboard-root "${rl}/logs" \
+        --checkpoint-root "${rl}/checkpoints" \
+        --protected-root "${rl}/protected-checkpoints" \
+        --poll-seconds 30 -- \
+      evo2_phage_run_gdpo --config configs/gdpo_phage_megatron.yaml "${common[@]}" "${RL_WANDB_ARGS[@]}" checkpointing.checkpoint_dir="${rl}/checkpoints" env.phage_qc.external_qc.work_dir="${RL_EXTERNAL_QC_WORK_ROOT}/full" env.phage_qc.mmseqs_cluster_diversity.work_dir="${rl}/mmseqs" env.phage_qc.sequence_safety.work_dir="${rl}/safety" logger.log_dir="${rl}/logs"
     [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/40-rl.done"
   fi
   run evo2_phage_monitor_objectives --tensorboard-root "${rl}/logs" --config configs/gdpo_phage_megatron.yaml --output "${rl}/objective-health.json" --history-output "${rl}/objective-history.json"
   check_objectives "${rl}/objective-health.json"
-  [[ "${DRY_RUN}" == "1" ]] && chosen='<selected-rl>' || chosen="$(select_checkpoint rl "${rl}/logs" "${rl}/checkpoints" "${rl}/checkpoint-selection.json")"
+  [[ "${DRY_RUN}" == "1" ]] && chosen='<selected-rl>' || chosen="$(select_checkpoint rl "${rl}/logs" "${rl}/checkpoints" "${rl}/checkpoint-selection.json" "${rl}/protected-checkpoints")"
   state selected-rl "${chosen}"
 }
 

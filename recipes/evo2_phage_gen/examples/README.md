@@ -385,12 +385,17 @@ the exact-safety mask. The implementations for the individual terms are:
   final acceptance gate.
 - **Nucleotide-pass telemetry** records the binary conjunction used by checkpoint and final-QC
   diagnostics; it is not a separate GDPO objective duplicating the graded component terms.
-- **Checkpoint selection** uses
-  `binary_safety_qualified_full_qc_cluster_deduplicated_rate`. It requires exact safety `PASS`, full
-  credit on the binary-core rewards—including the 5,359–5,391-nt length band—then the independent
-  external hard-pass flags, and counts one representative per online 99%-identity cluster. Smooth
-  synteny, tropism, A-origin, required-gene, and AAI targets are shaping terms rather than implicit
-  hard gates.
+- **Checkpoint retention and selection** keep complementary evidence. NeMo-RL's managed top three
+  use fixed-bank `mean_reward` (plus its latest resumable checkpoint), while the launcher hard-links
+  the best aggregate checkpoint and the best positive
+  `binary_safety_qualified_full_qc_cluster_deduplicated_rate` checkpoint independently. Final
+  selection prefers a strict-positive checkpoint, breaking ties by aggregate reward and then step;
+  if none exists, it selects the best non-boundary aggregate checkpoint and records
+  `strict_endpoint_qualified: false`. The strict endpoint requires exact safety `PASS`, full credit
+  on the binary-core rewards—including the 5,359–5,391-nt length band—then the independent external
+  hard-pass flags, and counts one representative per online 99%-identity cluster. Smooth synteny,
+  tropism, A-origin, required-gene, and AAI targets are shaping terms rather than implicit hard
+  gates; aggregate fallback is not a hard-QC pass.
 - **Final per-genome QC** uses exact safety `PASS` plus the Arc target-profile waterfall: A/C/G/T
   only; length 5,306–5,493 nt; GC 30–65%; homopolymer ≤10; at least seven distinct PHROG families
   with ≥0.75 query and target coverage; a PhiX G hit at 60–100% identity with ≥0.95 query and target

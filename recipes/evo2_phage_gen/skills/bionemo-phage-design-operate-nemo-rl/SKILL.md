@@ -54,12 +54,17 @@ Save native Megatron-Bridge `torch_dist` checkpoints: set `checkpointing.model_s
 Validate the configured checkpoint-selection metric against the actual validation metric names.
 The recipe's phage OpenAI-format dataset assigns both training and validation the stable task name
 `phage_qc` regardless of their result-root JSONL paths. The environment hook returns bare metric
-keys and NeMo-RL adds that task namespace exactly once, so the strict PhiX checkpoint endpoint is
-`val:phage_qc/binary_safety_qualified_full_qc_cluster_deduplicated_rate`. A logged `rl-train/` or
-`rl-validation/` prefix means the path-naming generic dataset was used; restore the recipe dataset
-rather than encoding the path into the checkpoint metric. Timing-marker keys remain unnamespaced
-for phase reporting. A missing metric is an integration error to diagnose; do not switch to another
-target environment or biological profile merely to make a key appear.
+keys and NeMo-RL adds that task namespace exactly once. For PhiX GDPO, use
+`val:phage_qc/mean_reward` as NeMo-RL's primary top-K retention metric and supervise the run so the
+best aggregate checkpoint and any best positive
+`binary_safety_qualified_full_qc_cluster_deduplicated_rate` checkpoint are hard-linked separately.
+Final selection prefers a strict-positive checkpoint; otherwise select the best interior aggregate
+checkpoint and record that it is not strict-endpoint qualified. Mean reward preserves useful shaping
+progress when the categorical endpoint is flat, but is not itself a biological pass. A logged
+`rl-train/` or `rl-validation/` prefix means the path-naming generic dataset was used; restore the
+recipe dataset rather than encoding the path into either metric. Timing-marker keys remain
+unnamespaced for phase reporting. A missing metric is an integration error to diagnose; do not
+switch to another target environment or biological profile merely to make a key appear.
 
 TensorBoard objective monitoring must discover the newest complete validation namespace containing
 both `mean_reward` and `num_sequences`. Current recipe runs normally emit `validation/phage_qc/...`,

@@ -34,6 +34,11 @@ RECIPE_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = RECIPE_ROOT / "examples/phix174_8xh100.sh"
 
 
+def _gdpo_commands(commands: list[list[str]]) -> list[list[str]]:
+    """Return each GDPO invocation, including one nested under the retention supervisor."""
+    return [command[command.index("evo2_phage_run_gdpo") :] for command in commands if "evo2_phage_run_gdpo" in command]
+
+
 def _write_sampling_selection(path: Path) -> str:
     text = """\
 temperature: 0.9
@@ -368,11 +373,10 @@ def test_dry_run(tmp_path: Path) -> None:
     )
     assert likelihood_command[likelihood_command.index("--ckpt-dir") + 1] == "<rl-sft-checkpoint>"
 
-    gdpo_commands = [
-        shlex.split(line.partition("command: ")[2])
-        for line in log.splitlines()
-        if "command: evo2_phage_run_gdpo " in line
+    logged_commands = [
+        shlex.split(line.partition("command: ")[2]) for line in log.splitlines() if "command: " in line
     ]
+    gdpo_commands = _gdpo_commands(logged_commands)
     assert len(gdpo_commands) == 3
     pilot = next(command for command in gdpo_commands if "grpo.max_num_steps=3" in command)
     reload = next(command for command in gdpo_commands if "grpo.max_num_steps=3" in command and command is not pilot)
@@ -413,6 +417,9 @@ def test_dry_run(tmp_path: Path) -> None:
         in full
     )
     assert "RL policy train microbatch: 8; native packed mixed-length decode group size: 96" in log
+    assert "bionemo.evo2_phage_gen.rl_checkpoint_selection supervise" in log
+    assert "--protected-root " + str(result_root / "rl/protected-checkpoints") in log
+    assert "checkpointing.metric_name=val:phage_qc/mean_reward" in log
 
     rollout_commands = [
         shlex.split(line.partition("command: ")[2])
@@ -511,7 +518,7 @@ def test_hopper_fp8_inference_is_forwarded_only_to_endpoint_workflows(tmp_path: 
         command for command in commands if any(part.endswith("run_sft_sampling_sweep.sh") for part in command)
     )
     assert "HOPPER_FP8_INFERENCE=1" in calibration
-    gdpo_commands = [command for command in commands if command[:1] == ["evo2_phage_run_gdpo"]]
+    gdpo_commands = _gdpo_commands(commands)
     assert gdpo_commands
     assert all("--fp8-all-layers" not in command for command in gdpo_commands)
 
@@ -561,7 +568,7 @@ def test_wandb_dry_run(tmp_path: Path) -> None:
     assert full_sft[full_sft.index("--wandb-run-name") + 1] == "wandb-result-7b-base-sft"
     assert all("--wandb-project" not in command for command in sft_commands if command is not full_sft)
 
-    gdpo_commands = [command for command in commands if command[:1] == ["evo2_phage_run_gdpo"]]
+    gdpo_commands = _gdpo_commands(commands)
     assert len(gdpo_commands) == 3
     pilots = [command for command in gdpo_commands if "grpo.max_num_steps=3" in command]
     full_gdpo = next(command for command in gdpo_commands if command not in pilots)
@@ -887,9 +894,8 @@ def test_sampling_selection_override(tmp_path: Path) -> None:
 
     gdpo = next(
         command
-        for command in commands
-        if command[:1] == ["evo2_phage_run_gdpo"]
-        and f"checkpointing.checkpoint_dir={result_root / 'rl/checkpoints'}" in command
+        for command in _gdpo_commands(commands)
+        if f"checkpointing.checkpoint_dir={result_root / 'rl/checkpoints'}" in command
     )
     for override in (
         "policy.generation.max_new_tokens=5800",

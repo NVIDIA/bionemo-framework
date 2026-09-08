@@ -18,7 +18,10 @@ checkpointing:
     # Start GDPO from the converted base Evo2 Microviridae checkpoint, not from a prior RL run.
     path: "data/checkpoints/evo2_7b_microviridae_mbridge"
     format: "megatron_bridge"
-  metric_name: "val:phage_qc/binary_safety_qualified_full_qc_cluster_deduplicated_rate"
+  # Keep the strongest aggregate checkpoints in NeMo-RL's managed top-K. The example launcher
+  # independently hard-links the best strict-positive endpoint so a rare passing candidate cannot
+  # be pruned merely because its shaped aggregate is lower.
+  metric_name: "val:phage_qc/mean_reward"
   higher_is_better: true
 
 grpo:
