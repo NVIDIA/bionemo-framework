@@ -24,7 +24,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import torch
 
 from bionemo.evo2_phage_gen import nemo_rl_setup
 
@@ -35,6 +34,11 @@ class _GenerationWorkerMixin:
 
     def _generation_adapter_model_refit_complete(self):
         return None
+
+
+@pytest.fixture
+def torch():
+    return pytest.importorskip("torch")
 
 
 def _cached_source() -> Path | None:
@@ -76,7 +80,7 @@ def test_patch_uses_standard_bridge_config_loader(tmp_path: Path) -> None:
     assert "read_run_config(pretrained_run_config)" not in setup_source
 
 
-def test_policy_replay_keeps_sampled_action(tmp_path: Path) -> None:
+def test_policy_replay_keeps_sampled_action(tmp_path: Path, torch) -> None:
     """Replay keeps a sampled token finite if recomputed logits move it outside top-k."""
     source = _cached_source()
     if source is None:
@@ -154,7 +158,7 @@ def test_environment_metrics_receive_one_task_namespace(tmp_path: Path) -> None:
     assert 'metric_key = key if key.startswith("__timing__/") else f"{task_name}/{key}"' in rollout_source
 
 
-def test_patch_preserves_response_termination_metadata(tmp_path: Path) -> None:
+def test_patch_preserves_response_termination_metadata(tmp_path: Path, torch) -> None:
     """Allocator padding must not turn capped generations into natural stops."""
     source = _cached_source()
     if source is None:
@@ -205,7 +209,6 @@ def test_patch_preserves_response_termination_metadata(tmp_path: Path) -> None:
         {"_generation_stopped_on_eod": False, "_generation_capped_without_eod": False},
     ]
     assert "sample_terminated & ~sample_truncated & ~sample_max_turns_reached" in rollout_source
-    assert 'm["terminated"] and not m["truncated"] and not m["max_turns_reached"]' in rollout_source
     assert '"_generation_stopped_on_eod"' in rollout_source
     assert '"_generation_capped_without_eod"' in rollout_source
     assert (
@@ -214,6 +217,37 @@ def test_patch_preserves_response_termination_metadata(tmp_path: Path) -> None:
 
     package_init = (build / "nemo_rl" / "__init__.py").read_text()
     assert "EVO2_RESPONSE_TERMINATION_VERSION = 2" in package_init
+
+
+def test_async_last_turn_termination(tmp_path: Path) -> None:
+    """An EOD on the final permitted turn is still a natural termination."""
+    source = _cached_source()
+    if source is None:
+        pytest.skip("configured NeMo-RL source is not cached")
+    build = nemo_rl_setup._copy_build_source(source, tmp_path / "build")
+    nemo_rl_setup.apply_source_patch(build)
+    path = build / "nemo_rl" / "experience" / "rollouts.py"
+    tree = ast.parse(path.read_text())
+    rollout = next(node for node in tree.body if getattr(node, "name", None) == "run_async_multi_turn_rollout")
+    expression = next(
+        value
+        for node in ast.walk(rollout)
+        if isinstance(node, ast.Dict)
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant) and key.value == "natural_termination_rate"
+    )
+    # The async producer marks the turn limit independently of termination.
+    samples = [
+        {"terminated": True, "truncated": False, "max_turns_reached": True},
+        {"terminated": True, "truncated": False, "max_turns_reached": False},
+        {"terminated": True, "truncated": True, "max_turns_reached": True},
+        {"terminated": False, "truncated": False, "max_turns_reached": True},
+    ]
+    rate = eval(
+        compile(ast.Expression(expression), str(path), "eval"),
+        {"all_sample_metrics": samples, "batch_size": len(samples)},
+    )
+    assert rate == 0.5
 
 
 def test_setup_patches_before_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

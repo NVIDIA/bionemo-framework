@@ -13,9 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
-# SPDX-License-Identifier: LicenseRef-Apache2
-
 """Prepare an SFT Megatron Bridge checkpoint for NeMo-RL.
 
 The preparation preserves model weights, tokenizer assets, configuration, and checkpoint
@@ -233,22 +230,9 @@ def _reuse_existing(source: Path, output: Path, source_facts: Mapping[str, Any])
             "inspect it and choose a different --output-dir or remove it explicitly"
         )
 
-    try:
-        _resolve_iteration(expected_checkpoint)
-        file_count, payload_bytes = _tree_stats(expected_checkpoint)
-        output_matches = (
-            _sha256(expected_checkpoint / "run_config.yaml") == manifest.get("prepared_run_config_sha256")
-            and file_count == manifest.get("payload_file_count")
-            and payload_bytes == manifest.get("payload_bytes")
-        )
-    except (OSError, ValueError):
-        output_matches = False
-    if not output_matches:
-        raise FileExistsError(
-            f"existing prepared SFT checkpoint {output} is incomplete or changed; inspect it and remove it explicitly"
-        )
-    logger.info("Reusing prepared SFT checkpoint for RL at %s", expected_checkpoint)
-    return expected_checkpoint
+    prepared = validate_prepared_sft_checkpoint(output)
+    logger.info("Reusing prepared SFT checkpoint for RL at %s", prepared)
+    return prepared
 
 
 def _install_prepared_output(candidate: Path, output: Path, staging: Path, replace_existing: bool) -> None:

@@ -1,82 +1,45 @@
 ---
 name: bionemo-phage-design-operate-nemo-rl
-description: Use when launching, monitoring, resuming, relaunching, or selecting checkpoints from a NeMo-RL Evo2 phage optimization run.
+description: Use when launching, monitoring, resuming, or selecting checkpoints from a NeMo-RL Evo2 phage optimization run.
 metadata:
   author: NVIDIA <bionemofeedback@nvidia.com>
 ---
 
 # Operate NeMo-RL Phage Training
 
-Work inside the recipe and result roots selected by the controller. Use the selected SFT checkpoint, approved objectives, and calibrated prompt/sampling settings. Before readiness, create or validate `RESULT_ROOT/rl/sft-checkpoint` with `evo2_phage_prepare_sft_checkpoint_for_rl`; pass the preparation manifest's direct model-only `iter_*` path to readiness and NeMo-RL as both policy initialization and the fixed SFT KL anchor. Keep the original full-state SFT checkpoint for SFT resume rather than asking NeMo-RL workers to deserialize its process-local training callbacks.
+Run the selected SFT checkpoint with the agreed objectives and sampling settings. Keep useful experimental notes and act within the user's existing authorization. The [PhiX example README](../../examples/README.md) owns the current launch commands, settings, stage markers, and resume procedure.
 
-The preparation manifest must have `schema_version: 2` and `model_object_state_preserved: true`. If strict loading reports a missing Transformer Engine `_extra_state` object shard and the matching preparation is schema 1, rerun the same top-level command: preparation atomically rebuilds that derived checkpoint while retaining the full-state SFT source and completed calibration. Do not weaken checkpoint strictness or patch NeMo-RL workers around an incomplete payload.
+## Start or resume
 
-Treat materialized training and validation prompt banks as run artifacts: readiness must check the result-root training bank, and the launch must use the matching result-root train/validation paths. When resuming the PhiX174 example, rerunning the same top-level command recreates missing banks and creates or reuses the prepared SFT checkpoint without repeating completed calibration; do not satisfy readiness by copying a run-specific bank into the shared template path. When adapting to a different NeMo-RL release or infrastructure, inspect the installed configuration classes and that release's upstream `examples/configs`; wheels may omit the examples.
+- Prepare the SFT checkpoint with `evo2_phage_prepare_sft_checkpoint_for_rl`. Use its direct model-only `iter_*` path for both policy initialization and the fixed SFT KL reference. Schema 2 preserves model object state, including Transformer Engine `_extra_state`; rerunning preparation upgrades a matching schema-1 copy without repeating SFT or calibration.
+- Use the result-root train and validation banks. Repeating the example command reuses completed stages and prepares missing downstream inputs; `--resume-from` does not make unfinished stages complete.
+- For a compatible continuation, restore the full RL checkpoint and retain its original SFT KL anchor. A deliberate change to rewards, sampling, prompts, or model starts a separate result root. Record model-only recovery as fresh-optimizer continuation, not an exact resume.
+- Legacy synchronous GRPO stops at either `max_num_steps` or `max_num_epochs`. Make the epoch budget large enough for the requested number of updates.
 
-At the pilot and before full launch, reconcile the approved objective artifact, configured objective set, and emitted telemetry. A discrepancy is a diagnosis input, not an automatic stop or user wait. Continue with the strongest scientifically defensible portfolio, treating removal of an agreed term as a last resort and keeping unavailable terms visible in telemetry.
+## Qualify a new execution shape
 
-Record added, omitted, or redefined terms; their evidence and consequences; controls or restoration criteria; and the objective-set version and change point. Summarize key decisions in the next user update and whenever asked, without pausing useful work merely to obtain acknowledgment.
+Use the [compute guidance](../bionemo-phage-design-adapt-execution/references/compute-guidance.md) for CPU/GPU sizing. Test full-genome batches on the deployed topology: two optimizer updates, validation, then another update. Start with `val_at_start=false`; optimizer state and validation allocations make a one-update test insufficient. Test checkpoint save and a fresh-process reload too.
 
-Before the full run, execute a small full-shape preflight with positive and failure controls. Confirm every enabled reward runs, produces finite values in `[0, 1]`, is logged separately, and handles short genomes, missing genes/ORFs, empty tool output, invalid observations, and tool failure without crashing or receiving accidental positive credit. Write a checkpoint and restore its step, dataloader, and weights in a separate process; if optimizer saving is disabled, require the explicit fresh-optimizer diagnostic and record that recovery is not trajectory-identical.
+The native packed adapter should process the whole mixed-length group in one call and return the original row order. With cache offload, look for actual memory release at `finish_generation` and successful reuse on the next rollout. Keep optimizer residency opt-in until a full-shape pilot demonstrates headroom.
 
-Match Ray environment concurrency to the framework call shape. When NeMo-RL submits one already-batched environment call per task, keep the actor at `max_concurrency=1`; a thread per possible row adds no scorer parallelism and can create a host-RSS staircase through glibc arenas. Give a CPU-only QC actor an explicit runtime environment with CUDA hidden and `PHAGEHOSTLEARN_ESM_DEVICE=cpu`, then verify that device process tables contain only the expected policy ranks. Monitor actor RSS and thread count across updates and through the first optimizer checkpoint in addition to GPU memory.
+Check selected-action generation log-probabilities against full teacher-forced replay before mismatch masking, including EOD and capped rows. Periodic error at KV-page boundaries, rejected rows, nonfinite values, or wrong action masks needs diagnosis. An isolated finite token tail with accepted sequence statistics is an observation to investigate, not a new stopping threshold. Detailed interpretation is in [monitoring guidance](references/monitoring-guidance.md).
 
-Retain the first sampled EOD and its log-probability in each row's policy trajectory, mask synthetic padding, and score biological sequence only before EOD. During top-k/top-p policy replay, keep every sampled action in normalized target-preserving support; never zero an `-inf` log-probability or drop its action, and retain generation-versus-replay mismatch telemetry. Size generation `max_model_len` to the longest tokenized prompt plus `max_new_tokens`, rounded to the allocator block boundary, but never use that rounded allocator length to infer termination. Report three mutually exclusive outcomes from retained EOD and the `max_new_tokens` response budget: authentic EOD, capped without EOD, and below-cap without EOD; subdivide only authentic EOD by biological length band. Select paged-KV offset width from each view's reachable strided storage span; keep MCore's original append for spans at or below signed `INT32_MAX` and widen pointer operands before multiplication above it.
+## Reward and trajectory semantics
 
-If an approved experiment makes EOD mandatory for reward, penalize rather than mask: keep no-EOD rows and their actions in the loss, but set the complete scalar reward or GDPO objective vector to exact zero. Preserve raw safety and QC telemetry as diagnostics without letting it reward the invalid genome. Require token-derived stop evidence, not rounded allocator length. Keep this gate default-off, use a fresh result root, and log both all-no-EOD and zero-variance prompt-group counts; a group in which every row misses EOD supplies no termination advantage and can make the gate self-reinforcing. A farther generation cap can separate true cap exhaustion from a nearby biological overshoot, but it does not create a graded length signal where the configured reward is already flat zero.
+Keep sampled EOD and its log-probability in the action loss; mask synthetic padding and post-EOD suffix. Biological scoring uses only the bases before EOD. A faithfully sampled invalid genome is a negative example, not a broken rollout.
 
-Also guard the local GLU output span `train_micro_batch × sequence_length × ceil(ffn_width / TP)` below signed `INT32_MAX`; DP does not reduce that local shape. If native generation uses `offload` or `recompute`, verify the mode reaches MCore's `InferenceConfig`, deallocate after rollout, restore before reuse, and recapture graphs whenever restored cache/state pointers can change. Require direct `finish_generation` evidence that tensor state is deallocated and allocated device memory falls; a config value alone is not release evidence.
-Capacity qualification must start with training rather than validation and complete at least two
-optimizer updates at full shape: optimizer state first materializes during the first update, so a
-one-update pass is not steady-state evidence. Because validation can allocate or capture persistent
-state, also complete a validation followed by another optimizer update before qualifying the
-setting. In the maintained 8×H100 launcher, vary only `RL_TRAIN_MICRO_BATCH_SIZE` for this pilot so
-global rollout and optimizer batch semantics stay fixed. Expandable allocator segments can fix fragmentation but cannot compensate for retained
-cache or optimizer state. Before shrinking a microbatch after OOM, rule out device memory held by
-processes outside the job.
+Report three termination outcomes: authentic EOD, capped without EOD, and below-cap without EOD. Use retained tokens and `max_new_tokens`, not allocator-rounded `max_model_len`. Bin authentic stops by total biological length, including prompt bases.
 
-Do not qualify filtered sampling by silently masking mismatched rows. Compare every active sampled action's generation log-probability with a full teacher-forced policy replay using the exact prompt, completion, checkpoint, sampling transform, and EOD handling. Include both EOD-terminated and length-capped rows. Report per-token and per-sequence error before applying the configured mismatch guard, plus error grouped by absolute token position modulo the paged-KV block size. Any rejected row, non-finite value, or boundary-localized spike is a `diagnose` result even when the aggregate median is small. A lone finite, non-boundary per-token tail that leaves the configured per-sequence statistic accepted is an inspect-and-record advisory, not by itself an automatic hold: do not reuse a sequence-level threshold as a per-token kill switch. Escalate it when it recurs, clusters, changes the aggregate distribution, or crosses a separately calibrated hard per-token guard. Requalify across at least two complete generation→replay/refit cycles at the deployed batch shape, topology, precision, graph scope, page size, and KV-index dispatch; a smaller BF16/TP profile or a forward-only unit approximation does not qualify a different FP8/TP rollout profile.
+The optional `zero_reward_without_eod` experiment is default-off. It zeros the **entire** scalar reward or GDPO vector, including safety channels, for no-EOD rows while retaining their actions in the loss. Raw QC and safety results remain diagnostics. Watch all-no-EOD and zero-variance prompt groups for lost learning signal. A longer cap adds no distance gradient above a flat-zero length reward.
 
-A faithfully sampled malformed biological candidate is a reward outcome, not by itself a rollout-correctness failure. Preserve its sampled tokens, EOD, log-probabilities, and loss mask; verify that the validity and safety-qualified objectives give explicit zero credit; record its invalid characters and support; and continue when replay, masking, and measurement execution remain sound. Diagnose only when malformed text instead exposes tokenizer/serialization corruption, unexplained scorer failure, or a sustained distributional collapse.
+Compare configured objectives with emitted scores and positive/failure controls. Separate valid zero or candidate-level safety failure from unavailable measurements. Diagnose missing scorers; keep sparse but measured objectives visible. Record deliberate objective changes and report them in the next useful update.
 
-Treat a pilot that partitions mixed prompt lengths into sequential decode waves or falls back to
-single-request generation as an operational failure. The packed native adapter must send the full
-mixed-length request group in one call and preserve row order; accept the pilot marker only after
-the configured full-shape group uses packed batched prefill and decode. Leave optimizer retention
-during generation disabled unless a disposable full-shape pilot establishes sufficient HBM capacity
-through a complete train→generation→train cycle.
+## Save and select
 
-For the realized PhiX pilot and resume procedure, read the
-[example README](../../examples/README.md) as the source of truth. Preserve separate durable states
-for the pilot, its objective-health check, and the full RL run; skip a state only after its output
-is known to have completed successfully.
+Use native Megatron-Bridge `torch_dist` checkpoints: `checkpointing.model_save_format: null`, `save_consolidated: false`, Megatron enabled, DTensor disabled. Weights live at `step_N/policy/weights/iter_0000000`. Keep `save_optimizer: true` for compatible continuation; a model-only fallback restores step/dataloader/weights but initializes fresh Adam. Recipe config edits do not require reinstalling NeMo-RL.
 
-Save native Megatron-Bridge `torch_dist` checkpoints: set `checkpointing.model_save_format: null`, keep `checkpointing.save_consolidated: false`, `policy.megatron_cfg.enabled: true`, and `policy.dtensor_cfg.enabled: false`, and omit `_v2`. NeMo-RL writes `step_N/policy/weights/iter_0000000`, which this recipe resumes from and gives directly to Megatron rollout. Keep `save_optimizer: true` by default for an exact compatible continuation, monitor host memory through the first full save, and prove a fresh process restores its embedded Megatron optimizer without a fresh-optimizer warning. Do not attribute an OOM to checkpointing merely because it occurs during the first save: first rule out an actor RSS/thread staircase, especially redundant concurrency on an already-batched environment call. If the fixed-actor deployed topology still cannot serialize full state, set `save_optimizer: false` as an explicit fallback and separately prove the model-only checkpoint restores weights, training step, and dataloader state. That recovery initializes fresh optimizer state and is not an exact continuation. Named formats such as `safetensors` belong to the Automodel/DTensor path, not this worker. Updating this recipe config in an editable checkout does not require `evo2_phage_setup_nemo_rl --force-reinstall`; rerun the failed pilot from the same top-level result root.
+The recipe dataset uses task name `phage_qc` regardless of JSONL location. Primary retention uses `val:phage_qc/mean_reward`; TensorBoard normally emits `validation/phage_qc/...`. A path-derived task name such as `rl-validation` points to the generic dataset being used instead.
 
-Validate the configured checkpoint-selection metric against the actual validation metric names.
-The recipe's phage OpenAI-format dataset assigns both training and validation the stable task name
-`phage_qc` regardless of their result-root JSONL paths. The environment hook returns bare metric
-keys and NeMo-RL adds that task namespace exactly once. For PhiX GDPO, use
-`val:phage_qc/mean_reward` as NeMo-RL's primary top-K retention metric and supervise the run so the
-best aggregate checkpoint and any best positive
-`binary_safety_qualified_full_qc_cluster_deduplicated_rate` checkpoint are hard-linked separately.
-Final selection prefers a strict-positive checkpoint; otherwise select the best interior aggregate
-checkpoint and record that it is not strict-endpoint qualified. Mean reward preserves useful shaping
-progress when the categorical endpoint is flat, but is not itself a biological pass. A logged
-`rl-train/` or `rl-validation/` prefix means the path-naming generic dataset was used; restore the
-recipe dataset rather than encoding the path into either metric. Timing-marker keys remain
-unnamespaced for phase reporting. A missing metric is an integration error to diagnose; do not
-switch to another target environment or biological profile merely to make a key appear.
+Retain latest resumable, aggregate-best, and positive strict-endpoint best checkpoints. The supervisor hardlinks selected checkpoints rather than duplicating their payloads. Final selection prefers a strict-positive checkpoint; otherwise it chooses the best interior aggregate checkpoint and reports that strict qualification was not achieved.
 
-TensorBoard objective monitoring must discover the newest complete validation namespace containing
-both `mean_reward` and `num_sequences`. Current recipe runs normally emit `validation/phage_qc/...`,
-while older path-named runs may emit `validation/rl-validation/...`; do not hard-code the unscoped
-`validation/mean_reward` path or confuse these logging paths with the configured checkpoint metric.
-
-Choose topology and batch settings from measured full-genome behavior. Preserve complete-genome context and the intended effective batch. Use GDPO and 99%-cluster inverse-frequency diversity for the default case study unless evidence supports another approved method.
-
-Follow the concise [monitoring guidance](references/monitoring-guidance.md). Legacy synchronous GRPO stops when either `max_num_steps` or `max_num_epochs` is exhausted; derive updates per epoch from the materialized train rows and `num_prompts_per_step`, then make the epoch limit large enough to reach the requested step ceiling. `max_num_steps` is a safety ceiling, not a target. At every fixed-bank validation event, persist a `continue | diagnose | stop | restart` decision from both validation and training-rollout evidence before extending beyond the next decision boundary. Set cadence to reveal sustained change without applying SFT-style patience to noisy RL; do not stop after a token number of steps or select the latest checkpoint automatically.
-
-Select a checkpoint from sustained validation quality and diversity using the approved component set. Do not compare aggregate scores across different component sets as if they were the same metric. A compatible full-state resume retains its original selected SFT checkpoint as the KL reference. A model-only recovery may restore the same run's recorded step, dataloader, and policy weights, but fresh optimizer state makes it a non-identical continuation that must be recorded. Use prior RL weights as a new baseline only for an explicitly approved stage change. Start a new attempt when objectives, prompts, data, or model semantics materially change.
-
-Record the command, settings, environment, job/checkpoint locations, validation series, interruptions/resumes, selected checkpoint and rationale, and important failure diagnoses in the stage summary and `RUNLOG.md`. Keep the scientific optimizer step as an explicit recovery axis; W&B's internal history cursor can diverge from it or stop while durable training continues.
+Follow [monitoring guidance](references/monitoring-guidance.md) for scientific trends and runtime diagnosis. Record commands, consequential settings, job/checkpoint paths, validation results, and decisions in `RUNLOG.md`; summarize the current finding and next step in `SUMMARY.md`. Use optimizer step for comparisons: W&B's history cursor is a logging counter, and its service can fail while training continues.

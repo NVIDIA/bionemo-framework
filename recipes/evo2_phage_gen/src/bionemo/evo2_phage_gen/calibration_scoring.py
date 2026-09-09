@@ -84,7 +84,7 @@ BIOLOGY_COLUMNS = (
     "protein_database_hit_count",
     "tropism_protein_mmseqs_percent_identity",
     "required_genes_matched_count",
-    "required_genes_total",
+    "required_genes_total_count",
     "num_syntenic_genes",
     "total_num_genes",
     "gene_a_origin_motif_score",

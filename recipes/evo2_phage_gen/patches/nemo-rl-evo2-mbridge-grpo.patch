@@ -1131,7 +1131,7 @@ diff --git a/nemo_rl/experience/rollouts.py b/nemo_rl/experience/rollouts.py
 -            "natural_termination_rate": sum(m["terminated"] for m in all_sample_metrics)
 -            / batch_size,
 +            "natural_termination_rate": sum(
-+                m["terminated"] and not m["truncated"] and not m["max_turns_reached"]
++                m["terminated"] and not m["truncated"]  # EOD on the last allowed turn still counts.
 +                for m in all_sample_metrics
 +            ) / batch_size,
              "truncation_rate": sum(m["truncated"] for m in all_sample_metrics)

@@ -8,7 +8,7 @@
       "assertions": [
         "The response does not move the KL reference merely because a run failed.",
         "A full-state resume requires compatible optimizer, scheduler, RNG, SFT KL reference, prompts, objectives, validation, and training semantics.",
-        "Weights-only recovery is treated as a new attempt anchored to the selected non-RL SFT checkpoint.",
+        "Model-only recovery retains the original SFT anchor and is recorded as fresh-optimizer continuation, not an exact resume.",
         "Prior RL initialization is used only for an intentional stage change with a scientific rationale.",
         "It confirms the old job is terminal before relaunch and retains useful checkpoints and logs."
       ],
@@ -18,12 +18,12 @@
     {
       "id": "bionemo-phage-design-operate-nemo-rl-002-component-exploitation",
       "prompt": "Aggregate RL reward is stable, but one objective rises while its measured support shrinks and most other objective contributions go flat. Continue unattended if the aggregate looks safe.",
-      "expected_output": "Pause and diagnose component activity rather than trusting the aggregate.",
+      "expected_output": "Inspect component activity and distinguish measured tradeoffs from failed measurement before deciding whether to intervene.",
       "assertions": [
         "The response compares each component with its support, denominator, missingness, and hard-QC grounding.",
         "It detects rising reward with shrinking evidence and inactive components as possible exploitation or skipped computation.",
         "It checks whether response length or early termination changes gradient contribution.",
-        "It pauses at a usable checkpoint and inspects representative sequences or outputs before changing semantics.",
+        "It inspects representative outputs and holds at a usable checkpoint only if further updates would be uninterpretable.",
         "Any objective change receives fresh validation rather than being treated as the same run."
       ],
       "expected_skill": "bionemo-phage-design-operate-nemo-rl",
@@ -59,9 +59,9 @@
     {
       "id": "bionemo-phage-design-operate-nemo-rl-005-scorer-bottleneck",
       "prompt": "A full RL smoke works, but one enabled whole-genome scorer dominates wall time. Start the 500-step run with the conservative setting.",
-      "expected_output": "Benchmark and optimize the scorer without silently weakening the objective.",
+      "expected_output": "Launch the requested working setup and identify a bounded scorer benchmark that can improve a later run without changing the objective.",
       "assertions": [
-        "The response measures realistic full-genome throughput, distinguishes cold setup/capture from steady decode across at least two rollout/offload-refit cycles, verifies captured registered model addresses remain stable or trigger TP/PP/CP-wide recapture within the affected DP replica, requires fresh quantized graphs after every refit, and identifies compute, memory, I/O, or contention bottlenecks.",
+        "The response separates generation from scoring time and identifies compute, memory, I/O, or contention bottlenecks without delaying the requested launch for open-ended tuning.",
         "It tests batching, parallelism, caching by scientific input and tool version, or placement only when semantics remain unchanged.",
         "An optimized path must agree with the accepted path on positive, negative, and edge controls.",
         "The scorer is not dropped, replaced, or evaluated on fragments merely to improve speed.",
@@ -159,11 +159,11 @@
     {
       "id": "bionemo-phage-design-operate-nemo-rl-012-autonomous-objective-evolution",
       "prompt": "Three days into an autonomous whole-genome RL run, one agreed objective stops producing usable measurements and the user is offline. Diagnosis may take time. Literature review and the partial trajectory also support adding a new graded shaping objective that could improve progress toward the same endpoint.",
-      "expected_output": "A forward-moving, versioned objective decision that treats removal as a last resort and evidence-backed addition as important work.",
+      "expected_output": "Repair the failed measurement and assess the proposed shaping term within the delegated scientific scope.",
       "assertions": [
         "The response continues autonomously rather than pausing the late-stage run solely to await user approval.",
         "It first diagnoses or repairs the failed agreed objective and treats dropping it as a last resort, while allowing a documented temporary omission when that is the strongest scientifically defensible path.",
-        "It treats adding the literature- or partial-run-supported shaping objective as important, implements calibrated partial credit and controls, and verifies that it advances the same desired endpoint.",
+        "It implements the proposed shaping term only if scientific objective changes were delegated; a locked rerun keeps the agreed objective set.",
         "It versions the active objective set and does not compare aggregate rewards across different component sets as if they were the same metric.",
         "It records the evidence, consequences, controls, restoration criteria, and exact change point without blocking useful work.",
         "The next natural status update gives the user a concise FYI summary of key autonomous decisions since the previous check-in."
@@ -404,8 +404,7 @@
         "The response does not infer a policy microbatch ceiling before removing the unexpected QC-actor CUDA context.",
         "It sets CUDA_VISIBLE_DEVICES and PHAGEHOSTLEARN_CUDA_VISIBLE_DEVICES to empty strings in the actor runtime environment.",
         "It pins PHAGEHOSTLEARN_ESM_DEVICE to cpu without disabling the scorer or its intended internal CPU parallelism.",
-        "It verifies that GPU process tables contain only the expected policy ranks during scoring and through a later update.",
-        "It records scientific optimizer steps independently from any W&B history cursor when assessing recovery progress."
+        "It verifies that GPU process tables contain only the expected policy ranks during scoring and through a later update."
       ],
       "expected_skill": "bionemo-phage-design-operate-nemo-rl",
       "expected_script": null

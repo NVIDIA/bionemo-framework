@@ -126,6 +126,7 @@ def test_summarize_cell_separates_measured_zero_from_missing_support():
             "protein_database_hit_count_measurement_available": [1.0, 1.0],
             "tropism_measurement_available": [1.0, 1.0],
             "required_genes_measurement_available": [1.0, 0.0],
+            "required_genes_total_count": [10, 10],
             "synteny_measurement_available": [1.0, 0.0],
             "smooth_reference_measurement_available": [1.0, 0.0],
             "average_protein_identity_measurement_available": [1.0, 0.0],
@@ -156,6 +157,7 @@ def test_summarize_cell_separates_measured_zero_from_missing_support():
     assert summary["gene_a_origin_support_rate"] == 0.5
     assert summary["reward_gene_a_origin_mean"] == 0.15
     assert summary["required_genes_support_rate"] == 0.5
+    assert summary["required_genes_total_count_mean"] == 10.0
     assert summary["all_external_measurements_available_rate"] == 0.5
     assert summary["reward_safety_amr_mean"] == 1.0
     assert summary["reward_safety_toxin_mean"] == 0.5

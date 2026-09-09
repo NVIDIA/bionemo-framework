@@ -349,6 +349,7 @@ def _write_claude_plugin_manifest(skill_root: Path) -> Path:
 
 def _init_git_repo(root: Path) -> str:
     subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(["git", "-C", str(root), "config", "commit.gpgsign", "false"], check=True)
     subprocess.run(["git", "-C", str(root), "add", "."], check=True)
     subprocess.run(
         [

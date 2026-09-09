@@ -883,10 +883,7 @@ def add_protein_alignment_evidence(hits_df: pd.DataFrame, prefix: str) -> tuple[
     hits_df[query_coverage] = (hits_df[aligned] / hits_df[query]).where(valid, 0.0).clip(0.0, 1.0)
     hits_df[target_coverage] = (hits_df[aligned] / hits_df[target]).where(valid, 0.0).clip(0.0, 1.0)
     hits_df[reciprocal_coverage] = hits_df[[query_coverage, target_coverage]].min(axis=1)
-    hits_df[integrity] = [
-        protein_alignment_integrity(*values)
-        for values in zip(hits_df[identity], hits_df[aligned], hits_df[query], hits_df[target], strict=False)
-    ]
+    hits_df[integrity] = hits_df[reciprocal_coverage]
     return hits_df, True
 
 

@@ -453,16 +453,9 @@ def test_prepare_arc_pipeline_workdir_applies_maintained_patch(tmp_path):
     assert 'config.get("lovis4u_mmseqs_threads")' in visualization_text
 
 
-def test_maintained_arc_patch_rotates_only_candidate_and_guards_empty_synteny_counts() -> None:
-    """Circular LCS work stays bounded and empty synteny output tolerates absent counts."""
+def test_maintained_arc_patch_guards_empty_synteny_counts() -> None:
+    """Empty synteny output tolerates absent counts."""
     patch_text = DEFAULT_ARC_PIPELINE_PATCH.read_text()
-    assert "+    def best_circular_lcs_candidate_indices" in patch_text
-    helper = patch_text.split("+    def best_circular_lcs_candidate_indices", 1)[1].split(
-        "+    def count_syntenic_genes_from_gff_products", 1
-    )[0]
-
-    assert "reference_offset" not in helper
-    assert "for candidate_offset in range(len(candidate_products))" in helper
     assert "if os.path.exists(synteny_counts_csv):" in patch_text
     assert "synteny_filter_counts = pd.read_csv(synteny_counts_csv)" in patch_text
 

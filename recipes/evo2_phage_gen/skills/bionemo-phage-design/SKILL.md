@@ -1,66 +1,45 @@
 ---
 name: bionemo-phage-design
-description: Use when planning or running an Evo 2 bacteriophage genome-design project for phage therapy research, including host-specific candidates for antibiotic-resistant infections and antimicrobial resistance (AMR); coordinates evidence review, genome collection, SFT, GDPO reinforcement learning, checkpoint operations, safety QC, generation, and final screening.
+description: Use when planning or running an Evo 2 bacteriophage genome-design project; coordinates evidence review, genome collection, SFT, RL, checkpoint selection, and final screening.
 metadata:
   author: NVIDIA <bionemofeedback@nvidia.com>
 ---
 
 # Phage Design Controller
 
-Coordinate the stages as a computational phage and AI scientist keeping an electronic lab notebook. Record enough to repeat and interpret the experiment, and keep the structure proportionate to the work.
+Work as a computational phage scientist keeping an electronic lab notebook. Advance the user's experiment, record enough to repeat and interpret it, and keep process proportionate to the work.
 
-The research skill points to the phage-generation paper and supplement, related design evidence, and a local transcription of the draft EMA phage-therapy quality guideline. Use them as needed for specialized methods, results, or guideline questions; the EMA text is a historical draft rather than current regulatory advice.
+## Set up the experiment
 
-## Intake and plan
+Use the supplied checkout and result root, following [workspace guidance](references/workspace-guidance.md). On re-entry, use the existing run notes and job identifiers to resume work. Give concurrent experiments separate result directories and run names.
 
-1. Select `interactive` unless the user requests `batch`. Interactive mode iterates the initial plan; batch derives it from the user's request. After approval, both modes can act autonomously within that scope.
-2. Resolve the recipe, repository, and result roots using the [workspace guidance](references/workspace-guidance.md). On re-entry, inspect existing results and active jobs before starting new work.
-3. Choose case-study-replication or adapted-design, a concrete target, intended use, and outcome. Unless the user states another use, provisionally treat adapted work as therapeutic and make that assumption visible for revision. Reject an endpoint that increases replication within eukaryotic cells; assess non-replicative entry or host-range work on its own evidence. Default to complete whole-genome candidates and obtain explicit approval before narrowing to a locus, module, RBP, or fixed backbone. Record the intended use, lifecycle endpoint, protected traits, viable references, and scope in the project summary and runlog.
-4. Invoke the bionemo-phage-design-adapt-execution skill to inspect the checkout, existing results, available hardware, storage, and current commands before sizing jobs.
-5. Create slug `<target>-<objective>-<mode>` and `<recipe_root>/results/<slug>[-YYYYMMDD]`, adding a date only on request or collision. Initialize the compact [project lab notebook](references/lab-notebook-guidance.md).
-6. With one clear target, default SFT curation to target-similarity bucket/control-prefix conditioning while allowing opt-out. Treat conditioning as a steerable signal, never as an edit mask. Choose context from the tokenized genome-length distribution plus control/prompt/EOD overhead. Set the training budget from the usable corpus and effective batch rather than inheriting a publication step count.
-7. Unless fresh-only, detect compatible SFT runs locally and in configured result roots, then ask whether to reuse or retrain when the choice is material.
-8. After SFT selection and objective/QC approval, invoke the bionemo-phage-design-calibrate-rl-sampling skill to establish prompt compatibility, training mixture, and independent validation.
-9. Record the commands, settings, inputs, checkpoints, results, and important decisions in the project runlog as the work proceeds. Keep local logs authoritative. Invoke the publication skill only when publication is requested.
+For a new project, agree on the target, intended use, whole-genome or narrower scope, protected traits, and desired outcome. Use interactive planning unless the user requests batch execution. Once the scope is approved, proceed within that authorization; ask only when a material scientific choice or new authority is missing.
 
-For a new phage-design project using the 7B family, default to the trained-further long-context NGC checkpoint `evo2/7b-1m:1.0` and model size `evo2_7b`, even when the selected sequence length is shorter than 1M. Do not replace an existing run's `evo2_7b_base` checkpoint family mid-run; that is a new model attempt requiring a new result root and fresh SFT-anchored downstream stages.
+Default to complete-genome designs. Narrowing to a locus, module, RBP, or fixed backbone is a user choice. For adapted work, make any provisional therapeutic-use assumption visible. Reject an endpoint that increases replication within eukaryotic cells; assess non-replicative entry or host-range work on its own evidence.
 
-Plan by dependencies rather than forcing every stage into a serial checklist. Evidence research, genome collection, execution discovery, and objective planning may overlap once their inputs are clear. Prepare, train, and select SFT before calibration; start RL only after the selected SFT, implemented objectives, calibration, result-root prompt banks, and model-only SFT checkpoint prepared for RL are ready; final generation waits for the selected RL checkpoint. Run independent ready work in parallel only when compute and write scopes fit, while durable monitoring continues without blocking other work.
+Keep a compact [lab notebook](references/lab-notebook-guidance.md): `SUMMARY.md` for the current finding and next step, `RUNLOG.md` for commands, consequential settings, job/checkpoint locations, results, and decisions. Record software/data versions once when they matter; revisit them when the inputs or execution change.
 
-When operating or adapting the realized PhiX experiment, read the
-[example README](../../examples/README.md) as the source of truth for its current commands,
-selection handoff, and restart markers. Use its workflow when compatible, but do not assume the
-same shell launch or topology fits a different GPU or scheduler environment; adapt execution from
-measured hardware while preserving scientific semantics and durable stage boundaries. If the
-example stops for sampling review, inspect the completed evidence and follow the calibration
-skill's handoff rather than selecting the bundled default on the agent's own initiative.
-Treat the top-level PhiX script as a reference implementation of the realized DAG. For a rerun, an
-agent may run it directly, adapt or wrap it for custom settings and deliberate decision points, or
-compose the stage subskills through another scheduler. Use the example README and dependency DAG
-to understand current handoffs and stage relationships; let the task and execution environment
-determine the orchestration.
-Do not replace the canonical sampling selection inside an old or active RL result root; a material
-change starts a new SFT-anchored attempt. In the final rollout, preserve separate raw,
-biological-representative, hard-QC, and post-QC-cluster denominators.
+## Use the stage skills as needed
 
-Record the safety database and model releases used. If one changes during a run, mark the boundary and rerun the affected controls before interpreting comparisons. New runs may use newer releases; missing required evidence remains INDETERMINATE.
+- Research evidence and collect genomes for the target. The research skill links the phage-generation paper, supplement, and historical EMA draft; use those references for relevant scientific questions, not as a prerequisite to every operation.
+- Adapt execution to available hardware, storage, and scheduler. Reuse known working commands and existing results.
+- Prepare and train SFT. For new 7B projects, prefer `evo2/7b-1m:1.0` with model size `evo2_7b`. Preserve an existing run's recorded model family. Choose context from tokenized genome lengths plus prompt/control/EOD overhead, and training budget from usable data and effective batch.
+- Plan and implement objectives, then calibrate sampling or carry forward the user's reviewed selection. Target-similarity bucket/control-prefix conditioning is a useful default for a clear target, not a required edit mask.
+- Operate RL from the selected prepared SFT checkpoint and result-root prompt banks. Generate and screen final candidates from the selected RL checkpoint.
+- Publish artifacts when requested.
 
-Check available storage before large jobs. Preserve active work and the checkpoints needed to resume and interpret the experiment; ask before deleting prior results.
+Independent ready stages may overlap when compute permits. SFT selection precedes calibration and RL; final generation follows RL checkpoint selection. If reusing versus retraining SFT changes the experiment materially and the request does not settle it, ask.
 
-## Design logic
+For a realized PhiX rerun, the [example README](../../examples/README.md) is the command and settings reference. Run the script directly, adapt it, or compose stage skills through the available scheduler. Reuse its completed-stage markers; start a separate SFT-anchored result root for material changes to model, prompts, rewards, or sampling. Execution-only adaptations need not redefine the experiment.
 
-Specify the scientific endpoint, whole-genome design scope, protected traits, and acceptance evidence. Let stage operators adapt methods from measured evidence.
+## Keep the scientific endpoint visible
 
-Translating the user's desired final phage product into a complementary collection of RL scores is a core agentic capability. Tested reward implementations are starting points, not a closed catalog. Prefer modifying tested rewards when their measurements and failure semantics transfer; beyond a faithful experiment rerun, novel reward functions are expected for important requirements the current portfolio does not express. Ground new functions in literature, biological reasoning, viable references, domain tools, and prior or partial-run evidence, then give them calibrated partial credit, controls, telemetry, and an explicit relationship to the desired endpoint and final QC.
+Use viable references, biological reasoning, and controls to align shaped rewards with final QC. Tested rewards are starting points; adapted goals may need new measurements. Cover complete-genome viability, productive infection, intended-use safety, host direction, and diversity. Host-range predictions are one signal, not proof of productive infection.
 
-Treat replication as a case study, not a reason to preserve leaked splits or copy settings blindly. For a new phage or goal, revisit the full reward and filter set. Cover complete-genome viability, the productive-infection lifecycle, [intended-use safety](references/ema-2025-draft-phage-therapy-quality-guideline.md), similarity to viable relatives, host direction, and diversity. A host-range model remains one signal. Align online rewards, final hard filters, and experimental validation; do not reuse target-specific thresholds without evidence.
+For therapeutic work, use the applicable [design and viability guidance](references/design-scope-and-viability.md). The linked EMA document is a historical draft, not current regulatory advice. Missing required safety evidence remains INDETERMINATE. Record changed safety assets and rerun affected controls before interpreting the comparison.
 
-For therapeutic work, retain each applicable [EMA-derived design guardrail](references/design-scope-and-viability.md#apply-intended-use-therapeutic-guardrails) as a separate measurable component or experimental endpoint. For the PhiX174 case study, keep filters 1–6, 8, and 9 enabled and filter 7 disabled. Keep changed component sets separately interpretable, and diagnose sparse components instead of silently dropping them.
+For the PhiX case study, keep filters 1–6, 8, and 9 enabled and filter 7 diagnostic-only. Default to GDPO and 99%-cluster inverse-frequency diversity unless the experiment selects another method. Each objective should have an interpretable zero, target one, graded partial credit, and explicit missing/invalid behavior.
 
-Use `GDPO` and `1/cluster_size` diversity at 99% by default unless a justified alternative is selected. Keep every reward in [0,1], with documented baseline/chance zero, target one, monotonic partial credit, and zero credit plus a recorded reason for missing or invalid data.
+Read component quality, support, termination placement, and diversity alongside aggregate reward. Sparse measured scores are not automatically broken, and positive support is not saturation. Keep raw generation, biological representatives, hard-QC passes, and post-QC clusters as separate denominators.
 
-## Handoff discipline
-
-- Keep `SUMMARY.md` concise and current; append useful operational detail to `RUNLOG.md`.
-- Keep stage outputs together with a short explanation of what they contain.
-- Pause when evidence cannot resolve a biologically material choice or execution needs new authority.
+Check storage before large jobs and preserve active work plus the checkpoints needed to resume and compare results. Cleanup should target known disposable outputs; publication and deletion follow the user's requested scope.
