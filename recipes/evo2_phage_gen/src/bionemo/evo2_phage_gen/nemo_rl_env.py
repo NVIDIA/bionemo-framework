@@ -301,13 +301,36 @@ def _is_positive_integer(value: object) -> bool:
     return _is_exact_finite_real(value) and float(value).is_integer() and value > 0
 
 
-def _qualified_scalar_rewards(scored: pd.DataFrame) -> pd.Series:
-    """Return finite [0, 1] scalar rewards backed by exact aggregate safety eligibility."""
+def _eod_reward_eligibility(scored: pd.DataFrame, *, required: bool) -> pd.Series:
+    """Return token-derived EOD eligibility, failing closed when the optional gate is active."""
+    if not required:
+        return pd.Series(True, index=scored.index, dtype=bool)
+    required_columns = {"generation_stopped_on_eod", "generation_capped_without_eod"}
+    if not required_columns.issubset(scored.columns):
+        raise ValueError("zero_reward_without_eod requires token-derived EOD and generation-cap evidence.")
+    stopped = scored["generation_stopped_on_eod"]
+    capped = scored["generation_capped_without_eod"]
+    if not stopped.map(pd.api.types.is_bool).all() or not capped.map(pd.api.types.is_bool).all():
+        raise ValueError("zero_reward_without_eod requires boolean token-derived EOD and generation-cap evidence.")
+    stopped = stopped.astype(bool)
+    capped = capped.astype(bool)
+    if bool((stopped & capped).any()):
+        raise ValueError("A generation cannot both stop on EOD and exhaust its token cap.")
+    return stopped
+
+
+def _qualified_scalar_rewards(
+    scored: pd.DataFrame,
+    *,
+    zero_reward_without_eod: bool = False,
+) -> pd.Series:
+    """Return finite [0, 1] scalar rewards backed by exact safety and optional EOD eligibility."""
     raw_rewards = scored.get("reward", pd.Series(0.0, index=scored.index))
     bounded_rewards = raw_rewards.map(
         lambda value: float(value) if _is_exact_finite_real(value) and 0.0 <= value <= 1.0 else 0.0
     )
-    return bounded_rewards.where(_exact_safety_eligibility(scored), 0.0)
+    rewards = bounded_rewards.where(_exact_safety_eligibility(scored), 0.0)
+    return rewards.where(_eod_reward_eligibility(scored, required=zero_reward_without_eod), 0.0)
 
 
 def _exact_safety_class_support(scored: pd.DataFrame, reward_column: str) -> pd.Series:
@@ -346,6 +369,8 @@ def _exact_safety_class_support(scored: pd.DataFrame, reward_column: str) -> pd.
 def gdpo_objective_scores_from_scored(
     scored: pd.DataFrame,
     objectives: tuple[GDPOObjective, ...],
+    *,
+    zero_reward_without_eod: bool = False,
 ) -> pd.DataFrame:
     """Build a positional GDPO reward matrix from scored reward columns."""
     if scored.empty:
@@ -357,6 +382,7 @@ def gdpo_objective_scores_from_scored(
         )
 
     objective_scores = pd.DataFrame(index=scored.index)
+    eod_eligibility = _eod_reward_eligibility(scored, required=zero_reward_without_eod)
     for objective in objectives:
         missing_columns = [column for column in objective.columns if column not in scored]
         if missing_columns:
@@ -388,6 +414,7 @@ def gdpo_objective_scores_from_scored(
                 _exact_safety_eligibility(scored),
                 0.0,
             )
+            objective_scores[objective.name] = objective_scores[objective.name].where(eod_eligibility, 0.0)
     return objective_scores
 
 
@@ -480,6 +507,9 @@ def _attach_generation_stop_columns(scored: pd.DataFrame, metadata: list[dict[st
         raise ValueError("A generation cannot both stop on EOD and exhaust its token cap.")
     scored["generation_stopped_on_eod"] = stopped_on_eod
     scored["generation_capped_without_eod"] = capped_without_eod
+    prompt_indices = [item.get("prompt_index") for item in metadata]
+    if all(isinstance(value, Integral) and not isinstance(value, bool) and value >= 0 for value in prompt_indices):
+        scored["generation_prompt_index"] = [int(value) for value in prompt_indices]
 
 
 def _mean_numeric(scored: pd.DataFrame, column: str) -> float | None:
@@ -488,6 +518,20 @@ def _mean_numeric(scored: pd.DataFrame, column: str) -> float | None:
     if not values.notna().any():
         return None
     return float(values.mean())
+
+
+def _reward_prompt_group_keys(scored: pd.DataFrame) -> pd.Series | None:
+    """Identify one sampled rollout group without merging duplicate prompt records or DP-local indices."""
+    if {"generation_prompt_index", "prompt_group"}.issubset(scored.columns):
+        return pd.Series(
+            list(zip(scored["generation_prompt_index"], scored["prompt_group"], strict=True)),
+            index=scored.index,
+        )
+    if "generation_prompt_index" in scored:
+        return scored["generation_prompt_index"]
+    if "prompt_group" in scored:
+        return scored["prompt_group"]
+    return None
 
 
 def _add_binary_pass_metrics(
@@ -569,6 +613,16 @@ def _add_generation_termination_metrics(
         metrics[f"termination/{name}_count"] = int(mask.sum())
         metrics[f"termination/{name}_rate"] = float(mask.mean()) if batch_size else 0.0
 
+    group_keys = _reward_prompt_group_keys(scored)
+    if group_keys is not None:
+        group_has_eod = stopped_on_eod.groupby(group_keys, sort=False).any()
+        no_eod_group_count = int((~group_has_eod).sum())
+        group_count = len(group_has_eod)
+        metrics["termination/no_authentic_eod_prompt_group_count"] = no_eod_group_count
+        metrics["termination/no_authentic_eod_prompt_group_rate"] = (
+            no_eod_group_count / group_count if group_count else 0.0
+        )
+
     bounds = (
         None
         if config is None
@@ -605,6 +659,7 @@ def phage_qc_metrics_from_scored(
     weights: RewardWeights,
     *,
     config: NucleotideQCConfig | None = None,
+    zero_reward_without_eod: bool = False,
 ) -> dict[str, float | int]:
     """Summarize per-sequence phage QC scores into scalar logger metrics."""
     if scored.empty:
@@ -632,6 +687,10 @@ def phage_qc_metrics_from_scored(
             metrics["reward_historical_mean"] = historical_mean
     if "reward" in scored:
         metrics["reward_safety_qualified_mean"] = float(_qualified_scalar_rewards(scored).mean())
+        if zero_reward_without_eod:
+            metrics["reward_eod_qualified_mean"] = float(
+                _qualified_scalar_rewards(scored, zero_reward_without_eod=True).mean()
+            )
     for column in sorted(str(column) for column in scored.columns if str(column).startswith(TIMING_COLUMN_PREFIX)):
         mean_value = _mean_numeric(scored, column)
         if mean_value is not None:
@@ -814,7 +873,7 @@ def _scored_records(scored: pd.DataFrame) -> list[dict[str, Any]]:
                 type(value) is str
                 and _is_bounded_utf8(value)
                 and (
-                    key == "mmseqs_cluster_id"
+                    key in {"mmseqs_cluster_id", "prompt_group"}
                     or key.startswith("safety_")
                     or key.endswith(("_pass", "_available", "_artifact"))
                 )
@@ -945,6 +1004,10 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
             if reward_output_mode not in {"scalar", "gdpo"}:
                 raise ValueError("reward_output_mode must be 'scalar', 'grpo', or 'gdpo'.")
             self.reward_output_mode = reward_output_mode
+            zero_reward_without_eod = cfg.get("zero_reward_without_eod", False)
+            if type(zero_reward_without_eod) is not bool:
+                raise TypeError("zero_reward_without_eod must be a boolean.")
+            self.zero_reward_without_eod = zero_reward_without_eod
             self.gdpo_objectives = _coerce_gdpo_objectives(cfg.get("gdpo_objectives"))
             if self.reward_output_mode == "gdpo":
                 _validate_gdpo_safety_objectives(self.gdpo_objectives)
@@ -1043,11 +1106,21 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 sequence_safety=self.sequence_safety,
             )
             _attach_generation_stop_columns(scored, metadata)
+            zero_reward_without_eod = getattr(self, "zero_reward_without_eod", False)
+            if zero_reward_without_eod:
+                scored["eod_reward_gate_pass"] = _eod_reward_eligibility(scored, required=True)
             reward_scoring_s = time.perf_counter() - phase_start
-            qualified_scalar_rewards = _qualified_scalar_rewards(scored)
+            qualified_scalar_rewards = _qualified_scalar_rewards(
+                scored,
+                zero_reward_without_eod=zero_reward_without_eod,
+            )
             if self.reward_output_mode == "gdpo":
                 phase_start = time.perf_counter()
-                objective_scores = gdpo_objective_scores_from_scored(scored, self.gdpo_objectives)
+                objective_scores = gdpo_objective_scores_from_scored(
+                    scored,
+                    self.gdpo_objectives,
+                    zero_reward_without_eod=zero_reward_without_eod,
+                )
                 gdpo_objectives_s = time.perf_counter() - phase_start
                 rewards = torch.tensor(objective_scores.to_numpy(dtype=float), dtype=torch.float32).cpu()
             else:
@@ -1092,6 +1165,7 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
             rewards = reward_tensor if reward_tensor.ndim == 1 else reward_tensor.float().mean(dim=1)
             batch_scored = _scored_from_batch_metadata(batch)
             reward_output_mode = getattr(self, "reward_output_mode", "scalar")
+            zero_reward_without_eod = getattr(self, "zero_reward_without_eod", False)
             gdpo_objectives = self.gdpo_objectives if reward_output_mode == "gdpo" else ()
             if not _batch_metadata_is_complete(batch_scored, int(rewards.shape[0]), gdpo_objectives):
                 batch_scored = pd.DataFrame()
@@ -1099,6 +1173,7 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 batch_scored,
                 self.weights,
                 config=getattr(self, "config", None),
+                zero_reward_without_eod=zero_reward_without_eod,
             )
             binary_pass_rate = float(phage_metrics.get("binary_safety_qualified_core_pass_rate", 0.0))
             cluster_deduplicated_pass_rate = float(
@@ -1114,8 +1189,29 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 "dense_reward_ge_1_rate": (rewards >= 1.0).float().mean().item() if has_rewards else 0.0,
                 "num_sequences": int(rewards.shape[0]),
             }
+            group_keys = _reward_prompt_group_keys(batch_scored)
+            if not batch_scored.empty and group_keys is not None:
+                reward_values = reward_tensor.detach().float().cpu()
+                if reward_values.ndim == 1:
+                    reward_values = reward_values.unsqueeze(1)
+                grouped_rewards = pd.DataFrame(reward_values.numpy(), index=batch_scored.index).groupby(
+                    group_keys, sort=False
+                )
+                group_count = int(grouped_rewards.ngroups)
+                zero_variance_count = sum(
+                    bool(((group.max(axis=0) - group.min(axis=0)) == 0.0).all()) for _name, group in grouped_rewards
+                )
+                metrics["reward_prompt_group_count"] = group_count
+                metrics["reward_zero_variance_prompt_group_count"] = zero_variance_count
+                metrics["reward_zero_variance_prompt_group_rate"] = (
+                    zero_variance_count / group_count if group_count else 0.0
+                )
             if reward_output_mode == "gdpo":
-                objective_scores = gdpo_objective_scores_from_scored(batch_scored, gdpo_objectives)
+                objective_scores = gdpo_objective_scores_from_scored(
+                    batch_scored,
+                    gdpo_objectives,
+                    zero_reward_without_eod=zero_reward_without_eod,
+                )
                 metrics["gdpo/num_objectives"] = int(objective_scores.shape[1])
                 if not objective_scores.empty:
                     for objective_name in objective_scores.columns:

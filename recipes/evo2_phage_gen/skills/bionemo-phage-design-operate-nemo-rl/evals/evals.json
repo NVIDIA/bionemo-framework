@@ -409,6 +409,21 @@
       ],
       "expected_skill": "bionemo-phage-design-operate-nemo-rl",
       "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-operate-nemo-rl-031-no-eod-reward-gate",
+      "prompt": "Test an optional 6,000-token PhiX RL policy that gives zero reward when a rollout never emits EOD. An earlier overlong filter masked capped rows from the loss and termination collapsed. Define the new gate and its leading failure telemetry for scalar GRPO and positional GDPO.",
+      "expected_output": "Penalize no-EOD rows without masking them, preserve truthful safety evidence, and monitor prompt groups that lose reward variance.",
+      "assertions": [
+        "Keep no-EOD rows and sampled actions in the RL loss rather than reusing overlong loss filtering.",
+        "Set scalar GRPO reward and non-safety GDPO objectives to exact zero while preserving safety and raw QC evidence.",
+        "Use retained token-ID EOD evidence and keep all three termination outcomes separate.",
+        "Keep the gate default-off and use a fresh result root for changed reward and generation settings.",
+        "Log all-no-EOD and zero-variance prompt-group counts as loss-of-signal indicators.",
+        "Do not claim a farther cap creates graded distance signal above a flat-zero length region."
+      ],
+      "expected_skill": "bionemo-phage-design-operate-nemo-rl",
+      "expected_script": null
     }
   ]
 }

@@ -105,6 +105,7 @@ def _new_step_environment(
     env.sequence_safety = object()
     env.reward_output_mode = reward_output_mode
     env.gdpo_objectives = gdpo_objectives
+    env.zero_reward_without_eod = False
     return env_cls, env
 
 
@@ -273,6 +274,20 @@ def test_environment_maps_genome_length_reward_bounds(tmp_path: Path):
     ) == (3000.0, 5359.0, 5391.0, 5426.0)
 
 
+def test_environment_parses_no_eod_reward_gate(tmp_path: Path):
+    """The experimental reward gate is boolean, explicit, and default-off."""
+    if getattr(nemo_rl_env, "_NEMO_RL_IMPORT_ERROR", None) is not None:
+        pytest.skip("NeMo-RL is unavailable")
+
+    env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
+    base = {"sequence_safety": _sequence_safety_mapping(tmp_path)}
+
+    assert env_cls(base).zero_reward_without_eod is False
+    assert env_cls({**base, "zero_reward_without_eod": True}).zero_reward_without_eod is True
+    with pytest.raises(TypeError, match=r"zero_reward_without_eod.*boolean"):
+        env_cls({**base, "zero_reward_without_eod": "true"})
+
+
 def test_gdpo_objective_scores_reduce_named_columns_positionally():
     """GDPO helper should build a stable [B, K] objective table without adding aggregate reward."""
     scored = pd.DataFrame(
@@ -293,6 +308,39 @@ def test_gdpo_objective_scores_reduce_named_columns_positionally():
 
     assert list(objective_scores.columns) == ["feasibility", "function"]
     assert objective_scores.to_numpy().tolist() == [[1.0, 0.25], [0.25, 0.75]]
+
+
+def test_no_eod_gate_zeros_scalar_and_biological_objectives() -> None:
+    """The optional gate penalizes every nonterminating row without falsifying safety."""
+    scored = pd.DataFrame(
+        {
+            "generation_stopped_on_eod": [True, False, False],
+            "generation_capped_without_eod": [False, True, False],
+            "reward": [0.7, 0.8, 0.9],
+            "reward_biological_a": [0.4, 0.5, 0.6],
+            "reward_biological_b": [0.2, 0.3, 0.4],
+            "reward_safety_amr": [1.0, 1.0, 1.0],
+            "safety_amr_state": ["PASS", "PASS", "PASS"],
+            "safety_amr_required": [1.0, 1.0, 1.0],
+            "safety_gate_state": ["PASS", "PASS", "PASS"],
+            "safety_gate_pass": [1.0, 1.0, 1.0],
+        }
+    )
+    objectives = (
+        GDPOObjective("a", ("reward_biological_a",)),
+        GDPOObjective("b", ("reward_biological_b",)),
+        GDPOObjective("safety_amr", ("reward_safety_amr",), requires_safety_eligibility=False),
+    )
+
+    scalar = nemo_rl_env._qualified_scalar_rewards(scored, zero_reward_without_eod=True)
+    matrix = gdpo_objective_scores_from_scored(scored, objectives, zero_reward_without_eod=True)
+
+    assert scalar.tolist() == pytest.approx([0.7, 0.0, 0.0])
+    assert matrix.to_dict("list") == {
+        "a": pytest.approx([0.4, 0.0, 0.0]),
+        "b": pytest.approx([0.2, 0.0, 0.0]),
+        "safety_amr": pytest.approx([1.0, 1.0, 1.0]),
+    }
 
 
 def test_default_gdpo_objectives_expose_three_independent_safety_signals():
@@ -620,6 +668,7 @@ def test_phage_qc_metrics_bin_authentic_eod_lengths() -> None:
     scored = pd.DataFrame(
         {
             "genome_length": [2999, 3000, 5358, 5359, 5391, 5392, 5425, 5426, 5444],
+            "prompt_group": ["AAAA"] * 8 + ["CCCC"],
             "generation_stopped_on_eod": [True, True, True, True, True, True, True, True, False],
             "generation_capped_without_eod": [False, False, False, False, False, False, False, False, True],
             "reward_valid_nt_chars": [1.0] * 9,
@@ -641,6 +690,8 @@ def test_phage_qc_metrics_bin_authentic_eod_lengths() -> None:
     assert metrics["termination/capped_without_eod_count"] == 1
     assert metrics["termination/non_eod_below_cap_count"] == 0
     assert metrics["termination/authentic_eod_rate"] == pytest.approx(8 / 9)
+    assert metrics["termination/no_authentic_eod_prompt_group_count"] == 1
+    assert metrics["termination/no_authentic_eod_prompt_group_rate"] == 0.5
     expected_bins = {
         "below_lower_zero": 1,
         "lower_taper": 2,
@@ -887,6 +938,66 @@ def test_step_preserves_compact_generation_stop_evidence(monkeypatch) -> None:
     )
     assert metrics["termination/authentic_eod_count"] == 1
     assert metrics["termination/authentic_eod_length/full_credit_count"] == 1
+
+
+def test_scalar_no_eod_gate_penalizes_without_masking(monkeypatch) -> None:
+    """No-EOD rows stay in scalar GRPO with exact-zero reward and intact diagnostics."""
+    env_cls, env = _new_step_environment(reward_output_mode="scalar", gdpo_objectives=())
+    env.zero_reward_without_eod = True
+
+    def fake_score_message_logs(*_args, **_kwargs):
+        return pd.DataFrame(
+            {
+                "sequence": ["ACGT", "ACGT", "ACGT"],
+                "prompt_group": ["AAAA", "AAAA", "AAAA"],
+                "reward": [0.75, 0.80, 0.85],
+                "reward_external_protein_hit_count": [0.4, 0.6, 0.8],
+                "safety_gate_state": ["PASS", "PASS", "PASS"],
+                "safety_gate_pass": [1.0, 1.0, 1.0],
+            }
+        )
+
+    monkeypatch.setattr(nemo_rl_env, "score_message_logs", fake_score_message_logs)
+    metadata = [
+        {"prompt_index": 0, "_generation_stopped_on_eod": True, "_generation_capped_without_eod": False},
+        {"prompt_index": 0, "_generation_stopped_on_eod": False, "_generation_capped_without_eod": True},
+        {"prompt_index": 1, "_generation_stopped_on_eod": False, "_generation_capped_without_eod": False},
+    ]
+
+    result = env_cls.step(env, [[{"role": "assistant", "content": "ACGT"}]] * 3, metadata)
+
+    assert result.rewards.tolist() == pytest.approx([0.75, 0.0, 0.0])
+    assert result.observations == [
+        {"role": "environment", "content": "phage_qc_reward=0.750000"},
+        {"role": "environment", "content": "phage_qc_reward=0.000000"},
+        {"role": "environment", "content": "phage_qc_reward=0.000000"},
+    ]
+    assert [row["_phage_qc_scored"]["reward"] for row in result.metadata] == [0.75, 0.8, 0.85]
+    assert [row["_phage_qc_scored"]["eod_reward_gate_pass"] for row in result.metadata] == [True, False, False]
+    assert [row["_phage_qc_scored"]["generation_prompt_index"] for row in result.metadata] == [0, 0, 1]
+    assert result.terminateds.tolist() == [True, True, True]
+
+
+def test_no_eod_gate_requires_token_evidence(monkeypatch) -> None:
+    """An enabled gate must fail closed when token-derived stop evidence is absent."""
+    env_cls, env = _new_step_environment(reward_output_mode="scalar", gdpo_objectives=())
+    env.zero_reward_without_eod = True
+
+    monkeypatch.setattr(
+        nemo_rl_env,
+        "score_message_logs",
+        lambda *_args, **_kwargs: pd.DataFrame(
+            {
+                "sequence": ["ACGT"],
+                "reward": [0.75],
+                "safety_gate_state": ["PASS"],
+                "safety_gate_pass": [1.0],
+            }
+        ),
+    )
+
+    with pytest.raises(ValueError, match="token-derived EOD"):
+        env_cls.step(env, [[{"role": "assistant", "content": "ACGT"}]], [{}])
 
 
 @pytest.mark.parametrize(
@@ -1207,6 +1318,50 @@ def test_global_post_process_metrics_leave_task_namespace_to_nemo_rl():
     assert metrics["gdpo/protein_hit_count_nonzero_rate"] == 1.0
     assert metrics[f"{TIMING_METRIC_MARKER_PREFIX}phage_qc/reward/total_s"] == 3.0
     assert "phage_qc/__timing__/phage_qc/reward/total_s" not in metrics
+
+
+def test_global_metrics_report_zero_variance_and_no_eod_groups() -> None:
+    """Prompt groups without EOD are visible before the reward gate loses learning signal."""
+    if getattr(nemo_rl_env, "_NEMO_RL_IMPORT_ERROR", None) is not None:
+        pytest.skip("NeMo-RL is unavailable")
+
+    env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
+    env = object.__new__(env_cls)
+    env.weights = RewardWeights(valid_nt_chars=1.0)
+    env.reward_output_mode = "scalar"
+    env.gdpo_objectives = ()
+    env.zero_reward_without_eod = True
+    rows = [
+        {
+            "generation_prompt_index": prompt_group,
+            "prompt_group": "AAAA",
+            "generation_stopped_on_eod": stopped,
+            "generation_capped_without_eod": not stopped,
+            "reward_valid_nt_chars": 1.0,
+            "safety_gate_state": "PASS",
+            "safety_gate_pass": 1.0,
+            "reward": raw_reward,
+            "eod_reward_gate_pass": stopped,
+        }
+        for prompt_group, stopped, raw_reward in (
+            (0, False, 0.8),
+            (0, False, 0.7),
+            (1, True, 0.5),
+            (1, True, 0.5),
+        )
+    ]
+    batch = {
+        "total_reward": torch.tensor([0.0, 0.0, 0.5, 0.5]),
+        "extra_env_info": [{"_phage_qc_scored": row} for row in rows],
+    }
+
+    _returned_batch, metrics = env_cls.global_post_process_and_metrics(env, batch)
+
+    assert metrics["reward_prompt_group_count"] == 2
+    assert metrics["reward_zero_variance_prompt_group_count"] == 2
+    assert metrics["reward_zero_variance_prompt_group_rate"] == 1.0
+    assert metrics["termination/no_authentic_eod_prompt_group_count"] == 1
+    assert metrics["termination/no_authentic_eod_prompt_group_rate"] == 0.5
 
 
 def test_global_post_process_metrics_handles_empty_gdpo_batch_without_actor_cache():

@@ -176,6 +176,19 @@ exclusive outcomes. The `phage_qc/termination/*` scalars retain counts and rates
 and place authentic-EOD genomes into below-lower-zero, lower-taper, full-credit, upper-taper, and
 at-or-above-upper-zero bins, so fixed-bank placement direction remains recoverable without raw rows.
 
+`env.phage_qc.zero_reward_without_eod=true` is an experimental, default-off termination gate. It
+keeps every row and sampled action in the RL loss, but assigns an exact-zero scalar reward—or zeros
+every non-safety GDPO objective—unless token metadata records an authentic EOD; the three safety
+objectives and raw QC measurements remain truthful. This is the inverse of overlong loss filtering:
+caps remain negative examples instead of disappearing from the advantage calculation. When testing
+the gate with `max_new_tokens=6000`, use `max_model_len=6144`; 16/24-nt prompts then put no-EOD caps
+at 6,016/6,024 nt. The length reward is already flat zero above 5,426 nt, so this wider cap does not
+add a distance gradient there; it separates generation-limit exhaustion from the default cap's
+10–18-nt overshoot. Monitor `termination/no_authentic_eod_prompt_group_count` and
+`reward_zero_variance_prompt_group_count`: an all-no-EOD group has no termination advantage and can
+make the gate self-reinforcing. Use a fresh result root for this material reward and sampling-budget
+change.
+
 The policy defaults to global batch 768, candidate training microbatch 8, validation 96, and
 `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. The standard pilot disables initial validation,
 trains for two updates, validates, and then completes a third update. Adam state first materializes

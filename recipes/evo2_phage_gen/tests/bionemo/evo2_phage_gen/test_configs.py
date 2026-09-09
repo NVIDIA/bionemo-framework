@@ -109,6 +109,7 @@ def test_grpo_config_uses_prompt_batch_size_for_evo2_generation():
     assert generation_config["max_new_tokens"] + 24 - length_config["genome_length_reward_upper_zero"] == 18
     assert config["policy"]["max_total_sequence_length"] >= generation_config["max_new_tokens"] + 16
     assert config["env"]["phage_qc"]["weight_nucleotide_pass"] == 0.0
+    assert config["env"]["phage_qc"]["zero_reward_without_eod"] is False
     assert config["env"]["phage_qc"]["dustmask_filter"] is True
     assert config["env"]["phage_qc"]["dustmasker_bin"] == "dustmasker"
     assert config["env"]["phage_qc"]["dustmask_use_external"] is True
@@ -169,6 +170,7 @@ def test_gdpo_config_uses_positional_objectives_and_mmseqs_diversity():
     updates_per_epoch = 96 // config["grpo"]["num_prompts_per_step"]
     assert config["grpo"]["max_num_epochs"] * updates_per_epoch >= config["grpo"]["max_num_steps"]
     assert env_config["reward_output_mode"] == "gdpo"
+    assert env_config["zero_reward_without_eod"] is False
     assert config["loss_fn"]["reference_policy_kl_penalty"] == 0.001
     assert config["loss_fn"]["token_level_loss"] is False
     assert config["grpo"]["seq_logprob_error_threshold"] == 1.5
@@ -276,6 +278,8 @@ def test_phix_example_documents_every_gdpo_objective():
     implementation_section = score_section.split(implementation_heading, maxsplit=1)[1].split("### ", maxsplit=1)[0]
     assert "../configs/gdpo_phage_megatron.yaml" in implementation_section
     assert "gdpo_objective_scores_from_scored" in implementation_section
+    assert "zero_reward_without_eod=true" in readme
+    assert "max_new_tokens=6000" in readme
     for objective in config["env"]["phage_qc"]["gdpo_objectives"]:
         assert f"`{objective['name']}`" in score_section
     assert implementation_section.count("../src/bionemo/evo2_phage_gen/") >= len(
