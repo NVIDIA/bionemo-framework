@@ -132,8 +132,9 @@ env:
     dustmask_end_window: 200
     dustmask_max_end_fraction: 0.9
     reward_output_mode: "gdpo"
-    # Experimental, default-off: keep no-EOD rows in the rollout but set their scalar reward and
-    # every non-safety GDPO objective to zero. This penalizes caps rather than masking their loss.
+    # Experimental, default-off: keep no-EOD rows in the rollout but set their complete scalar or
+    # GDPO reward vector to zero. This penalizes invalid genomes rather than masking their loss;
+    # raw safety and QC evidence remains available only as diagnostics.
     zero_reward_without_eod: false
     # These weights do not post-weight GDPO objectives after normalization. They
     # keep scalar diagnostics and binary pass metrics aligned with the RL500 gates.

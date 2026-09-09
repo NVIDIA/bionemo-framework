@@ -414,7 +414,10 @@ def gdpo_objective_scores_from_scored(
                 _exact_safety_eligibility(scored),
                 0.0,
             )
-            objective_scores[objective.name] = objective_scores[objective.name].where(eod_eligibility, 0.0)
+        # Unlike safety eligibility, an explicit no-EOD gate invalidates the whole generated
+        # genome. Keep raw safety/QC evidence in ``scored`` for diagnostics, but do not let any
+        # objective reward a candidate that never emitted its terminal token.
+        objective_scores[objective.name] = objective_scores[objective.name].where(eod_eligibility, 0.0)
     return objective_scores
 
 

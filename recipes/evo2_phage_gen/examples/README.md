@@ -177,9 +177,9 @@ and place authentic-EOD genomes into below-lower-zero, lower-taper, full-credit,
 at-or-above-upper-zero bins, so fixed-bank placement direction remains recoverable without raw rows.
 
 `env.phage_qc.zero_reward_without_eod=true` is an experimental, default-off termination gate. It
-keeps every row and sampled action in the RL loss, but assigns an exact-zero scalar reward—or zeros
-every non-safety GDPO objective—unless token metadata records an authentic EOD; the three safety
-objectives and raw QC measurements remain truthful. This is the inverse of overlong loss filtering:
+keeps every row and sampled action in the RL loss, but assigns an exact-zero scalar reward—or an
+all-zero GDPO objective vector—unless token metadata records an authentic EOD. Raw safety and QC
+measurements remain truthful diagnostics, but cannot reward the invalid row. This is the inverse of overlong loss filtering:
 caps remain negative examples instead of disappearing from the advantage calculation. When testing
 the gate with `max_new_tokens=6000`, use `max_model_len=6144`; 16/24-nt prompts then put no-EOD caps
 at 6,016/6,024 nt. The length reward is already flat zero above 5,426 nt, so this wider cap does not

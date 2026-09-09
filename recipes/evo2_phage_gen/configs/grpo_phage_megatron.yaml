@@ -256,7 +256,7 @@ env:
     dustmask_level: 20.0
     dustmask_end_window: 200
     dustmask_max_end_fraction: 0.9
-    # Experimental, default-off. Keep no-EOD rows in the loss but zero their scalar reward.
+    # Experimental, default-off. Keep no-EOD rows in the loss but zero their complete RL reward.
     zero_reward_without_eod: false
     weight_valid_nt_chars: 1.0
     weight_genome_length: 1.0

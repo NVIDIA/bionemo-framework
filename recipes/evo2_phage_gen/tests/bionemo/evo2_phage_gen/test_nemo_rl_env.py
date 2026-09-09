@@ -310,8 +310,8 @@ def test_gdpo_objective_scores_reduce_named_columns_positionally():
     assert objective_scores.to_numpy().tolist() == [[1.0, 0.25], [0.25, 0.75]]
 
 
-def test_no_eod_gate_zeros_scalar_and_biological_objectives() -> None:
-    """The optional gate penalizes every nonterminating row without falsifying safety."""
+def test_no_eod_gate_zeros_entire_rl_reward() -> None:
+    """The optional gate makes every no-EOD candidate invalid for RL reward."""
     scored = pd.DataFrame(
         {
             "generation_stopped_on_eod": [True, False, False],
@@ -339,7 +339,7 @@ def test_no_eod_gate_zeros_scalar_and_biological_objectives() -> None:
     assert matrix.to_dict("list") == {
         "a": pytest.approx([0.4, 0.0, 0.0]),
         "b": pytest.approx([0.2, 0.0, 0.0]),
-        "safety_amr": pytest.approx([1.0, 1.0, 1.0]),
+        "safety_amr": pytest.approx([1.0, 0.0, 0.0]),
     }
 
 
