@@ -96,6 +96,29 @@ def test_download_retries_stalled_transfer_and_resumes_partial(tmp_path: Path, m
     assert "archive.tar.gz" in messages.out
 
 
+def test_download_retries_clean_eof_from_content_length(tmp_path: Path, monkeypatch) -> None:
+    """A short response that closes cleanly must not become a cached final archive."""
+    truncated = _Response(b"abc")
+    truncated.headers = {"Content-Length": "6"}
+    complete = _Response(b"abcdef")
+    complete.headers = {"Content-Length": "6"}
+    outcomes = iter((truncated, complete))
+    calls = 0
+
+    def fake_urlopen(_request, timeout=None):
+        nonlocal calls
+        calls += 1
+        return next(outcomes)
+
+    monkeypatch.setattr(assets.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+
+    output, _headers = assets._download("https://example.test/archive.tar.gz", tmp_path / "archive.tar.gz")
+
+    assert output.read_bytes() == b"abcdef"
+    assert calls == 2
+
+
 def test_pyrodigal_wrapper_is_a_normal_executable(tmp_path: Path) -> None:
     prepared = prepare_pyrodigal_wrapper(tmp_path / "bin")
     assert prepared.path.stat().st_mode & 0o111

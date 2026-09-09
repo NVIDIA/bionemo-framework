@@ -188,9 +188,21 @@ def _download(
         try:
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 append = offset > 0 and getattr(response, "status", None) == 206
+                content_length = response.headers.get("Content-Length")
+                received = 0
                 with partial.open("ab" if append else "wb") as output:
                     while block := response.read(1024 * 1024):
                         output.write(block)
+                        received += len(block)
+                if content_length is not None:
+                    try:
+                        expected = int(content_length)
+                    except ValueError as error:
+                        raise OSError(f"invalid Content-Length for {output_path.name}: {content_length!r}") from error
+                    if received != expected:
+                        raise OSError(
+                            f"incomplete response for {output_path.name}: received {received} of {expected} bytes"
+                        )
                 headers = {str(key).lower(): str(value) for key, value in response.headers.items()}
             break
         except (TimeoutError, urllib.error.URLError, ConnectionError, OSError) as error:
