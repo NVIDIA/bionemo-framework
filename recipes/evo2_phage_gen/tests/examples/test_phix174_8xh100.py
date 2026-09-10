@@ -36,7 +36,9 @@ SCRIPT = RECIPE_ROOT / "examples/phix174_8xh100.sh"
 
 def _gdpo_commands(commands: list[list[str]]) -> list[list[str]]:
     """Return each GDPO invocation, including one nested under the retention supervisor."""
-    return [command[command.index("evo2_phage_run_gdpo") :] for command in commands if "evo2_phage_run_gdpo" in command]
+    return [
+        command[command.index("evo2_phage_run_gdpo") :] for command in commands if "evo2_phage_run_gdpo" in command
+    ]
 
 
 def _write_sampling_selection(path: Path) -> str:
@@ -197,10 +199,11 @@ def test_dry_run(tmp_path: Path) -> None:
         "wandb_init_timeout": 300,
     }
     log = (result_root / "RUNLOG.md").read_text()
-    assert "TARGET_LENGTH=5444" in log
+    assert "TARGET_LENGTH=6000" in log
+    assert "MAX_SEQ_LENGTH=6144" in log
     assert (
         "sampling selection: temperature=1.0, prompt lengths=16 24, "
-        "anchors=origin:1 before_g:2387 after_h:3918 a_cluster_start:3973, max new tokens=5420"
+        "anchors=origin:1 before_g:2387 after_h:3918 a_cluster_start:3973, max new tokens=6000"
     ) in log
     for command in (
         "evo2_phage_prepare_external_assets",
@@ -227,6 +230,7 @@ def test_dry_run(tmp_path: Path) -> None:
     assert "do-not-record" not in log
     assert "monitor: external asset preparation" in log
     assert "--prepare-phrogs-consensus-database" in log
+    assert "--prepare-phrogs-member-database" in log
     assert "--download-phrogs-sequence-database" not in log
     mmseqs_dir = "data/external/mmseqs/NC_001422_1_Gprotein"
     mkdir_command = f"command: mkdir -p {mmseqs_dir}"
@@ -338,9 +342,7 @@ def test_dry_run(tmp_path: Path) -> None:
         if "command: evo2_phage_generation write-reference-rotations " in line
     )
     control_anchors = [
-        rotation_control[index + 1]
-        for index, value in enumerate(rotation_control)
-        if value == "--prompt-anchor"
+        rotation_control[index + 1] for index, value in enumerate(rotation_control) if value == "--prompt-anchor"
     ]
     assert control_anchors == [
         "coordinate_origin:1",
@@ -362,9 +364,7 @@ def test_dry_run(tmp_path: Path) -> None:
     assert rl_control[rl_control.index("--checkpoint") + 1] == "<rl-sft-checkpoint>"
     preparation = log.index("command: python -m bionemo.evo2_phage_gen.prepare_sft_checkpoint_for_rl")
     assert preparation < log.index("command: evo2_phage_check_rl")
-    assert log.index("monitor: RL environment control") < log.index(
-        "monitor: three-step post-validation GDPO pilot"
-    )
+    assert log.index("monitor: RL environment control") < log.index("monitor: three-step post-validation GDPO pilot")
 
     likelihood_command = next(
         shlex.split(line.partition("command: ")[2])
@@ -373,9 +373,7 @@ def test_dry_run(tmp_path: Path) -> None:
     )
     assert likelihood_command[likelihood_command.index("--ckpt-dir") + 1] == "<rl-sft-checkpoint>"
 
-    logged_commands = [
-        shlex.split(line.partition("command: ")[2]) for line in log.splitlines() if "command: " in line
-    ]
+    logged_commands = [shlex.split(line.partition("command: ")[2]) for line in log.splitlines() if "command: " in line]
     gdpo_commands = _gdpo_commands(logged_commands)
     assert len(gdpo_commands) == 3
     pilot = next(command for command in gdpo_commands if "grpo.max_num_steps=3" in command)
@@ -393,7 +391,7 @@ def test_dry_run(tmp_path: Path) -> None:
     assert "policy.model_name=bionemo/evo2_7b_base" in gdpo
     assert "policy.generation.top_k=5" in gdpo
     assert "policy.generation.top_p=1.0" in gdpo
-    assert "policy.generation.mcore_generation_config.max_model_len=5632" in gdpo
+    assert "policy.generation.mcore_generation_config.max_model_len=6144" in gdpo
     assert "policy.generation.mcore_generation_config.max_requests=96" in gdpo
     assert "policy.generation.mcore_generation_config.prompt_batch_size=96" in gdpo
     assert "policy.generation.mcore_generation_config.kv_cache_management_mode=offload" in gdpo
@@ -427,7 +425,7 @@ def test_dry_run(tmp_path: Path) -> None:
         if "command: env CUDA_VISIBLE_DEVICES=" in line and "/bionemo/evo2/run/infer.py" in line
     ]
     assert len(rollout_commands) == 8
-    assert all(command[command.index("--max-seq-length") + 1] == "5632" for command in rollout_commands)
+    assert all(command[command.index("--max-seq-length") + 1] == "6144" for command in rollout_commands)
 
     conversion = next(
         shlex.split(line.partition("command: ")[2])
@@ -445,7 +443,7 @@ def test_default_cpu_capacity_ignores_openmp_process_limit(tmp_path: Path) -> No
     nproc = fake_bin / "nproc"
     nproc.write_text(
         "#!/usr/bin/env bash\n"
-        "if [[ -n \"${OMP_NUM_THREADS:-}\" || -n \"${OMP_THREAD_LIMIT:-}\" ]]; then\n"
+        'if [[ -n "${OMP_NUM_THREADS:-}" || -n "${OMP_THREAD_LIMIT:-}" ]]; then\n'
         "  printf '32\\n'\n"
         "else\n"
         "  printf '224\\n'\n"

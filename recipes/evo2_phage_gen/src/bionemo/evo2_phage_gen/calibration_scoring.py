@@ -263,12 +263,14 @@ def score_cell(
     scored = score_nucleotide_metrics(
         sequences,
         config=NucleotideQCConfig(
+            # Match the PhiX RL defaults: viable does not imply propagation-stable.
+            # https://doi.org/10.1128/jvi.52.3.822-827.1984; https://doi.org/10.1126/science.aec2657
             genome_length_min=5306,
-            genome_length_max=5493,
+            genome_length_max=5730,
             genome_length_reward_lower_zero=3000,
             genome_length_reward_lower_full=5359,
-            genome_length_reward_upper_full=5391,
-            genome_length_reward_upper_zero=5426,
+            genome_length_reward_upper_full=5550,
+            genome_length_reward_upper_zero=5800,
             dustmask_filter=True,
             dustmasker_bin=str((tool_bin_dir / "dustmasker").resolve()),
         ),

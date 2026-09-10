@@ -481,7 +481,7 @@ def cluster_post_qc_fasta(
             "--min-seq-id",
             "0.99",
             "-c",
-            "0.8",
+            "0.95",
             "--cov-mode",
             "0",
             "--cluster-mode",
@@ -529,7 +529,7 @@ def cluster_post_qc_fasta(
         "mmseqs": {
             "version": version,
             "min_sequence_identity": 0.99,
-            "coverage": 0.8,
+            "coverage": 0.95,
             "coverage_mode": 0,
             "cluster_mode": 0,
             "threads": threads,

@@ -169,7 +169,7 @@ def test_build_inference_command_enables_full_scope_regular_hopper_fp8(tmp_path:
     assert "--fp8-all-layers" in command
 
 
-def test_materialize_cli_defaults_to_the_phix_capsid_zero_edge(tmp_path: Path, monkeypatch) -> None:
+def test_materialize_cli_length_defaults(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         sys,
         "argv",
@@ -197,7 +197,9 @@ def test_materialize_cli_defaults_to_the_phix_capsid_zero_edge(tmp_path: Path, m
         ],
     )
 
-    assert _parse_args().target_length == 5444
+    args = _parse_args()
+    assert args.target_length == 6000
+    assert args.max_seq_length == 6144
 
 
 def test_print_command_cli_emits_complete_nul_delimited_vector(tmp_path: Path) -> None:

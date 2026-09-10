@@ -353,12 +353,13 @@ def _parse_args() -> argparse.Namespace:
     materialize.add_argument("--marker", default="+~")
     materialize.add_argument("--gpu-ids", type=int, nargs="+", required=True)
     materialize.add_argument("--tensor-parallel-size", type=int, required=True)
-    materialize.add_argument("--target-length", type=int, default=5444)
+    # Total biological length, not generated tokens: keep caps beyond the PhiX reward zero.
+    materialize.add_argument("--target-length", type=int, default=6000)
     materialize.add_argument("--top-k", type=int, required=True)
     materialize.add_argument("--top-p", type=float, required=True)
     materialize.add_argument("--seed", type=int, default=7)
     materialize.add_argument("--prompt-batch-size", type=int, default=16)
-    materialize.add_argument("--max-seq-length", type=int, default=10240)
+    materialize.add_argument("--max-seq-length", type=int, default=6144)
     materialize.add_argument("--hopper-fp8", action="store_true")
 
     print_command = subparsers.add_parser("print-command")

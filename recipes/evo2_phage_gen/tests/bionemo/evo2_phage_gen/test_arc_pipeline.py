@@ -129,11 +129,8 @@ def mmseqs_results_to_df(hits, query_fasta: str, output_csv: str, descriptive_pr
 
 
 def run_mmseqs_search_proteins(query_fasta: str, mmseqs_db: str, results_dir: str, output_csv: str, descriptive_prefix: str, threads: int=8, split: int=0, sensitivity: float=4.0, only_top_hits: bool=True) -> pd.DataFrame:
-    try:
-        mmseqs_out = mmseqs_search_proteins(query_fasta, mmseqs_db, results_dir, threads, split, sensitivity)
-        hits = parse_mmseqs_results(mmseqs_out)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        hits = []
+    mmseqs_out = mmseqs_search_proteins(query_fasta, mmseqs_db, results_dir, threads, split, sensitivity)
+    hits = parse_mmseqs_results(mmseqs_out)
     if not hits:
         df = pd.DataFrame(
             columns=[
@@ -441,7 +438,6 @@ def test_prepare_arc_pipeline_workdir_applies_maintained_patch(tmp_path):
 
     pipeline_text = (workdir / "genome_design_filtering_pipeline.py").read_text()
     assert DEFAULT_ARC_PIPELINE_PATCH.exists()
-    assert "missing_synteny_output" in pipeline_text
     assert "save_mmseqs_pident_metrics" in pipeline_text
     assert "metrics_df.to_csv(metrics_csv, index=False)" in pipeline_text
     assert "online_measurement_mode" in pipeline_text
@@ -550,6 +546,8 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
             "protein_database_mmseqs_alignment_length": [100, 100, 50],
             "protein_database_mmseqs_query_length": [100, 100, 50],
             "protein_database_mmseqs_target_length": [100, 100, 100],
+            "protein_database_mmseqs_query_coverage": [1, 1, 1],
+            "protein_database_mmseqs_target_coverage": [1, 1, 0.5],
         }
     )
     metrics_csv = tmp_path / "required.csv"
@@ -573,6 +571,21 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
     assert (gff_dir / "genome_1.gff").exists()
     assert (gbk_dir / "genome_1.gbk").exists()
 
+    # An explicit family profile admits this demonstrated shortened function;
+    # without it the unchanged generic coverage gate below still rejects it.
+    accepted = module.valid_gene_annotations(
+        str(gff_dir),
+        str(gbk_dir),
+        ("gene A", "gene B"),
+        sequences,
+        metrics_csv=str(metrics_csv),
+        protein_database_hits_df=hits,
+        minimum_reciprocal_coverage=0.95,
+        family_coverage_thresholds={"family_B": (0.95, 0.50)},
+    )
+    assert accepted["id_prompt"].tolist() == ["umi1"]
+    assert pd.read_csv(metrics_csv)["required_genes_full_length_count"].tolist() == [2]
+
     filtered = module.valid_gene_annotations(
         input_gff_dir=str(gff_dir),
         input_gbk_dir=str(gbk_dir),
@@ -587,6 +600,15 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
     assert filtered.empty
     assert not (gff_dir / "genome_1.gff").exists()
     assert not (gbk_dir / "genome_1.gbk").exists()
+
+    # An empty required-function list supplies no evidence, not a vacuous pass.
+    assert module.valid_gene_annotations(
+        str(gff_dir),
+        str(gbk_dir),
+        (),
+        sequences,
+        protein_database_hits_df=hits,
+    ).empty
 
 
 def test_required_gene_patch_preserves_composed_hard_gate_imports(tmp_path):
@@ -620,7 +642,8 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
     assert callable(module.valid_coverage_aware_mmseqs_pident)
 
 
-def test_patched_arc_aai_excludes_truncated_proteins(tmp_path):
+@pytest.mark.parametrize("use_members", [False, True])
+def test_patched_arc_aai_target_semantics(tmp_path, use_members):
     pipeline_path = tmp_path / "genome_design_filtering_pipeline.py"
     pipeline_path.write_text(
         """import os
@@ -656,11 +679,24 @@ def count_total_num_genes(gff_directory, results_csv):
             "id_prompt": ["truncated_ORF.1", "complete_ORF.1"],
             "protein_database_mmseqs_target": ["family_A", "family_A"],
             "protein_database_mmseqs_percent_identity": [100.0, 80.0],
+            "protein_database_mmseqs_e_value": [1e-20, 1e-25],
             "protein_database_mmseqs_alignment_length": [50, 100],
             "protein_database_mmseqs_query_length": [50, 100],
             "protein_database_mmseqs_target_length": [100, 100],
+            "protein_database_mmseqs_query_coverage": [1, 1],
+            "protein_database_mmseqs_target_coverage": [0.5, 1],
         }
     )
+    member_options = {}
+    if use_members:
+
+        def search(**kwargs):
+            assert kwargs["mmseqs_db"] == "individual-proteins"
+            assert kwargs["query_fasta"] == "called-orfs.faa"
+            return hits
+
+        module.run_mmseqs_search_proteins = search
+        member_options = dict(identity_database="individual-proteins", query_fasta="called-orfs.faa")
 
     module.valid_average_protein_percent_identity(
         str(tmp_path / "gff"),
@@ -672,11 +708,12 @@ def count_total_num_genes(gff_directory, results_csv):
         protein_database_hits_df=hits,
         minimum_reciprocal_coverage=0.75,
         metrics_csv=str(metrics_csv),
+        **member_options,
     )
 
     metrics = pd.read_csv(metrics_csv)
-    assert metrics["average_protein_percent_identity"].tolist() == [0.0, 80.0]
-    assert metrics["average_protein_identity_gene_count"].tolist() == [0, 1]
+    assert metrics["average_protein_percent_identity"].tolist() == ([100.0, 80.0] if use_members else [0.0, 80.0])
+    assert metrics["average_protein_identity_gene_count"].tolist() == ([1, 1] if use_members else [0, 1])
 
 
 def test_reference_cluster_patch_replaces_arc_edge_counter(tmp_path):
@@ -732,6 +769,8 @@ def test_patched_arc_hard_protein_gates_require_unique_full_length_families(tmp_
             "protein_database_mmseqs_alignment_length": [100, 100, 50, 100, 100],
             "protein_database_mmseqs_query_length": [100, 100, 50, 100, 100],
             "protein_database_mmseqs_target_length": [100, 100, 100, 100, 100],
+            "protein_database_mmseqs_query_coverage": [1, 1, 1, 1, 1],
+            "protein_database_mmseqs_target_coverage": [1, 1, 0.5, 1, 1],
         }
     )
 
@@ -753,6 +792,8 @@ def test_patched_arc_hard_protein_gates_require_unique_full_length_families(tmp_
             "tropism_protein_mmseqs_alignment_length": [50, 100],
             "tropism_protein_mmseqs_query_length": [50, 100],
             "tropism_protein_mmseqs_target_length": [100, 100],
+            "tropism_protein_mmseqs_query_coverage": [1, 1],
+            "tropism_protein_mmseqs_target_coverage": [0.5, 1],
         }
     )
 
@@ -848,9 +889,14 @@ def test_patched_arc_synteny_producer_consumer_contract_tracks_positive_and_miss
     assert output["missing_synteny_output"].tolist() == [False, True, True]
 
 
-def test_patched_arc_mmseqs_protein_search_rejects_missing_output(tmp_path, monkeypatch):
-    """Failed MMseqs protein searches should produce an empty hit table for online reward scoring."""
-    module = _load_prepared_arc_pipeline(tmp_path, "patched_arc_pipeline_mmseqs_test", monkeypatch)
+@pytest.mark.parametrize("real_assets", [False, True])
+def test_patched_arc_mmseqs_protein_search_rejects_missing_output(tmp_path, monkeypatch, real_assets):
+    """Execution failure must not masquerade as a successfully measured no-hit genome."""
+    module = (
+        _load_prepared_arc_pipeline(tmp_path, "patched_arc_pipeline_mmseqs_test", monkeypatch)
+        if real_assets
+        else _load_synthetic_mmseqs_pipeline(tmp_path, "synthetic_arc_pipeline_failure_test")
+    )
 
     query_fasta = tmp_path / "query.fasta"
     query_fasta.write_text(">umi1_ORF.1\nM\n")
@@ -863,16 +909,15 @@ def test_patched_arc_mmseqs_protein_search_rejects_missing_output(tmp_path, monk
 
     monkeypatch.setattr(module.subprocess, "run", fail_mmseqs)
 
-    hits = module.run_mmseqs_search_proteins(
-        query_fasta=str(query_fasta),
-        mmseqs_db=str(mmseqs_db),
-        results_dir=str(tmp_path / "mmseqs_results"),
-        output_csv=str(output_csv),
-        descriptive_prefix="protein_database",
-    )
-
-    assert hits.empty
-    assert output_csv.exists()
+    with pytest.raises(module.subprocess.CalledProcessError):
+        module.run_mmseqs_search_proteins(
+            query_fasta=str(query_fasta),
+            mmseqs_db=str(mmseqs_db),
+            results_dir=str(tmp_path / "mmseqs_results"),
+            output_csv=str(output_csv),
+            descriptive_prefix="protein_database",
+        )
+    assert not output_csv.exists()
 
 
 def test_patched_arc_mmseqs_protein_search_allows_successful_empty_hits(tmp_path, monkeypatch):
@@ -907,6 +952,8 @@ def test_patched_arc_mmseqs_protein_search_allows_successful_empty_hits(tmp_path
         "protein_database_mmseqs_alignment_length",
         "protein_database_mmseqs_query_length",
         "protein_database_mmseqs_target_length",
+        "protein_database_mmseqs_query_coverage",
+        "protein_database_mmseqs_target_coverage",
     ]
     assert output_csv.exists()
 
@@ -921,7 +968,7 @@ def test_patched_arc_mmseqs_protein_search_carries_alignment_lengths(tmp_path, m
     output_csv = tmp_path / "hits.csv"
     mmseqs_out = tmp_path / "mmseqs_results" / "mmseqs_out.tsv"
     mmseqs_out.parent.mkdir()
-    mmseqs_out.write_text("umi1_ORF.1\tphrog_1\t1e-20\t75.0\t40\t80\t100\n")
+    mmseqs_out.write_text("umi1_ORF.1\tphrog_1\t1e-20\t75.0\t40\t80\t100\t0.375\t0.4\n")
 
     monkeypatch.setattr(module, "mmseqs_search_proteins", lambda *_args, **_kwargs: str(mmseqs_out))
 
@@ -936,6 +983,9 @@ def test_patched_arc_mmseqs_protein_search_carries_alignment_lengths(tmp_path, m
     assert hits.loc[0, "protein_database_mmseqs_alignment_length"] == 40
     assert hits.loc[0, "protein_database_mmseqs_query_length"] == 80
     assert hits.loc[0, "protein_database_mmseqs_target_length"] == 100
+    # Ten query-gap columns in a 40-column alignment do not cover 40 query residues.
+    assert hits.loc[0, "protein_database_mmseqs_query_coverage"] == 0.375
+    assert hits.loc[0, "protein_database_mmseqs_target_coverage"] == 0.4
 
 
 def test_patched_arc_mmseqs_search_requests_alignment_length_fields(tmp_path, monkeypatch):
@@ -948,7 +998,7 @@ def test_patched_arc_mmseqs_search_requests_alignment_length_fields(tmp_path, mo
     results_dir = tmp_path / "mmseqs_results"
 
     def fake_run(cmd, **_kwargs):
-        assert "--format-output 'query,target,evalue,pident,alnlen,qlen,tlen'" in cmd
+        assert "--format-output 'query,target,evalue,pident,alnlen,qlen,tlen,qcov,tcov'" in cmd
         (results_dir / "mmseqs_result.m8").write_text("")
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)

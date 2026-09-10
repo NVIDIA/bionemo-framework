@@ -38,7 +38,7 @@ Use viable references, biological reasoning, and controls to align shaped reward
 
 For therapeutic work, use the applicable [design and viability guidance](references/design-scope-and-viability.md). The linked EMA document is a historical draft, not current regulatory advice. Missing required safety evidence remains INDETERMINATE. Record changed safety assets and rerun affected controls before interpreting the comparison.
 
-For the PhiX case study, keep filters 1–6, 8, and 9 enabled and filter 7 diagnostic-only. Default to GDPO and 99%-cluster inverse-frequency diversity unless the experiment selects another method. Each objective should have an interpretable zero, target one, graded partial credit, and explicit missing/invalid behavior.
+For the PhiX case study, keep filters 1–6, 8, and 9 enabled and filter 7 diagnostic-only. Default to GDPO and cluster inverse-frequency diversity using the current example's identity and coverage settings unless the experiment selects another method. Each objective should have an interpretable zero, target one, graded partial credit, and explicit missing/invalid behavior.
 
 Read component quality, support, termination placement, and diversity alongside aggregate reward. Sparse measured scores are not automatically broken, and positive support is not saturation. Keep raw generation, biological representatives, hard-QC passes, and post-QC clusters as separate denominators.
 

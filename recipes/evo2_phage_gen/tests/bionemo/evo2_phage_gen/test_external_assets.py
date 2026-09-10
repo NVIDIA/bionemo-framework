@@ -68,6 +68,56 @@ def test_download_checks_provider_checksum_at_download_boundary(tmp_path: Path, 
         )
 
 
+def test_download_sha256_checks_cache_and_transfer(tmp_path, monkeypatch):
+    payload = b"pinned proteins"
+    expected = hashlib.sha256(payload).hexdigest()
+    monkeypatch.setattr(assets.urllib.request, "urlopen", lambda *_a, **_kw: _Response(payload))
+    path = tmp_path / "proteins.tar.gz"
+    assets._download("https://example.test/proteins", path, expected_sha256=expected)
+    assert path.read_bytes() == payload
+    path.write_bytes(b"wrong archive")
+    with pytest.raises(ValueError, match="checksum"):
+        assets._download("https://example.test/proteins", path, expected_sha256=expected)
+    with pytest.raises(ValueError, match="checksum"):
+        assets._download("https://example.test/proteins", tmp_path / "other", expected_sha256="0" * 64)
+    assert not (tmp_path / "other").exists()
+
+
+def test_member_db_build_and_reuse(tmp_path, monkeypatch):
+    archive = tmp_path / "proteins.tar.gz"
+    with tarfile.open(archive, "w:gz") as handle:
+        payload = b">phrog_1 ## accession_a\nMAAA\n>phrog_1 ## accession_b\nMCCC\n"
+        entry = tarfile.TarInfo("FAA_phrog/phrog_1.faa")
+        entry.size = len(payload)
+        handle.addfile(entry, io.BytesIO(payload))
+    expected = hashlib.sha256(archive.read_bytes()).hexdigest()
+    builds = []
+
+    def fake_run(command, check):
+        assert check
+        assert command[1] == "createdb"
+        fasta = Path(command[2]).read_text()
+        # Individual proteins must stay distinct, not collapse to a consensus.
+        identifiers = [line.split()[0] for line in fasta.splitlines() if line.startswith(">")]
+        assert len(set(identifiers)) == 2
+        assert "MAAA" in fasta and "MCCC" in fasta
+        builds.append(fasta)
+        output = Path(command[3])
+        for suffix in ("", ".index", ".lookup", "_h", "_h.index", "_h.dbtype"):
+            Path(f"{output}{suffix}").write_text("db")
+        Path(f"{output}.dbtype").write_bytes((0).to_bytes(4, "little"))
+
+    monkeypatch.setattr(assets.subprocess, "run", fake_run)
+    options = dict(database_url=archive.as_uri(), expected_sha256=expected)
+    first = assets.prepare_phrogs_member_db(tmp_path / "external", **options)
+    second = assets.prepare_phrogs_member_db(tmp_path / "external", **options)
+    assert first.path == second.path
+    assert len(builds) == 1
+    Path(f"{first.path}.index").unlink()
+    assets.prepare_phrogs_member_db(tmp_path / "external", **options)
+    assert len(builds) == 2  # A partial database is rebuilt, not accepted as ready.
+
+
 def test_download_retries_stalled_transfer_and_resumes_partial(tmp_path: Path, monkeypatch, capsys) -> None:
     output_path = tmp_path / "archive.tar.gz"
     partial = tmp_path / "archive.tar.gz.part"

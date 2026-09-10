@@ -9,7 +9,7 @@
         "The response reconstructs the SFT conditioning, orientation, wrappers, BOS/EOS, padding, masking, tokenization, and continuation boundary.",
         "It uses only cues present during SFT and does not copy the paper format when the selected checkpoint differs.",
         "It sweeps a reasonable temperature and prefix range with paired seeds and enough samples to compare uncertainty.",
-        "When termination is learned, it places every deployed no-EOD cap a small explicit distance beyond the upper zero so capped outputs receive no length credit without wasting a long flat-zero tail; if a wider lower taper is used to reach short rollouts, it identifies that as shaping credit rather than acceptance and preserves the separate hard interval.",
+        "When termination is learned, it puts deployed no-EOD caps beyond the upper zero and distinguishes shaping credit from hard acceptance. For the current PhiX defaults it uses 6000 generated tokens, 6144 context, biological caps 6016/6024, and upper zero 5800; both PhiX RL configs enable the missing-EOD whole-reward gate without masking capped rows from the loss.",
         "It materializes the selected prompt mixture and sampling settings in the eventual commands and treats simultaneous nonzero top-k/top-p as temperature, then top-k, then top-p.",
         "Calibration samples remain separate from RL validation and final rollout."
       ],

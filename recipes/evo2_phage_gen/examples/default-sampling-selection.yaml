@@ -4,9 +4,12 @@ temperature: 1.0
 top_k: 5
 # Keep the complete top-5 support, including terminal EOD at every prompt stratum.
 top_p: 1.0
-# Total caps are 5,436-5,444 nt, 10-18 nt past the length reward's upper zero;
-# sampled EOD may terminate earlier.
-max_new_tokens: 5420
+# Biological caps are 6,016/6,024 nt, beyond the 5,800-nt shaping zero.
+# This is exploration headroom, not a claim of viability at 6 kb; sampled EOD may stop earlier.
+# The PhiX RL configs separately enable zero_reward_without_eod for the entire RL reward.
+# Length evidence: https://doi.org/10.1128/jvi.52.3.822-827.1984 and
+# https://doi.org/10.1126/science.aec2657 (see configs/grpo_phage_megatron.yaml).
+max_new_tokens: 6000
 prompt_lengths:
   - 16
   - 24

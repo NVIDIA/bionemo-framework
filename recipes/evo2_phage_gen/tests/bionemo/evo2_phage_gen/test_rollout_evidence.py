@@ -201,14 +201,14 @@ def test_post_qc_clustering_pins_contract(tmp_path):
     assert report["mmseqs"] == {
         "version": "fake-mmseqs 1.0",
         "min_sequence_identity": 0.99,
-        "coverage": 0.8,
+        "coverage": 0.95,
         "coverage_mode": 0,
         "cluster_mode": 0,
         "threads": 7,
     }
     cluster_command = next(command for command in report["commands"] if command[1] == "cluster")
     assert cluster_command[cluster_command.index("--min-seq-id") + 1] == "0.99"
-    assert cluster_command[cluster_command.index("-c") + 1] == "0.8"
+    assert cluster_command[cluster_command.index("-c") + 1] == "0.95"
 
 
 def test_arc_summary_omits_internal_clustering(tmp_path):
@@ -331,6 +331,7 @@ def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):
     )
 
     payload = json.loads((tmp_path / "final-designs.json").read_text())
+    assert payload["schema_version"] == 2
     assert payload["workflow_order"] == [
         "raw_generation",
         "exact_circular_reverse_complement_deduplication",

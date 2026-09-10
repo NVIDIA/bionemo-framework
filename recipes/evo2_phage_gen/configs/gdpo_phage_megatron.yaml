@@ -59,11 +59,11 @@ loss_fn:
   token_level_loss: false
 
 policy:
-  max_total_sequence_length: 5632
+  max_total_sequence_length: 6144
   train_global_batch_size: 768
   # Qualified 8xH100 default, not a measured ceiling. At TP1 its Evo2 7B local GLU span is
-  # 8 * 5632 * 11008 = 495,976,448 elements. This shape passed three updates, scheduled and terminal
-  # validation, and an optimizer-state reload. A single GB300 qualified offload-cache MBS32, but
+  # 8 * 6144 * 11008 = 541,065,216 elements. The 6k-cap H100 experiments also completed repeated
+  # updates, validation and full optimizer recovery. A single GB300 qualified offload-cache MBS32, but
   # that does not establish per-device H100 capacity. TP2 halves local FFN width; DP does not.
   train_micro_batch_size: 8
   generation_batch_size: 768
@@ -76,7 +76,9 @@ policy:
     scheduler:
       lr_warmup_init: 1.0e-7
   generation:
-    max_new_tokens: 5420
+    # Buffer beyond the length reward's 5,800 zero; biological caps include prompt bases.
+    # Length evidence: https://doi.org/10.1128/jvi.52.3.822-827.1984 (see inherited QC settings).
+    max_new_tokens: 6000
     temperature: 1.0
     # Retain the complete top-5 support so nucleus filtering cannot remove terminal EOD.
     top_p: 1.0
@@ -132,10 +134,10 @@ env:
     dustmask_end_window: 200
     dustmask_max_end_fraction: 0.9
     reward_output_mode: "gdpo"
-    # Experimental, default-off: keep no-EOD rows in the rollout but set their complete scalar or
+    # PhiX default: keep no-EOD rows in the rollout but set their complete scalar or
     # GDPO reward vector to zero. This penalizes invalid genomes rather than masking their loss;
     # raw safety and QC evidence remains available only as diagnostics.
-    zero_reward_without_eod: false
+    zero_reward_without_eod: true
     # These weights do not post-weight GDPO objectives after normalization. They
     # keep scalar diagnostics and binary pass metrics aligned with the RL500 gates.
     weight_valid_nt_chars: 1.0
@@ -209,7 +211,7 @@ env:
       synteny_mode: "full"
       enable_average_protein_identity: true
       enable_required_genes: true
-      required_genes_evidence_target: 10.0
+      # Inherit the control-calibrated required-gene target from the shared PhiX config.
       protein_match_min_reciprocal_coverage: 0.75
       tropism_match_min_reciprocal_coverage: 0.95
       # Per external-QC reward run; set lower if several environment actors score concurrently.
@@ -223,11 +225,13 @@ env:
       phrogs_threads: 64
     mmseqs_cluster_diversity:
       enabled: true
+      circular: true
       mmseqs_bin: "data/external/bin/mmseqs"
       work_dir: "data/checkpoints/${run_id}_mmseqs_cluster_diversity"
       keep_artifacts: false
+      # Match final rollout clustering: near-whole-genome identity and overlap.
       min_seq_id: 0.99
-      coverage: 0.0
+      coverage: 0.95
       cov_mode: 0
       seq_id_mode: 0
       cluster_mode: 0

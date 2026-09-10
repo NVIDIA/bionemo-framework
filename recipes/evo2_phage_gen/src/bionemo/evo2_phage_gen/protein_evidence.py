@@ -17,6 +17,7 @@
 
 import math
 import re
+import warnings
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +26,7 @@ import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-from scipy.optimize import linear_sum_assignment
+from scipy.optimize import Bounds, LinearConstraint, linear_sum_assignment, milp
 
 
 ORFIPY_INTERVAL_RE = re.compile(r"\[(\d+)-(\d+)\]")
@@ -86,6 +87,8 @@ def smooth_protein_match_integrity(
     reference_length: object,
     candidate_length: object,
     *,
+    reference_coverage: object,
+    candidate_coverage: object,
     identity_full_credit: float,
     reference_coverage_full_credit: float,
     candidate_coverage_full_credit: float,
@@ -95,7 +98,7 @@ def smooth_protein_match_integrity(
     significance_zero_evalue: float = 1.0,
     significance_full_evalue: float = 1e-5,
 ) -> float:
-    """Grade a complete-ORF alignment while suppressing shuffled-sequence evidence."""
+    """Grade native MMseqs coverage; alignment columns include gaps, not just residues."""
     _validate_smooth_protein_match_config(
         identity_full_credit=identity_full_credit,
         reference_coverage_full_credit=reference_coverage_full_credit,
@@ -107,16 +110,26 @@ def smooth_protein_match_integrity(
         significance_full_evalue=significance_full_evalue,
     )
     try:
-        identity, evalue, aligned, reference, candidate = map(
+        identity, evalue, aligned, reference, candidate, ref_cov, cand_cov = map(
             float,
-            (percent_identity, e_value, alignment_length, reference_length, candidate_length),
+            (
+                percent_identity,
+                e_value,
+                alignment_length,
+                reference_length,
+                candidate_length,
+                reference_coverage,
+                candidate_coverage,
+            ),
         )
     except (TypeError, ValueError):
         return 0.0
-    values = (identity, evalue, aligned, reference, candidate)
+    values = (identity, evalue, aligned, reference, candidate, ref_cov, cand_cov)
     if not all(math.isfinite(value) for value in values):
         return 0.0
     if not 0.0 <= identity <= 100.0 or evalue < 0.0 or min(aligned, reference, candidate) <= 0.0:
+        return 0.0
+    if not (0.0 <= ref_cov <= 1.0 and 0.0 <= cand_cov <= 1.0):
         return 0.0
     if evalue >= significance_zero_evalue:
         significance = 0.0
@@ -128,8 +141,8 @@ def smooth_protein_match_integrity(
         significance = (-math.log10(evalue) - zero_log) / (full_log - zero_log)
 
     identity_progress = min((identity / 100.0) / identity_full_credit, 1.0)
-    reference_progress = min((aligned / reference) / reference_coverage_full_credit, 1.0)
-    candidate_progress = min((aligned / candidate) / candidate_coverage_full_credit, 1.0)
+    reference_progress = min(ref_cov / reference_coverage_full_credit, 1.0)
+    candidate_progress = min(cand_cov / candidate_coverage_full_credit, 1.0)
     raw_integrity = significance * (identity_progress * reference_progress * candidate_progress) ** gamma
     if raw_integrity <= raw_integrity_min:
         return 0.0
@@ -272,7 +285,7 @@ def score_gene_a_origin(
     expected_offset_nt: int,
     offset_tolerance_nt: int,
 ) -> GeneAOriginScore:
-    """Score the PhiX replication origin only in its expected frame and gene-A context."""
+    """Score an origin in the accepted gene-A frame/window, without preferring one called start."""
     candidate_a_orf_nt = str(candidate_a_orf_nt).upper()
     candidate_genome_nt = str(candidate_genome_nt).upper()
     motif = str(motif).upper()
@@ -286,20 +299,22 @@ def score_gene_a_origin(
     best_position_score = 0.0
     best_exact = False
     first = max(0, expected_offset_nt - offset_tolerance_nt)
-    last = min(len(candidate_a_orf_nt) - len(motif), expected_offset_nt + offset_tolerance_nt)
+    last = min(len(candidate_a_orf_nt) - len(functional_motif), expected_offset_nt + offset_tolerance_nt)
     for offset in range(first, last + 1):
         if (offset - expected_offset_nt) % 3 != 0:
             continue
-        observed = candidate_a_orf_nt[offset : offset + len(motif)]
+        observed = candidate_a_orf_nt[offset : offset + len(functional_motif)]
         recognition, binding, nicking = _origin_site_components(observed, functional_motif)
         if recognition < 0.8 or binding < 14.0 / 18.0:
             continue
         motif_score = nicking**2 * recognition * binding
-        position_score = 1.0 - abs(offset - expected_offset_nt) / float(offset_tolerance_nt)
-        combined = motif_score * max(0.0, position_score)
-        if combined > best_motif_score * best_position_score:
+        # Viable PhiX designs and WA11 have an intact site at offset 318 rather
+        # than 345. The tolerance is an accepted context window, not evidence
+        # for a linear fitness penalty within it. Retain frame, motif, A-integrity
+        # and duplicate-site checks. King et al.: doi:10.1126/science.aec2657.
+        if motif_score > best_motif_score:
             best_motif_score = motif_score
-            best_position_score = max(0.0, position_score)
+            best_position_score = 1.0
             best_exact = observed[:28] == functional_motif
 
     strong_site_count = _circular_strong_origin_count(candidate_genome_nt, functional_motif)
@@ -400,7 +415,7 @@ def summarize_smooth_reference_evidence(
     """Summarize one permissive reference-to-called-ORF search as graded objectives."""
     _validate_smooth_protein_match_config(**synteny_match_parameters)
     _validate_smooth_protein_match_config(**tropism_match_parameters)
-    required_columns = {"query", "target", "evalue", "pident", "alnlen", "qlen", "tlen"}
+    required_columns = {"query", "target", "evalue", "pident", "alnlen", "qlen", "tlen", "qcov", "tcov"}
     if not hits_df.empty and not required_columns.issubset(hits_df.columns):
         raise ValueError(f"Smooth reference hits are missing columns: {sorted(required_columns - set(hits_df))}")
 
@@ -422,6 +437,8 @@ def summarize_smooth_reference_evidence(
             "alignment_length": hit.alnlen,
             "reference_length": hit.qlen,
             "candidate_length": hit.tlen,
+            "reference_coverage": hit.qcov,
+            "candidate_coverage": hit.tcov,
         }
         synteny_integrity = smooth_protein_match_integrity(**evidence, **synteny_match_parameters)
         edge = (reference, candidate)
@@ -706,6 +723,37 @@ def _maximum_reference_matching(candidate_to_references: dict[str, set[str]]) ->
     return reference_to_candidate
 
 
+def reference_synteny_pass_mask(metrics: pd.DataFrame, max_missing_reference_genes: int = 0) -> pd.Series:
+    """Apply a calibrated reference-deficit allowance, retaining order/copy checks.
+
+    This measures reference architecture, not essential-function completeness;
+    the required-function gate must independently detect unsupported gene loss.
+    """
+    if type(max_missing_reference_genes) is not int or max_missing_reference_genes < 0:
+        raise ValueError("Maximum missing reference genes must be a nonnegative integer")
+    numeric = {}
+    for column in (
+        "num_syntenic_genes",
+        "reference_num_genes",
+        "duplicate_reference_gene_count",
+        "reference_order_violation_count",
+    ):
+        numeric[column] = pd.to_numeric(
+            metrics.get(column, pd.Series(index=metrics.index, dtype=float)), errors="coerce"
+        )
+    matched, reference = numeric["num_syntenic_genes"], numeric["reference_num_genes"]
+    missing = metrics.get("missing_synteny_output", pd.Series(False, index=metrics.index)).fillna(True).astype(bool)
+    return (
+        ~missing
+        & reference.lt(math.inf)
+        & matched.gt(0)
+        & matched.le(reference)
+        & matched.ge(reference - max_missing_reference_genes)
+        & numeric["duplicate_reference_gene_count"].eq(0)
+        & numeric["reference_order_violation_count"].eq(0)
+    )
+
+
 def measure_reference_cluster_architecture(
     root_dir: str | Path,
     gff_dir: str | Path,
@@ -830,31 +878,12 @@ def measure_reference_cluster_architecture(
     input_df.merge(metrics_df, on="genome_id", how="left").to_csv(output_csv, index=False)
 
 
-def protein_alignment_integrity(
-    percent_identity: object,
-    alignment_length: object,
-    query_length: object,
-    target_length: object,
-) -> float:
-    """Return minimum reciprocal coverage for a measured protein hit."""
-    try:
-        identity, aligned, query, target = map(
-            float,
-            (percent_identity, alignment_length, query_length, target_length),
-        )
-    except (TypeError, ValueError):
-        return 0.0
-    if not all(math.isfinite(value) for value in (identity, aligned, query, target)):
-        return 0.0
-    if aligned <= 0.0 or query <= 0.0 or target <= 0.0:
-        return 0.0
-    if not 0.0 <= identity <= 100.0:
-        return 0.0
-    return max(0.0, min(1.0, aligned / query, aligned / target))
-
-
 def add_protein_alignment_evidence(hits_df: pd.DataFrame, prefix: str) -> tuple[pd.DataFrame, bool]:
-    """Add reciprocal coverage and alignment-integrity columns to MMseqs protein hits."""
+    """Validate native MMseqs qcov/tcov and derive reciprocal-coverage integrity.
+
+    Never infer coverage from alnlen: its gap columns can overstate residue spans.
+    Legacy hit tables without native coverage require remeasurement.
+    """
     hits_df = hits_df.copy()
     identity = f"{prefix}_mmseqs_percent_identity"
     aligned = f"{prefix}_mmseqs_alignment_length"
@@ -864,14 +893,15 @@ def add_protein_alignment_evidence(hits_df: pd.DataFrame, prefix: str) -> tuple[
     target_coverage = f"{prefix}_mmseqs_target_coverage"
     reciprocal_coverage = f"{prefix}_min_reciprocal_coverage"
     integrity = f"{prefix}_alignment_integrity"
-    if not {identity, aligned, query, target}.issubset(hits_df.columns):
+    evidence_columns = [identity, aligned, query, target, query_coverage, target_coverage]
+    if not set(evidence_columns).issubset(hits_df.columns):
         for column in (query_coverage, target_coverage, reciprocal_coverage, integrity):
             hits_df[column] = 0.0
         return hits_df, False
 
-    for column in (identity, aligned, query, target):
+    for column in evidence_columns:
         hits_df[column] = pd.to_numeric(hits_df[column], errors="coerce")
-    numeric_evidence = hits_df[[identity, aligned, query, target]]
+    numeric_evidence = hits_df[evidence_columns]
     finite = numeric_evidence.notna().all(axis=1) & numeric_evidence.abs().lt(math.inf).all(axis=1)
     valid = (
         finite
@@ -879,9 +909,11 @@ def add_protein_alignment_evidence(hits_df: pd.DataFrame, prefix: str) -> tuple[
         & (hits_df[aligned] > 0)
         & (hits_df[query] > 0)
         & (hits_df[target] > 0)
+        & hits_df[query_coverage].between(0.0, 1.0)
+        & hits_df[target_coverage].between(0.0, 1.0)
     )
-    hits_df[query_coverage] = (hits_df[aligned] / hits_df[query]).where(valid, 0.0).clip(0.0, 1.0)
-    hits_df[target_coverage] = (hits_df[aligned] / hits_df[target]).where(valid, 0.0).clip(0.0, 1.0)
+    hits_df[query_coverage] = hits_df[query_coverage].where(valid, 0.0)
+    hits_df[target_coverage] = hits_df[target_coverage].where(valid, 0.0)
     hits_df[reciprocal_coverage] = hits_df[[query_coverage, target_coverage]].min(axis=1)
     hits_df[integrity] = hits_df[reciprocal_coverage]
     return hits_df, True
@@ -940,6 +972,28 @@ def valid_coverage_aware_mmseqs_pident(
     return result.loc[result[pident].between(min(pident_range), max(pident_range))].copy()
 
 
+def summarize_best_hit_aai(hits_df: pd.DataFrame) -> pd.DataFrame:
+    """Paper-style AAI: mean identity of the lowest-E-value natural-protein hit per ORF.
+
+    This is a diversification metric, not a gene-completeness measurement. Do not
+    substitute profile consensuses, reduce to one ORF per family, or select by
+    maximum identity. See King et al., doi:10.1126/science.aec2657, Data S1.
+    """
+    columns = ["id_prompt", "average_protein_percent_identity", "average_protein_identity_gene_count"]
+    evalue = "protein_database_mmseqs_e_value"
+    pident = "protein_database_mmseqs_percent_identity"
+    if hits_df.empty:
+        return pd.DataFrame(columns=columns)
+    hits = hits_df[["id_prompt", evalue, pident]].copy()
+    for column in (evalue, pident):
+        hits[column] = pd.to_numeric(hits[column], errors="raise")
+    if not (hits[evalue].ge(0) & hits[evalue].lt(math.inf) & hits[pident].between(0, 100)).all():
+        raise ValueError("AAI hits contain invalid E-values or amino-acid identities")
+    best = hits.sort_values(evalue, kind="stable").drop_duplicates("id_prompt")
+    best["_genome_id"] = best["id_prompt"].astype(str).str.rsplit("_", n=1).str[0]
+    return best.groupby("_genome_id")[pident].agg(["mean", "count"]).reset_index().set_axis(columns, axis=1)
+
+
 def summarize_full_length_aai(hits_df: pd.DataFrame, minimum_reciprocal_coverage: float = 0.75) -> pd.DataFrame:
     """Average identity over one best reciprocally full-length hit per target family."""
     hits_df = _full_length_hits(hits_df, "protein_database", minimum_reciprocal_coverage)
@@ -958,63 +1012,137 @@ def summarize_full_length_aai(hits_df: pd.DataFrame, minimum_reciprocal_coverage
     )
 
 
+def _canonical_required_target(value: object) -> str:
+    """Normalize supported PHROG family spellings while preserving other target IDs."""
+    text = str(value).strip()
+    match = re.fullmatch(r"(?:phrog[_-]?)?(\d+)(?:\.0)?", text, flags=re.IGNORECASE)
+    return f"phrog:{int(match.group(1))}" if match else text
+
+
+def _required_product_matches(product: str, annotation: object, canonical_target: str) -> bool:
+    """Match an annotation label or an explicit PHROG family selector."""
+    selector = "phrog:1713" if product.strip().lower() == "nan" else product.strip()
+    family_match = re.fullmatch(r"phrog:(\d+)", selector, flags=re.IGNORECASE)
+    if family_match is not None:
+        return canonical_target == f"phrog:{int(family_match.group(1))}"
+    return str(annotation) == product
+
+
+def _maximum_weight_required_assignment(
+    edge_weights: dict[tuple[str, str, str], float],
+    product_quotas: Counter[str],
+) -> tuple[float, ...]:
+    """Optimize required evidence under candidate, family, and product-copy constraints."""
+    edges = tuple(sorted((edge, float(weight)) for edge, weight in edge_weights.items() if float(weight) > 0.0))
+    if not edges:
+        return ()
+
+    candidates = sorted({edge[0] for edge, _weight in edges})
+    targets = sorted({edge[1] for edge, _weight in edges})
+    products = sorted({edge[2] for edge, _weight in edges})
+    constraint_keys = (
+        [("candidate", candidate) for candidate in candidates]
+        + [("target", target) for target in targets]
+        + [("product", product) for product in products]
+    )
+    matrix = [
+        [
+            float(
+                (kind == "candidate" and edge[0] == key)
+                or (kind == "target" and edge[1] == key)
+                or (kind == "product" and edge[2] == key)
+            )
+            for edge, _weight in edges
+        ]
+        for kind, key in constraint_keys
+    ]
+    upper_bounds = [float(product_quotas[key]) if kind == "product" else 1.0 for kind, key in constraint_keys]
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Unrecognized options detected: \{'threads'\}\. These will be passed to HiGHS verbatim\.",
+            category=RuntimeWarning,
+        )
+        result = milp(
+            c=[-weight for _edge, weight in edges],
+            integrality=[1] * len(edges),
+            bounds=Bounds(0.0, 1.0),
+            constraints=LinearConstraint(matrix, 0.0, upper_bounds),
+            options={"threads": 1},
+        )
+    if not result.success:
+        raise RuntimeError(f"Required-gene evidence assignment failed: {result.message}")
+    return tuple(weight for selected, (_edge, weight) in zip(result.x, edges, strict=True) if selected > 0.5)
+
+
 def summarize_required_gene_evidence(
     hits_df: pd.DataFrame,
     sequences_df: pd.DataFrame,
     required_products: tuple,
     minimum_reciprocal_coverage: float = 0.75,
+    family_coverage_thresholds: dict[str, tuple[float, float]] | None = None,
 ) -> pd.DataFrame:
-    """Assign required label copies one-to-one to distinct ORFs and target families."""
+    """Assign distinct functions, optionally using control-calibrated family coverage.
+
+    Without a profile, retain raw reciprocal-integrity rewards. With a profile,
+    normalize coverage to the supported query/target thresholds (defaulting to
+    the generic threshold for families not overridden). This lets a documented
+    viable shortened or extended allele satisfy its function without relaxing
+    the requirements for unrelated proteins. Hard and full-credit boundaries
+    then coincide for this component; experimental viability is not implied.
+    """
+    calibrated = family_coverage_thresholds is not None
+    coverage_thresholds = {}
+    for family, thresholds in (family_coverage_thresholds or {}).items():
+        if len(thresholds) != 2 or not all(0.0 < float(value) <= 1.0 for value in thresholds):
+            raise ValueError("Family coverage thresholds must contain query and target fractions in (0, 1]")
+        coverage_thresholds[_canonical_required_target(family)] = tuple(map(float, thresholds))
+    if calibrated and not 0.0 < minimum_reciprocal_coverage <= 1.0:
+        raise ValueError("Default calibrated coverage must be in (0, 1]")
     required_products = tuple(map(str, required_products))
+    required_product_counts = Counter(required_products)
     hits_df, available = add_protein_alignment_evidence(hits_df, "protein_database")
     target_column = "protein_database_mmseqs_target"
     available = available and {"id_prompt", "annot", target_column}.issubset(hits_df.columns)
     if available:
         hits_df["_genome_id"] = hits_df["id_prompt"].astype(str).str.rsplit("_", n=1).str[0]
-        hits_df["annot"] = hits_df["annot"].astype(str)
-        hits_df[target_column] = hits_df[target_column].astype(str)
 
     rows = []
     for sequence in sequences_df.itertuples(index=False):
         genome_hits = hits_df.loc[hits_df["_genome_id"] == str(sequence.id_prompt)] if available else pd.DataFrame()
-        integrities = []
-        full_length_count = 0
-        for product, required_copy_count in Counter(required_products).items():
-            family = genome_hits.loc[genome_hits["annot"] == product] if not genome_hits.empty else pd.DataFrame()
-            assigned_integrities: list[float] = []
-            if len(family):
-                candidate_to_targets = family.groupby("id_prompt")[target_column].agg(set).map(set).to_dict()
-                target_to_candidate = _maximum_reference_matching(candidate_to_targets)
-                assigned_integrities = [
-                    float(
-                        family.loc[
-                            (family["id_prompt"] == candidate) & (family[target_column] == target),
-                            "protein_database_alignment_integrity",
-                        ].max()
-                    )
-                    for target, candidate in target_to_candidate.items()
-                ]
-                integrities.extend(sorted(assigned_integrities, reverse=True)[:required_copy_count])
-
-                full_family = family.loc[
-                    (family["protein_database_mmseqs_query_coverage"] >= minimum_reciprocal_coverage)
-                    & (family["protein_database_mmseqs_target_coverage"] >= minimum_reciprocal_coverage)
-                ]
-                full_candidate_to_targets = full_family.groupby("id_prompt")[target_column].agg(set).map(set).to_dict()
-                full_length_count += min(
-                    required_copy_count,
-                    len(_maximum_reference_matching(full_candidate_to_targets)),
+        edge_weights: dict[tuple[str, str, str], float] = {}
+        full_edge_weights: dict[tuple[str, str, str], float] = {}
+        for hit in genome_hits.to_dict("records"):
+            candidate = str(hit["id_prompt"])
+            target = _canonical_required_target(hit[target_column])
+            query_min, target_min = coverage_thresholds.get(
+                target, (minimum_reciprocal_coverage, minimum_reciprocal_coverage)
+            )
+            query_coverage = float(hit["protein_database_mmseqs_query_coverage"])
+            target_coverage = float(hit["protein_database_mmseqs_target_coverage"])
+            for product in required_product_counts:
+                if not _required_product_matches(product, hit["annot"], target):
+                    continue
+                edge = (candidate, target, product)
+                integrity = (
+                    min(1.0, query_coverage / query_min, target_coverage / target_min)
+                    if calibrated
+                    else float(hit["protein_database_alignment_integrity"])
                 )
-            assigned_copy_count = min(required_copy_count, len(assigned_integrities))
-            missing_copy_count = required_copy_count - assigned_copy_count
-            integrities.extend([0.0] * missing_copy_count)
+                if integrity > edge_weights.get(edge, 0.0):
+                    edge_weights[edge] = integrity
+                if query_coverage >= query_min and target_coverage >= target_min:
+                    full_edge_weights[edge] = 1.0
+
+        integrities = _maximum_weight_required_assignment(edge_weights, required_product_counts)
+        full_length_count = len(_maximum_weight_required_assignment(full_edge_weights, required_product_counts))
         rows.append(
             {
                 "id_prompt": str(sequence.id_prompt),
                 "genome_id": str(sequence.genome_id),
                 "required_genes_matched_count": sum(value > 0.0 for value in integrities),
                 "required_genes_total_count": len(required_products),
-                "required_genes_integrity_sum": sum(integrities),
+                "required_genes_integrity_sum": math.fsum(integrities),
                 "required_genes_full_length_count": full_length_count,
                 "required_genes_alignment_evidence_available": available,
             }

@@ -35,7 +35,12 @@ initialized_seqs_fasta_file_save_location: "qc1_initial_seqs.fasta"
 nucleotide_filtering: true
 nucleotide_character_filter: true
 genome_length_filter: true
-genome_length_range: [5306, 5493]
+# Viable PhiX insertion mutants up to 5,730 nt, with instability above 5,550:
+# https://doi.org/10.1128/jvi.52.3.822-827.1984. King et al.'s 16 released viable
+# genomes span 5,349-5,654 nt: https://doi.org/10.1126/science.aec2657 and
+# https://github.com/ArcInstitute/evo2/blob/main/phage_gen/data/viable_generated_phage_genomes.fasta.
+# Screening envelope only; the RL reward separately prefers <=5,550 nt.
+genome_length_range: [5306, 5730]
 gc_content_filter: true
 gc_content_range: [30, 65]
 nucleotide_homopolymer_filter: true
@@ -87,7 +92,9 @@ orfipy_threads: 16
 orfipy_strand: "f"
 orfipy_start_codons: "ATG"
 orfipy_stop_codons: "TAA,TGA,TAG"
-orfipy_min_max_orf_lengths: [90, 1800]
+# Viable Evo-Φ36 uses the 25-aa G4 J replacement (PHROG3780); 90 nt hid it.
+# King et al., https://doi.org/10.1126/science.aec2657 (viable-design analysis).
+orfipy_min_max_orf_lengths: [75, 1800]
 orfipy_orfs_file_save_location: "qc4_orfipy_orfs.fasta"
 orfipy_tmp_proteins_file_save_location: "qc4_orfipy_proteins_tmp.fasta"
 orfipy_proteins_file_save_location: "qc4_orfipy_proteins.fasta"
@@ -96,9 +103,17 @@ homology_filter_seqs_circular_fasta_file_save_location: "qc4_homology_filter_seq
 protein_database_hit_count_filter: true
 mmseqs_threads: 16
 mmseqs_db_protein_database: "recipes/evo2_phage_gen/data/external/phrogs/phrogs_consensus_db_pad"
+# AAI uses individual natural proteins, not the annotation consensuses above:
+# lowest-E-value hit per called ORF, then arithmetic mean percent identity.
+# King et al., https://doi.org/10.1126/science.aec2657, Data S1 (Sheets 1 and 4).
+# The AAI <=95% diversification criterion is not a universal viability condition.
+mmseqs_db_aai_database: "recipes/evo2_phage_gen/data/external/phrogs/phrogs_member_db"
 mmseqs_protein_database_results_dir_save_location: "qc4_mmseqs_results_protein_database"
 mmseqs_protein_database_sensitivity: 4.0
 protein_database_hit_count: 7
+# King Methods B.1.9 counts protein hits, not seven distinct families. Our patched
+# family/coverage gate is stronger; see configs/README.md for the measurement definitions.
+# https://doi.org/10.1101/2025.09.12.675911
 # PHROG targets are profile consensuses (calibrated at 0.75); the exact G target stays strict.
 protein_match_min_reciprocal_coverage: 0.75
 tropism_match_min_reciprocal_coverage: 0.95
@@ -129,6 +144,8 @@ mmseqs_db_tropism_protein: "recipes/evo2_phage_gen/data/external/mmseqs/NC_00142
 mmseqs_tropism_protein_results_dir_save_location: "qc4_mmseqs_results_tropism_protein"
 mmseqs_tropism_protein_sensitivity: 4.0
 tropism_protein_sequence_identity_range: [60, 100]
+# King's >=60% identity filter has no explicit reciprocal-coverage threshold;
+# the separate 0.95 coverage setting above is our additional fragment guard.
 
 homology_filter_counts_file_save_location: "qc4_homology_filter_counts.csv"
 homology_filter_seqs_csv_file_save_location: "qc4_homology_filter_seqs.csv"
@@ -184,6 +201,11 @@ average_protein_sequence_identity_range: [0, 95]
 average_protein_sequence_identity_metrics_file_save_location: "qc6_average_protein_sequence_identity_metrics.csv"
 
 required_genes_filter: true
+# PhiX function evidence, calibrated on King's 16 viable designs and the closely
+# related Rokyta isolates, not a universal essential-gene set or a viability proof.
+# https://doi.org/10.1126/science.aec2657; https://doi.org/10.1128/JB.188.3.1134-1142.2006
+# K is nonessential and absent in viable Evo-Φ114; do not require its PHROG1713.
+# K can affect burst size: https://doi.org/10.1128/jvi.53.2.708-709.1985.
 required_genes_list:
   - "terminase"
   - "endolysin"
@@ -194,13 +216,26 @@ required_genes_list:
   - "major head protein"
   - "head morphogenesis"
   - "head morphogenesis"
-  - "nan" # Arc annotates NC_001422.1_ORF.15 as product=nan, function=unknown function.
   - "pilot protein for DNA ejection"
 required_genes_metrics_file_save_location: "qc6_required_genes_metrics.csv"
-required_genes_evidence_target: 10.0
+required_genes_evidence_target: 9.0
+# Minimum native [query, PHROG-target] coverage. Other families retain 0.75/0.75.
+# Measured viable C/B truncations and E extensions, rounded down by <1 residue;
+# retain significant PHROG function evidence and distinct ORF/family assignments.
+# King et al. (above): Evo-Φ75/100 C, Φ316 B, Φ4/46 E; these are context-dependent
+# viable observations, not evidence that arbitrary combinations are viable.
+required_gene_family_coverage:
+  "phrog:1465": [0.70, 0.47]  # C: native target coverage 32/68; 33 alignment columns include a gap.
+  "phrog:1472": [0.58, 0.75]  # E: smallest observed query coverage 74/127.
+  "phrog:1473": [0.75, 0.68]  # B: smallest observed target coverage 80/117.
 
 syntenic_gene_count_filter: true
-# Retained for Arc's call signature; the patched gate uses exact reference coverage and copy balance.
+# All positive controls have 9-10 of the 10 callable WT loci, without order/copy
+# violations. Permit one reference-locus deficit (e.g. K loss or divergent J),
+# while the independent required-function gate still rejects essential losses.
+# This is acceptance, not King's optional one-gene-break diversification rule.
+synteny_max_missing_reference_genes: 1
+# Legacy Arc call arguments; the patched gate uses the allowance above plus order/copy checks.
 syntenic_gene_count_range: [10, 12]
 total_gene_count_range: [10, 12]
 syntenic_total_gene_count_remove:

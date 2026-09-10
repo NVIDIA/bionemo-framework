@@ -55,7 +55,38 @@ def test_arc_genome_design_filtering_local_config_is_safe_by_default():
     assert config["reference_tropism_protein"].endswith(
         "data/external/arc_evo2/phage_gen/data/NC_001422.1_Gprotein.fasta"
     )
-    assert config["genome_length_range"] == [5306, 5493]
+    assert config["genome_length_range"] == [5306, 5730]
+
+
+def test_phix_function_gates_allow_observed_viable_variants():
+    """The PhiX profile includes demonstrated short/replaced genes without dropping their functions."""
+    from bionemo.evo2_phage_gen.rl_readiness import _load_config_with_defaults
+
+    arc = yaml.safe_load((RECIPE_ROOT / "configs/arc_genome_design_filtering_local.yaml").read_text())
+    assert arc["orfipy_min_max_orf_lengths"] == [75, 1800]
+    assert len(arc["required_genes_list"]) == 9
+    assert "DNA condensation" in arc["required_genes_list"]
+    assert arc["required_genes_list"].count("head morphogenesis") == 2
+    assert "phrog:1713" not in arc["required_genes_list"]
+    assert "nan" not in arc["required_genes_list"]
+    assert arc["required_genes_evidence_target"] == 9
+    for name in ("grpo_phage_megatron.yaml", "gdpo_phage_megatron.yaml"):
+        resolved = _load_config_with_defaults(RECIPE_ROOT / "configs" / name)
+        external = resolved["env"]["phage_qc"]["external_qc"]
+        assert external["required_genes_evidence_target"] == arc["required_genes_evidence_target"], name
+        assert external["config_path"] == "configs/arc_genome_design_filtering_local.yaml", name
+        assert external["enable_required_genes"] and external["enable_average_protein_identity"], name
+        assert resolved["policy"]["generation"]["max_new_tokens"] == 6000, name
+        assert resolved["policy"]["max_total_sequence_length"] == 6144, name
+    assert arc["mmseqs_db_aai_database"].endswith("phrogs/phrogs_member_db")
+    assert arc["mmseqs_db_aai_database"] != arc["mmseqs_db_protein_database"]
+    assert arc["required_gene_family_coverage"] == {
+        "phrog:1465": [0.70, 0.47],
+        "phrog:1472": [0.58, 0.75],
+        "phrog:1473": [0.75, 0.68],
+    }
+    assert arc["protein_match_min_reciprocal_coverage"] == 0.75
+    assert arc["synteny_max_missing_reference_genes"] == 1
 
 
 def test_docs_and_configs_do_not_use_stale_workspace_paths():
@@ -85,7 +116,7 @@ def test_grpo_config_uses_prompt_batch_size_for_evo2_generation():
     train_data = config["data"]["train"]
 
     assert length_config["genome_length_min"] == 5306
-    assert length_config["genome_length_max"] == 5493
+    assert length_config["genome_length_max"] == 5730
     assert {
         key: length_config[key]
         for key in (
@@ -97,19 +128,20 @@ def test_grpo_config_uses_prompt_batch_size_for_evo2_generation():
     } == {
         "genome_length_reward_lower_zero": 3000,
         "genome_length_reward_lower_full": 5359,
-        "genome_length_reward_upper_full": 5391,
-        "genome_length_reward_upper_zero": 5426,
+        "genome_length_reward_upper_full": 5550,
+        "genome_length_reward_upper_zero": 5800,
     }
-    assert generation_config["max_new_tokens"] == 5420
-    assert generation_config["max_new_tokens"] + 16 == 5436
-    assert generation_config["max_new_tokens"] + 24 == 5444
+    assert generation_config["max_new_tokens"] == 6000
+    assert generation_config["max_new_tokens"] + 16 == 6016
+    assert generation_config["max_new_tokens"] + 24 == 6024
     assert length_config["genome_length_reward_lower_zero"] < length_config["genome_length_min"]
     assert length_config["genome_length_reward_upper_full"] < generation_config["max_new_tokens"] + 16
-    assert generation_config["max_new_tokens"] + 16 - length_config["genome_length_reward_upper_zero"] == 10
-    assert generation_config["max_new_tokens"] + 24 - length_config["genome_length_reward_upper_zero"] == 18
+    assert generation_config["max_new_tokens"] + 16 - length_config["genome_length_reward_upper_zero"] == 216
+    assert generation_config["max_new_tokens"] + 24 - length_config["genome_length_reward_upper_zero"] == 224
     assert config["policy"]["max_total_sequence_length"] >= generation_config["max_new_tokens"] + 16
     assert config["env"]["phage_qc"]["weight_nucleotide_pass"] == 0.0
-    assert config["env"]["phage_qc"]["zero_reward_without_eod"] is False
+    assert config["env"]["phage_qc"]["zero_reward_without_eod"] is True
+    assert config["grpo"]["overlong_filtering"] is False
     assert config["env"]["phage_qc"]["dustmask_filter"] is True
     assert config["env"]["phage_qc"]["dustmasker_bin"] == "dustmasker"
     assert config["env"]["phage_qc"]["dustmask_use_external"] is True
@@ -170,7 +202,7 @@ def test_gdpo_config_uses_positional_objectives_and_mmseqs_diversity():
     updates_per_epoch = 96 // config["grpo"]["num_prompts_per_step"]
     assert config["grpo"]["max_num_epochs"] * updates_per_epoch >= config["grpo"]["max_num_steps"]
     assert env_config["reward_output_mode"] == "gdpo"
-    assert env_config["zero_reward_without_eod"] is False
+    assert env_config["zero_reward_without_eod"] is True
     assert config["loss_fn"]["reference_policy_kl_penalty"] == 0.001
     assert config["loss_fn"]["token_level_loss"] is False
     assert config["grpo"]["seq_logprob_error_threshold"] == 1.5
@@ -227,10 +259,11 @@ def test_gdpo_config_uses_positional_objectives_and_mmseqs_diversity():
     assert mmseqs_config["work_dir"] == "data/checkpoints/${run_id}_mmseqs_cluster_diversity"
     assert {key: value for key, value in mmseqs_config.items() if key != "work_dir"} == {
         "enabled": True,
+        "circular": True,
         "mmseqs_bin": "data/external/bin/mmseqs",
         "keep_artifacts": False,
         "min_seq_id": 0.99,
-        "coverage": 0.0,
+        "coverage": 0.95,
         "cov_mode": 0,
         "seq_id_mode": 0,
         "cluster_mode": 0,
@@ -243,13 +276,13 @@ def test_gdpo_config_uses_positional_objectives_and_mmseqs_diversity():
     assert config["grpo"]["num_prompts_per_step"] * config["grpo"]["num_generations_per_prompt"] == 768
     assert config["grpo"]["val_at_start"] is False
     assert config["grpo"]["val_at_end"] is True
-    assert config["policy"]["max_total_sequence_length"] == 5632
+    assert config["policy"]["max_total_sequence_length"] == 6144
     assert config["policy"]["train_global_batch_size"] == 768
     assert config["policy"]["train_micro_batch_size"] == 8
     assert config["policy"]["generation_batch_size"] == 768
     assert config["policy"]["logprob_batch_size"] == 1
-    assert config["policy"]["generation"]["max_new_tokens"] + 16 == 5436
-    assert config["policy"]["generation"]["max_new_tokens"] + 24 == 5444
+    assert config["policy"]["generation"]["max_new_tokens"] + 16 == 6016
+    assert config["policy"]["generation"]["max_new_tokens"] + 24 == 6024
     mcore_generation_config = config["policy"]["generation"]["mcore_generation_config"]
     assert mcore_generation_config["prompt_batch_size"] == 96
     assert mcore_generation_config["max_requests"] == 96
@@ -285,7 +318,7 @@ def test_phix_example_documents_every_gdpo_objective():
     assert implementation_section.count("../src/bionemo/evo2_phage_gen/") >= len(
         config["env"]["phage_qc"]["gdpo_objectives"]
     )
-    for evidence in ("Sinsheimervirus", "3,000", "5,339", "5,359", "5,388", "5,426", "FASTA"):
+    for evidence in ("3,000", "5,359", "5,550", "5,730", "5,800", "FASTA"):
         assert evidence in score_section
 
 

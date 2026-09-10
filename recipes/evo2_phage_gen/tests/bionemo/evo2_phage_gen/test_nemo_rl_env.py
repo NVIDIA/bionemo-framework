@@ -23,6 +23,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 import torch
+import yaml
 
 import bionemo.evo2_phage_gen.nemo_rl_env as nemo_rl_env
 from bionemo.evo2_phage_gen.design_scope import HostDomain, HostEvidence
@@ -274,8 +275,26 @@ def test_environment_maps_genome_length_reward_bounds(tmp_path: Path):
     ) == (3000.0, 5359.0, 5391.0, 5426.0)
 
 
+def test_environment_maps_mmseqs_circular_topology_without_changing_generic_default(tmp_path: Path):
+    """The RL actor should preserve explicit circular topology and default generic clustering to linear."""
+    if getattr(nemo_rl_env, "_NEMO_RL_IMPORT_ERROR", None) is not None:
+        pytest.skip("NeMo-RL is unavailable")
+
+    env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
+    base = {"sequence_safety": _sequence_safety_mapping(tmp_path)}
+
+    assert env_cls(base).mmseqs_cluster_diversity.circular is False
+    circular_env = env_cls({**base, "mmseqs_cluster_diversity": {"enabled": True, "circular": True}})
+    assert circular_env.mmseqs_cluster_diversity.circular is True
+    assert circular_env.mmseqs_cluster_diversity.min_seq_id == 0.99
+    assert circular_env.mmseqs_cluster_diversity.coverage == 0.95
+    explicit = env_cls({**base, "mmseqs_cluster_diversity": {"min_seq_id": 0.99, "coverage": 0.9}})
+    assert explicit.mmseqs_cluster_diversity.min_seq_id == 0.99
+    assert explicit.mmseqs_cluster_diversity.coverage == 0.9
+
+
 def test_environment_parses_no_eod_reward_gate(tmp_path: Path):
-    """The experimental reward gate is boolean, explicit, and default-off."""
+    """Old custom configs remain ungated; the PhiX YAMLs explicitly enable the gate."""
     if getattr(nemo_rl_env, "_NEMO_RL_IMPORT_ERROR", None) is not None:
         pytest.skip("NeMo-RL is unavailable")
 
@@ -310,8 +329,11 @@ def test_gdpo_objective_scores_reduce_named_columns_positionally():
     assert objective_scores.to_numpy().tolist() == [[1.0, 0.25], [0.25, 0.75]]
 
 
-def test_no_eod_gate_zeros_entire_rl_reward() -> None:
-    """The optional gate makes every no-EOD candidate invalid for RL reward."""
+@pytest.mark.parametrize("config_name", ["grpo_phage_megatron.yaml", "gdpo_phage_megatron.yaml"])
+def test_no_eod_gate_zeros_entire_rl_reward(config_name: str) -> None:
+    """Both shipped PhiX defaults reject no-EOD rows, including below-cap outputs."""
+    config = yaml.safe_load((Path(__file__).parents[3] / "configs" / config_name).read_text())
+    gate = config["env"]["phage_qc"]["zero_reward_without_eod"]
     scored = pd.DataFrame(
         {
             "generation_stopped_on_eod": [True, False, False],
@@ -332,8 +354,8 @@ def test_no_eod_gate_zeros_entire_rl_reward() -> None:
         GDPOObjective("safety_amr", ("reward_safety_amr",), requires_safety_eligibility=False),
     )
 
-    scalar = nemo_rl_env._qualified_scalar_rewards(scored, zero_reward_without_eod=True)
-    matrix = gdpo_objective_scores_from_scored(scored, objectives, zero_reward_without_eod=True)
+    scalar = nemo_rl_env._qualified_scalar_rewards(scored, zero_reward_without_eod=gate)
+    matrix = gdpo_objective_scores_from_scored(scored, objectives, zero_reward_without_eod=gate)
 
     assert scalar.tolist() == pytest.approx([0.7, 0.0, 0.0])
     assert matrix.to_dict("list") == {

@@ -33,8 +33,8 @@ from Bio.Seq import Seq
 from bionemo.evo2_phage_gen import sequence_safety_cli
 from bionemo.evo2_phage_gen.design_scope import HostDomain, HostEvidence
 from bionemo.evo2_phage_gen.protein_evidence import (
+    add_protein_alignment_evidence,
     measure_reference_cluster_architecture,
-    protein_alignment_integrity,
     remove_pseudocircular_extension_orfs,
     stage_coordinate_normalized_reference_gff,
     summarize_required_gene_evidence,
@@ -317,7 +317,12 @@ def test_score_nucleotide_metrics_rewards_passing_sequence():
 
 
 def test_score_nucleotide_metrics_uses_configured_shaping_genome_length_reward():
-    lengths = [2500, 3000, 4000, 5305, 5359, 5386, 5391, 5408, 5426, 5436, 5444]
+    # Published viable lengths must survive the default hard gate; capped genomes must not.
+    config_dir = Path(__file__).parents[3] / "configs"
+    defaults = yaml.safe_load((config_dir / "grpo_phage_megatron.yaml").read_text())["env"]["phage_qc"]
+    length_config = {key: value for key, value in defaults.items() if key.startswith("genome_length_")}
+    arc = yaml.safe_load((config_dir / "arc_genome_design_filtering_local.yaml").read_text())
+    lengths = [2500, 3000, 4000, 5305, 5306, 5349, 5359, 5386, 5550, 5654, 5730, 5731, 5800, 6000, 6016, 6024]
     scored = score_nucleotide_metrics(
         pd.DataFrame(
             {
@@ -325,20 +330,15 @@ def test_score_nucleotide_metrics_uses_configured_shaping_genome_length_reward()
                 "sequence": [_deterministic_dna(length) for length in lengths],
             }
         ),
-        config=NucleotideQCConfig(
-            genome_length_min=5306,
-            genome_length_max=5493,
-            genome_length_reward_lower_zero=3000,
-            genome_length_reward_lower_full=5359,
-            genome_length_reward_upper_full=5391,
-            genome_length_reward_upper_zero=5426,
-        ),
+        config=NucleotideQCConfig(**length_config),
     )
 
     assert scored["reward_genome_length"].tolist() == pytest.approx(
-        [0.0, 0.0, 1000 / 2359, 2305 / 2359, 1.0, 1.0, 1.0, 18 / 35, 0.0, 0.0, 0.0]
+        [0, 0, 1000 / 2359, 2305 / 2359, 2306 / 2359, 2349 / 2359, 1, 1, 1, 146 / 250, 70 / 250, 69 / 250, 0, 0, 0, 0]
     )
-    assert scored.loc[scored["genome_length"] == 4000, "reward_nucleotide_pass"].item() == 0.0
+    expected_pass = [0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0]
+    assert scored["reward_nucleotide_pass"].tolist() == expected_pass
+    assert [int(arc["genome_length_range"][0] <= n <= arc["genome_length_range"][1]) for n in lengths] == expected_pass
 
 
 @pytest.mark.parametrize(
@@ -910,7 +910,7 @@ def test_mmseqs_cluster_diversity_reward_uses_inverse_cluster_size(tmp_path, mon
         assert check is True
         assert args[:2] == ["fake-mmseqs", "easy-cluster"]
         assert args[args.index("--min-seq-id") + 1] == "0.99"
-        assert args[args.index("-c") + 1] == "0"
+        assert args[args.index("-c") + 1] == "0.95"
         assert args[args.index("--cov-mode") + 1] == "0"
         assert args[args.index("--seq-id-mode") + 1] == "0"
         assert args[args.index("--cluster-mode") + 1] == "0"
@@ -948,6 +948,130 @@ def test_mmseqs_cluster_diversity_reward_uses_inverse_cluster_size(tmp_path, mon
     assert scored["mmseqs_cluster_size"].tolist() == [2, 2, 1, 0]
     assert scored["mmseqs_cluster_valid_for_clustering"].tolist() == [1.0, 1.0, 1.0, 0.0]
     assert scored["mmseqs_cluster_missing_from_output"].tolist() == [0.0, 0.0, 0.0, 0.0]
+
+
+def test_mmseqs_cluster_diversity_canonicalizes_circular_genomes_without_reordering_rows(tmp_path, monkeypatch):
+    """Circular rotations and reverse complements should share one cluster without collapsing a near neighbor."""
+    base = "AACCGTTA"
+    rotated = base[3:] + base[:3]
+    reverse_complement = str(Seq(base).reverse_complement())
+    near_neighbor = base[:4] + "A" + base[5:]
+    fasta_runs: list[list[tuple[str, str]]] = []
+
+    def fake_run(args, check):
+        assert check is True
+        records = [(record.id, str(record.seq)) for record in SeqIO.parse(args[2], "fasta")]
+        fasta_runs.append(records)
+        representative_by_sequence: dict[str, str] = {}
+        cluster_rows = []
+        for record_id, sequence in records:
+            representative = representative_by_sequence.setdefault(sequence, record_id)
+            cluster_rows.append(f"{representative}\t{record_id}\n")
+        Path(f"{args[3]}_cluster.tsv").write_text("".join(cluster_rows))
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    rows = [
+        {"id_prompt": "base", "sequence": base},
+        {"id_prompt": "rotation", "sequence": rotated},
+        {"id_prompt": "reverse", "sequence": reverse_complement},
+        {"id_prompt": "near", "sequence": near_neighbor},
+        {"id_prompt": "invalid", "sequence": "NNNNNNNN"},
+    ]
+    config = NucleotideQCConfig(genome_length_min=8, genome_length_max=8, gc_content_min=0, gc_content_max=100)
+    weights = RewardWeights(
+        valid_nt_chars=0.0,
+        genome_length=0.0,
+        gc_content=0.0,
+        nt_homopolymer=0.0,
+        mmseqs_cluster_diversity=1.0,
+    )
+    mmseqs_config = MMseqsClusterDiversityConfig(
+        enabled=True,
+        mmseqs_bin="fake-mmseqs",
+        work_dir=tmp_path,
+        circular=True,
+    )
+
+    scored_runs = [
+        score_nucleotide_metrics(
+            pd.DataFrame(ordered_rows),
+            config=config,
+            weights=weights,
+            mmseqs_cluster_diversity=mmseqs_config,
+        )
+        for ordered_rows in (rows, [rows[index] for index in (1, 3, 4, 2, 0)])
+    ]
+
+    assert len(fasta_runs) == 2
+    for records in fasta_runs:
+        fasta_by_id = dict(records)
+        assert len(records) == 4
+        assert len(set(fasta_by_id.values())) == 2
+        sequences = [sequence for _, sequence in records]
+        assert sorted(sequences) == ["AAACCATT", "AAACCGTT", "AAACCGTT", "AAACCGTT"]
+        first, second = sorted(set(sequences))
+        assert sum(left != right for left, right in zip(first, second, strict=True)) == 1
+        assert set(fasta_by_id) == {"seq_0", "seq_1", "seq_2", "seq_3"}
+    expected_by_id = {
+        "base": (1 / 3, 3, 1.0),
+        "rotation": (1 / 3, 3, 1.0),
+        "reverse": (1 / 3, 3, 1.0),
+        "near": (1.0, 1, 1.0),
+        "invalid": (0.0, 0, 0.0),
+    }
+    for scored, ordered_rows in zip(scored_runs, (rows, [rows[index] for index in (1, 3, 4, 2, 0)]), strict=True):
+        assert scored["sequence"].tolist() == [row["sequence"] for row in ordered_rows]
+        observed_by_id = {
+            row.id_prompt: (
+                row.reward_mmseqs_cluster_diversity,
+                row.mmseqs_cluster_size,
+                row.mmseqs_cluster_valid_for_clustering,
+            )
+            for row in scored.itertuples()
+        }
+        assert observed_by_id == expected_by_id
+
+
+def test_mmseqs_cluster_diversity_preserves_linear_input_by_default(tmp_path, monkeypatch):
+    """Generic linear genomes must not be circularized unless topology is explicitly configured."""
+    base = "AACCGTTA"
+    rotated = base[3:] + base[:3]
+    observed_sequences = []
+
+    def fake_run(args, check):
+        assert check is True
+        records = [(record.id, str(record.seq)) for record in SeqIO.parse(args[2], "fasta")]
+        observed_sequences.extend(sequence for _, sequence in records)
+        Path(f"{args[3]}_cluster.tsv").write_text("".join(f"{record_id}\t{record_id}\n" for record_id, _ in records))
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    mmseqs_config = MMseqsClusterDiversityConfig(
+        enabled=True,
+        mmseqs_bin="fake-mmseqs",
+        work_dir=tmp_path,
+    )
+
+    scored = score_nucleotide_metrics(
+        pd.DataFrame({"id_prompt": ["base", "rotation"], "sequence": [base, rotated]}),
+        config=NucleotideQCConfig(
+            genome_length_min=8,
+            genome_length_max=8,
+            gc_content_min=0,
+            gc_content_max=100,
+        ),
+        weights=RewardWeights(
+            valid_nt_chars=0.0,
+            genome_length=0.0,
+            gc_content=0.0,
+            nt_homopolymer=0.0,
+            mmseqs_cluster_diversity=1.0,
+        ),
+        mmseqs_cluster_diversity=mmseqs_config,
+    )
+
+    assert mmseqs_config.circular is False
+    assert observed_sequences == [base, rotated]
+    assert scored["reward_mmseqs_cluster_diversity"].tolist() == [1.0, 1.0]
 
 
 def test_mmseqs_cluster_diversity_missing_output_gets_zero_reward(tmp_path, monkeypatch):
@@ -1354,7 +1478,7 @@ def test_smooth_reference_search_is_permissive_but_significance_bounded(tmp_path
     assert command[command.index("--min-seq-id") + 1] == "0"
     assert command[command.index("-c") + 1] == "0"
     assert command[command.index("-e") + 1] == "1"
-    assert command[command.index("--format-output") + 1] == "query,target,evalue,pident,alnlen,qlen,tlen"
+    assert command[command.index("--format-output") + 1] == "query,target,evalue,pident,alnlen,qlen,tlen,qcov,tcov"
     assert command[command.index("--threads") + 1] == "8"
 
 
@@ -1384,7 +1508,9 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
     )
 
     def fake_run(command, **kwargs):
-        Path(command[4]).write_text("A\tumi1_ORF.1\t1e-20\t90\t95\t100\t100\nG\tumi1_ORF.2\t1e-20\t95\t99\t100\t100\n")
+        Path(command[4]).write_text(
+            "A\tumi1_ORF.1\t1e-20\t90\t95\t100\t100\t0.95\t0.95\nG\tumi1_ORF.2\t1e-20\t95\t99\t100\t100\t0.99\t0.99\n"
+        )
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
@@ -1459,18 +1585,22 @@ def test_successful_tropism_search_without_hits_is_a_measured_zero(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("percent_identity", "alignment_length", "query_length", "target_length", "expected"),
+    ("percent_identity", "alignment_length", "query_length", "target_length", "qcov", "tcov", "expected"),
     [
-        (100.0, 100, 100, 100, 1.0),
-        (80.0, 100, 100, 100, 1.0),
-        (100.0, 50, 50, 100, 0.5),
-        (100.0, 50, 100, 50, 0.5),
-        (75.0, 40, 80, 100, 0.4),
-        (100.0, 0, 100, 100, 0.0),
-        (100.0, 100, 0, 100, 0.0),
-        (float("nan"), 100, 100, 100, 0.0),
-        (-1.0, 100, 100, 100, 0.0),
-        (101.0, 100, 100, 100, 0.0),
+        (100.0, 100, 100, 100, 1.0, 1.0, 1.0),
+        (80.0, 100, 100, 100, 1.0, 1.0, 1.0),
+        (100.0, 50, 50, 100, 1.0, 0.5, 0.5),
+        (100.0, 50, 100, 50, 0.5, 1.0, 0.5),
+        (75.0, 40, 80, 100, 0.5, 0.4, 0.4),
+        (100.0, 0, 100, 100, 0.0, 0.0, 0.0),
+        (100.0, 100, 0, 100, 1.0, 1.0, 0.0),
+        (float("nan"), 100, 100, 100, 1.0, 1.0, 0.0),
+        (-1.0, 100, 100, 100, 1.0, 1.0, 0.0),
+        (101.0, 100, 100, 100, 1.0, 1.0, 0.0),
+        (100.0, 100, 100, 100, float("nan"), 1.0, 0.0),
+        (100.0, 100, 100, 100, 1.0, float("inf"), 0.0),
+        (100.0, 100, 100, 100, -0.1, 1.0, 0.0),
+        (100.0, 100, 100, 100, 1.0, 1.1, 0.0),
     ],
 )
 def test_protein_alignment_integrity_penalizes_partial_matches(
@@ -1478,17 +1608,24 @@ def test_protein_alignment_integrity_penalizes_partial_matches(
     alignment_length,
     query_length,
     target_length,
+    qcov,
+    tcov,
     expected,
 ):
     """Presence credit follows coverage while identity remains a separate AAI measurement."""
-    observed = protein_alignment_integrity(
-        percent_identity,
-        alignment_length,
-        query_length,
-        target_length,
+    hits = pd.DataFrame(
+        {
+            "protein_mmseqs_percent_identity": [percent_identity],
+            "protein_mmseqs_alignment_length": [alignment_length],
+            "protein_mmseqs_query_length": [query_length],
+            "protein_mmseqs_target_length": [target_length],
+            "protein_mmseqs_query_coverage": [qcov],
+            "protein_mmseqs_target_coverage": [tcov],
+        }
     )
-
-    assert observed == pytest.approx(expected)
+    observed, available = add_protein_alignment_evidence(hits, "protein")
+    assert available
+    assert observed.loc[0, "protein_alignment_integrity"] == pytest.approx(expected)
 
 
 def test_required_gene_evidence_fails_closed_without_annotations():
@@ -1499,6 +1636,8 @@ def test_required_gene_evidence_fails_closed_without_annotations():
             "protein_database_mmseqs_alignment_length": [100],
             "protein_database_mmseqs_query_length": [100],
             "protein_database_mmseqs_target_length": [100],
+            "protein_database_mmseqs_query_coverage": [1],
+            "protein_database_mmseqs_target_coverage": [1],
         }
     )
     sequences = pd.DataFrame({"id_prompt": ["umi1"], "genome_id": ["genome_1"]})
@@ -1526,6 +1665,8 @@ def test_required_gene_evidence_requires_distinct_orfs_for_repeated_labels():
             "protein_database_mmseqs_alignment_length": [100] * 5,
             "protein_database_mmseqs_query_length": [100] * 5,
             "protein_database_mmseqs_target_length": [100] * 5,
+            "protein_database_mmseqs_query_coverage": [1, 1, 1, 1, 1],
+            "protein_database_mmseqs_target_coverage": [1, 1, 1, 1, 1],
         }
     )
     sequences = pd.DataFrame(
@@ -1562,6 +1703,8 @@ def test_protein_hit_reward_is_fractional_and_duplicate_safe_by_target_family(tm
             "protein_database_mmseqs_alignment_length": [100, 100, 50],
             "protein_database_mmseqs_query_length": [100, 100, 50],
             "protein_database_mmseqs_target_length": [100, 100, 100],
+            "protein_database_mmseqs_query_coverage": [1, 1, 1],
+            "protein_database_mmseqs_target_coverage": [1, 1, 0.5],
         }
     ).to_csv(phrogs_dir / "mmseqs2_hits.csv", index=False)
     scored = pd.DataFrame({"id_prompt": ["umi1"], "reward_external_protein_hit_count": [0.0]})
@@ -1599,6 +1742,8 @@ def test_tropism_reward_requires_reciprocal_coverage_for_full_credit_and_pass(tm
             "tropism_protein_mmseqs_alignment_length": [50, 100],
             "tropism_protein_mmseqs_query_length": [50, 100],
             "tropism_protein_mmseqs_target_length": [100, 100],
+            "tropism_protein_mmseqs_query_coverage": [1, 1],
+            "tropism_protein_mmseqs_target_coverage": [0.5, 1],
         }
     ).to_csv(tropism_dir / "mmseqs2_hits.csv", index=False)
     scored = pd.DataFrame(
@@ -1691,6 +1836,8 @@ def test_score_nucleotide_metrics_can_fold_in_external_qc_rewards(tmp_path, monk
                 "protein_database_mmseqs_alignment_length": [1, 1, 1],
                 "protein_database_mmseqs_query_length": [1, 1, 1],
                 "protein_database_mmseqs_target_length": [1, 1, 1],
+                "protein_database_mmseqs_query_coverage": [1, 1, 1],
+                "protein_database_mmseqs_target_coverage": [1, 1, 1],
             }
         ).to_csv(phrogs_dir / "mmseqs2_hits.csv", index=False)
         tropism_dir = run_dir / "qc4_mmseqs_results_tropism_protein"
@@ -1705,6 +1852,8 @@ def test_score_nucleotide_metrics_can_fold_in_external_qc_rewards(tmp_path, monk
                 "tropism_protein_mmseqs_alignment_length": [1, 1],
                 "tropism_protein_mmseqs_query_length": [1, 1],
                 "tropism_protein_mmseqs_target_length": [1, 1],
+                "tropism_protein_mmseqs_query_coverage": [1, 1],
+                "tropism_protein_mmseqs_target_coverage": [1, 1],
             }
         ).to_csv(tropism_dir / "mmseqs2_hits.csv", index=False)
         pd.DataFrame(
@@ -1944,6 +2093,28 @@ def test_online_synteny_pass_uses_metrics_not_measurement_survivor_csv(tmp_path)
     assert scored["reward_external_synteny_pass"].tolist() == [1.0, 0.0]
 
 
+def test_online_synteny_allows_configured_loss_but_not_order_or_copy_errors(tmp_path):
+    """PhiX can lose one WT locus; that must not bypass order, copy, or measurement checks."""
+    ids = ["complete", "one_loss", "two_losses", "duplicate", "reordered", "missing"]
+    pd.DataFrame(
+        {
+            "id_prompt": ids,
+            "num_syntenic_genes": [10, 9, 8, 9, 9, 9],
+            "total_num_genes": [10, 9, 8, 10, 9, 9],
+            "reference_num_genes": [10] * 6,
+            "duplicate_reference_gene_count": [0, 0, 0, 1, 0, 0],
+            "reference_order_violation_count": [0, 0, 0, 0, 1, 0],
+            "missing_synteny_output": [False] * 5 + [True],
+        }
+    ).to_csv(tmp_path / "metrics.csv", index=False)
+    config = {"synteny_metrics_file_save_location": "metrics.csv", "synteny_max_missing_reference_genes": 1}
+    scored = _add_full_synteny_rewards(pd.DataFrame({"arc_qc_id": ids}), tmp_path, config)
+    assert scored["reward_external_synteny_pass"].tolist() == [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    config["synteny_max_missing_reference_genes"] = 0
+    strict = _add_full_synteny_rewards(pd.DataFrame({"arc_qc_id": ids}), tmp_path, config)
+    assert strict["reward_external_synteny_pass"].tolist() == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+
 def test_full_synteny_reward_does_not_score_unmeasured_rows(tmp_path):
     """Missing Arc/LoVis4u measurement rows should be unavailable, not partial biological scores."""
     run_dir = tmp_path / "arc_run"
@@ -2130,6 +2301,30 @@ def test_reference_cluster_architecture_penalizes_reordered_loci(tmp_path):
     assert scored["reward_external_synteny_pass"].tolist() == [1.0, 0.0]
 
 
+def test_member_aai_does_not_fall_back_to_consensus(tmp_path):
+    pd.DataFrame(
+        {
+            "id_prompt": ["genome"],
+            "average_protein_percent_identity": [99.0],
+            "average_protein_identity_gene_count": [10],
+        }
+    ).to_csv(tmp_path / "aai.csv", index=False)
+    config = {
+        "mmseqs_db_aai_database": "members",
+        "mmseqs_protein_database_results_dir_save_location": "consensus",
+        "average_protein_sequence_identity_metrics_file_save_location": "aai.csv",
+    }
+    rows = pd.DataFrame({"id_prompt": ["genome"], "reward_external_average_protein_identity": [0.0]})
+    result = _add_average_protein_identity_rewards(rows.copy(), tmp_path, config)
+    assert result["average_protein_percent_identity"].tolist() == [99.0]
+    assert result["average_protein_identity_measurement_available"].tolist() == [1.0]
+    assert result["reward_external_average_protein_identity_pass"].tolist() == [0.0]
+    (tmp_path / "aai.csv").unlink()
+    result = _add_average_protein_identity_rewards(rows.copy(), tmp_path, config)
+    assert result["average_protein_identity_missing_artifact"].tolist() == [1.0]
+    assert result["reward_external_average_protein_identity"].tolist() == [0.0]
+
+
 def test_average_protein_identity_reward_uses_prefilter_metrics(tmp_path):
     """Average protein identity should combine novelty and gene evidence."""
     run_dir = tmp_path / "arc_run"
@@ -2218,6 +2413,8 @@ def test_average_protein_identity_uses_unique_full_length_mmseqs_families(tmp_pa
             "protein_database_mmseqs_alignment_length": [100, 100, 50, 100, 100],
             "protein_database_mmseqs_query_length": [100, 100, 50, 100, 100],
             "protein_database_mmseqs_target_length": [100, 100, 100, 100, 100],
+            "protein_database_mmseqs_query_coverage": [1, 1, 1, 1, 1],
+            "protein_database_mmseqs_target_coverage": [1, 1, 0.5, 1, 1],
         }
     ).to_csv(phrogs_dir / "mmseqs2_hits.csv", index=False)
     pd.DataFrame(

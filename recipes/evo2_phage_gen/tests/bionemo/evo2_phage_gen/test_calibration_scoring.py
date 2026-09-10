@@ -101,13 +101,13 @@ def test_score_cell_uses_the_phix_capsid_length_envelope(tmp_path, monkeypatch):
 
     config = captured["config"]
     assert captured["sequence_safety"] is safety_config
-    assert (config.genome_length_min, config.genome_length_max) == (5306, 5493)
+    assert (config.genome_length_min, config.genome_length_max) == (5306, 5730)
     assert (
         config.genome_length_reward_lower_zero,
         config.genome_length_reward_lower_full,
         config.genome_length_reward_upper_full,
         config.genome_length_reward_upper_zero,
-    ) == (3000, 5359, 5391, 5426)
+    ) == (3000, 5359, 5550, 5800)
 
 
 def test_summarize_cell_separates_measured_zero_from_missing_support():

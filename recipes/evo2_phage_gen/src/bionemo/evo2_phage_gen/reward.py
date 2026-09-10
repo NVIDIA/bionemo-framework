@@ -41,12 +41,14 @@ from bionemo.evo2_phage_gen.protein_evidence import (
 )
 from bionemo.evo2_phage_gen.protein_evidence import (
     load_candidate_orf_context,
+    reference_synteny_pass_mask,
     stage_coordinate_normalized_reference_gff,
     summarize_full_length_aai,
     summarize_smooth_reference_evidence,
     write_reference_protein_fasta,
 )
 from bionemo.evo2_phage_gen.qc import NucleotideQCConfig, add_nucleotide_metrics, load_fasta_records, save_fasta
+from bionemo.evo2_phage_gen.rollout_evidence import canonical_circular_sequence
 
 
 RECIPE_ROOT = Path(__file__).resolve().parents[3]
@@ -56,6 +58,7 @@ ARC_PATH_KEYS = (
     "genetic_architecture_reference_genome",
     "reference_tropism_protein",
     "mmseqs_db_protein_database",
+    "mmseqs_db_aai_database",
     "training_data_genomes_fasta",
     "mmseqs_db_tropism_protein",
     "genetic_architecture_visualization_script",
@@ -262,14 +265,18 @@ class MMseqsClusterDiversityConfig:
     mmseqs_bin: str = "mmseqs"
     work_dir: Path = Path("data/checkpoints/phage_grpo_mmseqs_cluster_diversity")
     keep_artifacts: bool = False
+    # Near-whole-genome similarity, not a short conserved local match.
     min_seq_id: float = 0.99
-    coverage: float = 0.0
+    coverage: float = 0.95
     cov_mode: int = 0
     seq_id_mode: int = 0
     cluster_mode: int = 0
     parallel_jobs: int = 1
     threads: int | None = None
     verbosity: int = 0
+    # Generic callers may supply linear genomes. The PhiX profile sets True so
+    # rotations of the same circular genome do not receive spurious diversity credit.
+    circular: bool = False
 
 
 @dataclass(frozen=True)
@@ -392,7 +399,7 @@ def _smooth_reference_search_command(
         "--max-seqs",
         "100000",
         "--format-output",
-        "query,target,evalue,pident,alnlen,qlen,tlen",
+        "query,target,evalue,pident,alnlen,qlen,tlen,qcov,tcov",
         "--threads",
         str(max(1, int(threads))),
         "-v",
@@ -485,7 +492,10 @@ def _cluster_valid_sequence_group(
     fasta_df = pd.DataFrame(
         {
             "id_prompt": sequence_ids,
-            "sequence": group_df["sequence"].astype(str).tolist(),
+            "sequence": [
+                canonical_circular_sequence(sequence) if config.circular else sequence
+                for sequence in group_df["sequence"].astype(str).tolist()
+            ],
         }
     )
     save_fasta(fasta_df, input_fasta)
@@ -1414,7 +1424,7 @@ def _add_smooth_reference_rewards(
             env=_external_qc_env(external_qc),
             timeout=external_qc.timeout_seconds,
         )
-    hit_columns = ["query", "target", "evalue", "pident", "alnlen", "qlen", "tlen"]
+    hit_columns = ["query", "target", "evalue", "pident", "alnlen", "qlen", "tlen", "qcov", "tcov"]
     if hits_path.exists() and hits_path.stat().st_size:
         hits_df = pd.read_csv(hits_path, sep="\t", header=None, names=hit_columns)
     else:
@@ -1799,14 +1809,7 @@ def _add_full_synteny_rewards(scored_df: pd.DataFrame, run_dir: Path, config: di
             scored_df["synteny_pair_distance"] = scored_df["synteny_reference_deficit"]
             scored_df["syntenic_gene_count_score"] = scored_df["synteny_reference_coverage_score"]
 
-    pass_mask = (
-        measured
-        & scored_df.get("num_syntenic_genes", pd.Series(0, index=scored_df.index)).eq(
-            scored_df.get("reference_num_genes", pd.Series(-1, index=scored_df.index))
-        )
-        & scored_df.get("duplicate_reference_gene_count", pd.Series(1, index=scored_df.index)).eq(0)
-        & scored_df.get("reference_order_violation_count", pd.Series(1, index=scored_df.index)).eq(0)
-    )
+    pass_mask = measured & reference_synteny_pass_mask(scored_df, config.get("synteny_max_missing_reference_genes", 0))
     scored_df["reward_external_synteny_pass"] = pass_mask.astype(float)
     return scored_df
 
@@ -1822,7 +1825,8 @@ def _add_average_protein_identity_rewards(
     scored_df["average_protein_identity_measurement_available"] = 0.0
     scored_df["average_protein_identity_missing_artifact"] = 0.0
     phrogs_dir = config.get("mmseqs_protein_database_results_dir_save_location")
-    if phrogs_dir:
+    member_aai = bool(config.get("mmseqs_db_aai_database"))
+    if phrogs_dir and not member_aai:
         hits_path = run_dir / phrogs_dir / "mmseqs2_hits.csv"
         if not hits_path.exists():
             scored_df["average_protein_identity_missing_artifact"] = 1.0
@@ -1850,9 +1854,9 @@ def _add_average_protein_identity_rewards(
             "average_protein_sequence_identity_metrics_file_save_location",
             "qc6_average_protein_sequence_identity_metrics.csv",
         )
-        if not metrics_path.exists():
+        if not metrics_path.exists() and not member_aai:
             metrics_path = run_dir / config.get("synteny_filter_seqs_csv_file_save_location", "")
-        if not metrics_path.exists():
+        if not metrics_path.is_file():
             scored_df["average_protein_identity_missing_artifact"] = 1.0
             return scored_df
         metrics_df = pd.read_csv(metrics_path)

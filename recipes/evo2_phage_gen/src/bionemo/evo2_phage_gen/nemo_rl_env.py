@@ -1078,11 +1078,12 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
             mmseqs_cfg = cfg.get("mmseqs_cluster_diversity", {}) or {}
             self.mmseqs_cluster_diversity = MMseqsClusterDiversityConfig(
                 enabled=bool(mmseqs_cfg.get("enabled", False)),
+                circular=bool(mmseqs_cfg.get("circular", False)),
                 mmseqs_bin=str(mmseqs_cfg.get("mmseqs_bin", "mmseqs")),
                 work_dir=mmseqs_cfg.get("work_dir", "data/checkpoints/phage_grpo_mmseqs_cluster_diversity"),
                 keep_artifacts=bool(mmseqs_cfg.get("keep_artifacts", False)),
                 min_seq_id=float(mmseqs_cfg.get("min_seq_id", 0.99)),
-                coverage=float(mmseqs_cfg.get("coverage", 0.0)),
+                coverage=float(mmseqs_cfg.get("coverage", 0.95)),
                 cov_mode=int(mmseqs_cfg.get("cov_mode", 0)),
                 seq_id_mode=int(mmseqs_cfg.get("seq_id_mode", 0)),
                 cluster_mode=int(mmseqs_cfg.get("cluster_mode", 0)),

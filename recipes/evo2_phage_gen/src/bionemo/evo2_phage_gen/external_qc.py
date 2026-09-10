@@ -153,6 +153,15 @@ def check_arc_qc_prerequisites(
     )
 
     visualization_required = bool(config.get("genetic_architecture_visualization_and_synteny_filtering"))
+    if config.get("mmseqs_db_aai_database"):
+        checks.append(
+            _check_path(
+                "phrogs_member_db",
+                config,
+                "mmseqs_db_aai_database",
+                required=visualization_required and bool(config.get("average_protein_sequence_identity_filter")),
+            )
+        )
     checks.append(_check_tool("lovis4u", "lovis4u", required=visualization_required, search_path=search_path))
     checks.extend(
         [

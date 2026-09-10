@@ -773,7 +773,7 @@ stage_00() {
   run evo2_phage_download_sft_data --include-raw
   monitored 'external asset preparation' "${RESULT_ROOT}/inputs/external-assets.log" \
     evo2_phage_prepare_external_assets --external-dir data/external --bin-dir data/external/bin \
-    --download-large-databases --prepare-phrogs-consensus-database --with-safety \
+    --download-large-databases --prepare-phrogs-consensus-database --prepare-phrogs-member-database --with-safety \
     --pharokka-database-url "${PHAROKKA_DATABASE_URL}" \
     --pharokka-database-md5 "${PHAROKKA_DATABASE_MD5}" \
     --pharokka-database-release "${PHAROKKA_DATABASE_RELEASE}"
@@ -897,7 +897,7 @@ stage_30() {
   if [[ -f "${STAGE_DIR}/30-calibration-generation.done" ]]; then
     note 'substage 30-calibration-generation already complete'
   else
-    monitored 'calibration generation' "${calibration}/generation.log" env SOURCE_ENV=0 RUN_ROOT="${calibration}/generation" CKPT_DIR="${selected}" PROMPT_LENGTHS='16 24' PROMPT_ANCHORS='origin:1 before_g:2387 after_h:3918 a_cluster_start:3973' REFERENCE_FASTA="${PHIX_REFERENCE_FASTA}" TEMPERATURES='0.3 0.5 0.7 0.9 1.0 1.1 1.3' NUM_PROMPTS=64 TARGET_LENGTH=5444 GPU_IDS="${GPU_IDS}" TENSOR_PARALLEL_SIZE=1 HOPPER_FP8_INFERENCE="${HOPPER_FP8_INFERENCE}" scripts/calibration/run_sft_sampling_sweep.sh
+    monitored 'calibration generation' "${calibration}/generation.log" env SOURCE_ENV=0 RUN_ROOT="${calibration}/generation" CKPT_DIR="${selected}" PROMPT_LENGTHS='16 24' PROMPT_ANCHORS='origin:1 before_g:2387 after_h:3918 a_cluster_start:3973' REFERENCE_FASTA="${PHIX_REFERENCE_FASTA}" TEMPERATURES='0.3 0.5 0.7 0.9 1.0 1.1 1.3' NUM_PROMPTS=64 TARGET_LENGTH=6000 MAX_SEQ_LENGTH=6144 GPU_IDS="${GPU_IDS}" TENSOR_PARALLEL_SIZE=1 HOPPER_FP8_INFERENCE="${HOPPER_FP8_INFERENCE}" scripts/calibration/run_sft_sampling_sweep.sh
     [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/30-calibration-generation.done"
   fi
   if [[ -f "${STAGE_DIR}/30-calibration-scoring.done" ]]; then
@@ -1259,7 +1259,7 @@ PY
     repo_root="$(cd -- "${RECIPE_ROOT}/../.." && pwd)"
     note "Arc CheckV database: ${CHECKVDB}"
     note "Arc screening working directory: ${repo_root}"
-    note 'Arc internal MMseqs clustering disabled; final 99% clustering runs only after safety and hard QC'
+    note 'Arc internal MMseqs clustering disabled; final 99% identity/95% coverage clustering follows safety and hard QC'
   fi
 
   write_arc_rollout_config() {

@@ -23,7 +23,9 @@ import hashlib
 import json
 import os
 import platform
+import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tarfile
@@ -57,6 +59,11 @@ DEFAULT_PHAROKKA_DATABASE_URL = (
 )
 DEFAULT_PHAROKKA_DATABASE_MD5 = "143bb375ddb0b0653e5cb5671f4a7629"
 DEFAULT_PHAROKKA_DATABASE_RELEASE = "Pharokka database v1.11.0 / PHROGs v4"
+# Individual proteins, not HMM profiles or synthetic family consensuses. This
+# archive reproduces King et al. Data S1 AAI (doi:10.1126/science.aec2657).
+DEFAULT_PHROGS_MEMBERS_URL = "https://phrogs.lmge.uca.fr/downloads_from_website/FAA_phrog.tar.gz"
+# Recipe pin of the public 2021-03-10 archive; not a provider-published checksum.
+DEFAULT_PHROGS_MEMBERS_SHA256 = "38788519f18bba421e0d3542e7fead73bfa41ed2267020c33c81a05e1c453098"
 DEFAULT_ARC_EVO2_REPO_URL = ARC_EVO2_GIT_URL
 DEFAULT_ARC_EVO2_REPO_REV = ARC_EVO2_REV
 DEFAULT_AMRFINDER_RELEASE = "amrfinder_v4.2.7"
@@ -144,8 +151,8 @@ class PreparedAsset:
     detail: str
 
 
-def _md5(path: Path) -> str:
-    digest = hashlib.md5(usedforsecurity=False)
+def _checksum(path: Path, algorithm: str) -> str:
+    digest = hashlib.new(algorithm, usedforsecurity=False)
     with path.open("rb") as handle:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
@@ -158,14 +165,19 @@ def _download(
     *,
     overwrite: bool = False,
     published_md5: str | None = None,
+    expected_sha256: str | None = None,
+    tls_context: ssl.SSLContext | None = None,
     timeout: float = 60.0,
     attempts: int = 3,
 ) -> tuple[Path, dict[str, str]]:
-    """Download a URL with bounded retries, partial-file resume, and optional provider checksum."""
+    """Download with bounded retries, partial-file resume, and an optional checksum."""
     output_path = Path(output_path)
+    expected = expected_sha256 or published_md5
+    algorithm = "sha256" if expected_sha256 else "md5"
+    checksum_label = "Pinned" if expected_sha256 else "Published"
     if output_path.is_file() and not overwrite:
-        if published_md5 is not None and _md5(output_path) != published_md5.lower():
-            raise ValueError(f"Published checksum does not match cached download: {output_path}")
+        if expected is not None and _checksum(output_path, algorithm) != expected.lower():
+            raise ValueError(f"{checksum_label} checksum does not match cached download: {output_path}")
         return output_path, {}
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -174,7 +186,7 @@ def _download(
         partial.unlink(missing_ok=True)
     if attempts < 1:
         raise ValueError("Download attempts must be positive")
-    if partial.is_file() and published_md5 is not None and _md5(partial) == published_md5.lower():
+    if partial.is_file() and expected is not None and _checksum(partial, algorithm) == expected.lower():
         partial.replace(output_path)
         return output_path, {}
 
@@ -186,7 +198,8 @@ def _download(
             request = urllib.request.Request(url, headers={"Range": f"bytes={offset}-"})
         print(f"downloading {output_path.name}: {offset} bytes already present")
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            tls_options = {"context": tls_context} if tls_context is not None else {}
+            with urllib.request.urlopen(request, timeout=timeout, **tls_options) as response:
                 append = offset > 0 and getattr(response, "status", None) == 206
                 content_length = response.headers.get("Content-Length")
                 received = 0
@@ -196,12 +209,12 @@ def _download(
                         received += len(block)
                 if content_length is not None:
                     try:
-                        expected = int(content_length)
+                        expected_length = int(content_length)
                     except ValueError as error:
                         raise OSError(f"invalid Content-Length for {output_path.name}: {content_length!r}") from error
-                    if received != expected:
+                    if received != expected_length:
                         raise OSError(
-                            f"incomplete response for {output_path.name}: received {received} of {expected} bytes"
+                            f"incomplete response for {output_path.name}: received {received} of {expected_length} bytes"
                         )
                 headers = {str(key).lower(): str(value) for key, value in response.headers.items()}
             break
@@ -214,9 +227,9 @@ def _download(
             )
             time.sleep(attempt)
 
-    if published_md5 is not None and _md5(partial) != published_md5.lower():
+    if expected is not None and _checksum(partial, algorithm) != expected.lower():
         partial.unlink(missing_ok=True)
-        raise ValueError(f"Published checksum does not match download: {url}")
+        raise ValueError(f"{checksum_label} checksum does not match download: {url}")
     partial.replace(output_path)
     print(f"download complete: {output_path}")
     return output_path, headers
@@ -858,6 +871,91 @@ def prepare_phrogs_consensus_db(
     return PreparedAsset("phrogs_consensus_database", padded, release)
 
 
+def prepare_phrogs_member_db(
+    external_dir: Path = DEFAULT_EXTERNAL_DIR,
+    *,
+    bin_dir: Path | None = None,
+    database_url: str = DEFAULT_PHROGS_MEMBERS_URL,
+    expected_sha256: str = DEFAULT_PHROGS_MEMBERS_SHA256,
+    overwrite: bool = False,
+) -> PreparedAsset:
+    """Prepare individual PHROGs proteins for best-E-value-per-ORF AAI."""
+    if not re.fullmatch(r"[a-fA-F0-9]{64}", expected_sha256):
+        raise ValueError("PHROGs member archive requires a SHA256 pin")
+    external_dir = Path(external_dir)
+    archive_path = external_dir / "downloads" / "FAA_phrog.tar.gz"
+    options = {"overwrite": overwrite, "expected_sha256": expected_sha256}
+    try:
+        archive, _ = _download(database_url, archive_path, **options)
+    except urllib.error.URLError as error:
+        # The official public host has intermittently served an expired cert.
+        # Only this exact pinned asset may fall back; checksum verification is
+        # still mandatory before parsing/building. No global TLS change.
+        expired = isinstance(error.reason, ssl.SSLCertVerificationError) and error.reason.verify_code == 10
+        if (
+            not expired
+            or database_url != DEFAULT_PHROGS_MEMBERS_URL
+            or expected_sha256 != DEFAULT_PHROGS_MEMBERS_SHA256
+        ):
+            raise
+        print(
+            "PHROGs certificate expired; retrieving public archive with mandatory pinned SHA256 verification.",
+            file=sys.stderr,
+        )
+        archive, _ = _download(database_url, archive_path, tls_context=ssl._create_unverified_context(), **options)
+
+    root = external_dir / "phrogs"
+    root.mkdir(parents=True, exist_ok=True)
+    database = root / "phrogs_member_db"
+    state_path = root / "members-state.json"
+    required = [
+        Path(f"{database}{suffix}") for suffix in ("", ".dbtype", ".index", ".lookup", "_h", "_h.dbtype", "_h.index")
+    ]
+    state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    if not overwrite and state.get("sha256") == expected_sha256 and all(path.is_file() for path in required):
+        return PreparedAsset("phrogs_member_database", database, state["release"])
+
+    fasta = root / "phrogs_members.faa"
+    count = 0
+    families = set()
+    # Stream the archive rather than extracting tens of thousands of tiny files.
+    with tarfile.open(archive, "r|gz") as source, fasta.open("wb") as output:
+        for member in source:
+            match = re.fullmatch(r"phrog_(\d+)\.faa", Path(member.name).name)
+            if not member.isfile() or match is None:
+                continue
+            family = f"phrog_{match[1]}"
+            families.add(family)
+            with source.extractfile(member) as handle:
+                for line in handle:
+                    if line.startswith(b">"):
+                        count += 1
+                        # Original FASTA IDs repeat within each family. Preserve
+                        # the description/accession but give each protein its own ID.
+                        output.write(f">{family}|{count} ".encode() + line[1:])
+                    else:
+                        output.write(line)
+    if not count:
+        raise ValueError("PHROGs archive contains no individual protein sequences")
+    if expected_sha256 == DEFAULT_PHROGS_MEMBERS_SHA256 and (count, len(families)) != (868340, 38880):
+        raise ValueError("Pinned PHROGs archive has unexpected protein/family counts")
+    _clear_mmseqs_database(database)
+    mmseqs = (Path(bin_dir) if bin_dir else external_dir / "bin") / "mmseqs"
+    subprocess.run([str(mmseqs), "createdb", str(fasta), str(database)], check=True)
+    if any(not path.is_file() for path in required) or Path(f"{database}.dbtype").read_bytes() != bytes(4):
+        raise RuntimeError("MMseqs did not create a complete amino-acid PHROGs member database")
+    release = f"PHROGs individual proteins: {count} proteins / {len(families)} families"
+    state = {
+        "source_url": database_url,
+        "sha256": expected_sha256,
+        "release": release,
+        "proteins": count,
+        "families": len(families),
+    }
+    state_path.write_text(json.dumps(state, indent=2) + "\n")
+    return PreparedAsset("phrogs_member_database", database, release)
+
+
 def prepare_checkv_database(
     external_dir: Path = DEFAULT_EXTERNAL_DIR,
     *,
@@ -948,6 +1046,7 @@ def prepare_external_assets(
     download_arc_evo2: bool = True,
     download_large_databases: bool = False,
     prepare_phrogs_consensus_database: bool = False,
+    prepare_phrogs_member_database: bool = False,
     download_checkv: bool = True,
     configure_lovis4u: bool = True,
     with_safety: bool = False,
@@ -1023,6 +1122,9 @@ def prepare_external_assets(
                 )
             )
 
+    if prepare_phrogs_member_database:
+        assets.append(prepare_phrogs_member_db(external_dir, bin_dir=target_bin, overwrite=overwrite))
+
     if download_arc_evo2:
         assets.append(
             prepare_arc_evo2_checkout(
@@ -1087,6 +1189,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip-checkv", action="store_true")
     parser.add_argument("--download-large-databases", action="store_true")
     parser.add_argument("--prepare-phrogs-consensus-database", action="store_true")
+    parser.add_argument(
+        "--prepare-phrogs-member-database",
+        action="store_true",
+        help="Build the checksum-pinned individual-protein PHROGs database for AAI",
+    )
     parser.add_argument("--with-safety", action="store_true")
     parser.add_argument("--safety-manifest", type=Path)
     parser.add_argument("--mmseqs-url")
@@ -1118,6 +1225,7 @@ def main() -> None:
         download_arc_evo2=not args.skip_arc_evo2,
         download_large_databases=args.download_large_databases,
         prepare_phrogs_consensus_database=args.prepare_phrogs_consensus_database,
+        prepare_phrogs_member_database=args.prepare_phrogs_member_database,
         download_checkv=not args.skip_checkv,
         configure_lovis4u=not args.skip_lovis4u_config,
         with_safety=args.with_safety,

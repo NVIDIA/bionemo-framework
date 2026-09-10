@@ -104,14 +104,28 @@
     },
     {
       "id": "bionemo-phage-design-implement-rl-objectives-008-partial-protein-hits",
-      "prompt": "A protein reward counts high-identity MMseqs hits, but many align only a short fragment and duplicate ORFs can hit the same family. AAI also averages every hit. Harden the online reward and final QC.",
+      "prompt": "A protein reward counts high-identity MMseqs hits, but many align only a short fragment and duplicate ORFs can hit the same family. The model is still learning the basic gene complement. Improve the online reward and final QC without adding a novelty objective.",
       "expected_output": "Coverage-aware, duplicate-safe protein evidence with aligned online and hard-QC semantics.",
       "assertions": [
-        "The scorer retains alignment, query, and target lengths and reports reciprocal coverage rather than treating identity alone as gene presence.",
-        "Partial called-ORF hits may receive bounded dense credit only above a shuffled-sequence null, with smooth significance, identity, and bidirectional-coverage progress; intact-gene hard gates remain independent and require their configured query and target coverage.",
-        "Distinct-family counts and family-level AAI use one best coverage-qualified hit per target family so duplicate ORFs and fragments cannot inflate evidence, and thresholds are calibrated for exact targets versus profile consensuses.",
-        "Missing alignment-length evidence fails closed rather than falling back to raw hit counts.",
+        "The scorer retains alignment, query, and target lengths plus native query/target coverage; gap-containing alignment-column counts are not substituted for residue coverage, and identity alone is not gene presence.",
+        "Credible partial matches earn graded progress toward the approved completeness target without requiring a complete gene set first; intact-gene hard gates remain separate.",
+        "Deletion and truncation controls test the learning progression. Base-shuffled controls check accidental protein-match credit; gene-order shuffles preserve protein content and test order separately. Neither dictates a universal positive floor.",
+        "Distinct-function counts use unique supported families, while repeated hits cannot substitute for missing functions. No novelty cutoff is added to this conservation task.",
+        "Missing coverage evidence fails closed rather than falling back to raw hit counts or alignment-column approximations.",
         "Focused tests include full-length, truncated, duplicate-family, missing-evidence, and overlapping or embedded-gene cases and compare online scoring with final QC."
+      ],
+      "expected_skill": "bionemo-phage-design-implement-rl-objectives",
+      "expected_script": null
+    },
+    {
+      "id": "bionemo-phage-design-implement-rl-objectives-010-novelty-scope",
+      "prompt": "Compare two approved objective plans: one preserves a related phage's functional proteins without seeking divergence; the other reproduces the PhiX paper's AAI novelty criterion. Explain what should differ in implementation and controls.",
+      "expected_output": "General protein evidence stays reusable; the PhiX AAI definition and novelty threshold apply only to the reproduction task.",
+      "assertions": [
+        "Conservation, database novelty, and within-batch diversity are distinct goals; the conservation plan does not inherit the PhiX 95% cutoff or a low-identity preference.",
+        "For the PhiX reproduction, the response follows the linked case-specific reference: average each called ORF's lowest-E-value hit against individual PHROGs proteins, not consensus/profile identities or one hit per family.",
+        "The separate AAI asset is prepared with --prepare-phrogs-member-database and selected by mmseqs_db_aai_database.",
+        "Controls distinguish biological plausibility from novelty: high-AAI viable controls may fail the optional novelty gate, and published low-AAI controls check its opposite side."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",
       "expected_script": null

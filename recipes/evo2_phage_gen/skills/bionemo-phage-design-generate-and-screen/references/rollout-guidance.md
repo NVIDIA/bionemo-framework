@@ -19,6 +19,9 @@ controls.
 Report raw, biological-representative, hard-QC, and post-QC-cluster counts,
 PASS/FAIL/INDETERMINATE denominators, uncertainty when comparing yields, and whether generation or
 filtering saturated before forecasting a larger experiment.
+Final-design reports retain schema 2 and `counts.post_qc_99pct_clusters`. Read coverage
+from the embedded clustering evidence: current runs use 95%, while historical runs
+may use different coverage at the same 99% identity.
 
 - Apply valid gates as a cheap-to-expensive waterfall and retain each stage's input, PASS, FAIL, INDETERMINATE, survivor counts, and per-candidate reasons; a final conjunction alone is not diagnostic.
 - Use intrinsic properties for per-candidate PASS gates. Express rollout-relative diversity as a diagnostic or explicit set-level portfolio rule, not an intrinsic genome property; use saturated model maxima or narrow bands as gates only when controls validate a separating boundary.

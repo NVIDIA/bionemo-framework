@@ -265,24 +265,18 @@ ORFIPY_CALL_PATTERN = re.compile(
 )
 PATCHED_PSEUDOCIRCULAR_ORF_CALL = "remove_pseudocircular_extension_orfs("
 ARC_MMSEQS_PROTEIN_FORMAT_OUTPUT = "--format-output 'query,target,evalue,pident'"
-PATCHED_MMSEQS_PROTEIN_FORMAT_OUTPUT = "--format-output 'query,target,evalue,pident,alnlen,qlen,tlen'"
+PATCHED_MMSEQS_PROTEIN_FORMAT_OUTPUT = "--format-output 'query,target,evalue,pident,alnlen,qlen,tlen,qcov,tcov'"
 ARC_MMSEQS_PROTEIN_PARSE_FIELDS = "query, target, evalue, pident = line.strip().split('\\t')"
-PATCHED_MMSEQS_PROTEIN_PARSE_FIELDS = (
-    "query, target, evalue, pident, alignment_length, query_length, target_length = line.strip().split('\\t')"
-)
+PATCHED_MMSEQS_PROTEIN_PARSE_FIELDS = "query, target, evalue, pident, alignment_length, query_length, target_length, query_coverage, target_coverage = line.strip().split('\\t')"
 ARC_MMSEQS_PROTEIN_HIT_TUPLE = "hits.append((query, target, float(evalue), float(pident)))"
 PATCHED_MMSEQS_PROTEIN_HIT_TUPLE = (
     "hits.append((query, target, float(evalue), float(pident), int(alignment_length), "
-    "int(query_length), int(target_length)))"
+    "int(query_length), int(target_length), float(query_coverage), float(target_coverage)))"
 )
 ARC_MMSEQS_PROTEIN_HIT_LOOP = "for query, target, evalue, pident in hits:"
-PATCHED_MMSEQS_PROTEIN_HIT_LOOP = (
-    "for query, target, evalue, pident, alignment_length, query_length, target_length in hits:"
-)
+PATCHED_MMSEQS_PROTEIN_HIT_LOOP = "for query, target, evalue, pident, alignment_length, query_length, target_length, query_coverage, target_coverage in hits:"
 ARC_MMSEQS_PROTEIN_DATA_ROW = "data.append([query, sequences[query], target, evalue, pident])"
-PATCHED_MMSEQS_PROTEIN_DATA_ROW = (
-    "data.append([query, sequences[query], target, evalue, pident, alignment_length, query_length, target_length])"
-)
+PATCHED_MMSEQS_PROTEIN_DATA_ROW = "data.append([query, sequences[query], target, evalue, pident, alignment_length, query_length, target_length, query_coverage, target_coverage])"
 ARC_MMSEQS_PROTEIN_DATAFRAME = (
     'df = pd.DataFrame(data, columns=["id_prompt", "sequence", f"{descriptive_prefix}_mmseqs_target", '
     'f"{descriptive_prefix}_mmseqs_e_value", f"{descriptive_prefix}_mmseqs_percent_identity"])'
@@ -291,7 +285,8 @@ PATCHED_MMSEQS_PROTEIN_DATAFRAME = (
     'df = pd.DataFrame(data, columns=["id_prompt", "sequence", f"{descriptive_prefix}_mmseqs_target", '
     'f"{descriptive_prefix}_mmseqs_e_value", f"{descriptive_prefix}_mmseqs_percent_identity", '
     'f"{descriptive_prefix}_mmseqs_alignment_length", f"{descriptive_prefix}_mmseqs_query_length", '
-    'f"{descriptive_prefix}_mmseqs_target_length"])'
+    'f"{descriptive_prefix}_mmseqs_target_length", f"{descriptive_prefix}_mmseqs_query_coverage", '
+    'f"{descriptive_prefix}_mmseqs_target_coverage"])'
 )
 ARC_MMSEQS_PROTEIN_EMPTY_COLUMNS = """                f"{descriptive_prefix}_mmseqs_percent_identity",
             ]"""
@@ -299,6 +294,8 @@ PATCHED_MMSEQS_PROTEIN_EMPTY_COLUMNS = """                f"{descriptive_prefix}
                 f"{descriptive_prefix}_mmseqs_alignment_length",
                 f"{descriptive_prefix}_mmseqs_query_length",
                 f"{descriptive_prefix}_mmseqs_target_length",
+                f"{descriptive_prefix}_mmseqs_query_coverage",
+                f"{descriptive_prefix}_mmseqs_target_coverage",
             ]"""
 ARC_LEGACY_MMSEQS_PROTEIN_SEARCH_RUN = """    mmseqs_out = mmseqs_search_proteins(query_fasta, mmseqs_db, results_dir, threads, split, sensitivity)
     hits = parse_mmseqs_results(mmseqs_out)
@@ -397,7 +394,8 @@ PATCHED_REQUIRED_GENE_CALL_SUFFIX = """                                   sequen
                                    metrics_csv=f'{config["results_save_dir"]}/{config.get("required_genes_metrics_file_save_location", "qc6_required_genes_metrics.csv")}',
                                    filter_results=not online_measurement_mode,
                                    protein_database_hits_df=mmseqs_results_df,
-                                   minimum_reciprocal_coverage=config.get("protein_match_min_reciprocal_coverage", 0.75))
+                                   minimum_reciprocal_coverage=config.get("protein_match_min_reciprocal_coverage", 0.75),
+                                   family_coverage_thresholds=config.get("required_gene_family_coverage"))
 """
 AAI_FUNCTION_PATTERN = re.compile(
     r"^def valid_average_protein_percent_identity\(.*?(?=^def count_total_num_genes\()",
@@ -413,13 +411,28 @@ PATCHED_AAI_FUNCTION = '''def valid_average_protein_percent_identity(
     protein_database_hits_df: pd.DataFrame = None,
     minimum_reciprocal_coverage: float = 0.75,
     metrics_csv: str = None,
+    identity_database: str = None,
+    query_fasta: str = None,
+    threads: int = 2,
 ) -> None:
-    """Measure PHROG-family AAI over coverage-qualified proteins and optionally filter."""
-    from bionemo.evo2_phage_gen.protein_evidence import summarize_full_length_aai
+    """Measure natural-protein best-hit AAI; preserve legacy configs without the separate DB."""
+    from bionemo.evo2_phage_gen.protein_evidence import summarize_best_hit_aai, summarize_full_length_aai
 
     sequences_df = pd.read_csv(results_csv)
-    hits_df = pd.DataFrame() if protein_database_hits_df is None else protein_database_hits_df
-    metrics_df = summarize_full_length_aai(hits_df, minimum_reciprocal_coverage)
+    if identity_database:
+        if not query_fasta:
+            raise ValueError("Natural-protein AAI requires called ORF proteins")
+        search_dir = os.path.join(os.path.dirname(output_csv), "qc6_mmseqs_aai")
+        hits_df = run_mmseqs_search_proteins(
+            query_fasta=query_fasta, mmseqs_db=identity_database, results_dir=search_dir,
+            output_csv=os.path.join(search_dir, "mmseqs2_hits.csv"),
+            descriptive_prefix="protein_database", threads=threads, split=0,
+            sensitivity=4.0, only_top_hits=True,
+        )
+        metrics_df = summarize_best_hit_aai(hits_df)
+    else:
+        hits_df = pd.DataFrame() if protein_database_hits_df is None else protein_database_hits_df
+        metrics_df = summarize_full_length_aai(hits_df, minimum_reciprocal_coverage)
     metrics_df = sequences_df[["id_prompt"]].merge(metrics_df, on="id_prompt", how="left")
     metrics_df["average_protein_percent_identity"] = metrics_df["average_protein_percent_identity"].fillna(0.0)
     metrics_df["average_protein_identity_gene_count"] = metrics_df["average_protein_identity_gene_count"].fillna(0)
@@ -456,6 +469,9 @@ PATCHED_AAI_CALL_SUFFIX = """                                                   
                                                    filter_results=not online_measurement_mode,
                                                    protein_database_hits_df=mmseqs_results_df,
                                                    minimum_reciprocal_coverage=config.get("protein_match_min_reciprocal_coverage", 0.75),
+                                                   identity_database=config.get("mmseqs_db_aai_database"),
+                                                   query_fasta=f'{config["results_save_dir"]}/{config["orfipy_proteins_file_save_location"]}',
+                                                   threads=config["mmseqs_threads"],
                                                    metrics_csv=f'{config["results_save_dir"]}/{config.get("average_protein_sequence_identity_metrics_file_save_location", "qc6_average_protein_sequence_identity_metrics.csv")}' )
 """
 ARC_SYNTENY_SIGNATURE = """def valid_syntenic_gene_count(input_csv: str, output_csv: str,
@@ -465,18 +481,14 @@ ARC_SYNTENY_SIGNATURE = """def valid_syntenic_gene_count(input_csv: str, output_
 PATCHED_SYNTENY_SIGNATURE = """def valid_syntenic_gene_count(input_csv: str, output_csv: str,
                               syntenic_gene_count_range: list, total_gene_count_range: list, syntenic_total_gene_count_remove: set,
                               gff_dir: str, gbk_dir: str, pdf_dir: str, metadata_dir: str,
-                              filter_results: bool = True) -> None:
+                              filter_results: bool = True, max_missing_reference_genes: int = 0) -> None:
 """
 ARC_SYNTENY_FILTER_RESULT = """    filtered_df = df[df[['num_syntenic_genes', 'total_num_genes']].apply(tuple, axis=1).isin(valid_combinations)]
     removed_ids = set(df["genome_id"]) - set(filtered_df["genome_id"])
 """
 PATCHED_SYNTENY_FILTER_RESULT = """    if filter_results:
-        filtered_df = df[
-            ~df['missing_synteny_output'].astype(bool)
-            & (df['num_syntenic_genes'] == df['reference_num_genes'])
-            & (df['duplicate_reference_gene_count'] == 0)
-            & (df['reference_order_violation_count'] == 0)
-        ]
+        from bionemo.evo2_phage_gen.protein_evidence import reference_synteny_pass_mask
+        filtered_df = df[reference_synteny_pass_mask(df, max_missing_reference_genes)]
         removed_ids = set(df["genome_id"]) - set(filtered_df["genome_id"])
     else:
         filtered_df = df
@@ -487,7 +499,8 @@ ARC_SYNTENY_CALL_SUFFIX = """                                      pdf_dir=f'{co
 """
 PATCHED_SYNTENY_CALL_SUFFIX = """                                      pdf_dir=f'{config["results_save_dir"]}/{config["genetic_architecture_visualization_pdf_dir_save_location"]}',
                                       metadata_dir=f'{config["results_save_dir"]}/{config["genetic_architecture_visualization_dir_save_location"]}',
-                                      filter_results=not online_measurement_mode)
+                                      filter_results=not online_measurement_mode,
+                                      max_missing_reference_genes=config.get("synteny_max_missing_reference_genes", 0))
 """
 ARC_PIPELINE_FILES = (
     "genome_design_filtering_pipeline.py",
@@ -727,6 +740,7 @@ def _apply_required_gene_evidence_patch(output_dir: Path) -> None:
     filter_results: bool = True,
     protein_database_hits_df: pd.DataFrame = None,
     minimum_reciprocal_coverage: float = 0.75,
+    family_coverage_thresholds: dict = None,
 ) -> pd.DataFrame:
     """Measure fixed required families and optionally apply the same hard gate."""
     from bionemo.evo2_phage_gen.protein_evidence import summarize_required_gene_evidence
@@ -737,6 +751,7 @@ def _apply_required_gene_evidence_patch(output_dir: Path) -> None:
         sequences_df,
         required_products,
         minimum_reciprocal_coverage,
+        family_coverage_thresholds,
     )
     if metrics_csv is not None:
         metrics_df.to_csv(metrics_csv, index=False)
@@ -744,7 +759,8 @@ def _apply_required_gene_evidence_patch(output_dir: Path) -> None:
         return sequences_df.copy()
 
     passing = metrics_df.loc[
-        metrics_df["required_genes_full_length_count"] == metrics_df["required_genes_total_count"],
+        (metrics_df["required_genes_total_count"] > 0)
+        & (metrics_df["required_genes_full_length_count"] == metrics_df["required_genes_total_count"]),
         "genome_id",
     ]
     surviving_genome_ids = set(passing.astype(str))
@@ -781,7 +797,7 @@ def _apply_reference_cluster_evidence_patch(output_dir: Path) -> None:
 
 
 def _apply_aai_evidence_patch(output_dir: Path) -> None:
-    """Use the same coverage-qualified family AAI online and in final Arc filtering."""
+    """Use the same configured AAI measurement online and in final Arc filtering."""
     pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
     text = pipeline_path.read_text()
     if PATCHED_AAI_FUNCTION in text or "def valid_average_protein_percent_identity(" not in text:

@@ -30,7 +30,7 @@ Keep sampled EOD and its log-probability in the action loss; mask synthetic padd
 
 Report three termination outcomes: authentic EOD, capped without EOD, and below-cap without EOD. Use retained tokens and `max_new_tokens`, not allocator-rounded `max_model_len`. Bin authentic stops by total biological length, including prompt bases.
 
-The optional `zero_reward_without_eod` experiment is default-off. It zeros the **entire** scalar reward or GDPO vector, including safety channels, for no-EOD rows while retaining their actions in the loss. Raw QC and safety results remain diagnostics. Watch all-no-EOD and zero-variance prompt groups for lost learning signal. A longer cap adds no distance gradient above a flat-zero length reward.
+The PhiX configs enable `zero_reward_without_eod` by default with a 6,000-token generation budget. It zeros the **entire** scalar reward or GDPO vector, including safety channels, for no-EOD rows while retaining their actions in the loss (`overlong_filtering=false`). Raw QC and safety results remain diagnostics. An explicit `false` override supports ungated comparisons; keep existing runs on their recorded settings. Watch all-no-EOD and zero-variance prompt groups for lost learning signal. A longer cap adds no distance gradient above a flat-zero length reward, and frequent EOD does not establish correct placement.
 
 Compare configured objectives with emitted scores and positive/failure controls. Separate valid zero or candidate-level safety failure from unavailable measurements. Diagnose missing scorers; keep sparse but measured objectives visible. Record deliberate objective changes and report them in the next useful update.
 

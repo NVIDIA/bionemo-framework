@@ -15,8 +15,13 @@
 
 """Focused tests for smooth, ORF-gated reference evidence."""
 
+import warnings
+from pathlib import Path
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
+import yaml
 from Bio import SeqIO
 
 from bionemo.evo2_phage_gen import protein_evidence
@@ -36,6 +41,93 @@ SMOOTH_TROPISM_MATCH = {
     "reference_coverage_full_credit": 0.99,
     "candidate_coverage_full_credit": 0.99,
 }
+
+
+def test_native_coverage_excludes_gap_columns():
+    """Alignment columns include gaps; they must not manufacture intact-gene credit."""
+    hits = pd.DataFrame(
+        {
+            "protein_database_mmseqs_percent_identity": [100.0, 100.0],
+            "protein_database_mmseqs_alignment_length": [100, 100],
+            "protein_database_mmseqs_query_length": [100, 100],
+            "protein_database_mmseqs_target_length": [100, 100],
+            "protein_database_mmseqs_query_coverage": [0.70, 1.0],
+            "protein_database_mmseqs_target_coverage": [1.0, 0.60],
+        }
+    )
+    measured, available = protein_evidence.add_protein_alignment_evidence(hits, "protein_database")
+    assert available
+    assert measured["protein_database_alignment_integrity"].tolist() == [0.70, 0.60]
+    legacy = hits.drop(columns=["protein_database_mmseqs_query_coverage"])
+    missing, available = protein_evidence.add_protein_alignment_evidence(legacy, "protein_database")
+    assert not available
+    assert missing["protein_database_alignment_integrity"].tolist() == [0.0, 0.0]
+
+
+def test_smooth_match_uses_native_coverage():
+    """A gapped partial match stays partial even when alnlen equals both protein lengths."""
+    observed = protein_evidence.smooth_protein_match_integrity(
+        100.0,
+        1e-20,
+        100,
+        100,
+        100,
+        reference_coverage=0.70,
+        candidate_coverage=1.0,
+        identity_full_credit=1.0,
+        reference_coverage_full_credit=1.0,
+        candidate_coverage_full_credit=1.0,
+        gamma=1.0,
+        raw_integrity_min=0.0,
+        min_credit=0.0,
+    )
+    assert observed == pytest.approx(0.70)
+
+
+def test_aai_best_evalue_per_orf():
+    hits = pd.DataFrame(
+        {
+            "id_prompt": ["sample_ORF.1", "sample_ORF.1", "sample_ORF.2", "other_ORF.1"],
+            "protein_database_mmseqs_target": ["family_a|1", "family_b|2", "family_a|3", "family_a|1"],
+            "protein_database_mmseqs_e_value": [1e-30, 1e-10, 1e-20, 1e-40],
+            "protein_database_mmseqs_percent_identity": [80.0, 99.0, 100.0, 97.0],
+        }
+    )
+    result = protein_evidence.summarize_best_hit_aai(hits).set_index("id_prompt")
+    # Minimum E-value, not maximum identity, and two ORFs in the same family count twice.
+    assert result.loc["sample", "average_protein_percent_identity"] == 90.0
+    assert result.loc["sample", "average_protein_identity_gene_count"] == 2
+    assert result.loc["other", "average_protein_percent_identity"] == 97.0
+    assert protein_evidence.summarize_best_hit_aai(hits.iloc[:0]).empty
+
+
+def _required_hits(*rows):
+    """Build compact required-gene MMseqs evidence rows for assignment tests."""
+    return pd.DataFrame(
+        [
+            {
+                "id_prompt": candidate,
+                "annot": annotation,
+                "protein_database_mmseqs_target": target,
+                "protein_database_mmseqs_percent_identity": 100.0,
+                "protein_database_mmseqs_alignment_length": int(integrity * 400),
+                "protein_database_mmseqs_query_length": 400,
+                "protein_database_mmseqs_target_length": 400,
+                "protein_database_mmseqs_query_coverage": integrity,
+                "protein_database_mmseqs_target_coverage": integrity,
+            }
+            for candidate, annotation, target, integrity in rows
+        ]
+    )
+
+
+def _required_sequences(*genome_ids):
+    return pd.DataFrame(
+        {
+            "id_prompt": list(genome_ids),
+            "genome_id": [f"genome_{index}" for index, _ in enumerate(genome_ids, start=1)],
+        }
+    )
 
 
 def test_pseudocircular_filter_removes_a_prefix_tail_repeated_by_a_cross_origin_orf(tmp_path):
@@ -104,6 +196,8 @@ def test_smooth_reference_summary_reuses_orf_hits_for_synteny_tropism_and_gene_a
                 "alnlen": 95,
                 "qlen": 100,
                 "tlen": 100,
+                "qcov": 0.95,
+                "tcov": 0.95,
             },
             {
                 "query": "G",
@@ -113,6 +207,8 @@ def test_smooth_reference_summary_reuses_orf_hits_for_synteny_tropism_and_gene_a
                 "alnlen": 99,
                 "qlen": 100,
                 "tlen": 100,
+                "qcov": 0.99,
+                "tcov": 0.99,
             },
         ]
     )
@@ -181,6 +277,8 @@ def test_smooth_match_rejects_decoy_scale_evidence_and_grades_real_partial_match
         alignment_length=147,
         reference_length=522,
         candidate_length=427,
+        reference_coverage=0.282,
+        candidate_coverage=0.344,
         **kwargs,
     )
     partial = protein_evidence.smooth_protein_match_integrity(
@@ -189,6 +287,8 @@ def test_smooth_match_rejects_decoy_scale_evidence_and_grades_real_partial_match
         alignment_length=70,
         reference_length=100,
         candidate_length=100,
+        reference_coverage=0.70,
+        candidate_coverage=0.70,
         **kwargs,
     )
     complete = protein_evidence.smooth_protein_match_integrity(
@@ -197,6 +297,8 @@ def test_smooth_match_rejects_decoy_scale_evidence_and_grades_real_partial_match
         alignment_length=95,
         reference_length=100,
         candidate_length=100,
+        reference_coverage=0.95,
+        candidate_coverage=0.95,
         **kwargs,
     )
 
@@ -221,18 +323,24 @@ def test_smooth_match_penalizes_both_truncations_and_fusions():
         alignment_length=95,
         reference_length=100,
         candidate_length=100,
+        reference_coverage=0.95,
+        candidate_coverage=0.95,
         **kwargs,
     )
     truncation = protein_evidence.smooth_protein_match_integrity(
         alignment_length=70,
         reference_length=100,
         candidate_length=70,
+        reference_coverage=0.70,
+        candidate_coverage=1.0,
         **kwargs,
     )
     fusion = protein_evidence.smooth_protein_match_integrity(
         alignment_length=95,
         reference_length=100,
         candidate_length=140,
+        reference_coverage=0.95,
+        candidate_coverage=0.679,
         **kwargs,
     )
 
@@ -415,3 +523,325 @@ def test_gene_a_origin_penalizes_duplicate_strong_sites():
 
     assert result.strong_site_count == 2
     assert result.reward == pytest.approx(0.5)
+
+
+@pytest.mark.parametrize("offset", [315, 318, 345, 372, 375])
+def test_origin_context_window_has_no_preferred_start(offset):
+    """An intact origin in the accepted frame/window is neutral to A-start variation."""
+    motif = "CAACTTGATATTAATAACACTATAGACCAC"
+    candidate = "G" * offset + motif
+    result = protein_evidence.score_gene_a_origin(
+        candidate_a_orf_nt=candidate,
+        candidate_genome_nt=candidate,
+        a_match_integrity=1.0,
+        motif=motif + "TT",  # Bases 29-30 are not part of the functional site.
+        expected_offset_nt=345,
+        offset_tolerance_nt=30,
+    )
+    assert result.reward == 1.0
+    assert result.position_score == 1.0
+    assert result.exact_functional_site
+
+
+@pytest.mark.parametrize("offset", [312, 316, 344, 376, 378])
+def test_origin_context_rejects_wrong_frame_or_outside_window(offset):
+    """Removing the within-window preference must retain frame and context checks."""
+    motif = "CAACTTGATATTAATAACACTATAGACCAC"
+    candidate = "G" * offset + motif + "G" * 100
+    result = protein_evidence.score_gene_a_origin(
+        candidate_a_orf_nt=candidate,
+        candidate_genome_nt=candidate,
+        a_match_integrity=1.0,
+        motif=motif,
+        expected_offset_nt=345,
+        offset_tolerance_nt=30,
+    )
+    assert result.reward == 0.0
+
+
+def test_required_family_selector_matches_supported_phrog_target_forms_with_missing_annotations():
+    """The known unknown-function slot must select PHROG1713, not missing annotations generally."""
+    hits = _required_hits(
+        ("numeric_ORF.1", pd.NA, 1713, 1.0),
+        ("string_ORF.1", float("nan"), "1713", 1.0),
+        ("prefixed_ORF.1", None, "phrog_1713", 1.0),
+        ("unrelated_ORF.1", pd.NA, "phrog_9999", 1.0),
+    )
+
+    observed = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("numeric", "string", "prefixed", "unrelated"),
+        ("phrog:1713",),
+    )
+
+    assert observed["required_genes_integrity_sum"].tolist() == [1.0, 1.0, 1.0, 0.0]
+    assert observed["required_genes_full_length_count"].tolist() == [1, 1, 1, 0]
+
+
+def test_required_nan_compatibility_alias_selects_only_phrog1713():
+    """Legacy `nan` configs must mean PHROG1713 without accepting unrelated missing annotations."""
+    hits = _required_hits(
+        ("family_ORF.1", pd.NA, "phrog_1713", 1.0),
+        ("unrelated_ORF.1", float("nan"), "phrog_9999", 1.0),
+    )
+
+    observed = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("family", "unrelated"),
+        ("nan",),
+    )
+
+    assert observed["required_genes_integrity_sum"].tolist() == [1.0, 0.0]
+    assert observed["required_genes_full_length_count"].tolist() == [1, 0]
+
+
+def test_required_product_labels_keep_exact_annotation_matching():
+    """Ordinary required products must continue to match their annotation labels."""
+    hits = _required_hits(
+        ("labeled_ORF.1", "terminase", "phrog_1", 1.0),
+        ("missing_ORF.1", pd.NA, "phrog_2", 1.0),
+    )
+
+    observed = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("labeled", "missing"),
+        ("terminase",),
+    )
+
+    assert observed["required_genes_integrity_sum"].tolist() == [1.0, 0.0]
+
+
+def test_required_integrity_assignment_is_invariant_to_orf_names_and_row_order():
+    """Renumbering the same 0.675 and 1.0 family hits must not change the shaped score."""
+    first = _required_hits(
+        ("first_ORF.1", "DNA condensation", "phrog_2354", 0.675),
+        ("first_ORF.2", "DNA condensation", "phrog_2354", 1.0),
+    )
+    rotated = _required_hits(
+        ("rotated_ORF.2", "DNA condensation", "phrog_2354", 0.675),
+        ("rotated_ORF.1", "DNA condensation", "phrog_2354", 1.0),
+    ).iloc[::-1]
+
+    first_score = protein_evidence.summarize_required_gene_evidence(
+        first,
+        _required_sequences("first"),
+        ("DNA condensation",),
+    )
+    rotated_score = protein_evidence.summarize_required_gene_evidence(
+        rotated,
+        _required_sequences("rotated"),
+        ("DNA condensation",),
+    )
+
+    assert first_score.loc[0, "required_genes_integrity_sum"] == 1.0
+    assert rotated_score.loc[0, "required_genes_integrity_sum"] == 1.0
+
+
+def test_required_integrity_capped_assignment_uses_best_single_edge():
+    """A one-copy quota must optimize one edge rather than truncate a full matching."""
+    hits = _required_hits(
+        ("sample_ORF.1", "head", "family_1", 1.0),
+        ("sample_ORF.1", "head", "family_2", 0.2),
+        ("sample_ORF.2", "head", "family_1", 0.9),
+        ("sample_ORF.2", "head", "family_2", 0.8),
+    )
+
+    observed = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("sample"),
+        ("head",),
+    )
+
+    assert observed.loc[0, "required_genes_integrity_sum"] == 1.0
+
+
+def test_required_integrity_repeated_quota_uses_maximum_weight_one_to_one_assignment():
+    """Repeated products must maximize evidence while keeping candidates and families unique."""
+    hits = _required_hits(
+        ("sample_ORF.1", "head", "family_1", 1.0),
+        ("sample_ORF.1", "head", "family_2", 0.2),
+        ("sample_ORF.2", "head", "family_1", 0.9),
+        ("sample_ORF.2", "head", "family_2", 0.8),
+    )
+
+    observed = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("sample"),
+        ("head", "head"),
+    )
+
+    assert observed.loc[0, "required_genes_integrity_sum"] == pytest.approx(1.8)
+    assert observed.loc[0, "required_genes_matched_count"] == 2
+
+
+def test_required_integrity_does_not_reuse_one_target_family_for_a_repeated_product():
+    """Extra ORFs hitting one family cannot satisfy a repeated-product quota twice."""
+    hits = _required_hits(
+        ("sample_ORF.1", "head", "family_1", 1.0),
+        ("sample_ORF.2", "head", "family_1", 0.9),
+    )
+
+    observed = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("sample"),
+        ("head", "head"),
+    )
+
+    assert observed.loc[0, "required_genes_integrity_sum"] == 1.0
+    assert observed.loc[0, "required_genes_matched_count"] == 1
+
+
+def test_required_integrity_does_not_reuse_ambiguous_candidate_across_products():
+    """One ORF with hits under two annotations may fill only one required-product slot."""
+    hits = _required_hits(
+        ("sample_ORF.1", "product A", "family_A", 1.0),
+        ("sample_ORF.1", "product B", "family_B", 1.0),
+        ("sample_ORF.2", "product A", "family_A", 0.5),
+    )
+
+    observed = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("sample"),
+        ("product A", "product B"),
+    )
+
+    assert observed.loc[0, "required_genes_integrity_sum"] == 1.5
+    assert observed.loc[0, "required_genes_matched_count"] == 2
+    assert observed.loc[0, "required_genes_full_length_count"] == 1
+
+
+def test_required_integrity_never_decreases_when_weaker_evidence_is_added():
+    """Adding a weaker hit to an already satisfied slot must leave its best score intact."""
+    strong = _required_hits(("sample_ORF.9", "head", "family_1", 1.0))
+    with_weaker = pd.concat(
+        [_required_hits(("sample_ORF.1", "head", "family_1", 0.675)), strong],
+        ignore_index=True,
+    )
+
+    baseline = protein_evidence.summarize_required_gene_evidence(
+        strong,
+        _required_sequences("sample"),
+        ("head",),
+    )
+    augmented = protein_evidence.summarize_required_gene_evidence(
+        with_weaker,
+        _required_sequences("sample"),
+        ("head",),
+    )
+
+    assert augmented.loc[0, "required_genes_integrity_sum"] == baseline.loc[0, "required_genes_integrity_sum"]
+
+
+def test_required_assignment_bounds_highs_threads_and_only_suppresses_its_forwarding_warning(monkeypatch):
+    """The tiny MILP must be single-threaded without hiding unrelated solver warnings."""
+    observed_options = None
+
+    def fake_milp(**kwargs):
+        nonlocal observed_options
+        observed_options = kwargs.get("options")
+        warnings.warn(
+            "Unrecognized options detected: {'threads'}. These will be passed to HiGHS verbatim.",
+            RuntimeWarning,
+        )
+        warnings.warn("independent solver warning", RuntimeWarning)
+        return SimpleNamespace(success=True, x=[1.0], message="optimal")
+
+    monkeypatch.setattr(protein_evidence, "milp", fake_milp)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assigned = protein_evidence._maximum_weight_required_assignment(
+            {("candidate", "target", "product"): 1.0},
+            {"product": 1},
+        )
+
+    assert assigned == (1.0,)
+    assert observed_options == {"threads": 1}
+    assert [(warning.category, str(warning.message)) for warning in caught] == [
+        (RuntimeWarning, "independent solver warning")
+    ]
+
+
+@pytest.mark.parametrize(
+    "family,aligned,query,target,qcov,tcov",
+    [
+        (1465, 33, 45, 68, 0.733, 0.471),  # Evo-phi75: 33 columns, only 32 target residues.
+        (1465, 33, 47, 68, 0.702, 0.471),  # Evo-phi100 has the same target-side gap.
+        (1472, 74, 127, 76, 0.583, 0.974),
+        (1473, 80, 82, 117, 0.976, 0.684),
+    ],
+)
+def test_calibrated_family_coverage_accepts_viable_variants(family, aligned, query, target, qcov, tcov):
+    """Observed C/B truncations and E extension are intact evidence in their calibrated envelopes."""
+    hits = _required_hits(("sample_ORF.1", "function", f"phrog_{family}", 1.0))
+    hits["protein_database_mmseqs_alignment_length"] = aligned
+    hits["protein_database_mmseqs_query_length"] = query
+    hits["protein_database_mmseqs_target_length"] = target
+    hits["protein_database_mmseqs_query_coverage"] = qcov
+    hits["protein_database_mmseqs_target_coverage"] = tcov
+    config_path = Path(__file__).parents[3] / "configs" / "arc_genome_design_filtering_local.yaml"
+    profile = yaml.safe_load(config_path.read_text())["required_gene_family_coverage"]
+    observed = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("sample"),
+        ("function",),
+        family_coverage_thresholds=profile,
+    )
+    assert observed.loc[0, "required_genes_full_length_count"] == 1
+    assert observed.loc[0, "required_genes_integrity_sum"] == 1.0
+
+    # A smaller alignment than the observed viable bound is partial, not intact.
+    hits["protein_database_mmseqs_alignment_length"] = aligned - 1
+    hits["protein_database_mmseqs_query_coverage"] = qcov - 1 / query
+    hits["protein_database_mmseqs_target_coverage"] = tcov - 1 / target
+    damaged = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("sample"),
+        ("function",),
+        family_coverage_thresholds=profile,
+    )
+    assert damaged.loc[0, "required_genes_full_length_count"] == 0
+    assert 0.0 < damaged.loc[0, "required_genes_integrity_sum"] < 1.0
+
+
+def test_calibrated_coverage_does_not_relax_other_families():
+    """A C-specific allowance cannot make an arbitrary truncated head protein pass."""
+    hits = _required_hits(("sample_ORF.1", "major head protein", "phrog_514", 0.5))
+    observed = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("sample"),
+        ("major head protein",),
+        family_coverage_thresholds={"phrog:1465": (0.70, 0.47)},
+    )
+    assert observed.loc[0, "required_genes_full_length_count"] == 0
+    assert observed.loc[0, "required_genes_integrity_sum"] == pytest.approx(2 / 3)
+
+
+@pytest.mark.parametrize("thresholds", [(0, 0.5), (1.1, 0.5), (float("nan"), 0.5), (0.5,)])
+def test_bad_family_coverage_is_rejected_even_without_hits(thresholds):
+    with pytest.raises(ValueError, match="coverage"):
+        protein_evidence.summarize_required_gene_evidence(
+            pd.DataFrame(),
+            _required_sequences("empty"),
+            ("function",),
+            family_coverage_thresholds={"phrog:1465": thresholds},
+        )
+
+
+def test_synteny_deficit_allowance_keeps_order_copy_and_measurement_checks():
+    metrics = pd.DataFrame(
+        {
+            "reference_num_genes": [10] * 7,
+            "num_syntenic_genes": [10, 9, 8, 9, 9, 9, 0],
+            "duplicate_reference_gene_count": [0, 0, 0, 1, 0, 0, 0],
+            "reference_order_violation_count": [0, 0, 0, 0, 1, 0, 0],
+            "missing_synteny_output": [False, False, False, False, False, True, False],
+        }
+    )
+    assert protein_evidence.reference_synteny_pass_mask(metrics).tolist() == [True] + [False] * 6
+    assert protein_evidence.reference_synteny_pass_mask(metrics, 1).tolist() == [True, True] + [False] * 5
+
+
+@pytest.mark.parametrize("allowance", [-1, 1.5, True])
+def test_synteny_deficit_allowance_requires_nonnegative_integer(allowance):
+    with pytest.raises(ValueError, match="missing reference"):
+        protein_evidence.reference_synteny_pass_mask(pd.DataFrame(), allowance)

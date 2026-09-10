@@ -27,9 +27,11 @@ Evo 2 applies temperature, then top-k, then shifted top-p. After top-k renormali
 
 The realized PhiX mixture uses temperature 1, top-k 5, top-p 1.0: nucleus at .999 removed EOD at two authentic anchor endpoints. This restores support, not correct placement, and is not a universal policy for other genomes. Audit authentic-EOD frequency and biological length placement separately across all required strata; both can fall while content reward rises.
 
-Generation budget counts assistant tokens; biological length includes prompt bases and excludes control tokens/EOD. Put the ordinary cap beyond the length reward's upper zero. PhiX's 5,420 generated tokens yield 5,436/5,444 biological bases for 16/24-base prompts. A wider lower taper gives shaping credit, not hard acceptance. An approved longer-cap/no-EOD experiment uses a fresh result root; it adds no graded distance signal where length reward is already zero.
+Generation budget counts assistant tokens; biological length includes prompt bases and excludes control tokens/EOD. PhiX defaults to 6,000 generated tokens and 6,144 context, allowing 6,016/6,024 biological bases for 16/24-base prompts, beyond the 5,800 reward zero. The independent hard length screen is 5,306–5,730 nt; full credit is 5,359–5,550. See the [README's length evidence](../../examples/README.md#current-phix174-gdpo-score-definitions) for viability versus stability and the shaping choices. Both PhiX RL configs enable the missing-EOD whole-reward gate, retaining no-EOD rows in the loss with zero scalar/vector rewards. A wider taper gives shaping credit, not hard acceptance; a flat-zero tail supplies no graded distance signal. Material changes use a fresh result root, leaving existing attempts comparable under their original bounds.
 
 Retain direct authentic-EOD bins: below lower zero, lower taper, full credit, upper taper, and above upper zero. Count caps and non-EOD short outputs separately. Whole-sequence likelihood depends on linear origin, so mixed-origin designs need an origin-normalized method before global likelihood ranking.
+
+The paired calibration sweep's `TARGET_LENGTH=6000` is a biological total, not RL's generated-token budget; it subtracts prompt bases. Both calibration and deployment caps must lie beyond the scoring zero. Calibration does not replace the deployed full-shape pilot.
 
 ## Score and select
 
