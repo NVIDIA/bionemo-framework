@@ -136,7 +136,7 @@
       "expected_output": "Independent biological measurements plus a separate failed length gate.",
       "assertions": [
         "A tool-safe short genome still receives ORF, protein, and architecture measurements rather than fabricated zeroes.",
-        "The graded length reward and binary final length acceptance remain separate.",
+        "The graded length reward uses four ordered zero/full/full/zero points, independently of the min/max interval for binary final length acceptance.",
         "Final acceptance still rejects the genome outside the configured hard length interval.",
         "Empty, malformed, or tool-failed genomes remain isolated and receive explicit zero credit where measurement is impossible."
       ],

@@ -65,6 +65,67 @@ def test_patch_owns_packaging_changes(tmp_path: Path) -> None:
     assert 'requires-python = ">=3.10"' in pyproject
 
 
+def test_cluster_histogram_logging(tmp_path: Path) -> None:
+    """Count clusters once and retain their distribution through aggregation and logging."""
+    import pandas as pd
+
+    from bionemo.evo2_phage_gen.nemo_rl_env import phage_qc_metrics_from_scored
+    from bionemo.evo2_phage_gen.reward import RewardWeights
+
+    source = _cached_source()
+    if source is None:
+        pytest.skip("configured NeMo-RL source is not cached")
+    build = nemo_rl_setup._copy_build_source(source, tmp_path / "build")
+    nemo_rl_setup.apply_source_patch(build)
+
+    def load_function(relative_path, name, class_name=None):
+        path = build / relative_path
+        nodes = ast.parse(path.read_text()).body
+        if class_name:
+            nodes = next(node for node in nodes if getattr(node, "name", None) == class_name).body
+        function = next(node for node in nodes if getattr(node, "name", None) == name)
+        namespace = {}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), str(path), "exec"), namespace)
+        return namespace[name], namespace
+
+    collect, namespace = load_function("nemo_rl/experience/rollouts.py", "collect_environment_metrics")
+    aggregate, _ = load_function("nemo_rl/algorithms/grpo.py", "aggregate_rollout_metrics")
+    log_metrics, _ = load_function("nemo_rl/utils/logger.py", "log_metrics", "Logger")
+    scored = pd.DataFrame({"mmseqs_cluster_id": ["a", "a", "b", "invalid"], "mmseqs_cluster_size": [2, 2, 1, 0]})
+    metrics = phage_qc_metrics_from_scored(scored, RewardWeights())
+    assert sorted(metrics["__histogram__/mmseqs_cluster_size"]) == [1, 2]
+    assert not any(key.startswith("mmseqs_cluster_size_histogram/") for key in metrics)
+
+    class Batch(dict):
+        def select_indices(self, indices):
+            return self
+
+    namespace.update(
+        torch=SimpleNamespace(tensor=lambda values, **kwargs: values, long=None),
+        ray=SimpleNamespace(get=lambda values: values),
+    )
+    env = SimpleNamespace(global_post_process_and_metrics=SimpleNamespace(remote=lambda batch: (batch, metrics)))
+    collected = collect(Batch(task_name=["phage_qc"] * len(scored)), {"phage_qc": env})
+    key = "__histogram__/phage_qc/mmseqs_cluster_size"
+    combined = aggregate({key: [collected[key], [], [3]], "mean_reward": [0.2, 0.4, 0.6]})
+    assert sorted(combined[key]) == [1, 2, 3]
+
+    histograms, scalars = [], []
+    logger = SimpleNamespace(
+        log_histogram=lambda values, step, name: histograms.append((values, step, name)),
+        loggers=[SimpleNamespace(log_metrics=lambda *args: scalars.append(args))],
+    )
+    for prefix in ("train", "validation"):
+        log_metrics(logger, combined, 7, prefix, step_finished=True)
+    assert [item[2] for item in histograms] == [
+        "train/phage_qc/mmseqs_cluster_size",
+        "validation/phage_qc/mmseqs_cluster_size",
+    ]
+    assert all(sorted(values) == [1, 2, 3] and step == 7 for values, step, _ in histograms)
+    assert all(args[0] == {"mean_reward": pytest.approx(0.4)} and args[-1] is True for args in scalars)
+    assert key in combined  # Logging must not remove data from the caller's metrics.
+
+
 def test_patch_uses_standard_bridge_config_loader(tmp_path: Path) -> None:
     source = _cached_source()
     if source is None:

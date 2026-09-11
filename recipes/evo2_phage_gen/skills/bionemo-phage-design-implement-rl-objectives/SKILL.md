@@ -15,6 +15,8 @@ Audit GDPO/GRPO per-objective normalization, not only raw reward scales: in a ba
 
 Preserve formulas, controls, record mapping, and verified scoring concurrency when refactoring or optimizing a scorer; compare the reference and optimized paths on the same cases.
 
+The recipe's genome-length reward uses four finite ordered points: lower zero, lower full credit, upper full credit, and upper zero. Keep these separate from `genome_length_min` / `genome_length_max`, which control hard nucleotide acceptance and valid-only clustering. There is no min/max reward fallback; use the [length configuration reference](../../configs/README.md#length-and-termination) for config fields and FASTA-scoring options.
+
 For protein-match objectives, retain E-value, identity, alignment length, query length, target length, and native query/target coverage. Do not infer coverage from alignment-column count, which can include gaps. Distinguish a homologous fragment, an intact gene, and a distinct function. Give credible partial matches graded credit without requiring a complete gene set first; keep final completeness criteria separate. Count unique families where the objective means distinct functions, and test embedded or overlapping genes that an ORF caller may miss.
 
 Use gene-deletion and truncation controls to check incremental recovery of gene content. Base-shuffled controls test accidental match credit; gene-order-shuffled controls preserve the protein sequences and test order separately from content. Neither defines a universal reward floor, and an order penalty is appropriate only when the design calls for conserved architecture.

@@ -675,8 +675,7 @@ def test_phage_qc_metrics_from_scored_flattens_reward_components():
     assert metrics["mmseqs_cluster_clusters_per_sequence"] == 1.0
     assert metrics["mmseqs_cluster_singleton_fraction"] == 0.5
     assert metrics["mmseqs_cluster_largest_cluster_fraction"] == 1.0
-    assert metrics["mmseqs_cluster_size_histogram/size_1"] == 1
-    assert metrics["mmseqs_cluster_size_histogram/size_2"] == 1
+    assert sorted(metrics["__histogram__/mmseqs_cluster_size"]) == [1, 2]
     assert metrics["binary_core_pass_count"] == 1
     assert metrics["binary_core_pass_rate"] == 0.5
     assert metrics["binary_full_qc_pass_count"] == 1
@@ -791,8 +790,7 @@ def test_phage_qc_metrics_interprets_mmseqs_cluster_sizes_with_full_batch_denomi
     assert metrics["mmseqs_cluster_clusters_per_sequence"] == 0.5
     assert metrics["mmseqs_cluster_singleton_fraction"] == pytest.approx(1.0 / 3.0)
     assert metrics["mmseqs_cluster_largest_cluster_fraction"] == pytest.approx(2.0 / 3.0)
-    assert metrics["mmseqs_cluster_size_histogram/size_1"] == 1
-    assert metrics["mmseqs_cluster_size_histogram/size_2"] == 1
+    assert sorted(metrics["__histogram__/mmseqs_cluster_size"]) == [1, 2]
 
 
 def test_phage_qc_metrics_report_safety_states_rewards_and_qualified_full_qc():

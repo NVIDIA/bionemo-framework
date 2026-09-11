@@ -602,23 +602,13 @@ def _interval_score(value: float, lower: float, upper: float) -> float:
 
 
 def _genome_length_score(value: float, config: NucleotideQCConfig) -> float:
-    """Score length against an optional asymmetric envelope, else the hard-QC interval."""
-    bounds = (
+    """Score length against the four-point reward envelope, independently of hard QC."""
+    lower_zero, lower_full, upper_full, upper_zero = (
         config.genome_length_reward_lower_zero,
         config.genome_length_reward_lower_full,
         config.genome_length_reward_upper_full,
         config.genome_length_reward_upper_zero,
     )
-    if all(bound is None for bound in bounds):
-        return _interval_score(value, config.genome_length_min, config.genome_length_max)
-    if any(bound is None for bound in bounds):
-        raise ValueError("genome length reward bounds must all be configured")
-    lower_zero, lower_full, upper_full, upper_zero = (float(bound) for bound in bounds)
-    if not (
-        all(math.isfinite(bound) for bound in (lower_zero, lower_full, upper_full, upper_zero))
-        and lower_zero < lower_full <= upper_full < upper_zero
-    ):
-        raise ValueError("genome length reward bounds must satisfy lower_zero < lower_full <= upper_full < upper_zero")
     if value <= lower_zero or value >= upper_zero:
         return 0.0
     if lower_full <= value <= upper_full:
@@ -2317,8 +2307,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Score Evo2 phage FASTA sequences with online-safe reward components")
     parser.add_argument("--input-fasta", type=Path, required=True)
     parser.add_argument("--output-csv", type=Path, required=True)
-    parser.add_argument("--genome-length-min", type=int, default=4000)
-    parser.add_argument("--genome-length-max", type=int, default=6000)
+    parser.add_argument(
+        "--genome-length-min", type=int, default=4000, help="Hard length-QC minimum; does not shape reward"
+    )
+    parser.add_argument(
+        "--genome-length-max", type=int, default=6000, help="Hard length-QC maximum; does not shape reward"
+    )
+    for bound in ("lower_zero", "lower_full", "upper_full", "upper_zero"):
+        parser.add_argument(
+            f"--genome-length-reward-{bound.replace('_', '-')}",
+            type=float,
+            default=getattr(NucleotideQCConfig, f"genome_length_reward_{bound}"),
+        )
     parser.add_argument("--gc-content-min", type=float, default=30.0)
     parser.add_argument("--gc-content-max", type=float, default=65.0)
     parser.add_argument("--homopolymer-max", type=int, default=10)
@@ -2337,6 +2337,10 @@ def main() -> None:
         config=NucleotideQCConfig(
             genome_length_min=args.genome_length_min,
             genome_length_max=args.genome_length_max,
+            genome_length_reward_lower_zero=args.genome_length_reward_lower_zero,
+            genome_length_reward_lower_full=args.genome_length_reward_lower_full,
+            genome_length_reward_upper_full=args.genome_length_reward_upper_full,
+            genome_length_reward_upper_zero=args.genome_length_reward_upper_zero,
             gc_content_min=args.gc_content_min,
             gc_content_max=args.gc_content_max,
             homopolymer_max=args.homopolymer_max,

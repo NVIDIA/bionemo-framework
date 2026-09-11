@@ -243,6 +243,9 @@ data:
     env_name: phage_qc
 env:
   phage_qc:
+    # Hard nucleotide-QC acceptance interval: used by reward_nucleotide_pass, valid-only
+    # clustering, and final screening (mirrored by Arc's genome_length_range).
+    # These two values do not shape reward_genome_length; its four-point envelope is below.
     genome_length_min: 5306
     # Viable insertion mutants reached 5,730 nt, but >5,550 nt were unstable:
     # Russell & Muller (1984), https://doi.org/10.1128/jvi.52.3.822-827.1984.
@@ -251,6 +254,7 @@ env:
     # https://github.com/ArcInstitute/evo2/blob/main/phage_gen/data/viable_generated_phage_genomes.fasta
     # This is a permissive screening envelope, not a guarantee of stability or viability.
     genome_length_max: 5730
+    # Four-point reward envelope, independent of the hard acceptance interval above.
     # Keep the lower shaping taper; prefer <=5,550 nt, with partial credit for longer
     # viable examples. The 5,800 zero is a shaping choice, not a measured packaging limit.
     genome_length_reward_lower_zero: 3000

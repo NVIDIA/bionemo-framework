@@ -13,6 +13,8 @@ Read training rollouts and the fixed validation bank together. The bank provides
 
 Positive support is not a full-credit score. More gene content or a higher aggregate can coexist with worse termination. When diversity is gated by length or safety eligibility, inspect diversity among eligible rows as well as its all-row mean. Check prompt composition before attributing cycles to learning.
 
+Use the native W&B histogram at `train/phage_qc/mmseqs_cluster_size` or `validation/phage_qc/mmseqs_cluster_size` for cluster-size distributions over optimizer steps. Color represents cluster count: one observation per unique cluster, with unclustered rows excluded. Validation pools scoring-batch distributions without reclustering. The old `mmseqs_cluster_size_histogram/size_*` scalar family is no longer emitted; TensorBoard still receives scalar cluster summaries.
+
 Use comparable windows rather than SFT-style patience. At validation every ten steps, roughly ten banks (about 100 updates) is a useful horizon for noisy RL, not an automatic countdown. A recovered excursion or a plateau below an earlier peak is not by itself a reason to stop. Sustained deterioration across supported components and training rollouts warrants diagnosis and a checkpoint decision within the agreed experiment budget.
 
 Low measured safety scores and faithfully sampled invalid genomes are learning outcomes. Missing artifacts, unexplained NOT_RUN, or failed enabled scorers make the evidence uninterpretable and need repair. Record a concise continue, diagnose, stop, or restart decision at useful scientific boundaries; ask only when the next action needs a genuinely new user choice or authority.

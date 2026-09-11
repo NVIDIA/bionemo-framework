@@ -344,7 +344,7 @@ def test_score_nucleotide_metrics_uses_configured_shaping_genome_length_reward()
 @pytest.mark.parametrize(
     "config_kwargs",
     [
-        {"genome_length_reward_lower_zero": 5305},
+        {"genome_length_reward_lower_zero": None},
         {
             "genome_length_reward_lower_zero": 5359,
             "genome_length_reward_lower_full": 5305,
@@ -353,12 +353,28 @@ def test_score_nucleotide_metrics_uses_configured_shaping_genome_length_reward()
         },
     ],
 )
-def test_score_nucleotide_metrics_rejects_incomplete_or_unordered_length_reward_bounds(config_kwargs):
+def test_length_bounds_reject_missing_or_unordered_values(config_kwargs):
     with pytest.raises(ValueError, match="genome length reward bounds"):
         score_nucleotide_metrics(
             pd.DataFrame({"id_prompt": ["invalid-bounds"], "sequence": [_deterministic_dna(5386)]}),
             config=NucleotideQCConfig(**config_kwargs),
         )
+
+
+def test_length_reward_is_independent_of_hard_qc():
+    """Changing the hard acceptance interval must not implicitly reshape the reward."""
+    scored = score_nucleotide_metrics(
+        pd.DataFrame(
+            {
+                "id_prompt": ["short", "middle", "long"],
+                "sequence": [_deterministic_dna(length) for length in (4000, 5000, 6000)],
+            }
+        ),
+        config=NucleotideQCConfig(genome_length_min=4900, genome_length_max=5100),
+    )
+
+    assert scored["reward_genome_length"].tolist() == [1.0, 1.0, 1.0]
+    assert scored["reward_nucleotide_pass"].tolist() == [0.0, 1.0, 0.0]
 
 
 def test_disabled_sequence_safety_config_is_explicitly_indeterminate(tmp_path):

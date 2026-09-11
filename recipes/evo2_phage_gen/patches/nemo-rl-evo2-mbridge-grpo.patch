@@ -200,7 +200,7 @@ diff --git a/nemo_rl/experience/rollouts.py b/nemo_rl/experience/rollouts.py
 index 44a11cddd..c12ec4e1d 100644
 --- a/nemo_rl/experience/rollouts.py
 +++ b/nemo_rl/experience/rollouts.py
-@@ -571,6 +571,39 @@ def calculate_rewards(
+@@ -571,6 +571,42 @@ def calculate_rewards(
      )
 
 
@@ -208,7 +208,7 @@ index 44a11cddd..c12ec4e1d 100644
 +    batch: BatchedDataDict[DatumSpec],
 +    task_to_env: dict[str, EnvironmentInterface],
 +) -> dict[str, Any]:
-+    """Collect optional scalar rollout metrics from environments."""
++    """Collect scalar and histogram rollout metrics from environments."""
 +    task_names = batch["task_name"]
 +    futures = []
 +    future_task_names = []
@@ -232,7 +232,10 @@ index 44a11cddd..c12ec4e1d 100644
 +    for task_name, result in results:
 +        _, env_metrics = result
 +        for key, value in env_metrics.items():
-+            metric_key = key if key.startswith("__timing__/") else f"{task_name}/{key}"
++            if key.startswith("__histogram__/"):
++                metric_key = f"__histogram__/{task_name}/{key.removeprefix('__histogram__/')}"
++            else:
++                metric_key = key if key.startswith("__timing__/") else f"{task_name}/{key}"
 +            metrics[metric_key] = value
 +    return metrics
 +
@@ -1262,3 +1265,37 @@ diff --git a/nemo_rl/experience/rollouts.py b/nemo_rl/experience/rollouts.py
 
      # Check if max turns reached
      if turn_count >= max_rollout_turns:
+diff --git a/nemo_rl/algorithms/grpo.py b/nemo_rl/algorithms/grpo.py
+--- a/nemo_rl/algorithms/grpo.py
++++ b/nemo_rl/algorithms/grpo.py
+@@ -3192,7 +3192,9 @@
+     """
+     aggregated = {}
+     for k, v in per_group_metrics.items():
+-        if not isinstance(v[0], (int, float)):
++        if k.startswith("__histogram__/"):
++            aggregated[k] = [sample for group in v for sample in group]
++        elif not isinstance(v[0], (int, float)):
+             aggregated[k] = v
+         elif k.endswith("/min") or (k.startswith("min_") and not k.endswith("_rate")):
+             aggregated[k] = min(v)
+diff --git a/nemo_rl/utils/logger.py b/nemo_rl/utils/logger.py
+--- a/nemo_rl/utils/logger.py
++++ b/nemo_rl/utils/logger.py
+@@ -1026,8 +1026,15 @@
+             step_metric: Optional name of a field in metrics to use as step instead
+                          of the provided step value (currently only needed for wandb)
+         """
++        scalar_metrics = {}
++        for key, value in metrics.items():
++            if key.startswith("__histogram__/"):
++                name = key.removeprefix("__histogram__/")
++                self.log_histogram(value, step, f"{prefix}/{name}" if prefix else name)
++            else:
++                scalar_metrics[key] = value
+         for logger in self.loggers:
+-            logger.log_metrics(metrics, step, prefix, step_metric, step_finished)
++            logger.log_metrics(scalar_metrics, step, prefix, step_metric, step_finished)
+
+     def log_hyperparams(self, params: Mapping[str, Any]) -> None:
+         """Log hyperparameters to all enabled backends.

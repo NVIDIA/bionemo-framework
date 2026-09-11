@@ -538,7 +538,7 @@ def _reward_prompt_group_keys(scored: pd.DataFrame) -> pd.Series | None:
 
 
 def _add_binary_pass_metrics(
-    metrics: dict[str, float | int],
+    metrics: dict[str, float | int | list[int]],
     scored: pd.DataFrame,
     weights: RewardWeights,
     *,
@@ -593,7 +593,7 @@ def _add_binary_pass_metrics(
 
 
 def _add_generation_termination_metrics(
-    metrics: dict[str, float | int],
+    metrics: dict[str, float | int | list[int]],
     scored: pd.DataFrame,
     config: NucleotideQCConfig | None,
 ) -> None:
@@ -636,7 +636,7 @@ def _add_generation_termination_metrics(
             config.genome_length_reward_upper_zero,
         )
     )
-    if bounds is None or any(bound is None for bound in bounds) or "genome_length" not in scored:
+    if bounds is None or "genome_length" not in scored:
         return
     lower_zero, lower_full, upper_full, upper_zero = (float(bound) for bound in bounds)
     eod_lengths = pd.to_numeric(scored.loc[stopped_on_eod, "genome_length"], errors="coerce")
@@ -663,15 +663,15 @@ def phage_qc_metrics_from_scored(
     *,
     config: NucleotideQCConfig | None = None,
     zero_reward_without_eod: bool = False,
-) -> dict[str, float | int]:
-    """Summarize per-sequence phage QC scores into scalar logger metrics."""
+) -> dict[str, float | int | list[int]]:
+    """Summarize phage QC scores into scalar metrics and cluster-size histogram samples."""
     if scored.empty:
         return {
             "num_sequences": 0,
             "binary_safety_qualified_full_qc_cluster_deduplicated_rate": 0.0,
         }
 
-    metrics: dict[str, float | int] = {"num_sequences": len(scored)}
+    metrics: dict[str, float | int | list[int]] = {"num_sequences": len(scored)}
     safety_states = scored.get("safety_gate_state", pd.Series(None, index=scored.index, dtype=object))
     safety_eligibility = _exact_safety_eligibility(scored)
     for state in ("PASS", "FAIL", "INDETERMINATE"):
@@ -827,13 +827,14 @@ def phage_qc_metrics_from_scored(
             metrics["mmseqs_cluster_clusters_per_sequence"] = float(num_clusters / max(batch_size, 1))
             metrics["mmseqs_cluster_singleton_fraction"] = float((cluster_sizes[valid_cluster_mask] == 1).mean())
             metrics["mmseqs_cluster_largest_cluster_fraction"] = float(cluster_sizes.max() / valid_cluster_count)
-            for size, count in cluster_rows["mmseqs_cluster_size"].astype(int).value_counts().sort_index().items():
-                metrics[f"mmseqs_cluster_size_histogram/size_{int(size)}"] = int(count)
+            # One observation per cluster, so histogram counts represent clusters, not genomes.
+            metrics["__histogram__/mmseqs_cluster_size"] = cluster_rows["mmseqs_cluster_size"].astype(int).tolist()
         else:
             metrics["mmseqs_cluster_num_clusters"] = 0
             metrics["mmseqs_cluster_clusters_per_sequence"] = 0.0
             metrics["mmseqs_cluster_singleton_fraction"] = 0.0
             metrics["mmseqs_cluster_largest_cluster_fraction"] = 0.0
+            metrics["__histogram__/mmseqs_cluster_size"] = []
 
     _add_binary_pass_metrics(metrics, scored, weights)
     metrics.setdefault("binary_safety_qualified_full_qc_cluster_deduplicated_rate", 0.0)
@@ -953,25 +954,17 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
             self.config = NucleotideQCConfig(
                 genome_length_min=int(cfg.get("genome_length_min", 4000)),
                 genome_length_max=int(cfg.get("genome_length_max", 6000)),
-                genome_length_reward_lower_zero=(
-                    float(cfg["genome_length_reward_lower_zero"])
-                    if cfg.get("genome_length_reward_lower_zero") is not None
-                    else None
+                genome_length_reward_lower_zero=float(
+                    cfg.get("genome_length_reward_lower_zero", NucleotideQCConfig.genome_length_reward_lower_zero)
                 ),
-                genome_length_reward_lower_full=(
-                    float(cfg["genome_length_reward_lower_full"])
-                    if cfg.get("genome_length_reward_lower_full") is not None
-                    else None
+                genome_length_reward_lower_full=float(
+                    cfg.get("genome_length_reward_lower_full", NucleotideQCConfig.genome_length_reward_lower_full)
                 ),
-                genome_length_reward_upper_full=(
-                    float(cfg["genome_length_reward_upper_full"])
-                    if cfg.get("genome_length_reward_upper_full") is not None
-                    else None
+                genome_length_reward_upper_full=float(
+                    cfg.get("genome_length_reward_upper_full", NucleotideQCConfig.genome_length_reward_upper_full)
                 ),
-                genome_length_reward_upper_zero=(
-                    float(cfg["genome_length_reward_upper_zero"])
-                    if cfg.get("genome_length_reward_upper_zero") is not None
-                    else None
+                genome_length_reward_upper_zero=float(
+                    cfg.get("genome_length_reward_upper_zero", NucleotideQCConfig.genome_length_reward_upper_zero)
                 ),
                 gc_content_min=float(cfg.get("gc_content_min", 30.0)),
                 gc_content_max=float(cfg.get("gc_content_max", 65.0)),
@@ -1163,7 +1156,7 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
 
         def global_post_process_and_metrics(
             self, batch: BatchedDataDict
-        ) -> tuple[BatchedDataDict, dict[str, float | int]]:
+        ) -> tuple[BatchedDataDict, dict[str, float | int | list[int]]]:
             """Report rollout-level reward metrics."""
             reward_tensor = batch["rewards"] if "rewards" in batch else batch["total_reward"]
             rewards = reward_tensor if reward_tensor.ndim == 1 else reward_tensor.float().mean(dim=1)

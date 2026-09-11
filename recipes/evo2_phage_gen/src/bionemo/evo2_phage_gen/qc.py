@@ -22,6 +22,7 @@ use online as an RL reward component.
 
 import argparse
 import csv
+import math
 import re
 import subprocess
 import tempfile
@@ -45,10 +46,10 @@ class NucleotideQCConfig:
 
     genome_length_min: int = 4000
     genome_length_max: int = 6000
-    genome_length_reward_lower_zero: float | None = None
-    genome_length_reward_lower_full: float | None = None
-    genome_length_reward_upper_full: float | None = None
-    genome_length_reward_upper_zero: float | None = None
+    genome_length_reward_lower_zero: float = 2000.0
+    genome_length_reward_lower_full: float = 4000.0
+    genome_length_reward_upper_full: float = 6000.0
+    genome_length_reward_upper_zero: float = 8000.0
     gc_content_min: float = 30.0
     gc_content_max: float = 65.0
     homopolymer_min: int = 0
@@ -61,6 +62,23 @@ class NucleotideQCConfig:
     dustmask_level: float = 20.0
     dustmask_end_window: int = 200
     dustmask_max_end_fraction: float = 0.9
+
+    def __post_init__(self) -> None:
+        """Require a finite four-point reward envelope independent of hard QC."""
+        bounds = (
+            self.genome_length_reward_lower_zero,
+            self.genome_length_reward_lower_full,
+            self.genome_length_reward_upper_full,
+            self.genome_length_reward_upper_zero,
+        )
+        if not (
+            all(bound is not None and math.isfinite(bound) for bound in bounds)
+            and bounds[0] < bounds[1] <= bounds[2] < bounds[3]
+        ):
+            raise ValueError(
+                "genome length reward bounds must be finite and satisfy "
+                "lower_zero < lower_full <= upper_full < upper_zero"
+            )
 
 
 @dataclass(frozen=True)

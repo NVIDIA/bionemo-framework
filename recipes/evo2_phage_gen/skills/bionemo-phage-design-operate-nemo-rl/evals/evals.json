@@ -148,7 +148,7 @@
         "The response treats training-rollout rewards, component scores, and QC as valid scientific observations rather than discarding them as optimizer-only diagnostics.",
         "It uses the fixed validation bank for longitudinal comparability and does not describe this seed or prompt split as a biological-label holdout.",
         "It examines prompt position, length, composition, and cohort counts in both streams before attributing the alternating bands to policy learning.",
-        "It reports terminal hard-QC yield, component means and support, measurement availability or failure, safety states, diversity, and copying so mean reward cannot hide inactive terms.",
+        "It reports terminal hard-QC yield, component means and support, measurement availability or failure, safety states, diversity, and copying so mean reward cannot hide inactive terms; W&B cluster-size histograms count each cluster once rather than weighting it by its number of genomes.",
         "It reconciles the approved objective artifact, configured objective set, and emitted component telemetry; discrepancies trigger diagnosis and a decision record rather than an automatic stop or user wait.",
         "It discovers and records the task-scoped metric keys actually emitted by the installed runtime instead of asserting names owned by another layer.",
         "Checkpoint decisions use sustained fixed-bank movement corroborated by training-rollout behavior and preserve both the best scientific and latest resumable checkpoints."

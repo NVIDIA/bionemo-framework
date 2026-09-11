@@ -51,6 +51,13 @@ rewards. Its actions remain in the training loss (`grpo.overlong_filtering: fals
 measurements remain available for diagnosis. Set the reward gate to `false` for an ungated
 experiment.
 
+The length reward always uses four finite, ordered points (`lower_zero < lower_full <= upper_full < upper_zero`). The hard `genome_length_min` / `genome_length_max` interval controls
+binary nucleotide acceptance and valid-only clustering; changing it does not reshape the reward.
+The generic Python/FASTA scorer defaults to 2,000 / 4,000 / 6,000 / 8,000 nt for the four reward
+points; the PhiX RL and calibration paths explicitly use the values in the table. The FASTA
+scorer exposes `--genome-length-reward-lower-zero`, `--genome-length-reward-lower-full`,
+`--genome-length-reward-upper-full`, and `--genome-length-reward-upper-zero` for other targets.
+
 The hard interval admits demonstrated longer PhiX genomes; the reward prefers lengths below
 the reported instability region above 5,550 nt. The 5,800-nt zero is a shaping parameter, not a
 measured packaging limit. Literature citations are beside the YAML defaults.
