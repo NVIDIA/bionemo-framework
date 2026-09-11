@@ -63,6 +63,13 @@ when changing images; do not reuse compiled extensions or older image-specific d
 workers use the same runtime. Before training on a new image/node combination, verify CUDA
 initialization, NCCL collectives, and the required subquadratic kernel on every worker.
 
+The RL configs select cuDNN fused attention with
+`policy.megatron_cfg.attention_backend=fused`. This avoids the FA4/CuTe backward stall
+reproduced on the tested 26.07 H100 stack; environment-only `NVTE_*` selectors are not
+sufficient because the Evo2 provider can reset them. This setting applies to RL policy
+and reference computation, not the native packed-generation adapter. Qualify full updates,
+validation and checkpoint reload when changing the runtime or attention backend.
+
 For a fresh PhiX experiment, use the trained-further 7B-1M model and a new result root:
 
 ```bash

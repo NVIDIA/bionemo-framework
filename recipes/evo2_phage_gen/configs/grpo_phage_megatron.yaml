@@ -103,6 +103,10 @@ policy:
     enabled: false
   megatron_cfg:
     enabled: true
+    # Use cuDNN attention for policy/reference replay and backward. On the tested
+    # 26.07 H100 stack, FA4/CuTe backward stalled; fused completed full updates.
+    # Set the model backend explicitly: Evo2 can reset NVTE_* environment selectors.
+    attention_backend: fused
     force_reconvert_from_hf: false
     empty_unused_memory_level: 1
     activation_checkpointing: true

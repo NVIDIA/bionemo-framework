@@ -102,6 +102,15 @@ def test_docs_and_configs_do_not_use_stale_workspace_paths():
     assert offenders == []
 
 
+def test_rl_backend_avoids_fa4_backward():
+    """Both resolved RL policies explicitly select the 26.07-qualified backward path."""
+    from bionemo.evo2_phage_gen.rl_readiness import _load_config_with_defaults
+
+    for name in ("grpo_phage_megatron.yaml", "gdpo_phage_megatron.yaml"):
+        config = _load_config_with_defaults(RECIPE_ROOT / "configs" / name)
+        assert config["policy"]["megatron_cfg"].get("attention_backend") == "fused", name
+
+
 def test_grpo_config_uses_prompt_batch_size_for_evo2_generation():
     """GRPO should default to the known-good packed Evo2 Megatron generation path."""
     config_path = RECIPE_ROOT / "configs" / "grpo_phage_megatron.yaml"
