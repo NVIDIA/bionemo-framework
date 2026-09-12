@@ -6,14 +6,14 @@ Use a job facility that survives the chat session. Record its identifier and log
 
 Read training rollouts and the fixed validation bank together. The bank provides longitudinal comparison; different seeds or prompts do not make it a biological-label holdout. Track:
 
-- reward level and variability, component means, support, and hard-QC yield;
+- reward level and variability, configured objective means, support, and final-screening yield when available;
 - measurement availability, safety outcomes, and reasons for missing results;
 - authentic EOD, cap exhaustion, and non-EOD short output separately;
 - authentic-stop biological length bins, prompt strata, copying, and diversity.
 
 Positive support is not a full-credit score. More gene content or a higher aggregate can coexist with worse termination. When diversity is gated by length or safety eligibility, inspect diversity among eligible rows as well as its all-row mean. Check prompt composition before attributing cycles to learning.
 
-Use the native W&B histogram at `train/phage_qc/mmseqs_cluster_size` or `validation/phage_qc/mmseqs_cluster_size` for cluster-size distributions over optimizer steps. Color represents cluster count: one observation per unique cluster, with unclustered rows excluded. Validation pools scoring-batch distributions without reclustering. The old `mmseqs_cluster_size_histogram/size_*` scalar family is no longer emitted; TensorBoard still receives scalar cluster summaries.
+Use the native W&B histogram at `train/phage_qc/mmseqs_cluster_size` or `validation/phage_qc/mmseqs_cluster_size` for cluster-size distributions over optimizer steps. Color represents cluster count: one observation per unique cluster, with unclustered rows excluded. Validation pools scoring-batch distributions without reclustering. TensorBoard receives diversity objective statistics; its histogram hook does not emit this distribution.
 
 Use comparable windows rather than SFT-style patience. At validation every ten steps, roughly ten banks (about 100 updates) is a useful horizon for noisy RL, not an automatic countdown. A recovered excursion or a plateau below an earlier peak is not by itself a reason to stop. Sustained deterioration across supported components and training rollouts warrants diagnosis and a checkpoint decision within the agreed experiment budget.
 
@@ -34,4 +34,12 @@ With native cache offload, confirm state is deallocated after generation, restor
 
 ## Keep useful results
 
-Preserve the latest resumable checkpoint, aggregate-best, and positive strict-endpoint best independently. A flat-zero strict metric should not discard useful shaping progress; a high aggregate is not a biological pass. Record the selected checkpoint and why. Use durable training logs/checkpoints to distinguish a tracker outage from a stalled trainer.
+Preserve the latest resumable checkpoint, aggregate best, and the best positive `all_objectives_max_score_rate` independently. Zero attainment can coexist with useful shaping progress. Final screening establishes acceptance. Record the selected checkpoint and why; use durable training logs/checkpoints to distinguish a tracker outage from a stalled trainer.
+
+## Metric definitions
+
+`gdpo/{objective}_{mean,std,nonzero_rate,max_score_rate}` describes the actual configured objective after safety and EOD gating. The maximum is the fixed ceiling 1, not the observed batch maximum. `all_objectives_max_score_rate` requires every configured objective to equal 1 for the same sequence; its denominator is all generated sequences. It is not a hard-pass or final-screening rate. The monitor compares reward means, support, variance, and maximum-score frequency.
+
+`env.phage_qc.log_by_prompt_nt_length` defaults to `false`; enable it to add the same objective summaries under `by_prompt_nt_length/{length}/`. Sequence counts are denominators. Multi-batch objective means/rates use sequence weights, and standard deviations pool population moments. Cluster histograms concatenate observations from separate scoring batches. Timing continues in the timing namespace.
+
+Raw measurement means are emitted only for completely measured finite columns, so their denominator remains the full sequence count. Inspect per-sequence artifacts and measurement availability when a raw mean is absent.

@@ -92,7 +92,8 @@ def test_cluster_histogram_logging(tmp_path: Path) -> None:
     aggregate, _ = load_function("nemo_rl/algorithms/grpo.py", "aggregate_rollout_metrics")
     log_metrics, _ = load_function("nemo_rl/utils/logger.py", "log_metrics", "Logger")
     scored = pd.DataFrame({"mmseqs_cluster_id": ["a", "a", "b", "invalid"], "mmseqs_cluster_size": [2, 2, 1, 0]})
-    metrics = phage_qc_metrics_from_scored(scored, RewardWeights())
+    scored["reward_mmseqs_cluster_diversity"] = [0.5, 0.5, 1.0, 0.0]
+    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(mmseqs_cluster_diversity=1.0))
     assert sorted(metrics["__histogram__/mmseqs_cluster_size"]) == [1, 2]
     assert not any(key.startswith("mmseqs_cluster_size_histogram/") for key in metrics)
 
@@ -109,6 +110,22 @@ def test_cluster_histogram_logging(tmp_path: Path) -> None:
     key = "__histogram__/phage_qc/mmseqs_cluster_size"
     combined = aggregate({key: [collected[key], [], [3]], "mean_reward": [0.2, 0.4, 0.6]})
     assert sorted(combined[key]) == [1, 2, 3]
+
+    weighted = aggregate(
+        {
+            "phage_qc/num_sequences": [96, 1],
+            "phage_qc/all_objectives_max_score_rate": [0.0, 1.0],
+            "phage_qc/gdpo/length_mean": [0.0, 1.0],
+            "phage_qc/gdpo/length_std": [0.0, 0.0],
+            "phage_qc/by_prompt_nt_length/16/num_sequences": [32, 1],
+            "phage_qc/by_prompt_nt_length/16/gdpo/length_mean": [0.0, 1.0],
+        }
+    )
+    assert weighted["phage_qc/num_sequences"] == 97
+    assert weighted["phage_qc/all_objectives_max_score_rate"] == pytest.approx(1 / 97)
+    assert weighted["phage_qc/gdpo/length_mean"] == pytest.approx(1 / 97)
+    assert weighted["phage_qc/gdpo/length_std"] == pytest.approx(96**0.5 / 97)
+    assert weighted["phage_qc/by_prompt_nt_length/16/gdpo/length_mean"] == pytest.approx(1 / 33)
 
     histograms, scalars = [], []
     logger = SimpleNamespace(

@@ -47,24 +47,24 @@ from bionemo.evo2_phage_gen.reward import (
     MMseqsClusterDiversityConfig,
     RewardWeights,
     SequenceSafetyRewardConfig,
-    _aai_evidence_score,
-    _aai_novelty_score,
     _add_average_protein_identity_rewards,
     _add_full_synteny_rewards,
     _add_mmseqs_hit_rewards,
     _add_required_gene_rewards,
     _add_smooth_reference_rewards,
-    _aggregate_reward,
-    _bounded_range_score,
     _external_qc_env,
     _lower_bound_ratio_score,
     _smooth_reference_search_command,
-    _spike_identity_score,
-    _synteny_distance_score,
     _upper_bound_ratio_score,
     _write_external_qc_config,
+    aggregate_rewards,
+    binary_cluster_deduplicated_pass_mask,
+    score_aai_evidence,
+    score_aai_novelty,
     score_fasta,
-    score_nucleotide_metrics,
+    score_sequences,
+    score_synteny_counts,
+    score_tropism_identity,
 )
 
 
@@ -269,7 +269,6 @@ def test_sequence_safety_reward_fields_partial_credit_requires_explicit_review_e
     assert unavailable["reward_safety_toxin"] == 0.0
     assert review["safety_gate_state"] == "INDETERMINATE"
     assert review["safety_gate_pass"] == 0.0
-    assert review["reward_safety_penalty"] == 1.0
 
 
 def test_measured_review_gets_bounded_class_credit_but_cannot_pass_the_safety_gate(tmp_path, monkeypatch):
@@ -279,7 +278,7 @@ def test_measured_review_gets_bounded_class_credit_but_cannot_pass_the_safety_ga
         review_classes_by_record=[{"toxin"}],
     )
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame({"id_prompt": ["review"], "sequence": ["ACGT" * 1000]}),
         sequence_safety=_bacterial_safety_config(tmp_path),
     )
@@ -289,26 +288,21 @@ def test_measured_review_gets_bounded_class_credit_but_cannot_pass_the_safety_ga
     assert scored["reward_safety_toxin"].tolist() == [0.25]
     assert scored["safety_gate_state"].tolist() == ["INDETERMINATE"]
     assert scored["safety_gate_pass"].tolist() == [0.0]
-    assert scored["reward_safety_penalty"].tolist() == [1.0]
     assert scored["reward"].tolist() == [0.0]
 
 
-def test_score_nucleotide_metrics_rewards_passing_sequence():
-    """Missing mandatory sequence-safety evidence must zero eligibility but retain the historical score."""
+def test_missing_safety_evidence_blocks_reward():
+    """Missing mandatory safety evidence blocks reward while retaining measured component scores."""
     df = pd.DataFrame({"id_prompt": ["pass"], "sequence": ["ACGT" * 1000]})
 
-    scored = score_nucleotide_metrics(df)
+    scored = score_sequences(df)
 
-    assert scored.loc[0, "reward_historical"] == 1.0
-    assert scored.loc[0, "reward_safety_penalty"] == 1.0
     assert scored.loc[0, "reward"] == 0.0
     assert scored.loc[0, "reward_valid_nt_chars"] == 1.0
     assert scored.loc[0, "safety_gate_state"] == "INDETERMINATE"
     assert scored.loc[0, "safety_gate_pass"] == 0.0
     assert scored.loc[0, "safety_environment_healthy"] == 0.0
     assert scored.loc[0, "safety_gate_reason_codes"] == '["SEQUENCE_SAFETY_CONFIG_MISSING"]'
-    assert scored.loc[0, "reward_binary_historical_core_pass"] == 1.0
-    assert scored.loc[0, "reward_binary_core_pass"] == 0.0
     for safety_class in ("amr", "toxin", "lysogeny"):
         assert scored.loc[0, f"safety_{safety_class}_state"] == "INDETERMINATE"
         assert scored.loc[0, f"safety_{safety_class}_required"] == 1.0
@@ -316,14 +310,14 @@ def test_score_nucleotide_metrics_rewards_passing_sequence():
         assert scored.loc[0, f"reward_safety_{safety_class}"] == 0.0
 
 
-def test_score_nucleotide_metrics_uses_configured_shaping_genome_length_reward():
+def test_score_sequences_uses_configured_shaping_genome_length_reward():
     # Published viable lengths must survive the default hard gate; capped genomes must not.
     config_dir = Path(__file__).parents[3] / "configs"
     defaults = yaml.safe_load((config_dir / "grpo_phage_megatron.yaml").read_text())["env"]["phage_qc"]
     length_config = {key: value for key, value in defaults.items() if key.startswith("genome_length_")}
     arc = yaml.safe_load((config_dir / "arc_genome_design_filtering_local.yaml").read_text())
     lengths = [2500, 3000, 4000, 5305, 5306, 5349, 5359, 5386, 5550, 5654, 5730, 5731, 5800, 6000, 6016, 6024]
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame(
             {
                 "id_prompt": [f"length-{length}" for length in lengths],
@@ -355,7 +349,7 @@ def test_score_nucleotide_metrics_uses_configured_shaping_genome_length_reward()
 )
 def test_length_bounds_reject_missing_or_unordered_values(config_kwargs):
     with pytest.raises(ValueError, match="genome length reward bounds"):
-        score_nucleotide_metrics(
+        score_sequences(
             pd.DataFrame({"id_prompt": ["invalid-bounds"], "sequence": [_deterministic_dna(5386)]}),
             config=NucleotideQCConfig(**config_kwargs),
         )
@@ -363,7 +357,7 @@ def test_length_bounds_reject_missing_or_unordered_values(config_kwargs):
 
 def test_length_reward_is_independent_of_hard_qc():
     """Changing the hard acceptance interval must not implicitly reshape the reward."""
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame(
             {
                 "id_prompt": ["short", "middle", "long"],
@@ -378,13 +372,12 @@ def test_length_reward_is_independent_of_hard_qc():
 
 
 def test_disabled_sequence_safety_config_is_explicitly_indeterminate(tmp_path):
-    """Disabling the mandatory scanner must not restore historical reward or eligibility."""
-    scored = score_nucleotide_metrics(
+    """Disabling the mandatory scanner must not restore reward or eligibility."""
+    scored = score_sequences(
         pd.DataFrame({"id_prompt": ["disabled"], "sequence": ["ACGT" * 1000]}),
         sequence_safety=_bacterial_safety_config(tmp_path, enabled=False),
     )
 
-    assert scored["reward_historical"].tolist() == [1.0]
     assert scored["reward"].tolist() == [0.0]
     assert scored["safety_gate_state"].tolist() == ["INDETERMINATE"]
     assert scored["safety_gate_reason_codes"].tolist() == ['["SEQUENCE_SAFETY_DISABLED"]']
@@ -424,7 +417,7 @@ def test_malformed_sequence_safety_config_is_explicitly_indeterminate(
 
     monkeypatch.setattr(sequence_safety_cli, "main", unexpected_scan)
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame({"id_prompt": ["malformed-config"], "sequence": ["ACGT" * 1000]}),
         sequence_safety=malformed,
     )
@@ -432,9 +425,7 @@ def test_malformed_sequence_safety_config_is_explicitly_indeterminate(
     assert scored["safety_gate_state"].tolist() == ["INDETERMINATE"]
     assert scored["safety_gate_pass"].tolist() == [0.0]
     assert scored["safety_gate_reason_codes"].tolist() == ['["SEQUENCE_SAFETY_CONFIG_INVALID"]']
-    assert scored["reward_safety_penalty"].tolist() == [1.0]
     assert scored["reward"].tolist() == [0.0]
-    assert scored["reward_binary_core_pass"].tolist() == [0.0]
     assert scored["safety_strict_lysis"].tolist() == [False]
 
 
@@ -452,7 +443,7 @@ def test_disabled_archaeal_config_keeps_lysogeny_informational_but_gate_ineligib
         strict_lysis=False,
     )
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame({"id_prompt": ["archaeal-disabled"], "sequence": ["ACGT" * 1000]}),
         sequence_safety=config,
     )
@@ -469,7 +460,7 @@ def test_valid_unavailable_config_preserves_strict_lysis_telemetry(tmp_path):
     """Unavailable-scan records should retain a structurally valid strict-lysis request."""
     config = replace(_archaeal_safety_config(tmp_path, strict_lysis=True), enabled=False)
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame({"id_prompt": ["archaeal-strict-disabled"], "sequence": ["ACGT" * 1000]}),
         sequence_safety=config,
     )
@@ -496,7 +487,7 @@ def test_clean_scan_emits_independent_safety_rewards(tmp_path, monkeypatch):
         orf_workers=3,
         phrogs_threads=11,
     )
-    scored = score_nucleotide_metrics(source, sequence_safety=config)
+    scored = score_sequences(source, sequence_safety=config)
 
     assert source.to_dict("records") == [{"id_prompt": "original-id", "sequence": "ACGT" * 1000}]
     assert capture["input_fasta_bytes"].startswith(b">safety_record_000000\n")
@@ -510,7 +501,6 @@ def test_clean_scan_emits_independent_safety_rewards(tmp_path, monkeypatch):
     assert scored["safety_environment_healthy"].tolist() == [1.0]
     assert scored["safety_required_class_pass_count"].tolist() == [3]
     assert scored["reward"].tolist() == [1.0]
-    assert scored["reward_binary_core_pass"].tolist() == [1.0]
     for safety_class in ("amr", "toxin", "lysogeny"):
         assert scored[f"safety_{safety_class}_state"].tolist() == ["PASS"]
         assert scored[f"safety_{safety_class}_measurement_available"].tolist() == [1.0]
@@ -534,7 +524,7 @@ def test_mixed_batch_isolates_each_required_failure_and_unscannable_record(tmp_p
             {"amr": "PASS", "toxin": "INDETERMINATE", "lysogeny": "PASS"},
         ],
     )
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame(
             {
                 "id_prompt": ["clean", "amr-hit", "toxin-hit", "lysogeny-hit", "detector-failed", "malformed"],
@@ -567,7 +557,6 @@ def test_mixed_batch_isolates_each_required_failure_and_unscannable_record(tmp_p
     assert scored["safety_toxin_finding_count"].tolist() == [0, 0, 1, 0, 0, 0]
     assert scored["safety_lysogeny_finding_count"].tolist() == [0, 0, 0, 1, 0, 0]
     assert scored["safety_environment_healthy"].tolist() == [1.0, 1.0, 1.0, 1.0, 0.0, 0.0]
-    assert scored["reward_safety_penalty"].tolist() == [0.0, 1.0, 1.0, 1.0, 1.0, 1.0]
     assert scored["reward"].tolist() == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     assert scored.loc[4, "safety_toxin_reason_codes"] == '["TOXIN_TOOL_FAILED"]'
     assert scored.loc[5, "safety_gate_reason_codes"] == '["SEQUENCE_SAFETY_RECORD_UNSCANNABLE"]'
@@ -585,7 +574,7 @@ def test_invalid_safety_result_has_zero_credit(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sequence_safety_cli, "validate_manifest_file", reject_manifest)
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame({"id_prompt": ["untrusted"], "sequence": ["ACGT" * 1000]}),
         sequence_safety=_bacterial_safety_config(tmp_path),
     )
@@ -596,7 +585,6 @@ def test_invalid_safety_result_has_zero_credit(tmp_path, monkeypatch):
     assert scored["reward_safety_amr"].tolist() == [0.0]
     assert scored["reward_safety_toxin"].tolist() == [0.0]
     assert scored["reward_safety_lysogeny"].tolist() == [0.0]
-    assert scored["reward_historical"].tolist() == [1.0]
     assert scored["reward"].tolist() == [0.0]
     assert scored["safety_scan_manifest_path"].tolist() == [""]
 
@@ -621,7 +609,7 @@ def test_diagnostic_result_has_zero_credit(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sequence_safety_cli, "main", write_diagnostic)
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame({"id_prompt": ["diagnostic-only"], "sequence": ["ACGT" * 1000]}),
         sequence_safety=_bacterial_safety_config(tmp_path),
     )
@@ -642,7 +630,7 @@ def test_archaeal_lysogeny_retains_raw_state_but_is_neutral_unless_strict(tmp_pa
         required_by_class={"amr": True, "toxin": True, "lysogeny": False},
     )
 
-    informational = score_nucleotide_metrics(
+    informational = score_sequences(
         pd.DataFrame({"id_prompt": ["archaeal"], "sequence": ["ACGT" * 1000]}),
         sequence_safety=_archaeal_safety_config(tmp_path, strict_lysis=False),
     )
@@ -662,7 +650,7 @@ def test_archaeal_lysogeny_retains_raw_state_but_is_neutral_unless_strict(tmp_pa
         class_states_by_record=states,
         required_by_class={"amr": True, "toxin": True, "lysogeny": True},
     )
-    strict = score_nucleotide_metrics(
+    strict = score_sequences(
         pd.DataFrame({"id_prompt": ["archaeal-strict"], "sequence": ["ACGT" * 1000]}),
         sequence_safety=_archaeal_safety_config(tmp_path, strict_lysis=True),
     )
@@ -693,7 +681,7 @@ def test_mismatched_record_mapping_rejects_batch(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sequence_safety_cli, "validate_manifest_file", return_mismatched_result)
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame(
             {
                 "id_prompt": ["first", "second"],
@@ -728,7 +716,7 @@ def test_inconsistent_class_state_has_zero_credit(tmp_path, monkeypatch):
 
     monkeypatch.setattr(sequence_safety_cli, "validate_manifest_file", return_mismatched_result)
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame({"id_prompt": ["state-drift"], "sequence": ["ACGT" * 1000]}),
         sequence_safety=_bacterial_safety_config(tmp_path),
     )
@@ -739,11 +727,11 @@ def test_inconsistent_class_state_has_zero_credit(tmp_path, monkeypatch):
     assert scored["reward"].tolist() == [0.0]
 
 
-def test_score_nucleotide_metrics_reports_reward_timing_columns():
+def test_score_sequences_reports_reward_timing_columns():
     """Reward timing columns should be present for NeMo-RL timing metric routing."""
     df = pd.DataFrame({"id_prompt": ["pass"], "sequence": ["ACGT" * 1000]})
 
-    scored = score_nucleotide_metrics(df)
+    scored = score_sequences(df)
 
     begin = scored.loc[0, f"{TIMING_COLUMN_PREFIX}reward/begin_unix_s"]
     end = scored.loc[0, f"{TIMING_COLUMN_PREFIX}reward/end_unix_s"]
@@ -754,18 +742,17 @@ def test_score_nucleotide_metrics_reports_reward_timing_columns():
     assert scored.loc[0, f"{TIMING_COLUMN_PREFIX}reward/aggregate_s"] >= 0.0
 
 
-def test_score_nucleotide_metrics_penalizes_invalid_sequence():
+def test_score_sequences_penalizes_invalid_sequence():
     """Invalid characters and out-of-range metrics should reduce the reward."""
     df = pd.DataFrame({"id_prompt": ["bad"], "sequence": ["NNNN"]})
 
-    scored = score_nucleotide_metrics(df)
+    scored = score_sequences(df)
 
-    assert scored.loc[0, "reward_historical"] < 1.0
     assert scored.loc[0, "reward"] == 0.0
     assert scored.loc[0, "reward_valid_nt_chars"] == 0.0
 
 
-def test_score_nucleotide_metrics_homopolymer_reward_stays_dense():
+def test_score_sequences_homopolymer_reward_stays_dense():
     """Oversized homopolymers should retain an optimization signal instead of saturating at zero."""
     df = pd.DataFrame(
         {
@@ -774,12 +761,12 @@ def test_score_nucleotide_metrics_homopolymer_reward_stays_dense():
         }
     )
 
-    scored = score_nucleotide_metrics(df)
+    scored = score_sequences(df)
 
     assert 0.0 < scored.loc[1, "reward_nt_homopolymer"] < scored.loc[0, "reward_nt_homopolymer"] < 1.0
 
 
-def test_score_nucleotide_metrics_can_weight_nucleotide_pass_bonus():
+def test_score_sequences_can_weight_nucleotide_pass_bonus():
     """A pass-gated term should increase pressure on satisfying all online nucleotide filters."""
     df = pd.DataFrame(
         {
@@ -788,7 +775,7 @@ def test_score_nucleotide_metrics_can_weight_nucleotide_pass_bonus():
         }
     )
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         df,
         weights=RewardWeights(
             valid_nt_chars=0.0,
@@ -801,21 +788,25 @@ def test_score_nucleotide_metrics_can_weight_nucleotide_pass_bonus():
 
     assert scored.loc[0, "reward_nucleotide_pass"] == 1.0
     assert scored.loc[1, "reward_nucleotide_pass"] == 0.0
-    assert scored["reward_historical"].tolist() == [1.0, 0.0]
     assert scored["reward"].tolist() == [0.0, 0.0]
 
 
-def test_score_nucleotide_metrics_penalizes_low_complexity_sequence_ends():
+def test_score_sequences_penalizes_low_complexity_sequence_ends(monkeypatch):
     """The dustmask reward should give low-complexity sequence ends less credit."""
+
+    def run_dustmasker(args, **kwargs):
+        Path(args[args.index("-out") + 1]).write_text(">seq_0\n>seq_1\n4000 - 4199\n")
+        return subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr("bionemo.evo2_phage_gen.qc.subprocess.run", run_dustmasker)
     good_sequence = _deterministic_dna(4200)
     bad_sequence = _deterministic_dna(4000) + "A" * 200
     df = pd.DataFrame({"id_prompt": ["good", "bad_tail"], "sequence": [good_sequence, bad_sequence]})
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         df,
         config=NucleotideQCConfig(
             dustmask_filter=True,
-            dustmask_use_external=False,
             dustmask_window=64,
             dustmask_level=20.0,
             dustmask_end_window=200,
@@ -833,7 +824,6 @@ def test_score_nucleotide_metrics_penalizes_low_complexity_sequence_ends():
     assert scored.loc[0, "reward_dustmask_end"] > scored.loc[1, "reward_dustmask_end"]
     assert scored.loc[1, "dustmask_max_end_masked_fraction"] > 0.9
     assert scored.loc[1, "reward_nucleotide_pass"] == 0.0
-    assert scored["reward_historical"].tolist() == scored["reward_dustmask_end"].tolist()
     assert scored["reward"].tolist() == [0.0, 0.0]
 
 
@@ -865,21 +855,19 @@ def test_reward_components_are_registered_and_clipped_to_unit_interval():
             "reward_gc_content": [0.5, 0.25],
         }
     )
-    scored = _aggregate_reward(
+    scored = aggregate_rewards(
         df,
         RewardWeights(valid_nt_chars=1.0, genome_length=0.0, gc_content=1.0, nt_homopolymer=0.0),
     )
 
     assert scored["reward_valid_nt_chars"].tolist() == [1.0, 0.0]
-    assert scored["reward_historical"].tolist() == [0.75, 0.125]
     assert scored["reward"].tolist() == [0.0, 0.0]
-    assert scored["reward_binary_core_pass"].tolist() == [0.0, 0.0]
     assert scored["reward_active_components"].tolist() == ["valid_nt_chars,gc_content"] * 2
 
 
 def test_only_exact_safety_gate_pass_one_can_qualify_reward():
     """Only a numeric scalar one may satisfy the binary safety eligibility rule."""
-    scored = _aggregate_reward(
+    scored = aggregate_rewards(
         pd.DataFrame(
             {
                 "reward_valid_nt_chars": [1.0] * 5,
@@ -889,15 +877,12 @@ def test_only_exact_safety_gate_pass_one_can_qualify_reward():
         RewardWeights(valid_nt_chars=1.0, genome_length=0.0, gc_content=0.0, nt_homopolymer=0.0),
     )
 
-    assert scored["reward_historical"].tolist() == [1.0] * 5
-    assert scored["reward_safety_penalty"].tolist() == [0.0, 1.0, 1.0, 1.0, 1.0]
     assert scored["reward"].tolist() == [1.0, 0.0, 0.0, 0.0, 0.0]
-    assert scored["reward_binary_core_pass"].tolist() == [1.0, 0.0, 0.0, 0.0, 0.0]
 
 
 def test_cluster_deduplication_uses_row_positions_with_duplicate_dataframe_indexes():
     """Duplicate caller labels must not select every row in one passing cluster."""
-    scored = _aggregate_reward(
+    scored = aggregate_rewards(
         pd.DataFrame(
             {
                 "reward_valid_nt_chars": [1.0, 1.0],
@@ -911,10 +896,7 @@ def test_cluster_deduplication_uses_row_positions_with_duplicate_dataframe_index
         RewardWeights(valid_nt_chars=1.0, genome_length=0.0, gc_content=0.0, nt_homopolymer=0.0),
     )
 
-    assert scored["reward_binary_historical_core_pass"].tolist() == [1.0, 1.0]
-    assert scored["reward_binary_core_pass"].tolist() == [1.0, 1.0]
-    assert scored["reward_binary_historical_core_cluster_deduplicated_pass"].tolist() == [1.0, 0.0]
-    assert scored["reward_binary_core_cluster_deduplicated_pass"].tolist() == [1.0, 0.0]
+    assert binary_cluster_deduplicated_pass_mask(scored, scored["reward"].eq(1)).tolist() == [True, False]
 
 
 def test_mmseqs_cluster_diversity_reward_uses_inverse_cluster_size(tmp_path, monkeypatch):
@@ -941,7 +923,7 @@ def test_mmseqs_cluster_diversity_reward_uses_inverse_cluster_size(tmp_path, mon
         }
     )
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         df,
         weights=RewardWeights(
             valid_nt_chars=0.0,
@@ -959,7 +941,6 @@ def test_mmseqs_cluster_diversity_reward_uses_inverse_cluster_size(tmp_path, mon
 
     assert len(commands) == 1
     assert scored["reward_mmseqs_cluster_diversity"].tolist() == [0.5, 0.5, 1.0, 0.0]
-    assert scored["reward_historical"].tolist() == [0.5, 0.5, 1.0, 0.0]
     assert scored["reward"].tolist() == [0.0, 0.0, 0.0, 0.0]
     assert scored["mmseqs_cluster_size"].tolist() == [2, 2, 1, 0]
     assert scored["mmseqs_cluster_valid_for_clustering"].tolist() == [1.0, 1.0, 1.0, 0.0]
@@ -1009,7 +990,7 @@ def test_mmseqs_cluster_diversity_canonicalizes_circular_genomes_without_reorder
     )
 
     scored_runs = [
-        score_nucleotide_metrics(
+        score_sequences(
             pd.DataFrame(ordered_rows),
             config=config,
             weights=weights,
@@ -1067,7 +1048,7 @@ def test_mmseqs_cluster_diversity_preserves_linear_input_by_default(tmp_path, mo
         work_dir=tmp_path,
     )
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         pd.DataFrame({"id_prompt": ["base", "rotation"], "sequence": [base, rotated]}),
         config=NucleotideQCConfig(
             genome_length_min=8,
@@ -1107,7 +1088,7 @@ def test_mmseqs_cluster_diversity_missing_output_gets_zero_reward(tmp_path, monk
         }
     )
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         df,
         weights=RewardWeights(
             valid_nt_chars=0.0,
@@ -1125,7 +1106,6 @@ def test_mmseqs_cluster_diversity_missing_output_gets_zero_reward(tmp_path, monk
 
     assert len(commands) == 1
     assert scored["reward_mmseqs_cluster_diversity"].tolist() == [0.5, 0.5, 0.0]
-    assert scored["reward_historical"].tolist() == [0.5, 0.5, 0.0]
     assert scored["reward"].tolist() == [0.0, 0.0, 0.0]
     assert scored["mmseqs_cluster_id"].tolist() == ["group0:seq_0", "group0:seq_0", ""]
     assert scored["mmseqs_cluster_size"].tolist() == [2, 2, 0]
@@ -1148,7 +1128,7 @@ def test_mmseqs_cluster_diversity_singleton_group_is_not_missing(tmp_path, monke
         }
     )
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         df,
         weights=RewardWeights(
             valid_nt_chars=0.0,
@@ -1165,7 +1145,6 @@ def test_mmseqs_cluster_diversity_singleton_group_is_not_missing(tmp_path, monke
     )
 
     assert scored["reward_mmseqs_cluster_diversity"].tolist() == [1.0]
-    assert scored["reward_historical"].tolist() == [1.0]
     assert scored["reward"].tolist() == [0.0]
     assert scored["mmseqs_cluster_id"].tolist() == ["group0:seq_0"]
     assert scored["mmseqs_cluster_size"].tolist() == [1]
@@ -1198,7 +1177,7 @@ def test_mmseqs_cluster_diversity_is_prompt_group_local(tmp_path, monkeypatch):
         }
     )
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         df,
         weights=RewardWeights(
             valid_nt_chars=0.0,
@@ -1216,7 +1195,6 @@ def test_mmseqs_cluster_diversity_is_prompt_group_local(tmp_path, monkeypatch):
 
     assert len(commands) == 2
     assert scored["reward_mmseqs_cluster_diversity"].tolist() == [0.5, 0.5, 1.0, 1.0]
-    assert scored["reward_historical"].tolist() == [0.5, 0.5, 1.0, 1.0]
     assert scored["reward"].tolist() == [0.0, 0.0, 0.0, 0.0]
     assert scored["mmseqs_cluster_id"].tolist() == [
         "group0:seq_0",
@@ -1254,7 +1232,7 @@ def test_mmseqs_cluster_diversity_runs_independent_prompt_groups_concurrently(tm
         parallel_jobs=2,
     )
 
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         df,
         weights=RewardWeights(
             valid_nt_chars=0.0,
@@ -1280,39 +1258,14 @@ def test_threshold_reward_helpers_plateau_at_pass_criteria():
     assert _upper_bound_ratio_score(8, 10) == 1.0
     assert _upper_bound_ratio_score(20, 10) == 0.5
 
-    assert _bounded_range_score(7, 7, 9) == 1.0
-    assert _bounded_range_score(8, 7, 9) == 1.0
-    assert _bounded_range_score(9, 7, 9) == 1.0
-    assert _bounded_range_score(3.5, 7, 9) == 0.5
-    assert _bounded_range_score(18, 7, 9) == 0.5
 
-
-def test_spike_identity_score_plateaus_at_paper_threshold():
+def testscore_tropism_identity_plateaus_at_paper_threshold():
     """Spike/tropism score should stop increasing after the paper threshold."""
-    assert _spike_identity_score(95.0, measured_hit=False) == 0.0
-    assert _spike_identity_score(0.0, measured_hit=True) == 0.0
-    assert _spike_identity_score(30.0, measured_hit=True) == 0.5
-    assert _spike_identity_score(60.0, measured_hit=True) == 1.0
-    assert _spike_identity_score(95.0, measured_hit=True) == 1.0
-
-
-def test_soft_preference_components_do_not_gate_binary_pass():
-    """Global pass should not reject known-viable-like designs for soft novelty preferences."""
-    df = pd.DataFrame(
-        {
-            "reward_valid_nt_chars": [1.0],
-            "reward_external_synteny": [0.0],
-            "reward_external_average_protein_identity": [0.0],
-        }
-    )
-
-    scored = _aggregate_reward(
-        df,
-        RewardWeights(valid_nt_chars=1.0, synteny=1.0, average_protein_identity=1.0),
-    )
-
-    assert scored["reward_binary_historical_core_pass"].tolist() == [1.0]
-    assert scored["reward_binary_core_pass"].tolist() == [0.0]
+    assert score_tropism_identity(95.0, measured_hit=False) == 0.0
+    assert score_tropism_identity(0.0, measured_hit=True) == 0.0
+    assert score_tropism_identity(30.0, measured_hit=True) == 0.5
+    assert score_tropism_identity(60.0, measured_hit=True) == 1.0
+    assert score_tropism_identity(95.0, measured_hit=True) == 1.0
 
 
 def test_score_fasta_writes_reward_csv(tmp_path, monkeypatch):
@@ -1333,7 +1286,6 @@ def test_score_fasta_writes_reward_csv(tmp_path, monkeypatch):
 
     scored = pd.read_csv(output_csv)
     assert scored["reward"].tolist() == [1.0]
-    assert scored["reward_historical"].tolist() == [1.0]
     assert scored["safety_gate_state"].tolist() == ["PASS"]
 
 
@@ -1381,7 +1333,6 @@ def test_external_qc_config_enables_paper_ready_validation_filters(tmp_path):
         input_fasta,
         ExternalQCRewardConfig(
             enable_synteny=True,
-            synteny_mode="full",
             enable_average_protein_identity=True,
             enable_required_genes=True,
             protein_match_min_reciprocal_coverage=0.9,
@@ -1785,7 +1736,7 @@ def test_tropism_reward_requires_reciprocal_coverage_for_full_credit_and_pass(tm
     assert observed["reward_external_tropism_pass"].tolist() == [0.0, 1.0]
 
 
-def test_score_nucleotide_metrics_can_fold_in_external_qc_rewards(tmp_path, monkeypatch):
+def test_score_sequences_can_fold_in_external_qc_rewards(tmp_path, monkeypatch):
     """The external Arc wrapper should map staged outputs back to per-sequence rewards."""
     annotation_file = tmp_path / "phrog_annot_v4.tsv"
     annotation_file.write_text(
@@ -1890,6 +1841,8 @@ def test_score_nucleotide_metrics_can_fold_in_external_qc_rewards(tmp_path, monk
         ).to_csv(run_dir / "qc6_required_genes_metrics.csv", index=False)
         pd.DataFrame(
             {
+                "reference_order_violation_count": [0, 0],
+                "missing_synteny_output": [False, False],
                 "id_prompt": ["umi1", "umi2"],
                 "num_syntenic_genes": [10, 11],
                 "total_num_genes": [10, 11],
@@ -1901,7 +1854,7 @@ def test_score_nucleotide_metrics_can_fold_in_external_qc_rewards(tmp_path, monk
     monkeypatch.setattr("subprocess.run", fake_run)
 
     df = pd.DataFrame({"id_prompt": ["seq0", "seq1"], "sequence": ["ACGT" * 1000, "ACGT" * 1000]})
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         df,
         weights=RewardWeights(
             valid_nt_chars=0,
@@ -1921,34 +1874,19 @@ def test_score_nucleotide_metrics_can_fold_in_external_qc_rewards(tmp_path, monk
             work_dir=tmp_path / "work",
             keep_artifacts=False,
             enable_synteny=True,
-            synteny_mode="full",
             enable_average_protein_identity=True,
             enable_required_genes=True,
             required_genes_evidence_target=2,
         ),
     )
 
-    assert scored.loc[0, "reward_historical"] == pytest.approx(0.84)
-    assert 0.0 < scored.loc[1, "reward_historical"] < 1.0
     assert scored["reward"].tolist() == [0.0, 0.0]
-    assert scored["reward_binary_historical_core_pass"].tolist() == [1.0, 0.0]
-    assert scored["reward_binary_core_pass"].tolist() == [0.0, 0.0]
-    assert scored["reward_binary_historical_full_qc_pass"].tolist() == [1.0, 0.0]
-    assert scored["reward_binary_full_qc_pass"].tolist() == [0.0, 0.0]
-    assert scored["reward_binary_historical_full_qc_cluster_deduplicated_pass"].tolist() == [1.0, 0.0]
-    assert scored["reward_binary_full_qc_cluster_deduplicated_pass"].tolist() == [0.0, 0.0]
     assert scored.loc[0, "reward_external_synteny"] == 1.0
-    assert scored.loc[0, "reward_external_average_protein_identity"] == pytest.approx(0.2)
+    assert scored.loc[0, "reward_external_average_protein_identity"] == 1.0
     assert scored.loc[0, "reward_external_required_genes"] == 1.0
     assert scored.loc[1, "reward_external_protein_hit_count"] == pytest.approx(0.5)
     assert scored.loc[1, "reward_external_tropism"] == 0.5
     assert scored.loc[1, "reward_external_synteny"] == 0.5
-    assert scored["predicted_orf_count"].tolist() == [3, 1]
-    assert scored["phrogs_hit_orf_count"].tolist() == [2, 1]
-    assert scored["phrogs_annotated_orf_count"].tolist() == [2, 0]
-    assert scored["unique_phrog_family_count"].tolist() == [2, 1]
-    assert scored["unique_canonical_function_count"].tolist() == [2, 0]
-    assert scored["phrogs_hit_fraction"].tolist() == [2 / 3, 1.0]
     assert scored["average_protein_identity_measurement_available"].tolist() == [1.0, 1.0]
     assert scored["required_genes_measurement_available"].tolist() == [1.0, 1.0]
     assert scored["timing/phage_qc/reward/external_qc/cleanup_s"].ge(0.0).all()
@@ -1979,7 +1917,7 @@ def test_external_qc_subprocess_failure_zeros_external_rewards(tmp_path, monkeyp
     monkeypatch.setattr("subprocess.run", fail_run)
 
     with pytest.warns(RuntimeWarning, match="Arc external QC failed"):
-        scored = score_nucleotide_metrics(
+        scored = score_sequences(
             pd.DataFrame({"id_prompt": ["seq0"], "sequence": ["ACGT" * 1000]}),
             weights=RewardWeights(
                 valid_nt_chars=0,
@@ -2028,7 +1966,7 @@ def test_external_qc_subprocess_failure_raises_by_default_and_retains_artifacts(
     monkeypatch.setattr("subprocess.run", fail_run)
 
     with pytest.raises(RuntimeError, match="Arc external QC failed"):
-        score_nucleotide_metrics(
+        score_sequences(
             pd.DataFrame({"id_prompt": ["seq0"], "sequence": ["ACGT" * 1000]}),
             weights=RewardWeights(
                 valid_nt_chars=0,
@@ -2054,6 +1992,8 @@ def test_full_synteny_reward_uses_fixed_reference_denominator_and_copy_balance(t
     run_dir.mkdir()
     pd.DataFrame(
         {
+            "reference_order_violation_count": [0, 0, 0, 0, 0],
+            "missing_synteny_output": [False, False, False, False, False],
             "id_prompt": ["complete", "gene_deleted", "duplicated", "delete_and_duplicate", "invalid"],
             "num_syntenic_genes": [11, 10, 11, 10, 12],
             "total_num_genes": [11, 10, 12, 12, 12],
@@ -2086,6 +2026,7 @@ def test_online_synteny_pass_uses_metrics_not_measurement_survivor_csv(tmp_path)
     """Measurement mode retains all rows, so hard pass must come from raw synteny pairs."""
     pd.DataFrame(
         {
+            "reference_order_violation_count": [0, 0],
             "id_prompt": ["valid", "invalid"],
             "num_syntenic_genes": [11, 10],
             "total_num_genes": [11, 12],
@@ -2137,6 +2078,7 @@ def test_full_synteny_reward_does_not_score_unmeasured_rows(tmp_path):
     run_dir.mkdir()
     pd.DataFrame(
         {
+            "reference_order_violation_count": [0, 0],
             "id_prompt": ["measured", "artifact_missing"],
             "num_syntenic_genes": [10, 0],
             "total_num_genes": [10, 0],
@@ -2164,17 +2106,17 @@ def test_full_synteny_reward_does_not_score_unmeasured_rows(tmp_path):
     assert scored["reward_external_synteny"].tolist() == [1.0, 0.0, 0.0]
     assert scored["synteny_stage_reached"].tolist() == [1.0, 0.0, 1.0]
     assert scored["synteny_measurement_available"].tolist() == [1.0, 0.0, 0.0]
-    assert scored["synteny_missing_artifact"].tolist() == [0.0, 0.0, 1.0]
+    assert scored["synteny_missing_artifact"].tolist() == [0.0, 1.0, 1.0]
     assert pd.isna(scored.loc[1, "num_syntenic_genes"])
-    assert pd.isna(scored.loc[1, "synteny_pair_score"])
+    assert pd.isna(scored.loc[1, "synteny_copy_balance_score"])
 
 
-def test_synteny_distance_score_uses_fixed_reference_denominator():
-    assert _synteny_distance_score(11, 11, 0)[0] == 1.0
-    assert _synteny_distance_score(10, 11, 0)[0] == pytest.approx(10 / 11)
-    assert _synteny_distance_score(11, 11, 1)[0] == 0.5
-    assert _synteny_distance_score(10, 11, 2)[0] == pytest.approx(10 / 33)
-    assert _synteny_distance_score(12, 11, 0)[0] == 0.0
+def testscore_synteny_counts_uses_fixed_reference_denominator():
+    assert score_synteny_counts(11, 11, 0)[0] == 1.0
+    assert score_synteny_counts(10, 11, 0)[0] == pytest.approx(10 / 11)
+    assert score_synteny_counts(11, 11, 1)[0] == 0.5
+    assert score_synteny_counts(10, 11, 2)[0] == pytest.approx(10 / 33)
+    assert score_synteny_counts(12, 11, 0)[0] == 0.0
 
 
 def test_reference_cluster_architecture_rejects_deletion_hidden_by_duplicates(tmp_path):
@@ -2372,8 +2314,8 @@ def test_average_protein_identity_reward_uses_prefilter_metrics(tmp_path):
 
     assert scored["reward_external_average_protein_identity_pass"].tolist() == [1.0, 1.0, 0.0, 0.0]
     assert scored["reward_external_average_protein_identity"].tolist() == [1.0, 1.0, 0.5, 0.225]
-    assert _aai_novelty_score(100.0) == 0.25
-    assert _aai_evidence_score(9.0) == 0.9
+    assert score_aai_novelty(100.0) == 0.25
+    assert score_aai_evidence(9.0) == 0.9
 
 
 def test_average_protein_identity_reward_requires_evidence(tmp_path):
@@ -2382,15 +2324,15 @@ def test_average_protein_identity_reward_requires_evidence(tmp_path):
     run_dir.mkdir()
     pd.DataFrame(
         {
-            "id_prompt": ["umi1", "umi2"],
-            "average_protein_percent_identity": [99.8, 80.0],
-            "average_protein_identity_gene_count": [1, 0],
+            "id_prompt": ["umi1", "umi2", "bad_identity", "bad_count"],
+            "average_protein_percent_identity": [99.8, 80.0, "missing", 80.0],
+            "average_protein_identity_gene_count": [1, 0, 10, float("inf")],
         }
     ).to_csv(run_dir / "qc6_average_protein_sequence_identity_metrics.csv", index=False)
     df = pd.DataFrame(
         {
-            "arc_qc_id": ["umi1", "umi2", "umi_missing"],
-            "reward_external_average_protein_identity": [0.0, 0.0, 0.0],
+            "arc_qc_id": ["umi1", "umi2", "umi_missing", "bad_identity", "bad_count"],
+            "reward_external_average_protein_identity": [0.0] * 5,
         }
     )
 
@@ -2406,61 +2348,8 @@ def test_average_protein_identity_reward_requires_evidence(tmp_path):
     )
 
     assert 0.0 < scored.loc[0, "reward_external_average_protein_identity"] < 0.1
-    assert scored["reward_external_average_protein_identity"].tolist()[1:] == [0.0, 0.0]
-    assert scored["reward_external_average_protein_identity_pass"].tolist() == [0.0, 0.0, 0.0]
-
-
-def test_average_protein_identity_uses_unique_full_length_mmseqs_families(tmp_path):
-    """Duplicate and truncated hits must not inflate AAI evidence."""
-    run_dir = tmp_path / "arc_run"
-    phrogs_dir = run_dir / "phrogs"
-    phrogs_dir.mkdir(parents=True)
-    pd.DataFrame(
-        {
-            "id_prompt": [
-                "umi1_ORF.1",
-                "umi1_ORF.2",
-                "umi1_ORF.3",
-                "umi2_ORF.1",
-                "umi2_ORF.2",
-            ],
-            "protein_database_mmseqs_target": ["family_A", "family_A", "family_B", "family_A", "family_A"],
-            "protein_database_mmseqs_percent_identity": [80.0, 70.0, 100.0, 70.0, 80.0],
-            "protein_database_mmseqs_alignment_length": [100, 100, 50, 100, 100],
-            "protein_database_mmseqs_query_length": [100, 100, 50, 100, 100],
-            "protein_database_mmseqs_target_length": [100, 100, 100, 100, 100],
-            "protein_database_mmseqs_query_coverage": [1, 1, 1, 1, 1],
-            "protein_database_mmseqs_target_coverage": [1, 1, 0.5, 1, 1],
-        }
-    ).to_csv(phrogs_dir / "mmseqs2_hits.csv", index=False)
-    pd.DataFrame(
-        {
-            "id_prompt": ["umi1", "umi2"],
-            "average_protein_percent_identity": [99.0, 99.0],
-            "average_protein_identity_gene_count": [3, 2],
-        }
-    ).to_csv(run_dir / "aai.csv", index=False)
-    df = pd.DataFrame(
-        {
-            "arc_qc_id": ["umi1", "umi2"],
-            "reward_external_average_protein_identity": [0.0, 0.0],
-        }
-    )
-
-    scored = _add_average_protein_identity_rewards(
-        df,
-        run_dir,
-        {
-            "average_protein_sequence_identity_metrics_file_save_location": "aai.csv",
-            "average_protein_sequence_identity_range": [0, 95],
-            "mmseqs_protein_database_results_dir_save_location": "phrogs",
-            "protein_match_min_reciprocal_coverage": 0.95,
-        },
-    )
-
-    assert scored["average_protein_percent_identity"].tolist() == [80.0, 80.0]
-    assert scored["average_protein_identity_gene_count"].tolist() == [1, 1]
-    assert scored["reward_external_average_protein_identity"].tolist() == pytest.approx([0.1, 0.1])
+    assert scored["reward_external_average_protein_identity"].tolist()[1:] == [0.0] * 4
+    assert scored["reward_external_average_protein_identity_pass"].tolist() == [0.0] * 5
 
 
 def test_required_gene_reward_is_fractional_and_evidence_weighted(tmp_path):
@@ -2524,3 +2413,27 @@ def test_required_gene_reward_uses_fixed_family_denominator_and_full_length_gate
     assert scored["required_genes_full_length_count"].tolist() == [1.0]
     assert scored["reward_external_required_genes"].tolist() == pytest.approx([0.75])
     assert scored["reward_external_required_genes_pass"].tolist() == [0.0]
+
+
+def test_synteny_requires_complete_measurements(tmp_path):
+    """A survivor row cannot manufacture missing reference, duplication or order evidence."""
+    path = tmp_path / "qc6_synteny_filter_metrics.csv"
+    pd.DataFrame({"id_prompt": ["a"], "num_syntenic_genes": [10], "total_num_genes": [10]}).to_csv(path, index=False)
+    scored = _add_full_synteny_rewards(pd.DataFrame({"arc_qc_id": ["a"]}), tmp_path, {})
+    assert scored["reward_external_synteny"].tolist() == [0.0]
+    assert scored["synteny_measurement_available"].tolist() == [0.0]
+    assert scored["synteny_missing_artifact"].tolist() == [1.0]
+
+
+def test_nucleotide_reward_uses_screening_bounds():
+    """The optional binary reward shares every nucleotide filter without repeating measurement."""
+    from bionemo.evo2_phage_gen.qc import add_nucleotide_metrics, apply_nucleotide_qc
+    from bionemo.evo2_phage_gen.reward import add_nucleotide_rewards
+
+    config = NucleotideQCConfig(homopolymer_min=2)
+    sequences = pd.DataFrame({"sequence": ["ACGT" * 1100, "AACCGGTT" * 550]})
+    measured = add_nucleotide_metrics(sequences, config)
+    accepted, _ = apply_nucleotide_qc(sequences, config)
+    scored = add_nucleotide_rewards(measured, config)
+    assert scored["reward_nucleotide_pass"].tolist() == [0.0, 1.0]
+    assert accepted["sequence"].tolist() == scored.loc[scored["reward_nucleotide_pass"].eq(1), "sequence"].tolist()

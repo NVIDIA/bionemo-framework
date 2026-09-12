@@ -31,21 +31,10 @@ from bionemo.evo2.models.megatron.hyena.subquadratic_safety import ensure_subqua
 logger = logging.getLogger(__name__)
 
 
-def resume_generation_call_offset(completed_steps: int, *, val_period: int, val_at_start: bool) -> int:
-    """Count generation calls completed before resuming a checkpointed RL step."""
-    periodic_validations = completed_steps // val_period if val_period > 0 else 0
-    initial_validation = int(val_at_start and completed_steps > 0)
-    return completed_steps + periodic_validations + initial_validation
-
-
 def _evo2_batched_decode_size(cfg: dict[str, Any]) -> int:
     generation = cfg.get("generation", {}) or {}
     mcore_generation_config = generation.get("mcore_generation_config", {}) or {}
-    return int(
-        mcore_generation_config.get("prompt_batch_size")
-        or mcore_generation_config.get("evo2_batched_decode_size")
-        or 1
-    )
+    return int(mcore_generation_config.get("prompt_batch_size") or 1)
 
 
 def _evo2_native_batched_decode_size(worker: Any) -> int:
@@ -232,8 +221,6 @@ def _batched_sampling_value(sampling_params: list[Any], name: str, *, required: 
 def _native_generated_token_ids(result: Any) -> list[int]:
     """Return native generated token IDs without detokenize/tokenize replay."""
     generated_tokens = getattr(result, "generated_tokens", None)
-    if generated_tokens is None:
-        generated_tokens = getattr(result, "generated_token_ids", None)
     if generated_tokens is None:
         raise ValueError("Evo2 native generation result did not include generated token IDs")
     return [int(token_id) for token_id in generated_tokens]
@@ -638,16 +625,12 @@ class Evo2MegatronGenerationAdapter:
                     result_memory = generation_result.memory
                     if result_timings is None and result_memory is None:
                         continue
-                    timing_group_id = result_timings.get("timing_group_id") if result_timings is not None else None
-                    if timing_group_id is not None:
-                        evidence_group_key = (
-                            str(result_timings.get("timing_scope", "native_generation_group")),
-                            str(timing_group_id),
-                        )
-                    elif result_timings is not None:
-                        evidence_group_key = ("legacy_timing_object", str(id(result_timings)))
-                    else:
-                        evidence_group_key = ("legacy_memory_object", str(id(result_memory)))
+                    if result_timings is None or "timing_group_id" not in result_timings:
+                        raise ValueError("Native generation telemetry requires timing_group_id")
+                    evidence_group_key = (
+                        str(result_timings.get("timing_scope", "native_generation_group")),
+                        str(result_timings["timing_group_id"]),
+                    )
                     if evidence_group_key in seen_evidence_groups:
                         continue
                     seen_evidence_groups.add(evidence_group_key)

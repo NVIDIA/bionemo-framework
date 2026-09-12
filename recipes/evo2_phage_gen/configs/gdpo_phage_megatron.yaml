@@ -128,11 +128,12 @@ env:
   phage_qc:
     dustmask_filter: true
     dustmasker_bin: "dustmasker"
-    dustmask_use_external: true
     dustmask_window: 64
     dustmask_level: 20.0
     dustmask_end_window: 200
     dustmask_max_end_fraction: 0.9
+    # Opt in to objective summaries split by prompt nucleotide length.
+    log_by_prompt_nt_length: false
     reward_output_mode: "gdpo"
     # PhiX default: keep no-EOD rows in the rollout but set their complete scalar or
     # GDPO reward vector to zero. This penalizes invalid genomes rather than masking their loss;
@@ -208,7 +209,6 @@ env:
       enable_protein_hit_count: true
       enable_tropism: true
       enable_synteny: true
-      synteny_mode: "full"
       enable_average_protein_identity: true
       enable_required_genes: true
       # Inherit the control-calibrated required-gene target from the shared PhiX config.

@@ -994,24 +994,6 @@ def summarize_best_hit_aai(hits_df: pd.DataFrame) -> pd.DataFrame:
     return best.groupby("_genome_id")[pident].agg(["mean", "count"]).reset_index().set_axis(columns, axis=1)
 
 
-def summarize_full_length_aai(hits_df: pd.DataFrame, minimum_reciprocal_coverage: float = 0.75) -> pd.DataFrame:
-    """Average identity over one best reciprocally full-length hit per target family."""
-    hits_df = _full_length_hits(hits_df, "protein_database", minimum_reciprocal_coverage)
-    target = "protein_database_mmseqs_target"
-    pident = "protein_database_mmseqs_percent_identity"
-    output_columns = ["id_prompt", "average_protein_percent_identity", "average_protein_identity_gene_count"]
-    if hits_df.empty or not {"id_prompt", target, pident}.issubset(hits_df.columns):
-        return pd.DataFrame(columns=output_columns)
-    hits_df["_genome_id"] = hits_df["id_prompt"].astype(str).str.rsplit("_", n=1).str[0]
-    best_hits = hits_df.sort_values(
-        ["_genome_id", target, pident, "protein_database_alignment_integrity", "id_prompt"],
-        ascending=[True, True, False, False, True],
-    ).drop_duplicates(["_genome_id", target])
-    return (
-        best_hits.groupby("_genome_id")[pident].agg(["mean", "count"]).reset_index().set_axis(output_columns, axis=1)
-    )
-
-
 def _canonical_required_target(value: object) -> str:
     """Normalize supported PHROG family spellings while preserving other target IDs."""
     text = str(value).strip()

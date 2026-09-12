@@ -99,6 +99,7 @@ def _new_step_environment(
 
     env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
     env = object.__new__(env_cls)
+    env.cfg = {}
     env.config = object()
     env.weights = RewardWeights(valid_nt_chars=1.0)
     env.external_qc = object()
@@ -160,7 +161,7 @@ def test_score_message_logs_sends_only_pre_eos_dna_to_qc(monkeypatch):
         captured["sequences"] = sequences_df.copy()
         return sequences_df
 
-    monkeypatch.setattr(nemo_rl_env, "score_nucleotide_metrics", _capture_sequences)
+    monkeypatch.setattr(nemo_rl_env, "score_sequences", _capture_sequences)
 
     scored = score_message_logs(
         [[{"role": "user", "content": "+~GAGT"}, {"role": "assistant", "content": "ACGT<EOD>junk"}]]
@@ -176,15 +177,14 @@ def test_score_message_logs_without_safety_config_returns_zero_reward():
         [[{"role": "user", "content": "+~GAGT"}, {"role": "assistant", "content": "ACGT" * 1000}]]
     )
 
-    assert scored["reward_historical"].tolist() == [1.0]
     assert scored["reward"].tolist() == [0.0]
     assert scored["safety_gate_state"].tolist() == ["INDETERMINATE"]
     assert scored["safety_gate_reason_codes"].tolist() == ['["SEQUENCE_SAFETY_CONFIG_MISSING"]']
     assert scored["prompt_nt_length"].tolist() == [4]
 
 
-def test_score_message_logs_forwards_safety_config_and_retains_historical_reward(tmp_path: Path):
-    """GRPO scoring must retain historical telemetry while an unavailable safety gate zeros reward."""
+def test_score_message_logs_forwards_safety_config(tmp_path: Path):
+    """GRPO scoring forwards the safety config and reports unavailable safety explicitly."""
     safety_config = _disabled_sequence_safety_config(tmp_path)
 
     scored = score_message_logs(
@@ -192,7 +192,6 @@ def test_score_message_logs_forwards_safety_config_and_retains_historical_reward
         sequence_safety=safety_config,
     )
 
-    assert scored["reward_historical"].tolist() == [1.0]
     assert scored["reward"].tolist() == [0.0]
     assert scored["safety_gate_state"].tolist() == ["INDETERMINATE"]
     assert scored["safety_gate_reason_codes"].tolist() == ['["SEQUENCE_SAFETY_DISABLED"]']
@@ -582,108 +581,6 @@ def test_empty_gdpo_objective_scores_keep_configured_shape():
     assert indexed_empty_scores.to_numpy().tolist() == [[0.0, 0.0], [0.0, 0.0]]
 
 
-def test_phage_qc_metrics_from_scored_flattens_reward_components():
-    """Scalar QC metrics should be suitable for TensorBoard and W&B logging."""
-    scored = pd.DataFrame(
-        {
-            "reward_valid_nt_chars": [1.0, 1.0],
-            "reward_external_tropism": [1.0, 0.5],
-            "reward_external_tropism_pass": [1.0, 0.0],
-            "reward_dustmask_end": [1.0, 0.5],
-            "reward_external_synteny": [0.25, 0.75],
-            "reward_external_synteny_pass": [1.0, 0.0],
-            "reward_external_average_protein_identity": [1.0, 0.5],
-            "reward_external_average_protein_identity_pass": [1.0, 0.0],
-            "reward_external_required_genes": [1.0, 0.0],
-            "reward_external_required_genes_pass": [1.0, 0.0],
-            "prompt_nt_length": [10, 10],
-            "genome_length": [5000, 3900],
-            "tropism_stage_reached": [1.0, 1.0],
-            "tropism_measurement_available": [1.0, 1.0],
-            "tropism_missing_artifact": [0.0, 0.0],
-            "tropism_protein_mmseqs_percent_identity": [75.0, 30.0],
-            "tropism_protein_measured_hit": [1.0, 1.0],
-            "synteny_stage_reached": [1.0, 1.0],
-            "synteny_measurement_available": [1.0, 0.0],
-            "synteny_missing_artifact": [0.0, 1.0],
-            "synteny_pair_score": [0.25, 0.75],
-            "synteny_pair_distance": [3.0, 1.0],
-            "average_protein_percent_identity": [80.0, 97.5],
-            "average_protein_identity_gene_count": [10, 9],
-            "average_protein_identity_evidence_score": [1.0, 0.9],
-            "required_genes_matched_count": [9, 4],
-            "required_genes_total_count": [9, 9],
-            "required_genes_evidence_score": [1.0, 1.0],
-            "reward_mmseqs_cluster_diversity": [1.0, 0.5],
-            "mmseqs_cluster_id": ["group0:seq_0", "group0:seq_1"],
-            "mmseqs_cluster_size": [1, 2],
-            "mmseqs_cluster_is_singleton": [1.0, 0.0],
-            "mmseqs_cluster_valid_for_clustering": [1.0, 1.0],
-            "safety_gate_state": ["PASS", "PASS"],
-            "safety_gate_pass": [1.0, 1.0],
-            "reward": [0.8, 0.4],
-        }
-    )
-
-    metrics = phage_qc_metrics_from_scored(
-        scored,
-        RewardWeights(
-            valid_nt_chars=1.0,
-            tropism=1.0,
-            dustmask_end=1.0,
-            synteny=1.0,
-            average_protein_identity=1.0,
-            required_genes=1.0,
-            mmseqs_cluster_diversity=1.0,
-        ),
-    )
-
-    assert metrics["num_sequences"] == 2
-    assert metrics["valid_nt_chars_score_mean"] == 1.0
-    assert metrics["tropism_score_mean"] == 0.75
-    assert metrics["dustmask_end_score_mean"] == 0.75
-    assert metrics["tropism_pass_rate"] == 0.5
-    assert metrics["tropism_stage_reached_rate"] == 1.0
-    assert metrics["tropism_measurement_available_rate"] == 1.0
-    assert metrics["tropism_n_measured"] == 2
-    assert metrics["tropism_conditional_score_mean"] == 0.75
-    assert metrics["tropism_conditional_pass_rate"] == 0.5
-    assert metrics["synteny_score_mean"] == 0.5
-    assert metrics["average_protein_identity_score_mean"] == 0.75
-    assert metrics["required_genes_pass_rate"] == 0.5
-    assert metrics["prompt_nt_length_mean"] == 10.0
-    assert metrics["prompt_nt_length_min"] == 10.0
-    assert metrics["prompt_nt_length_max"] == 10.0
-    assert metrics["genome_length_mean"] == 4450.0
-    assert metrics["tropism_protein_mmseqs_percent_identity_mean"] == 52.5
-    assert metrics["tropism_protein_measured_hit_mean"] == 1.0
-    assert metrics["synteny_pair_score_mean"] == 0.5
-    assert metrics["synteny_pair_distance_mean"] == 2.0
-    assert metrics["synteny_stage_reached_rate"] == 1.0
-    assert metrics["synteny_measurement_available_rate"] == 0.5
-    assert metrics["synteny_n_measured"] == 1
-    assert metrics["synteny_missing_artifact_count"] == 1
-    assert metrics["synteny_conditional_score_mean"] == 0.25
-    assert metrics["synteny_conditional_pass_rate"] == 1.0
-    assert metrics["average_protein_percent_identity_mean"] == 88.75
-    assert metrics["average_protein_identity_gene_count_mean"] == 9.5
-    assert metrics["average_protein_identity_evidence_score_mean"] == 0.95
-    assert metrics["required_genes_matched_count_mean"] == 6.5
-    assert metrics["required_genes_evidence_score_mean"] == 1.0
-    assert metrics["mmseqs_cluster_diversity_score_mean"] == 0.75
-    assert metrics["mmseqs_cluster_num_clusters"] == 2
-    assert metrics["mmseqs_cluster_clusters_per_sequence"] == 1.0
-    assert metrics["mmseqs_cluster_singleton_fraction"] == 0.5
-    assert metrics["mmseqs_cluster_largest_cluster_fraction"] == 1.0
-    assert sorted(metrics["__histogram__/mmseqs_cluster_size"]) == [1, 2]
-    assert metrics["binary_core_pass_count"] == 1
-    assert metrics["binary_core_pass_rate"] == 0.5
-    assert metrics["binary_full_qc_pass_count"] == 1
-    assert metrics["binary_full_qc_pass_rate"] == 0.5
-    assert metrics["binary_full_qc_pass_cluster_deduplicated_count"] == 1
-    assert metrics["binary_full_qc_pass_cluster_deduplicated_rate"] == 0.5
-
-
 def test_phage_qc_metrics_bin_authentic_eod_lengths() -> None:
     """Fixed-bank telemetry must retain stop frequency and placement direction."""
     scored = pd.DataFrame(
@@ -707,11 +604,7 @@ def test_phage_qc_metrics_bin_authentic_eod_lengths() -> None:
 
     metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0), config=config)
 
-    assert metrics["termination/authentic_eod_count"] == 8
-    assert metrics["termination/capped_without_eod_count"] == 1
-    assert metrics["termination/non_eod_below_cap_count"] == 0
     assert metrics["termination/authentic_eod_rate"] == pytest.approx(8 / 9)
-    assert metrics["termination/no_authentic_eod_prompt_group_count"] == 1
     assert metrics["termination/no_authentic_eod_prompt_group_rate"] == 0.5
     expected_bins = {
         "below_lower_zero": 1,
@@ -721,7 +614,6 @@ def test_phage_qc_metrics_bin_authentic_eod_lengths() -> None:
         "at_or_above_upper_zero": 1,
     }
     for name, count in expected_bins.items():
-        assert metrics[f"termination/authentic_eod_length/{name}_count"] == count
         assert metrics[f"termination/authentic_eod_length/{name}_rate"] == pytest.approx(count / 8)
 
 
@@ -741,9 +633,6 @@ def test_phage_qc_metrics_keep_non_eod_short_distinct_from_caps() -> None:
 
     metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0))
 
-    assert metrics["termination/authentic_eod_count"] == 0
-    assert metrics["termination/capped_without_eod_count"] == 1
-    assert metrics["termination/non_eod_below_cap_count"] == 1
     assert not any(key.startswith("termination/authentic_eod_length/") for key in metrics)
 
 
@@ -753,121 +642,8 @@ def test_empty_phage_qc_metrics_publish_required_checkpoint_zero():
 
     assert metrics == {
         "num_sequences": 0,
-        "binary_safety_qualified_full_qc_cluster_deduplicated_rate": 0.0,
+        "all_objectives_max_score_rate": 0.0,
     }
-
-
-def test_phage_qc_metrics_interprets_mmseqs_cluster_sizes_with_full_batch_denominator():
-    """Cluster scalar metrics should reflect cluster rows while keeping batch-size denominators explicit."""
-    scored = pd.DataFrame(
-        {
-            "reward_valid_nt_chars": [1.0, 1.0, 1.0, 0.0],
-            "reward_mmseqs_cluster_diversity": [0.5, 0.5, 1.0, 0.0],
-            "mmseqs_cluster_id": ["group0:seq_0", "group0:seq_0", "group0:seq_2", ""],
-            "mmseqs_cluster_size": [2, 2, 1, 0],
-            "mmseqs_cluster_is_singleton": [0.0, 0.0, 1.0, 0.0],
-            "mmseqs_cluster_valid_for_clustering": [1.0, 1.0, 1.0, 0.0],
-            "mmseqs_cluster_missing_from_output": [0.0, 0.0, 0.0, 0.0],
-            "safety_gate_state": ["PASS", "PASS", "PASS", "PASS"],
-            "safety_gate_pass": [1.0, 1.0, 1.0, 1.0],
-            "reward": [0.5, 0.5, 1.0, 0.0],
-        }
-    )
-
-    metrics = phage_qc_metrics_from_scored(
-        scored,
-        RewardWeights(
-            valid_nt_chars=1.0,
-            mmseqs_cluster_diversity=1.0,
-        ),
-    )
-
-    assert metrics["num_sequences"] == 4
-    assert metrics["mmseqs_cluster_diversity_score_mean"] == 0.5
-    assert metrics["mmseqs_cluster_size_mean"] == 1.25
-    assert metrics["mmseqs_cluster_valid_for_clustering_mean"] == 0.75
-    assert metrics["mmseqs_cluster_num_clusters"] == 2
-    assert metrics["mmseqs_cluster_clusters_per_sequence"] == 0.5
-    assert metrics["mmseqs_cluster_singleton_fraction"] == pytest.approx(1.0 / 3.0)
-    assert metrics["mmseqs_cluster_largest_cluster_fraction"] == pytest.approx(2.0 / 3.0)
-    assert sorted(metrics["__histogram__/mmseqs_cluster_size"]) == [1, 2]
-
-
-def test_phage_qc_metrics_report_safety_states_rewards_and_qualified_full_qc():
-    """Safety observability must distinguish eligibility from historical model quality."""
-    scored = pd.DataFrame(
-        {
-            "reward_valid_nt_chars": [1.0, 1.0, 1.0, 1.0],
-            "reward_external_synteny_pass": [1.0, 1.0, 1.0, 1.0],
-            "reward_external_average_protein_identity_pass": [1.0, 1.0, 1.0, 1.0],
-            "reward_external_required_genes_pass": [1.0, 1.0, 1.0, 1.0],
-            "safety_gate_state": ["PASS", "FAIL", "INDETERMINATE", "PASS"],
-            "safety_gate_pass": [1.0, 1.0, 0.0, 0.0],
-            "safety_amr_state": ["PASS", "FAIL", "INDETERMINATE", "PASS"],
-            "safety_toxin_state": ["PASS", "PASS", "INDETERMINATE", "FAIL"],
-            "safety_lysogeny_state": ["PASS", "INDETERMINATE", "PASS", "PASS"],
-            "reward_historical": [0.8, 0.9, 0.7, 0.6],
-            "reward": [0.8, 0.0, 0.0, 0.6],
-            "mmseqs_cluster_id": ["group0:pass", "group0:fail", "group0:indet", "group0:pass"],
-            "mmseqs_cluster_size": [2, 1, 1, 2],
-            "mmseqs_cluster_valid_for_clustering": [1.0, 1.0, 1.0, 1.0],
-        }
-    )
-
-    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0))
-
-    assert metrics["safety_gate_state_count/PASS"] == 2
-    assert metrics["safety_gate_state_count/FAIL"] == 1
-    assert metrics["safety_gate_state_count/INDETERMINATE"] == 1
-    assert metrics["safety_gate_pass_rate"] == 0.25
-    assert metrics["safety_gate_indeterminate_rate"] == 0.25
-    assert metrics["safety_amr_pass_rate"] == 0.5
-    assert metrics["safety_amr_indeterminate_rate"] == 0.25
-    assert metrics["safety_toxin_pass_rate"] == 0.5
-    assert metrics["safety_toxin_indeterminate_rate"] == 0.25
-    assert metrics["safety_lysogeny_pass_rate"] == 0.75
-    assert metrics["safety_lysogeny_indeterminate_rate"] == 0.25
-    assert metrics["reward_historical_mean"] == pytest.approx(0.75)
-    assert metrics["reward_safety_qualified_mean"] == pytest.approx(0.2)
-    assert metrics["binary_safety_qualified_full_qc_cluster_deduplicated_rate"] == 0.25
-
-
-def test_phage_qc_metrics_report_zero_acceptance_when_aggregate_state_is_missing():
-    """A numeric gate bit without its exact PASS state cannot qualify a checkpoint metric."""
-    scored = pd.DataFrame(
-        {
-            "reward_valid_nt_chars": [1.0],
-            "reward_external_synteny_pass": [1.0],
-            "reward_external_average_protein_identity_pass": [1.0],
-            "reward_external_required_genes_pass": [1.0],
-            "safety_gate_pass": [1.0],
-            "reward": [1.0],
-            "mmseqs_cluster_id": ["group0:seq_0"],
-            "mmseqs_cluster_size": [1],
-        }
-    )
-
-    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0))
-
-    assert metrics["safety_gate_pass_rate"] == 0.0
-    assert metrics["reward_safety_qualified_mean"] == 0.0
-    assert metrics["binary_safety_qualified_full_qc_cluster_deduplicated_rate"] == 0.0
-
-
-def test_phage_qc_qualified_reward_mean_rejects_out_of_range_values():
-    """Qualified reward reporting uses the same bounded scalar range as optimization."""
-    scored = pd.DataFrame(
-        {
-            "reward_valid_nt_chars": [1.0, 1.0, 1.0],
-            "safety_gate_state": ["PASS", "PASS", "PASS"],
-            "safety_gate_pass": [1.0, 1.0, 1.0],
-            "reward": [-0.5, 1.5, 0.6],
-        }
-    )
-
-    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0))
-
-    assert metrics["reward_safety_qualified_mean"] == pytest.approx(0.2)
 
 
 @pytest.mark.parametrize("state", ["FAIL", "INDETERMINATE"])
@@ -910,7 +686,6 @@ def test_grpo_step_uses_final_reward_and_preserves_safety_evidence(monkeypatch, 
 
     assert result.rewards.tolist() == [0.0]
     scored_metadata = result.metadata[0]["_phage_qc_scored"]
-    assert scored_metadata["reward_historical"] == 0.75
     assert scored_metadata["safety_gate_state"] == state
     assert scored_metadata["safety_gate_reason_codes"] == '["AMR_FINDING"]'
     assert scored_metadata["safety_amr_state"] == state
@@ -956,8 +731,7 @@ def test_step_preserves_compact_generation_stop_evidence(monkeypatch) -> None:
         env,
         {"total_reward": result.rewards, "extra_env_info": result.metadata},
     )
-    assert metrics["termination/authentic_eod_count"] == 1
-    assert metrics["termination/authentic_eod_length/full_credit_count"] == 1
+    assert metrics["termination/authentic_eod_rate"] == 1.0
 
 
 def test_scalar_no_eod_gate_penalizes_without_masking(monkeypatch) -> None:
@@ -1064,7 +838,6 @@ def test_scalar_step_regates_raw_reward_without_mutating_finite_diagnostics(
     assert result.rewards.tolist() == [expected_reward]
     assert result.observations == [{"role": "environment", "content": f"phage_qc_reward={expected_reward:.6f}"}]
     scored_metadata = result.metadata[0]["_phage_qc_scored"]
-    assert scored_metadata["reward_historical"] == 0.9
     assert scored_metadata["safety_gate_state"] == state
     if math.isfinite(raw_reward):
         assert scored_metadata["reward"] == raw_reward
@@ -1115,7 +888,6 @@ def test_gdpo_step_observation_uses_reconciled_bounded_scalar_reward(
 
     assert result.rewards.tolist() == [[expected_objective]]
     assert result.observations == [{"role": "environment", "content": f"phage_qc_reward={expected_observation:.6f}"}]
-    assert result.metadata[0]["_phage_qc_scored"]["reward_historical"] == 0.8
 
 
 def test_phage_qc_metrics_marks_timing_metrics_for_nemorl_timing_logger():
@@ -1135,99 +907,6 @@ def test_phage_qc_metrics_marks_timing_metrics_for_nemorl_timing_logger():
     timing_key = f"{TIMING_METRIC_MARKER_PREFIX}phage_qc/reward/total_s"
     assert metrics[timing_key] == 3.0
     assert "timing/phage_qc/reward/total_s" not in metrics
-
-
-def test_phage_qc_metrics_deduplicates_binary_passes_by_mmseqs_cluster():
-    """Collapsed passing clusters should count once in the headline pass metric."""
-    scored = pd.DataFrame(
-        {
-            "reward_valid_nt_chars": [1.0, 1.0, 1.0, 0.0],
-            "mmseqs_cluster_id": ["group0:seq_0", "group0:seq_0", "group0:seq_2", ""],
-            "mmseqs_cluster_size": [2, 2, 1, 0],
-            "mmseqs_cluster_valid_for_clustering": [1.0, 1.0, 1.0, 0.0],
-            "safety_gate_state": ["PASS", "PASS", "PASS", "PASS"],
-            "safety_gate_pass": [1.0, 1.0, 1.0, 1.0],
-            "reward": [1.0, 1.0, 1.0, 0.0],
-        }
-    )
-
-    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0))
-
-    assert metrics["binary_core_pass_count"] == 3
-    assert metrics["binary_core_pass_rate"] == 0.75
-    assert metrics["binary_core_pass_cluster_deduplicated_count"] == 2
-    assert metrics["binary_core_pass_cluster_deduplicated_rate"] == 0.5
-    assert "binary_core_pass_cluster_duplicate_count" not in metrics
-    assert "binary_core_pass_cluster_deduplication_fraction" not in metrics
-
-
-def test_phage_qc_metrics_deduplicates_full_qc_passes_by_mmseqs_cluster():
-    """Full-QC paper gates should have their own cluster-deduplicated headline metrics."""
-    scored = pd.DataFrame(
-        {
-            "reward_valid_nt_chars": [1.0, 1.0, 1.0, 1.0],
-            "reward_external_synteny_pass": [1.0, 1.0, 0.0, 1.0],
-            "reward_external_average_protein_identity_pass": [1.0, 1.0, 1.0, 1.0],
-            "reward_external_required_genes_pass": [1.0, 1.0, 1.0, 1.0],
-            "mmseqs_cluster_id": ["group0:seq_0", "group0:seq_0", "group0:seq_2", ""],
-            "mmseqs_cluster_size": [2, 2, 1, 0],
-            "mmseqs_cluster_valid_for_clustering": [1.0, 1.0, 1.0, 0.0],
-            "safety_gate_state": ["PASS", "PASS", "PASS", "PASS"],
-            "safety_gate_pass": [1.0, 1.0, 1.0, 1.0],
-            "reward": [1.0, 1.0, 1.0, 1.0],
-        }
-    )
-
-    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0))
-
-    assert metrics["binary_core_pass_count"] == 4
-    assert metrics["binary_core_pass_cluster_deduplicated_count"] == 3
-    assert metrics["binary_full_qc_pass_count"] == 3
-    assert metrics["binary_full_qc_pass_cluster_deduplicated_count"] == 2
-    assert "binary_full_qc_pass_cluster_duplicate_count" not in metrics
-    assert "binary_full_qc_pass_cluster_deduplication_fraction" not in metrics
-
-
-def test_phage_qc_metrics_tolerates_legacy_metadata_without_mmseqs_cluster_id():
-    """Partially preserved MMseqs metadata should not crash metric aggregation."""
-    scored = pd.DataFrame(
-        {
-            "reward_valid_nt_chars": [1.0, 1.0],
-            "mmseqs_cluster_size": [2, 2],
-            "safety_gate_state": ["PASS", "PASS"],
-            "safety_gate_pass": [1.0, 1.0],
-            "reward": [1.0, 1.0],
-        }
-    )
-
-    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0))
-
-    assert metrics["binary_core_pass_rate"] == 1.0
-    assert metrics["binary_core_pass_cluster_deduplicated_rate"] == 1.0
-    assert "mmseqs_cluster_num_clusters" not in metrics
-
-
-def test_phage_qc_metrics_groups_training_metrics_by_prompt_prefix_length():
-    """Prompt-length groups let W&B compare each prefix only with matching prefixes."""
-    scored = pd.DataFrame(
-        {
-            "prompt_nt_length": [4, 4, 10],
-            "reward_valid_nt_chars": [1.0, 0.0, 1.0],
-            "safety_gate_state": ["PASS", "PASS", "PASS"],
-            "safety_gate_pass": [1.0, 1.0, 1.0],
-            "reward": [1.0, 0.0, 0.5],
-        }
-    )
-
-    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(valid_nt_chars=1.0))
-
-    assert metrics["by_prompt_nt_length/4/num_sequences"] == 2
-    assert metrics["by_prompt_nt_length/4/reward_mean"] == 0.5
-    assert metrics["by_prompt_nt_length/4/valid_nt_chars_score_mean"] == 0.5
-    assert metrics["by_prompt_nt_length/4/binary_core_pass_rate"] == 0.5
-    assert metrics["by_prompt_nt_length/10/num_sequences"] == 1
-    assert metrics["by_prompt_nt_length/10/reward_mean"] == 0.5
-    assert metrics["by_prompt_nt_length/10/binary_core_pass_rate"] == 1.0
 
 
 def test_scored_records_exclude_full_sequence_from_rollout_metadata():
@@ -1289,6 +968,7 @@ def test_global_post_process_metrics_leave_task_namespace_to_nemo_rl():
 
     env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
     env = object.__new__(env_cls)
+    env.cfg = {}
     env.weights = RewardWeights(valid_nt_chars=1.0)
     env.reward_output_mode = "gdpo"
     env.gdpo_objectives = (
@@ -1325,14 +1005,8 @@ def test_global_post_process_metrics_leave_task_namespace_to_nemo_rl():
 
     assert returned_batch is batch
     assert metrics["mean_reward"] == 0.5
-    assert metrics["pass_rate"] == 0.5
-    assert metrics["valid_nt_chars_score_mean"] == 0.5
-    assert metrics["binary_core_pass_rate"] == 0.5
-    assert "phage_qc/valid_nt_chars_score_mean" not in metrics
     assert metrics["gdpo/valid_nt_chars_mean"] == 0.5
     assert metrics["gdpo/valid_nt_chars_std"] == pytest.approx(0.5)
-    assert metrics["gdpo/valid_nt_chars_min"] == 0.0
-    assert metrics["gdpo/valid_nt_chars_max"] == 1.0
     assert metrics["gdpo/valid_nt_chars_nonzero_rate"] == 0.5
     assert metrics["gdpo/protein_hit_count_std"] == pytest.approx(0.25)
     assert metrics["gdpo/protein_hit_count_nonzero_rate"] == 1.0
@@ -1347,6 +1021,7 @@ def test_global_metrics_report_zero_variance_and_no_eod_groups() -> None:
 
     env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
     env = object.__new__(env_cls)
+    env.cfg = {}
     env.weights = RewardWeights(valid_nt_chars=1.0)
     env.reward_output_mode = "scalar"
     env.gdpo_objectives = ()
@@ -1378,9 +1053,7 @@ def test_global_metrics_report_zero_variance_and_no_eod_groups() -> None:
     _returned_batch, metrics = env_cls.global_post_process_and_metrics(env, batch)
 
     assert metrics["reward_prompt_group_count"] == 2
-    assert metrics["reward_zero_variance_prompt_group_count"] == 2
     assert metrics["reward_zero_variance_prompt_group_rate"] == 1.0
-    assert metrics["termination/no_authentic_eod_prompt_group_count"] == 1
     assert metrics["termination/no_authentic_eod_prompt_group_rate"] == 0.5
 
 
@@ -1391,6 +1064,7 @@ def test_global_post_process_metrics_handles_empty_gdpo_batch_without_actor_cach
 
     env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
     env = object.__new__(env_cls)
+    env.cfg = {}
     env.weights = RewardWeights(valid_nt_chars=1.0)
     env.reward_output_mode = "gdpo"
     env.gdpo_objectives = (
@@ -1413,11 +1087,8 @@ def test_global_post_process_metrics_handles_empty_gdpo_batch_without_actor_cach
     )
 
     assert metrics["mean_reward"] == 0.0
-    assert metrics["pass_rate"] == 0.0
-    assert metrics["dense_reward_ge_1_rate"] == 0.0
     assert metrics["num_sequences"] == 0
-    assert metrics["binary_safety_qualified_full_qc_cluster_deduplicated_rate"] == 0.0
-    assert metrics["gdpo/num_objectives"] == 2
+    assert metrics["all_objectives_max_score_rate"] == 0.0
     assert not any(key.startswith("gdpo/stale") for key in metrics)
 
 
@@ -1428,6 +1099,7 @@ def test_global_post_process_metrics_report_zero_acceptance_without_rollout_meta
 
     env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
     env = object.__new__(env_cls)
+    env.cfg = {}
     env.weights = RewardWeights(valid_nt_chars=1.0)
     env._last_scored = pd.DataFrame(
         {
@@ -1443,10 +1115,8 @@ def test_global_post_process_metrics_report_zero_acceptance_without_rollout_meta
         {"total_reward": torch.tensor([1.0, 0.0])},
     )
 
-    assert metrics["pass_rate"] == 0.0
-    assert metrics["num_sequences"] == 0
-    assert metrics["binary_safety_qualified_full_qc_cluster_deduplicated_rate"] == 0.0
-    assert "phage_qc/valid_nt_chars_score_mean" not in metrics
+    assert metrics["num_sequences"] == 2
+    assert metrics["all_objectives_max_score_rate"] == 0.0
 
 
 def test_global_post_process_metrics_does_not_fill_optional_fields_from_actor_cache():
@@ -1456,6 +1126,7 @@ def test_global_post_process_metrics_does_not_fill_optional_fields_from_actor_ca
 
     env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
     env = object.__new__(env_cls)
+    env.cfg = {}
     env.weights = RewardWeights(valid_nt_chars=1.0)
     env._last_scored = pd.DataFrame(
         {
@@ -1493,9 +1164,8 @@ def test_global_post_process_metrics_does_not_fill_optional_fields_from_actor_ca
 
     _returned_batch, metrics = env_cls.global_post_process_and_metrics(env, batch)
 
-    assert "mmseqs_cluster_num_clusters" not in metrics
-    assert metrics["binary_core_pass_cluster_deduplicated_count"] == 2
-    assert metrics["pass_rate"] == 1.0
+    assert metrics["all_objectives_max_score_rate"] == 1.0
+    assert "__histogram__/mmseqs_cluster_size" not in metrics
 
 
 @pytest.mark.parametrize(
@@ -1540,6 +1210,7 @@ def test_global_post_process_metrics_rejects_partial_or_misaligned_metadata(
 
     env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
     env = object.__new__(env_cls)
+    env.cfg = {}
     env.weights = RewardWeights(valid_nt_chars=1.0)
     env.reward_output_mode = "scalar"
     env._last_scored = pd.DataFrame(
@@ -1556,9 +1227,8 @@ def test_global_post_process_metrics_rejects_partial_or_misaligned_metadata(
         {"total_reward": torch.tensor([1.0, 1.0]), "extra_env_info": extra_env_info},
     )
 
-    assert metrics["pass_rate"] == 0.0
-    assert metrics["num_sequences"] == 0
-    assert metrics["binary_safety_qualified_full_qc_cluster_deduplicated_rate"] == 0.0
+    assert metrics["num_sequences"] == 2
+    assert metrics["all_objectives_max_score_rate"] == 0.0
 
 
 @pytest.mark.parametrize("scored_row", [{}, {"reward": 1.0}, {"safety_gate_state": "PASS", "reward": 1.0}])
@@ -1571,6 +1241,7 @@ def test_global_gdpo_metrics_reject_correct_count_but_incomplete_scored_rows(
 
     env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
     env = object.__new__(env_cls)
+    env.cfg = {}
     env.weights = RewardWeights(valid_nt_chars=1.0)
     env.reward_output_mode = "gdpo"
     env.gdpo_objectives = (GDPOObjective("biological", ("reward_biological",)),)
@@ -1586,8 +1257,65 @@ def test_global_gdpo_metrics_reject_correct_count_but_incomplete_scored_rows(
         },
     )
 
-    assert metrics["pass_rate"] == 0.0
-    assert metrics["num_sequences"] == 0
-    assert metrics["binary_safety_qualified_full_qc_cluster_deduplicated_rate"] == 0.0
-    assert metrics["gdpo/num_objectives"] == 1
+    assert metrics["num_sequences"] == 2
+    assert metrics["all_objectives_max_score_rate"] == 0.0
     assert not any(key.startswith("gdpo/biological_") for key in metrics)
+
+
+def test_configured_metrics_use_gated_scores_and_opt_in_lengths():
+    """Ceiling attainment uses configured objectives and gates, even when filter flags differ."""
+    scored = pd.DataFrame(
+        {
+            "reward_external_tropism": [1.0 - 1e-9, 0.5, 1.0, 1.0],
+            "tropism_protein_mmseqs_percent_identity": [10.0, float("nan"), 20.0, 30.0],
+            "reward_genome_length": [1.0, 1.0, 1.0, 1.0],
+            "reward_external_tropism_pass": [0.0, 1.0, 1.0, 1.0],
+            "reward_unused": [0.0] * 4,
+            "safety_gate_state": ["PASS", "PASS", "PASS", "INDETERMINATE"],
+            "safety_gate_pass": [1.0] * 4,
+            "generation_stopped_on_eod": [True, True, False, True],
+            "generation_capped_without_eod": [False, False, True, False],
+            "prompt_nt_length": [16, 16, 24, 24],
+            "tropism_measurement_available": [1.0] * 4,
+            "predicted_orf_count": [999] * 4,
+        },
+        index=[5] * 4,
+    )
+    objectives = (
+        GDPOObjective("tropism", ("reward_external_tropism",)),
+        GDPOObjective("length", ("reward_genome_length",)),
+    )
+    metrics = phage_qc_metrics_from_scored(
+        scored, RewardWeights(), objectives=objectives, zero_reward_without_eod=True
+    )
+    assert metrics["all_objectives_max_score_rate"] == 0.25
+    assert metrics["gdpo/tropism_mean"] == 0.375
+    assert metrics["gdpo/tropism_nonzero_rate"] == 0.5
+    assert metrics["gdpo/tropism_max_score_rate"] == 0.25
+    assert metrics["tropism_measurement_available_rate"] == 1.0
+    assert "tropism_protein_mmseqs_percent_identity_mean" not in metrics
+    assert not any(key.startswith("by_prompt_nt_length/") for key in metrics)
+    assert not any("orf_count" in key or "binary_" in key or "unused" in key for key in metrics)
+    split = phage_qc_metrics_from_scored(
+        scored, RewardWeights(), objectives=objectives, zero_reward_without_eod=True, log_by_prompt_nt_length=True
+    )
+    assert split["by_prompt_nt_length/16/all_objectives_max_score_rate"] == 0.5
+    assert split["by_prompt_nt_length/24/all_objectives_max_score_rate"] == 0.0
+    assert split["by_prompt_nt_length/16/num_sequences"] == 2
+
+
+def test_cluster_histogram_counts_clusters_for_configured_diversity():
+    scored = pd.DataFrame(
+        {
+            "reward_mmseqs_cluster_diversity": [0.5, 0.5, 1.0, 0.0],
+            "mmseqs_cluster_id": ["a", "a", "b", ""],
+            "mmseqs_cluster_size": [2, 2, 1, 0],
+            "safety_gate_state": ["PASS"] * 4,
+            "safety_gate_pass": [1.0] * 4,
+        }
+    )
+    metrics = phage_qc_metrics_from_scored(scored, RewardWeights(mmseqs_cluster_diversity=1.0))
+    assert sorted(metrics["__histogram__/mmseqs_cluster_size"]) == [1, 2]
+    assert metrics["all_objectives_max_score_rate"] == 0.25
+    disabled = phage_qc_metrics_from_scored(scored, RewardWeights())
+    assert "__histogram__/mmseqs_cluster_size" not in disabled

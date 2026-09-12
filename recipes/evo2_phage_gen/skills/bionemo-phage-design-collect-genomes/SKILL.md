@@ -37,3 +37,5 @@ Validate and document the collection using the concise [collection guidance](ref
 Do not stop collection merely because an arbitrary count was reached. Assess whether the corpus has enough distinct full genomes and similarity clusters, nucleotide/token mass, target-relevant coverage, length/composition support, and cluster-held-out validation/test support for the chosen model and training strategy. Expand the search, use transfer learning, or revise the model plan when the evidence is inadequate. Never inflate support with exact duplicates, circular rotations, accession versions, or interaction rows.
 
 Write the unprefixed FASTA collection, metadata table, exclusions, and source notes under the stage artifacts, plus a concise `SUMMARY.md` and `RUNLOG.md`. When a target is selected, record its FASTA path, accession, termini class, and molecular form for SFT preparation.
+
+For optional accession-based host provenance acquisition and artifact validation, see the [adaptation utilities](../bionemo-phage-design-implement-rl-objectives/references/reward-api.md#optional-adaptation-utilities).

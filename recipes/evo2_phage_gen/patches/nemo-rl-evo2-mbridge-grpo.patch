@@ -1268,13 +1268,70 @@ diff --git a/nemo_rl/experience/rollouts.py b/nemo_rl/experience/rollouts.py
 diff --git a/nemo_rl/algorithms/grpo.py b/nemo_rl/algorithms/grpo.py
 --- a/nemo_rl/algorithms/grpo.py
 +++ b/nemo_rl/algorithms/grpo.py
-@@ -3192,7 +3192,9 @@
+@@ -3139,6 +3182,7 @@
+     - Metrics ending with "/max" or starting with "max_" (excluding "_rate" suffix): take the maximum
+     - "total_turns": summed
+     - Non-numeric values: passed through as-is
++    - Phage-QC counts: summed; means/rates: weighted by their denominators; objective std: pooled
+     - All other numeric metrics: averaged
+
+     Args:
+@@ -3149,7 +3193,58 @@
      """
      aggregated = {}
      for k, v in per_group_metrics.items():
 -        if not isinstance(v[0], (int, float)):
 +        if k.startswith("__histogram__/"):
 +            aggregated[k] = [sample for group in v for sample in group]
++            continue
++        if k.startswith("phage_qc/"):
++            if k.endswith(("/num_sequences", "/reward_prompt_group_count")):
++                aggregated[k] = sum(v)
++                continue
++            scope = "phage_qc/"
++            if "/by_prompt_nt_length/" in k:
++                scope = k.rsplit("/", 1)[0] + "/"
++                if "/gdpo/" in k or "/component/" in k:
++                    scope = scope.rsplit("/", 2)[0] + "/"
++            weights = per_group_metrics.get(scope + "num_sequences", [])
++            if "prompt_group_rate" in k:
++                weights = per_group_metrics.get(
++                    "phage_qc/reward_prompt_group_count", []
++                )
++            elif "/termination/authentic_eod_length/" in k:
++                eod_rates = per_group_metrics.get(
++                    "phage_qc/termination/authentic_eod_rate", []
++                )
++                weights = [n * rate for n, rate in zip(weights, eod_rates)]
++            if len(weights) != len(v):
++                # Incomplete metadata must not publish a statistic for an unknown subset.
++                continue
++            denominator = sum(weights)
++            mean = (
++                sum(n * value for n, value in zip(weights, v)) / denominator
++                if denominator
++                else 0.0
++            )
++            if k.endswith("_std") and ("/gdpo/" in k or "/component/" in k):
++                means = per_group_metrics.get(k.removesuffix("_std") + "_mean", [])
++                if len(means) != len(v):
++                    continue
++                pooled_mean = (
++                    sum(n * value for n, value in zip(weights, means)) / denominator
++                    if denominator
++                    else 0.0
++                )
++                variance = (
++                    sum(
++                        n * (sd * sd + (mu - pooled_mean) ** 2)
++                        for n, sd, mu in zip(weights, v, means)
++                    )
++                    / denominator
++                    if denominator
++                    else 0.0
++                )
++                mean = max(0.0, variance) ** 0.5
++            aggregated[k] = mean
 +        elif not isinstance(v[0], (int, float)):
              aggregated[k] = v
          elif k.endswith("/min") or (k.startswith("min_") and not k.endswith("_rate")):

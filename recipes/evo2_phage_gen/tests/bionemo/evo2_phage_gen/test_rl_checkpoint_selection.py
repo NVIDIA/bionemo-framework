@@ -26,7 +26,7 @@ from bionemo.evo2_phage_gen import rl_checkpoint_selection
 
 
 def _event(step: int, aggregate: float, strict: float) -> dict[str, float | int]:
-    return {"step": step, "aggregate_reward": aggregate, "strict_endpoint": strict}
+    return {"step": step, "aggregate_reward": aggregate, "all_objectives_max_score_rate": strict}
 
 
 def _write_checkpoint(root: Path, step: int, payload: bytes = b"weights") -> Path:
@@ -51,8 +51,8 @@ def test_selection_prefers_a_strict_positive_checkpoint() -> None:
 
     assert selected == {
         "step": 30,
-        "selection_metric": "strict_endpoint",
-        "strict_endpoint_qualified": True,
+        "selection_metric": "all_objectives_max_score_rate",
+        "has_max_score_sequences": True,
         "value": 0.25,
         "aggregate_reward": 8.5,
     }
@@ -71,7 +71,7 @@ def test_selection_falls_back_to_best_interior_aggregate() -> None:
     assert selected == {
         "step": 30,
         "selection_metric": "aggregate_reward",
-        "strict_endpoint_qualified": False,
+        "has_max_score_sequences": False,
         "value": 9.0,
         "aggregate_reward": 9.0,
     }
@@ -81,14 +81,12 @@ def test_extract_checkpoint_events_uses_stable_task_namespace(monkeypatch, tmp_p
     points = {
         "validation/phage_qc/mean_reward": {10: (1.0, 8.25)},
         "validation/phage_qc/num_sequences": {10: (1.0, 96.0)},
-        "validation/phage_qc/binary_safety_qualified_full_qc_cluster_deduplicated_rate": {
-            10: (1.0, 0.125)
-        },
+        "validation/phage_qc/all_objectives_max_score_rate": {10: (1.0, 0.125)},
     }
     monkeypatch.setattr(rl_checkpoint_selection, "_load_scalar_points", lambda _root: points)
 
     assert rl_checkpoint_selection.extract_checkpoint_events(tmp_path) == [
-        {"step": 10, "aggregate_reward": 8.25, "strict_endpoint": 0.125}
+        {"step": 10, "aggregate_reward": 8.25, "all_objectives_max_score_rate": 0.125}
     ]
 
 
@@ -106,9 +104,11 @@ def test_sync_protects_best_aggregate_and_strict_candidates_with_hardlinks(tmp_p
     )
 
     assert report["aggregate_reward"]["step"] == 30
-    assert report["strict_endpoint"]["step"] == 20
+    assert report["all_objectives_max_score_rate"]["step"] == 20
     aggregate_file = protected_root / "aggregate-reward" / "step_30" / "policy/weights/iter_0000000/common.pt"
-    strict_file = protected_root / "strict-endpoint" / "step_20" / "policy/weights/iter_0000000/common.pt"
+    strict_file = (
+        protected_root / "all-objectives-max-score-rate" / "step_20" / "policy/weights/iter_0000000/common.pt"
+    )
     assert aggregate_file.stat().st_ino == (third / "policy/weights/iter_0000000/common.pt").stat().st_ino
     assert strict_file.stat().st_ino == (second / "policy/weights/iter_0000000/common.pt").stat().st_ino
 
@@ -121,7 +121,7 @@ def test_sync_protects_best_aggregate_and_strict_candidates_with_hardlinks(tmp_p
 
     assert not (protected_root / "aggregate-reward" / "step_30").exists()
     assert (protected_root / "aggregate-reward" / "step_40").is_dir()
-    assert (protected_root / "strict-endpoint" / "step_20").is_dir()
+    assert (protected_root / "all-objectives-max-score-rate" / "step_20").is_dir()
     assert (first / "training_info.json").is_file()
 
 
@@ -138,10 +138,11 @@ def test_resolve_selected_checkpoint_uses_protected_copy_after_managed_source_is
     result = rl_checkpoint_selection.resolve_selected_checkpoint(events, checkpoint_root, protected_root)
 
     assert result["step"] == 20
-    assert result["strict_endpoint_qualified"] is True
-    assert Path(result["checkpoint"]) == (
-        protected_root / "strict-endpoint" / "step_20" / "policy/weights/iter_0000000"
-    ).resolve()
+    assert result["has_max_score_sequences"] is True
+    assert (
+        Path(result["checkpoint"])
+        == (protected_root / "all-objectives-max-score-rate" / "step_20" / "policy/weights/iter_0000000").resolve()
+    )
     assert os.path.samefile(
         Path(result["checkpoint"]) / "common.pt",
         protected_root / "aggregate-reward" / "step_20" / "policy/weights/iter_0000000/common.pt",

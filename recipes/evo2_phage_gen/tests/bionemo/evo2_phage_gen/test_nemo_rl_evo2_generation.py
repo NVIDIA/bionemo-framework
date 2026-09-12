@@ -34,7 +34,6 @@ from bionemo.evo2_phage_gen.nemo_rl_evo2_generation import (
     Evo2GenerationResult,
     Evo2MegatronGenerationAdapter,
     _PromptTokenProxy,
-    resume_generation_call_offset,
     should_use_evo2_native_batched_generation,
 )
 
@@ -160,16 +159,6 @@ def test_evo2_adapter_rng_seed_continues_from_configured_call_offset():
     assert adapter._next_seed(worker) == 623
     assert [entry["call_index"] for entry in worker._evo2_generation_rng_trace] == [2, 3]
     assert [entry["seed_index"] for entry in worker._evo2_generation_rng_trace] == [4, 6]
-
-
-@pytest.mark.parametrize(
-    ("completed_steps", "val_period", "val_at_start", "expected"),
-    [(0, 10, False, 0), (30, 10, False, 33), (30, 0, False, 30), (30, 10, True, 34)],
-)
-def test_evo2_resume_call_offset_counts_prior_train_and_validation_generations(
-    completed_steps, val_period, val_at_start, expected
-):
-    assert resume_generation_call_offset(completed_steps, val_period=val_period, val_at_start=val_at_start) == expected
 
 
 def test_evo2_adapter_shares_tp_seed_and_separates_dp_and_successive_calls():

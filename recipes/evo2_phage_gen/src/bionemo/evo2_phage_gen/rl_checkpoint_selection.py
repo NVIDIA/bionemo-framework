@@ -38,7 +38,7 @@ from bionemo.evo2_phage_gen.objective_monitor import (
 
 
 AGGREGATE_METRIC = "mean_reward"
-STRICT_ENDPOINT_METRIC = "binary_safety_qualified_full_qc_cluster_deduplicated_rate"
+MAX_SCORE_METRIC = "all_objectives_max_score_rate"
 
 
 def _finite_float(value: Any, *, name: str) -> float:
@@ -56,13 +56,15 @@ def _normalized_events(events: Sequence[Mapping[str, Any]]) -> list[dict[str, fl
         normalized[step] = {
             "step": step,
             "aggregate_reward": _finite_float(event["aggregate_reward"], name="aggregate_reward"),
-            "strict_endpoint": _finite_float(event["strict_endpoint"], name="strict_endpoint"),
+            "all_objectives_max_score_rate": _finite_float(
+                event["all_objectives_max_score_rate"], name="all_objectives_max_score_rate"
+            ),
         }
     return [normalized[step] for step in sorted(normalized)]
 
 
 def extract_checkpoint_events(tensorboard_root: Path) -> list[dict[str, float | int]]:
-    """Read comparable aggregate and strict-endpoint validation events."""
+    """Read comparable aggregate and all-objectives-max-score-rate validation events."""
     points = _load_scalar_points(tensorboard_root)
     validation_prefix = _validation_prefix(points)
     reward_tag = f"{validation_prefix}/{AGGREGATE_METRIC}"
@@ -71,37 +73,37 @@ def extract_checkpoint_events(tensorboard_root: Path) -> list[dict[str, float | 
         if _scalar(points, f"{validation_prefix}/num_sequences", step) is None:
             continue
         aggregate = _scalar(points, reward_tag, step)
-        strict = _phage_scalar(points, validation_prefix, STRICT_ENDPOINT_METRIC, step)
-        if aggregate is None or strict is None:
+        max_score = _phage_scalar(points, validation_prefix, MAX_SCORE_METRIC, step)
+        if aggregate is None or max_score is None:
             raise ValueError(
                 f"validation step {step} does not contain both {AGGREGATE_METRIC!r} "
-                f"and {STRICT_ENDPOINT_METRIC!r} under {validation_prefix!r}"
+                f"and {MAX_SCORE_METRIC!r} under {validation_prefix!r}"
             )
-        events.append({"step": step, "aggregate_reward": aggregate, "strict_endpoint": strict})
+        events.append({"step": step, "aggregate_reward": aggregate, "all_objectives_max_score_rate": max_score})
     return _normalized_events(events)
 
 
 def select_checkpoint_event(events: Sequence[Mapping[str, Any]]) -> dict[str, float | int | bool | str]:
-    """Prefer a strict-positive checkpoint, otherwise the best interior aggregate."""
+    """Prefer a positive all-objective max-score checkpoint, otherwise the best interior aggregate."""
     ordered = _normalized_events(events)
     if len(ordered) < 3:
         raise ValueError("need at least three comparable validation events")
 
-    strict_candidates = [event for event in ordered if float(event["strict_endpoint"]) > 0.0]
-    if strict_candidates:
+    max_score_candidates = [event for event in ordered if float(event["all_objectives_max_score_rate"]) > 0.0]
+    if max_score_candidates:
         selected = max(
-            strict_candidates,
+            max_score_candidates,
             key=lambda event: (
-                float(event["strict_endpoint"]),
+                float(event["all_objectives_max_score_rate"]),
                 float(event["aggregate_reward"]),
                 int(event["step"]),
             ),
         )
         return {
             "step": int(selected["step"]),
-            "selection_metric": "strict_endpoint",
-            "strict_endpoint_qualified": True,
-            "value": float(selected["strict_endpoint"]),
+            "selection_metric": "all_objectives_max_score_rate",
+            "has_max_score_sequences": True,
+            "value": float(selected["all_objectives_max_score_rate"]),
             "aggregate_reward": float(selected["aggregate_reward"]),
         }
 
@@ -112,7 +114,7 @@ def select_checkpoint_event(events: Sequence[Mapping[str, Any]]) -> dict[str, fl
     return {
         "step": int(selected["step"]),
         "selection_metric": "aggregate_reward",
-        "strict_endpoint_qualified": False,
+        "has_max_score_sequences": False,
         "value": float(selected["aggregate_reward"]),
         "aggregate_reward": float(selected["aggregate_reward"]),
     }
@@ -176,7 +178,7 @@ def sync_protected_candidates(
     protected_root: Path,
     events: Sequence[Mapping[str, Any]],
 ) -> dict[str, dict[str, float | int | str]]:
-    """Hard-link the best aggregate and best strict-positive complete checkpoints."""
+    """Hard-link the best aggregate and best positive all-objective max-score complete checkpoints."""
     ordered = _normalized_events(events)
     if not ordered:
         return {}
@@ -187,15 +189,15 @@ def sync_protected_candidates(
             max(ordered, key=lambda event: (float(event["aggregate_reward"]), int(event["step"]))),
         )
     ]
-    strict = [event for event in ordered if float(event["strict_endpoint"]) > 0.0]
-    if strict:
+    max_score = [event for event in ordered if float(event["all_objectives_max_score_rate"]) > 0.0]
+    if max_score:
         candidates.append(
             (
-                "strict_endpoint",
+                "all_objectives_max_score_rate",
                 max(
-                    strict,
+                    max_score,
                     key=lambda event: (
-                        float(event["strict_endpoint"]),
+                        float(event["all_objectives_max_score_rate"]),
                         float(event["aggregate_reward"]),
                         int(event["step"]),
                     ),
@@ -216,7 +218,7 @@ def sync_protected_candidates(
         report[kind] = {
             "step": step,
             "aggregate_reward": float(event["aggregate_reward"]),
-            "strict_endpoint": float(event["strict_endpoint"]),
+            "all_objectives_max_score_rate": float(event["all_objectives_max_score_rate"]),
             "checkpoint": str(destination.resolve()),
         }
     if report and len(report) == len(candidates):
@@ -232,12 +234,12 @@ def resolve_selected_checkpoint(
     """Select a validation event and resolve its retained Megatron weights."""
     selected = select_checkpoint_event(events)
     step = int(selected["step"])
-    preferred_kind = "strict-endpoint" if selected["strict_endpoint_qualified"] else "aggregate-reward"
+    preferred_kind = "all-objectives-max-score-rate" if selected["has_max_score_sequences"] else "aggregate-reward"
     roots = (
         protected_root / preferred_kind / f"step_{step}",
         checkpoint_root / f"step_{step}",
         protected_root / "aggregate-reward" / f"step_{step}",
-        protected_root / "strict-endpoint" / f"step_{step}",
+        protected_root / "all-objectives-max-score-rate" / f"step_{step}",
     )
     checkpoint = next((candidate for candidate in roots if _checkpoint_ready(candidate)), None)
     if checkpoint is None:
@@ -254,8 +256,8 @@ def _sync_from_tensorboard(tensorboard_root: Path, checkpoint_root: Path, protec
     events = extract_checkpoint_events(tensorboard_root)
     report = sync_protected_candidates(checkpoint_root, protected_root, events)
     expected = {"aggregate_reward"} if events else set()
-    if any(float(event["strict_endpoint"]) > 0.0 for event in events):
-        expected.add("strict_endpoint")
+    if any(float(event["all_objectives_max_score_rate"]) > 0.0 for event in events):
+        expected.add("all_objectives_max_score_rate")
     missing = sorted(expected - report.keys())
     if missing:
         raise ValueError(f"complete checkpoint not yet available for protected candidate(s): {', '.join(missing)}")
@@ -284,9 +286,7 @@ def supervise(
             except ProcessLookupError:
                 pass
 
-    previous_handlers = {
-        signum: signal.signal(signum, forward_signal) for signum in (signal.SIGINT, signal.SIGTERM)
-    }
+    previous_handlers = {signum: signal.signal(signum, forward_signal) for signum in (signal.SIGINT, signal.SIGTERM)}
     sync_error: Exception | None = None
     reported_sync_error: str | None = None
     try:

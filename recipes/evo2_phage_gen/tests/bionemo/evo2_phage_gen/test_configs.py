@@ -153,7 +153,6 @@ def test_grpo_config_uses_prompt_batch_size_for_evo2_generation():
     assert config["grpo"]["overlong_filtering"] is False
     assert config["env"]["phage_qc"]["dustmask_filter"] is True
     assert config["env"]["phage_qc"]["dustmasker_bin"] == "dustmasker"
-    assert config["env"]["phage_qc"]["dustmask_use_external"] is True
     assert config["env"]["phage_qc"]["weight_dustmask_end"] == 1.0
     external_qc = config["env"]["phage_qc"]["external_qc"]
     sequence_safety = config["env"]["phage_qc"]["sequence_safety"]

@@ -86,7 +86,7 @@ def test_score_cell_uses_the_phix_capsid_length_envelope(tmp_path, monkeypatch):
         captured["sequence_safety"] = sequence_safety
         return sequences.assign(reward_genome_length=1.0)
 
-    monkeypatch.setattr(calibration_scoring, "score_nucleotide_metrics", fake_score)
+    monkeypatch.setattr(calibration_scoring, "score_sequences", fake_score)
 
     calibration_scoring.score_cell(
         generation_jsonl=generation,

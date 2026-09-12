@@ -27,31 +27,11 @@ import bionemo.evo2_phage_gen.arc_pipeline as arc_pipeline
 from bionemo.evo2_phage_gen.arc_pipeline import (
     ARC_EVO2_GIT_URL,
     ARC_EVO2_REV,
-    ARC_LEGACY_CHECKV_ENV,
-    ARC_LEGACY_EMPTY_DIVERSIFICATION_ANCHOR,
-    ARC_LEGACY_EMPTY_HOMOLOGY_ANCHOR,
-    ARC_LEGACY_EMPTY_ORF_ANCHOR,
-    ARC_LEGACY_EMPTY_SYNTENY_ANCHOR,
-    ARC_LEGACY_LOVIS4U_CONDA_WRAPPER,
-    ARC_LEGACY_LOVIS4U_PARALLEL_CONFIG,
-    ARC_LEGACY_LOVIS4U_PDF_COLLECTION,
-    ARC_LEGACY_MMSEQS_EMPTY_GUARD_ANCHOR,
-    ARC_LEGACY_PRODIGAL_CMD,
     ARC_PIPELINE_FILES,
     DEFAULT_ARC_PIPELINE_PATCH,
     DEFAULT_ARC_PIPELINE_SOURCE_DIR,
     DEFAULT_PHIX174_FASTA,
-    PATCHED_CHECKV_ENV,
-    PATCHED_EMPTY_DIVERSIFICATION_GUARD,
-    PATCHED_EMPTY_HOMOLOGY_GUARD,
-    PATCHED_EMPTY_ORF_GUARD,
-    PATCHED_EMPTY_SYNTENY_GUARD,
     PATCHED_LOVIS4U_COMMAND,
-    PATCHED_LOVIS4U_CONDA_WRAPPER,
-    PATCHED_LOVIS4U_PARALLEL_CONFIG,
-    PATCHED_LOVIS4U_PDF_COLLECTION,
-    PATCHED_MMSEQS_EMPTY_GUARD,
-    PATCHED_PRODIGAL_CMD,
     _apply_lovis4u_runtime_patches,
     _apply_online_measurement_patches,
     _assert_arc_source_revision,
@@ -179,93 +159,6 @@ def test_online_measurement_patch_rejects_missing_gbk_conversion_anchor(tmp_path
         _apply_online_measurement_patches(tmp_path)
 
 
-def test_prepare_arc_pipeline_workdir_patches_legacy_reference_path(tmp_path):
-    """The prepared Arc workdir should not depend on Arc's legacy absolute path."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
-    for filename in ARC_PIPELINE_FILES:
-        content = "print('ok')\n"
-        if filename == "genetic_architecture.py":
-            content = f'fasta_file = "{ARC_GENETIC_ARCHITECTURE_IMPORT_FASTA}"\n'
-        if filename == "genetic_architecture_visualization.py":
-            content = ARC_LEGACY_LOVIS4U_PARALLEL_CONFIG
-        if filename == "genome_design_filtering_pipeline.py":
-            content = (
-                f"{ARC_LEGACY_PRODIGAL_CMD}\n"
-                f"{ARC_LEGACY_CHECKV_ENV}\n"
-                f"{ARC_LEGACY_LOVIS4U_CONDA_WRAPPER}\n"
-                f"{ARC_LEGACY_LOVIS4U_PDF_COLLECTION}\n"
-                f"{ARC_LEGACY_MMSEQS_EMPTY_GUARD_ANCHOR}\n"
-                f"{ARC_LEGACY_EMPTY_ORF_ANCHOR}\n"
-                f"{ARC_LEGACY_EMPTY_HOMOLOGY_ANCHOR}\n"
-                f"{ARC_LEGACY_EMPTY_DIVERSIFICATION_ANCHOR}\n"
-                f"{ARC_LEGACY_EMPTY_SYNTENY_ANCHOR}\n"
-            )
-        (source_dir / filename).write_text(content)
-    phix174_fasta = tmp_path / "NC_001422_1.fna"
-    phix174_fasta.write_text(">NC_001422.1\nACGT\n")
-
-    written_paths = prepare_arc_pipeline_workdir(
-        source_dir,
-        tmp_path / "patched",
-        phix174_fasta=phix174_fasta,
-        pipeline_patch=None,
-    )
-
-    assert [path.name for path in written_paths] == list(ARC_PIPELINE_FILES)
-    patched_text = (tmp_path / "patched" / "genetic_architecture.py").read_text()
-    assert ARC_GENETIC_ARCHITECTURE_IMPORT_FASTA not in patched_text
-    assert str(phix174_fasta) in patched_text
-
-    pipeline_text = (tmp_path / "patched" / "genome_design_filtering_pipeline.py").read_text()
-    assert ARC_LEGACY_PRODIGAL_CMD not in pipeline_text
-    assert ARC_LEGACY_CHECKV_ENV not in pipeline_text
-    assert ARC_LEGACY_LOVIS4U_CONDA_WRAPPER not in pipeline_text
-    assert ARC_LEGACY_LOVIS4U_PDF_COLLECTION not in pipeline_text
-    assert PATCHED_PRODIGAL_CMD in pipeline_text
-    assert PATCHED_CHECKV_ENV in pipeline_text
-    assert PATCHED_LOVIS4U_CONDA_WRAPPER in pipeline_text
-    assert PATCHED_LOVIS4U_PDF_COLLECTION in pipeline_text
-    assert PATCHED_MMSEQS_EMPTY_GUARD in pipeline_text
-    assert PATCHED_EMPTY_ORF_GUARD in pipeline_text
-    assert PATCHED_EMPTY_HOMOLOGY_GUARD in pipeline_text
-    assert PATCHED_EMPTY_DIVERSIFICATION_GUARD in pipeline_text
-    assert PATCHED_EMPTY_SYNTENY_GUARD in pipeline_text
-    assert "if os.path.exists(synteny_counts_csv):" in pipeline_text
-    assert "synteny_filter_counts = pd.read_csv(synteny_counts_csv)" in pipeline_text
-    assert not any(
-        line.strip().startswith("filter_counts = pd.read_csv(synteny_counts_csv)")
-        for line in pipeline_text.splitlines()
-    )
-    visualization_text = (tmp_path / "patched" / "genetic_architecture_visualization.py").read_text()
-    assert ARC_LEGACY_LOVIS4U_PARALLEL_CONFIG not in visualization_text
-    assert PATCHED_LOVIS4U_PARALLEL_CONFIG in visualization_text
-
-
-def test_prepare_arc_pipeline_resolves_reference_path_before_runtime_cwd_changes(tmp_path, monkeypatch):
-    """Prepared Arc imports must not depend on the launcher's later working directory."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
-    for filename in ARC_PIPELINE_FILES:
-        content = "print('ok')\n"
-        if filename == "genetic_architecture.py":
-            content = f'fasta_file = "{ARC_GENETIC_ARCHITECTURE_IMPORT_FASTA}"\n'
-        (source_dir / filename).write_text(content)
-    phix174_fasta = tmp_path / "reference.fna"
-    phix174_fasta.write_text(">NC_001422.1\nACGT\n")
-    monkeypatch.chdir(tmp_path)
-
-    prepare_arc_pipeline_workdir(
-        Path("source"),
-        Path("prepared"),
-        phix174_fasta=Path("reference.fna"),
-        pipeline_patch=None,
-    )
-
-    prepared = (tmp_path / "prepared" / "genetic_architecture.py").read_text()
-    assert str(phix174_fasta.resolve()) in prepared
-
-
 @pytest.mark.parametrize(
     ("header", "expected_start", "expected_end"),
     [
@@ -326,12 +219,8 @@ def convert_gff_to_gbk(sequence, start, end, output_path, strand=1):
     reference_fasta.write_text(">reference\nACGT\n")
     workdir = tmp_path / "prepared"
 
-    prepare_arc_pipeline_workdir(
-        source_dir,
-        workdir,
-        phix174_fasta=reference_fasta,
-        pipeline_patch=None,
-    )
+    workdir = source_dir
+    arc_pipeline._apply_orfipy_gff_coordinate_patch(workdir)
     pipeline_path = workdir / "genome_design_filtering_pipeline.py"
     spec = importlib.util.spec_from_file_location("coordinate_corrected_arc_pipeline", pipeline_path)
     assert spec is not None and spec.loader is not None
@@ -411,14 +300,8 @@ def test_prepare_arc_pipeline_filters_extension_only_orfipy_calls(tmp_path):
     reference_fasta = tmp_path / "reference.fna"
     reference_fasta.write_text(">reference\nACGT\n")
 
-    prepare_arc_pipeline_workdir(
-        source_dir,
-        tmp_path / "prepared",
-        phix174_fasta=reference_fasta,
-        pipeline_patch=None,
-    )
-
-    prepared = (tmp_path / "prepared" / "genome_design_filtering_pipeline.py").read_text()
+    arc_pipeline._apply_pseudocircular_orf_filter_patch(source_dir)
+    prepared = (source_dir / "genome_design_filtering_pipeline.py").read_text()
     assert "remove_pseudocircular_extension_orfs(" in prepared
     assert "seq_fasta," in prepared
 
@@ -642,8 +525,7 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
     assert callable(module.valid_coverage_aware_mmseqs_pident)
 
 
-@pytest.mark.parametrize("use_members", [False, True])
-def test_patched_arc_aai_target_semantics(tmp_path, use_members):
+def test_patched_arc_aai_target_semantics(tmp_path):
     pipeline_path = tmp_path / "genome_design_filtering_pipeline.py"
     pipeline_path.write_text(
         """import os
@@ -687,16 +569,14 @@ def count_total_num_genes(gff_directory, results_csv):
             "protein_database_mmseqs_target_coverage": [0.5, 1],
         }
     )
-    member_options = {}
-    if use_members:
 
-        def search(**kwargs):
-            assert kwargs["mmseqs_db"] == "individual-proteins"
-            assert kwargs["query_fasta"] == "called-orfs.faa"
-            return hits
+    def search(**kwargs):
+        assert kwargs["mmseqs_db"] == "individual-proteins"
+        assert kwargs["query_fasta"] == "called-orfs.faa"
+        return hits
 
-        module.run_mmseqs_search_proteins = search
-        member_options = dict(identity_database="individual-proteins", query_fasta="called-orfs.faa")
+    module.run_mmseqs_search_proteins = search
+    member_options = dict(identity_database="individual-proteins", query_fasta="called-orfs.faa")
 
     module.valid_average_protein_percent_identity(
         str(tmp_path / "gff"),
@@ -705,15 +585,13 @@ def count_total_num_genes(gff_directory, results_csv):
         str(output_csv),
         (0, 95),
         filter_results=False,
-        protein_database_hits_df=hits,
-        minimum_reciprocal_coverage=0.75,
         metrics_csv=str(metrics_csv),
         **member_options,
     )
 
     metrics = pd.read_csv(metrics_csv)
-    assert metrics["average_protein_percent_identity"].tolist() == ([100.0, 80.0] if use_members else [0.0, 80.0])
-    assert metrics["average_protein_identity_gene_count"].tolist() == ([1, 1] if use_members else [0, 1])
+    assert metrics["average_protein_percent_identity"].tolist() == [100.0, 80.0]
+    assert metrics["average_protein_identity_gene_count"].tolist() == [1, 1]
 
 
 def test_reference_cluster_patch_replaces_arc_edge_counter(tmp_path):

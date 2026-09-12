@@ -193,9 +193,9 @@ first sampled EOD and its log-probability, mask only synthetic padding, and excl
 post-EOD physical samples from biological QC. Filtered policy replay also keeps each sampled action
 in a normalized target-preserving support; generation-versus-replay error telemetry remains enabled.
 Qualification reports authentic EOD, capped-without-EOD, and below-cap-without-EOD as three
-exclusive outcomes. The `phage_qc/termination/*` scalars retain counts and rates for those outcomes
+exclusive outcomes. The `phage_qc/termination/*` scalars retain rates for those outcomes
 and place authentic-EOD genomes into below-lower-zero, lower-taper, full-credit, upper-taper, and
-at-or-above-upper-zero bins, so fixed-bank placement direction remains recoverable without raw rows.
+at-or-above-upper-zero bins. Outcome rates use all sequences; length-bin rates use authentic-EOD sequences.
 
 Both PhiX RL configs enable `env.phage_qc.zero_reward_without_eod=true` by default. It
 keeps every row and sampled action in the RL loss, but assigns an exact-zero scalar reward—or an
@@ -404,21 +404,23 @@ the exact-safety mask. The implementations for the individual terms are:
 
 | Objective                  | Primary implementation                                                                                                                                                                                                                                            |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `valid_nt_chars`           | [`has_valid_nt_chars`](../src/bionemo/evo2_phage_gen/qc.py) and [`score_nucleotide_metrics`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                             |
-| `genome_length`            | [`_genome_length_score`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                                                                                                 |
-| `gc_content`               | [`calculate_gc_content`](../src/bionemo/evo2_phage_gen/qc.py) and [`_interval_score`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                                    |
-| `nt_homopolymer`           | [`calculate_nt_homopolymer_len`](../src/bionemo/evo2_phage_gen/qc.py) and [`_upper_bound_ratio_score`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                   |
-| `dustmask_end`             | [`calculate_dustmasker_metrics`](../src/bionemo/evo2_phage_gen/qc.py) and [`score_nucleotide_metrics`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                   |
+| `valid_nt_chars`           | [`has_valid_nt_chars`](../src/bionemo/evo2_phage_gen/qc.py) and [`add_nucleotide_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                               |
+| `genome_length`            | [`score_genome_length`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                                                                                                  |
+| `gc_content`               | [`calculate_gc_content`](../src/bionemo/evo2_phage_gen/qc.py) and [`add_nucleotide_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                             |
+| `nt_homopolymer`           | [`calculate_nt_homopolymer_len`](../src/bionemo/evo2_phage_gen/qc.py) and [`add_nucleotide_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                     |
+| `dustmask_end`             | [`calculate_dustmasker_metrics`](../src/bionemo/evo2_phage_gen/qc.py) and [`add_nucleotide_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                     |
 | `protein_hit_count`        | [`_add_mmseqs_hit_rewards`](../src/bionemo/evo2_phage_gen/reward.py) and [`add_protein_alignment_evidence`](../src/bionemo/evo2_phage_gen/protein_evidence.py)                                                                                                    |
 | `tropism`                  | [`smooth_protein_match_integrity`](../src/bionemo/evo2_phage_gen/protein_evidence.py), [`summarize_smooth_reference_evidence`](../src/bionemo/evo2_phage_gen/protein_evidence.py), and [`_add_smooth_reference_rewards`](../src/bionemo/evo2_phage_gen/reward.py) |
 | `required_genes`           | [`summarize_required_gene_evidence`](../src/bionemo/evo2_phage_gen/protein_evidence.py) and [`_add_required_gene_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                               |
 | `synteny`                  | [`smooth_protein_match_integrity`](../src/bionemo/evo2_phage_gen/protein_evidence.py), [`score_smooth_reference_architecture`](../src/bionemo/evo2_phage_gen/protein_evidence.py), and [`_add_smooth_reference_rewards`](../src/bionemo/evo2_phage_gen/reward.py) |
 | `gene_a_origin`            | [`score_gene_a_origin`](../src/bionemo/evo2_phage_gen/protein_evidence.py) and [`_add_smooth_reference_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                         |
-| `average_protein_identity` | [`summarize_best_hit_aai`](../src/bionemo/evo2_phage_gen/protein_evidence.py) and [`_add_average_protein_identity_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                              |
+| `average_protein_identity` | [`summarize_best_hit_aai`](../src/bionemo/evo2_phage_gen/protein_evidence.py) and [`score_aai_novelty` / `score_aai_evidence`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                           |
 | `mmseqs_cluster_diversity` | [`add_mmseqs_cluster_diversity_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                                                                                 |
 | `safety_amr`               | [`run_amrfinder_batch`](../src/bionemo/evo2_phage_gen/sequence_safety_adapters.py) and [`sequence_safety_reward_fields`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                 |
 | `safety_toxin`             | [`run_toxin_batch`](../src/bionemo/evo2_phage_gen/sequence_safety_adapters.py) and [`sequence_safety_reward_fields`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                     |
 | `safety_lysogeny`          | [`run_phrogs_batch`](../src/bionemo/evo2_phage_gen/sequence_safety_adapters.py) and [`sequence_safety_reward_fields`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                    |
+
+For module responsibilities and reusable scoring entry points, see the [reward API reference](../skills/bionemo-phage-design-implement-rl-objectives/references/reward-api.md).
 
 ### How rewards, gates, and selection differ
 
@@ -427,19 +429,16 @@ the exact-safety mask. The implementations for the individual terms are:
 - **Online measurement** disables Arc's length prefilter so a tool-safe length outlier still receives
   independent ORF, protein, and architecture measurements. Length remains its own graded reward and
   final acceptance gate.
-- **Nucleotide-pass telemetry** records the binary conjunction used by checkpoint and final-QC
-  diagnostics; it is not a separate GDPO objective duplicating the graded component terms.
-- **Checkpoint retention and selection** keep complementary evidence. NeMo-RL's managed top three
-  use fixed-bank `mean_reward` (plus its latest resumable checkpoint), while the launcher hard-links
-  the best aggregate checkpoint and the best positive
-  `binary_safety_qualified_full_qc_cluster_deduplicated_rate` checkpoint independently. Final
-  selection prefers a strict-positive checkpoint, breaking ties by aggregate reward and then step;
-  if none exists, it selects the best non-boundary aggregate checkpoint and records
-  `strict_endpoint_qualified: false`. The strict endpoint requires exact safety `PASS`, full credit
-  on the binary-core rewards—including the 5,359–5,550-nt length band—then the independent external
-  hard-pass flags, and counts one representative per online 99%-identity/95%-coverage cluster. Smooth synteny,
-  tropism, A-origin, required-gene, and AAI targets are shaping terms rather than implicit hard
-  gates; aggregate fallback is not a hard-QC pass.
+- **Configured objective metrics** report `gdpo/{name}_{mean,std,nonzero_rate,max_score_rate}`
+  after safety and EOD gates. `max_score_rate` means a score of exactly 1, not a hard-QC pass.
+  `all_objectives_max_score_rate` is the fraction of all rollout sequences reaching 1 on every
+  configured objective. The scalar GRPO path reports positive-weight components under `component/`.
+  Set `env.phage_qc.log_by_prompt_nt_length: true` for per-length breakdowns; the default is false.
+- **Checkpoint retention and selection** keep the latest resumable checkpoint, aggregate best,
+  and the best positive `all_objectives_max_score_rate` independently. Selection prefers the
+  latter, breaking ties by aggregate reward and then step. If no sequence maximizes all objectives,
+  it selects the best interior aggregate checkpoint and records `has_max_score_sequences: false`.
+  This is training-score attainment; final acceptance still requires the screening stage below.
 - **Final per-genome QC** uses exact safety `PASS` plus the Arc target-profile waterfall: A/C/G/T
   only; length 5,306–5,730 nt; GC 30–65%; homopolymer ≤10; at least seven distinct PHROG families
   with ≥0.75 query and target coverage; a PhiX G hit at 60–100% identity with ≥0.95 query and target

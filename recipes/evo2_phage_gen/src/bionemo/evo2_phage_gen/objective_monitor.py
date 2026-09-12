@@ -76,7 +76,7 @@ def _objective_window_signals(
     reward_gain_threshold: float,
     support_drop_threshold: float,
     denominator_drop_fraction: float,
-    hard_pass_drop_threshold: float,
+    max_score_drop_threshold: float,
     objective_reward_range_threshold: float,
     minimum_reward_sign_changes: int,
 ) -> tuple[list[str], list[str]]:
@@ -107,11 +107,11 @@ def _objective_window_signals(
         signals.append("reward_support_divergence")
     if (
         reward_gain >= reward_gain_threshold
-        and _finite_number(first.get("hard_pass_rate"))
-        and _finite_number(last.get("hard_pass_rate"))
-        and float(last["hard_pass_rate"]) + hard_pass_drop_threshold < float(first["hard_pass_rate"])
+        and _finite_number(first.get("max_score_rate"))
+        and _finite_number(last.get("max_score_rate"))
+        and float(last["max_score_rate"]) + max_score_drop_threshold < float(first["max_score_rate"])
     ):
-        signals.append("reward_hard_pass_divergence")
+        signals.append("reward_max_score_divergence")
 
     rewards = [float(row["reward_mean"]) for row in window]
     deltas = [right - left for left, right in pairwise(rewards)]
@@ -130,7 +130,7 @@ def evaluate_objective_history(
     reward_gain_threshold: float = 0.15,
     support_drop_threshold: float = 0.15,
     denominator_drop_fraction: float = 0.20,
-    hard_pass_drop_threshold: float = 0.05,
+    max_score_drop_threshold: float = 0.05,
     objective_reward_range_threshold: float = 0.50,
     minimum_reward_sign_changes: int = 1,
     activity_epsilon: float = 1e-6,
@@ -153,7 +153,7 @@ def evaluate_objective_history(
         "missing_required_telemetry",
         "objective_unmeasured",
         "reward_support_divergence",
-        "reward_hard_pass_divergence",
+        "reward_max_score_divergence",
         "objective_instability",
     }
 
@@ -166,7 +166,7 @@ def evaluate_objective_history(
             reward_gain_threshold=reward_gain_threshold,
             support_drop_threshold=support_drop_threshold,
             denominator_drop_fraction=denominator_drop_fraction,
-            hard_pass_drop_threshold=hard_pass_drop_threshold,
+            max_score_drop_threshold=max_score_drop_threshold,
             objective_reward_range_threshold=objective_reward_range_threshold,
             minimum_reward_sign_changes=minimum_reward_sign_changes,
         )
@@ -178,7 +178,7 @@ def evaluate_objective_history(
                 reward_gain_threshold=reward_gain_threshold,
                 support_drop_threshold=support_drop_threshold,
                 denominator_drop_fraction=denominator_drop_fraction,
-                hard_pass_drop_threshold=hard_pass_drop_threshold,
+                max_score_drop_threshold=max_score_drop_threshold,
                 objective_reward_range_threshold=objective_reward_range_threshold,
                 minimum_reward_sign_changes=minimum_reward_sign_changes,
             )
@@ -322,12 +322,8 @@ def _phage_scalar(
     metric_name: str,
     step: int,
 ) -> float | None:
-    """Read flattened or legacy nested phage telemetry from one validation namespace."""
-    for tag in (f"{validation_prefix}/{metric_name}", f"{validation_prefix}/phage_qc/{metric_name}"):
-        value = _scalar(points, tag, step)
-        if value is not None:
-            return value
-    return None
+    """Read one metric under the stable validation task namespace."""
+    return _scalar(points, f"{validation_prefix}/{metric_name}", step)
 
 
 def _configured_objective_names(path: Path) -> tuple[str, ...]:
@@ -374,7 +370,7 @@ def extract_validation_history(
                 "reward_std": _scalar(points, f"{prefix}_std", step),
                 "nonzero_rate": _scalar(points, f"{prefix}_nonzero_rate", step),
                 "eligible_denominator": denominator,
-                "hard_pass_rate": _phage_scalar(points, validation_prefix, f"{name}_pass_rate", step),
+                "max_score_rate": _scalar(points, f"{prefix}_max_score_rate", step),
             }
             support_prefix = EXTERNAL_SUPPORT_PREFIX.get(name)
             if support_prefix:
@@ -385,24 +381,6 @@ def extract_validation_history(
                     step,
                 )
                 values["support_rate"] = support
-                values["measured_count"] = _phage_scalar(
-                    points,
-                    validation_prefix,
-                    f"{support_prefix}_n_measured",
-                    step,
-                )
-                values["stage_reached_rate"] = _phage_scalar(
-                    points,
-                    validation_prefix,
-                    f"{support_prefix}_stage_reached_rate",
-                    step,
-                )
-                values["missing_artifact_count"] = _phage_scalar(
-                    points,
-                    validation_prefix,
-                    f"{support_prefix}_missing_artifact_count",
-                    step,
-                )
             elif name == "mmseqs_cluster_diversity":
                 support = _phage_scalar(
                     points,

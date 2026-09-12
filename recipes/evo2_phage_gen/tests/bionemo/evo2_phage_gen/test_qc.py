@@ -27,7 +27,6 @@ from bionemo.evo2_phage_gen.qc import (
     _parse_dustmasker_interval_output,
     add_nucleotide_metrics,
     apply_nucleotide_qc,
-    calculate_dustmask_metrics,
     calculate_gc_content,
     calculate_nt_homopolymer_len,
     has_valid_nt_chars,
@@ -114,36 +113,6 @@ def test_save_fasta_replaces_non_ascii_generated_tokens(tmp_path):
     assert output_fasta.read_text() == ">seq1\nACGTNACGT\n"
 
 
-def test_dustmask_fallback_flags_low_complexity_sequence_ends():
-    """The fallback DUST-style scorer should catch simple generated tails."""
-    sequence = _deterministic_dna(400) + "A" * 160
-
-    metrics = calculate_dustmask_metrics(
-        sequence,
-        window=64,
-        level=20.0,
-        end_window=200,
-        max_end_fraction=0.5,
-    )
-
-    assert metrics.right_end_masked_fraction > 0.5
-    assert metrics.max_end_masked_fraction > 0.5
-    assert not metrics.end_pass
-
-
-def test_dustmask_fallback_default_matches_qc_config_threshold(monkeypatch):
-    """The public helper and config-driven path must share the 0.9 end threshold."""
-    monkeypatch.setattr(
-        "bionemo.evo2_phage_gen.qc.dustmask_low_complexity_mask",
-        lambda _sequence, **_kwargs: [False] * 20 + [True] * 80,
-    )
-
-    metrics = calculate_dustmask_metrics("A" * 100, end_window=100)
-
-    assert metrics.max_end_masked_fraction == 0.8
-    assert metrics.end_pass
-
-
 def test_add_nucleotide_metrics_uses_external_dustmasker_interval_output(monkeypatch):
     """When enabled, nucleotide metrics should call NCBI dustmasker once per batch."""
     calls = []
@@ -168,7 +137,6 @@ def test_add_nucleotide_metrics_uses_external_dustmasker_interval_output(monkeyp
             dustmasker_bin="fake-dustmasker",
             dustmask_level=20.5,
             dustmasker_timeout_s=17.5,
-            dustmask_use_external=True,
             dustmask_end_window=100,
             dustmask_max_end_fraction=0.9,
         ),
@@ -216,7 +184,7 @@ def test_external_dustmasker_failures_are_bounded_and_wrapped(monkeypatch, error
     with pytest.raises(RuntimeError, match="dustmasker execution failed"):
         add_nucleotide_metrics(
             frame,
-            NucleotideQCConfig(dustmask_filter=True, dustmask_use_external=True),
+            NucleotideQCConfig(dustmask_filter=True),
         )
 
 

@@ -32,7 +32,7 @@ from bionemo.evo2_phage_gen.reward import (
     MMseqsClusterDiversityConfig,
     RewardWeights,
     SequenceSafetyRewardConfig,
-    score_nucleotide_metrics,
+    score_sequences,
 )
 
 
@@ -248,7 +248,6 @@ def score_cell(
         enable_protein_hit_count=bool(arc.get("protein_database_hit_count_filter")),
         enable_tropism=bool(arc.get("tropism_protein_sequence_identity_filter")),
         enable_synteny=bool(arc.get("syntenic_gene_count_filter")),
-        synteny_mode="full",
         enable_average_protein_identity=bool(arc.get("average_protein_sequence_identity_filter")),
         enable_required_genes=bool(arc.get("required_genes_filter")),
         required_genes_evidence_target=float(arc.get("required_genes_evidence_target", 10.0)),
@@ -260,7 +259,7 @@ def score_cell(
         lovis4u_chunk_size=max(1, threads),
         lovis4u_collect_pdfs=False,
     )
-    scored = score_nucleotide_metrics(
+    scored = score_sequences(
         sequences,
         config=NucleotideQCConfig(
             # Match the PhiX RL defaults: viable does not imply propagation-stable.

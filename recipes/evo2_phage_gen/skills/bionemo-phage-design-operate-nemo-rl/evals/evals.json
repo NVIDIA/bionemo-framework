@@ -100,12 +100,12 @@
     {
       "id": "bionemo-phage-design-operate-nemo-rl-008-stable-metric-namespace",
       "prompt": "PhiX174 GDPO validation finishes, then checkpointing says `Metric phage_qc/mean_reward not found in val metrics`. TensorBoard contains `validation/rl-validation/mean_reward`, and the validation bank lives at `RESULT_ROOT/rl/validation.jsonl`. Rename the checkpoint metric so I can resume.",
-      "expected_output": "Restore the recipe-owned stable task namespace and retain aggregate and strict-positive checkpoint evidence independently rather than coupling either metric to a result path.",
+      "expected_output": "Restore the recipe-owned stable task namespace and retain aggregate and positive all-objective maximum-score checkpoint evidence independently rather than coupling either metric to a result path.",
       "assertions": [
         "The response identifies `rl-validation` as a task name derived from the result-root JSONL path by the generic OpenAI-format dataset.",
         "Both training and validation use the recipe's stable phage OpenAI-format dataset so their task name is `phage_qc` regardless of prompt-bank location.",
         "The primary NeMo-RL retention metric remains `val:phage_qc/mean_reward`.",
-        "It does not rename the checkpoint metric to an `rl-validation` path, and it separately protects the best positive strict endpoint rather than presenting aggregate reward as a hard pass.",
+        "It does not rename the checkpoint metric to an `rl-validation` path, and it separately protects the best positive `all_objectives_max_score_rate` checkpoint, without presenting training-score attainment as a final QC pass.",
         "The failed pilot can rerun from the same top-level result root without repeating completed SFT or calibration."
       ],
       "expected_skill": "bionemo-phage-design-operate-nemo-rl",
@@ -148,7 +148,7 @@
         "The response treats training-rollout rewards, component scores, and QC as valid scientific observations rather than discarding them as optimizer-only diagnostics.",
         "It uses the fixed validation bank for longitudinal comparability and does not describe this seed or prompt split as a biological-label holdout.",
         "It examines prompt position, length, composition, and cohort counts in both streams before attributing the alternating bands to policy learning.",
-        "It reports terminal hard-QC yield, component means and support, measurement availability or failure, safety states, diversity, and copying so mean reward cannot hide inactive terms; W&B cluster-size histograms count each cluster once rather than weighting it by its number of genomes.",
+        "It reports configured objective means, support, safety states and diversity; all_objectives_max_score_rate means gated score attainment, while terminal hard-QC yield comes from final-screening artifacts. Per-prompt length summaries default off. W&B cluster-size histograms count each cluster once.",
         "It reconciles the approved objective artifact, configured objective set, and emitted component telemetry; discrepancies trigger diagnosis and a decision record rather than an automatic stop or user wait.",
         "It discovers and records the task-scoped metric keys actually emitted by the installed runtime instead of asserting names owned by another layer.",
         "Checkpoint decisions use sustained fixed-bank movement corroborated by training-rollout behavior and preserve both the best scientific and latest resumable checkpoints."

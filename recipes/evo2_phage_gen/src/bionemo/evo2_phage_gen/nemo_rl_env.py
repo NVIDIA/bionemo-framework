@@ -36,10 +36,7 @@ from bionemo.evo2_phage_gen.reward import (
     MMseqsClusterDiversityConfig,
     RewardWeights,
     SequenceSafetyRewardConfig,
-    binary_cluster_deduplicated_pass_mask,
-    binary_core_pass_mask,
-    binary_full_qc_pass_mask,
-    score_nucleotide_metrics,
+    score_sequences,
 )
 
 
@@ -485,7 +482,7 @@ def score_message_logs(
             "sequence": [extract_scored_sequence(message_log) for message_log in message_log_batch],
         }
     )
-    return score_nucleotide_metrics(
+    return score_sequences(
         sequences_df,
         config=config,
         weights=weights,
@@ -516,9 +513,11 @@ def _attach_generation_stop_columns(scored: pd.DataFrame, metadata: list[dict[st
 
 
 def _mean_numeric(scored: pd.DataFrame, column: str) -> float | None:
-    """Return a numeric mean when at least one finite/coercible value exists."""
+    """Return a mean only for a completely measured finite column."""
+    if column not in scored:
+        return None
     values = pd.to_numeric(scored[column], errors="coerce")
-    if not values.notna().any():
+    if values.empty or not values.notna().all() or not values.map(math.isfinite).all():
         return None
     return float(values.mean())
 
@@ -535,61 +534,6 @@ def _reward_prompt_group_keys(scored: pd.DataFrame) -> pd.Series | None:
     if "prompt_group" in scored:
         return scored["prompt_group"]
     return None
-
-
-def _add_binary_pass_metrics(
-    metrics: dict[str, float | int | list[int]],
-    scored: pd.DataFrame,
-    weights: RewardWeights,
-    *,
-    prefix: str = "",
-) -> None:
-    """Add core/full binary pass counts and cluster-deduplicated rates."""
-    binary_pass = binary_core_pass_mask(scored, weights)
-    cluster_deduplicated_pass = binary_cluster_deduplicated_pass_mask(scored, binary_pass)
-    safety_qualified_pass = binary_pass & _exact_safety_eligibility(scored)
-    safety_qualified_cluster_deduplicated_pass = binary_cluster_deduplicated_pass_mask(scored, safety_qualified_pass)
-    key_prefix = f"{prefix}/" if prefix else ""
-    metrics[f"{key_prefix}binary_core_pass_count"] = int(binary_pass.sum())
-    metrics[f"{key_prefix}binary_core_pass_rate"] = float(binary_pass.astype(float).mean())
-    metrics[f"{key_prefix}binary_core_pass_cluster_deduplicated_count"] = int(cluster_deduplicated_pass.sum())
-    metrics[f"{key_prefix}binary_core_pass_cluster_deduplicated_rate"] = float(
-        cluster_deduplicated_pass.astype(float).mean()
-    )
-    metrics[f"{key_prefix}binary_safety_qualified_core_pass_count"] = int(safety_qualified_pass.sum())
-    metrics[f"{key_prefix}binary_safety_qualified_core_pass_rate"] = float(safety_qualified_pass.astype(float).mean())
-    metrics[f"{key_prefix}binary_safety_qualified_core_pass_cluster_deduplicated_count"] = int(
-        safety_qualified_cluster_deduplicated_pass.sum()
-    )
-    metrics[f"{key_prefix}binary_safety_qualified_core_pass_cluster_deduplicated_rate"] = float(
-        safety_qualified_cluster_deduplicated_pass.astype(float).mean()
-    )
-
-    full_qc_pass = binary_full_qc_pass_mask(scored, binary_pass)
-    if full_qc_pass is not None:
-        full_qc_cluster_deduplicated_pass = binary_cluster_deduplicated_pass_mask(scored, full_qc_pass)
-        safety_qualified_full_qc_pass = full_qc_pass & _exact_safety_eligibility(scored)
-        safety_qualified_full_qc_cluster_deduplicated_pass = binary_cluster_deduplicated_pass_mask(
-            scored, safety_qualified_full_qc_pass
-        )
-        metrics[f"{key_prefix}binary_full_qc_pass_count"] = int(full_qc_pass.sum())
-        metrics[f"{key_prefix}binary_full_qc_pass_rate"] = float(full_qc_pass.astype(float).mean())
-        metrics[f"{key_prefix}binary_full_qc_pass_cluster_deduplicated_count"] = int(
-            full_qc_cluster_deduplicated_pass.sum()
-        )
-        metrics[f"{key_prefix}binary_full_qc_pass_cluster_deduplicated_rate"] = float(
-            full_qc_cluster_deduplicated_pass.astype(float).mean()
-        )
-        metrics[f"{key_prefix}binary_safety_qualified_full_qc_count"] = int(safety_qualified_full_qc_pass.sum())
-        metrics[f"{key_prefix}binary_safety_qualified_full_qc_rate"] = float(
-            safety_qualified_full_qc_pass.astype(float).mean()
-        )
-        metrics[f"{key_prefix}binary_safety_qualified_full_qc_cluster_deduplicated_count"] = int(
-            safety_qualified_full_qc_cluster_deduplicated_pass.sum()
-        )
-        metrics[f"{key_prefix}binary_safety_qualified_full_qc_cluster_deduplicated_rate"] = float(
-            safety_qualified_full_qc_cluster_deduplicated_pass.astype(float).mean()
-        )
 
 
 def _add_generation_termination_metrics(
@@ -613,7 +557,6 @@ def _add_generation_termination_metrics(
         ("capped_without_eod", capped_without_eod),
         ("non_eod_below_cap", non_eod_below_cap),
     ):
-        metrics[f"termination/{name}_count"] = int(mask.sum())
         metrics[f"termination/{name}_rate"] = float(mask.mean()) if batch_size else 0.0
 
     group_keys = _reward_prompt_group_keys(scored)
@@ -621,7 +564,6 @@ def _add_generation_termination_metrics(
         group_has_eod = stopped_on_eod.groupby(group_keys, sort=False).any()
         no_eod_group_count = int((~group_has_eod).sum())
         group_count = len(group_has_eod)
-        metrics["termination/no_authentic_eod_prompt_group_count"] = no_eod_group_count
         metrics["termination/no_authentic_eod_prompt_group_rate"] = (
             no_eod_group_count / group_count if group_count else 0.0
         )
@@ -653,7 +595,6 @@ def _add_generation_termination_metrics(
     eod_count = int(stopped_on_eod.sum())
     for name, mask in length_bins.items():
         count = int(mask.sum())
-        metrics[f"termination/authentic_eod_length/{name}_count"] = count
         metrics[f"termination/authentic_eod_length/{name}_rate"] = count / eod_count if eod_count else 0.0
 
 
@@ -663,199 +604,131 @@ def phage_qc_metrics_from_scored(
     *,
     config: NucleotideQCConfig | None = None,
     zero_reward_without_eod: bool = False,
+    objectives: tuple[GDPOObjective, ...] = (),
+    log_by_prompt_nt_length: bool = False,
 ) -> dict[str, float | int | list[int]]:
-    """Summarize phage QC scores into scalar metrics and cluster-size histogram samples."""
-    if scored.empty:
-        return {
-            "num_sequences": 0,
-            "binary_safety_qualified_full_qc_cluster_deduplicated_rate": 0.0,
-        }
+    """Summarize configured rewards after safety/EOD gates; never infer final QC acceptance.
 
-    metrics: dict[str, float | int | list[int]] = {"num_sequences": len(scored)}
+    Max-score rates use the fixed reward ceiling of 1, not the observed batch maximum.
+    Per-sequence measurements remain in scored artifacts; only inputs to configured
+    objectives and the support needed to interpret them are logged here.
+    """
+    metrics: dict[str, float | int | list[int]] = {
+        "num_sequences": len(scored),
+        "all_objectives_max_score_rate": 0.0,
+    }
+    if scored.empty:
+        return metrics
+
+    namespace = "gdpo" if objectives else "component"
+    if not objectives:
+        objectives = tuple(
+            GDPOObjective(component.name, (component.score_column,))
+            for component in REWARD_COMPONENTS
+            if component.weight_attr is not None
+            and getattr(weights, component.weight_attr) > 0
+            and component.score_column in scored
+        )
+    scores = gdpo_objective_scores_from_scored(scored, objectives, zero_reward_without_eod=zero_reward_without_eod)
+    # Match the float32 tensor returned by step, including rounding at the reward ceiling.
+    scores = scores.astype("float32")
+
+    def add_objective_metrics(rows: pd.DataFrame, prefix: str = "") -> None:
+        metrics[f"{prefix}all_objectives_max_score_rate"] = (
+            float(rows.eq(1.0).all(axis=1).mean()) if len(rows.columns) else 0.0
+        )
+        for name in rows.columns:
+            values = rows[name]
+            metrics[f"{prefix}{namespace}/{name}_mean"] = float(values.mean())
+            metrics[f"{prefix}{namespace}/{name}_std"] = float(values.std(ddof=0))
+            metrics[f"{prefix}{namespace}/{name}_nonzero_rate"] = float(values.ne(0.0).mean())
+            metrics[f"{prefix}{namespace}/{name}_max_score_rate"] = float(values.eq(1.0).mean())
+
+    add_objective_metrics(scores)
+    if log_by_prompt_nt_length and "prompt_nt_length" in scored:
+        lengths = pd.to_numeric(scored["prompt_nt_length"], errors="coerce")
+        for length in sorted(lengths.dropna().unique()):
+            mask = lengths.eq(length)
+            prefix = f"by_prompt_nt_length/{int(length)}/"
+            metrics[f"{prefix}num_sequences"] = int(mask.sum())
+            add_objective_metrics(scores.loc[mask], prefix)
+
     safety_states = scored.get("safety_gate_state", pd.Series(None, index=scored.index, dtype=object))
-    safety_eligibility = _exact_safety_eligibility(scored)
-    for state in ("PASS", "FAIL", "INDETERMINATE"):
-        metrics[f"safety_gate_state_count/{state}"] = int((safety_states == state).sum())
-    metrics["safety_gate_pass_rate"] = float(safety_eligibility.astype(float).mean())
-    metrics["safety_gate_indeterminate_rate"] = float((safety_states == "INDETERMINATE").mean())
+    metrics["safety_gate_pass_rate"] = float(_exact_safety_eligibility(scored).mean())
+    metrics["safety_gate_indeterminate_rate"] = float(safety_states.eq("INDETERMINATE").mean())
     for safety_class in SEQUENCE_SAFETY_CLASSES:
-        state_column = f"safety_{safety_class}_state"
-        if state_column in scored:
-            states = scored[state_column]
-            metrics[f"safety_{safety_class}_pass_rate"] = float((states == "PASS").mean())
-            metrics[f"safety_{safety_class}_indeterminate_rate"] = float((states == "INDETERMINATE").mean())
-    if "reward_historical" in scored:
-        historical_mean = _mean_numeric(scored, "reward_historical")
-        if historical_mean is not None:
-            metrics["reward_historical_mean"] = historical_mean
-    if "reward" in scored:
-        metrics["reward_safety_qualified_mean"] = float(_qualified_scalar_rewards(scored).mean())
-        if zero_reward_without_eod:
-            metrics["reward_eod_qualified_mean"] = float(
-                _qualified_scalar_rewards(scored, zero_reward_without_eod=True).mean()
-            )
+        column = f"safety_{safety_class}_state"
+        if column in scored:
+            metrics[f"safety_{safety_class}_indeterminate_rate"] = float(scored[column].eq("INDETERMINATE").mean())
+
     for column in sorted(str(column) for column in scored.columns if str(column).startswith(TIMING_COLUMN_PREFIX)):
         mean_value = _mean_numeric(scored, column)
         if mean_value is not None:
             timing_name = column.removeprefix(TIMING_COLUMN_ROOT_PREFIX)
             metrics[f"{TIMING_METRIC_MARKER_PREFIX}{timing_name}"] = mean_value
 
-    for component in REWARD_COMPONENTS:
-        if component.score_column in scored:
-            score_values = pd.to_numeric(scored[component.score_column], errors="coerce")
-            metrics[f"{component.name}_score_mean"] = float(score_values.mean())
-            metrics[f"{component.name}_pass_rate"] = float((score_values >= 1.0).mean())
-
-    for column in [
-        "prompt_nt_length",
-        "genome_length",
-        "gc_content",
-        "max_nt_homopolymer_length",
-        "dustmask_masked_bases",
-        "dustmask_masked_fraction",
-        "dustmask_left_end_masked_bases",
-        "dustmask_left_end_masked_fraction",
-        "dustmask_right_end_masked_bases",
-        "dustmask_right_end_masked_fraction",
-        "dustmask_max_end_masked_fraction",
-        "protein_database_hit_count",
-        "predicted_orf_count",
-        "phrogs_hit_orf_count",
-        "phrogs_annotated_orf_count",
-        "unique_phrog_family_count",
-        "unique_canonical_function_count",
-        "phrogs_hit_fraction",
-        "tropism_protein_mmseqs_percent_identity",
-        "tropism_protein_measured_hit",
-        "num_syntenic_genes",
-        "total_num_genes",
-        "syntenic_gene_count_score",
-        "synteny_pair_score",
-        "synteny_pair_distance",
-        "synteny_total_gene_score",
-        "synteny_proxy_hit_gene_count",
-        "synteny_smooth_content_score",
-        "synteny_smooth_ordered_score",
-        "synteny_smooth_duplicate_score",
-        "smooth_reference_matched_loci",
-        "smooth_reference_best_integrity",
-        "gene_a_origin_motif_score",
-        "gene_a_origin_position_score",
-        "gene_a_origin_exact_functional_site",
-        "gene_a_origin_strong_site_count",
-        "average_protein_percent_identity",
-        "average_protein_identity_gene_count",
-        "average_protein_identity_raw_score",
-        "average_protein_identity_novelty_score",
-        "average_protein_identity_evidence_score",
-        "required_genes_matched_count",
-        "required_genes_total_count",
-        "required_genes_raw_score",
-        "required_genes_evidence_score",
-        "mmseqs_cluster_size",
-        "mmseqs_cluster_is_singleton",
-        "mmseqs_cluster_valid_for_clustering",
-        "mmseqs_cluster_missing_from_output",
-    ]:
-        if column in scored:
+    reward_columns = {column for objective in objectives for column in objective.columns}
+    # These explain reward shaping in physical units or its constituent scores.
+    inputs = {
+        "reward_genome_length": ("genome_length",),
+        "reward_gc_content": ("gc_content",),
+        "reward_nt_homopolymer": ("max_nt_homopolymer_length",),
+        "reward_dustmask_end": ("dustmask_max_end_masked_fraction",),
+        "reward_external_protein_hit_count": ("protein_database_effective_family_count",),
+        "reward_external_tropism": ("tropism_protein_mmseqs_percent_identity",),
+        "reward_external_synteny": (
+            "synteny_smooth_content_score",
+            "synteny_smooth_ordered_score",
+            "synteny_smooth_duplicate_score",
+        ),
+        "reward_gene_a_origin": ("gene_a_origin_motif_score", "gene_a_origin_position_score"),
+        "reward_external_average_protein_identity": (
+            "average_protein_percent_identity",
+            "average_protein_identity_novelty_score",
+            "average_protein_identity_evidence_score",
+        ),
+        "reward_external_required_genes": ("required_genes_integrity_sum", "required_genes_evidence_score"),
+        "reward_mmseqs_cluster_diversity": (
+            "mmseqs_cluster_valid_for_clustering",
+            "mmseqs_cluster_missing_from_output",
+        ),
+    }
+    if "synteny_smooth_content_score" not in scored:
+        inputs["reward_external_synteny"] = (
+            "synteny_reference_coverage_score",
+            "synteny_copy_balance_score",
+            "synteny_order_score",
+        )
+    for reward_column in sorted(reward_columns):
+        for column in inputs.get(reward_column, ()):
             mean_value = _mean_numeric(scored, column)
             if mean_value is not None:
                 metrics[f"{column}_mean"] = mean_value
-            if column == "prompt_nt_length":
-                values = pd.to_numeric(scored[column], errors="coerce")
-                metrics[f"{column}_min"] = float(values.min())
-                metrics[f"{column}_max"] = float(values.max())
 
+    support_prefixes = {
+        "reward_external_protein_hit_count": "protein_database_hit_count",
+        "reward_external_tropism": "tropism",
+        "reward_external_synteny": "synteny",
+        "reward_external_average_protein_identity": "average_protein_identity",
+        "reward_external_required_genes": "required_genes",
+    }
+    for reward_column in sorted(reward_columns):
+        prefix = support_prefixes.get(reward_column)
+        if prefix and f"{prefix}_measurement_available" in scored:
+            available = pd.to_numeric(scored[f"{prefix}_measurement_available"], errors="coerce").fillna(0.0).gt(0.0)
+            metrics[f"{prefix}_measurement_available_rate"] = float(available.mean())
     if "external_qc_tool_succeeded" in scored:
         values = pd.to_numeric(scored["external_qc_tool_succeeded"], errors="coerce").fillna(0.0)
-        metrics["external_qc_tool_succeeded_rate"] = float((values > 0.0).mean())
+        metrics["external_qc_tool_succeeded_rate"] = float(values.gt(0.0).mean())
 
     _add_generation_termination_metrics(metrics, scored, config)
-
-    status_score_columns = {
-        "protein_database_hit_count": "reward_external_protein_hit_count",
-        "tropism": "reward_external_tropism",
-        "synteny": "reward_external_synteny",
-        "average_protein_identity": "reward_external_average_protein_identity",
-        "required_genes": "reward_external_required_genes",
-    }
-    status_pass_columns = {
-        "protein_database_hit_count": "reward_external_protein_hit_count_pass",
-        "tropism": "reward_external_tropism_pass",
-        "synteny": "reward_external_synteny_pass",
-        "average_protein_identity": "reward_external_average_protein_identity_pass",
-        "required_genes": "reward_external_required_genes_pass",
-    }
-    status_prefixes = sorted(
-        column[: -len("_measurement_available")]
-        for column in scored.columns
-        if column.endswith("_measurement_available")
-    )
-    for prefix in status_prefixes:
-        available = pd.to_numeric(scored[f"{prefix}_measurement_available"], errors="coerce").fillna(0.0) > 0.0
-        stage_column = f"{prefix}_stage_reached"
-        if stage_column in scored:
-            stage_reached = pd.to_numeric(scored[stage_column], errors="coerce").fillna(0.0) > 0.0
-            metrics[f"{prefix}_stage_reached_rate"] = float(stage_reached.mean())
-        metrics[f"{prefix}_measurement_available_rate"] = float(available.mean())
-        metrics[f"{prefix}_n_measured"] = int(available.sum())
-        missing_artifact_column = f"{prefix}_missing_artifact"
-        if missing_artifact_column in scored:
-            missing_artifact = pd.to_numeric(scored[missing_artifact_column], errors="coerce").fillna(0.0) > 0.0
-            metrics[f"{prefix}_missing_artifact_count"] = int(missing_artifact.sum())
-        score_column = status_score_columns.get(prefix)
-        if score_column in scored and available.any():
-            scores = pd.to_numeric(scored.loc[available, score_column], errors="coerce")
-            metrics[f"{prefix}_conditional_score_mean"] = float(scores.mean())
-        pass_column = status_pass_columns.get(prefix)
-        if pass_column in scored and available.any():
-            passes = pd.to_numeric(scored.loc[available, pass_column], errors="coerce")
-            metrics[f"{prefix}_conditional_pass_rate"] = float((passes >= 1.0).mean())
-
-    if {"mmseqs_cluster_id", "mmseqs_cluster_size"}.issubset(scored.columns):
+    if "reward_mmseqs_cluster_diversity" in reward_columns and {"mmseqs_cluster_id", "mmseqs_cluster_size"}.issubset(
+        scored.columns
+    ):
         cluster_sizes = pd.to_numeric(scored["mmseqs_cluster_size"], errors="coerce").fillna(0).astype(int)
-        valid_cluster_mask = cluster_sizes > 0
-        valid_cluster_count = int(valid_cluster_mask.sum())
-        batch_size = len(scored)
-        if valid_cluster_count > 0:
-            cluster_rows = scored.loc[
-                valid_cluster_mask,
-                ["mmseqs_cluster_id", "mmseqs_cluster_size"],
-            ].drop_duplicates()
-            num_clusters = int(cluster_rows["mmseqs_cluster_id"].astype(str).nunique())
-            metrics["mmseqs_cluster_num_clusters"] = num_clusters
-            metrics["mmseqs_cluster_clusters_per_sequence"] = float(num_clusters / max(batch_size, 1))
-            metrics["mmseqs_cluster_singleton_fraction"] = float((cluster_sizes[valid_cluster_mask] == 1).mean())
-            metrics["mmseqs_cluster_largest_cluster_fraction"] = float(cluster_sizes.max() / valid_cluster_count)
-            # One observation per cluster, so histogram counts represent clusters, not genomes.
-            metrics["__histogram__/mmseqs_cluster_size"] = cluster_rows["mmseqs_cluster_size"].astype(int).tolist()
-        else:
-            metrics["mmseqs_cluster_num_clusters"] = 0
-            metrics["mmseqs_cluster_clusters_per_sequence"] = 0.0
-            metrics["mmseqs_cluster_singleton_fraction"] = 0.0
-            metrics["mmseqs_cluster_largest_cluster_fraction"] = 0.0
-            metrics["__histogram__/mmseqs_cluster_size"] = []
-
-    _add_binary_pass_metrics(metrics, scored, weights)
-    metrics.setdefault("binary_safety_qualified_full_qc_cluster_deduplicated_rate", 0.0)
-
-    if "prompt_nt_length" in scored:
-        prompt_lengths = pd.to_numeric(scored["prompt_nt_length"], errors="coerce")
-        for prompt_length in sorted(prompt_lengths.dropna().astype(int).unique()):
-            prompt_mask = prompt_lengths == prompt_length
-            prompt_scored = scored.loc[prompt_mask]
-            prefix = f"by_prompt_nt_length/{prompt_length}"
-            metrics[f"{prefix}/num_sequences"] = int(prompt_mask.sum())
-            if "reward" in prompt_scored:
-                metrics[f"{prefix}/reward_mean"] = float(
-                    pd.to_numeric(prompt_scored["reward"], errors="coerce").mean()
-                )
-            _add_binary_pass_metrics(metrics, prompt_scored, weights, prefix=prefix)
-            for component in REWARD_COMPONENTS:
-                if component.score_column in prompt_scored:
-                    score_values = pd.to_numeric(prompt_scored[component.score_column], errors="coerce")
-                    metrics[f"{prefix}/{component.name}_score_mean"] = float(score_values.mean())
-                    metrics[f"{prefix}/{component.name}_pass_rate"] = float((score_values >= 1.0).mean())
+        # One observation per cluster; invalid/unclustered genomes contribute none.
+        cluster_rows = scored.loc[cluster_sizes > 0, ["mmseqs_cluster_id", "mmseqs_cluster_size"]].drop_duplicates()
+        metrics["__histogram__/mmseqs_cluster_size"] = cluster_rows["mmseqs_cluster_size"].astype(int).tolist()
     return metrics
 
 
@@ -971,7 +844,6 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 homopolymer_max=int(cfg.get("homopolymer_max", 10)),
                 dustmask_filter=bool(cfg.get("dustmask_filter", False)),
                 dustmasker_bin=str(cfg.get("dustmasker_bin", "dustmasker")),
-                dustmask_use_external=bool(cfg.get("dustmask_use_external", True)),
                 dustmask_window=int(cfg.get("dustmask_window", 64)),
                 dustmask_level=float(cfg.get("dustmask_level", 20.0)),
                 dustmask_end_window=int(cfg.get("dustmask_end_window", 200)),
@@ -984,8 +856,6 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 nt_homopolymer=float(cfg.get("weight_nt_homopolymer", 1.0)),
                 dustmask_end=float(cfg.get("weight_dustmask_end", 0.0)),
                 nucleotide_pass=float(cfg.get("weight_nucleotide_pass", 0.0)),
-                orf=float(cfg.get("weight_orf", 0.0)),
-                coding_density=float(cfg.get("weight_coding_density", 0.0)),
                 protein_hit_count=float(cfg.get("weight_protein_hit_count", 0.0)),
                 tropism=float(cfg.get("weight_tropism", 0.0)),
                 synteny=float(cfg.get("weight_synteny", 0.0)),
@@ -1029,7 +899,6 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 enable_protein_hit_count=bool(external_qc_cfg.get("enable_protein_hit_count", True)),
                 enable_tropism=bool(external_qc_cfg.get("enable_tropism", True)),
                 enable_synteny=bool(external_qc_cfg.get("enable_synteny", False)),
-                synteny_mode=str(external_qc_cfg.get("synteny_mode", "proxy")),
                 enable_average_protein_identity=bool(external_qc_cfg.get("enable_average_protein_identity", False)),
                 enable_required_genes=bool(external_qc_cfg.get("enable_required_genes", False)),
                 required_genes_evidence_target=float(external_qc_cfg.get("required_genes_evidence_target", 10.0)),
@@ -1166,26 +1035,17 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
             gdpo_objectives = self.gdpo_objectives if reward_output_mode == "gdpo" else ()
             if not _batch_metadata_is_complete(batch_scored, int(rewards.shape[0]), gdpo_objectives):
                 batch_scored = pd.DataFrame()
-            phage_metrics = phage_qc_metrics_from_scored(
+            metrics = phage_qc_metrics_from_scored(
                 batch_scored,
                 self.weights,
                 config=getattr(self, "config", None),
                 zero_reward_without_eod=zero_reward_without_eod,
-            )
-            binary_pass_rate = float(phage_metrics.get("binary_safety_qualified_core_pass_rate", 0.0))
-            cluster_deduplicated_pass_rate = float(
-                phage_metrics.get(
-                    "binary_safety_qualified_core_pass_cluster_deduplicated_rate",
-                    binary_pass_rate,
-                )
+                objectives=gdpo_objectives,
+                log_by_prompt_nt_length=self.cfg.get("log_by_prompt_nt_length", False),
             )
             has_rewards = rewards.numel() > 0
-            metrics = {
-                "mean_reward": rewards.float().mean().item() if has_rewards else 0.0,
-                "pass_rate": cluster_deduplicated_pass_rate,
-                "dense_reward_ge_1_rate": (rewards >= 1.0).float().mean().item() if has_rewards else 0.0,
-                "num_sequences": int(rewards.shape[0]),
-            }
+            metrics["mean_reward"] = rewards.float().mean().item() if has_rewards else 0.0
+            metrics["num_sequences"] = int(rewards.shape[0])
             group_keys = _reward_prompt_group_keys(batch_scored)
             if not batch_scored.empty and group_keys is not None:
                 reward_values = reward_tensor.detach().float().cpu()
@@ -1199,26 +1059,9 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                     bool(((group.max(axis=0) - group.min(axis=0)) == 0.0).all()) for _name, group in grouped_rewards
                 )
                 metrics["reward_prompt_group_count"] = group_count
-                metrics["reward_zero_variance_prompt_group_count"] = zero_variance_count
                 metrics["reward_zero_variance_prompt_group_rate"] = (
                     zero_variance_count / group_count if group_count else 0.0
                 )
-            if reward_output_mode == "gdpo":
-                objective_scores = gdpo_objective_scores_from_scored(
-                    batch_scored,
-                    gdpo_objectives,
-                    zero_reward_without_eod=zero_reward_without_eod,
-                )
-                metrics["gdpo/num_objectives"] = int(objective_scores.shape[1])
-                if not objective_scores.empty:
-                    for objective_name in objective_scores.columns:
-                        values = objective_scores[objective_name].astype(float)
-                        metrics[f"gdpo/{objective_name}_mean"] = float(values.mean())
-                        metrics[f"gdpo/{objective_name}_std"] = float(values.std(ddof=0))
-                        metrics[f"gdpo/{objective_name}_min"] = float(values.min())
-                        metrics[f"gdpo/{objective_name}_max"] = float(values.max())
-                        metrics[f"gdpo/{objective_name}_nonzero_rate"] = float((values != 0.0).mean())
-            metrics.update(phage_metrics)
             return batch, metrics
 
 else:
