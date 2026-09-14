@@ -1356,3 +1356,38 @@ diff --git a/nemo_rl/utils/logger.py b/nemo_rl/utils/logger.py
 
      def log_hyperparams(self, params: Mapping[str, Any]) -> None:
          """Log hyperparameters to all enabled backends.
+diff --git a/nemo_rl/experience/rollouts.py b/nemo_rl/experience/rollouts.py
+--- a/nemo_rl/experience/rollouts.py
++++ b/nemo_rl/experience/rollouts.py
+@@ -276,11 +276,13 @@
+         assistant_message = {
+             "role": "assistant",
+             "content": text,
+-            "token_ids": output_ids[i, input_length:total_length],
++            # Ray/pickle otherwise serializes the full batch storage per row.
++            # Compact copies preserve values without quadratic RPC payloads.
++            "token_ids": output_ids[i, input_length:total_length].clone(),
+         }
+
+         if include_logprobs and "logprobs" in generation_outputs:
+             assistant_message["generation_logprobs"] = generation_outputs["logprobs"][
+                 i, input_length:total_length
+-            ]
++            ].clone()
+         if "routed_experts" in generation_outputs:
+@@ -411,11 +413,13 @@
+         assistant_message = {
+             "role": "assistant",
+             "content": text,
+-            "token_ids": output_ids[i, input_length:total_length],
++            # Streaming outputs are collated into a shared batch buffer too.
++            # Do not carry that buffer into each message's RPC serialization.
++            "token_ids": output_ids[i, input_length:total_length].clone(),
+         }
+
+         if include_logprobs and "logprobs" in generation_outputs:
+             assistant_message["generation_logprobs"] = generation_outputs["logprobs"][
+                 i, input_length:total_length
+-            ]
++            ].clone()
+         if "routed_experts" in generation_outputs:

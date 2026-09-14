@@ -25,24 +25,30 @@ import lovis4u
 
 
 def _cluster_command_with_threads(command: Sequence[str] | str, threads: int | None) -> Sequence[str] | str:
-    """Apply the configured thread count only to the LoVis4u MMseqs cluster call."""
+    """Bound all three MMseqs stages used by LoVis4u clustering."""
     if not isinstance(command, (list, tuple)):
         return command
     updated = list(command)
-    if threads is not None and len(updated) > 1 and updated[1] == "cluster" and "--threads" not in updated:
+    # createdb/createtsv also default to all visible CPUs, independently of OMP_NUM_THREADS.
+    if (
+        threads is not None
+        and len(updated) > 1
+        and updated[1] in {"createdb", "cluster", "createtsv"}
+        and "--threads" not in updated
+    ):
         updated.extend(["--threads", str(threads)])
     return updated
 
 
 class _ThreadedSubprocess:
-    """Delegate subprocess attributes while adapting only MMseqs cluster calls."""
+    """Delegate subprocess attributes while bounding the MMseqs clustering stages."""
 
     def __init__(self, wrapped: Any, threads: int | None):
         self._wrapped = wrapped
         self._threads = threads
 
     def run(self, command: Sequence[str], *args: Any, **kwargs: Any) -> Any:
-        """Run one command with the configured cluster thread override."""
+        """Run one command within the configured MMseqs thread budget."""
         return self._wrapped.run(_cluster_command_with_threads(command, self._threads), *args, **kwargs)
 
     def __getattr__(self, name: str) -> Any:

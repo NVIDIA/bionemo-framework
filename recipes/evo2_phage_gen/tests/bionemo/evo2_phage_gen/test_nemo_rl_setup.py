@@ -328,6 +328,84 @@ def test_async_last_turn_termination(tmp_path: Path) -> None:
     assert rate == 0.5
 
 
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("include_logprobs", [False, True])
+def test_rollout_transport_size(tmp_path: Path, torch, asynchronous, include_logprobs) -> None:
+    """Row views must not serialize the full generation buffer once per genome."""
+    import asyncio
+    import pickle
+
+    source = _cached_source()
+    if source is None:
+        pytest.skip("configured NeMo-RL source is not cached")
+    build = nemo_rl_setup._copy_build_source(source, tmp_path / "build")
+    nemo_rl_setup.apply_source_patch(build)
+    path = build / "nemo_rl/experience/rollouts.py"
+    function_name = "generate_responses_async" if asynchronous else "generate_responses"
+    functions = [
+        node
+        for node in ast.parse(path.read_text()).body
+        if getattr(node, "name", None) in {function_name, "_add_r3_fallback_metrics"}
+    ]
+
+    class Batch(dict):
+        @classmethod
+        def from_batches(cls, batches, **kwargs):
+            return cls({key: torch.cat([batch[key] for batch in batches]) for key in batches[0]})
+
+    namespace = {"torch": torch, "BatchedDataDict": Batch}
+    module = ast.Module(
+        body=[ast.ImportFrom(module="__future__", names=[ast.alias(name="annotations")], level=0), *functions],
+        type_ignores=[],
+    )
+    exec(compile(ast.fix_missing_locations(module), str(path), "exec"), namespace)
+    count, width = 32, 256
+    output_ids = torch.arange(count * width).reshape(count, width) % 127
+    lengths = torch.tensor([16, 24] * (count // 2))
+    ends = torch.tensor([128, 256] * (count // 2))
+    logprobs = -torch.arange(count * width, dtype=torch.float32).reshape(count, width) / 1024
+    truncated = torch.tensor([False, True] * (count // 2))
+    outputs = Batch(
+        output_ids=output_ids,
+        generation_lengths=ends - lengths,
+        unpadded_sequence_lengths=ends,
+        logprobs=logprobs,
+        truncated=truncated,
+    )
+
+    async def generate_async(data, greedy=False):
+        # Streaming results may arrive out of order; the real collector sorts them.
+        for index in reversed(range(count)):
+            yield index, Batch({key: value[index : index + 1] for key, value in outputs.items()})
+
+    policy = SimpleNamespace(
+        cfg={"backend": "megatron", "mcore_generation_config": {"async_engine": True}},
+        generate=lambda data, greedy=False: outputs,
+        generate_async=generate_async,
+    )
+    tokenizer = SimpleNamespace(
+        pad_token_id=0, batch_decode=lambda rows, **kwargs: ["".join(map(chr, row.tolist())) for row in rows]
+    )
+    batch = Batch(message_log=[[] for _ in range(count)])
+    result = namespace[function_name](policy, Batch(), batch, tokenizer, lengths, include_logprobs=include_logprobs)
+    result_batch, generated, metrics = asyncio.run(result) if asynchronous else result
+    for index, messages in enumerate(result_batch["message_log"]):
+        message = messages[-1]
+        expected = output_ids[index, lengths[index] : ends[index]]
+        assert torch.equal(message["token_ids"], expected)
+        assert torch.equal(generated[index], expected)
+        assert message["content"] == "".join(map(chr, expected.tolist()))
+        if include_logprobs:
+            assert torch.equal(message["generation_logprobs"], logprobs[index, lengths[index] : ends[index]])
+        else:
+            assert "generation_logprobs" not in message
+    assert torch.equal(metrics["_response_truncated"], truncated)
+    assert metrics["total_generated_tokens"] == 5504
+    # Allow generous pickle headers, but not a copy of every other row's storage.
+    payload = pickle.dumps(result_batch["message_log"], protocol=5)
+    assert len(payload) < 200_000
+
+
 def test_setup_patches_before_install(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     source = tmp_path / "source"
     (source / "nemo_rl" / "algorithms").mkdir(parents=True)
