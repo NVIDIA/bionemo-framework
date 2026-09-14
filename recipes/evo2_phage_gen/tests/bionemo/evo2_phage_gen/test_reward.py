@@ -1432,7 +1432,7 @@ def test_external_qc_env_prepends_run_specific_tool_directory(tmp_path):
 
 
 def test_smooth_reference_search_is_permissive_but_significance_bounded(tmp_path):
-    """RL evidence search must retain partial hits without admitting E >= 1 noise."""
+    """Align partial homologs without a heuristic prefilter; E >= 1 earns no credit."""
     command = _smooth_reference_search_command(
         reference_fasta=tmp_path / "reference.faa",
         candidate_fasta=tmp_path / "candidate.faa",
@@ -1442,6 +1442,8 @@ def test_smooth_reference_search_is_permissive_but_significance_bounded(tmp_path
     )
 
     assert command[:2] == ["mmseqs", "easy-search"]
+    assert "--prefilter-mode" in command
+    assert command[command.index("--prefilter-mode") + 1] == "2"
     assert command[command.index("--min-seq-id") + 1] == "0"
     assert command[command.index("-c") + 1] == "0"
     assert command[command.index("-e") + 1] == "1"
@@ -1449,7 +1451,10 @@ def test_smooth_reference_search_is_permissive_but_significance_bounded(tmp_path
     assert command[command.index("--threads") + 1] == "8"
 
 
-def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_passes(tmp_path, monkeypatch):
+@pytest.mark.parametrize(("identity_zero_credit", "identity", "expected"), [(0.05, 95.0, 1.0), (0.25, 25.0, 0.0)])
+def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_passes(
+    tmp_path, monkeypatch, identity_zero_credit, identity, expected
+):
     """The permissive search must not weaken the existing LoVis/tropism pass gates."""
     motif = "CAACTTGATATTAATAACACTATAGACCAC"
     reference_gff = tmp_path / "reference.gff"
@@ -1476,7 +1481,8 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
 
     def fake_run(command, **kwargs):
         Path(command[4]).write_text(
-            "A\tumi1_ORF.1\t1e-20\t90\t95\t100\t100\t0.95\t0.95\nG\tumi1_ORF.2\t1e-20\t95\t99\t100\t100\t0.99\t0.99\n"
+            f"A\tumi1_ORF.1\t1e-20\t{identity}\t95\t100\t100\t0.95\t0.95\n"
+            f"G\tumi1_ORF.2\t1e-20\t{identity}\t99\t100\t100\t0.99\t0.99\n"
         )
         return subprocess.CompletedProcess(command, 0)
 
@@ -1493,6 +1499,8 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
     )
     external = ExternalQCRewardConfig(
         enable_smooth_reference_rewards=True,
+        synteny_identity_zero_credit=identity_zero_credit,
+        tropism_identity_zero_credit=identity_zero_credit,
         enable_synteny=True,
         enable_tropism=True,
         enable_gene_a_origin=True,
@@ -1515,9 +1523,9 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
         external_qc=external,
     )
 
-    assert observed.loc[0, "reward_external_synteny"] == 1.0
-    assert observed.loc[0, "reward_external_tropism"] == 1.0
-    assert observed.loc[0, "reward_gene_a_origin"] == 1.0
+    assert observed.loc[0, "reward_external_synteny"] == expected
+    assert observed.loc[0, "reward_external_tropism"] == expected
+    assert observed.loc[0, "reward_gene_a_origin"] == expected
     assert observed.loc[0, "reward_external_synteny_pass"] == 1.0
     assert observed.loc[0, "reward_external_tropism_pass"] == 1.0
     assert observed.loc[0, "smooth_reference_measurement_available"] == 1.0

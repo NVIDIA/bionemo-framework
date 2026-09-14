@@ -21,7 +21,7 @@
       "prompt": "One sampling cell has the highest hard-QC rate but nearly copies the reference; another is slightly lower in QC with target retention, changed synteny, and many clusters. Temperature 1.0 is competitive. Pick settings.",
       "expected_output": "A robust quality-diversity selection rather than the noisiest maximum.",
       "assertions": [
-        "The response compares raw and cluster-deduplicated QC yield, target evidence, copying, diversity, and uncertainty.",
+        "The response compares measured raw and cluster-deduplicated QC yield, target evidence, copying, diversity, and uncertainty. It obtains QC yield from actual screening results, not missing legacy binary-QC fields in calibration reward summaries.",
         "It rejects a high-yield cell when the gain is mainly reference copying.",
         "It prefers a stable plateau and temperature 1.0 when practically equivalent.",
         "It keeps multiple prompt strata only when they improve the frontier and does not require their count to divide the microbatch or GPU count because packed dynamic prefill supports mixed lengths.",

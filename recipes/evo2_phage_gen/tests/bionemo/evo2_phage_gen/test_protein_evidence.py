@@ -31,9 +31,6 @@ SMOOTH_SYNTENY_MATCH = {
     "identity_full_credit": 0.90,
     "reference_coverage_full_credit": 0.95,
     "candidate_coverage_full_credit": 0.95,
-    "gamma": 1.5,
-    "raw_integrity_min": 0.001,
-    "min_credit": 0.01,
 }
 SMOOTH_TROPISM_MATCH = {
     **SMOOTH_SYNTENY_MATCH,
@@ -41,6 +38,52 @@ SMOOTH_TROPISM_MATCH = {
     "reference_coverage_full_credit": 0.99,
     "candidate_coverage_full_credit": 0.99,
 }
+
+
+@pytest.mark.parametrize(
+    ("identity", "evalue", "ref_cov", "cand_cov", "expected"),
+    [
+        (47.5, 10**-2.5, 0.475, 0.475, 0.5),  # All four normalized factors are one half.
+        (5.00085, 10**-0.00005, 0.0000095, 0.0000095, 0.00001),  # No cutoff or bonus near zero.
+        (90.0, 0.0, 0.95, 0.95, 1.0),
+        (90.0, 1e-5, 0.95, 0.95, 1.0),
+        (5.0, 1e-20, 0.95, 0.95, 0.0),
+        (0.0, 1e-20, 0.95, 0.95, 0.0),
+        (90.0, 1.0, 0.95, 0.95, 0.0),
+        (90.0, 2.0, 0.95, 0.95, 0.0),
+        (90.0, 1e-20, 0.0, 0.95, 0.0),
+        (90.0, 1e-20, 0.95, 0.0, 0.0),
+    ],
+)
+def test_smooth_match_four_factors(identity, evalue, ref_cov, cand_cov, expected):
+    """Equal evidence has the same score; any zero factor must veto the match."""
+    observed = protein_evidence.smooth_protein_match_integrity(
+        identity,
+        evalue,
+        100,
+        100,
+        100,
+        reference_coverage=ref_cov,
+        candidate_coverage=cand_cov,
+        **SMOOTH_SYNTENY_MATCH,
+    )
+    assert observed == pytest.approx(expected)
+
+
+def test_smooth_match_rejects_infinite_endpoint():
+    """An infinite E-value endpoint must not turn NaN interpolation into full credit."""
+    with pytest.raises(ValueError, match="smooth protein-match configuration"):
+        protein_evidence.smooth_protein_match_integrity(
+            30.0,
+            0.1,
+            100,
+            100,
+            100,
+            reference_coverage=0.2,
+            candidate_coverage=0.2,
+            significance_zero_evalue=float("inf"),
+            **SMOOTH_SYNTENY_MATCH,
+        )
 
 
 def test_native_coverage_excludes_gap_columns():
@@ -77,11 +120,8 @@ def test_smooth_match_uses_native_coverage():
         identity_full_credit=1.0,
         reference_coverage_full_credit=1.0,
         candidate_coverage_full_credit=1.0,
-        gamma=1.0,
-        raw_integrity_min=0.0,
-        min_credit=0.0,
     )
-    assert observed == pytest.approx(0.70)
+    assert observed == pytest.approx(0.9146912192)
 
 
 def test_aai_best_evalue_per_orf():
@@ -260,15 +300,12 @@ def test_smooth_reference_summary_rejects_invalid_match_settings_without_hits():
         )
 
 
-def test_smooth_match_rejects_decoy_scale_evidence_and_grades_real_partial_matches():
-    """A shuffled-scale edge must stay zero while a credible fragment starts above zero."""
+def test_smooth_match_grades_weak_and_partial_evidence():
+    """Weak evidence receives less credit than a significant, well-covered partial match."""
     kwargs = {
         "identity_full_credit": 0.85,
         "reference_coverage_full_credit": 0.95,
         "candidate_coverage_full_credit": 0.95,
-        "gamma": 1.5,
-        "raw_integrity_min": 0.001,
-        "min_credit": 0.01,
     }
 
     decoy = protein_evidence.smooth_protein_match_integrity(
@@ -302,8 +339,7 @@ def test_smooth_match_rejects_decoy_scale_evidence_and_grades_real_partial_match
         **kwargs,
     )
 
-    assert decoy == 0.0
-    assert 0.01 < partial < 1.0
+    assert 0.0 < decoy < partial < 1.0
     assert complete == 1.0
 
 
@@ -315,9 +351,6 @@ def test_smooth_match_penalizes_both_truncations_and_fusions():
         "identity_full_credit": 0.85,
         "reference_coverage_full_credit": 0.95,
         "candidate_coverage_full_credit": 0.95,
-        "gamma": 1.5,
-        "raw_integrity_min": 0.001,
-        "min_credit": 0.01,
     }
     complete = protein_evidence.smooth_protein_match_integrity(
         alignment_length=95,
@@ -479,20 +512,20 @@ def test_gene_a_origin_requires_the_functional_site_inside_the_assigned_a_orf():
     assert misplaced.reward == 0.0
 
 
-def test_gene_a_origin_weights_the_nicking_core_and_ignores_nonfunctional_tail_bases():
-    """Known nicking-core mutations matter more than bases 29-30, which are dispensable in vitro."""
+def test_origin_partial_match_shaping():
+    """Partial sites provide graded credit while baseline matches and absent A evidence do not."""
     motif = "CAACTTGATATTAATAACACTATAGACCAC"
     offset = 345
 
-    def score(site: str):
+    def score(site: str, a_integrity: float = 1.0):
         candidate = "G" * offset + site + "G" * 200
         return protein_evidence.score_gene_a_origin(
             candidate_a_orf_nt=candidate,
             candidate_genome_nt=candidate,
-            a_match_integrity=1.0,
+            a_match_integrity=a_integrity,
             motif=motif,
             expected_offset_nt=offset,
-            offset_tolerance_nt=30,
+            offset_tolerance_nt=1,  # Isolate one in-frame site when checking its match fractions.
         )
 
     critical = score(motif[:3] + "A" + motif[4:])
@@ -502,6 +535,21 @@ def test_gene_a_origin_weights_the_nicking_core_and_ignores_nonfunctional_tail_b
     assert 0.0 < critical.reward < binding.reward < 1.0
     assert tail.reward == 1.0
     assert tail.exact_functional_site is True
+
+    # Seven recognition matches and thirteen binding matches were discarded by
+    # the old 8/10 and 14/18 cutoffs. Improving either now gives incremental credit.
+    recognition_seven = score("GGG" + motif[3:])
+    recognition_eight = score("GG" + motif[2:])
+    binding_thirteen = score(motif[:10] + "GGGGG" + motif[15:])
+    binding_fourteen = score(motif[:10] + "GGGG" + motif[14:])
+    assert 0.0 < recognition_seven.reward < recognition_eight.reward < 1.0
+    assert 0.0 < binding_thirteen.reward < binding_fourteen.reward < 1.0
+
+    # One of four nicking bases matches: exactly the uniform-DNA baseline.
+    assert score(motif[:3] + "GGGG" + motif[7:]).reward == 0.0
+    assert score("G" * 28).reward == 0.0
+    assert score(motif, a_integrity=0.0).reward == 0.0
+    assert score(motif, a_integrity=0.25).reward == pytest.approx(0.7071067812)
 
 
 def test_gene_a_origin_penalizes_duplicate_strong_sites():
@@ -522,7 +570,7 @@ def test_gene_a_origin_penalizes_duplicate_strong_sites():
     )
 
     assert result.strong_site_count == 2
-    assert result.reward == pytest.approx(0.5)
+    assert result.reward == pytest.approx(0.8408964153)
 
 
 @pytest.mark.parametrize("offset", [315, 318, 345, 372, 375])
@@ -544,8 +592,8 @@ def test_origin_context_window_has_no_preferred_start(offset):
 
 
 @pytest.mark.parametrize("offset", [312, 316, 344, 376, 378])
-def test_origin_context_rejects_wrong_frame_or_outside_window(offset):
-    """Removing the within-window preference must retain frame and context checks."""
+def test_origin_context_limits_full_credit(offset):
+    """An exact site outside the accepted frame/window cannot give full credit."""
     motif = "CAACTTGATATTAATAACACTATAGACCAC"
     candidate = "G" * offset + motif + "G" * 100
     result = protein_evidence.score_gene_a_origin(
@@ -556,7 +604,9 @@ def test_origin_context_rejects_wrong_frame_or_outside_window(offset):
         expected_offset_nt=345,
         offset_tolerance_nt=30,
     )
-    assert result.reward == 0.0
+    # Imperfect matches at eligible offsets may still earn shaped partial credit.
+    assert result.reward < 1.0
+    assert not result.exact_functional_site
 
 
 def test_required_family_selector_matches_supported_phrog_target_forms_with_missing_annotations():

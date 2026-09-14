@@ -910,22 +910,18 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 ),
                 enable_smooth_reference_rewards=bool(external_qc_cfg.get("enable_smooth_reference_rewards", False)),
                 enable_gene_a_origin=bool(external_qc_cfg.get("enable_gene_a_origin", False)),
+                synteny_identity_zero_credit=float(external_qc_cfg.get("synteny_identity_zero_credit", 0.05)),
                 synteny_identity_full_credit=float(external_qc_cfg.get("synteny_identity_full_credit", 0.90)),
                 synteny_reciprocal_coverage_full_credit=float(
                     external_qc_cfg.get("synteny_reciprocal_coverage_full_credit", 0.95)
                 ),
-                synteny_integrity_gamma=float(external_qc_cfg.get("synteny_integrity_gamma", 1.5)),
-                synteny_raw_integrity_min=float(external_qc_cfg.get("synteny_raw_integrity_min", 0.001)),
-                synteny_min_credit=float(external_qc_cfg.get("synteny_min_credit", 0.01)),
                 synteny_order_weight=float(external_qc_cfg.get("synteny_order_weight", 0.75)),
                 synteny_duplicate_penalty_weight=float(external_qc_cfg.get("synteny_duplicate_penalty_weight", 0.75)),
+                tropism_identity_zero_credit=float(external_qc_cfg.get("tropism_identity_zero_credit", 0.05)),
                 tropism_identity_full_credit=float(external_qc_cfg.get("tropism_identity_full_credit", 0.95)),
                 tropism_reciprocal_coverage_full_credit=float(
                     external_qc_cfg.get("tropism_reciprocal_coverage_full_credit", 0.99)
                 ),
-                tropism_integrity_gamma=float(external_qc_cfg.get("tropism_integrity_gamma", 1.5)),
-                tropism_raw_integrity_min=float(external_qc_cfg.get("tropism_raw_integrity_min", 0.001)),
-                tropism_min_credit=float(external_qc_cfg.get("tropism_min_credit", 0.01)),
                 gene_a_reference_locus=str(external_qc_cfg.get("gene_a_reference_locus", "NC_001422.1_ORF.23")),
                 tropism_reference_locus=str(external_qc_cfg.get("tropism_reference_locus", "NC_001422.1_ORF.3")),
                 gene_a_origin_motif=str(external_qc_cfg.get("gene_a_origin_motif", "CAACTTGATATTAATAACACTATAGACCAC")),

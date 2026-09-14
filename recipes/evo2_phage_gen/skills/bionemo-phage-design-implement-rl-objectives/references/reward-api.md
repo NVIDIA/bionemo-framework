@@ -41,6 +41,60 @@ accepted = nucleotide_pass_mask(measured, config)
 
 The smooth reference architecture and origin functions are public in `protein_evidence.py`: `smooth_protein_match_integrity`, `summarize_smooth_reference_evidence`, `score_smooth_reference_architecture`, and `score_gene_a_origin`. The [worked PhiX reward definitions](../../../examples/README.md#current-phix174-gdpo-score-definitions) identify which functions the shipped profile selects. Keep CSV readers, subprocess arguments, and artifact reconciliation private; those helpers are not standalone biological scoring APIs.
 
+The online reference search in `reward.py` uses MMseqs `easy-search --prefilter-mode 2 -e 1`:
+it aligns the small reference-protein panel against every called candidate ORF, avoiding
+heuristic prefilter misses before grading significance and coverage. This cost depends on
+the number of reference proteins and candidate ORFs; benchmark it when adapting to larger
+panels. Separate hard-QC searches keep their own acceptance rules.
+
+Reference-search E-values depend on the current target pool's total protein residues.
+Changing scoring-call size or ORF content can change weak-hit credit and E=1 hit inclusion;
+record this context when comparing scores. Removing the significance factor from shaping
+alone would not remove the search cutoff. The [worked definitions](../../../examples/README.md#protein-evidence-architecture-and-diversity)
+document the measured scope and its effect on closely grouped candidates. Do not claim
+unconditional batch-composition invariance for this scorer.
+
+`smooth_protein_match_integrity` combines significance, baseline-adjusted protein identity,
+and native query/target coverage with a four-term geometric mean. Its keyword settings are
+`identity_zero_credit` (default 0.05), `identity_full_credit`,
+`reference_coverage_full_credit`, `candidate_coverage_full_credit`, and the guarded
+`significance_zero_evalue` / `significance_full_evalue` endpoints (defaults 1 and 1e-5).
+Identity settings are fractions; the measured identity argument is in percent. There is no
+additional integrity cutoff, minimum-credit bonus, or adjustable exponent. All endpoints must
+be finite and ordered. The shared score feeds smooth synteny, tropism, and gene-A origin evidence;
+retain their separate full-credit targets and final-QC rules. The 5% baseline is a shaping
+choice, not a homology acceptance threshold. The [worked definitions](../../../examples/README.md#protein-evidence-architecture-and-diversity)
+provide the exact factors and config values.
+
+The PHROGs consensus annotation search is configured separately by
+`mmseqs_protein_database_sensitivity` (7.5) and `mmseqs_threads` (16) in the
+[maintained Arc template](../../../configs/arc_genome_design_filtering_local.yaml).
+It feeds online protein-family/required-function evidence and final screening. Higher
+sensitivity recovers significant partial hits missed by the prefilter; it does not relax
+native-coverage thresholds or the requirement for distinct functions. Benchmark the
+search stage and end-to-end scoring with representative protein workloads and CPU threads.
+Do not apply its measured relative slowdown to the entire training step.
+
+## Gene-A origin
+
+`score_gene_a_origin` scans complete 28-nt sites in the assigned A ORF within the configured
+offset window and frame. Recognition is the first 10 nt, binding the next 18 nt, and the
+overlapping nicking core is positions 4–7. For each region, rescale its match fraction
+with `max(0, (fraction - 0.25) / 0.75)`, then compute
+`M = nicking² × recognition × binding`. Use the best eligible site's M and combine it
+with A-protein integrity, position, and uniqueness as `(A × M × position × uniqueness)**0.25`,
+where `uniqueness = 1/max(1,strong_site_count)`.
+The position factor is 1 for a selected positive site inside the accepted window/frame,
+otherwise 0; there is no distance taper within that window.
+
+The strong-site count scans the circular genome using raw recognition ≥8/10, binding ≥14/18,
+and an exact nicking core. These thresholds control the copy penalty only; partial motif
+credit does not require passing them. Uniqueness participates in the geometric mean, so two
+strong sites multiply the reward by `0.5**0.25 ≈ 0.841`. No A evidence or no above-baseline eligible site gives
+zero. The 25% anchor is a uniform-DNA shaping baseline, not a significance test: maximizing
+over candidate offsets can give shuffled windows positive credit. This is an online objective,
+not a separate final acceptance gate or evidence of whole-genome viability.
+
 ## Optional adaptation utilities
 
 GDPO accepts explicitly configured scored-column names with mean, product, or minimum reduction. A target-specific scorer can therefore add its own bounded columns without extending a generic plugin system. Biological objectives must retain safety and EOD gating. Built-in `external_qc.enable_orf` and `enable_coding_density` enable Arc filters; their `reward_external_orf` and `reward_external_coding_density` columns may be selected explicitly as GDPO objectives. They describe the combined Arc ORF filter outcome, not independent graded density curves.

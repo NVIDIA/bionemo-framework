@@ -10,5 +10,10 @@ entry points. This directory retains two shell helpers for the parallel, resumab
   the selection evidence. Its safety manifest, policy, host domain, and confirmed host evidence
   are required and must match online RL; unexplained unavailable measurements fail closed.
 
+Calibration summaries report reward components, measurement support, nucleotide/safety gates,
+and within-setting diversity. Selection evidence includes uncertainty on aggregate reward and
+target signal. Full-QC yield requires the final-screening artifacts; it is not inferred from
+calibration reward columns.
+
 The [8×H100 PhiX174 example](../examples/README.md) invokes both helpers as part of the complete
 agent-free workflow. Their shell tests mirror the directory layout under `tests/scripts/`.

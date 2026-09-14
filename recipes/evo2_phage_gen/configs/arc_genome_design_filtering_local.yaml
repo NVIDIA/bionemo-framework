@@ -109,7 +109,9 @@ mmseqs_db_protein_database: "recipes/evo2_phage_gen/data/external/phrogs/phrogs_
 # The AAI <=95% diversification criterion is not a universal viability condition.
 mmseqs_db_aai_database: "recipes/evo2_phage_gen/data/external/phrogs/phrogs_member_db"
 mmseqs_protein_database_results_dir_save_location: "qc4_mmseqs_results_protein_database"
-mmseqs_protein_database_sensitivity: 4.0
+# Recover significant partial-function hits that the lower-sensitivity prefilter can miss.
+# Shared by online protein-family/required-function evidence and final Arc screening.
+mmseqs_protein_database_sensitivity: 7.5
 protein_database_hit_count: 7
 # King Methods B.1.9 counts protein hits, not seven distinct families. Our patched
 # family/coverage gate is stronger; see configs/README.md for the measurement definitions.

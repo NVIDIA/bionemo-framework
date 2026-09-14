@@ -120,8 +120,6 @@ def test_summarize_cell_separates_measured_zero_from_missing_support():
             "reward_external_synteny": [0.1, 0.0],
             "reward_gene_a_origin": [0.3, 0.0],
             "reward_external_average_protein_identity": [0.8, 0.0],
-            "reward_binary_full_qc_pass": [0.0, 0.0],
-            "reward_binary_full_qc_cluster_deduplicated_pass": [0.0, 0.0],
             "external_qc_tool_succeeded": [1.0, 1.0],
             "protein_database_hit_count_measurement_available": [1.0, 1.0],
             "tropism_measurement_available": [1.0, 1.0],
@@ -164,6 +162,9 @@ def test_summarize_cell_separates_measured_zero_from_missing_support():
     assert summary["reward_safety_lysogeny_mean"] == 0.625
     assert summary["mmseqs_cluster_num_clusters"] == 2
     assert summary["metric_environment_ok"] is False
+    assert summary["reward_nucleotide_pass_rate"] == 1.0
+    assert summary["safety_gate_pass_rate"] == 0.5
+    assert not any("binary_core" in key or "binary_full" in key for key in summary)
 
 
 def test_summarize_cell_accepts_explicit_safety_inapplicability():

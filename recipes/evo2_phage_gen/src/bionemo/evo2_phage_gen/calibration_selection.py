@@ -66,8 +66,6 @@ def summarize_setting(path: Path, *, bootstrap_seed: int = 174, bootstrap_replic
     metrics = {
         "aggregate_reward": _numeric(scored, "reward"),
         "target_signal": target_signal,
-        "full_qc": _numeric(scored, "reward_binary_full_qc_pass"),
-        "full_qc_cluster_deduplicated": _numeric(scored, "reward_binary_full_qc_cluster_deduplicated_pass"),
     }
     cluster_count = _numeric(scored, "mmseqs_cluster_num_clusters").max()
     row: dict[str, float | int | str | bool] = {

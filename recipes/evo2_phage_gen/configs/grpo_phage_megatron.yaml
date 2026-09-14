@@ -328,22 +328,22 @@ env:
       required_genes_evidence_target: 9.0
       protein_match_min_reciprocal_coverage: 0.75
       tropism_match_min_reciprocal_coverage: 0.95
-      # Smooth rewards use permissive significant ORF hits; hard Arc/LoVis gates remain independent.
+      # Smooth rewards use a permissive reference-to-ORF search; hard Arc/LoVis gates remain independent.
       enable_smooth_reference_rewards: true
+      # Match integrity is the geometric mean of significance, identity, and both coverages.
+      # Identity settings are fractions; 5% is a shaping baseline, not a homology threshold.
+      synteny_identity_zero_credit: 0.05
       synteny_identity_full_credit: 0.90
       synteny_reciprocal_coverage_full_credit: 0.95
-      synteny_integrity_gamma: 1.5
-      synteny_raw_integrity_min: 0.001
-      synteny_min_credit: 0.01
       synteny_order_weight: 0.75
       synteny_duplicate_penalty_weight: 0.75
+      tropism_identity_zero_credit: 0.05
+      # Shaping targets; the independent hard gate uses >=60% identity and >=0.95 coverage.
+      # https://doi.org/10.1101/2025.09.12.675911, Methods B.1.9.
       tropism_identity_full_credit: 0.95
       tropism_reciprocal_coverage_full_credit: 0.99
-      # These are shaping targets, not King's >=60% host-tropism acceptance threshold:
-      # https://doi.org/10.1101/2025.09.12.675911, Methods B.1.9. See configs/README.md definitions.
-      tropism_integrity_gamma: 1.5
-      tropism_raw_integrity_min: 0.001
-      tropism_min_credit: 0.01
+      # Origin reward: geometric mean of A-integrity, baseline-adjusted motif, position, and uniqueness.
+      # The motif uses credit above 25% matching; only the configured in-frame window is scored.
       enable_gene_a_origin: true
       gene_a_reference_locus: NC_001422.1_ORF.23
       tropism_reference_locus: NC_001422.1_ORF.3

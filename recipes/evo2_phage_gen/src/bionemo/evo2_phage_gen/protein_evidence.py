@@ -62,19 +62,23 @@ def _validate_smooth_protein_match_config(
     identity_full_credit: float,
     reference_coverage_full_credit: float,
     candidate_coverage_full_credit: float,
-    gamma: float,
-    raw_integrity_min: float,
-    min_credit: float,
+    identity_zero_credit: float = 0.05,
     significance_zero_evalue: float = 1.0,
     significance_full_evalue: float = 1e-5,
 ) -> None:
+    values = (
+        identity_zero_credit,
+        identity_full_credit,
+        reference_coverage_full_credit,
+        candidate_coverage_full_credit,
+        significance_zero_evalue,
+        significance_full_evalue,
+    )
     if not (
-        0.0 < identity_full_credit <= 1.0
+        all(math.isfinite(value) for value in values)
+        and 0.0 <= identity_zero_credit < identity_full_credit <= 1.0
         and 0.0 < reference_coverage_full_credit <= 1.0
         and 0.0 < candidate_coverage_full_credit <= 1.0
-        and gamma > 0.0
-        and 0.0 <= raw_integrity_min < 1.0
-        and 0.0 <= min_credit < 1.0
         and 0.0 < significance_full_evalue < significance_zero_evalue
     ):
         raise ValueError("Invalid smooth protein-match configuration")
@@ -92,20 +96,26 @@ def smooth_protein_match_integrity(
     identity_full_credit: float,
     reference_coverage_full_credit: float,
     candidate_coverage_full_credit: float,
-    gamma: float,
-    raw_integrity_min: float,
-    min_credit: float,
+    identity_zero_credit: float = 0.05,
     significance_zero_evalue: float = 1.0,
     significance_full_evalue: float = 1e-5,
 ) -> float:
-    """Grade native MMseqs coverage; alignment columns include gaps, not just residues."""
+    """Geometric mean of significance, identity progress, and native reciprocal coverage.
+
+    Identity is supplied in percent; its zero/full-credit settings are fractions.
+    The default 5% zero point is a shaping baseline, not a significance test for
+    searched protein alignments. Coverage comes from MMseqs qcov/tcov because
+    alignment-column counts include gaps. Any zero factor gives zero integrity;
+    positive factors receive continuous credit without a separate cutoff or bonus.
+    E-values depend on the search's target database size. The online reference
+    search uses the current batch's ORFs, so weak-hit scores can change with the
+    batch's total protein residues even when the aligned proteins are unchanged.
+    """
     _validate_smooth_protein_match_config(
         identity_full_credit=identity_full_credit,
         reference_coverage_full_credit=reference_coverage_full_credit,
         candidate_coverage_full_credit=candidate_coverage_full_credit,
-        gamma=gamma,
-        raw_integrity_min=raw_integrity_min,
-        min_credit=min_credit,
+        identity_zero_credit=identity_zero_credit,
         significance_zero_evalue=significance_zero_evalue,
         significance_full_evalue=significance_full_evalue,
     )
@@ -131,6 +141,10 @@ def smooth_protein_match_integrity(
         return 0.0
     if not (0.0 <= ref_cov <= 1.0 and 0.0 <= cand_cov <= 1.0):
         return 0.0
+    # Interpolate linearly in -log10(E): each tenfold decrease in E adds the same
+    # significance credit. With the default endpoints (1 and 1e-5), E=1e-1,
+    # 1e-2, ..., 1e-5 earns 0.2, 0.4, ..., 1.0. Clamp outside that interval;
+    # the full-credit guard also handles E=0 without evaluating log10(0).
     if evalue >= significance_zero_evalue:
         significance = 0.0
     elif evalue <= significance_full_evalue:
@@ -140,14 +154,12 @@ def smooth_protein_match_integrity(
         full_log = -math.log10(significance_full_evalue)
         significance = (-math.log10(evalue) - zero_log) / (full_log - zero_log)
 
-    identity_progress = min((identity / 100.0) / identity_full_credit, 1.0)
+    identity_progress = max(
+        0.0, min((identity / 100.0 - identity_zero_credit) / (identity_full_credit - identity_zero_credit), 1.0)
+    )
     reference_progress = min(ref_cov / reference_coverage_full_credit, 1.0)
     candidate_progress = min(cand_cov / candidate_coverage_full_credit, 1.0)
-    raw_integrity = significance * (identity_progress * reference_progress * candidate_progress) ** gamma
-    if raw_integrity <= raw_integrity_min:
-        return 0.0
-    rescaled = (raw_integrity - raw_integrity_min) / (1.0 - raw_integrity_min)
-    return min(1.0, min_credit + (1.0 - min_credit) * rescaled)
+    return (significance * identity_progress * reference_progress * candidate_progress) ** 0.25
 
 
 def _maximum_weight_reference_assignment(
@@ -207,7 +219,13 @@ def score_smooth_reference_architecture(
     order_weight: float,
     duplicate_penalty_weight: float,
 ) -> SmoothReferenceArchitecture:
-    """Score ORF content and circular order without rewarding deletion or duplicate repair."""
+    """Score reference content/order and subtract excess candidate match strength.
+
+    The excess term measures best-match mass beyond the one-to-one content
+    assignment, including partial homologs; it is not a count of intact copies.
+    Unmatched extra ORFs contribute neither credit nor excess mass. The final
+    subtraction is clipped at zero, so positive content can still score zero.
+    """
     if not reference_order:
         return SmoothReferenceArchitecture(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, ())
     if len(set(reference_order)) != len(reference_order) or len(set(candidate_order)) != len(candidate_order):
@@ -265,6 +283,7 @@ def _origin_site_components(observed: str, functional_motif: str) -> tuple[float
 
 
 def _circular_strong_origin_count(sequence: str, functional_motif: str) -> int:
+    """Count strong sites for the copy penalty, independently of partial-match credit."""
     extended = sequence + sequence[: len(functional_motif) - 1]
     count = 0
     for index in range(len(sequence)):
@@ -285,7 +304,17 @@ def score_gene_a_origin(
     expected_offset_nt: int,
     offset_tolerance_nt: int,
 ) -> GeneAOriginScore:
-    """Score an origin in the accepted gene-A frame/window, without preferring one called start."""
+    """Score an origin in the accepted gene-A frame/window.
+
+    Rescale recognition (10 nt), binding (18 nt), and overlapping nicking-core
+    (4 nt) match fractions with ``max(0, (fraction - 0.25) / 0.75)``. This uses
+    the uniform-DNA matching baseline for shaping, not as a significance test.
+    The best in-frame site's motif score is ``nicking**2 * recognition * binding``.
+    Take the geometric mean of A-protein integrity, motif score, position score,
+    and uniqueness: ``(A * motif * position * uniqueness)**0.25``, where
+    ``uniqueness = 1 / max(1, strong_site_count)``. Any zero factor gives zero.
+    Partial sites need not pass the strong-site thresholds to earn credit.
+    """
     candidate_a_orf_nt = str(candidate_a_orf_nt).upper()
     candidate_genome_nt = str(candidate_genome_nt).upper()
     motif = str(motif).upper()
@@ -305,8 +334,9 @@ def score_gene_a_origin(
             continue
         observed = candidate_a_orf_nt[offset : offset + len(functional_motif)]
         recognition, binding, nicking = _origin_site_components(observed, functional_motif)
-        if recognition < 0.8 or binding < 14.0 / 18.0:
-            continue
+        recognition, binding, nicking = (
+            max(0.0, (fraction - 0.25) / 0.75) for fraction in (recognition, binding, nicking)
+        )
         motif_score = nicking**2 * recognition * binding
         # Viable PhiX designs and WA11 have an intact site at offset 318 rather
         # than 345. The tolerance is an accepted context window, not evidence
@@ -319,7 +349,7 @@ def score_gene_a_origin(
 
     strong_site_count = _circular_strong_origin_count(candidate_genome_nt, functional_motif)
     uniqueness = 1.0 / max(1, strong_site_count)
-    reward = float(a_match_integrity) * best_motif_score * best_position_score * uniqueness
+    reward = (float(a_match_integrity) * best_motif_score * best_position_score * uniqueness) ** 0.25
     return GeneAOriginScore(
         reward=max(0.0, min(1.0, reward)),
         motif_score=best_motif_score,

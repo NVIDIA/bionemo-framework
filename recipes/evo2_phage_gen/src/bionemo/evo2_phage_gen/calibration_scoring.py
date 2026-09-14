@@ -170,7 +170,7 @@ def load_generation_records(path: Path) -> pd.DataFrame:
 
 
 def summarize_cell(cell: str, scored: pd.DataFrame) -> dict[str, float | int | str | bool | None]:
-    """Summarize reward, hard-pass, and support without conflating zeros with missingness."""
+    """Summarize rewards, nucleotide/safety gates, and measurement support."""
     match = CELL_RE.fullmatch(cell)
     external_environment_ok = bool(
         len(scored)
@@ -200,14 +200,7 @@ def summarize_cell(cell: str, scored: pd.DataFrame) -> dict[str, float | int | s
         row[f"{column}_mean"] = float(_numeric_column(scored, column).mean())
     cluster_count = _numeric_column(scored, "mmseqs_cluster_num_clusters").max()
     row["mmseqs_cluster_num_clusters"] = int(cluster_count) if pd.notna(cluster_count) else None
-    for column in (
-        "reward_nucleotide_pass",
-        "reward_binary_core_pass",
-        "reward_binary_core_cluster_deduplicated_pass",
-        "reward_binary_full_qc_pass",
-        "reward_binary_full_qc_cluster_deduplicated_pass",
-        "safety_gate_pass",
-    ):
+    for column in ("reward_nucleotide_pass", "safety_gate_pass"):
         row[f"{column}_rate"] = float(_numeric_column(scored, column).mean())
     row["aggregate_reward_mean"] = float(_numeric_column(scored, "reward").mean())
     return row

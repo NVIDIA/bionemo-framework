@@ -79,7 +79,7 @@
       "expected_output": "A total, row-isolated, type-stable reward implementation whose optimized path preserves scientific behavior.",
       "assertions": [
         "Empty and invalid genomes receive explicit zeroes across every applicable objective and cannot enter paths that assume genes or reference-length evidence.",
-        "Invalid rows are isolated and zeroed while valid rows in the same batch continue to score, with results invariant to batch composition and row order.",
+        "Invalid rows are isolated and zeroed while valid rows continue to score with correct record mapping under row reordering. Batch-composition invariance is tested against the scorer contract; the current reference search explicitly retains target-pool-dependent E-values rather than claiming unconditional invariance.",
         "Numeric reward and safety columns are initialized with stable numeric dtypes before mixed PASS, FAIL, INDETERMINATE, missing, and measured updates.",
         "Successful no-hit is distinguished from scorer or tool failure, and failure cannot become PASS or vacuous positive credit.",
         "The exact enabled portfolio is exercised on a reference, equivalent circular representations where relevant, empty and targeted negative controls, and mixed-validity batches.",
@@ -97,7 +97,8 @@
         "Control provenance, biological rationale, expected ordering, measured score, support, and failure state are recorded.",
         "Where circular equivalence should hold, rotations and reverse complements preserve the expected result.",
         "Boundary, empty, invalid, missing-evidence, no-hit, and tool-failure cases cannot receive accidental positive credit.",
-        "The exact installed scoring path and combined portfolio run the controls so a skipped component cannot hide behind aggregate reward."
+        "The exact installed scoring path and combined portfolio run the controls so a skipped component cannot hide behind aggregate reward.",
+        "For motif shaping such as PhiX gene-A origin, partial-match progression and shuffled-window background are checked separately from viable full-credit endpoints; its 25% uniform-DNA baseline is not described as a significance threshold. The origin reward uses the four-factor geometric mean of A integrity, baseline-adjusted motif quality, position/frame eligibility, and strong-site uniqueness; any zero factor gives zero reward."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",
       "expected_script": null
@@ -109,10 +110,12 @@
       "assertions": [
         "The scorer retains alignment, query, and target lengths plus native query/target coverage; gap-containing alignment-column counts are not substituted for residue coverage, and identity alone is not gene presence.",
         "Credible partial matches earn graded progress toward the approved completeness target without requiring a complete gene set first; intact-gene hard gates remain separate.",
+        "When adapting the existing smooth protein scorer, it uses the geometric mean of significance, baseline-adjusted identity, and native query/target coverage, preserving exact-zero factors without adding an integrity floor or credit bonus. It treats the default 5% identity baseline as shaping rather than a searched-alignment significance threshold.",
+        "It preserves the small reference-panel search's no-prefilter alignment path and considers search sensitivity separately from match-score shaping; adapting to larger panels requires a runtime check. It recognizes that target-pool size affects both weak-hit significance credit and the E=1 search cutoff, so removing the reward factor alone cannot establish batch independence.",
         "Deletion and truncation controls test the learning progression. Base-shuffled controls check accidental protein-match credit; gene-order shuffles preserve protein content and test order separately. Neither dictates a universal positive floor.",
         "Distinct-function counts use unique supported families, while repeated hits cannot substitute for missing functions. No novelty cutoff is added to this conservation task.",
         "Missing coverage evidence fails closed rather than falling back to raw hit counts or alignment-column approximations.",
-        "Focused tests include full-length, truncated, duplicate-family, missing-evidence, and overlapping or embedded-gene cases and compare online scoring with final QC."
+        "Focused tests include full-length, truncated, duplicate-family, missing-evidence, and overlapping or embedded-gene cases and compare online scoring with final QC. Search sensitivity is evaluated separately from coverage rules; PHROGs sensitivity follows the maintained template, and runtime comparisons use representative protein workloads, CPU allocation, and absolute end-to-end cost rather than multiplying the entire step by one stage's slowdown."
       ],
       "expected_skill": "bionemo-phage-design-implement-rl-objectives",
       "expected_script": null

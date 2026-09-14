@@ -170,7 +170,6 @@ def test_grpo_config_uses_prompt_batch_size_for_evo2_generation():
     assert external_qc["enable_smooth_reference_rewards"] is True
     assert external_qc["synteny_identity_full_credit"] == 0.90
     assert external_qc["synteny_reciprocal_coverage_full_credit"] == 0.95
-    assert external_qc["synteny_raw_integrity_min"] == 0.001
     assert external_qc["tropism_identity_full_credit"] == 0.95
     assert external_qc["tropism_reciprocal_coverage_full_credit"] == 0.99
     assert external_qc["enable_gene_a_origin"] is True

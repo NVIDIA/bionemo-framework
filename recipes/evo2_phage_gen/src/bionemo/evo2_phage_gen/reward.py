@@ -229,18 +229,14 @@ class ExternalQCRewardConfig:
     tropism_match_min_reciprocal_coverage: float = 0.95
     enable_smooth_reference_rewards: bool = False
     enable_gene_a_origin: bool = False
+    synteny_identity_zero_credit: float = 0.05
     synteny_identity_full_credit: float = 0.90
     synteny_reciprocal_coverage_full_credit: float = 0.95
-    synteny_integrity_gamma: float = 1.5
-    synteny_raw_integrity_min: float = 0.001
-    synteny_min_credit: float = 0.01
     synteny_order_weight: float = 0.75
     synteny_duplicate_penalty_weight: float = 0.75
+    tropism_identity_zero_credit: float = 0.05
     tropism_identity_full_credit: float = 0.95
     tropism_reciprocal_coverage_full_credit: float = 0.99
-    tropism_integrity_gamma: float = 1.5
-    tropism_raw_integrity_min: float = 0.001
-    tropism_min_credit: float = 0.01
     gene_a_reference_locus: str = "NC_001422.1_ORF.23"
     tropism_reference_locus: str = "NC_001422.1_ORF.3"
     gene_a_origin_motif: str = "CAACTTGATATTAATAACACTATAGACCAC"
@@ -376,7 +372,12 @@ def _smooth_reference_search_command(
     temporary_dir: Path,
     threads: int,
 ) -> list[str]:
-    """Build the permissive protein search used only for graded online evidence."""
+    """Align the small reference panel against the current scoring batch's called ORFs.
+
+    MMseqs E-values depend on the target pool's total residues. Changing the
+    batch size or ORF content can alter weak-hit credit and which hits pass E<=1;
+    dropping significance from the reward alone would not remove this cutoff.
+    """
     return [
         "mmseqs",
         "easy-search",
@@ -390,10 +391,11 @@ def _smooth_reference_search_command(
         "0",
         "-e",
         "1",
-        "-s",
-        "7.5",
-        "--max-seqs",
-        "100000",
+        # Skip heuristic prefiltering: it can drop significant, high-coverage
+        # homologs after small sequence changes. Aligning all pairs is affordable
+        # for this small reference panel; E-value/identity/coverage still score hits.
+        "--prefilter-mode",
+        "2",
         "--format-output",
         "query,target,evalue,pident,alnlen,qlen,tlen,qcov,tcov",
         "--threads",
@@ -1333,20 +1335,16 @@ def _add_smooth_reference_rewards(
         candidate_orders=candidate_orders,
         reference_order=reference_order,
         synteny_match_parameters={
+            "identity_zero_credit": external_qc.synteny_identity_zero_credit,
             "identity_full_credit": external_qc.synteny_identity_full_credit,
             "reference_coverage_full_credit": external_qc.synteny_reciprocal_coverage_full_credit,
             "candidate_coverage_full_credit": external_qc.synteny_reciprocal_coverage_full_credit,
-            "gamma": external_qc.synteny_integrity_gamma,
-            "raw_integrity_min": external_qc.synteny_raw_integrity_min,
-            "min_credit": external_qc.synteny_min_credit,
         },
         tropism_match_parameters={
+            "identity_zero_credit": external_qc.tropism_identity_zero_credit,
             "identity_full_credit": external_qc.tropism_identity_full_credit,
             "reference_coverage_full_credit": external_qc.tropism_reciprocal_coverage_full_credit,
             "candidate_coverage_full_credit": external_qc.tropism_reciprocal_coverage_full_credit,
-            "gamma": external_qc.tropism_integrity_gamma,
-            "raw_integrity_min": external_qc.tropism_raw_integrity_min,
-            "min_credit": external_qc.tropism_min_credit,
         },
         synteny_order_weight=external_qc.synteny_order_weight,
         synteny_duplicate_penalty_weight=external_qc.synteny_duplicate_penalty_weight,
