@@ -325,7 +325,6 @@ env:
       enable_average_protein_identity: true
       enable_required_genes: true
       # Nine PhiX functions; viable K loss and alternate J are described in the Arc profile.
-      required_genes_evidence_target: 9.0
       protein_match_min_reciprocal_coverage: 0.75
       tropism_match_min_reciprocal_coverage: 0.95
       # Smooth rewards use a permissive reference-to-ORF search; hard Arc/LoVis gates remain independent.

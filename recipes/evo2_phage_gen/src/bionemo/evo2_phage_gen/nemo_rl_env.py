@@ -687,7 +687,7 @@ def phage_qc_metrics_from_scored(
             "average_protein_identity_novelty_score",
             "average_protein_identity_evidence_score",
         ),
-        "reward_external_required_genes": ("required_genes_integrity_sum", "required_genes_evidence_score"),
+        "reward_external_required_genes": ("required_genes_integrity_sum",),
         "reward_mmseqs_cluster_diversity": (
             "mmseqs_cluster_valid_for_clustering",
             "mmseqs_cluster_missing_from_output",
@@ -901,7 +901,6 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 enable_synteny=bool(external_qc_cfg.get("enable_synteny", False)),
                 enable_average_protein_identity=bool(external_qc_cfg.get("enable_average_protein_identity", False)),
                 enable_required_genes=bool(external_qc_cfg.get("enable_required_genes", False)),
-                required_genes_evidence_target=float(external_qc_cfg.get("required_genes_evidence_target", 10.0)),
                 protein_match_min_reciprocal_coverage=float(
                     external_qc_cfg.get("protein_match_min_reciprocal_coverage", 0.75)
                 ),

@@ -75,6 +75,29 @@ native-coverage thresholds or the requirement for distinct functions. Benchmark 
 search stage and end-to-end scoring with representative protein workloads and CPU threads.
 Do not apply its measured relative slowdown to the entire training step.
 
+## Required functions
+
+`summarize_required_gene_evidence(hits_df, sequences_df, required_families, ...)`
+accepts a mapping such as `{"A": ["phrog:713"], "J": ["phrog:2354", "phrog:3780"]}`.
+Each key names one required function; its explicit families are alternatives. Families
+must be disjoint across functions. Native target IDs are normalized, but annotation
+labels do not define matches. The Arc config field is `required_gene_families`.
+
+The reward is maximum one-to-one assigned coverage credit divided by the number of
+configured functions. Each edge earns `min(1,qcov/qmin,tcov/tmin)`; defaults and
+family-specific overrides have the same normalization. Extra genes and copies cannot
+replace missing functions or increase the denominator. Final required-function
+acceptance requires all functions to have distinct ORFs meeting both coverage targets.
+The private CSV reader checks producer availability and finite, consistent counts;
+unavailable evidence earns zero and remains unavailable. Keep this separate from a
+successful search with no matching genes.
+
+Use the [biological profile](../../../configs/required_genes.md) for the PhiX function
+map, alternate J, conditional essentiality evidence, calibrated coverage, and guidance
+for new profiles. `required_genes_integrity_sum` is summed normalized coverage in
+this term, not the smooth reference-protein geometric mean. Any profile change needs
+replay on viable and disrupted controls before interpreting a new run against old scores.
+
 ## Gene-A origin
 
 `score_gene_a_origin` scans complete 28-nt sites in the assigned A ORF within the configured

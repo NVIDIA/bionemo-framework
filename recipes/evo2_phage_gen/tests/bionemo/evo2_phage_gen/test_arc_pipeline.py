@@ -375,7 +375,7 @@ def test_patched_arc_required_gene_measurement_does_not_filter_or_delete(tmp_pat
     measured = module.valid_gene_annotations(
         input_gff_dir=str(gff_dir),
         input_gbk_dir=str(gbk_dir),
-        required_products=("major capsid protein", "missing protein"),
+        required_families={"A": ["phrog:1"], "B": ["phrog:2"]},
         sequences_df=sequences,
         metrics_csv=str(metrics_csv),
         filter_results=False,
@@ -405,9 +405,15 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
 ##############################
 ### RUN FILTERING PIPELINE ###
 ##############################
+if __name__ == "__main__":
+    print(f"Required genes: {config['required_genes_list']}")
+    valid_gene_annotations(input_gff_dir="gff", input_gbk_dir="gbk",
+                           required_products=config["required_genes_list"], sequences_df=sequences)
 """
     )
     arc_pipeline._apply_required_gene_evidence_patch(tmp_path)
+    assert "required_genes_list" not in pipeline_path.read_text()
+    assert 'required_families=config["required_gene_families"]' in pipeline_path.read_text()
     spec = importlib.util.spec_from_file_location("patched_required_gene_evidence", pipeline_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -424,7 +430,7 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
         {
             "id_prompt": ["umi1_ORF.1", "umi1_ORF.2", "umi1_ORF.3"],
             "annot": ["gene A", "gene A", "gene B"],
-            "protein_database_mmseqs_target": ["family_A", "family_A", "family_B"],
+            "protein_database_mmseqs_target": ["phrog_1", "phrog_1", "phrog_2"],
             "protein_database_mmseqs_percent_identity": [100.0, 100.0, 100.0],
             "protein_database_mmseqs_alignment_length": [100, 100, 50],
             "protein_database_mmseqs_query_length": [100, 100, 50],
@@ -438,7 +444,7 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
     measured = module.valid_gene_annotations(
         input_gff_dir=str(gff_dir),
         input_gbk_dir=str(gbk_dir),
-        required_products=("gene A", "gene B"),
+        required_families={"A": ["phrog:1"], "B": ["phrog:2"]},
         sequences_df=sequences,
         metrics_csv=str(metrics_csv),
         filter_results=False,
@@ -449,7 +455,7 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
     assert measured["id_prompt"].tolist() == ["umi1"]
     metrics = pd.read_csv(metrics_csv)
     assert metrics["required_genes_matched_count"].tolist() == [2]
-    assert metrics["required_genes_integrity_sum"].tolist() == pytest.approx([1.5])
+    assert metrics["required_genes_integrity_sum"].tolist() == pytest.approx([1.0 + 0.5 / 0.95])
     assert metrics["required_genes_full_length_count"].tolist() == [1]
     assert (gff_dir / "genome_1.gff").exists()
     assert (gbk_dir / "genome_1.gbk").exists()
@@ -459,12 +465,12 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
     accepted = module.valid_gene_annotations(
         str(gff_dir),
         str(gbk_dir),
-        ("gene A", "gene B"),
+        {"A": ["phrog:1"], "B": ["phrog:2"]},
         sequences,
         metrics_csv=str(metrics_csv),
         protein_database_hits_df=hits,
         minimum_reciprocal_coverage=0.95,
-        family_coverage_thresholds={"family_B": (0.95, 0.50)},
+        family_coverage_thresholds={"phrog:2": (0.95, 0.50)},
     )
     assert accepted["id_prompt"].tolist() == ["umi1"]
     assert pd.read_csv(metrics_csv)["required_genes_full_length_count"].tolist() == [2]
@@ -472,7 +478,7 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
     filtered = module.valid_gene_annotations(
         input_gff_dir=str(gff_dir),
         input_gbk_dir=str(gbk_dir),
-        required_products=("gene A", "gene B"),
+        required_families={"A": ["phrog:1"], "B": ["phrog:2"]},
         sequences_df=sequences,
         metrics_csv=str(metrics_csv),
         filter_results=True,
@@ -488,7 +494,7 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
     assert module.valid_gene_annotations(
         str(gff_dir),
         str(gbk_dir),
-        (),
+        {},
         sequences,
         protein_database_hits_df=hits,
     ).empty

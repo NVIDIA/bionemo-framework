@@ -489,7 +489,7 @@ def _apply_required_gene_evidence_patch(output_dir: Path) -> None:
     replacement = '''def valid_gene_annotations(
     input_gff_dir: str,
     input_gbk_dir: str,
-    required_products: tuple,
+    required_families: dict,
     sequences_df: pd.DataFrame,
     metrics_csv: str = None,
     filter_results: bool = True,
@@ -504,7 +504,7 @@ def _apply_required_gene_evidence_patch(output_dir: Path) -> None:
     metrics_df = summarize_required_gene_evidence(
         hits_df,
         sequences_df,
-        required_products,
+        required_families,
         minimum_reciprocal_coverage,
         family_coverage_thresholds,
     )
@@ -536,6 +536,10 @@ def _apply_required_gene_evidence_patch(output_dir: Path) -> None:
     patched_text, replacement_count = function_pattern.subn(replacement, text)
     if replacement_count != 1:
         raise ValueError(f"Expected exactly one required-gene function in {pipeline_path}, found {replacement_count}.")
+    # Rewrite the upstream call and its status message to the maintained profile.
+    patched_text = patched_text.replace("required_genes_list", "required_gene_families").replace(
+        "required_products=config[", "required_families=config["
+    )
     pipeline_path.write_text(patched_text)
 
 

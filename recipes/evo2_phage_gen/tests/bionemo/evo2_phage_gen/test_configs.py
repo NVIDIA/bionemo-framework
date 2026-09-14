@@ -64,16 +64,20 @@ def test_phix_function_gates_allow_observed_viable_variants():
 
     arc = yaml.safe_load((RECIPE_ROOT / "configs/arc_genome_design_filtering_local.yaml").read_text())
     assert arc["orfipy_min_max_orf_lengths"] == [75, 1800]
-    assert len(arc["required_genes_list"]) == 9
-    assert "DNA condensation" in arc["required_genes_list"]
-    assert arc["required_genes_list"].count("head morphogenesis") == 2
-    assert "phrog:1713" not in arc["required_genes_list"]
-    assert "nan" not in arc["required_genes_list"]
-    assert arc["required_genes_evidence_target"] == 9
+    assert arc["required_gene_families"] == {
+        "A": ["phrog:713"],
+        "B": ["phrog:1473"],
+        "C": ["phrog:1465"],
+        "D": ["phrog:1386"],
+        "E": ["phrog:1472"],
+        "F": ["phrog:514"],
+        "G": ["phrog:1483"],
+        "H": ["phrog:1471"],
+        "J": ["phrog:2354", "phrog:3780"],
+    }
     for name in ("grpo_phage_megatron.yaml", "gdpo_phage_megatron.yaml"):
         resolved = _load_config_with_defaults(RECIPE_ROOT / "configs" / name)
         external = resolved["env"]["phage_qc"]["external_qc"]
-        assert external["required_genes_evidence_target"] == arc["required_genes_evidence_target"], name
         assert external["config_path"] == "configs/arc_genome_design_filtering_local.yaml", name
         assert external["enable_required_genes"] and external["enable_average_protein_identity"], name
         assert resolved["policy"]["generation"]["max_new_tokens"] == 6000, name

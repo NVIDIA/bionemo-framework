@@ -224,7 +224,6 @@ class ExternalQCRewardConfig:
     enable_synteny: bool = False
     enable_average_protein_identity: bool = False
     enable_required_genes: bool = False
-    required_genes_evidence_target: float = 10.0
     protein_match_min_reciprocal_coverage: float = 0.75
     tropism_match_min_reciprocal_coverage: float = 0.95
     enable_smooth_reference_rewards: bool = False
@@ -1265,7 +1264,6 @@ def _write_external_qc_config(
         )
         config.setdefault("required_genes_metrics_file_save_location", "qc6_required_genes_metrics.csv")
         config.setdefault("synteny_metrics_file_save_location", "qc6_synteny_filter_metrics.csv")
-        config["required_genes_evidence_target"] = float(external_qc.required_genes_evidence_target)
 
     run_config_path.write_text(yaml.safe_dump(config, sort_keys=False))
     return run_config_path
@@ -1520,76 +1518,58 @@ def _add_required_gene_rewards(
     scored_df: pd.DataFrame,
     run_dir: Path,
     config: dict,
-    evidence_target: float = 10.0,
 ) -> pd.DataFrame:
-    """Add continuous rewards for Arc's required-gene annotation filter."""
+    """Read shared required-family evidence; reward its mean normalized coverage."""
     id_column = "arc_qc_id" if "arc_qc_id" in scored_df else "id_prompt"
-    scored_df["required_genes_stage_reached"] = 0.0
-    scored_df["required_genes_measurement_available"] = 0.0
-    scored_df["required_genes_missing_artifact"] = 0.0
+    value_columns = [
+        "required_genes_matched_count",
+        "required_genes_total_count",
+        "required_genes_integrity_sum",
+        "required_genes_full_length_count",
+    ]
+    for column in [
+        *value_columns,
+        "reward_external_required_genes",
+        "reward_external_required_genes_pass",
+        "required_genes_stage_reached",
+        "required_genes_measurement_available",
+    ]:
+        scored_df[column] = 0.0
+    scored_df["required_genes_missing_artifact"] = 1.0
     metrics_path = run_dir / config.get("required_genes_metrics_file_save_location", "qc6_required_genes_metrics.csv")
     if not metrics_path.is_file():
-        scored_df["required_genes_missing_artifact"] = 1.0
         return scored_df
 
-    metrics_df = pd.read_csv(metrics_path)
-    required_columns = {
-        "id_prompt",
-        "required_genes_matched_count",
-        "required_genes_total_count",
-        "required_genes_integrity_sum",
-        "required_genes_full_length_count",
-    }
-    if not required_columns.issubset(metrics_df.columns):
-        scored_df["required_genes_missing_artifact"] = 1.0
+    metrics_df = pd.read_csv(metrics_path, dtype={"id_prompt": str})
+    availability_column = "required_genes_alignment_evidence_available"
+    if not {"id_prompt", availability_column, *value_columns}.issubset(metrics_df.columns):
         return scored_df
 
-    metrics_df = metrics_df.copy()
-    for column in [
-        "required_genes_matched_count",
-        "required_genes_total_count",
-        "required_genes_integrity_sum",
-        "required_genes_full_length_count",
-    ]:
-        metrics_df[column] = pd.to_numeric(metrics_df[column], errors="coerce").fillna(0.0)
-    metrics_by_id = metrics_df.set_index(metrics_df["id_prompt"].astype(str))
-    mapped_matched = scored_df[id_column].astype(str).map(metrics_by_id["required_genes_matched_count"])
-    mapped_total = scored_df[id_column].astype(str).map(metrics_by_id["required_genes_total_count"])
-    mapped_integrity = scored_df[id_column].astype(str).map(metrics_by_id["required_genes_integrity_sum"])
-    mapped_full_length = scored_df[id_column].astype(str).map(metrics_by_id["required_genes_full_length_count"])
-    has_required_gene_metric = (
-        mapped_matched.notna() & mapped_total.notna() & mapped_integrity.notna() & mapped_full_length.notna()
+    metrics_by_id = metrics_df.set_index("id_prompt")
+    ids = scored_df[id_column].astype(str)
+    mapped = metrics_by_id[value_columns].reindex(ids).set_axis(scored_df.index)
+    mapped = mapped.apply(pd.to_numeric, errors="coerce")
+    matched, total, integrity, full = (mapped[column] for column in value_columns)
+    available = (
+        ids.map(metrics_by_id[availability_column]).eq(True)
+        & (mapped.ge(0) & mapped.lt(math.inf)).all(axis=1)
+        & matched.eq(matched.round())
+        & total.eq(total.round())
+        & full.eq(full.round())
+        & full.le(matched)
+        & matched.le(total)
+        & integrity.le(matched + 1e-9)
+        & integrity.ge(full - 1e-9)
     )
-    scored_df["required_genes_stage_reached"] = (
-        scored_df[id_column].astype(str).isin(metrics_by_id.index).astype(float)
-    )
-    scored_df["required_genes_measurement_available"] = has_required_gene_metric.astype(float)
-    scored_df["required_genes_matched_count"] = mapped_matched.fillna(0.0)
-    scored_df["required_genes_total_count"] = mapped_total.fillna(0.0)
-    scored_df["required_genes_integrity_sum"] = mapped_integrity.fillna(0.0)
-    scored_df["required_genes_full_length_count"] = mapped_full_length.fillna(0.0)
-    scored_df["required_genes_raw_score"] = [
-        0.0 if (not has_metric or total <= 0) else max(0.0, min(1.0, integrity / total))
-        for integrity, total, has_metric in zip(
-            scored_df["required_genes_integrity_sum"],
-            scored_df["required_genes_total_count"],
-            has_required_gene_metric,
-            strict=False,
-        )
-    ]
-    scored_df["required_genes_evidence_score"] = (
-        scored_df["required_genes_total_count"]
-        .map(lambda total: max(0.0, min(1.0, float(total) / max(float(evidence_target), 1.0))))
-        .where(has_required_gene_metric & (scored_df["required_genes_total_count"] > 0), 0.0)
-    )
+    scored_df["required_genes_stage_reached"] = ids.isin(metrics_by_id.index).astype(float)
+    scored_df["required_genes_measurement_available"] = available.astype(float)
+    scored_df["required_genes_missing_artifact"] = (~available).astype(float)
+    for column in value_columns:
+        scored_df[column] = mapped[column].where(available, 0.0)
     scored_df["reward_external_required_genes"] = (
-        scored_df["required_genes_raw_score"] * scored_df["required_genes_evidence_score"]
+        (integrity / total.where(total.gt(0))).clip(0, 1).where(available & total.gt(0), 0.0)
     )
-    scored_df["reward_external_required_genes_pass"] = (
-        has_required_gene_metric
-        & (scored_df["required_genes_total_count"] > 0)
-        & (scored_df["required_genes_full_length_count"] >= scored_df["required_genes_total_count"])
-    ).astype(float)
+    scored_df["reward_external_required_genes_pass"] = (available & total.gt(0) & full.eq(total)).astype(float)
     return scored_df
 
 
@@ -1882,7 +1862,6 @@ def add_external_qc_rewards(
                 df,
                 run_dir,
                 config,
-                external_qc.required_genes_evidence_target,
             )
             _record_elapsed(timings, "reward/external_qc/parse_required_genes_s", phase_start)
     finally:

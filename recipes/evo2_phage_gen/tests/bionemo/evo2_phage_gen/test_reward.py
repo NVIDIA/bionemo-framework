@@ -1617,14 +1617,14 @@ def test_required_gene_evidence_fails_closed_without_annotations():
     )
     sequences = pd.DataFrame({"id_prompt": ["umi1"], "genome_id": ["genome_1"]})
 
-    observed = summarize_required_gene_evidence(hits, sequences, ("terminase",))
+    observed = summarize_required_gene_evidence(hits, sequences, {"C": ["phrog:1465"]})
 
     assert observed["required_genes_alignment_evidence_available"].tolist() == [False]
     assert observed["required_genes_integrity_sum"].tolist() == [0.0]
     assert observed["required_genes_full_length_count"].tolist() == [0]
 
 
-def test_required_gene_evidence_requires_distinct_orfs_for_repeated_labels():
+def test_required_gene_evidence_requires_distinct_orfs_for_required_families():
     hits = pd.DataFrame(
         {
             "id_prompt": [
@@ -1635,7 +1635,7 @@ def test_required_gene_evidence_requires_distinct_orfs_for_repeated_labels():
                 "duplicate_ORF.2",
             ],
             "annot": ["head morphogenesis"] * 5,
-            "protein_database_mmseqs_target": ["D", "B", "D", "D", "D"],
+            "protein_database_mmseqs_target": ["phrog_1386", "phrog_1473", "phrog_1386", "phrog_1386", "phrog_1386"],
             "protein_database_mmseqs_percent_identity": [30.0] * 5,
             "protein_database_mmseqs_alignment_length": [100] * 5,
             "protein_database_mmseqs_query_length": [100] * 5,
@@ -1654,7 +1654,7 @@ def test_required_gene_evidence_requires_distinct_orfs_for_repeated_labels():
     observed = summarize_required_gene_evidence(
         hits,
         sequences,
-        ("head morphogenesis", "head morphogenesis"),
+        {"B": ["phrog:1473"], "D": ["phrog:1386"]},
     )
 
     assert observed["required_genes_total_count"].tolist() == [2, 2, 2]
@@ -1774,7 +1774,7 @@ def test_score_sequences_can_fold_in_external_qc_rewards(tmp_path, monkeypatch):
         "protein_database_hit_count": 2,
         "protein_annotation_file": str(annotation_file),
         "reference_genome_gff_file_save_location": str(reference_gff),
-        "required_genes_list": ["terminase", "endolysin"],
+        "required_gene_families": {"A": ["phrog:1"], "B": ["phrog:2"]},
         "total_gene_count_range": [2, 2],
         "tropism_protein_sequence_identity_range": [60, 100],
     }
@@ -1845,6 +1845,7 @@ def test_score_sequences_can_fold_in_external_qc_rewards(tmp_path, monkeypatch):
                 "required_genes_total_count": [2, 2],
                 "required_genes_integrity_sum": [2.0, 1.0],
                 "required_genes_full_length_count": [2, 1],
+                "required_genes_alignment_evidence_available": [True, True],
             }
         ).to_csv(run_dir / "qc6_required_genes_metrics.csv", index=False)
         pd.DataFrame(
@@ -1884,7 +1885,6 @@ def test_score_sequences_can_fold_in_external_qc_rewards(tmp_path, monkeypatch):
             enable_synteny=True,
             enable_average_protein_identity=True,
             enable_required_genes=True,
-            required_genes_evidence_target=2,
         ),
     )
 
@@ -2360,67 +2360,50 @@ def test_average_protein_identity_reward_requires_evidence(tmp_path):
     assert scored["reward_external_average_protein_identity_pass"].tolist() == [0.0] * 5
 
 
-def test_required_gene_reward_is_fractional_and_evidence_weighted(tmp_path):
-    """Required-gene reward should stay gradual and give no credit without evidence."""
-    run_dir = tmp_path / "arc_run"
-    run_dir.mkdir()
+def test_required_reward_uses_declared_family_count(tmp_path):
+    """Small and large profiles use their own completeness denominator."""
     pd.DataFrame(
         {
-            "id_prompt": ["umi1", "umi2", "umi3", "umi4"],
-            "required_genes_matched_count": [9, 6, 4, 0],
-            "required_genes_total_count": [9, 9, 6, 0],
-            "required_genes_integrity_sum": [9.0, 6.0, 4.0, 0.0],
-            "required_genes_full_length_count": [9, 6, 4, 0],
+            "id_prompt": ["a", "b", "c", "empty"],
+            "required_genes_matched_count": [9, 8, 10, 0],
+            "required_genes_total_count": [9, 9, 12, 0],
+            "required_genes_integrity_sum": [9.0, 7.5, 10.0, 0.0],
+            "required_genes_full_length_count": [9, 7, 10, 0],
+            "required_genes_alignment_evidence_available": [True] * 4,
         }
-    ).to_csv(run_dir / "qc6_required_genes_metrics.csv", index=False)
-    df = pd.DataFrame(
-        {
-            "arc_qc_id": ["umi1", "umi2", "umi3", "umi4"],
-            "reward_external_required_genes": [0.0, 0.0, 0.0, 0.0],
-        }
-    )
-
-    scored = _add_required_gene_rewards(
-        df,
-        run_dir,
-        {"required_genes_metrics_file_save_location": "qc6_required_genes_metrics.csv"},
-        evidence_target=9.0,
-    )
-
-    assert scored["reward_external_required_genes_pass"].tolist() == [1.0, 0.0, 0.0, 0.0]
-    assert scored.loc[0, "reward_external_required_genes"] == 1.0
-    assert round(scored.loc[1, "reward_external_required_genes"], 6) == round(6 / 9, 6)
-    assert round(scored.loc[2, "reward_external_required_genes"], 6) == round((4 / 6) * (6 / 9), 6)
-    assert scored.loc[3, "reward_external_required_genes"] == 0.0
+    ).to_csv(tmp_path / "qc6_required_genes_metrics.csv", index=False)
+    result = _add_required_gene_rewards(pd.DataFrame({"arc_qc_id": ["c", "a", "b", "empty"]}), tmp_path, {})
+    assert result["reward_external_required_genes"].tolist() == pytest.approx([5 / 6, 1.0, 5 / 6, 0.0])
+    assert result["reward_external_required_genes_pass"].tolist() == [0.0, 1.0, 0.0, 0.0]
 
 
-def test_required_gene_reward_uses_fixed_family_denominator_and_full_length_gate(tmp_path):
-    """Duplicate and partial annotations cannot substitute for an intact missing family."""
-    run_dir = tmp_path / "arc_run"
-    run_dir.mkdir()
-    pd.DataFrame(
-        {
-            "id_prompt": ["umi1"],
-            "required_genes_matched_count": [3],
-            "required_genes_total_count": [2],
-            "required_genes_integrity_sum": [1.5],
-            "required_genes_full_length_count": [1],
-        }
-    ).to_csv(run_dir / "qc6_required_genes_metrics.csv", index=False)
-    df = pd.DataFrame({"arc_qc_id": ["umi1"], "reward_external_required_genes": [0.0]})
-
-    scored = _add_required_gene_rewards(
-        df,
-        run_dir,
-        {"required_genes_metrics_file_save_location": "qc6_required_genes_metrics.csv"},
-        evidence_target=2.0,
-    )
-
-    assert scored["required_genes_matched_count"].tolist() == [3.0]
-    assert scored["required_genes_integrity_sum"].tolist() == [1.5]
-    assert scored["required_genes_full_length_count"].tolist() == [1.0]
-    assert scored["reward_external_required_genes"].tolist() == pytest.approx([0.75])
-    assert scored["reward_external_required_genes_pass"].tolist() == [0.0]
+@pytest.mark.parametrize(
+    "column,value",
+    [
+        ("required_genes_integrity_sum", "bad"),
+        ("required_genes_integrity_sum", float("inf")),
+        ("required_genes_matched_count", 10),
+        ("required_genes_full_length_count", 10),
+        ("required_genes_alignment_evidence_available", False),
+    ],
+)
+def test_required_reward_rejects_unusable_measurements(tmp_path, column, value):
+    """Malformed or explicitly unavailable evidence cannot be reported as a valid zero or pass."""
+    row = {
+        "id_prompt": "bad",
+        "required_genes_matched_count": 9,
+        "required_genes_total_count": 9,
+        "required_genes_integrity_sum": 9.0,
+        "required_genes_full_length_count": 9,
+        "required_genes_alignment_evidence_available": True,
+    }
+    row[column] = value
+    pd.DataFrame([row]).to_csv(tmp_path / "qc6_required_genes_metrics.csv", index=False)
+    result = _add_required_gene_rewards(pd.DataFrame({"id_prompt": ["bad", "absent"]}), tmp_path, {})
+    assert result["reward_external_required_genes"].tolist() == [0.0, 0.0]
+    assert result["reward_external_required_genes_pass"].tolist() == [0.0, 0.0]
+    assert result["required_genes_measurement_available"].tolist() == [0.0, 0.0]
+    assert result["required_genes_missing_artifact"].tolist() == [1.0, 1.0]
 
 
 def test_synteny_requires_complete_measurements(tmp_path):

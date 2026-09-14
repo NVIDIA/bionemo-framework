@@ -17,8 +17,6 @@
 
 import math
 import re
-import warnings
-from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -26,7 +24,7 @@ import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
-from scipy.optimize import Bounds, LinearConstraint, linear_sum_assignment, milp
+from scipy.optimize import linear_sum_assignment
 
 
 ORFIPY_INTERVAL_RE = re.compile(r"\[(\d+)-(\d+)\]")
@@ -1031,131 +1029,88 @@ def _canonical_required_target(value: object) -> str:
     return f"phrog:{int(match.group(1))}" if match else text
 
 
-def _required_product_matches(product: str, annotation: object, canonical_target: str) -> bool:
-    """Match an annotation label or an explicit PHROG family selector."""
-    selector = "phrog:1713" if product.strip().lower() == "nan" else product.strip()
-    family_match = re.fullmatch(r"phrog:(\d+)", selector, flags=re.IGNORECASE)
-    if family_match is not None:
-        return canonical_target == f"phrog:{int(family_match.group(1))}"
-    return str(annotation) == product
-
-
-def _maximum_weight_required_assignment(
-    edge_weights: dict[tuple[str, str, str], float],
-    product_quotas: Counter[str],
-) -> tuple[float, ...]:
-    """Optimize required evidence under candidate, family, and product-copy constraints."""
-    edges = tuple(sorted((edge, float(weight)) for edge, weight in edge_weights.items() if float(weight) > 0.0))
-    if not edges:
-        return ()
-
-    candidates = sorted({edge[0] for edge, _weight in edges})
-    targets = sorted({edge[1] for edge, _weight in edges})
-    products = sorted({edge[2] for edge, _weight in edges})
-    constraint_keys = (
-        [("candidate", candidate) for candidate in candidates]
-        + [("target", target) for target in targets]
-        + [("product", product) for product in products]
-    )
-    matrix = [
-        [
-            float(
-                (kind == "candidate" and edge[0] == key)
-                or (kind == "target" and edge[1] == key)
-                or (kind == "product" and edge[2] == key)
-            )
-            for edge, _weight in edges
-        ]
-        for kind, key in constraint_keys
-    ]
-    upper_bounds = [float(product_quotas[key]) if kind == "product" else 1.0 for kind, key in constraint_keys]
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"Unrecognized options detected: \{'threads'\}\. These will be passed to HiGHS verbatim\.",
-            category=RuntimeWarning,
-        )
-        result = milp(
-            c=[-weight for _edge, weight in edges],
-            integrality=[1] * len(edges),
-            bounds=Bounds(0.0, 1.0),
-            constraints=LinearConstraint(matrix, 0.0, upper_bounds),
-            options={"threads": 1},
-        )
-    if not result.success:
-        raise RuntimeError(f"Required-gene evidence assignment failed: {result.message}")
-    return tuple(weight for selected, (_edge, weight) in zip(result.x, edges, strict=True) if selected > 0.5)
-
-
 def summarize_required_gene_evidence(
     hits_df: pd.DataFrame,
     sequences_df: pd.DataFrame,
-    required_products: tuple,
+    required_families: dict[str, list[str] | tuple[str, ...]],
     minimum_reciprocal_coverage: float = 0.75,
     family_coverage_thresholds: dict[str, tuple[float, float]] | None = None,
 ) -> pd.DataFrame:
-    """Assign distinct functions, optionally using control-calibrated family coverage.
+    """Assign distinct ORFs to named functions with curated ``phrog:ID`` alternatives.
 
-    Without a profile, retain raw reciprocal-integrity rewards. With a profile,
-    normalize coverage to the supported query/target thresholds (defaulting to
-    the generic threshold for families not overridden). This lets a documented
-    viable shortened or extended allele satisfy its function without relaxing
-    the requirements for unrelated proteins. Hard and full-credit boundaries
-    then coincide for this component; experimental viability is not implied.
+    Each function earns min(1, query_coverage/query_min, target_coverage/target_min).
+    Missing functions earn zero; extra families and copies cannot replace them.
+    Maximize total credit with a one-to-one assignment, and separately count the
+    largest assignment whose hits meet both coverage thresholds. Annotation text
+    does not establish functional equivalence. See configs/required_genes.md for
+    the PhiX profile's experimental rationale and coverage calibration limits.
     """
-    calibrated = family_coverage_thresholds is not None
+    error = "The required families must map named functions to nonempty, disjoint lists of explicit phrog:ID selectors"
+    if not isinstance(required_families, dict):
+        raise ValueError(error)
+    family_to_function = {}
+    for function, families in required_families.items():
+        if (
+            not isinstance(function, str)
+            or not function.strip()
+            or not isinstance(families, (list, tuple))
+            or not families
+        ):
+            raise ValueError(error)
+        for family in families:
+            if (
+                not isinstance(family, str)
+                or re.fullmatch(r"phrog:[1-9]\d*", family) is None
+                or family in family_to_function
+            ):
+                raise ValueError(error)
+            family_to_function[family] = function
+    functions = tuple(required_families)
+    if not 0.0 < minimum_reciprocal_coverage <= 1.0:
+        raise ValueError("Default required-gene coverage must be in (0, 1]")
     coverage_thresholds = {}
     for family, thresholds in (family_coverage_thresholds or {}).items():
         if len(thresholds) != 2 or not all(0.0 < float(value) <= 1.0 for value in thresholds):
             raise ValueError("Family coverage thresholds must contain query and target fractions in (0, 1]")
         coverage_thresholds[_canonical_required_target(family)] = tuple(map(float, thresholds))
-    if calibrated and not 0.0 < minimum_reciprocal_coverage <= 1.0:
-        raise ValueError("Default calibrated coverage must be in (0, 1]")
-    required_products = tuple(map(str, required_products))
-    required_product_counts = Counter(required_products)
     hits_df, available = add_protein_alignment_evidence(hits_df, "protein_database")
     target_column = "protein_database_mmseqs_target"
-    available = available and {"id_prompt", "annot", target_column}.issubset(hits_df.columns)
+    available = available and {"id_prompt", target_column}.issubset(hits_df.columns)
     if available:
         hits_df["_genome_id"] = hits_df["id_prompt"].astype(str).str.rsplit("_", n=1).str[0]
 
     rows = []
     for sequence in sequences_df.itertuples(index=False):
         genome_hits = hits_df.loc[hits_df["_genome_id"] == str(sequence.id_prompt)] if available else pd.DataFrame()
-        edge_weights: dict[tuple[str, str, str], float] = {}
-        full_edge_weights: dict[tuple[str, str, str], float] = {}
+        edge_weights: dict[tuple[str, str], float] = {}
+        full_edge_weights: dict[tuple[str, str], float] = {}
         for hit in genome_hits.to_dict("records"):
-            candidate = str(hit["id_prompt"])
             target = _canonical_required_target(hit[target_column])
+            if target not in family_to_function:
+                continue
             query_min, target_min = coverage_thresholds.get(
                 target, (minimum_reciprocal_coverage, minimum_reciprocal_coverage)
             )
             query_coverage = float(hit["protein_database_mmseqs_query_coverage"])
             target_coverage = float(hit["protein_database_mmseqs_target_coverage"])
-            for product in required_product_counts:
-                if not _required_product_matches(product, hit["annot"], target):
-                    continue
-                edge = (candidate, target, product)
-                integrity = (
-                    min(1.0, query_coverage / query_min, target_coverage / target_min)
-                    if calibrated
-                    else float(hit["protein_database_alignment_integrity"])
-                )
-                if integrity > edge_weights.get(edge, 0.0):
-                    edge_weights[edge] = integrity
-                if query_coverage >= query_min and target_coverage >= target_min:
-                    full_edge_weights[edge] = 1.0
+            edge = (family_to_function[target], str(hit["id_prompt"]))
+            integrity = min(1.0, query_coverage / query_min, target_coverage / target_min)
+            if integrity > edge_weights.get(edge, 0.0):
+                edge_weights[edge] = integrity
+            if query_coverage >= query_min and target_coverage >= target_min:
+                full_edge_weights[edge] = 1.0
 
-        integrities = _maximum_weight_required_assignment(edge_weights, required_product_counts)
-        full_length_count = len(_maximum_weight_required_assignment(full_edge_weights, required_product_counts))
+        candidates = tuple(sorted({candidate for _family, candidate in edge_weights}))
+        integrity_sum, assignment = _maximum_weight_reference_assignment(edge_weights, functions, candidates)
+        _, full_assignment = _maximum_weight_reference_assignment(full_edge_weights, functions, candidates)
         rows.append(
             {
                 "id_prompt": str(sequence.id_prompt),
                 "genome_id": str(sequence.genome_id),
-                "required_genes_matched_count": sum(value > 0.0 for value in integrities),
-                "required_genes_total_count": len(required_products),
-                "required_genes_integrity_sum": math.fsum(integrities),
-                "required_genes_full_length_count": full_length_count,
+                "required_genes_matched_count": len(assignment),
+                "required_genes_total_count": len(required_families),
+                "required_genes_integrity_sum": integrity_sum,
+                "required_genes_full_length_count": len(full_assignment),
                 "required_genes_alignment_evidence_available": available,
             }
         )

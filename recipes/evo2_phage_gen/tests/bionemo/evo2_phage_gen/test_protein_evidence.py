@@ -15,9 +15,7 @@
 
 """Focused tests for smooth, ORF-gated reference evidence."""
 
-import warnings
 from pathlib import Path
-from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -610,7 +608,7 @@ def test_origin_context_limits_full_credit(offset):
 
 
 def test_required_family_selector_matches_supported_phrog_target_forms_with_missing_annotations():
-    """The known unknown-function slot must select PHROG1713, not missing annotations generally."""
+    """An explicit family matches native target IDs even without an annotation label."""
     hits = _required_hits(
         ("numeric_ORF.1", pd.NA, 1713, 1.0),
         ("string_ORF.1", float("nan"), "1713", 1.0),
@@ -621,194 +619,102 @@ def test_required_family_selector_matches_supported_phrog_target_forms_with_miss
     observed = protein_evidence.summarize_required_gene_evidence(
         hits,
         _required_sequences("numeric", "string", "prefixed", "unrelated"),
-        ("phrog:1713",),
+        {"K": ["phrog:1713"]},
     )
 
     assert observed["required_genes_integrity_sum"].tolist() == [1.0, 1.0, 1.0, 0.0]
     assert observed["required_genes_full_length_count"].tolist() == [1, 1, 1, 0]
 
 
-def test_required_nan_compatibility_alias_selects_only_phrog1713():
-    """Legacy `nan` configs must mean PHROG1713 without accepting unrelated missing annotations."""
-    hits = _required_hits(
-        ("family_ORF.1", pd.NA, "phrog_1713", 1.0),
-        ("unrelated_ORF.1", float("nan"), "phrog_9999", 1.0),
-    )
+@pytest.mark.parametrize(
+    "required",
+    [
+        {"A": ["nan"]},
+        {"A": ["head morphogenesis"]},
+        {"A": ["phrog:1473"], "B": ["phrog:1473"]},
+        {"J": []},
+        {"J": "phrog:2354"},
+    ],
+)
+def test_required_families_reject_ambiguous_profiles(required):
+    with pytest.raises(ValueError, match="required families"):
+        protein_evidence.summarize_required_gene_evidence(pd.DataFrame(), _required_sequences("sample"), required)
 
+
+def test_required_families_ignore_annotation_text():
+    """Curated families still match without labels; an unrelated labeled hit cannot substitute."""
+    hits = _required_hits(
+        ("valid_ORF.1", "wrong label", "phrog_1473", 1.0),
+        ("unrelated_ORF.1", "head morphogenesis", "phrog_9999", 1.0),
+    ).drop(columns="annot")
     observed = protein_evidence.summarize_required_gene_evidence(
         hits,
-        _required_sequences("family", "unrelated"),
-        ("nan",),
+        _required_sequences("valid", "unrelated"),
+        {"B": ["phrog:1473"]},
     )
-
     assert observed["required_genes_integrity_sum"].tolist() == [1.0, 0.0]
-    assert observed["required_genes_full_length_count"].tolist() == [1, 0]
+    assert observed["required_genes_alignment_evidence_available"].tolist() == [True, True]
 
 
-def test_required_product_labels_keep_exact_annotation_matching():
-    """Ordinary required products must continue to match their annotation labels."""
-    hits = _required_hits(
-        ("labeled_ORF.1", "terminase", "phrog_1", 1.0),
-        ("missing_ORF.1", pd.NA, "phrog_2", 1.0),
-    )
-
-    observed = protein_evidence.summarize_required_gene_evidence(
-        hits,
-        _required_sequences("labeled", "missing"),
-        ("terminase",),
-    )
-
-    assert observed["required_genes_integrity_sum"].tolist() == [1.0, 0.0]
-
-
-def test_required_integrity_assignment_is_invariant_to_orf_names_and_row_order():
-    """Renumbering the same 0.675 and 1.0 family hits must not change the shaped score."""
-    first = _required_hits(
-        ("first_ORF.1", "DNA condensation", "phrog_2354", 0.675),
-        ("first_ORF.2", "DNA condensation", "phrog_2354", 1.0),
-    )
-    rotated = _required_hits(
-        ("rotated_ORF.2", "DNA condensation", "phrog_2354", 0.675),
-        ("rotated_ORF.1", "DNA condensation", "phrog_2354", 1.0),
-    ).iloc[::-1]
-
-    first_score = protein_evidence.summarize_required_gene_evidence(
-        first,
-        _required_sequences("first"),
-        ("DNA condensation",),
-    )
-    rotated_score = protein_evidence.summarize_required_gene_evidence(
-        rotated,
-        _required_sequences("rotated"),
-        ("DNA condensation",),
-    )
-
-    assert first_score.loc[0, "required_genes_integrity_sum"] == 1.0
-    assert rotated_score.loc[0, "required_genes_integrity_sum"] == 1.0
-
-
-def test_required_integrity_capped_assignment_uses_best_single_edge():
-    """A one-copy quota must optimize one edge rather than truncate a full matching."""
-    hits = _required_hits(
-        ("sample_ORF.1", "head", "family_1", 1.0),
-        ("sample_ORF.1", "head", "family_2", 0.2),
-        ("sample_ORF.2", "head", "family_1", 0.9),
-        ("sample_ORF.2", "head", "family_2", 0.8),
-    )
-
-    observed = protein_evidence.summarize_required_gene_evidence(
-        hits,
-        _required_sequences("sample"),
-        ("head",),
-    )
-
-    assert observed.loc[0, "required_genes_integrity_sum"] == 1.0
-
-
-def test_required_integrity_repeated_quota_uses_maximum_weight_one_to_one_assignment():
-    """Repeated products must maximize evidence while keeping candidates and families unique."""
-    hits = _required_hits(
-        ("sample_ORF.1", "head", "family_1", 1.0),
-        ("sample_ORF.1", "head", "family_2", 0.2),
-        ("sample_ORF.2", "head", "family_1", 0.9),
-        ("sample_ORF.2", "head", "family_2", 0.8),
-    )
-
-    observed = protein_evidence.summarize_required_gene_evidence(
-        hits,
-        _required_sequences("sample"),
-        ("head", "head"),
-    )
-
-    assert observed.loc[0, "required_genes_integrity_sum"] == pytest.approx(1.8)
-    assert observed.loc[0, "required_genes_matched_count"] == 2
-
-
-def test_required_integrity_does_not_reuse_one_target_family_for_a_repeated_product():
-    """Extra ORFs hitting one family cannot satisfy a repeated-product quota twice."""
-    hits = _required_hits(
-        ("sample_ORF.1", "head", "family_1", 1.0),
-        ("sample_ORF.2", "head", "family_1", 0.9),
-    )
-
-    observed = protein_evidence.summarize_required_gene_evidence(
-        hits,
-        _required_sequences("sample"),
-        ("head", "head"),
-    )
-
-    assert observed.loc[0, "required_genes_integrity_sum"] == 1.0
-    assert observed.loc[0, "required_genes_matched_count"] == 1
-
-
-def test_required_integrity_does_not_reuse_ambiguous_candidate_across_products():
-    """One ORF with hits under two annotations may fill only one required-product slot."""
-    hits = _required_hits(
-        ("sample_ORF.1", "product A", "family_A", 1.0),
-        ("sample_ORF.1", "product B", "family_B", 1.0),
-        ("sample_ORF.2", "product A", "family_A", 0.5),
-    )
-
-    observed = protein_evidence.summarize_required_gene_evidence(
-        hits,
-        _required_sequences("sample"),
-        ("product A", "product B"),
-    )
-
-    assert observed.loc[0, "required_genes_integrity_sum"] == 1.5
-    assert observed.loc[0, "required_genes_matched_count"] == 2
-    assert observed.loc[0, "required_genes_full_length_count"] == 1
-
-
-def test_required_integrity_never_decreases_when_weaker_evidence_is_added():
-    """Adding a weaker hit to an already satisfied slot must leave its best score intact."""
-    strong = _required_hits(("sample_ORF.9", "head", "family_1", 1.0))
-    with_weaker = pd.concat(
-        [_required_hits(("sample_ORF.1", "head", "family_1", 0.675)), strong],
-        ignore_index=True,
-    )
-
-    baseline = protein_evidence.summarize_required_gene_evidence(
-        strong,
-        _required_sequences("sample"),
-        ("head",),
-    )
-    augmented = protein_evidence.summarize_required_gene_evidence(
-        with_weaker,
-        _required_sequences("sample"),
-        ("head",),
-    )
-
-    assert augmented.loc[0, "required_genes_integrity_sum"] == baseline.loc[0, "required_genes_integrity_sum"]
-
-
-def test_required_assignment_bounds_highs_threads_and_only_suppresses_its_forwarding_warning(monkeypatch):
-    """The tiny MILP must be single-threaded without hiding unrelated solver warnings."""
-    observed_options = None
-
-    def fake_milp(**kwargs):
-        nonlocal observed_options
-        observed_options = kwargs.get("options")
-        warnings.warn(
-            "Unrecognized options detected: {'threads'}. These will be passed to HiGHS verbatim.",
-            RuntimeWarning,
-        )
-        warnings.warn("independent solver warning", RuntimeWarning)
-        return SimpleNamespace(success=True, x=[1.0], message="optimal")
-
-    monkeypatch.setattr(protein_evidence, "milp", fake_milp)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        assigned = protein_evidence._maximum_weight_required_assignment(
-            {("candidate", "target", "product"): 1.0},
-            {"product": 1},
-        )
-
-    assert assigned == (1.0,)
-    assert observed_options == {"threads": 1}
-    assert [(warning.category, str(warning.message)) for warning in caught] == [
-        (RuntimeWarning, "independent solver warning")
+def test_phix_profile_requires_its_specific_families():
+    """An unrelated endolysin cannot replace E merely by sharing its annotation label."""
+    families = [713, 1473, 1465, 1386, 1472, 514, 1483, 1471, 2354]
+    labels = [
+        "DNA replication initiation",
+        "head morphogenesis",
+        "terminase",
+        "head morphogenesis",
+        "endolysin",
+        "major head protein",
+        "major spike protein",
+        "pilot protein for DNA ejection",
+        "DNA condensation",
     ]
+    hits = _required_hits(
+        *[
+            (
+                f"{genome}_ORF.{i}",
+                label,
+                f"phrog_{9999 if genome == 'wrong' and family == 1472 else 3780 if genome == 'alternate' and family == 2354 else family}",
+                1.0,
+            )
+            for genome in ("valid", "wrong", "alternate")
+            for i, (family, label) in enumerate(zip(families, labels, strict=True))
+        ]
+    )
+    hits = pd.concat([hits, _required_hits(("wrong_ORF.extra", "DNA condensation", "phrog_3780", 1.0))])
+    config_path = Path(__file__).parents[3] / "configs/arc_genome_design_filtering_local.yaml"
+    config = yaml.safe_load(config_path.read_text())
+    observed = protein_evidence.summarize_required_gene_evidence(
+        hits,
+        _required_sequences("valid", "wrong", "alternate"),
+        config["required_gene_families"],
+        family_coverage_thresholds=config["required_gene_family_coverage"],
+    )
+    assert observed["required_genes_integrity_sum"].tolist() == [9.0, 8.0, 9.0]
+    assert observed["required_genes_full_length_count"].tolist() == [9, 8, 9]
+
+
+def test_required_families_assign_distinct_orfs_and_ignore_extra_copies():
+    """One ambiguous ORF cannot fill two families; extra copies cannot inflate completeness."""
+    hits = _required_hits(
+        ("sample_ORF.1", "same label", "phrog_1", 1.0),
+        ("sample_ORF.1", "same label", "phrog_2", 1.0),
+        ("sample_ORF.2", "same label", "phrog_1", 0.375),
+        ("sample_ORF.3", "same label", "phrog_1", 0.30),
+        ("sample_ORF.4", "other", "phrog_3", 1.0),
+    )
+    scores = []
+    for frame in (hits, hits.iloc[::-1]):
+        result = protein_evidence.summarize_required_gene_evidence(
+            frame,
+            _required_sequences("sample"),
+            {"A": ["phrog:1"], "B": ["phrog:2"]},
+        )
+        scores.append(result.loc[0, "required_genes_integrity_sum"])
+        assert result.loc[0, "required_genes_matched_count"] == 2
+        assert result.loc[0, "required_genes_full_length_count"] == 1
+    assert scores == [1.5, 1.5]
 
 
 @pytest.mark.parametrize(
@@ -833,7 +739,7 @@ def test_calibrated_family_coverage_accepts_viable_variants(family, aligned, que
     observed = protein_evidence.summarize_required_gene_evidence(
         hits,
         _required_sequences("sample"),
-        ("function",),
+        {"gene": [f"phrog:{family}"]},
         family_coverage_thresholds=profile,
     )
     assert observed.loc[0, "required_genes_full_length_count"] == 1
@@ -846,7 +752,7 @@ def test_calibrated_family_coverage_accepts_viable_variants(family, aligned, que
     damaged = protein_evidence.summarize_required_gene_evidence(
         hits,
         _required_sequences("sample"),
-        ("function",),
+        {"gene": [f"phrog:{family}"]},
         family_coverage_thresholds=profile,
     )
     assert damaged.loc[0, "required_genes_full_length_count"] == 0
@@ -859,7 +765,7 @@ def test_calibrated_coverage_does_not_relax_other_families():
     observed = protein_evidence.summarize_required_gene_evidence(
         hits,
         _required_sequences("sample"),
-        ("major head protein",),
+        {"F": ["phrog:514"]},
         family_coverage_thresholds={"phrog:1465": (0.70, 0.47)},
     )
     assert observed.loc[0, "required_genes_full_length_count"] == 0
@@ -872,7 +778,7 @@ def test_bad_family_coverage_is_rejected_even_without_hits(thresholds):
         protein_evidence.summarize_required_gene_evidence(
             pd.DataFrame(),
             _required_sequences("empty"),
-            ("function",),
+            {"C": ["phrog:1465"]},
             family_coverage_thresholds={"phrog:1465": thresholds},
         )
 

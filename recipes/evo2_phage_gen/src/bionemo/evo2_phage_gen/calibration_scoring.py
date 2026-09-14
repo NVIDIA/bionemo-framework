@@ -243,7 +243,6 @@ def score_cell(
         enable_synteny=bool(arc.get("syntenic_gene_count_filter")),
         enable_average_protein_identity=bool(arc.get("average_protein_sequence_identity_filter")),
         enable_required_genes=bool(arc.get("required_genes_filter")),
-        required_genes_evidence_target=float(arc.get("required_genes_evidence_target", 10.0)),
         protein_match_min_reciprocal_coverage=float(arc.get("protein_match_min_reciprocal_coverage", 0.75)),
         tropism_match_min_reciprocal_coverage=float(arc.get("tropism_match_min_reciprocal_coverage", 0.95)),
         enable_smooth_reference_rewards=True,

@@ -211,7 +211,7 @@ env:
       enable_synteny: true
       enable_average_protein_identity: true
       enable_required_genes: true
-      # Inherit the control-calibrated required-gene target from the shared PhiX config.
+      # Named required functions and coverage targets come from the shared Arc config.
       protein_match_min_reciprocal_coverage: 0.75
       tropism_match_min_reciprocal_coverage: 0.95
       # Per external-QC reward run; set lower if several environment actors score concurrently.

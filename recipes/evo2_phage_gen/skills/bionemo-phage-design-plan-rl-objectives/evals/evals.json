@@ -170,7 +170,7 @@
       "prompt": "Our whole-genome RL run is not improving because host-range and bootability rewards are sparse. The portfolio omitted essential-gene and synteny shaping. Revise the objective plan.",
       "expected_output": "A bounded portfolio with graded biological intermediate rewards that provide dense guidance toward sparse terminal objectives.",
       "assertions": [
-        "The response adds biologically justified intermediate rewards such as essential-gene completeness and reasonable synteny instead of relying only on sparse terminal rewards.",
+        "The response adds biologically justified intermediate rewards such as required-gene completeness and reasonable synteny instead of relying only on sparse terminal rewards. Required functions are grounded in experimental functional evidence with host/assay conditions and exceptions; reference presence or shared annotation text alone does not establish essentiality or interchangeable detection targets. Detection alternatives may be supported by diverse natural homologs and domain/profile evidence rather than only previously demonstrated swaps, with genome compatibility kept as a separate claim.",
         "Each intermediate reward uses carefully calibrated partial credit toward an evidence-supported range with meaningful zero and target anchors.",
         "Intermediate terms remain separately logged and their support and learnability are monitored."
       ],
