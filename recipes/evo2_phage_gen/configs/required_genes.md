@@ -39,9 +39,10 @@ independent measurement limitation. [Colasanti & Denhardt, 1987](https://pubmed.
 
 ## Scoring and acceptance
 
+`score_function_matches` supplies shared family evidence to
 [`summarize_required_gene_evidence`](../src/bionemo/evo2_phage_gen/protein_evidence.py)
-consumes admitted PHROGs hits with native query and target coverage. For each allowed
-ORF-to-family hit, its function credit is:
+and synteny. It consumes admitted PHROGs hits with native query and target
+coverage. For each allowed ORF-to-family hit, its function credit is:
 
 ```text
 credit = min(1, query_coverage / query_min, target_coverage / target_min)
@@ -64,16 +65,106 @@ on other functions. Missing or invalid measurement artifacts receive zero reward
 and unavailable status. An empty profile supplies no reward or acceptance.
 
 The historical column name `required_genes_integrity_sum` means **summed normalized
-coverage credit** here. It is not the geometric-mean protein-match score used by
-smooth synteny, tropism, and origin. E-value and identity affect upstream hit
+coverage credit** here. It is distinct from the geometric-mean direct-reference
+protein score. Synteny can use either evidence route; tropism and origin use
+the direct-reference score. E-value and identity affect upstream hit
 admission; neither is an extra multiplier in this required-function reward.
 
-The generic query/target thresholds are 0.75/0.75. The configured exceptions retain
-observed viable C/B truncations and E extensions: C 0.70/0.47, B 0.75/0.68, and
-E 0.58/0.75. These values were calibrated on the viable-design panel, not derived
-from gene-essentiality experiments. Native coverage counts residues, whereas
-alignment-column counts can include gaps. Passing coverage does not establish
+The generic query/target thresholds are 0.75/0.75. This is an inherited recipe
+heuristic for PHROG consensus matches, introduced in commit `be3f821c9` with the
+rationale that consensus lengths differ from individual proteins. The recorded
+rationale does not establish 75% as an optimal cutoff or an experimentally measured
+functional boundary. The exceptions were selected from observed viable controls:
+
+| Function               | Query / target thresholds | Observation behind the changed bound                                                                                              |
+| ---------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| C                      | 0.70 / 0.47               | Viable Evo-Φ75/100 hits reach query coverage 0.702 and target coverage 32/68 = 0.471. These minima come from separate alignments. |
+| E                      | 0.58 / 0.75               | Viable extended E calls include a 74-residue match within a 127-aa ORF: query coverage 0.583.                                     |
+| B                      | 0.75 / 0.68               | Viable Evo-Φ316's shortened B covers 80/117 consensus residues: target coverage 0.684.                                            |
+| Alternate J, PHROG3780 | 0.64 / 0.75               | Natural ID21/NC29 have a 24-aa J inside a 37-aa upstream-start ORF: query coverage 0.649.                                         |
+
+Changed bounds are rounded down from these observed values; unchanged bounds
+retain the 0.75 default. B/C/E allowances predate function-aware synteny, which
+reuses them; the J allowance came from its expanded natural-genome replay.
+These are control-based detection allowances, not thresholds established by
+gene-essentiality experiments. Their positive-control pass rates are calibration
+evidence, not independent validation. Coverage measures how much aligns, not
+whether the critical functional region is retained. Native coverage counts residues,
+whereas alignment-column counts can include gaps. Passing coverage does not establish
 catalytic activity, correct regulation, compatibility, or whole-genome viability.
+
+## Natural homologs and plausible replacements
+
+An allowed PHROG is a homologous protein family, not a list of the exact sequences
+seen in PhiX174 or the King designs. Divergent and previously untested sequences
+can earn credit when they match that family with the required coverage. In a
+September 2026 replay, 135 annotated A/B/C/D/E/F/G/H/J proteins from 15 natural
+G4/alpha3-group relatives all received full required-function credit under this
+profile. Their J proteins matched PHROG3780; the other eight functions matched the
+existing family IDs. A subsequent genome replay used the production ORF wrappers
+and installed ORFipy 0.0.4, PHROGs search, reward reader, and emitted Arc synteny
+filter: all 15 relatives, PhiX174, and viable Evo-Φ36 G1 received full required-gene
+and synteny scores across five rotations each (85 rows). It exposed two detection
+limits now addressed in the profile: the 72-nt ORF minimum retains alpha3's 24-aa J
+(the stop codon is excluded), and the PHROG3780 coverage allowance retains the
+upstream-start extensions above. These genomes helped calibrate the profile; this
+is neither independent validation nor a test of arbitrary constructed hybrids.
+
+For example, B proteins from PhiX174, G4, and alpha3 cross-complement despite
+substantial sequence divergence, with a temperature-dependent exception. They map
+to the already allowed PHROG1473. [Burch et al., 1999](https://pubmed.ncbi.nlm.nih.gov/9931252/)
+Natural [G4](https://www.ncbi.nlm.nih.gov/nuccore/NC_001420.2) and
+[alpha3](https://www.ncbi.nlm.nih.gov/nuccore/NC_001330.1) J proteins independently
+support the PHROG3780 alternative; its inclusion need not rest solely on Evo-Φ36.
+
+A required-function score estimates plausible function presence. It cannot establish
+that a replacement will interact correctly with every other gene in a PhiX genome.
+More distant gokushovirus VP2 proteins are candidate functional analogs of H, based
+on predicted fold and DNA-interacting residues, but are beyond the close-relative
+validation above. Their family assignments need separate review before default
+inclusion; shared pilot-protein annotation text is insufficient by itself.
+[VP2/H comparison](https://pmc.ncbi.nlm.nih.gov/articles/PMC9645218/)
+
+## Synteny uses the same function definitions
+
+`synteny_reference_functions` maps nine canonical reference GFF locus IDs to
+A/B/C/D/E/F/G/H/J. Their genomic positions define circular order; K and A\* are
+outside both the required-function set and this synteny denominator.
+
+For each candidate ORF and mapped slot, smooth synteny uses:
+
+```text
+edge credit = max(direct PhiX protein-match integrity, allowed-family coverage credit)
+```
+
+The direct-reference route reaches full credit at 90% identity, E ≤1e-5, and 95%
+coverage of both proteins. **Those identity and E-value targets do not apply to
+the family route.** That route searches all PHROG consensus sequences, retains
+the lowest-E-value hit per ORF, then checks its allowed family. The current search
+inherits MMseqs's E-value cutoff of 1e-3 (the command does not supply `-e`), with
+sensitivity 7.5 and no minimum percent identity. Search admission is a hard gate;
+E-value is not a further smooth multiplier, so an admitted hit meeting both
+coverage thresholds can receive full family credit even near that cutoff.
+Normalized coverage supplies partial credit below those thresholds. It does not search
+individual PHROGs members or impose a 90% consensus-identity requirement.
+For example, native alpha3 F receives full family credit at 23.9% consensus
+identity, E=2.4e-22, and approximately 95–98% coverage. This percentage is not its
+identity to PhiX F.
+
+A supported family alternative can therefore fill a slot completely even with a
+weak direct PhiX match. Reference-only partial evidence remains useful before a
+family hit is admitted. Maximum one-to-one matching, circular order, and excess
+homolog mass still determine the final smooth score; an extra unrelated gene
+cannot fill a missing slot or increase the denominator. An extra homologous copy
+can reduce synteny, including a partial copy in the smooth score.
+
+Final synteny acceptance uses the same family definitions and coverage thresholds:
+all nine functions must have distinct qualifying ORFs in circular order, with no
+extra qualifying copies. Partial hits guide RL but do not count as intact copies
+for this gate. Tropism still measures PhiX G and origin still uses PhiX A evidence
+and its origin motif; full synteny is not full credit on those objectives or proof
+of genome viability. Profiles without `synteny_reference_functions` retain
+reference-locus scoring and the LoVis cluster gate.
 
 ## Adapting the profile
 
@@ -91,7 +182,7 @@ into PhiX failed in other backgrounds. [King et al., preprint](https://www.biorx
 The current explicit alternatives are a starting profile, not an exhaustive catalogue
 of possible replacements. Broadening it requires checking function evidence and
 false matches, not restricting it to experimentally demonstrated swaps. Related-phage
-cross-complementation can depend on both gene and direction. [Borrias et al., 1976](https://pmc.ncbi.nlm.nih.gov/articles/PMC353451/)
+cross-complementation can depend on both gene and direction. [Borrias et al., 1979](https://pmc.ncbi.nlm.nih.gov/articles/PMC353451/)
 
 Check the installed search, ORF caller, scorer, and hard gate on known viable genomes
 and targeted missing/truncated-gene controls. Recheck database versions and family

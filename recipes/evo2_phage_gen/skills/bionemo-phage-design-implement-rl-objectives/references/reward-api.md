@@ -39,7 +39,7 @@ accepted = nucleotide_pass_mask(measured, config)
 | `score_synteny_counts`         | Matched reference loci, fixed reference count, excess copies, and order violations; returns (reward, reference coverage, copy balance, reference deficit).               |
 | `aggregate_rewards`            | Scored columns and positive component weights; adds the bounded weighted scalar reward subject to the safety gate. GDPO instead uses its configured objective columns.   |
 
-The smooth reference architecture and origin functions are public in `protein_evidence.py`: `smooth_protein_match_integrity`, `summarize_smooth_reference_evidence`, `score_smooth_reference_architecture`, and `score_gene_a_origin`. The [worked PhiX reward definitions](../../../examples/README.md#current-phix174-gdpo-score-definitions) identify which functions the shipped profile selects. Keep CSV readers, subprocess arguments, and artifact reconciliation private; those helpers are not standalone biological scoring APIs.
+The smooth reference architecture and origin functions are public in `protein_evidence.py`: `smooth_protein_match_integrity`, `summarize_smooth_reference_evidence`, `score_smooth_reference_architecture`, `score_function_matches`, `summarize_function_architecture`, and `score_gene_a_origin`. The [worked PhiX reward definitions](../../../examples/README.md#current-phix174-gdpo-score-definitions) identify which functions the shipped profile selects. Keep CSV readers, subprocess arguments, and artifact reconciliation private; those helpers are not standalone biological scoring APIs.
 
 The online reference search in `reward.py` uses MMseqs `easy-search --prefilter-mode 2 -e 1`:
 it aligns the small reference-protein panel against every called candidate ORF, avoiding
@@ -97,6 +97,35 @@ map, alternate J, conditional essentiality evidence, calibrated coverage, and gu
 for new profiles. `required_genes_integrity_sum` is summed normalized coverage in
 this term, not the smooth reference-protein geometric mean. Any profile change needs
 replay on viable and disrupted controls before interpreting a new run against old scores.
+
+## Function-aware synteny
+
+`score_function_matches(hits_df, required_families, ...)` returns per-ORF/function
+`credit` and `full_length` columns plus measurement availability. Both completeness
+and synteny consume this evidence. Search admission comes from the best hit per
+ORF against all PHROG consensuses; no additional identity threshold is applied to
+allowed-family coverage credit. The current command inherits MMseqs's 1e-3 E-value
+cutoff; this is an admission gate, not a continuous significance multiplier in
+family credit. This is distinct from the individual-member AAI search.
+
+The Arc config's `synteny_reference_functions` maps canonical reference GFF locus
+IDs to distinct names in `required_gene_families`. Pass that mapping and measured
+`function_matches` to `summarize_smooth_reference_evidence`. Each mapped slot uses
+`max(direct_reference_integrity, family_coverage_credit)`; only mapped loci enter
+the architecture denominator. A fully covered allowed-family match earns full
+slot credit without the direct route's 90% identity target. The PhiX profile maps
+A/B/C/D/E/F/G/H/J and excludes K/A\*. Order and excess-copy penalties still apply.
+Tropism and gene-A origin retain their original direct-reference evidence.
+
+`summarize_function_architecture` supplies the final hard-synteny measurements
+from full-coverage family matches and called-ORF coordinates. The current profile
+allows no missing functions, order violations, or extra qualifying copies. Partial
+matches remain graded RL evidence. An unmapped profile still uses reference-only
+synteny and its LoVis cluster gate. Use the
+[biological profile](../../../configs/required_genes.md#synteny-uses-the-same-function-definitions)
+for the 72-nt short-J calling threshold, family-specific coverage calibration, and
+rotation-tested natural-homolog scope. A family-recognition score does not establish
+compatibility of an arbitrary gene swap in a new genomic background.
 
 ## Gene-A origin
 

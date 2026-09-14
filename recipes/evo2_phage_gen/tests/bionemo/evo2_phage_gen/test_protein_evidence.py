@@ -277,6 +277,60 @@ def test_smooth_reference_summary_reuses_orf_hits_for_synteny_tropism_and_gene_a
     assert observed.loc["umi2", "reward_gene_a_origin"] == 0.0
 
 
+@pytest.mark.parametrize(
+    ("functions", "full_credit"),
+    [
+        (("A", "G", "J"), True),
+        (("J", "A", "G"), True),  # Circular origin changes preserve order.
+        (("A", "J", "G"), False),
+        (("A", "G", "J", "J"), False),
+        (("A", "G"), False),
+        (("A", "G", "unrelated"), False),
+    ],
+)
+def test_function_synteny_preserves_order_and_copy_checks(functions, full_credit):
+    """Supported replacements fill slots without relaxing order, copies, or other objectives."""
+    families = {"A": ["phrog:713"], "G": ["phrog:1483"], "J": ["phrog:2354", "phrog:3780"]}
+    targets = {"A": "phrog_713", "G": "phrog_1483", "J": "phrog_3780", "unrelated": "phrog_11693"}
+    candidates = tuple(f"umi1_ORF.{i}" for i in range(len(functions)))
+    hits = _required_hits(
+        *[(candidate, "", targets[function], 1.0) for candidate, function in zip(candidates, functions, strict=True)]
+    )
+    matches, available = protein_evidence.score_function_matches(hits, families)
+    assert available
+    reference_functions = {"ref_A": "A", "ref_G": "G", "ref_J": "J"}
+    reference_order = ("ref_A", "optional_K", "ref_G", "ref_J")
+    observed = protein_evidence.summarize_smooth_reference_evidence(
+        pd.DataFrame(columns=["query", "target"]),
+        genome_sequences={"umi1": "ATG" * 400},
+        candidate_orf_sequences=dict.fromkeys(candidates, "ATG" * 100),
+        candidate_orders={"umi1": candidates},
+        reference_order=reference_order,
+        synteny_match_parameters=SMOOTH_SYNTENY_MATCH,
+        tropism_match_parameters=SMOOTH_TROPISM_MATCH,
+        synteny_order_weight=0.75,
+        synteny_duplicate_penalty_weight=0.75,
+        gene_a_reference_locus="ref_A",
+        tropism_reference_locus="ref_G",
+        gene_a_origin_motif="CAACTTGATATTAATAACACTATAGACCAC",
+        gene_a_origin_offset_nt=6,
+        gene_a_origin_offset_tolerance_nt=6,
+        function_matches=matches,
+        reference_functions=reference_functions,
+    ).iloc[0]
+    assert bool(observed.reward_external_synteny == 1.0) is full_credit
+    assert observed.reward_external_tropism == 0.0
+    assert observed.reward_gene_a_origin == 0.0
+    hard = protein_evidence.summarize_function_architecture(
+        matches,
+        pd.DataFrame({"id_prompt": ["umi1"], "genome_id": ["genome_1"]}),
+        candidate_orders={"umi1": candidates},
+        reference_order=reference_order,
+        reference_functions=reference_functions,
+    )
+    assert protein_evidence.reference_synteny_pass_mask(hard).tolist() == [full_credit]
+
+
 def test_smooth_reference_summary_rejects_invalid_match_settings_without_hits():
     """A no-hit batch must not turn an invalid reward configuration into measured zero."""
     with pytest.raises(ValueError, match="smooth protein-match configuration"):

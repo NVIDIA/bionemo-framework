@@ -327,10 +327,14 @@ env:
       # Nine PhiX functions; viable K loss and alternate J are described in the Arc profile.
       protein_match_min_reciprocal_coverage: 0.75
       tropism_match_min_reciprocal_coverage: 0.95
-      # Smooth rewards use a permissive reference-to-ORF search; hard Arc/LoVis gates remain independent.
+      # Direct-reference evidence supplies graded synteny, tropism, and origin matches.
+      # Synteny also accepts curated family coverage from the Arc profile; its
+      # final gate uses those same functions with strict completeness/order/copy checks.
       enable_smooth_reference_rewards: true
-      # Match integrity is the geometric mean of significance, identity, and both coverages.
+      # Direct-reference integrity is the geometric mean of significance, identity, and both coverages.
       # Identity settings are fractions; 5% is a shaping baseline, not a homology threshold.
+      # The 90% target below does not apply to the family route: a supported family
+      # match can give full synteny gene credit at lower identity. See configs/required_genes.md.
       synteny_identity_zero_credit: 0.05
       synteny_identity_full_credit: 0.90
       synteny_reciprocal_coverage_full_credit: 0.95

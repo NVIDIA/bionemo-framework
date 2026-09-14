@@ -143,9 +143,37 @@ PATCHED_REFERENCE_CLUSTER_FUNCTION = '''def count_syntenic_genes_all(
     input_csv: str,
     output_csv: str,
     reference_gff_path=None,
+    config=None,
 ) -> None:
-    """Measure distinct reference loci without counting duplicate cluster edges."""
-    from bionemo.evo2_phage_gen.protein_evidence import measure_reference_cluster_architecture
+    """Measure curated function architecture, or reference clusters for an unmapped profile."""
+    from bionemo.evo2_phage_gen.protein_evidence import (
+        measure_reference_cluster_architecture, score_function_matches,
+        summarize_function_architecture, load_candidate_orf_context, write_reference_protein_fasta,
+    )
+
+    if config is not None and config.get("synteny_reference_functions") is not None:
+        functions = config["synteny_reference_functions"]
+        families = config["required_gene_families"]
+        if not set(functions.values()).issubset(families):
+            raise ValueError("Synteny functions must be defined in required_gene_families")
+        results = config["results_save_dir"]
+        hits = pd.read_csv(os.path.join(results, config["mmseqs_protein_database_results_dir_save_location"], "mmseqs2_hits.csv"))
+        matches, available = score_function_matches(
+            hits, families, config.get("protein_match_min_reciprocal_coverage", 0.75),
+            config.get("required_gene_family_coverage"),
+        )
+        if not available:
+            raise ValueError("Function-aware synteny requires native PHROGs alignment coverage")
+        _, orders = load_candidate_orf_context(os.path.join(results, config["orfipy_orfs_file_save_location"]))
+        order = write_reference_protein_fasta(reference_gff_path, os.path.join(results, "synteny_reference_proteins.fasta"))
+        sequences = pd.read_csv(input_csv)
+        metrics = summarize_function_architecture(
+            matches, sequences, candidate_orders=orders, reference_order=order, reference_functions=functions,
+        )
+        columns = [column for column in metrics if column not in ("id_prompt", "genome_id")]
+        sequences = sequences.drop(columns=[column for column in columns if column in sequences])
+        sequences.merge(metrics, on=["id_prompt", "genome_id"], how="left").to_csv(output_csv, index=False)
+        return
 
     measure_reference_cluster_architecture(
         root_dir,
@@ -552,6 +580,10 @@ def _apply_reference_cluster_evidence_patch(output_dir: Path) -> None:
     patched_text, replacement_count = REFERENCE_CLUSTER_FUNCTION_PATTERN.subn(PATCHED_REFERENCE_CLUSTER_FUNCTION, text)
     if replacement_count != 1:
         raise ValueError(f"Expected exactly one synteny-count function in {pipeline_path}, found {replacement_count}.")
+    patched_text = patched_text.replace(
+        'reference_gff_path=config.get("reference_genome_gff_file_save_location"))',
+        'reference_gff_path=config.get("reference_genome_gff_file_save_location"), config=config)',
+    )
     pipeline_path.write_text(patched_text)
 
 

@@ -42,6 +42,7 @@ from bionemo.evo2_phage_gen.protein_evidence import (
 from bionemo.evo2_phage_gen.protein_evidence import (
     load_candidate_orf_context,
     reference_synteny_pass_mask,
+    score_function_matches,
     stage_coordinate_normalized_reference_gff,
     summarize_smooth_reference_evidence,
     write_reference_protein_fasta,
@@ -1326,6 +1327,21 @@ def _add_smooth_reference_rewards(
 
     genomes_df = load_fasta_records(input_fasta, keep_only_up_to_first_eos=False)
     genome_sequences = dict(zip(genomes_df["id_prompt"].astype(str), genomes_df["sequence"].astype(str), strict=True))
+    reference_functions = config.get("synteny_reference_functions") if external_qc.enable_synteny else None
+    function_matches = None
+    if reference_functions is not None:
+        families = config["required_gene_families"]
+        if not set(reference_functions.values()).issubset(families):
+            raise ValueError("Synteny functions must be defined in required_gene_families")
+        family_hits_path = run_dir / config["mmseqs_protein_database_results_dir_save_location"] / "mmseqs2_hits.csv"
+        function_matches, available = score_function_matches(
+            pd.read_csv(family_hits_path),
+            families,
+            config.get("protein_match_min_reciprocal_coverage", 0.75),
+            config.get("required_gene_family_coverage"),
+        )
+        if not available:
+            raise ValueError("Function-aware synteny requires native PHROGs alignment coverage")
     summary = summarize_smooth_reference_evidence(
         hits_df,
         genome_sequences=genome_sequences,
@@ -1351,6 +1367,8 @@ def _add_smooth_reference_rewards(
         gene_a_origin_motif=external_qc.gene_a_origin_motif,
         gene_a_origin_offset_nt=external_qc.gene_a_origin_offset_nt,
         gene_a_origin_offset_tolerance_nt=external_qc.gene_a_origin_offset_tolerance_nt,
+        function_matches=function_matches,
+        reference_functions=reference_functions,
     ).set_index("id_prompt")
     id_column = "arc_qc_id" if "arc_qc_id" in scored_df else "id_prompt"
     row_ids = scored_df[id_column].astype(str)

@@ -16,6 +16,7 @@
 """Tests for ``bionemo.evo2_phage_gen.arc_pipeline``."""
 
 import importlib.util
+import os
 from pathlib import Path
 
 import pandas as pd
@@ -38,6 +39,7 @@ from bionemo.evo2_phage_gen.arc_pipeline import (
     prepare_arc_pipeline_workdir,
 )
 from bionemo.evo2_phage_gen.external_qc import ARC_GENETIC_ARCHITECTURE_IMPORT_FASTA
+from bionemo.evo2_phage_gen.protein_evidence import reference_synteny_pass_mask
 
 
 def _load_prepared_arc_pipeline(tmp_path: Path, module_name: str, monkeypatch):
@@ -618,6 +620,61 @@ def valid_syntenic_gene_count(input_csv, output_csv):
     compile(patched, str(pipeline_path), "exec")
     assert "measure_reference_cluster_architecture" in patched
     assert "raise NotImplementedError" not in patched
+
+
+def test_arc_function_synteny_uses_shared_family_evidence(tmp_path):
+    """The emitted Arc reader must admit alternate J and reject its extra copy."""
+    namespace = {"pd": pd, "os": os}
+    exec(arc_pipeline.PATCHED_REFERENCE_CLUSTER_FUNCTION, namespace)
+    reference = tmp_path / "reference.gff"
+    reference.write_text(
+        "##gff-version 3\n"
+        "ref\ttest\tCDS\t1\t9\t.\t+\t0\tID=A\n"
+        "ref\ttest\tCDS\t10\t18\t.\t+\t0\tID=J\n"
+        "##FASTA\n>ref\nATGAAATAAATGCCCTAA\n"
+    )
+    rows, orfs = [], []
+    for genome, families in [("single", [713, 3780]), ("duplicate", [713, 3780, 3780])]:
+        for index, family in enumerate(families):
+            identifier = f"{genome}_ORF.{index}"
+            orfs.append(f">{identifier} [{index * 9}-{index * 9 + 9}](+)\nATGCCCTAA\n")
+            rows.append(
+                {
+                    "id_prompt": identifier,
+                    "protein_database_mmseqs_target": f"phrog_{family}",
+                    "protein_database_mmseqs_percent_identity": 50,
+                    "protein_database_mmseqs_alignment_length": 80,
+                    "protein_database_mmseqs_query_length": 100,
+                    "protein_database_mmseqs_target_length": 100,
+                    "protein_database_mmseqs_query_coverage": 0.8,
+                    "protein_database_mmseqs_target_coverage": 0.8,
+                }
+            )
+    (tmp_path / "orfs.fasta").write_text("".join(orfs))
+    (tmp_path / "phrogs").mkdir()
+    pd.DataFrame(rows).to_csv(tmp_path / "phrogs/mmseqs2_hits.csv", index=False)
+    input_csv, output_csv = tmp_path / "input.csv", tmp_path / "output.csv"
+    pd.DataFrame({"id_prompt": ["single", "duplicate"], "genome_id": ["genome_1", "genome_2"]}).to_csv(
+        input_csv, index=False
+    )
+    namespace["count_syntenic_genes_all"](
+        "unused-lovis",
+        "unused-gff",
+        input_csv,
+        output_csv,
+        reference_gff_path=reference,
+        config={
+            "results_save_dir": str(tmp_path),
+            "orfipy_orfs_file_save_location": "orfs.fasta",
+            "mmseqs_protein_database_results_dir_save_location": "phrogs",
+            "required_gene_families": {"A": ["phrog:713"], "J": ["phrog:2354", "phrog:3780"]},
+            "synteny_reference_functions": {"A": "A", "J": "J"},
+        },
+    )
+    measured = pd.read_csv(output_csv)
+    assert measured["num_syntenic_genes"].tolist() == [2, 2]
+    assert measured["duplicate_reference_gene_count"].tolist() == [0, 1]
+    assert reference_synteny_pass_mask(measured).tolist() == [True, False]
 
 
 def test_patched_arc_hard_protein_gates_require_unique_full_length_families(tmp_path):

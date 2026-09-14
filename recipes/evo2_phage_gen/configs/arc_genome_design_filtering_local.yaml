@@ -92,9 +92,9 @@ orfipy_threads: 16
 orfipy_strand: "f"
 orfipy_start_codons: "ATG"
 orfipy_stop_codons: "TAA,TGA,TAG"
-# Viable Evo-Φ36 uses the 25-aa G4 J replacement (PHROG3780); 90 nt hid it.
-# King et al., https://doi.org/10.1126/science.aec2657 (viable-design analysis).
-orfipy_min_max_orf_lengths: [75, 1800]
+# Keep the short natural J alternatives: G4/Evo-Φ36 is 25 aa; alpha3 is 24 aa
+# (NC_001330.1 / NP_039596.1). ORFipy's length cutoff excludes the stop codon.
+orfipy_min_max_orf_lengths: [72, 1800]
 orfipy_orfs_file_save_location: "qc4_orfipy_orfs.fasta"
 orfipy_tmp_proteins_file_save_location: "qc4_orfipy_proteins_tmp.fasta"
 orfipy_proteins_file_save_location: "qc4_orfipy_proteins.fasta"
@@ -191,7 +191,8 @@ lovis4u_conda_env: "genome_visualization"
 # Per Arc pipeline run. Arc's visualization helper also receives this as n_parallel_jobs.
 lovis4u_parallel_jobs: 12
 lovis4u_chunk_size: 12
-# RL scoring needs LoVis4u's MMseqs metadata, AAI, and required-gene metrics, but not copied PDFs.
+# The visualization stage supplies AAI/required-gene metrics, but RL does not need copied PDFs.
+# Mapped synteny uses PHROGs family evidence; unmapped profiles use LoVis4u's clusters.
 lovis4u_collect_pdfs: false
 
 use_reference_genome: false
@@ -215,7 +216,7 @@ required_gene_families:
   F: ["phrog:514"]   # Major capsid
   G: ["phrog:1483"]  # Major spike
   H: ["phrog:1471"]  # DNA delivery pilot
-  J: ["phrog:2354", "phrog:3780"]  # DNA packaging; alternate J in viable Evo-Φ36 G1
+  J: ["phrog:2354", "phrog:3780"]  # DNA packaging; PhiX-like and natural G4/alpha3-like J alternatives
 required_genes_metrics_file_save_location: "qc6_required_genes_metrics.csv"
 # Minimum native [query, PHROG-target] coverage. Other families retain 0.75/0.75.
 # Measured viable C/B truncations and E extensions, rounded down by <1 residue;
@@ -226,13 +227,28 @@ required_gene_family_coverage:
   "phrog:1465": [0.70, 0.47]  # C: native target coverage 32/68; 33 alignment columns include a gap.
   "phrog:1472": [0.58, 0.75]  # E: smallest observed query coverage 74/127.
   "phrog:1473": [0.75, 0.68]  # B: smallest observed target coverage 80/117.
+  # Natural ID21/NC29 J is 24 aa inside a 37-aa upstream-start ORF (qcov 0.649).
+  # Keep full family-target coverage evidence while admitting that called extension.
+  "phrog:3780": [0.64, 0.75]
 
 syntenic_gene_count_filter: true
-# All positive controls have 9-10 of the 10 callable WT loci, without order/copy
-# violations. Permit one reference-locus deficit (e.g. K loss or divergent J),
-# while the independent required-function gate still rejects essential losses.
-# This is acceptance, not King's optional one-gene-break diversification rule.
-synteny_max_missing_reference_genes: 1
+# Map reference positions to the same curated functions used for completeness.
+# Family alternatives fill one slot; K/A* are outside this nine-function profile.
+# Smooth synteny retains weak reference-hit credit below family admission, but
+# gives full gene credit to supported family matches meeting coverage thresholds.
+# The direct-reference 90% identity target does not apply to family credit.
+# Hard synteny requires all nine full-length functions in order without extra copies.
+synteny_reference_functions:
+  NC_001422.1_ORF.23: A
+  NC_001422.1_ORF.14: B
+  NC_001422.1_ORF.1: C
+  NC_001422.1_ORF.16: D
+  NC_001422.1_ORF.2: E
+  NC_001422.1_ORF.12: F
+  NC_001422.1_ORF.3: G
+  NC_001422.1_ORF.22: H
+  NC_001422.1_ORF.11: J
+synteny_max_missing_reference_genes: 0
 # Legacy Arc call arguments; the patched gate uses the allowance above plus order/copy checks.
 syntenic_gene_count_range: [10, 12]
 total_gene_count_range: [10, 12]

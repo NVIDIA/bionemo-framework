@@ -17,6 +17,7 @@
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -63,7 +64,6 @@ def test_phix_function_gates_allow_observed_viable_variants():
     from bionemo.evo2_phage_gen.rl_readiness import _load_config_with_defaults
 
     arc = yaml.safe_load((RECIPE_ROOT / "configs/arc_genome_design_filtering_local.yaml").read_text())
-    assert arc["orfipy_min_max_orf_lengths"] == [75, 1800]
     assert arc["required_gene_families"] == {
         "A": ["phrog:713"],
         "B": ["phrog:1473"],
@@ -88,9 +88,29 @@ def test_phix_function_gates_allow_observed_viable_variants():
         "phrog:1465": [0.70, 0.47],
         "phrog:1472": [0.58, 0.75],
         "phrog:1473": [0.75, 0.68],
+        "phrog:3780": [0.64, 0.75],
     }
     assert arc["protein_match_min_reciprocal_coverage"] == 0.75
-    assert arc["synteny_max_missing_reference_genes"] == 1
+    assert arc["synteny_max_missing_reference_genes"] == 0
+    assert set(arc["synteny_reference_functions"].values()) == set(arc["required_gene_families"])
+
+
+def test_natural_alpha3_j_is_callable():
+    """NC_001330.1 J is 24 aa; ORFipy excludes its stop codon from the length cutoff."""
+    orfipy = pytest.importorskip("orfipy_core")
+    arc = yaml.safe_load((RECIPE_ROOT / "configs/arc_genome_design_filtering_local.yaml").read_text())
+    # Native CDS for NP_039596.1, including its terminal TAA.
+    sequence = "ATGAAGAAAGCACGTCGTTCTCCTAGTCGTCGTAAAGGTGCTCGCCTCTGGTATGTAGGCGGTTCTCAGTTTTAA"
+    minimum, maximum = arc["orfipy_min_max_orf_lengths"]
+    calls = orfipy.orfs(
+        sequence,
+        minlen=minimum,
+        maxlen=maximum,
+        strand=arc["orfipy_strand"],
+        starts=arc["orfipy_start_codons"].split(","),
+        stops=arc["orfipy_stop_codons"].split(","),
+    )
+    assert [(start, end, strand) for start, end, strand, _description in calls] == [(0, 72, "+")]
 
 
 def test_docs_and_configs_do_not_use_stale_workspace_paths():

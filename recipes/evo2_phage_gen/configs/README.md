@@ -14,8 +14,8 @@ This directory contains the maintained inputs for the Microviridae workflow.
   loss execution, which requires its own qualification rather than inheriting inference results.
 - `arc_genome_design_filtering_local.yaml` configures downstream Arc screening.
   Both RL configs use this profile: individual PHROGs proteins for per-ORF AAI,
-  nine required gene-copy slots (K optional), control-calibrated C/E/B coverage,
-  and one allowed missing reference locus in the independent synteny gate.
+  nine named required functions with calibrated family coverage, and function-aware
+  circular synteny over the same A/B/C/D/E/F/G/H/J slots (K and A\* excluded).
   The example's stage 00 downloads and SHA256-verifies the separate AAI database;
   no extra opt-in is needed for new runs.
 - The `phage_safety_*.yaml` files describe the sequence-safety policy, data sources, and
@@ -68,8 +68,14 @@ With `external_qc.enable_smooth_reference_rewards`, protein-match integrity is t
 mean of E-value significance, baseline-adjusted identity, and native query/target coverage.
 `synteny_identity_zero_credit` / `synteny_identity_full_credit` default to 0.05 / 0.90;
 the tropism equivalents use 0.05 / 0.95. These identity settings are fractions.
-Reciprocal-coverage full-credit targets remain 0.95 for synteny and 0.99 for tropism.
-Any zero factor gives zero credit, with continuous credit above zero and no additional
+These are direct-reference match targets, with reciprocal-coverage targets of 0.95
+for synteny and 0.99 for tropism. For synteny, `synteny_reference_functions` also
+admits the same curated families as required genes: each edge uses the stronger
+of direct-reference integrity and normalized family coverage. A qualifying family
+match earns full gene credit without 90% identity to PhiX or the consensus.
+See the [shared function and architecture rules](required_genes.md#synteny-uses-the-same-function-definitions).
+For the direct-reference match, any zero factor gives zero credit, with continuous
+credit above zero and no additional
 integrity cutoff or bonus. The [worked protein-score definitions](../examples/README.md#protein-evidence-architecture-and-diversity)
 give the exact formula and its relationship to independent hard QC.
 
@@ -90,7 +96,7 @@ similarity, not viability: a known viable genome can legitimately fail a novelty
 | Nucleotide QC           | ACGT only, GC 30–65%, homopolymers ≤10 bases. DUST supplies a separate online low-complexity objective.                                                                                                                                  |
 | Protein-family evidence | At least seven distinct PHROG targets with ≥75% coverage of both the called ORF and target. Multiple fragments of the same family do not increase the family count.                                                                      |
 | Required functions      | Named A/B/C/D/E/F/G/H/J slots with explicit allowed PHROG families, including the viable alternate J. K and A\* are outside this term. See the [biological rationale, formula, and coverage limits](required_genes.md).                  |
-| Synteny                 | Circular reference order and copy checks, allowing one missing callable reference locus. The required-function check independently tests function completeness.                                                                          |
+| Synteny                 | All nine curated functions in circular order, with distinct full-coverage ORFs and no extra qualifying copies. Smooth synteny also admits partial reference/family evidence; K/A\* are outside this profile.                             |
 | Spike/G match           | Hard QC requires ≥60% identity and ≥95% bidirectional coverage against PhiX174 G. The RL target is stricter: 95% identity and 99% coverage for full credit.                                                                              |
 | AAI novelty             | Mean identity of the lowest-E-value individual PHROGs protein hit per called ORF; optional hard cutoff ≤95%. RL scales novelty by `min(hit_ORFs / 10, 1)` to require supporting evidence. Annotation uses a separate consensus database. |
 | Gene-A origin           | Four-factor geometric mean of A integrity, baseline-adjusted motif, position, and strong-site uniqueness; not a final hard gate.                                                                                                         |

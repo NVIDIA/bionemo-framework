@@ -439,10 +439,30 @@ def summarize_smooth_reference_evidence(
     gene_a_origin_motif: str,
     gene_a_origin_offset_nt: int,
     gene_a_origin_offset_tolerance_nt: int,
+    function_matches: pd.DataFrame | None = None,
+    reference_functions: dict[str, str] | None = None,
 ) -> pd.DataFrame:
-    """Summarize one permissive reference-to-called-ORF search as graded objectives."""
+    """Summarize reference hits, optionally admitting curated function matches for synteny.
+
+    Mapped synteny slots use the stronger of reference integrity and family coverage
+    credit; the reference identity target does not constrain the family route.
+    Only mapped loci enter that architecture's denominator. Tropism and
+    origin retain the original reference-protein evidence and their own criteria.
+    """
     _validate_smooth_protein_match_config(**synteny_match_parameters)
     _validate_smooth_protein_match_config(**tropism_match_parameters)
+    architecture_order = reference_order
+    function_edges = {}
+    if reference_functions is not None:
+        architecture_order = _function_reference_order(reference_order, reference_functions)
+        if function_matches is None:
+            raise ValueError("Function-aware synteny requires measured family matches")
+        function_to_reference = {function: reference for reference, function in reference_functions.items()}
+        for hit in function_matches.itertuples():
+            if hit.function in function_to_reference and hit.id_prompt in candidate_orf_sequences:
+                genome_id = hit.id_prompt.rsplit("_", 1)[0]
+                edge = (function_to_reference[hit.function], hit.id_prompt)
+                function_edges.setdefault(genome_id, {})[edge] = hit.credit
     required_columns = {"query", "target", "evalue", "pident", "alnlen", "qlen", "tlen", "qcov", "tcov"}
     if not hits_df.empty and not required_columns.issubset(hits_df.columns):
         raise ValueError(f"Smooth reference hits are missing columns: {sorted(required_columns - set(hits_df))}")
@@ -498,17 +518,27 @@ def summarize_smooth_reference_evidence(
     ]
     rows = []
     for genome_id, genome_sequence in genome_sequences.items():
-        edges = synteny_edges.get(genome_id, {})
+        reference_edges = synteny_edges.get(genome_id, {})
+        edges = {edge: value for edge, value in reference_edges.items() if edge[0] in architecture_order}
+        for edge, value in function_edges.get(genome_id, {}).items():
+            edges[edge] = max(edges.get(edge, 0.0), value)
         architecture = score_smooth_reference_architecture(
             edges,
-            reference_order=reference_order,
+            reference_order=architecture_order,
             candidate_order=candidate_orders.get(genome_id, ()),
             order_weight=synteny_order_weight,
             duplicate_penalty_weight=synteny_duplicate_penalty_weight,
         )
-        assignment = dict(architecture.assignment)
+        # Family alternatives affect synteny, not the A-reference origin criterion.
+        if reference_functions is None:
+            assignment = dict(architecture.assignment)
+        else:
+            _, reference_assignment = _maximum_weight_reference_assignment(
+                reference_edges, reference_order, candidate_orders.get(genome_id, ())
+            )
+            assignment = dict(reference_assignment)
         a_candidate = assignment.get(gene_a_reference_locus)
-        a_integrity = edges.get((gene_a_reference_locus, a_candidate), 0.0) if a_candidate else 0.0
+        a_integrity = reference_edges.get((gene_a_reference_locus, a_candidate), 0.0) if a_candidate else 0.0
         origin = score_gene_a_origin(
             candidate_a_orf_nt=candidate_orf_sequences.get(a_candidate, "") if a_candidate else "",
             candidate_genome_nt=genome_sequence,
@@ -751,11 +781,71 @@ def _maximum_reference_matching(candidate_to_references: dict[str, set[str]]) ->
     return reference_to_candidate
 
 
+def _function_reference_order(
+    reference_order: tuple[str, ...], reference_functions: dict[str, str]
+) -> tuple[str, ...]:
+    """Select explicitly mapped loci without changing their genomic order."""
+    if (
+        not reference_functions
+        or not set(reference_functions).issubset(reference_order)
+        or any(not isinstance(function, str) or not function for function in reference_functions.values())
+        or len(set(reference_functions.values())) != len(reference_functions)
+    ):
+        raise ValueError("Synteny functions must map existing reference loci to distinct named functions")
+    return tuple(reference for reference in reference_order if reference in reference_functions)
+
+
+def summarize_function_architecture(
+    function_matches: pd.DataFrame,
+    sequences_df: pd.DataFrame,
+    *,
+    candidate_orders: dict[str, tuple[str, ...]],
+    reference_order: tuple[str, ...],
+    reference_functions: dict[str, str],
+) -> pd.DataFrame:
+    """Measure hard synteny from full-length curated function matches.
+
+    Use the same slots and coverage thresholds as the smooth function evidence.
+    Partial hits can earn RL credit but do not establish a complete gene or an
+    extra intact copy for acceptance. Unmapped genes do not enter the denominator.
+    """
+    order = _function_reference_order(reference_order, reference_functions)
+    function_to_reference = {function: reference for reference, function in reference_functions.items()}
+    full_matches = function_matches.loc[function_matches["full_length"].astype(bool)].copy()
+    full_matches["_genome_id"] = full_matches["id_prompt"].str.rsplit("_", n=1).str[0]
+    rows = []
+    for sequence in sequences_df.itertuples(index=False):
+        candidates = candidate_orders.get(str(sequence.id_prompt), ())
+        hits = full_matches.loc[full_matches["_genome_id"] == str(sequence.id_prompt)]
+        edges = {
+            (function_to_reference[hit.function], hit.id_prompt): 1.0
+            for hit in hits.itertuples()
+            if hit.function in function_to_reference and hit.id_prompt in candidates
+        }
+        _, assignment = _maximum_weight_reference_assignment(edges, order, candidates)
+        assigned = {candidate: reference for reference, candidate in assignment}
+        observed = [assigned[candidate] for candidate in candidates if candidate in assigned]
+        homologs = {candidate for _reference, candidate in edges}
+        rows.append(
+            {
+                "id_prompt": str(sequence.id_prompt),
+                "genome_id": str(sequence.genome_id),
+                "num_syntenic_genes": len(assignment),
+                "reference_num_genes": len(order),
+                "duplicate_reference_gene_count": len(homologs) - len(assignment),
+                "reference_order_violation_count": _circular_order_violation_count(observed, list(order)),
+                "missing_synteny_output": str(sequence.id_prompt) not in candidate_orders and not hits.empty,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def reference_synteny_pass_mask(metrics: pd.DataFrame, max_missing_reference_genes: int = 0) -> pd.Series:
     """Apply a calibrated reference-deficit allowance, retaining order/copy checks.
 
-    This measures reference architecture, not essential-function completeness;
-    the required-function gate must independently detect unsupported gene loss.
+    Accept measurements from reference clusters or mapped function slots. An
+    unmapped profile or a nonzero deficit allowance does not by itself establish
+    required-function completeness; that gate retains its own configured profile.
     """
     if type(max_missing_reference_genes) is not int or max_missing_reference_genes < 0:
         raise ValueError("Maximum missing reference genes must be a nonnegative integer")
@@ -1029,21 +1119,20 @@ def _canonical_required_target(value: object) -> str:
     return f"phrog:{int(match.group(1))}" if match else text
 
 
-def summarize_required_gene_evidence(
+def score_function_matches(
     hits_df: pd.DataFrame,
-    sequences_df: pd.DataFrame,
     required_families: dict[str, list[str] | tuple[str, ...]],
     minimum_reciprocal_coverage: float = 0.75,
     family_coverage_thresholds: dict[str, tuple[float, float]] | None = None,
-) -> pd.DataFrame:
-    """Assign distinct ORFs to named functions with curated ``phrog:ID`` alternatives.
+) -> tuple[pd.DataFrame, bool]:
+    """Score admitted PHROGs matches against curated function families.
 
-    Each function earns min(1, query_coverage/query_min, target_coverage/target_min).
-    Missing functions earn zero; extra families and copies cannot replace them.
-    Maximize total credit with a one-to-one assignment, and separately count the
-    largest assignment whose hits meet both coverage thresholds. Annotation text
-    does not establish functional equivalence. See configs/required_genes.md for
-    the PhiX profile's experimental rationale and coverage calibration limits.
+    Credit is min(1, query_coverage/query_min, target_coverage/target_min).
+    This evidence is shared by required-gene completeness and function-aware
+    synteny. Upstream search admission supplies significance; annotation labels
+    alone never establish equivalence. Return matches and measurement availability.
+    The caller supplies the best hit per ORF against all PHROG consensuses, before
+    restricting to these families. No additional percent-identity cutoff is applied.
     """
     error = "The required families must map named functions to nonempty, disjoint lists of explicit phrog:ID selectors"
     if not isinstance(required_families, dict):
@@ -1065,7 +1154,6 @@ def summarize_required_gene_evidence(
             ):
                 raise ValueError(error)
             family_to_function[family] = function
-    functions = tuple(required_families)
     if not 0.0 < minimum_reciprocal_coverage <= 1.0:
         raise ValueError("Default required-gene coverage must be in (0, 1]")
     coverage_thresholds = {}
@@ -1076,15 +1164,9 @@ def summarize_required_gene_evidence(
     hits_df, available = add_protein_alignment_evidence(hits_df, "protein_database")
     target_column = "protein_database_mmseqs_target"
     available = available and {"id_prompt", target_column}.issubset(hits_df.columns)
-    if available:
-        hits_df["_genome_id"] = hits_df["id_prompt"].astype(str).str.rsplit("_", n=1).str[0]
-
     rows = []
-    for sequence in sequences_df.itertuples(index=False):
-        genome_hits = hits_df.loc[hits_df["_genome_id"] == str(sequence.id_prompt)] if available else pd.DataFrame()
-        edge_weights: dict[tuple[str, str], float] = {}
-        full_edge_weights: dict[tuple[str, str], float] = {}
-        for hit in genome_hits.to_dict("records"):
+    if available:
+        for hit in hits_df.to_dict("records"):
             target = _canonical_required_target(hit[target_column])
             if target not in family_to_function:
                 continue
@@ -1093,12 +1175,48 @@ def summarize_required_gene_evidence(
             )
             query_coverage = float(hit["protein_database_mmseqs_query_coverage"])
             target_coverage = float(hit["protein_database_mmseqs_target_coverage"])
-            edge = (family_to_function[target], str(hit["id_prompt"]))
             integrity = min(1.0, query_coverage / query_min, target_coverage / target_min)
-            if integrity > edge_weights.get(edge, 0.0):
-                edge_weights[edge] = integrity
-            if query_coverage >= query_min and target_coverage >= target_min:
-                full_edge_weights[edge] = 1.0
+            rows.append(
+                {
+                    "id_prompt": str(hit["id_prompt"]),
+                    "function": family_to_function[target],
+                    "credit": integrity,
+                    "full_length": query_coverage >= query_min and target_coverage >= target_min,
+                }
+            )
+    matches = pd.DataFrame(rows, columns=["id_prompt", "function", "credit", "full_length"])
+    if not matches.empty:
+        matches = matches.groupby(["id_prompt", "function"], as_index=False).agg(
+            credit=("credit", "max"), full_length=("full_length", "max")
+        )
+    return matches, available
+
+
+def summarize_required_gene_evidence(
+    hits_df: pd.DataFrame,
+    sequences_df: pd.DataFrame,
+    required_families: dict[str, list[str] | tuple[str, ...]],
+    minimum_reciprocal_coverage: float = 0.75,
+    family_coverage_thresholds: dict[str, tuple[float, float]] | None = None,
+) -> pd.DataFrame:
+    """Assign distinct ORFs to required functions for graded coverage and full-length counts.
+
+    Missing functions earn zero; extra families and copies cannot replace them.
+    Maximize total credit and independently count the largest full-length assignment.
+    See configs/required_genes.md for the biological rationale and calibration limits.
+    """
+    matches, available = score_function_matches(
+        hits_df, required_families, minimum_reciprocal_coverage, family_coverage_thresholds
+    )
+    matches["_genome_id"] = matches["id_prompt"].str.rsplit("_", n=1).str[0]
+    functions = tuple(required_families)
+    rows = []
+    for sequence in sequences_df.itertuples(index=False):
+        genome_hits = matches.loc[matches["_genome_id"] == str(sequence.id_prompt)]
+        edge_weights = {
+            (hit.function, hit.id_prompt): hit.credit for hit in genome_hits.itertuples() if hit.credit > 0
+        }
+        full_edge_weights = {(hit.function, hit.id_prompt): 1.0 for hit in genome_hits.itertuples() if hit.full_length}
 
         candidates = tuple(sorted({candidate for _family, candidate in edge_weights}))
         integrity_sum, assignment = _maximum_weight_reference_assignment(edge_weights, functions, candidates)

@@ -1452,10 +1452,11 @@ def test_smooth_reference_search_is_permissive_but_significance_bounded(tmp_path
 
 
 @pytest.mark.parametrize(("identity_zero_credit", "identity", "expected"), [(0.05, 95.0, 1.0), (0.25, 25.0, 0.0)])
+@pytest.mark.parametrize("function_aware", [False, True])
 def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_passes(
-    tmp_path, monkeypatch, identity_zero_credit, identity, expected
+    tmp_path, monkeypatch, identity_zero_credit, identity, expected, function_aware
 ):
-    """The permissive search must not weaken the existing LoVis/tropism pass gates."""
+    """Family support changes synteny without changing origin, tropism, or measured hard gates."""
     motif = "CAACTTGATATTAATAACACTATAGACCAC"
     reference_gff = tmp_path / "reference.gff"
     reference_gff.write_text(
@@ -1511,19 +1512,39 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
         gene_a_origin_offset_tolerance_nt=6,
     )
 
+    config = {
+        "smooth_reference_genome_gff_file": str(reference_gff),
+        "orfipy_proteins_file_save_location": "proteins.fasta",
+        "orfipy_orfs_file_save_location": "orfs.fasta",
+    }
+    if function_aware:
+        config.update(
+            synteny_reference_functions={"A": "A", "G": "G"},
+            required_gene_families={"A": ["phrog:713"], "G": ["phrog:1483"]},
+            mmseqs_protein_database_results_dir_save_location="phrogs",
+        )
+        (tmp_path / "phrogs").mkdir()
+        pd.DataFrame(
+            {
+                "id_prompt": ["umi1_ORF.1", "umi1_ORF.2"],
+                "protein_database_mmseqs_target": ["phrog_713", "phrog_1483"],
+                "protein_database_mmseqs_percent_identity": [30.0, 40.0],
+                "protein_database_mmseqs_alignment_length": [80, 80],
+                "protein_database_mmseqs_query_length": [100, 100],
+                "protein_database_mmseqs_target_length": [100, 100],
+                "protein_database_mmseqs_query_coverage": [0.8, 0.8],
+                "protein_database_mmseqs_target_coverage": [0.8, 0.8],
+            }
+        ).to_csv(tmp_path / "phrogs/mmseqs2_hits.csv", index=False)
     observed = _add_smooth_reference_rewards(
         scored,
         run_dir=tmp_path,
         input_fasta=input_fasta,
-        config={
-            "smooth_reference_genome_gff_file": str(reference_gff),
-            "orfipy_proteins_file_save_location": "proteins.fasta",
-            "orfipy_orfs_file_save_location": "orfs.fasta",
-        },
+        config=config,
         external_qc=external,
     )
 
-    assert observed.loc[0, "reward_external_synteny"] == expected
+    assert observed.loc[0, "reward_external_synteny"] == (1.0 if function_aware else expected)
     assert observed.loc[0, "reward_external_tropism"] == expected
     assert observed.loc[0, "reward_gene_a_origin"] == expected
     assert observed.loc[0, "reward_external_synteny_pass"] == 1.0
