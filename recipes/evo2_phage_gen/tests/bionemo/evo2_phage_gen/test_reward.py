@@ -30,6 +30,7 @@ import yaml
 from Bio import SeqIO
 from Bio.Seq import Seq
 
+from bionemo.evo2_phage_gen import reward as reward_module
 from bionemo.evo2_phage_gen import sequence_safety_cli
 from bionemo.evo2_phage_gen.design_scope import HostDomain, HostEvidence
 from bionemo.evo2_phage_gen.protein_evidence import (
@@ -54,7 +55,6 @@ from bionemo.evo2_phage_gen.reward import (
     _add_synteny_count_rewards,
     _external_qc_env,
     _lower_bound_ratio_score,
-    _smooth_reference_search_command,
     _upper_bound_ratio_score,
     _write_external_qc_config,
     aggregate_rewards,
@@ -1431,24 +1431,99 @@ def test_external_qc_env_prepends_run_specific_tool_directory(tmp_path):
     assert env["LOVIS4U_MMSEQS_BINARY"] == str((tool_bin_dir / "mmseqs").resolve())
 
 
-def test_smooth_reference_search_is_permissive_but_significance_bounded(tmp_path):
-    """Align partial homologs without a heuristic prefilter; E >= 1 earns no credit."""
-    command = _smooth_reference_search_command(
+@pytest.mark.parametrize("failed_stage", [None, "createdb", "align", "convertalis"])
+def test_smooth_search_stages(tmp_path, monkeypatch, failed_stage):
+    """Keep exhaustive alignment settings and propagate native failures without retry/zero substitution."""
+    commands = []
+    env = {"PATH": "/prepared/bin"}
+    hits = "q\tt\t1e-12\t95\t80\t90\t90\t0.889\t0.889\n"
+
+    def run(command, **kwargs):
+        commands.append(command)
+        assert kwargs["check"] is True and kwargs["env"] == env
+        assert 0 < kwargs["timeout"] <= 60
+        assert command[command.index("--threads") + 1] == "8"
+        stage = command[1]
+        if stage == failed_stage:
+            raise subprocess.CalledProcessError(-11, command)
+        if stage == "createdb":
+            Path(command[3] + ".index").write_bytes(b"0\t0\t91\n")
+        elif stage == "align":
+            pref = Path(command[4])
+            assert pref.read_bytes() == b"0\t0\t91\n\0"
+            assert command[command.index("--alignment-mode") + 1] == "3"
+            for flag, value in [
+                ("--min-seq-id", "0"),
+                ("-c", "0"),
+                ("-e", "1"),
+                ("--max-accept", "2147483647"),
+                ("--max-rejected", "2147483647"),
+            ]:
+                assert command[command.index(flag) + 1] == value
+        elif stage == "convertalis":
+            assert (
+                command[command.index("--format-output") + 1]
+                == "query,target,evalue,pident,alnlen,qlen,tlen,qcov,tcov"
+            )
+            Path(command[5]).write_text(hits)
+        else:
+            pytest.fail(f"Unexpected search stage {stage}")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, "run", run)
+    kwargs = dict(
         reference_fasta=tmp_path / "reference.faa",
         candidate_fasta=tmp_path / "candidate.faa",
         output_tsv=tmp_path / "hits.tsv",
         temporary_dir=tmp_path / "mmseqs-tmp",
         threads=8,
+        env=env,
+        timeout=60,
     )
+    if failed_stage:
+        with pytest.raises(subprocess.CalledProcessError):
+            reward_module._run_smooth_reference_search(**kwargs)
+        assert [cmd[1] for cmd in commands].count(failed_stage) == 1
+        assert commands[-1][1] == failed_stage
+        assert not kwargs["output_tsv"].exists()
+    else:
+        reward_module._run_smooth_reference_search(**kwargs)
+        assert [cmd[1] for cmd in commands] == ["createdb", "createdb", "align", "convertalis"]
+        assert kwargs["output_tsv"].read_text() == hits
 
-    assert command[:2] == ["mmseqs", "easy-search"]
-    assert "--prefilter-mode" in command
-    assert command[command.index("--prefilter-mode") + 1] == "2"
-    assert command[command.index("--min-seq-id") + 1] == "0"
-    assert command[command.index("-c") + 1] == "0"
-    assert command[command.index("-e") + 1] == "1"
-    assert command[command.index("--format-output") + 1] == "query,target,evalue,pident,alnlen,qlen,tlen,qcov,tcov"
-    assert command[command.index("--threads") + 1] == "8"
+
+@pytest.mark.parametrize("pages", [1, 19])
+def test_exhaustive_prefilter_termination(tmp_path, pages):
+    """A page-aligned target index must not become an unterminated alignment entry."""
+    query_index = tmp_path / "query.index"
+    query_index.write_bytes(b"7\t0\t12\n23\t12\t8\n")
+    # Sixteen-byte valid index lines; 19 pages matches the native crash boundary.
+    target_data = b"".join(f"{key:05d}\t0000000\t1\n".encode() for key in range(256 * pages))
+    assert len(target_data) == pages * 4096
+    target_index = tmp_path / "target.index"
+    target_index.write_bytes(target_data)
+    pref = tmp_path / "pref"
+
+    reward_module._write_exhaustive_prefilter(query_index, target_index, pref)
+
+    assert not pref.is_symlink()
+    assert pref.read_bytes() == target_data + b"\0"
+    assert target_index.read_bytes() == target_data
+    assert (tmp_path / "pref.index").read_text() == f"7\t0\t{len(target_data) + 1}\n23\t0\t{len(target_data) + 1}\n"
+    assert (tmp_path / "pref.dbtype").read_bytes() == b"\x07\0\0\0"
+
+
+def test_exhaustive_prefilter_does_not_overwrite(tmp_path):
+    """Even an accidentally reused output symlink must not modify a target database."""
+    query = tmp_path / "query.index"
+    target = tmp_path / "target.index"
+    query.write_bytes(b"0\t0\t12\n")
+    target.write_bytes(b"0\t0\t15\n")
+    pref = tmp_path / "pref"
+    pref.symlink_to(target)
+    with pytest.raises(FileExistsError):
+        reward_module._write_exhaustive_prefilter(query, target, pref)
+    assert target.read_bytes() == b"0\t0\t15\n"
 
 
 @pytest.mark.parametrize(("identity_zero_credit", "identity", "expected"), [(0.05, 95.0, 1.0), (0.25, 25.0, 0.0)])
@@ -1482,10 +1557,15 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
     )
 
     def fake_run(command, **kwargs):
-        Path(command[4]).write_text(
-            f"A\tumi1_ORF.1\t1e-20\t{identity}\t95\t100\t100\t0.95\t0.95\n"
-            f"G\tumi1_ORF.2\t1e-20\t{identity}\t99\t100\t100\t0.99\t0.99\n"
-        )
+        if command[1] == "createdb":
+            Path(command[3] + ".index").write_text("0\t0\t100\n1\t100\t100\n")
+        elif command[1] == "convertalis":
+            Path(command[5]).write_text(
+                f"A\tumi1_ORF.1\t1e-20\t{identity}\t95\t100\t100\t0.95\t0.95\n"
+                f"G\tumi1_ORF.2\t1e-20\t{identity}\t99\t100\t100\t0.99\t0.99\n"
+            )
+        else:
+            assert command[1] == "align"
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(subprocess, "run", fake_run)

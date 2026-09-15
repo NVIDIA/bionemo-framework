@@ -364,45 +364,86 @@ def _external_qc_env(external_qc: ExternalQCRewardConfig) -> dict[str, str]:
     return env
 
 
-def _smooth_reference_search_command(
+def _write_exhaustive_prefilter(query_index: Path, target_index: Path, output: Path) -> None:
+    """Give every query the complete target list as one NUL-terminated MMseqs entry."""
+    # MMseqs f71d0a6 blastp.sh/fake_pref symlinks a plain target.index here,
+    # but Alignment.cpp reads until NUL. An exactly page-aligned index can then
+    # overrun its mapping. Copy the bytes privately; never append to target.index.
+    with output.open("xb") as stream, target_index.open("rb") as targets:
+        shutil.copyfileobj(targets, stream)
+        stream.write(b"\0")
+        size = stream.tell()
+    with Path(f"{output}.index").open("x") as index, query_index.open() as queries:
+        index.writelines(f"{query.split()[0]}\t0\t{size}\n" for query in queries)
+    with Path(f"{output}.dbtype").open("xb") as dbtype:
+        dbtype.write(b"\x07\0\0\0")  # MMseqs prefilter-result database.
+
+
+def _run_smooth_reference_search(
     *,
     reference_fasta: Path,
     candidate_fasta: Path,
     output_tsv: Path,
     temporary_dir: Path,
     threads: int,
-) -> list[str]:
+    env: dict[str, str],
+    timeout: float,
+) -> None:
     """Align the small reference panel against the current scoring batch's called ORFs.
 
     MMseqs E-values depend on the target pool's total residues. Changing the
     batch size or ORF content can alter weak-hit credit and which hits pass E<=1;
     dropping significance from the reward alone would not remove this cutoff.
+
+    These are the protein easy-search --prefilter-mode 2 stages, with a safe
+    private candidate stream in place of its unterminated fake_pref symlink.
+    Keep native alignment/scoring defaults, including full sequence identities
+    (mode 3), and the entire target pool. Native failures propagate, without retry.
     """
-    return [
-        "mmseqs",
-        "easy-search",
-        str(reference_fasta),
-        str(candidate_fasta),
-        str(output_tsv),
-        str(temporary_dir),
+    work = temporary_dir / uuid.uuid4().hex
+    work.mkdir(parents=True)
+    query, target, pref, result = (work / name for name in ("query", "target", "pref", "result"))
+    common = ["--threads", str(max(1, int(threads))), "-v", "0"]
+    deadline = time.monotonic() + timeout
+
+    def run(*args: str | Path) -> None:
+        command = ["mmseqs", *map(str, args), *common]
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(command, timeout)
+        subprocess.run(command, check=True, env=env, timeout=remaining)
+
+    run("createdb", reference_fasta, query)
+    run("createdb", candidate_fasta, target, "--write-lookup", "0", "--gpu", "0")
+    _write_exhaustive_prefilter(Path(f"{query}.index"), Path(f"{target}.index"), pref)
+    run(
+        "align",
+        query,
+        target,
+        pref,
+        result,
+        "--alignment-mode",
+        "3",
+        "-e",
+        "1",
         "--min-seq-id",
         "0",
         "-c",
         "0",
-        "-e",
-        "1",
-        # Skip heuristic prefiltering: it can drop significant, high-coverage
-        # homologs after small sequence changes. Aligning all pairs is affordable
-        # for this small reference panel; E-value/identity/coverage still score hits.
-        "--prefilter-mode",
-        "2",
+        "--max-accept",
+        "2147483647",
+        "--max-rejected",
+        "2147483647",
+    )
+    run(
+        "convertalis",
+        query,
+        target,
+        result,
+        output_tsv,
         "--format-output",
         "query,target,evalue,pident,alnlen,qlen,tlen,qcov,tcov",
-        "--threads",
-        str(max(1, int(threads))),
-        "-v",
-        "0",
-    ]
+    )
 
 
 def _resolve_executable_path(executable: str) -> str:
@@ -1329,15 +1370,12 @@ def _add_smooth_reference_rewards(
 
     hits_path = run_dir / "smooth_reference_hits.tsv"
     if protein_orf_ids:
-        subprocess.run(
-            _smooth_reference_search_command(
-                reference_fasta=reference_proteins,
-                candidate_fasta=protein_orfs,
-                output_tsv=hits_path,
-                temporary_dir=run_dir / "smooth_reference_mmseqs_tmp",
-                threads=external_qc.lovis4u_mmseqs_threads or 1,
-            ),
-            check=True,
+        _run_smooth_reference_search(
+            reference_fasta=reference_proteins,
+            candidate_fasta=protein_orfs,
+            output_tsv=hits_path,
+            temporary_dir=run_dir / "smooth_reference_mmseqs_tmp",
+            threads=external_qc.lovis4u_mmseqs_threads or 1,
             env=_external_qc_env(external_qc),
             timeout=external_qc.timeout_seconds,
         )

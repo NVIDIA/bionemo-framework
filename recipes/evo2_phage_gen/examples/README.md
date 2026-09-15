@@ -488,9 +488,11 @@ screening. This recovers significant partial hits missed at sensitivity 4.0 whil
 the existing E-value and native-coverage rules. Benchmark cost against the actual called
 protein workload and thread allocation when adapting the recipe to larger genomes.
 
-The [reference search](../src/bionemo/evo2_phage_gen/reward.py) uses MMseqs
-`easy-search --prefilter-mode 2 -e 1` to align the small reference-protein panel
-against all called candidate ORFs. Bypassing the heuristic prefilter prevents
+The [reference search](../src/bionemo/evo2_phage_gen/reward.py) uses MMseqs exhaustive
+protein alignment at `-e 1` against all called candidate ORFs. It runs `createdb`,
+`align`, and `convertalis` explicitly with a private NUL-terminated candidate list,
+avoiding the unterminated `fake_pref` stream in the pinned `easy-search` workflow.
+The candidate set and alignment settings are unchanged. Bypassing the heuristic prefilter prevents
 otherwise significant homologs from disappearing before alignment after small
 sequence changes. This search supplies graded evidence for synteny, tropism, and
 gene-A origin; hard QC uses its separate searches and acceptance rules.

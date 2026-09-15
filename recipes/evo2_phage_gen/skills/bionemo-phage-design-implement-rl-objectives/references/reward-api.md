@@ -41,8 +41,12 @@ accepted = nucleotide_pass_mask(measured, config)
 
 The protein-evidence, synteny, and origin functions are public in `protein_evidence.py`: `smooth_protein_match_integrity`, `summarize_smooth_reference_evidence`, `score_smooth_synteny`, `score_function_matches`, `summarize_function_synteny`, and `score_gene_a_origin`. The [worked PhiX reward definitions](../../../examples/README.md#current-phix174-gdpo-score-definitions) identify which functions the shipped profile selects. Keep CSV readers, subprocess arguments, and artifact reconciliation private; those helpers are not standalone biological scoring APIs.
 
-The online reference search in `reward.py` uses MMseqs `easy-search --prefilter-mode 2 -e 1`:
-it aligns the small reference-protein panel against every called candidate ORF, avoiding
+The online reference search in `reward.py` runs the protein `createdb`, `align -e 1`,
+and `convertalis` stages explicitly. Its private exhaustive candidate database contains
+the complete target index plus a NUL terminator, included in every query entry's length;
+the original target index is unchanged. This avoids the pinned MMseqs `fake_pref`
+unterminated-stream fault without changing alignment parameters or retrying native failures.
+It aligns the small reference-protein panel against every called candidate ORF, avoiding
 heuristic prefilter misses before grading significance and coverage. This cost depends on
 the number of reference proteins and candidate ORFs; benchmark it when adapting to larger
 panels. Separate hard-QC searches keep their own acceptance rules.
