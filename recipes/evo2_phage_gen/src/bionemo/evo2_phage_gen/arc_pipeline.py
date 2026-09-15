@@ -503,6 +503,26 @@ def _apply_mmseqs_protein_evidence_patch(output_dir: Path) -> None:
         text = text.replace(anchor, replacement)
     if ARC_MMSEQS_PROTEIN_EMPTY_COLUMNS in text:
         text = text.replace(ARC_MMSEQS_PROTEIN_EMPTY_COLUMNS, PATCHED_MMSEQS_PROTEIN_EMPTY_COLUMNS)
+
+    start = text.index("def mmseqs_search_proteins(")
+    end = text.find("\ndef ", start + 1)
+    end = len(text) if end == -1 else end
+    function = text[start:end]
+    anchor = '    mmseqs_out = os.path.join(results_dir, "mmseqs_result.m8")\n'
+    if "if os.path.getsize(query_fasta) == 0:" not in function:
+        if function.count(anchor) != 1:
+            raise ValueError(f"Expected one protein-search output assignment in {pipeline_path}.")
+        replacement = (
+            anchor
+            + """    # ORFipy can legitimately call no proteins. MMseqs rejects an empty query;
+    # retain an empty result artifact for the ordinary zero-hit table path.
+    if os.path.getsize(query_fasta) == 0:
+        with open(mmseqs_out, "w"):
+            pass
+        return mmseqs_out
+"""
+        )
+        text = text[:start] + function.replace(anchor, replacement, 1) + text[end:]
     pipeline_path.write_text(text)
 
 

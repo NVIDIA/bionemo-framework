@@ -861,6 +861,41 @@ def test_patched_arc_mmseqs_protein_search_rejects_missing_output(tmp_path, monk
     assert not output_csv.exists()
 
 
+@pytest.mark.parametrize("stale_output", [False, True])
+def test_empty_protein_query_has_zero_hits(tmp_path, monkeypatch, stale_output):
+    """No called ORFs is zero evidence, not a failed search or stale hit reuse."""
+    module = _load_synthetic_mmseqs_pipeline(tmp_path, "arc_empty_protein_query")
+    query = tmp_path / "proteins.fasta"
+    query.write_text("")
+    results = tmp_path / "search"
+    results.mkdir()
+    if stale_output:
+        (results / "mmseqs_result.m8").write_text("stale hit that must not be reused\n")
+
+    def reject_empty_search(*_args, **_kwargs):
+        raise module.subprocess.CalledProcessError(1, "mmseqs easy-search empty.fasta")
+
+    monkeypatch.setattr(module.subprocess, "run", reject_empty_search)
+    output = tmp_path / "hits.csv"
+    hits = module.run_mmseqs_search_proteins(str(query), "db", str(results), str(output), "protein_database")
+
+    assert hits.empty
+    assert pd.read_csv(output).empty
+    assert (results / "mmseqs_result.m8").read_text() == ""
+    assert list(hits.columns) == [
+        "id_prompt",
+        "sequence",
+        "protein_database_mmseqs_target",
+        "protein_database_mmseqs_e_value",
+        "protein_database_mmseqs_percent_identity",
+        "protein_database_mmseqs_alignment_length",
+        "protein_database_mmseqs_query_length",
+        "protein_database_mmseqs_target_length",
+        "protein_database_mmseqs_query_coverage",
+        "protein_database_mmseqs_target_coverage",
+    ]
+
+
 def test_patched_arc_mmseqs_protein_search_allows_successful_empty_hits(tmp_path, monkeypatch):
     """A successful MMseqs run with no hits should still produce an empty hit table."""
     module = _load_synthetic_mmseqs_pipeline(tmp_path, "patched_arc_pipeline_empty_mmseqs_test")

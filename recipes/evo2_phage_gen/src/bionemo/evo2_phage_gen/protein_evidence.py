@@ -263,6 +263,10 @@ def score_smooth_synteny(
     content_score = content_sum / denominator
     ordered_score = ordered_sum / denominator
     duplicate_score = duplicate_sum / denominator
+    # At the default equal order/duplicate weights, subtracting excess cancels
+    # gains from adding a copy solely to repair order. A per-gene 1/copy_count
+    # discount can reward adding duplicates in favorable positions. We retain
+    # subtraction despite its potential to clip partial-match progress to zero.
     reward = (
         (1.0 - order_weight) * content_score
         + order_weight * ordered_score
