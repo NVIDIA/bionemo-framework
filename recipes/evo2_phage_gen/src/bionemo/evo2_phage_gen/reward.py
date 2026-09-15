@@ -1291,13 +1291,31 @@ def _add_smooth_reference_rewards(
     reference_gff = Path(reference_gff_value)
     protein_orfs = run_dir / str(protein_orfs_value)
     nucleotide_orfs = run_dir / str(nucleotide_orfs_value)
-    if not reference_gff.exists() or not protein_orfs.exists() or not nucleotide_orfs.exists():
+    # Arc skips ORFipy and PHROGs entirely when its selected upstream cohort is
+    # empty. Read that cohort, not the post-homology survivors: zero hits alone
+    # do not justify ignoring a missing ORF artifact.
+    upstream_csv = None
+    if config.get("use_orf_filtered_df") and not config.get("use_nucleotide_filtered_df_instead"):
+        upstream_csv = config["orf_filter_seqs_csv_file_save_location"]
+    elif config.get("use_nucleotide_filtered_df_instead") and not config.get("use_orf_filtered_df"):
+        upstream_csv = config["nucleotide_filter_seqs_csv_file_save_location"]
+    skipped_empty_cohort = False
+    if upstream_csv:
+        upstream_df = pd.read_csv(run_dir / upstream_csv)
+        if not {"id_prompt", "sequence"}.issubset(upstream_df.columns):
+            raise ValueError("Homology input must contain id_prompt and sequence columns")
+        skipped_empty_cohort = upstream_df.empty
+    if not reference_gff.exists() or (
+        not skipped_empty_cohort and (not protein_orfs.exists() or not nucleotide_orfs.exists())
+    ):
         raise FileNotFoundError("Smooth reference reward input artifact is missing")
 
     reference_proteins = run_dir / "smooth_reference_proteins.fasta"
     reference_order = write_reference_protein_fasta(reference_gff, reference_proteins)
-    candidate_orf_sequences, candidate_orders = load_candidate_orf_context(nucleotide_orfs)
-    protein_orf_ids = set(_fasta_header_ids(protein_orfs))
+    candidate_orf_sequences, candidate_orders = (
+        ({}, {}) if skipped_empty_cohort else load_candidate_orf_context(nucleotide_orfs)
+    )
+    protein_orf_ids = set() if skipped_empty_cohort else set(_fasta_header_ids(protein_orfs))
     if protein_orf_ids != set(candidate_orf_sequences):
         raise ValueError("ORFipy nucleotide and protein FASTAs contain different record IDs")
     required_reference_loci = set()
@@ -1324,7 +1342,7 @@ def _add_smooth_reference_rewards(
             timeout=external_qc.timeout_seconds,
         )
     hit_columns = ["query", "target", "evalue", "pident", "alnlen", "qlen", "tlen", "qcov", "tcov"]
-    if hits_path.exists() and hits_path.stat().st_size:
+    if not skipped_empty_cohort and hits_path.exists() and hits_path.stat().st_size:
         hits_df = pd.read_csv(hits_path, sep="\t", header=None, names=hit_columns)
     else:
         hits_df = pd.DataFrame(columns=hit_columns)
@@ -1337,18 +1355,23 @@ def _add_smooth_reference_rewards(
         families = config["required_gene_families"]
         if not set(reference_functions.values()).issubset(families):
             raise ValueError("Synteny functions must be defined in required_gene_families")
-        family_hits_path = run_dir / config["mmseqs_protein_database_results_dir_save_location"] / "mmseqs2_hits.csv"
-        function_matches, available = score_function_matches(
-            pd.read_csv(family_hits_path),
-            families,
-            config.get("protein_match_min_reciprocal_coverage", 0.75),
-            config.get("required_gene_family_coverage"),
-        )
-        if not available:
-            raise ValueError("Function-aware synteny requires native PHROGs alignment coverage")
+        if skipped_empty_cohort:
+            function_matches = pd.DataFrame(columns=["id_prompt", "function", "credit", "full_length"])
+        else:
+            family_hits_path = (
+                run_dir / config["mmseqs_protein_database_results_dir_save_location"] / "mmseqs2_hits.csv"
+            )
+            function_matches, available = score_function_matches(
+                pd.read_csv(family_hits_path),
+                families,
+                config.get("protein_match_min_reciprocal_coverage", 0.75),
+                config.get("required_gene_family_coverage"),
+            )
+            if not available:
+                raise ValueError("Function-aware synteny requires native PHROGs alignment coverage")
     summary = summarize_smooth_reference_evidence(
         hits_df,
-        genome_sequences=genome_sequences,
+        genome_sequences={} if skipped_empty_cohort else genome_sequences,
         candidate_orf_sequences=candidate_orf_sequences,
         candidate_orders=candidate_orders,
         reference_order=reference_order,
@@ -1390,8 +1413,8 @@ def _add_smooth_reference_rewards(
     }
     for column in sorted(reward_columns | telemetry_columns):
         scored_df[column] = row_ids.map(summary[column]).fillna(0.0)
-    scored_df["smooth_reference_stage_reached"] = 1.0
-    scored_df["smooth_reference_measurement_available"] = 1.0
+    scored_df["smooth_reference_stage_reached"] = float(not skipped_empty_cohort)
+    scored_df["smooth_reference_measurement_available"] = float(not skipped_empty_cohort)
     scored_df["smooth_reference_missing_artifact"] = 0.0
     if external_qc.enable_gene_a_origin:
         scored_df["reward_gene_a_origin_pass"] = scored_df["reward_gene_a_origin"].eq(1.0).astype(float)

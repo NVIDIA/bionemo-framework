@@ -1469,7 +1469,8 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
     )
     a_orf = "G" * 6 + motif + "G" * 30
     input_fasta = tmp_path / "input.fasta"
-    input_fasta.write_text(f">umi1\n{a_orf}\n")
+    input_fasta.write_text(f">umi1\n{a_orf}\n>umi2\n{'C' * 30}\n")
+    pd.DataFrame({"id_prompt": ["umi1"], "sequence": [a_orf]}).to_csv(tmp_path / "eligible.csv", index=False)
     (tmp_path / "orfs.fasta").write_text(
         f">umi1_ORF.1 [0-{len(a_orf)}](+) type:complete length:{len(a_orf)}\n{a_orf}\n"
         ">umi1_ORF.2 [3-105](+) type:complete length:102\n"
@@ -1490,12 +1491,12 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
     monkeypatch.setattr(subprocess, "run", fake_run)
     scored = pd.DataFrame(
         {
-            "arc_qc_id": ["umi1"],
-            "reward_external_synteny": [0.0],
-            "reward_external_synteny_pass": [1.0],
-            "reward_external_tropism": [0.0],
-            "reward_external_tropism_pass": [1.0],
-            "reward_gene_a_origin": [0.0],
+            "arc_qc_id": ["umi1", "umi2"],
+            "reward_external_synteny": [0.0, 0.0],
+            "reward_external_synteny_pass": [1.0, 0.0],
+            "reward_external_tropism": [0.0, 0.0],
+            "reward_external_tropism_pass": [1.0, 0.0],
+            "reward_gene_a_origin": [0.0, 0.0],
         }
     )
     external = ExternalQCRewardConfig(
@@ -1516,6 +1517,9 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
         "smooth_reference_genome_gff_file": str(reference_gff),
         "orfipy_proteins_file_save_location": "proteins.fasta",
         "orfipy_orfs_file_save_location": "orfs.fasta",
+        "use_orf_filtered_df": False,
+        "use_nucleotide_filtered_df_instead": True,
+        "nucleotide_filter_seqs_csv_file_save_location": "eligible.csv",
     }
     if function_aware:
         config.update(
@@ -1550,6 +1554,8 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
     assert observed.loc[0, "reward_external_synteny_pass"] == 1.0
     assert observed.loc[0, "reward_external_tropism_pass"] == 1.0
     assert observed.loc[0, "smooth_reference_measurement_available"] == 1.0
+    for column in ("reward_external_synteny", "reward_external_tropism", "reward_gene_a_origin"):
+        assert observed.loc[1, column] == 0.0
 
 
 def test_successful_tropism_search_without_hits_is_a_measured_zero(tmp_path):
@@ -1578,6 +1584,77 @@ def test_successful_tropism_search_without_hits_is_a_measured_zero(tmp_path):
     assert observed["tropism_measurement_available"].tolist() == [1.0]
     assert observed["tropism_hit_present"].tolist() == [0.0]
     assert observed["reward_external_tropism"].tolist() == [0.0]
+
+
+@pytest.mark.parametrize("upstream", ["nucleotide", "orf"])
+@pytest.mark.parametrize("state", ["filtered", "no_orfs", "missing_orfs", "missing_input", "malformed_input"])
+def test_smooth_empty_cohort(tmp_path, monkeypatch, upstream, state):
+    """Skipped ORF calling is distinct from a completed no-ORF call or lost artifacts."""
+    reference_gff = tmp_path / "reference.gff"
+    reference_gff.write_text("##gff-version 3\nref\ttest\tCDS\t1\t9\t.\t+\t0\tID=A\n##FASTA\n>ref\nATGAAATAA\n")
+    input_fasta = tmp_path / "input.fasta"
+    input_fasta.write_text(">umi1\nCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n")
+    upstream_csv = tmp_path / "eligible.csv"
+    if state != "missing_input":
+        columns = ["wrong_column"] if state == "malformed_input" else ["id_prompt", "sequence"]
+        rows = [["umi1", "AC" * 15]] if state in {"no_orfs", "missing_orfs"} else []
+        pd.DataFrame(rows, columns=columns).to_csv(upstream_csv, index=False)
+    if state == "no_orfs":
+        (tmp_path / "proteins.fasta").write_text("")
+        (tmp_path / "orfs.fasta").write_text("")
+        (tmp_path / "phrogs").mkdir()
+        pd.DataFrame(
+            columns=[
+                "id_prompt",
+                "protein_database_mmseqs_target",
+                "protein_database_mmseqs_query_coverage",
+                "protein_database_mmseqs_target_coverage",
+                "protein_database_mmseqs_percent_identity",
+                "protein_database_mmseqs_alignment_length",
+                "protein_database_mmseqs_query_length",
+                "protein_database_mmseqs_target_length",
+            ]
+        ).to_csv(tmp_path / "phrogs/mmseqs2_hits.csv", index=False)
+
+    def unexpected_search(*args, **kwargs):
+        pytest.fail("No protein search should run without candidate ORFs")
+
+    monkeypatch.setattr(subprocess, "run", unexpected_search)
+    config = {
+        "smooth_reference_genome_gff_file": str(reference_gff),
+        "orfipy_proteins_file_save_location": "proteins.fasta",
+        "orfipy_orfs_file_save_location": "orfs.fasta",
+        "use_orf_filtered_df": upstream == "orf",
+        "use_nucleotide_filtered_df_instead": upstream == "nucleotide",
+        "orf_filter_seqs_csv_file_save_location": "eligible.csv",
+        "nucleotide_filter_seqs_csv_file_save_location": "eligible.csv",
+        "synteny_reference_functions": {"A": "A"},
+        "required_gene_families": {"A": ["phrog:713"]},
+        "mmseqs_protein_database_results_dir_save_location": "phrogs",
+    }
+    external = ExternalQCRewardConfig(
+        enable_smooth_reference_rewards=True,
+        enable_synteny=True,
+        enable_tropism=True,
+        enable_gene_a_origin=True,
+        gene_a_reference_locus="A",
+        tropism_reference_locus="A",
+    )
+    scored = pd.DataFrame({"arc_qc_id": ["umi1"]})
+    if state in {"missing_orfs", "missing_input", "malformed_input"}:
+        with pytest.raises(ValueError if state == "malformed_input" else FileNotFoundError):
+            _add_smooth_reference_rewards(
+                scored, run_dir=tmp_path, input_fasta=input_fasta, config=config, external_qc=external
+            )
+        return
+    observed = _add_smooth_reference_rewards(
+        scored, run_dir=tmp_path, input_fasta=input_fasta, config=config, external_qc=external
+    )
+    for column in ("reward_external_synteny", "reward_external_tropism", "reward_gene_a_origin"):
+        assert observed[column].tolist() == [0.0]
+    for column in ("smooth_reference_stage_reached", "smooth_reference_measurement_available"):
+        assert observed[column].tolist() == [float(state == "no_orfs")]
+    assert observed["smooth_reference_missing_artifact"].tolist() == [0.0]
 
 
 @pytest.mark.parametrize(
