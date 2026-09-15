@@ -13,7 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Coverage-aware protein evidence shared by online rewards and Arc hard QC."""
+"""Protein evidence, synteny, and gene-A origin shared by rewards and hard QC.
+
+Synteny measures protein/function content, circular order, and extra copies.
+Arc's separate start/stop-codon landmark score lives in its upstream
+``genetic_architecture.py`` module, not in these scoring functions.
+"""
 
 import math
 import re

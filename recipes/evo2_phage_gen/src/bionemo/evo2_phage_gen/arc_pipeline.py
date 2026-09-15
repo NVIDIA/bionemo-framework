@@ -13,7 +13,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Prepare a runnable local copy of Arc's phage filtering pipeline."""
+"""Prepare Arc's filtering pipeline and wire in the recipe's protein/synteny scorers.
+
+Upstream ``genetic_architecture.py`` scores start/stop-codon landmarks; its
+similarly named visualization module emits protein measurements. Neither
+module name identifies an additional RL objective.
+"""
 
 import argparse
 import re

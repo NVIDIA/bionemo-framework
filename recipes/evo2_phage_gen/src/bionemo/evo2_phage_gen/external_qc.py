@@ -199,7 +199,7 @@ def main() -> None:
         "--genetic-architecture-import-fasta",
         type=Path,
         default=Path(ARC_GENETIC_ARCHITECTURE_IMPORT_FASTA),
-        help="PhiX174 FASTA path read by Arc genetic_architecture.py at import time",
+        help="PhiX174 FASTA read at import time by Arc's codon-landmark module genetic_architecture.py",
     )
     parser.add_argument(
         "--checkv-db",
