@@ -321,7 +321,7 @@ def test_function_synteny_preserves_order_and_copy_checks(functions, full_credit
     assert bool(observed.reward_external_synteny == 1.0) is full_credit
     assert observed.reward_external_tropism == 0.0
     assert observed.reward_gene_a_origin == 0.0
-    hard = protein_evidence.summarize_function_architecture(
+    hard = protein_evidence.summarize_function_synteny(
         matches,
         pd.DataFrame({"id_prompt": ["umi1"], "genome_id": ["genome_1"]}),
         candidate_orders={"umi1": candidates},
@@ -437,14 +437,14 @@ def test_smooth_match_penalizes_both_truncations_and_fusions():
 def test_ordered_partial_matches_outscore_the_same_scrambled_matches():
     """Synteny must add signal beyond reference content for identical edge weights."""
     reference_order = ("A", "B", "C", "D")
-    ordered = protein_evidence.score_smooth_reference_architecture(
+    ordered = protein_evidence.score_smooth_synteny(
         {("A", "a"): 0.2, ("B", "b"): 0.2, ("C", "c"): 0.2, ("D", "d"): 0.2},
         reference_order=reference_order,
         candidate_order=("a", "b", "c", "d"),
         order_weight=0.75,
         duplicate_penalty_weight=0.75,
     )
-    scrambled = protein_evidence.score_smooth_reference_architecture(
+    scrambled = protein_evidence.score_smooth_synteny(
         {("A", "a"): 0.2, ("B", "b"): 0.2, ("C", "c"): 0.2, ("D", "d"): 0.2},
         reference_order=reference_order,
         candidate_order=("a", "c", "b", "d"),
@@ -457,24 +457,24 @@ def test_ordered_partial_matches_outscore_the_same_scrambled_matches():
     assert 0.0 < scrambled.reward < ordered.reward
 
 
-def test_smooth_architecture_does_not_reward_deletion_or_order_repair_by_duplication():
+def test_smooth_synteny_does_not_reward_deletion_or_order_repair_by_duplication():
     """A candidate cannot raise synteny by deleting evidence or adding a second homolog."""
     reference_order = ("A", "B", "C", "D")
-    swapped = protein_evidence.score_smooth_reference_architecture(
+    swapped = protein_evidence.score_smooth_synteny(
         {("A", "a"): 1.0, ("B", "b"): 1.0, ("C", "c"): 1.0, ("D", "d"): 1.0},
         reference_order=reference_order,
         candidate_order=("a", "c", "b", "d"),
         order_weight=0.75,
         duplicate_penalty_weight=0.75,
     )
-    deleted = protein_evidence.score_smooth_reference_architecture(
+    deleted = protein_evidence.score_smooth_synteny(
         {("A", "a"): 1.0, ("B", "b"): 1.0, ("D", "d"): 1.0},
         reference_order=reference_order,
         candidate_order=("a", "b", "d"),
         order_weight=0.75,
         duplicate_penalty_weight=0.75,
     )
-    duplicated = protein_evidence.score_smooth_reference_architecture(
+    duplicated = protein_evidence.score_smooth_synteny(
         {
             ("A", "a"): 1.0,
             ("B", "b"): 1.0,
@@ -493,16 +493,16 @@ def test_smooth_architecture_does_not_reward_deletion_or_order_repair_by_duplica
     assert duplicated.duplicate_score == pytest.approx(0.25)
 
 
-def test_smooth_architecture_is_rotation_invariant_and_one_to_one():
+def test_smooth_synteny_is_rotation_invariant_and_one_to_one():
     """Circular rotation is neutral and one ORF cannot satisfy two reference loci."""
-    rotated = protein_evidence.score_smooth_reference_architecture(
+    rotated = protein_evidence.score_smooth_synteny(
         {("A", "a"): 1.0, ("B", "b"): 1.0, ("C", "c"): 1.0, ("D", "d"): 1.0},
         reference_order=("A", "B", "C", "D"),
         candidate_order=("d", "a", "b", "c"),
         order_weight=0.75,
         duplicate_penalty_weight=0.75,
     )
-    ambiguous = protein_evidence.score_smooth_reference_architecture(
+    ambiguous = protein_evidence.score_smooth_synteny(
         {("A", "shared"): 1.0, ("B", "shared"): 1.0},
         reference_order=("A", "B"),
         candidate_order=("shared",),
@@ -514,15 +514,15 @@ def test_smooth_architecture_is_rotation_invariant_and_one_to_one():
     assert ambiguous.content_integrity_sum == 1.0
 
 
-def test_smooth_architecture_scales_beyond_twenty_reference_loci():
-    """Genome-scale architecture matching must not retain the bitmask implementation's locus cap."""
+def test_smooth_synteny_scales_beyond_twenty_reference_loci():
+    """Genome-scale synteny matching must not retain the bitmask implementation's locus cap."""
     reference_order = tuple(f"reference_{index}" for index in range(34))
     candidate_order = tuple(f"candidate_{index}" for index in range(34))
     edges = {
         (reference, candidate): 1.0 for reference, candidate in zip(reference_order, candidate_order, strict=True)
     }
 
-    result = protein_evidence.score_smooth_reference_architecture(
+    result = protein_evidence.score_smooth_synteny(
         edges,
         reference_order=reference_order,
         candidate_order=candidate_order,

@@ -76,7 +76,7 @@ match earns full gene credit without 90% identity to PhiX or the consensus.
 See the [shared function and architecture rules](required_genes.md#synteny-uses-the-same-function-definitions).
 For the direct-reference match, any zero factor gives zero credit, with continuous
 credit above zero and no additional
-integrity cutoff or bonus. The [worked protein-score definitions](../examples/README.md#protein-evidence-architecture-and-diversity)
+integrity cutoff or bonus. The [worked protein-score definitions](../examples/README.md#protein-evidence-synteny-and-diversity)
 give the exact formula and its relationship to independent hard QC.
 
 The PHROGs consensus annotation search uses `mmseqs_protein_database_sensitivity: 7.5`
@@ -109,3 +109,31 @@ architectural-distance filter 7 is diagnostic-only. The RL full-credit targets a
 not experimentally established viability requirements. See the
 [score definitions](../examples/README.md#current-phix174-gdpo-score-definitions) for formulas,
 eligibility rules, and GDPO versus scalar-GRPO aggregation.
+
+## Synteny and Arc's codon-landmark score
+
+The active `synteny` objective measures protein/function content, circular order,
+and excess homolog copies. Its scorer is
+[`score_smooth_synteny`](../src/bionemo/evo2_phage_gen/protein_evidence.py), returning
+`SmoothSyntenyScore`; the reward column is `reward_external_synteny`.
+`summarize_function_synteny` produces the corresponding hard-QC measurements.
+Profiles without a function map use `measure_reference_cluster_synteny` for hard
+measurements from LoVis4u protein clusters. All of these functions concern synteny.
+
+Arc's separate `genetic_architecture.py` scores **start/stop-codon landmarks**.
+It marks occurrences of ATG/TAA/TAG/TGA and compares their positions with fixed
+PhiX whole-genome and gene-module patterns over circular shifts. It does not
+identify protein functions. This score supplies no current RL objective.
+
+| Arc setting                                                | Role in the maintained workflow                                                                                                    |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `genetic_architecture_filter`                              | Off during RL. Final screening enables the composite landmark-score keep range `[0, 10]`.                                          |
+| `genetic_architecture_remove_filter`                       | Off during RL and target-profile screening. The separate filter-7 diagnostic removes whole-genome landmark scores in `[0.9, 1.1]`. |
+| `genetic_architecture_visualization_and_synteny_filtering` | Enables an upstream stage that emits synteny, AAI, and required-gene measurements. It does not enable the landmark-score filters.  |
+
+The `genetic_architecture_*` keys and external module filenames retain Arc's
+names because the prepared upstream pipeline consumes them. The stage-50 launcher
+sets its final-screening flags explicitly; the base template's `false` values
+are not a description of every execution mode. The codon-landmark score's
+scientific usefulness and continued role in final screening remain separate
+review questions from the active synteny reward.

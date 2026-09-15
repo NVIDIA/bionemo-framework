@@ -31,7 +31,7 @@ Process candidates in this order:
 Short genomes, no predicted genes/ORFs, missing measured genes, and header-only or empty tool results must follow their explicit scientific behavior rather than crash the rollout. Confirm that each enabled filter executed and report any unavailable component; never silently skip a gate.
 When pre-safety QC filters the representative set, retain its exact safety-input FASTA: report excluded representatives separately, and still require one manifest row for every sequence actually submitted to safety.
 
-For the PhiX174 target profile, apply filters 1–6, 8, and 9 with filter 7 disabled. Run the filter-7-enabled diagnostic separately so it cannot overwrite or be confused with the target result.
+For the PhiX174 target profile, apply filters 1–6, 8, and 9 with filter 7 disabled. Run the filter-7-enabled diagnostic separately so it cannot overwrite or be confused with the target result. Filter 7 uses Arc’s start/stop-codon landmark score, which is separate from the protein-based synteny objective. The final launcher also enables the composite landmark-score keep range; neither landmark filter runs during RL. See the [Arc flag definitions](../../configs/README.md#synteny-and-arcs-codon-landmark-score).
 Disable Arc's internal pre-QC clustering for this final rollout. Run the final MMseqs clustering
 after safety and target hard QC with 99% identity, 95% coverage of both genomes, coverage mode 0, and cluster mode
 0, and retain the complete candidate-to-cluster membership table.

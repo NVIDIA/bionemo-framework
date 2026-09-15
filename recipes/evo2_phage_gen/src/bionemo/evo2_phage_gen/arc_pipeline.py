@@ -133,11 +133,11 @@ PATCHED_MMSEQS_PROTEIN_EMPTY_COLUMNS = """                f"{descriptive_prefix}
                 f"{descriptive_prefix}_mmseqs_query_coverage",
                 f"{descriptive_prefix}_mmseqs_target_coverage",
             ]"""
-REFERENCE_CLUSTER_FUNCTION_PATTERN = re.compile(
+SYNTENY_METRICS_FUNCTION_PATTERN = re.compile(
     r"^def count_syntenic_genes_all\(.*?(?=^def valid_syntenic_gene_count\()",
     flags=re.MULTILINE | re.DOTALL,
 )
-PATCHED_REFERENCE_CLUSTER_FUNCTION = '''def count_syntenic_genes_all(
+PATCHED_SYNTENY_METRICS_FUNCTION = '''def count_syntenic_genes_all(
     root_dir: str,
     gff_dir: str,
     input_csv: str,
@@ -145,10 +145,10 @@ PATCHED_REFERENCE_CLUSTER_FUNCTION = '''def count_syntenic_genes_all(
     reference_gff_path=None,
     config=None,
 ) -> None:
-    """Measure curated function architecture, or reference clusters for an unmapped profile."""
+    """Measure protein synteny from curated functions or reference clusters."""
     from bionemo.evo2_phage_gen.protein_evidence import (
-        measure_reference_cluster_architecture, score_function_matches,
-        summarize_function_architecture, load_candidate_orf_context, write_reference_protein_fasta,
+        measure_reference_cluster_synteny, score_function_matches,
+        summarize_function_synteny, load_candidate_orf_context, write_reference_protein_fasta,
     )
 
     if config is not None and config.get("synteny_reference_functions") is not None:
@@ -167,7 +167,7 @@ PATCHED_REFERENCE_CLUSTER_FUNCTION = '''def count_syntenic_genes_all(
         _, orders = load_candidate_orf_context(os.path.join(results, config["orfipy_orfs_file_save_location"]))
         order = write_reference_protein_fasta(reference_gff_path, os.path.join(results, "synteny_reference_proteins.fasta"))
         sequences = pd.read_csv(input_csv)
-        metrics = summarize_function_architecture(
+        metrics = summarize_function_synteny(
             matches, sequences, candidate_orders=orders, reference_order=order, reference_functions=functions,
         )
         columns = [column for column in metrics if column not in ("id_prompt", "genome_id")]
@@ -175,7 +175,7 @@ PATCHED_REFERENCE_CLUSTER_FUNCTION = '''def count_syntenic_genes_all(
         sequences.merge(metrics, on=["id_prompt", "genome_id"], how="left").to_csv(output_csv, index=False)
         return
 
-    measure_reference_cluster_architecture(
+    measure_reference_cluster_synteny(
         root_dir,
         gff_dir,
         input_csv,
@@ -571,13 +571,13 @@ def _apply_required_gene_evidence_patch(output_dir: Path) -> None:
     pipeline_path.write_text(patched_text)
 
 
-def _apply_reference_cluster_evidence_patch(output_dir: Path) -> None:
+def _apply_synteny_metrics_patch(output_dir: Path) -> None:
     """Replace Arc's edge count with one-to-one reference-locus matching."""
     pipeline_path = output_dir / "genome_design_filtering_pipeline.py"
     text = pipeline_path.read_text()
-    if PATCHED_REFERENCE_CLUSTER_FUNCTION in text or "def count_syntenic_genes_all(" not in text:
+    if PATCHED_SYNTENY_METRICS_FUNCTION in text or "def count_syntenic_genes_all(" not in text:
         return
-    patched_text, replacement_count = REFERENCE_CLUSTER_FUNCTION_PATTERN.subn(PATCHED_REFERENCE_CLUSTER_FUNCTION, text)
+    patched_text, replacement_count = SYNTENY_METRICS_FUNCTION_PATTERN.subn(PATCHED_SYNTENY_METRICS_FUNCTION, text)
     if replacement_count != 1:
         raise ValueError(f"Expected exactly one synteny-count function in {pipeline_path}, found {replacement_count}.")
     patched_text = patched_text.replace(
@@ -690,7 +690,7 @@ def prepare_arc_pipeline_workdir(
     _apply_mmseqs_protein_evidence_patch(output_dir)
     _apply_protein_hard_gate_patch(output_dir)
     _apply_required_gene_evidence_patch(output_dir)
-    _apply_reference_cluster_evidence_patch(output_dir)
+    _apply_synteny_metrics_patch(output_dir)
     _apply_aai_evidence_patch(output_dir)
     _apply_lovis4u_runtime_patches(output_dir)
     return written_paths

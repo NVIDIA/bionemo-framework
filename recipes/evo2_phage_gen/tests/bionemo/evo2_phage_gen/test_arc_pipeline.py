@@ -602,7 +602,7 @@ def count_total_num_genes(gff_directory, results_csv):
     assert metrics["average_protein_identity_gene_count"].tolist() == [1, 1]
 
 
-def test_reference_cluster_patch_replaces_arc_edge_counter(tmp_path):
+def test_synteny_patch_replaces_arc_edge_counter(tmp_path):
     pipeline_path = tmp_path / "genome_design_filtering_pipeline.py"
     pipeline_path.write_text(
         """def count_syntenic_genes_all(root_dir, gff_dir, input_csv, output_csv):
@@ -614,18 +614,18 @@ def valid_syntenic_gene_count(input_csv, output_csv):
 """
     )
 
-    arc_pipeline._apply_reference_cluster_evidence_patch(tmp_path)
+    arc_pipeline._apply_synteny_metrics_patch(tmp_path)
 
     patched = pipeline_path.read_text()
     compile(patched, str(pipeline_path), "exec")
-    assert "measure_reference_cluster_architecture" in patched
+    assert "measure_reference_cluster_synteny" in patched
     assert "raise NotImplementedError" not in patched
 
 
 def test_arc_function_synteny_uses_shared_family_evidence(tmp_path):
     """The emitted Arc reader must admit alternate J and reject its extra copy."""
     namespace = {"pd": pd, "os": os}
-    exec(arc_pipeline.PATCHED_REFERENCE_CLUSTER_FUNCTION, namespace)
+    exec(arc_pipeline.PATCHED_SYNTENY_METRICS_FUNCTION, namespace)
     reference = tmp_path / "reference.gff"
     reference.write_text(
         "##gff-version 3\n"

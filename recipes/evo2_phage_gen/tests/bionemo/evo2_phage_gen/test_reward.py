@@ -34,7 +34,7 @@ from bionemo.evo2_phage_gen import sequence_safety_cli
 from bionemo.evo2_phage_gen.design_scope import HostDomain, HostEvidence
 from bionemo.evo2_phage_gen.protein_evidence import (
     add_protein_alignment_evidence,
-    measure_reference_cluster_architecture,
+    measure_reference_cluster_synteny,
     remove_pseudocircular_extension_orfs,
     stage_coordinate_normalized_reference_gff,
     summarize_required_gene_evidence,
@@ -48,10 +48,10 @@ from bionemo.evo2_phage_gen.reward import (
     RewardWeights,
     SequenceSafetyRewardConfig,
     _add_average_protein_identity_rewards,
-    _add_full_synteny_rewards,
     _add_mmseqs_hit_rewards,
     _add_required_gene_rewards,
     _add_smooth_reference_rewards,
+    _add_synteny_count_rewards,
     _external_qc_env,
     _lower_bound_ratio_score,
     _smooth_reference_search_command,
@@ -2015,8 +2015,8 @@ def test_external_qc_subprocess_failure_raises_by_default_and_retains_artifacts(
     assert any((tmp_path / "work").glob("batch_*"))
 
 
-def test_full_synteny_reward_uses_fixed_reference_denominator_and_copy_balance(tmp_path):
-    """Deleting a reference gene or duplicating homologs must reduce architecture credit."""
+def test_synteny_count_reward_uses_fixed_reference_denominator_and_copy_balance(tmp_path):
+    """Deleting a reference gene or duplicating homologs must reduce synteny credit."""
     run_dir = tmp_path / "arc_run"
     run_dir.mkdir()
     pd.DataFrame(
@@ -2037,7 +2037,7 @@ def test_full_synteny_reward_uses_fixed_reference_denominator_and_copy_balance(t
         }
     )
 
-    scored = _add_full_synteny_rewards(
+    scored = _add_synteny_count_rewards(
         df,
         run_dir,
         {
@@ -2066,7 +2066,7 @@ def test_online_synteny_pass_uses_metrics_not_measurement_survivor_csv(tmp_path)
     ).to_csv(tmp_path / "metrics.csv", index=False)
     pd.DataFrame({"id_prompt": ["valid", "invalid"]}).to_csv(tmp_path / "survivors.csv", index=False)
 
-    scored = _add_full_synteny_rewards(
+    scored = _add_synteny_count_rewards(
         pd.DataFrame({"arc_qc_id": ["valid", "invalid"], "reward_external_synteny": [0.0, 0.0]}),
         tmp_path,
         {
@@ -2094,14 +2094,14 @@ def test_online_synteny_allows_configured_loss_but_not_order_or_copy_errors(tmp_
         }
     ).to_csv(tmp_path / "metrics.csv", index=False)
     config = {"synteny_metrics_file_save_location": "metrics.csv", "synteny_max_missing_reference_genes": 1}
-    scored = _add_full_synteny_rewards(pd.DataFrame({"arc_qc_id": ids}), tmp_path, config)
+    scored = _add_synteny_count_rewards(pd.DataFrame({"arc_qc_id": ids}), tmp_path, config)
     assert scored["reward_external_synteny_pass"].tolist() == [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
     config["synteny_max_missing_reference_genes"] = 0
-    strict = _add_full_synteny_rewards(pd.DataFrame({"arc_qc_id": ids}), tmp_path, config)
+    strict = _add_synteny_count_rewards(pd.DataFrame({"arc_qc_id": ids}), tmp_path, config)
     assert strict["reward_external_synteny_pass"].tolist() == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
-def test_full_synteny_reward_does_not_score_unmeasured_rows(tmp_path):
+def test_synteny_count_reward_does_not_score_unmeasured_rows(tmp_path):
     """Missing Arc/LoVis4u measurement rows should be unavailable, not partial biological scores."""
     run_dir = tmp_path / "arc_run"
     run_dir.mkdir()
@@ -2123,7 +2123,7 @@ def test_full_synteny_reward_does_not_score_unmeasured_rows(tmp_path):
         }
     )
 
-    scored = _add_full_synteny_rewards(
+    scored = _add_synteny_count_rewards(
         df,
         run_dir,
         {
@@ -2148,7 +2148,7 @@ def testscore_synteny_counts_uses_fixed_reference_denominator():
     assert score_synteny_counts(12, 11, 0)[0] == 0.0
 
 
-def test_reference_cluster_architecture_rejects_deletion_hidden_by_duplicates(tmp_path):
+def test_reference_cluster_synteny_rejects_deletion_hidden_by_duplicates(tmp_path):
     root_dir = tmp_path / "lovis4u"
     gff_dir = tmp_path / "gff"
     root_dir.mkdir()
@@ -2184,13 +2184,13 @@ def test_reference_cluster_architecture_rejects_deletion_hidden_by_duplicates(tm
             "contig\ttool\tCDS\t91\t180\t.\t+\t0\tID=ORF.2;product=gene two\n"
         )
 
-    measure_reference_cluster_architecture(root_dir, gff_dir, input_csv, output_csv)
+    measure_reference_cluster_synteny(root_dir, gff_dir, input_csv, output_csv)
     metrics = pd.read_csv(output_csv)
     assert metrics["num_syntenic_genes"].tolist() == [2, 1]
     assert metrics["reference_num_genes"].tolist() == [2, 2]
     assert metrics["duplicate_reference_gene_count"].tolist() == [0, 1]
 
-    scored = _add_full_synteny_rewards(
+    scored = _add_synteny_count_rewards(
         pd.DataFrame({"arc_qc_id": ["complete", "delete_duplicate"], "reward_external_synteny": [0.0, 0.0]}),
         tmp_path,
         {"synteny_metrics_file_save_location": "metrics.csv"},
@@ -2199,7 +2199,7 @@ def test_reference_cluster_architecture_rejects_deletion_hidden_by_duplicates(tm
     assert scored["reward_external_synteny_pass"].tolist() == [1.0, 0.0]
 
 
-def test_reference_cluster_architecture_ignores_reference_features_absent_from_staged_gff(tmp_path):
+def test_reference_cluster_synteny_ignores_reference_features_absent_from_staged_gff(tmp_path):
     root_dir = tmp_path / "lovis4u"
     gff_dir = tmp_path / "gff"
     mmseqs_dir = root_dir / "genome_1" / "mmseqs"
@@ -2223,7 +2223,7 @@ def test_reference_cluster_architecture_ignores_reference_features_absent_from_s
     output_csv = tmp_path / "output.csv"
     pd.DataFrame({"id_prompt": ["candidate"], "genome_id": ["genome_1"]}).to_csv(input_csv, index=False)
 
-    measure_reference_cluster_architecture(root_dir, gff_dir, input_csv, output_csv, reference_gff)
+    measure_reference_cluster_synteny(root_dir, gff_dir, input_csv, output_csv, reference_gff)
 
     observed = pd.read_csv(output_csv)
     assert observed["num_syntenic_genes"].tolist() == [1]
@@ -2232,7 +2232,7 @@ def test_reference_cluster_architecture_ignores_reference_features_absent_from_s
     assert observed["non_syntenic_genes"].tolist() == ["ORF.2"]
 
 
-def test_reference_cluster_architecture_penalizes_reordered_loci(tmp_path):
+def test_reference_cluster_synteny_penalizes_reordered_loci(tmp_path):
     root_dir = tmp_path / "lovis4u"
     gff_dir = tmp_path / "gff"
     gff_dir.mkdir()
@@ -2269,12 +2269,12 @@ def test_reference_cluster_architecture_penalizes_reordered_loci(tmp_path):
             "contig\ttool\tCDS\t181\t270\t.\t+\t0\tID=ORF.3;product=three\n"
         )
 
-    measure_reference_cluster_architecture(root_dir, gff_dir, input_csv, output_csv, reference_gff)
+    measure_reference_cluster_synteny(root_dir, gff_dir, input_csv, output_csv, reference_gff)
 
     observed = pd.read_csv(output_csv)
     assert observed["num_syntenic_genes"].tolist() == [3, 3]
     assert observed["reference_order_violation_count"].tolist() == [0, 3]
-    scored = _add_full_synteny_rewards(
+    scored = _add_synteny_count_rewards(
         pd.DataFrame(
             {
                 "arc_qc_id": ["complete", "reordered"],
@@ -2431,7 +2431,7 @@ def test_synteny_requires_complete_measurements(tmp_path):
     """A survivor row cannot manufacture missing reference, duplication or order evidence."""
     path = tmp_path / "qc6_synteny_filter_metrics.csv"
     pd.DataFrame({"id_prompt": ["a"], "num_syntenic_genes": [10], "total_num_genes": [10]}).to_csv(path, index=False)
-    scored = _add_full_synteny_rewards(pd.DataFrame({"arc_qc_id": ["a"]}), tmp_path, {})
+    scored = _add_synteny_count_rewards(pd.DataFrame({"arc_qc_id": ["a"]}), tmp_path, {})
     assert scored["reward_external_synteny"].tolist() == [0.0]
     assert scored["synteny_measurement_available"].tolist() == [0.0]
     assert scored["synteny_missing_artifact"].tolist() == [1.0]

@@ -28,7 +28,7 @@ scored = add_nucleotide_rewards(measured, config)
 accepted = nucleotide_pass_mask(measured, config)
 ```
 
-`accepted` means nucleotide acceptance only. `reward_nucleotide_pass` uses exactly this predicate, including both homopolymer bounds. It does not replace protein, architecture, or safety screening.
+`accepted` means nucleotide acceptance only. `reward_nucleotide_pass` uses exactly this predicate, including both homopolymer bounds. It does not replace protein, synteny, or safety screening.
 
 | Public function in `reward.py` | Inputs and result                                                                                                                                                        |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -39,7 +39,7 @@ accepted = nucleotide_pass_mask(measured, config)
 | `score_synteny_counts`         | Matched reference loci, fixed reference count, excess copies, and order violations; returns (reward, reference coverage, copy balance, reference deficit).               |
 | `aggregate_rewards`            | Scored columns and positive component weights; adds the bounded weighted scalar reward subject to the safety gate. GDPO instead uses its configured objective columns.   |
 
-The smooth reference architecture and origin functions are public in `protein_evidence.py`: `smooth_protein_match_integrity`, `summarize_smooth_reference_evidence`, `score_smooth_reference_architecture`, `score_function_matches`, `summarize_function_architecture`, and `score_gene_a_origin`. The [worked PhiX reward definitions](../../../examples/README.md#current-phix174-gdpo-score-definitions) identify which functions the shipped profile selects. Keep CSV readers, subprocess arguments, and artifact reconciliation private; those helpers are not standalone biological scoring APIs.
+The protein-evidence, synteny, and origin functions are public in `protein_evidence.py`: `smooth_protein_match_integrity`, `summarize_smooth_reference_evidence`, `score_smooth_synteny`, `score_function_matches`, `summarize_function_synteny`, and `score_gene_a_origin`. The [worked PhiX reward definitions](../../../examples/README.md#current-phix174-gdpo-score-definitions) identify which functions the shipped profile selects. Keep CSV readers, subprocess arguments, and artifact reconciliation private; those helpers are not standalone biological scoring APIs.
 
 The online reference search in `reward.py` uses MMseqs `easy-search --prefilter-mode 2 -e 1`:
 it aligns the small reference-protein panel against every called candidate ORF, avoiding
@@ -50,7 +50,7 @@ panels. Separate hard-QC searches keep their own acceptance rules.
 Reference-search E-values depend on the current target pool's total protein residues.
 Changing scoring-call size or ORF content can change weak-hit credit and E=1 hit inclusion;
 record this context when comparing scores. Removing the significance factor from shaping
-alone would not remove the search cutoff. The [worked definitions](../../../examples/README.md#protein-evidence-architecture-and-diversity)
+alone would not remove the search cutoff. The [worked definitions](../../../examples/README.md#protein-evidence-synteny-and-diversity)
 document the measured scope and its effect on closely grouped candidates. Do not claim
 unconditional batch-composition invariance for this scorer.
 
@@ -63,7 +63,7 @@ Identity settings are fractions; the measured identity argument is in percent. T
 additional integrity cutoff, minimum-credit bonus, or adjustable exponent. All endpoints must
 be finite and ordered. The shared score feeds smooth synteny, tropism, and gene-A origin evidence;
 retain their separate full-credit targets and final-QC rules. The 5% baseline is a shaping
-choice, not a homology acceptance threshold. The [worked definitions](../../../examples/README.md#protein-evidence-architecture-and-diversity)
+choice, not a homology acceptance threshold. The [worked definitions](../../../examples/README.md#protein-evidence-synteny-and-diversity)
 provide the exact factors and config values.
 
 The PHROGs consensus annotation search is configured separately by
@@ -98,6 +98,27 @@ for new profiles. `required_genes_integrity_sum` is summed normalized coverage i
 this term, not the smooth reference-protein geometric mean. Any profile change needs
 replay on viable and disrupted controls before interpreting a new run against old scores.
 
+## Synteny entry points
+
+| Function in `protein_evidence.py`     | Result and role                                                                                                                   |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `score_smooth_synteny`                | Returns `SmoothSyntenyScore`: the continuous synteny reward, content, circular-order, excess-copy components, and assignment.     |
+| `summarize_function_synteny`          | Measures matched functions, order violations, and extra copies for hard synteny using curated families.                           |
+| `measure_reference_cluster_synteny`   | Writes hard-synteny measurements from LoVis4u protein clusters for an unmapped profile.                                           |
+| `reference_synteny_pass_mask`         | Applies the configured completeness, order, and copy rules to hard-synteny measurements.                                          |
+| `summarize_smooth_reference_evidence` | Combines reference/family evidence for smooth synteny, tropism, and gene-A origin. Its broader name reflects these three outputs. |
+
+In `reward.py`, `_add_synteny_count_rewards` reads hard measurements, derives the
+count-based reward, and records the hard pass. `_add_smooth_reference_rewards`
+then replaces the reward when smooth scoring is enabled; it preserves the hard
+pass. These are private pipeline readers, not additional objectives.
+
+Arc's separate `genetic_architecture.py` computes start/stop-codon landmark
+similarity. It has no active RL objective. The maintained final-screening and
+filter-7 diagnostic branches still use it; see the
+[Arc configuration distinction](../../../configs/README.md#synteny-and-arcs-codon-landmark-score).
+Do not confuse its flags with the upstream visualization/synteny measurement stage.
+
 ## Function-aware synteny
 
 `score_function_matches(hits_df, required_families, ...)` returns per-ORF/function
@@ -112,12 +133,12 @@ The Arc config's `synteny_reference_functions` maps canonical reference GFF locu
 IDs to distinct names in `required_gene_families`. Pass that mapping and measured
 `function_matches` to `summarize_smooth_reference_evidence`. Each mapped slot uses
 `max(direct_reference_integrity, family_coverage_credit)`; only mapped loci enter
-the architecture denominator. A fully covered allowed-family match earns full
+the synteny denominator. A fully covered allowed-family match earns full
 slot credit without the direct route's 90% identity target. The PhiX profile maps
 A/B/C/D/E/F/G/H/J and excludes K/A\*. Order and excess-copy penalties still apply.
 Tropism and gene-A origin retain their original direct-reference evidence.
 
-`summarize_function_architecture` supplies the final hard-synteny measurements
+`summarize_function_synteny` supplies the final hard-synteny measurements
 from full-coverage family matches and called-ORF coordinates. The current profile
 allows no missing functions, order violations, or extra qualifying copies. Partial
 matches remain graded RL evidence. An unmapped profile still uses reference-only

@@ -1159,7 +1159,7 @@ def _write_external_qc_config(
     config["overwrite_sequence_ids"] = True
     config["online_measurement_mode"] = True
     # Length remains an independent online reward and final acceptance gate. Do not
-    # suppress otherwise usable protein and architecture evidence for an outlier.
+    # suppress otherwise usable protein and synteny evidence for an outlier.
     config["genome_length_filter"] = False
     for key in ARC_PATH_KEYS:
         if config.get(key):
@@ -1167,13 +1167,13 @@ def _write_external_qc_config(
 
     if external_qc.enable_gene_a_origin and not external_qc.enable_smooth_reference_rewards:
         raise ValueError("enable_gene_a_origin requires enable_smooth_reference_rewards")
-    full_synteny_enabled = external_qc.enable_synteny
+    synteny_enabled = external_qc.enable_synteny
     smooth_reference_enabled = bool(
         external_qc.enable_smooth_reference_rewards
         and (external_qc.enable_synteny or external_qc.enable_tropism or external_qc.enable_gene_a_origin)
     )
-    paper_synteny_stage_enabled = bool(
-        full_synteny_enabled or external_qc.enable_average_protein_identity or external_qc.enable_required_genes
+    protein_metrics_stage_enabled = bool(
+        synteny_enabled or external_qc.enable_average_protein_identity or external_qc.enable_required_genes
     )
 
     orf_enabled = external_qc.enable_orf or external_qc.enable_coding_density
@@ -1197,9 +1197,11 @@ def _write_external_qc_config(
     config["use_orf_filtered_df"] = bool(orf_enabled)
     config["use_nucleotide_filtered_df_instead"] = not bool(orf_enabled)
     config["protein_database_hit_count_filter"] = bool(
-        external_qc.enable_protein_hit_count or paper_synteny_stage_enabled
+        external_qc.enable_protein_hit_count or protein_metrics_stage_enabled
     )
     config["training_data_sequence_identity_filter"] = False
+    # Arc's codon-landmark similarity filters are separate from protein synteny
+    # and supply no RL objective. Their upstream config names remain unchanged.
     config["genetic_architecture_filter"] = False
     config["tropism_protein_sequence_identity_filter"] = bool(external_qc.enable_tropism)
     config["checkv_filter"] = False
@@ -1211,10 +1213,12 @@ def _write_external_qc_config(
     config["mmseqs_clustering_filter"] = False
     config["mmseqs_reference_genome_sequence_identity_remove_filter"] = False
     config["genetic_architecture_remove_filter"] = False
-    config["genetic_architecture_visualization_and_synteny_filtering"] = paper_synteny_stage_enabled
+    # This upstream stage emits synteny, AAI, and required-gene measurements;
+    # enabling it does not enable the separate codon-landmark filters above.
+    config["genetic_architecture_visualization_and_synteny_filtering"] = protein_metrics_stage_enabled
     config["average_protein_sequence_identity_filter"] = bool(external_qc.enable_average_protein_identity)
     config["required_genes_filter"] = bool(external_qc.enable_required_genes)
-    config["syntenic_gene_count_filter"] = full_synteny_enabled
+    config["syntenic_gene_count_filter"] = synteny_enabled
     if external_qc.lovis4u_parallel_jobs is not None:
         parallel_jobs = max(1, int(external_qc.lovis4u_parallel_jobs))
         config["lovis4u_parallel_jobs"] = parallel_jobs
@@ -1233,7 +1237,7 @@ def _write_external_qc_config(
     config["lovis4u_collect_pdfs"] = bool(external_qc.lovis4u_collect_pdfs)
     config["protein_match_min_reciprocal_coverage"] = float(external_qc.protein_match_min_reciprocal_coverage)
     config["tropism_match_min_reciprocal_coverage"] = float(external_qc.tropism_match_min_reciprocal_coverage)
-    if full_synteny_enabled or smooth_reference_enabled:
+    if synteny_enabled or smooth_reference_enabled:
         reference_gff = Path(config["reference_genome_gff_file_save_location"])
         staged_reference_gff = run_dir / "reference_genome.coordinate_normalized.gff"
         circular_genome_length = None
@@ -1253,11 +1257,11 @@ def _write_external_qc_config(
             circular_genome_length=circular_genome_length,
         )
         config["smooth_reference_genome_gff_file"] = str(staged_reference_gff)
-        if full_synteny_enabled:
+        if synteny_enabled:
             config["reference_genome_gff_file_save_location"] = str(staged_reference_gff)
-    if paper_synteny_stage_enabled:
-        config["use_reference_genome"] = full_synteny_enabled
-        if not full_synteny_enabled and not bool(config.get("allow_gff_product_order_synteny_fallback", False)):
+    if protein_metrics_stage_enabled:
+        config["use_reference_genome"] = synteny_enabled
+        if not synteny_enabled and not bool(config.get("allow_gff_product_order_synteny_fallback", False)):
             config["reference_genome_gff_file_save_location"] = None
         config.setdefault(
             "average_protein_sequence_identity_metrics_file_save_location",
@@ -1278,7 +1282,7 @@ def _add_smooth_reference_rewards(
     config: dict,
     external_qc: ExternalQCRewardConfig,
 ) -> pd.DataFrame:
-    """Run one permissive reference-to-called-ORF search and add graded rewards."""
+    """Add smooth synteny, tropism, and gene-A-origin rewards from protein evidence."""
     reference_gff_value = config.get("smooth_reference_genome_gff_file")
     protein_orfs_value = config.get("orfipy_proteins_file_save_location")
     nucleotide_orfs_value = config.get("orfipy_orfs_file_save_location")
@@ -1423,8 +1427,12 @@ def _as_arc_pass_mask(scored_df: pd.DataFrame, pass_ids: set[str]) -> pd.Series:
     return scored_df[id_column].astype(str).isin(pass_ids)
 
 
-def _add_full_synteny_rewards(scored_df: pd.DataFrame, run_dir: Path, config: dict) -> pd.DataFrame:
-    """Score complete Arc/LoVis measurements without inventing missing architecture evidence."""
+def _add_synteny_count_rewards(scored_df: pd.DataFrame, run_dir: Path, config: dict) -> pd.DataFrame:
+    """Read hard-synteny measurements and derive the count-based reward and pass flag.
+
+    Smooth scoring subsequently replaces the reward when enabled; the hard pass
+    remains based on these measurements. Missing evidence stays unavailable.
+    """
     id_column = "arc_qc_id" if "arc_qc_id" in scored_df else "id_prompt"
     scored_df["synteny_stage_reached"] = 0.0
     scored_df["synteny_measurement_available"] = 0.0
@@ -1835,7 +1843,7 @@ def add_external_qc_rewards(
         _record_elapsed(timings, "reward/external_qc/parse_protein_hit_count_tropism_s", phase_start)
         if external_qc.enable_synteny:
             phase_start = time.perf_counter()
-            df = _add_full_synteny_rewards(df, run_dir, config)
+            df = _add_synteny_count_rewards(df, run_dir, config)
             _record_elapsed(timings, "reward/external_qc/parse_synteny_s", phase_start)
         if external_qc.enable_smooth_reference_rewards and (
             external_qc.enable_synteny or external_qc.enable_tropism or external_qc.enable_gene_a_origin

@@ -73,7 +73,8 @@
         "It does not turn rollout-relative singleton diversity into an intrinsic genome gate, while allowing a separately reported set-level diversity rule when selecting a portfolio.",
         "It does not use a saturated p=1 model output as a gate without validated positive-negative separation and treats a brittle narrow band similarly.",
         "It traces the feasibility mask into the online diversity reward, but first permits a proposed replacement gate to be replayed on saved measurements; only adopting the change in-loop requires a new RL attempt, while genuinely post-hoc gates require no retraining.",
-        "Any relaxed or removed post-hoc criterion is versioned and reported rather than silently changed after seeing candidate outcomes."
+        "Any relaxed or removed post-hoc criterion is versioned and reported rather than silently changed after seeing candidate outcomes.",
+        "When using the maintained PhiX profile, it distinguishes protein synteny from the separate Arc codon-landmark score and keeps filter-7 diagnostic outcomes separate from the target-profile passing set; the landmark score is not an RL objective."
       ],
       "expected_skill": "bionemo-phage-design-generate-and-screen",
       "expected_script": null

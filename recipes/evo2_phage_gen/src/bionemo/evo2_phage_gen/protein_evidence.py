@@ -31,8 +31,8 @@ ORFIPY_INTERVAL_RE = re.compile(r"\[(\d+)-(\d+)\]")
 
 
 @dataclass(frozen=True)
-class SmoothReferenceArchitecture:
-    """Continuous content, order, and excess-copy evidence for reference loci."""
+class SmoothSyntenyScore:
+    """Synteny reward and its content, circular-order, and excess-copy components."""
 
     reward: float
     content_score: float
@@ -209,29 +209,31 @@ def _linear_ordered_integrity(
     return previous[-1]
 
 
-def score_smooth_reference_architecture(
+def score_smooth_synteny(
     edge_weights: dict[tuple[str, str], float],
     *,
     reference_order: tuple[str, ...],
     candidate_order: tuple[str, ...],
     order_weight: float,
     duplicate_penalty_weight: float,
-) -> SmoothReferenceArchitecture:
-    """Score reference content/order and subtract excess candidate match strength.
+) -> SmoothSyntenyScore:
+    """Compute the smooth synteny reward from graded ORF-to-slot matches.
 
+    Slots may use direct reference or curated family evidence. This is the
+    ``reward_external_synteny`` scorer, separate from Arc's start/stop-codon score.
     The excess term measures best-match mass beyond the one-to-one content
     assignment, including partial homologs; it is not a count of intact copies.
     Unmatched extra ORFs contribute neither credit nor excess mass. The final
     subtraction is clipped at zero, so positive content can still score zero.
     """
     if not reference_order:
-        return SmoothReferenceArchitecture(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, ())
+        return SmoothSyntenyScore(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, ())
     if len(set(reference_order)) != len(reference_order) or len(set(candidate_order)) != len(candidate_order):
         raise ValueError("Reference and candidate orders must contain unique locus identifiers")
     if not 0.0 <= order_weight <= 1.0 or duplicate_penalty_weight < 0.0:
-        raise ValueError("Invalid smooth architecture weights")
+        raise ValueError("Invalid smooth synteny weights")
     if any(not math.isfinite(float(weight)) or not 0.0 <= float(weight) <= 1.0 for weight in edge_weights.values()):
-        raise ValueError("Smooth architecture edges must be finite values in [0, 1]")
+        raise ValueError("Smooth synteny edges must be finite values in [0, 1]")
 
     edge_candidates = {candidate for _reference, candidate in edge_weights}
     all_candidates = candidate_order + tuple(sorted(edge_candidates - set(candidate_order)))
@@ -261,7 +263,7 @@ def score_smooth_reference_architecture(
         + order_weight * ordered_score
         - duplicate_penalty_weight * duplicate_score
     )
-    return SmoothReferenceArchitecture(
+    return SmoothSyntenyScore(
         reward=max(0.0, min(1.0, reward)),
         content_score=content_score,
         ordered_score=ordered_score,
@@ -446,15 +448,15 @@ def summarize_smooth_reference_evidence(
 
     Mapped synteny slots use the stronger of reference integrity and family coverage
     credit; the reference identity target does not constrain the family route.
-    Only mapped loci enter that architecture's denominator. Tropism and
+    Only mapped loci enter that synteny's denominator. Tropism and
     origin retain the original reference-protein evidence and their own criteria.
     """
     _validate_smooth_protein_match_config(**synteny_match_parameters)
     _validate_smooth_protein_match_config(**tropism_match_parameters)
-    architecture_order = reference_order
+    synteny_order = reference_order
     function_edges = {}
     if reference_functions is not None:
-        architecture_order = _function_reference_order(reference_order, reference_functions)
+        synteny_order = _function_reference_order(reference_order, reference_functions)
         if function_matches is None:
             raise ValueError("Function-aware synteny requires measured family matches")
         function_to_reference = {function: reference for reference, function in reference_functions.items()}
@@ -519,19 +521,19 @@ def summarize_smooth_reference_evidence(
     rows = []
     for genome_id, genome_sequence in genome_sequences.items():
         reference_edges = synteny_edges.get(genome_id, {})
-        edges = {edge: value for edge, value in reference_edges.items() if edge[0] in architecture_order}
+        edges = {edge: value for edge, value in reference_edges.items() if edge[0] in synteny_order}
         for edge, value in function_edges.get(genome_id, {}).items():
             edges[edge] = max(edges.get(edge, 0.0), value)
-        architecture = score_smooth_reference_architecture(
+        synteny = score_smooth_synteny(
             edges,
-            reference_order=architecture_order,
+            reference_order=synteny_order,
             candidate_order=candidate_orders.get(genome_id, ()),
             order_weight=synteny_order_weight,
             duplicate_penalty_weight=synteny_duplicate_penalty_weight,
         )
         # Family alternatives affect synteny, not the A-reference origin criterion.
         if reference_functions is None:
-            assignment = dict(architecture.assignment)
+            assignment = dict(synteny.assignment)
         else:
             _, reference_assignment = _maximum_weight_reference_assignment(
                 reference_edges, reference_order, candidate_orders.get(genome_id, ())
@@ -550,11 +552,11 @@ def summarize_smooth_reference_evidence(
         rows.append(
             {
                 "id_prompt": genome_id,
-                "reward_external_synteny": architecture.reward,
-                "synteny_smooth_content_score": architecture.content_score,
-                "synteny_smooth_ordered_score": architecture.ordered_score,
-                "synteny_smooth_duplicate_score": architecture.duplicate_score,
-                "smooth_reference_matched_loci": len(architecture.assignment),
+                "reward_external_synteny": synteny.reward,
+                "synteny_smooth_content_score": synteny.content_score,
+                "synteny_smooth_ordered_score": synteny.ordered_score,
+                "synteny_smooth_duplicate_score": synteny.duplicate_score,
+                "smooth_reference_matched_loci": len(synteny.assignment),
                 "smooth_reference_best_integrity": max(edges.values(), default=0.0),
                 "reward_external_tropism": max(tropism_edges.get(genome_id, {}).values(), default=0.0),
                 "reward_gene_a_origin": origin.reward,
@@ -795,7 +797,7 @@ def _function_reference_order(
     return tuple(reference for reference in reference_order if reference in reference_functions)
 
 
-def summarize_function_architecture(
+def summarize_function_synteny(
     function_matches: pd.DataFrame,
     sequences_df: pd.DataFrame,
     *,
@@ -803,7 +805,7 @@ def summarize_function_architecture(
     reference_order: tuple[str, ...],
     reference_functions: dict[str, str],
 ) -> pd.DataFrame:
-    """Measure hard synteny from full-length curated function matches.
+    """Measure matched functions, circular order, and extra copies for hard synteny.
 
     Use the same slots and coverage thresholds as the smooth function evidence.
     Partial hits can earn RL credit but do not establish a complete gene or an
@@ -872,14 +874,18 @@ def reference_synteny_pass_mask(metrics: pd.DataFrame, max_missing_reference_gen
     )
 
 
-def measure_reference_cluster_architecture(
+def measure_reference_cluster_synteny(
     root_dir: str | Path,
     gff_dir: str | Path,
     input_csv: str | Path,
     output_csv: str | Path,
     reference_gff_path: str | Path | None = None,
 ) -> None:
-    """Measure distinct reference loci and excess homolog copies in LoVis4u clusters."""
+    """Measure hard synteny from LoVis4u clusters for profiles without a function map.
+
+    Count matched reference loci, circular-order violations, and extra homolog
+    copies. This is protein-cluster evidence, separate from Arc's codon score.
+    """
     root_dir = Path(root_dir)
     gff_dir = Path(gff_dir)
     input_df = pd.read_csv(input_csv)

@@ -136,6 +136,9 @@ reference_genome_sequence_identity_filter: false
 reference_genome_fasta: "recipes/evo2_phage_gen/data/external/arc_evo2/phage_gen/data/NC_001422_1.fna"
 reference_genome_sequence_identity_range: [60, 100]
 
+# Arc's start/stop-codon landmark score, separate from protein synteny.
+# Disabled for RL; the final-screening launcher enables this composite-score
+# keep range. See configs/README.md#synteny-and-arcs-codon-landmark-score.
 genetic_architecture_filter: false
 genetic_architecture_reference_genome: "recipes/evo2_phage_gen/data/external/arc_evo2/phage_gen/data/NC_001422_1.fna"
 genetic_architecture_score_range: [0, 10]
@@ -172,6 +175,9 @@ mmseqs_reference_genome_sensitivity: 7.5
 mmseqs_reference_genome_results_dir_save_location: "qc5_mmseqs_results_reference_genome"
 reference_genome_sequence_identity_metrics_file_save_location: "qc5_reference_genome_sequence_identity_metrics.csv"
 
+# Filter 7: optionally remove genomes near the PhiX codon-landmark score.
+# The final launcher enables this only in its separate diagnostic branch, not RL
+# or the target-profile passing set. These names belong to upstream Arc.
 genetic_architecture_remove_filter: false
 genetic_architecture_score_mode: "genome"
 genetic_architecture_score_range_to_remove: [0.9, 1.1]
@@ -184,6 +190,8 @@ diversification_filter_seqs_fasta_file_save_location: "qc5_diversification_filte
 ### 6. VISUALIZATION AND SYNTENY QC ####
 ########################################
 
+# Upstream stage name: emits protein synteny, AAI, and required-function metrics.
+# Enabling this stage does not enable either codon-landmark filter above.
 genetic_architecture_visualization_and_synteny_filtering: false
 genetic_architecture_visualization_script: "recipes/evo2_phage_gen/data/arc_pipeline_patched/genetic_architecture_visualization.py"
 protein_annotation_file: "recipes/evo2_phage_gen/data/external/phrogs/phrog_annot_v4.tsv"

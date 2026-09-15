@@ -1290,10 +1290,13 @@ config.update({
     "use_orf_filtered_df": True,
     "use_nucleotide_filtered_df_instead": False,
     "checkv_filter": True,
+    # Arc codon-landmark score (offline only), separate from protein synteny.
     "genetic_architecture_filter": True,
     "diversification_filtering": True,
     "mmseqs_clustering_filter": False,
+    # Filter 7 removes near-reference landmark scores only in the diagnostic branch.
     "genetic_architecture_remove_filter": remove_filter,
+    # Upstream stage name for synteny, required-function, and AAI measurements.
     "genetic_architecture_visualization_and_synteny_filtering": True,
     "use_reference_genome": True,
 })
@@ -1302,7 +1305,7 @@ reference_fasta = repo_root / config["genetic_architecture_reference_genome"]
 reference_gff = repo_root / config["reference_genome_gff_file_save_location"]
 reference_records = list(SeqIO.parse(reference_fasta, "fasta"))
 if len(reference_records) != 1:
-    raise ValueError("The Arc architecture reference FASTA must contain exactly one sequence")
+    raise ValueError("The Arc reference FASTA used to stage synteny coordinates must contain exactly one sequence")
 staged_reference_gff = output / "reference_genome.coordinate_normalized.gff"
 stage_coordinate_normalized_reference_gff(
     reference_gff,
