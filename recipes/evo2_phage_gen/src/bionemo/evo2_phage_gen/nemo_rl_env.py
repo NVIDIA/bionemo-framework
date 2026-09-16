@@ -368,7 +368,11 @@ def gdpo_objective_scores_from_scored(
     *,
     zero_reward_without_eod: bool = False,
 ) -> pd.DataFrame:
-    """Build a positional GDPO reward matrix from scored reward columns."""
+    """Build unweighted GDPO columns; NeMo-RL normalizes and sums each equally.
+
+    Scalar ``RewardWeights`` do not select or scale these objectives. Gating is
+    applied here before the estimator's within-prompt normalization.
+    """
     if scored.empty:
         return pd.DataFrame(
             0.0,
@@ -522,14 +526,7 @@ def _mean_numeric(scored: pd.DataFrame, column: str) -> float | None:
 
 
 def _reward_prompt_group_keys(scored: pd.DataFrame) -> pd.Series | None:
-    """Identify one sampled rollout group without merging duplicate prompt records or DP-local indices."""
-    if {"generation_prompt_index", "prompt_group"}.issubset(scored.columns):
-        return pd.Series(
-            list(zip(scored["generation_prompt_index"], scored["prompt_group"], strict=True)),
-            index=scored.index,
-        )
-    if "generation_prompt_index" in scored:
-        return scored["generation_prompt_index"]
+    """Group identical prompts, as the estimator does, regardless of record/rank IDs."""
     if "prompt_group" in scored:
         return scored["prompt_group"]
     return None
@@ -846,6 +843,9 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 dustmask_end_window=int(cfg.get("dustmask_end_window", 200)),
                 dustmask_max_end_fraction=float(cfg.get("dustmask_max_end_fraction", 0.9)),
             )
+            # Scalar GRPO and summary weights only. Zero fallbacks leave optional
+            # scorers out of the scalar aggregate; the shipped configs enable them
+            # explicitly at 1. GDPO uses gdpo_objectives, not these weights.
             self.weights = RewardWeights(
                 valid_nt_chars=float(cfg.get("weight_valid_nt_chars", 1.0)),
                 genome_length=float(cfg.get("weight_genome_length", 1.0)),
@@ -1023,6 +1023,14 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
             gdpo_objectives = self.gdpo_objectives if reward_output_mode == "gdpo" else ()
             if not _batch_metadata_is_complete(batch_scored, int(rewards.shape[0]), gdpo_objectives):
                 batch_scored = pd.DataFrame()
+            if not batch_scored.empty and "message_log" in batch:
+                # phage_prompt_data_processor emits one user message containing the
+                # entire prompt. Use its actual tokens, including control tokens and
+                # any processor truncation, just as NeMo-RL's estimator does after
+                # gathering all rollout shards. Record IDs do not define its groups.
+                batch_scored["prompt_group"] = [
+                    tuple(message_log[0]["token_ids"].tolist()) for message_log in batch["message_log"]
+                ]
             metrics = phage_qc_metrics_from_scored(
                 batch_scored,
                 self.weights,
@@ -1047,6 +1055,8 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                     bool(((group.max(axis=0) - group.min(axis=0)) == 0.0).all()) for _name, group in grouped_rewards
                 )
                 metrics["reward_prompt_group_count"] = group_count
+                metrics["reward_prompt_group_size_min"] = int(grouped_rewards.size().min())
+                metrics["reward_prompt_group_size_max"] = int(grouped_rewards.size().max())
                 metrics["reward_zero_variance_prompt_group_rate"] = (
                     zero_variance_count / group_count if group_count else 0.0
                 )

@@ -12,6 +12,7 @@ Run the selected SFT checkpoint with the agreed objectives and sampling settings
 ## Start or resume
 
 - Prepare the SFT checkpoint with `evo2_phage_prepare_sft_checkpoint_for_rl`. Use its direct model-only `iter_*` path for both policy initialization and the fixed SFT KL reference. Schema 2 preserves model object state, including Transformer Engine `_extra_state`; rerunning preparation upgrades a matching schema-1 copy without repeating SFT or calibration.
+- Before new scoring, use an Arc pipeline prepared from the current maintained patch. The example refreshes this derived code even when starting directly at stage 40 or 50; completed scientific outputs are still governed by stage markers.
 - Use the result-root train and validation banks. Repeating the example command reuses completed stages and prepares missing downstream inputs; `--resume-from` does not make unfinished stages complete.
 - For a compatible continuation, restore the full RL checkpoint and retain its original SFT KL anchor. A deliberate change to rewards, sampling, prompts, or model starts a separate result root. Record model-only recovery as fresh-optimizer continuation, not an exact resume.
 - Legacy synchronous GRPO stops at either `max_num_steps` or `max_num_epochs`. Make the epoch budget large enough for the requested number of updates.
@@ -42,7 +43,9 @@ The recipe dataset uses task name `phage_qc` regardless of JSONL location. Prima
 
 The default PhiX update uses two interleaved origin prompts (16/24 bases), each with 384 generations,
 for 768 genomes total. GDPO groups identical prompt token sequences, including repeated input
-records; record count alone does not establish normalization-group count. Diversity instead pools
+records; record count alone does not establish normalization-group count. Check training
+`reward_prompt_group_count` = 2 and `reward_prompt_group_size_min` /
+`reward_prompt_group_size_max` = 384 for the default layout; these use actual prompt tokens. Diversity instead pools
 eligible genomes across both prompts in the synchronous environment scoring batch. Validation
 still generates one completion for each of its 96 prompt records.
 

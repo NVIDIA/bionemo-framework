@@ -32,6 +32,20 @@ Smoke runs and hardware-specific launches should use command-line overrides and 
 directory rather than adding permanent example configs here. Record the resolved settings and
 observed tool/database versions with the run.
 
+## Reward weights and GDPO groups
+
+Both RL configs give every enabled scalar component weight 1. The zero fallbacks in
+`RewardWeights` and `nemo_rl_env.py` leave optional components out of standalone scalar
+scoring when they are not configured; the shipped configs explicitly enable their selected
+components. GRPO trains on that weighted scalar mean. GDPO instead trains on the listed
+`gdpo_objectives`: normalize each within identical prompt tokens, sum with coefficient 1,
+then normalize the combined advantage. Scalar `weight_*` values do not scale or disable
+GDPO objectives. Existing safety/EOD gating happens before normalization.
+
+The default training batch has two groups of 384. Check `reward_prompt_group_count`,
+`reward_prompt_group_size_min`, and `reward_prompt_group_size_max` on training metrics;
+record IDs and generation shards do not define normalization groups.
+
 ## Length and termination
 
 Biological length includes the prompt bases and generated bases, excluding control tokens and

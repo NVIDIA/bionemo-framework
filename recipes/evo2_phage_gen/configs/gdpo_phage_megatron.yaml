@@ -141,8 +141,9 @@ env:
     # GDPO reward vector to zero. This penalizes invalid genomes rather than masking their loss;
     # raw safety and QC evidence remains available only as diagnostics.
     zero_reward_without_eod: true
-    # These weights do not post-weight GDPO objectives after normalization. They
-    # keep scalar diagnostics and binary pass metrics aligned with the RL500 gates.
+    # Scalar summaries use equal weights for enabled components. GDPO independently
+    # normalizes and sums every gdpo_objectives entry with coefficient 1; these
+    # scalar weights do not scale or disable its objective columns.
     weight_valid_nt_chars: 1.0
     weight_genome_length: 1.0
     weight_gc_content: 1.0
@@ -150,10 +151,10 @@ env:
     weight_dustmask_end: 1.0
     weight_nucleotide_pass: 1.0
     weight_tropism: 1.0
-    weight_synteny: 0.25
-    weight_gene_a_origin: 0.25
-    weight_average_protein_identity: 0.25
-    weight_required_genes: 0.1
+    weight_synteny: 1.0
+    weight_gene_a_origin: 1.0
+    weight_average_protein_identity: 1.0
+    weight_required_genes: 1.0
     weight_mmseqs_cluster_diversity: 1.0
     gdpo_objectives:
       - name: "valid_nt_chars"

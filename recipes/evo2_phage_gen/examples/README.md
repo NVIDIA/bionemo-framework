@@ -111,7 +111,10 @@ validates and reuses a complete converted base checkpoint instead of redownloadi
 it. Stage 40 likewise keeps `stages/40-pilot.done`, `stages/40-pilot-reload.done`,
 `stages/40-pilot-check.done`, and `stages/40-rl.done` distinct, and reuses only a validated schema-2
 optimizer-free prepared SFT checkpoint. Do not create a marker unless its operation is known to
-have succeeded.
+have succeeded. Before new calibration scoring, RL environment checks/training, or final
+Arc screening, the launcher regenerates the derived Arc pipeline from the current
+maintained patch. This also applies when starting directly at stage 40 or 50;
+completed scientific outputs remain controlled by their existing stage markers.
 
 ### Optional W&B logging
 
@@ -202,7 +205,9 @@ for PhiX regardless of prompt placement.
 Each 768-rollout GDPO update uses two prompt records × 384 generations: one group for the
 16-base origin prompt and one for the 24-base origin prompt. GDPO normalizes each objective
 within identical prompt token sequences, so repeated copies of a prompt record do not create
-independent normalization groups. This explicit layout preserves the two 384-member groups of
+independent normalization groups. Training metrics `reward_prompt_group_count` and
+`reward_prompt_group_size_min` / `reward_prompt_group_size_max` use the actual prompt tokens;
+the default update should report 2 groups and minimum/maximum sizes of 384. This explicit layout preserves the two 384-member groups of
 the previous balanced 16-record × 48-generation layout. Diversity clustering pools eligible
 genomes from both prompts in the scoring batch because they share one design goal.
 The training and independent fixed-validation banks
@@ -420,7 +425,10 @@ the E2E shell script does not generate that artifact. These thresholds reproduce
 PhiX174 computational profile, not universal phage-design optima or evidence of bootability.
 
 GDPO receives each objective row below as a separate `[0, 1]` objective. The scalar `weight_*`
-settings are diagnostic and do not reweight objectives after GDPO normalization. The first 11
+settings use 1 for each enabled scalar component. They affect scalar GRPO rewards and
+scalar summaries, while GDPO independently standardizes each configured objective within
+its prompt group and sums them with coefficient 1. A zero scalar weight does not disable
+a GDPO objective; the `gdpo_objectives` list selects those columns. The first 11
 objectives are forced to zero unless the sequence has an exact sequence-safety `PASS`; the three
 safety objectives remain unmasked so failures still provide learning signal. Missing, invalid, non-finite,
 or unavailable measurements map to zero when scoring returns a row. Configured Arc, DUST, or

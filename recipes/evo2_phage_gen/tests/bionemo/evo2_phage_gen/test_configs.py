@@ -148,6 +148,32 @@ def test_gdpo_config_uses_registered_objectives_and_mmseqs_diversity(tmp_path):
     assert diversity["cov_mode"] == 0
 
 
+@pytest.mark.parametrize("name", ["grpo_phage_megatron.yaml", "gdpo_phage_megatron.yaml"])
+def test_equal_scalar_credit(name):
+    """Improving any enabled scalar component by the same amount earns equal credit."""
+    import pandas as pd
+
+    from bionemo.evo2_phage_gen.reward import REWARD_COMPONENTS, RewardWeights, aggregate_rewards
+    from bionemo.evo2_phage_gen.rl_readiness import _load_config_with_defaults
+
+    env = _load_config_with_defaults(RECIPE_ROOT / "configs" / name)["env"]["phage_qc"]
+    weights = RewardWeights(
+        **{
+            field: env.get(f"weight_{field}", getattr(RewardWeights(), field))
+            for field in RewardWeights.__dataclass_fields__
+        }
+    )
+    columns = [
+        component.score_column
+        for component in REWARD_COMPONENTS
+        if component.weight_attr and getattr(weights, component.weight_attr) > 0
+    ]
+    scored = pd.DataFrame({column: [float(i == j) for i in range(len(columns))] for j, column in enumerate(columns)})
+    scored["safety_gate_pass"] = 1.0
+    result = aggregate_rewards(scored, weights)
+    assert result["reward"].tolist() == pytest.approx([1.0 / len(columns)] * len(columns))
+
+
 def test_phix_example_documents_every_gdpo_objective():
     """Every enabled score should have a definition in the worked example."""
     config = yaml.safe_load((RECIPE_ROOT / "configs/gdpo_phage_megatron.yaml").read_text())

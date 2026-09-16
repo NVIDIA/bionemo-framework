@@ -322,7 +322,7 @@ def test_dry_run(tmp_path: Path) -> None:
         for line in log.splitlines()
         if "command: " in line and "evo2_phage_prepare_arc_pipeline" in line
     ]
-    assert len(arc_commands) == 2
+    assert arc_commands
     expected_arc_prefix = [
         "env",
         "GIT_CONFIG_COUNT=1",
@@ -1174,6 +1174,7 @@ def test_stage40_reuses_validated_prepared_sft_without_source_state(tmp_path: Pa
     log = (result_root / "RUNLOG.md").read_text()
     assert "bionemo.evo2_phage_gen.prepare_sft_checkpoint_for_rl" not in log
     assert (result_root / "state/rl-sft-checkpoint").read_text().strip() == str(prepared)
+    assert log.index("evo2_phage_prepare_arc_pipeline") < log.index("evo2_phage_check_rl")
 
 
 def test_stage50_validates_prepared_sft_before_likelihood(tmp_path: Path) -> None:
@@ -1200,6 +1201,7 @@ def test_stage50_validates_prepared_sft_before_likelihood(tmp_path: Path) -> Non
         if "command: torchrun " in line and "predict_evo2" in line
     )
     assert likelihood[likelihood.index("--ckpt-dir") + 1] == str(prepared)
+    assert log.index("evo2_phage_prepare_arc_pipeline") < log.index("monitor: Arc target profile")
 
 
 def test_stage40_pilot_marker_skips_pilot_but_runs_monitor_and_full_training(tmp_path: Path) -> None:

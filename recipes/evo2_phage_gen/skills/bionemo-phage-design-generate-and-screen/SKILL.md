@@ -41,7 +41,9 @@ As the final rollout/report step, score every generated design with that validat
 Write the generated FASTA, per-candidate scores/states, final passing sequences, cluster assignments, and a concise waterfall from generated through PASS/FAIL/INDETERMINATE. Record checkpoint, sampling settings, tool/database versions, commands, counts, selected candidates, and limitations in the stage summary and `RUNLOG.md`. State that computational screening does not establish bootability, host range, therapeutic safety, or efficacy.
 When CheckV filtering is enabled, retain only exact FASTA-ID matches with a quality
 listed in `checkv_quality_range`; missing or unclassified results do not pass the
-maintained PhiX profile. See the [filter contract](references/rollout-guidance.md).
+maintained PhiX profile. The example refreshes the derived Arc pipeline before new
+final screening, including direct stage-50 entry, so current patches are applied.
+Completed scientific artifacts remain governed by stage markers. See the [filter contract](references/rollout-guidance.md).
 
 For long final rollouts, keep independently validated completion markers for raw generation,
 deduplication, likelihood, safety, target and diagnostic branches, final clustering, and reporting so

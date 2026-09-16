@@ -501,6 +501,15 @@ run() {
   [[ "${DRY_RUN}" == "1" ]] || "$@"
 }
 
+prepare_arc_pipeline() {
+  # Refresh derived code before each scoring stage, including direct stage-40/50
+  # resumes. File existence alone cannot establish that current patches are applied.
+  # Scope bind-mount checkout trust to this process, not global Git configuration.
+  run env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
+    GIT_CONFIG_VALUE_0="${RECIPE_ROOT}/data/external/arc_evo2" \
+    evo2_phage_prepare_arc_pipeline --output-dir data/arc_pipeline_patched --overwrite
+}
+
 run_result() {
   local label="$1" log="$2"
   shift 2
@@ -777,10 +786,7 @@ stage_00() {
     --pharokka-database-url "${PHAROKKA_DATABASE_URL}" \
     --pharokka-database-md5 "${PHAROKKA_DATABASE_MD5}" \
     --pharokka-database-release "${PHAROKKA_DATABASE_RELEASE}"
-  # Root-owned containers otherwise reject the host-owned Arc bind mount; trust only this checkout for this command.
-  run env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
-    GIT_CONFIG_VALUE_0="${RECIPE_ROOT}/data/external/arc_evo2" \
-    evo2_phage_prepare_arc_pipeline --output-dir data/arc_pipeline_patched --overwrite
+  prepare_arc_pipeline
   if [[ "${DRY_RUN}" == "1" || ! -s data/external/mmseqs/NC_001422_1_Gprotein/mmseqs_db_NC_001422_1_Gprotein.dbtype ]]; then
     run mkdir -p data/external/mmseqs/NC_001422_1_Gprotein
     run mmseqs createdb data/external/arc_evo2/phage_gen/data/NC_001422.1_Gprotein.fasta data/external/mmseqs/NC_001422_1_Gprotein/mmseqs_db_NC_001422_1_Gprotein
@@ -903,10 +909,7 @@ stage_30() {
   if [[ -f "${STAGE_DIR}/30-calibration-scoring.done" ]]; then
     note 'substage 30-calibration-scoring already complete'
   else
-    # Scope Arc checkout trust to this preparer process; do not mutate container-global Git configuration.
-    run env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory \
-      GIT_CONFIG_VALUE_0="${RECIPE_ROOT}/data/external/arc_evo2" \
-      evo2_phage_prepare_arc_pipeline --output-dir data/arc_pipeline_patched --overwrite
+    prepare_arc_pipeline
     monitored 'calibration scoring' "${calibration}/scoring.log" env SOURCE_ENV=0 CALIBRATION_ROOT="${calibration}" GENERATION_ROOT="${calibration}/generation" ARC_CONFIG="${RECIPE_ROOT}/configs/arc_genome_design_filtering_local.yaml" PIPELINE_SCRIPT="${RECIPE_ROOT}/data/arc_pipeline_patched/genome_design_filtering_pipeline.py" TOOL_BIN_DIR="${RECIPE_ROOT}/data/external/bin" REFERENCE_FASTA="${RECIPE_ROOT}/data/external/arc_evo2/phage_gen/data/NC_001422_1.fna" SFT_FASTA="${RESULT_ROOT}/sft/source-safety/partitions/pass.fasta" SAFETY_ASSET_MANIFEST="${RECIPE_ROOT}/data/external/safety/asset_manifest.yaml" SAFETY_POLICY="${RECIPE_ROOT}/configs/phage_safety_policy.yaml" SAFETY_HOST_DOMAIN=BACTERIA SAFETY_HOST_EVIDENCE_JSON="${PHIX174_HOST_EVIDENCE_JSON}" WORKERS="${CALIBRATION_WORKERS}" scripts/calibration/run_sampling_calibration_scoring.sh
     [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/30-calibration-scoring.done"
   fi
@@ -1001,6 +1004,7 @@ stage_40() {
     export NEMO_RL_RAY_NUM_CPUS="${NUM_CPUS}"
     note "RL Ray CPU slots: ${NEMO_RL_RAY_NUM_CPUS}; sequential reward phases use at most 128 threads"
     note "RL external-QC scratch: ${RL_EXTERNAL_QC_WORK_ROOT}"
+    prepare_arc_pipeline
     run pytest -q tests/bionemo/evo2_phage_gen/test_reward.py tests/bionemo/evo2_phage_gen/test_nemo_rl_env.py tests/bionemo/evo2_phage_gen/test_reference_controls.py
     run evo2_phage_generation write-reference-rotations --reference-fasta "${PHIX_REFERENCE_FASTA}" \
       --output-fasta "${control}/reference-rotations.fasta" "${control_anchor_args[@]}"
@@ -1234,6 +1238,7 @@ PY
   fi
 
   if [[ ! -f "${STAGE_DIR}/50-target-profile.done" || ! -f "${STAGE_DIR}/50-filter7-diagnostic.done" ]]; then
+    prepare_arc_pipeline
     if [[ "${DRY_RUN}" == "1" ]]; then
       checkv_db='<prepared-checkv-db>'
     elif [[ -n "${CHECKVDB:-}" ]]; then

@@ -19,6 +19,7 @@ import copy
 import json
 import math
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
@@ -992,6 +993,94 @@ def test_global_post_process_metrics_leave_task_namespace_to_nemo_rl():
     assert "phage_qc/__timing__/phage_qc/reward/total_s" not in metrics
 
 
+@pytest.mark.parametrize("records_per_prompt", [1, 8])
+def test_gdpo_prompt_groups(tmp_path, records_per_prompt) -> None:
+    """The real estimator pools 384 completions per token prefix and equally scales objectives.
+
+    Splitting by record ID would give constant 48-row groups in the repeated-record
+    case; pooling both prefixes would introduce a spurious between-prompt baseline.
+    """
+    estimator_module = pytest.importorskip("nemo_rl.algorithms.advantage_estimator")
+    from bionemo.evo2_phage_gen.generation import write_rl_prompt_bank
+    from bionemo.evo2_phage_gen.nemo_rl_processors import phage_prompt_data_processor
+
+    bank = write_rl_prompt_bank(
+        tmp_path / "prompts.jsonl", prompt_lengths=(16, 24), num_records=2 * records_per_prompt
+    )
+    records = [json.loads(line) for line in bank.read_text().splitlines()]
+
+    def tokenize(text, **_kwargs):
+        # Evo2's nucleotide prefixes are byte tokens; no chat template is used.
+        return {"input_ids": torch.tensor([[ord(char) for char in text]])}
+
+    processed = [
+        phage_prompt_data_processor(record, SimpleNamespace(prompt=None), tokenize, max_seq_length=6144, idx=i)
+        for i, record in enumerate(records)
+    ]
+    prompts = torch.nn.utils.rnn.pad_sequence(
+        [row["message_log"][0]["token_ids"] for row in processed], batch_first=True, padding_value=0
+    ).repeat_interleave(384 // records_per_prompt, dim=0)
+    short = prompts[:, -1].eq(0)
+    assert [int(short.sum()), int((~short).sum())] == [384, 384]
+    first = torch.full((768,), 0.75, dtype=torch.float32)
+    second = torch.full((768,), 0.25, dtype=torch.float32)
+    first[short] = torch.tensor([0.0] * 192 + [1.0] * 192, dtype=torch.float32)
+    second[~short] = torch.tensor([0.25] * 192 + [0.75] * 192, dtype=torch.float32)
+    expected = torch.empty(768, dtype=torch.float32)
+    expected[short] = expected[~short] = torch.tensor([-1.0] * 192 + [1.0] * 192, dtype=torch.float32)
+    expected *= math.sqrt(767 / 768)  # Final sample-standard-deviation normalization.
+    estimator = estimator_module.GDPOAdvantageEstimator(
+        {"normalize_rewards": True, "use_leave_one_out_baseline": False}, {}
+    )
+    # Interleave eight generation shards; their row order must not change grouping.
+    for order in (torch.arange(768), torch.arange(768).reshape(8, 96).T.flatten()):
+        advantages = estimator.compute_advantage(
+            prompts[order],
+            None,
+            torch.ones(768, 3),
+            {"reward1": first[order], "reward2": second[order]},
+        )
+        torch.testing.assert_close(advantages, expected[order, None].expand(768, 3), atol=3e-6, rtol=0)
+    env_cls, env = _new_step_environment(
+        reward_output_mode="gdpo",
+        gdpo_objectives=(GDPOObjective("first", ("reward_first",)), GDPOObjective("second", ("reward_second",))),
+    )
+    batch = {
+        "rewards": torch.stack((first, second), dim=1),
+        "message_log": [row["message_log"] for row in processed for _ in range(384 // records_per_prompt)],
+        "extra_env_info": [
+            {
+                "_phage_qc_scored": {
+                    "reward_first": float(a),
+                    "reward_second": float(b),
+                    "reward": 0.5,
+                    "safety_gate_state": "PASS",
+                    "safety_gate_pass": 1.0,
+                }
+            }
+            for a, b in zip(first, second, strict=True)
+        ],
+    }
+    _, metrics = env_cls.global_post_process_and_metrics(env, batch)
+    assert metrics["reward_prompt_group_count"] == 2
+    assert metrics["reward_prompt_group_size_min"] == metrics["reward_prompt_group_size_max"] == 384
+    assert metrics["reward_zero_variance_prompt_group_rate"] == 0
+
+
+def test_prompt_groups_ignore_record_ids() -> None:
+    """Repeated records pool their signal; rank-local indices cannot merge different prompts."""
+    scored = pd.DataFrame(
+        {
+            "generation_prompt_index": [0, 1, 0, 1],
+            "prompt_group": ["AAAA", "AAAA", "CCCC", "CCCC"],
+            "reward": [0.0, 1.0, 0.25, 0.75],
+        }
+    )
+    groups = scored.groupby(nemo_rl_env._reward_prompt_group_keys(scored), sort=False)
+    assert groups.size().tolist() == [2, 2]
+    assert groups["reward"].mean().tolist() == [0.5, 0.5]
+
+
 def test_global_metrics_report_zero_variance_and_no_eod_groups() -> None:
     """Prompt groups without EOD are visible before the reward gate loses learning signal."""
     if getattr(nemo_rl_env, "_NEMO_RL_IMPORT_ERROR", None) is not None:
@@ -1006,7 +1095,7 @@ def test_global_metrics_report_zero_variance_and_no_eod_groups() -> None:
     env.zero_reward_without_eod = True
     rows = [
         {
-            "generation_prompt_index": prompt_group,
+            "generation_prompt_index": 0,
             "prompt_group": "AAAA",
             "generation_stopped_on_eod": stopped,
             "generation_capped_without_eod": not stopped,
@@ -1016,21 +1105,29 @@ def test_global_metrics_report_zero_variance_and_no_eod_groups() -> None:
             "reward": raw_reward,
             "eod_reward_gate_pass": stopped,
         }
-        for prompt_group, stopped, raw_reward in (
-            (0, False, 0.8),
-            (0, False, 0.7),
-            (1, True, 0.5),
-            (1, True, 0.5),
+        for stopped, raw_reward in (
+            (False, 0.8),
+            (False, 0.7),
+            (True, 0.5),
+            (True, 0.5),
         )
     ]
     batch = {
         "total_reward": torch.tensor([0.0, 0.0, 0.5, 0.5]),
         "extra_env_info": [{"_phage_qc_scored": row} for row in rows],
+        # Identical DNA strings can carry different control tokens. Use the actual
+        # model input, not the nucleotide-only metadata or the record index.
+        "message_log": [
+            [{"role": "user", "token_ids": torch.tensor(tokens)}]
+            for tokens in ([1, 65, 65, 65, 65],) * 2 + ([2, 65, 65, 65, 65],) * 2
+        ],
     }
 
     _returned_batch, metrics = env_cls.global_post_process_and_metrics(env, batch)
 
     assert metrics["reward_prompt_group_count"] == 2
+    assert metrics["reward_prompt_group_size_min"] == 2
+    assert metrics["reward_prompt_group_size_max"] == 2
     assert metrics["reward_zero_variance_prompt_group_rate"] == 1.0
     assert metrics["termination/no_authentic_eod_prompt_group_rate"] == 0.5
 

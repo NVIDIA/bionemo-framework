@@ -212,3 +212,12 @@ GDPO accepts explicitly configured scored-column names with mean, product, or mi
 `binary_cluster_deduplicated_pass_mask(scored, pass_mask)` selects one representative per existing cluster from an explicitly supplied acceptance mask. This utility defines no acceptance rules. Final-screening workflows should construct their mask from the actual configured filters and cluster the appropriate candidate pool.
 
 [`host_evidence.py`](../../../src/bionemo/evo2_phage_gen/host_evidence.py) supports collecting auditable host metadata. Use `resolve_ncbi_host_evidence` to acquire and cache accession evidence, then `HostEvidenceTable` and `write_host_evidence_table` to persist the collection. For an existing collection, call `load_host_evidence_table` and `validate_host_evidence_artifacts(table, table_path=path)`; a row's `to_task1_host_evidence()` converts it to the `HostEvidence` consumed by design-scope and safety configuration. The resolver currently handles bacterial host-domain evidence; it does not establish strain-specific host range. These utilities are optional preparation APIs, not automatically invoked by RL.
+
+## Objective weighting
+
+The shipped scalar reward configurations use equal weights for enabled components.
+Optional scalar weights default to zero when omitted; this does not disable any
+listed GDPO objective. GDPO standardizes each configured objective within identical
+prompt token sequences and sums those advantages with coefficient 1 before final
+normalization. Preserve the current gating and normalization unless the objective
+plan explicitly changes them. See [configuration details](../../../configs/README.md#reward-weights-and-gdpo-groups).

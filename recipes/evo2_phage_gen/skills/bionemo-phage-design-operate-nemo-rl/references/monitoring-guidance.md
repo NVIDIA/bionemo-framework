@@ -18,7 +18,10 @@ Use the native W&B histogram at `train/phage_qc/mmseqs_cluster_size` or `validat
 Online clusters span all eligible prompts for the same design goal within a scoring batch.
 The two PhiX origin prefixes share that diversity pool, while GDPO normalizes rewards separately
 for each identical prompt token sequence (384 completions per length in the default update).
-Repeated prompt records do not create extra GDPO normalization groups. Compare diversity only
+Repeated prompt records do not create extra GDPO normalization groups. Training
+`reward_prompt_group_count` should be 2, with `reward_prompt_group_size_min` and
+`reward_prompt_group_size_max` both 384 for the default layout. These diagnostics use
+actual prompt tokens, including control tokens, from the assembled rollout batch. Compare diversity only
 with its eligible population size in view: the 768-generation training and 96-generation validation
 batches have different duplicate opportunities, and larger batches can lower inverse-size credit.
 
@@ -50,3 +53,8 @@ Preserve the latest resumable checkpoint, aggregate best, and the best positive 
 `env.phage_qc.log_by_prompt_nt_length` defaults to `false`; enable it to add the same objective summaries under `by_prompt_nt_length/{length}/`. Sequence counts are denominators. Multi-batch objective means/rates use sequence weights, and standard deviations pool population moments. Cluster histograms concatenate observations from separate scoring batches. Timing continues in the timing namespace.
 
 Raw measurement means are emitted only for completely measured finite columns, so their denominator remains the full sequence count. Inspect per-sequence artifacts and measurement availability when a raw mean is absent.
+
+Before new RL or final screening, the example regenerates its derived Arc pipeline,
+including direct stage-40/50 entry. This does not invalidate completed scientific
+outputs: use a new result root for changed scoring rules rather than mixing historical
+artifacts with a new objective definition.

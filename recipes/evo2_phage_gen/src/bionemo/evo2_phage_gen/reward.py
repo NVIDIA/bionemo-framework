@@ -142,7 +142,12 @@ def _record_elapsed(timings: dict[str, float], name: str, start: float) -> None:
 
 @dataclass(frozen=True)
 class RewardWeights:
-    """Weights for phage-design reward components."""
+    """Scalar GRPO/summary weights, independent of GDPO's objective list.
+
+    Optional tool-backed components default off for standalone nucleotide scoring.
+    The shipped RL configs explicitly give each enabled scalar component weight 1.
+    GDPO normalizes and sums its configured objectives with equal coefficients.
+    """
 
     valid_nt_chars: float = 1.0
     genome_length: float = 1.0

@@ -77,7 +77,7 @@
       "assertions": [
         "The response identifies a mismatch between the template config path and the generated result-root prompt bank.",
         "Readiness and training use the same result-root train.jsonl path, while validation uses the matching result-root validation.jsonl.",
-        "It does not copy a run-specific prompt bank into the shared recipe data path.",
+        "It does not copy a run-specific prompt bank into the shared recipe data path. Before new scoring, it uses the currently prepared Arc pipeline; the example refreshes it even on direct stage-40/50 entry without invalidating completed scientific artifacts.",
         "It reruns the same top-level command with the same result root so missing prompt banks are recreated and completed calibration is reused.",
         "Before readiness, the rerun creates or reuses the optimizer-free, runtime-sanitized SFT checkpoint prepared for RL and uses its direct iter_* path instead of the raw full-state SFT checkpoint."
       ],
@@ -148,7 +148,7 @@
         "The response treats training-rollout rewards, component scores, and QC as valid scientific observations rather than discarding them as optimizer-only diagnostics.",
         "It uses the fixed validation bank for longitudinal comparability and does not describe this seed or prompt split as a biological-label holdout.",
         "It examines prompt position, length, composition, and cohort counts in both streams before attributing the alternating bands to policy learning.",
-        "It reports configured objective means, support, safety states and diversity; all_objectives_max_score_rate means gated score attainment, while terminal hard-QC yield comes from final-screening artifacts. Per-prompt length summaries default off. W&B cluster-size histograms count each cluster once, pooling eligible prompts for one design goal within each scoring batch. GDPO normalization groups identical prompt tokens, not input-record IDs; the default PhiX update uses two prompts with 384 generations each, while validation remains 96 completions.",
+        "It reports configured objective means, support, safety states and diversity; all_objectives_max_score_rate means gated score attainment, while terminal hard-QC yield comes from final-screening artifacts. Per-prompt length summaries default off. W&B cluster-size histograms count each cluster once, pooling eligible prompts for one design goal within each scoring batch. GDPO normalization groups identical prompt tokens, not input-record IDs; the default PhiX update uses two prompts with 384 generations each, while validation remains 96 completions. Training reward_prompt_group_count should be 2 and reward_prompt_group_size_min/max should both be 384, using actual prompt tokens from the assembled batch.",
         "It reconciles the approved objective artifact, configured objective set, and emitted component telemetry; discrepancies trigger diagnosis and a decision record rather than an automatic stop or user wait.",
         "It discovers and records the task-scoped metric keys actually emitted by the installed runtime instead of asserting names owned by another layer.",
         "Checkpoint decisions use sustained fixed-bank movement corroborated by training-rollout behavior and preserve both the best scientific and latest resumable checkpoints."
