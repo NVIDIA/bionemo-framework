@@ -4,7 +4,10 @@ Most reusable behavior lives in the `bionemo.evo2_phage_gen` package and its ins
 entry points. This directory retains two shell helpers for the parallel, resumable calibration grid:
 
 - `calibration/run_sft_sampling_sweep.sh` generates the temperature and prefix-length cells for a
-  selected SFT checkpoint.
+  selected checkpoint. `STOP_ON_EOS=1` permits sampled EOD before `TARGET_LENGTH`, a total DNA cap
+  including prompt bases; `0` retains fixed-length generation. The termination mode is saved with
+  the sweep configuration and cannot change on resume. Longer circular prompts use the existing
+  named anchors and total prompt lengths, with correspondingly shorter generation budgets.
 - `calibration/run_sampling_calibration_scoring.sh` scores those cells with the external-QC and
   sequence-safety objectives, checks similarity to the reference and training corpus, and writes
   the selection evidence. Its safety manifest, policy, host domain, and confirmed host evidence
@@ -12,7 +15,7 @@ entry points. This directory retains two shell helpers for the parallel, resumab
 
 Calibration summaries report reward components, measurement support, nucleotide/safety gates,
 and within-setting diversity. Selection evidence includes uncertainty on aggregate reward and
-target signal. Full-QC yield requires the final-screening artifacts; it is not inferred from
+target signal (the mean of tropism and required-gene rewards). Full-QC yield requires the final-screening artifacts; it is not inferred from
 calibration reward columns.
 
 The [8×H100 PhiX174 example](../examples/README.md) invokes both helpers as part of the complete

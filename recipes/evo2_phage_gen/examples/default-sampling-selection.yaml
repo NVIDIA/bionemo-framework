@@ -13,15 +13,12 @@ max_new_tokens: 6000
 prompt_lengths:
   - 16
   - 24
+# Use the deposited PhiX start: related SFT records overwhelmingly favor this
+# context over the tested internal anchors, and preprocessing adds no rotations.
+# See examples/README.md, "Prompt origin", for counts and limits of the evidence.
 prompt_anchors:
   - name: origin
     start_1_based: 1
-  - name: before_g
-    start_1_based: 2387
-  - name: after_h
-    start_1_based: 3918
-  - name: a_cluster_start
-    start_1_based: 3973
 rl_seed: 42
 rollout_seed: 7
 seed_stride: 1000003

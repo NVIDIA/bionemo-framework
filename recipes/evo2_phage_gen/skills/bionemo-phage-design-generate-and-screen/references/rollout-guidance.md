@@ -10,16 +10,27 @@ Distinguish cold end-to-end throughput from model-generation and steady-decode t
 
 Treat precision as a qualified deployment choice, not a portable checkpoint property. Hopper supports regular native FP8 for all compatible Transformer Engine linears (appropriate for the 7B model) through `--mixed-precision-recipe bf16_with_fp8_current_scaling_mixed --fp8-all-layers`. The MBridge current-scaling recipe otherwise retains BF16 first/last blocks. In native dynamic inference, global FP8/FP4 automatically resolves requested block CUDA graphs to layer graphs because Transformer Engine's quantization state is not block-graph compatible. For globally quantized packed prediction, `--sequence-parallel-policy auto` retains TP but disables SP with current MCore because its padding shim double-reduces row outputs; BF16 TP keeps SP. Use `on` only to requalify a future pad-aware single-reduction implementation with aligned/ragged TP parity and performance A/B tests. After qualification, the case-study's `--hopper-fp8-inference` option forwards that pair to calibration, final rollout, and packed likelihood scoring while leaving GDPO training precision alone. Keep decode capacity at a multiple of eight requests when practical so regular FP8 can use its native aligned-row path instead of per-layer pad/unpad; packed dynamic prefill may mix prompt lengths within that batch. Use Vortex delayed scaling only for checkpoints whose Hopper behavior requires it. Record the exact precision recipe and effective graph scope.
 
-Validate the raw denominator, retain raw-model scores when requested, deduplicate exact/circular/
-reverse-complement biological equivalents, run required safety and hard QC on representatives, and
-only then cluster passers in a deterministic candidate order. Representative batching is
+Validate the raw denominator, retain raw-model scores when requested, deduplicate exact sequence
+copies, run required safety and hard QC on representatives, and only then cluster passers in a
+deterministic candidate order. Exact deduplication ignores letter case but preserves the supplied
+start and strand. MMseqs also receives the supplied sequences; the PhiX defaults share coordinate 1.
+Arbitrarily rotated near-clones are not guaranteed to meet the alignment coverage threshold. Representative batching is
 acceptable only when record mapping remains complete and the representative result agrees with
 controls.
 
-Report raw, biological-representative, hard-QC, and post-QC-cluster counts,
+An enabled CheckV gate retains only qualities listed in `checkv_quality_range`.
+The PhiX final-screening profile accepts Low-quality, Medium-quality, High-quality,
+and Complete; Not-determined, unclassified, or missing results do not pass. Match
+the first FASTA header token exactly, preserving candidate IDs and row order;
+substring matching can transfer a classification between names such as `umi1`
+and `umi10`. A failed CheckV execution or malformed output remains an error.
+CheckV does not run in online RL scoring.
+
+Report raw, exact-sequence-representative, hard-QC, and post-QC-cluster counts,
 PASS/FAIL/INDETERMINATE denominators, uncertainty when comparing yields, and whether generation or
 filtering saturated before forecasting a larger experiment.
-Final-design reports retain schema 2 and `counts.post_qc_99pct_clusters`. Read coverage
+Final-design reports use schema 3, `counts.exact_sequence_representatives`, and
+`counts.post_qc_99pct_clusters`. Read coverage
 from the embedded clustering evidence: current runs use 95%, while historical runs
 may use different coverage at the same 99% identity.
 

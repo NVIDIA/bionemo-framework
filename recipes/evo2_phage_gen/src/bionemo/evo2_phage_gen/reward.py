@@ -26,7 +26,6 @@ import sys
 import time
 import uuid
 import warnings
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
@@ -54,7 +53,6 @@ from bionemo.evo2_phage_gen.qc import (
     nucleotide_pass_mask,
     save_fasta,
 )
-from bionemo.evo2_phage_gen.rollout_evidence import canonical_circular_sequence
 
 
 RECIPE_ROOT = Path(__file__).resolve().parents[3]
@@ -152,7 +150,6 @@ class RewardWeights:
     nt_homopolymer: float = 1.0
     dustmask_end: float = 0.0
     nucleotide_pass: float = 0.0
-    protein_hit_count: float = 0.0
     tropism: float = 0.0
     synteny: float = 0.0
     gene_a_origin: float = 0.0
@@ -177,7 +174,6 @@ REWARD_COMPONENTS: tuple[RewardComponent, ...] = (
     RewardComponent("nt_homopolymer", "nt_homopolymer", "reward_nt_homopolymer"),
     RewardComponent("dustmask_end", "dustmask_end", "reward_dustmask_end"),
     RewardComponent("nucleotide_pass", "nucleotide_pass", "reward_nucleotide_pass"),
-    RewardComponent("protein_hit_count", "protein_hit_count", "reward_external_protein_hit_count"),
     RewardComponent("tropism", "tropism", "reward_external_tropism"),
     RewardComponent("synteny", "synteny", "reward_external_synteny"),
     RewardComponent(
@@ -220,7 +216,6 @@ class ExternalQCRewardConfig:
     timeout_seconds: float | None = 1800.0
     enable_orf: bool = False
     enable_coding_density: bool = False
-    enable_protein_hit_count: bool = True
     enable_tropism: bool = True
     enable_synteny: bool = False
     enable_average_protein_identity: bool = False
@@ -251,7 +246,7 @@ class ExternalQCRewardConfig:
 
 @dataclass(frozen=True)
 class MMseqsClusterDiversityConfig:
-    """Configuration for batch-local MMseqs cluster-diversity rewards."""
+    """Configuration for one design goal's batch-wide MMseqs diversity pool."""
 
     enabled: bool = False
     mmseqs_bin: str = "mmseqs"
@@ -263,12 +258,8 @@ class MMseqsClusterDiversityConfig:
     cov_mode: int = 0
     seq_id_mode: int = 0
     cluster_mode: int = 0
-    parallel_jobs: int = 1
     threads: int | None = None
     verbosity: int = 0
-    # Generic callers may supply linear genomes. The PhiX profile sets True so
-    # rotations of the same circular genome do not receive spurious diversity credit.
-    circular: bool = False
 
 
 @dataclass(frozen=True)
@@ -508,33 +499,29 @@ def _parse_mmseqs_cluster_tsv(cluster_tsv: Path) -> dict[str, set[str]]:
     return clusters
 
 
-def _cluster_valid_sequence_group(
-    group_df: pd.DataFrame,
+def _cluster_valid_sequences(
+    valid_df: pd.DataFrame,
     run_dir: Path,
-    group_index: int,
     config: MMseqsClusterDiversityConfig,
 ) -> tuple[dict[object, tuple[str, int, float]], int, int]:
-    """Cluster one prompt group and return row-index rewards plus cluster counts."""
-    if group_df.empty:
+    """Cluster eligible genomes across prompts, preserving each input row's identity."""
+    if valid_df.empty:
         return {}, 0, 0
-    if len(group_df) == 1:
-        row_index = group_df.index[0]
-        return {row_index: (f"group{group_index}:seq_0", 1, 1.0)}, 1, 0
+    if len(valid_df) == 1:
+        row_index = valid_df.index[0]
+        return {row_index: (f"{run_dir.name}:seq_0", 1, 1.0)}, 1, 0
 
-    group_dir = run_dir / f"prompt_group_{group_index:04d}"
-    group_dir.mkdir(parents=True, exist_ok=True)
-    input_fasta = group_dir / "input_sequences.fasta"
-    result_prefix = group_dir / "clusters"
-    tmp_dir = group_dir / "tmp"
-    sequence_ids = [f"seq_{position}" for position in range(len(group_df))]
-    row_by_sequence_id = dict(zip(sequence_ids, group_df.index.tolist(), strict=True))
+    input_fasta = run_dir / "input_sequences.fasta"
+    result_prefix = run_dir / "clusters"
+    tmp_dir = run_dir / "tmp"
+    sequence_ids = [f"seq_{position}" for position in range(len(valid_df))]
+    row_by_sequence_id = dict(zip(sequence_ids, valid_df.index.tolist(), strict=True))
     fasta_df = pd.DataFrame(
         {
             "id_prompt": sequence_ids,
-            "sequence": [
-                canonical_circular_sequence(sequence) if config.circular else sequence
-                for sequence in group_df["sequence"].astype(str).tolist()
-            ],
+            # Preserve the prompt-defined start. A sequence-dependent rotation can move
+            # far after one mutation and prevent near-clones from meeting coverage.
+            "sequence": valid_df["sequence"].astype(str).tolist(),
         }
     )
     save_fasta(fasta_df, input_fasta)
@@ -553,7 +540,7 @@ def _cluster_valid_sequence_group(
         if cluster_size == 0:
             continue
         valid_cluster_count += 1
-        cluster_id = f"group{group_index}:{representative}"
+        cluster_id = f"{run_dir.name}:{representative}"
         reward = 1.0 / float(cluster_size)
         for member in known_members:
             rewards_by_row[row_by_sequence_id[member]] = (cluster_id, cluster_size, reward)
@@ -572,7 +559,13 @@ def add_mmseqs_cluster_diversity_rewards(
     config: NucleotideQCConfig,
     mmseqs_config: MMseqsClusterDiversityConfig,
 ) -> pd.DataFrame:
-    """Add ``1 / cluster_size`` rewards from batch-local MMseqs clustering."""
+    """Add ``1 / cluster_size`` credit across all eligible genomes in one goal's batch.
+
+    Prompt sequences do not partition this pool: the same genome produced from
+    different prompts is still a duplicate. Each scoring call uses one design
+    goal's QC/reward configuration; different goals must use separate calls or
+    RL environments. This pool does not extend across calls or optimizer steps.
+    """
     df = scored_df.copy()
     df["reward_mmseqs_cluster_diversity"] = 0.0
     df["mmseqs_cluster_id"] = ""
@@ -591,36 +584,14 @@ def add_mmseqs_cluster_diversity_rewards(
     run_dir = work_dir / f"batch_{uuid.uuid4().hex}"
     run_dir.mkdir(parents=True, exist_ok=True)
     try:
-        prompt_groups = (
-            valid_df["prompt_group"] if "prompt_group" in valid_df else pd.Series("__all__", index=valid_df.index)
-        )
-        grouped = list(enumerate(valid_df.groupby(prompt_groups, sort=False)))
-        max_workers = min(max(1, int(mmseqs_config.parallel_jobs)), len(grouped))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [
-                executor.submit(
-                    _cluster_valid_sequence_group,
-                    group_df,
-                    run_dir,
-                    group_index,
-                    mmseqs_config,
-                )
-                for group_index, (_prompt_group, group_df) in grouped
-            ]
-
-        total_clusters = 0
-        total_missing = 0
-        for future in futures:
-            rewards_by_row, num_clusters, num_missing = future.result()
-            total_clusters += num_clusters
-            total_missing += num_missing
-            for row_index, (cluster_id, cluster_size, reward) in rewards_by_row.items():
-                df.loc[row_index, "mmseqs_cluster_id"] = cluster_id
-                df.loc[row_index, "mmseqs_cluster_size"] = int(cluster_size)
-                df.loc[row_index, "reward_mmseqs_cluster_diversity"] = float(reward)
-                df.loc[row_index, "mmseqs_cluster_is_singleton"] = 1.0 if cluster_size == 1 else 0.0
-        df["mmseqs_cluster_num_clusters"] = total_clusters
-        df["mmseqs_cluster_num_missing_from_output"] = total_missing
+        rewards_by_row, num_clusters, num_missing = _cluster_valid_sequences(valid_df, run_dir, mmseqs_config)
+        for row_index, (cluster_id, cluster_size, reward) in rewards_by_row.items():
+            df.loc[row_index, "mmseqs_cluster_id"] = cluster_id
+            df.loc[row_index, "mmseqs_cluster_size"] = int(cluster_size)
+            df.loc[row_index, "reward_mmseqs_cluster_diversity"] = float(reward)
+            df.loc[row_index, "mmseqs_cluster_is_singleton"] = 1.0 if cluster_size == 1 else 0.0
+        df["mmseqs_cluster_num_clusters"] = num_clusters
+        df["mmseqs_cluster_num_missing_from_output"] = num_missing
         missing_output_mask = df["mmseqs_cluster_valid_for_clustering"].astype(bool) & (
             df["mmseqs_cluster_size"].astype(int) == 0
         )
@@ -664,15 +635,6 @@ def _upper_bound_ratio_score(value: float, upper: float) -> float:
     if value <= 0.0:
         return 0.0
     return max(0.0, min(1.0, upper / value))
-
-
-def _lower_bound_ratio_score(value: float, lower: float) -> float:
-    """Return a dense capped score for lower-bound thresholds."""
-    if value >= lower:
-        return 1.0
-    if lower <= 0.0:
-        return 0.0
-    return max(0.0, min(1.0, value / lower))
 
 
 def score_tropism_identity(identity: float | None, measured_hit: bool, threshold: float = 60.0) -> float:
@@ -1219,8 +1181,7 @@ def _write_external_qc_config(
 
     orf_enabled = external_qc.enable_orf or external_qc.enable_coding_density
     homology_enabled = (
-        external_qc.enable_protein_hit_count
-        or external_qc.enable_tropism
+        external_qc.enable_tropism
         or external_qc.enable_synteny
         or external_qc.enable_average_protein_identity
         or external_qc.enable_required_genes
@@ -1237,9 +1198,7 @@ def _write_external_qc_config(
     config["homology_filtering"] = bool(homology_enabled)
     config["use_orf_filtered_df"] = bool(orf_enabled)
     config["use_nucleotide_filtered_df_instead"] = not bool(orf_enabled)
-    config["protein_database_hit_count_filter"] = bool(
-        external_qc.enable_protein_hit_count or protein_metrics_stage_enabled
-    )
+    config["protein_database_search"] = protein_metrics_stage_enabled
     config["training_data_sequence_identity_filter"] = False
     # Arc's codon-landmark similarity filters are separate from protein synteny
     # and supply no RL objective. Their upstream config names remain unchanged.
@@ -1397,7 +1356,7 @@ def _add_smooth_reference_rewards(
             function_matches = pd.DataFrame(columns=["id_prompt", "function", "credit", "full_length"])
         else:
             family_hits_path = (
-                run_dir / config["mmseqs_protein_database_results_dir_save_location"] / "mmseqs2_hits.csv"
+                run_dir / config["mmseqs_protein_database_results_dir_save_location"] / "mmseqs2_all_hits.csv"
             )
             function_matches, available = score_function_matches(
                 pd.read_csv(family_hits_path),
@@ -1660,79 +1619,9 @@ def _add_required_gene_rewards(
     return scored_df
 
 
-def _add_mmseqs_hit_rewards(scored_df: pd.DataFrame, run_dir: Path, config: dict) -> pd.DataFrame:
-    """Add protein-hit-count and tropism rewards from Arc MMseqs outputs."""
+def _add_tropism_rewards(scored_df: pd.DataFrame, run_dir: Path, config: dict) -> pd.DataFrame:
+    """Add tropism rewards and hard-pass evidence from Arc MMseqs outputs."""
     id_column = "arc_qc_id" if "arc_qc_id" in scored_df else "id_prompt"
-    minimum_reciprocal_coverage = float(config.get("protein_match_min_reciprocal_coverage", 0.75))
-    phrogs_dir = config.get("mmseqs_protein_database_results_dir_save_location")
-    phrogs_hits_path = run_dir / phrogs_dir / "mmseqs2_hits.csv" if phrogs_dir else None
-    scored_df["protein_database_hit_count_stage_reached"] = 0.0
-    scored_df["protein_database_hit_count_measurement_available"] = 0.0
-    scored_df["protein_database_hit_count_missing_artifact"] = 0.0
-    scored_df["protein_database_hit_count_hit_present"] = 0.0
-    scored_df["protein_database_alignment_evidence_available"] = 0.0
-    scored_df["protein_database_hit_count"] = 0
-    scored_df["protein_database_unique_family_count"] = 0
-    scored_df["protein_database_effective_family_count"] = 0.0
-    scored_df["protein_database_full_length_family_count"] = 0
-    scored_df["reward_external_protein_hit_count"] = 0.0
-    scored_df["reward_external_protein_hit_count_pass"] = 0.0
-    if phrogs_hits_path and phrogs_hits_path.exists():
-        scored_df["protein_database_hit_count_stage_reached"] = 1.0
-        hits_df = pd.read_csv(phrogs_hits_path)
-        if {"id_prompt", "protein_database_mmseqs_target"}.issubset(hits_df.columns):
-            genome_counts = _genome_ids_from_orf_hits(hits_df).value_counts()
-            scored_df["protein_database_hit_count"] = scored_df[id_column].map(genome_counts).fillna(0).astype(int)
-            scored_df["protein_database_hit_count_hit_present"] = (scored_df["protein_database_hit_count"] > 0).astype(
-                float
-            )
-            hits_df, alignment_evidence_available = _add_protein_alignment_evidence(hits_df, "protein_database")
-            alignment_evidence_available = bool(hits_df.empty or alignment_evidence_available)
-            scored_df["protein_database_alignment_evidence_available"] = float(alignment_evidence_available)
-            scored_df["protein_database_hit_count_measurement_available"] = float(alignment_evidence_available)
-            if alignment_evidence_available and not hits_df.empty:
-                hits_df["genome_id"] = _genome_ids_from_orf_hits(hits_df)
-                hits_df["protein_database_full_length_hit"] = (
-                    hits_df["protein_database_mmseqs_query_coverage"] >= minimum_reciprocal_coverage
-                ) & (hits_df["protein_database_mmseqs_target_coverage"] >= minimum_reciprocal_coverage)
-                family_hits = (
-                    hits_df.groupby(["genome_id", "protein_database_mmseqs_target"], as_index=False)
-                    .agg(
-                        protein_database_alignment_integrity=("protein_database_alignment_integrity", "max"),
-                        protein_database_full_length_hit=("protein_database_full_length_hit", "max"),
-                    )
-                    .reset_index(drop=True)
-                )
-                family_metrics = family_hits.groupby("genome_id").agg(
-                    protein_database_unique_family_count=("protein_database_mmseqs_target", "nunique"),
-                    protein_database_effective_family_count=("protein_database_alignment_integrity", "sum"),
-                    protein_database_full_length_family_count=("protein_database_full_length_hit", "sum"),
-                )
-                scored_df["protein_database_unique_family_count"] = (
-                    scored_df[id_column]
-                    .map(family_metrics["protein_database_unique_family_count"])
-                    .fillna(0)
-                    .astype(int)
-                )
-                scored_df["protein_database_effective_family_count"] = (
-                    scored_df[id_column].map(family_metrics["protein_database_effective_family_count"]).fillna(0.0)
-                )
-                scored_df["protein_database_full_length_family_count"] = (
-                    scored_df[id_column]
-                    .map(family_metrics["protein_database_full_length_family_count"])
-                    .fillna(0)
-                    .astype(int)
-                )
-            min_hits = int(config.get("protein_database_hit_count", 7))
-            scored_df["reward_external_protein_hit_count"] = scored_df["protein_database_effective_family_count"].map(
-                lambda value: _lower_bound_ratio_score(float(value), float(min_hits))
-            )
-            scored_df["reward_external_protein_hit_count_pass"] = (
-                scored_df["protein_database_full_length_family_count"] >= min_hits
-            ).astype(float)
-    elif phrogs_hits_path:
-        scored_df["protein_database_hit_count_missing_artifact"] = 1.0
-
     tropism_dir = config.get("mmseqs_tropism_protein_results_dir_save_location")
     tropism_hits_path = run_dir / tropism_dir / "mmseqs2_hits.csv" if tropism_dir else None
     scored_df["tropism_stage_reached"] = 0.0
@@ -1831,7 +1720,6 @@ def add_external_qc_rewards(
     for column in [
         "reward_external_orf",
         "reward_external_coding_density",
-        "reward_external_protein_hit_count",
         "reward_external_tropism",
         "reward_external_synteny",
         "reward_gene_a_origin",
@@ -1900,8 +1788,8 @@ def add_external_qc_rewards(
         _record_elapsed(timings, "reward/external_qc/parse_orf_s", phase_start)
 
         phase_start = time.perf_counter()
-        df = _add_mmseqs_hit_rewards(df, run_dir, config)
-        _record_elapsed(timings, "reward/external_qc/parse_protein_hit_count_tropism_s", phase_start)
+        df = _add_tropism_rewards(df, run_dir, config)
+        _record_elapsed(timings, "reward/external_qc/parse_tropism_s", phase_start)
         if external_qc.enable_synteny:
             phase_start = time.perf_counter()
             df = _add_synteny_count_rewards(df, run_dir, config)

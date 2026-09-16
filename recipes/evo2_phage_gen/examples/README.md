@@ -24,7 +24,7 @@ The 8×H100 rerun completed on 2026-08-24:
 | Final-rollout denominator                                  |       Count |
 | ---------------------------------------------------------- | ----------: |
 | Raw generated and SFT-likelihood scored                    |       1,000 |
-| Biological representatives after circular/RC deduplication |       1,000 |
+| Representatives retained before hard QC                    |       1,000 |
 | Submitted to safety / excluded by pre-safety QC            |     991 / 9 |
 | Safety PASS / FAIL / INDETERMINATE                         | 989 / 0 / 2 |
 | Safety-PASS target hard-QC representatives                 |         513 |
@@ -35,13 +35,13 @@ and target hard QC, then post-QC clustering. Likelihood is a within-protocol ran
 computational candidates are not evidence of bootability or wet-lab safety. See the
 [case-study notes](../skills/bionemo-phage-design/references/case-study-results.md) for historical context.
 
-That completed run used the earlier single-origin prompt semantics. The current launcher starts a
-new `results/phix174-8xh100-mixed-anchors` result root and does not resume that run in place.
+The current launcher starts a new `results/phix174-8xh100-origin` result root. Its reward and
+sampling settings have changed since that completed run; the table is historical evidence.
 
 ## Quick start
 
 Run from `recipes/evo2_phage_gen`. The PhiX follow-up uses the published-lineage `7b-base` checkpoint
-with the current mixed-anchor defaults. Supplying `--sampling-selection` explicitly skips the
+with the current origin-only defaults. Supplying `--sampling-selection` explicitly skips the
 fresh-calibration review stop:
 
 ```bash
@@ -50,7 +50,7 @@ tmux new -s phix174-e2e
 ./examples/phix174_8xh100.sh \
   --model-variant 7b-base \
   --sampling-selection "examples/default-sampling-selection.yaml" \
-  --result-root "$PWD/results/phix174-8xh100-mixed-anchors"
+  --result-root "$PWD/results/phix174-8xh100-origin"
 ```
 
 The build reuses the native Torch/CUDA/Transformer Engine stack already in the
@@ -92,15 +92,15 @@ loss; the biological sequence immediately after it remains supervised.
 ./examples/phix174_8xh100.sh --dry-run --result-root /tmp/phix174-plan
 
 # Prepare public inputs, tools, databases, and controls only.
-./examples/phix174_8xh100.sh --prepare-only --result-root "$PWD/results/phix174-8xh100-mixed-anchors"
+./examples/phix174_8xh100.sh --prepare-only --result-root "$PWD/results/phix174-8xh100-origin"
 
 # Resume the RL stage of the 7b-base run.
-./examples/phix174_8xh100.sh --resume-from 40 --model-variant 7b-base --result-root "$PWD/results/phix174-8xh100-mixed-anchors"
+./examples/phix174_8xh100.sh --resume-from 40 --model-variant 7b-base --result-root "$PWD/results/phix174-8xh100-origin"
 
 # Use an explicitly reviewed sampling selection, without blocking if the automatically identified
 #  top setting differs. In practice automatic selection can be noisy, and these settings should work
 #  well for phix174.
-./examples/phix174_8xh100.sh --sampling-selection examples/default-sampling-selection.yaml --result-root "$PWD/results/phix174-8xh100-mixed-anchors"
+./examples/phix174_8xh100.sh --sampling-selection examples/default-sampling-selection.yaml --result-root "$PWD/results/phix174-8xh100-origin"
 ```
 
 Completed stages and substages are skipped. Reuse the same result root and sampling selection when
@@ -121,7 +121,7 @@ Authenticate with `wandb login` (or provide `WANDB_API_KEY` through a secret man
 ./examples/phix174_8xh100.sh --wandb --wandb-entity YOUR_ENTITY \
   --wandb-sft-project evo2-phage-design-sft \
   --wandb-rl-project evo2-phage-design-gdpo \
-  --result-root "$PWD/results/phix174-8xh100-mixed-anchors"
+  --result-root "$PWD/results/phix174-8xh100-origin"
 ```
 
 The project flags are optional and show their defaults. Run names are derived from the result-root
@@ -160,21 +160,54 @@ the thresholds or scientific interpretation of existing runs. In the paired cali
 sweep, `TARGET_LENGTH=6000` counts total biological bases and subtracts each
 prompt length from the generation budget, keeping paired cells at one ceiling beyond the reward
 zero. RL instead allows 6,000 **generated** tokens. Both use 6,144 context; the calibration sweep
-does not substitute for the deployed full-shape pilot. For the circular
-PhiX reference, the deployed
-16- and 24-nt prompts mix four 1-based anchors: coordinate 1 (`origin`), 2,387 (`before_g`),
-3,918 (`after_h`), and 3,973 (`a_cluster_start`). `before_g` and `a_cluster_start` begin eight
-bases before the curated G and A starts, respectively, so they preserve each start codon and the
-first 8 or 16 coding bases while leaving the rest of G, A, A\*, and B generative. `after_h` supplies
-an unseeded route into the A/A\*/B cluster; `origin` retains the canonical context while fixing a
-short origin-spanning segment shared by those three ORFs. This rotation strategy does not apply to
-a linear genome, whose biological endpoints must be preserved.
+does not substitute for the deployed full-shape pilot.
 
-Each 768-rollout GDPO update uses 16 prompt records × 48 generations. With DP8, each 96-request
-decode batch contains two prompt records, while the global update contains all eight anchor×length
-strata: two prompt records and 96 generated sequences per stratum. Validation remains a separate
-96-record mixture. The 1,000-design final rollout uses 125 prompts per stratum: two 500-record,
-same-length files alternate four anchors and combine to exactly 1,000 records.
+### Prompt origin
+
+Calibration, RL training, fixed validation, and final generation all default to **reference
+coordinate 1**, with 16- and 24-nt prefixes and the `+~` conditioning tag. Here `origin` names the
+deposited sequence start, not the biological replication origin. Prompt bases remain fixed,
+including the short segment of origin-spanning coding sequence; the remaining bases are generated.
+
+This choice matches the observed start context of related assemblies in the
+[released Microviridae SFT corpus](https://zenodo.org/records/17101843). In a September 16, 2026
+audit of all 14,466 records, all eight records explicitly named PhiX174 started with the canonical
+16-mer. Exact start matches to the four previously tested PhiX prefixes were:
+
+| PhiX reference coordinate (1-based) | Exact 16-base prefix | Records starting with it |
+| ----------------------------------- | -------------------- | ------------------------ |
+| 1                                   | `GAGTTTTATCGCTTCC`   | 20                       |
+| 2,387                               | `GTTTAATCATGTTTCA`   | 0                        |
+| 3,918                               | `CCGTCAGGATTGACAC`   | 1 (S13, `M14428.1`)      |
+| 3,973                               | `GCTTTTTTATGGTTCG`   | 0                        |
+
+All processed sequences matched their raw counterpart after removing the two conditioning
+characters: the released preprocessing added no rotation augmentation. The maintained SFT path
+also preserves sequence starts; its circular-equivalence grouping prevents split leakage and
+does not augment training with rotations. Thus circular biology alone does not establish that
+an internal prefix is a familiar beginning-of-genome context for this model. We use the supported
+start to give RL a better initial gene-generation signal.
+
+These are exact-prefix counts before held-out splitting, not an alignment-based census of all
+relative start sites or verified exposure of a particular checkpoint. They support a concentrated
+start convention in this corpus, not a universal submission rule. For reproducibility, the processed
+file is `microviridae_sft_training_data_processed.fna`, SHA-256
+`0b86cb2ecc6f742ad96ba47d9a08fd3060af9880cb8ef4d33b886949a1ec4b1d`.
+Before adapting rotated prompts to another target, compare related assemblies' start coordinates
+and orientations, submission/annotation conventions, and the actual SFT representation. The
+[collection guidance](../skills/bionemo-phage-design-collect-genomes/references/collection-guidance.md)
+describes that check. Circular ORF handling and rotation-invariant biological scores remain appropriate
+for PhiX regardless of prompt placement.
+
+Each 768-rollout GDPO update uses two prompt records × 384 generations: one group for the
+16-base origin prompt and one for the 24-base origin prompt. GDPO normalizes each objective
+within identical prompt token sequences, so repeated copies of a prompt record do not create
+independent normalization groups. This explicit layout preserves the two 384-member groups of
+the previous balanced 16-record × 48-generation layout. Diversity clustering pools eligible
+genomes from both prompts in the scoring batch because they share one design goal.
+The training and independent fixed-validation banks
+each contain 96 records, balanced 48 per length. The 1,000-design final rollout uses 500 prompts
+per length, all starting at coordinate 1.
 Each GPU generates its shard in packed batches of 96 by default; set
 `FINAL_PROMPT_BATCH_SIZE` only when qualifying a different device profile.
 The previous 5,420-token/5,632-context 768-point setting completed three 8×H100 rollout/QC/replay/update
@@ -183,7 +216,7 @@ and a fresh-process exact reload. Warm update two took 492.65 seconds for genera
 233.78 seconds of scoring, 37.74 seconds for policy/reference replay, and 54.60 seconds for the
 policy update. A 1,024-point attempt failed recurrent-state allocation before decode, so it is not
 a supported one-wave setting.
-Legacy synchronous GRPO is bounded by both steps and epochs; this 96-row bank supplies six updates
+Legacy synchronous GRPO is bounded by both steps and epochs; this 96-row bank supplies 48 updates
 per epoch, so the configured 500 epochs safely exceeds the requested 500-step ceiling.
 
 The launcher sets `max_model_len` to the smallest 256-token boundary covering the longest selected
@@ -277,10 +310,10 @@ not `nvidia-smi` aggregate accounting.
 To stop after the sweep and scoring, before prompt banks or RL are created, run:
 
 ```bash
-./examples/phix174_8xh100.sh --calibrate-only --result-root "$PWD/results/phix174-8xh100-mixed-anchors"
+./examples/phix174_8xh100.sh --calibrate-only --result-root "$PWD/results/phix174-8xh100-origin"
 ```
 
-Inspect `results/phix174-8xh100-mixed-anchors/calibration/scoring/selection-evidence.csv` and its neighboring
+Inspect `results/phix174-8xh100-origin/calibration/scoring/selection-evidence.csv` and its neighboring
 score/novelty artifacts. Prefer eligible settings with working metrics, useful hard-QC signal,
 low copying, diverse outputs, and a stable quality-diversity plateau. An agent may perform this
 review and write the custom choice when the user delegates it. Copy the example YAML, including its
@@ -289,7 +322,7 @@ named `prompt_anchors`, then continue without repeating the completed sweep:
 ```bash
 cp examples/default-sampling-selection.yaml /tmp/phix174-sampling.yaml
 # Edit /tmp/phix174-sampling.yaml, then:
-./examples/phix174_8xh100.sh --resume-from 30 --sampling-selection /tmp/phix174-sampling.yaml --result-root "$PWD/results/phix174-8xh100-mixed-anchors"
+./examples/phix174_8xh100.sh --resume-from 30 --sampling-selection /tmp/phix174-sampling.yaml --result-root "$PWD/results/phix174-8xh100-origin"
 ```
 
 The script validates and records the file as `calibration/sampling-selection.yaml`. Do not replace
@@ -346,10 +379,11 @@ likelihood predicted experimental viability within a previously filtered PhiX174
 score used here remains a within-protocol ranking signal rather than a bootability probability or
 transferable threshold.
 
-Before GDPO, the exact configured environment scores the coordinate origin and both deployed
-reference rotations together and requires identical reward, filter, and measurement-support
-outcomes. Arc hard QC removes ORFipy calls beginning wholly inside its appended pseudocircular tail,
-while retaining cross-origin ORFs, so tail length cannot create rotation-dependent duplicate genes.
+Before GDPO, the exact configured environment scores the reference at coordinate 1. An explicit
+custom selection with additional anchors also checks those reference rotations for identical
+reward, filter, and measurement-support outcomes. Arc hard QC removes ORFipy calls beginning
+wholly inside its appended pseudocircular tail, while retaining cross-origin ORFs, so tail length
+cannot create rotation-dependent duplicate genes.
 Raw endpoint-local DUST fractions can differ by linear origin, but the tested PhiX rotations have
 the same intrinsic reward and pass outcome; the exact control excludes per-row cluster-deduplicated
 representative flags because those are set-relative rather than properties of a rotation.
@@ -379,14 +413,14 @@ Decode batches divisible by eight avoid regular FP8's alignment fallback.
 
 ## Current PhiX174 GDPO score definitions
 
-This is the human-readable contract for the 15 objectives in
+This is the human-readable contract for the 14 objectives in
 `configs/gdpo_phage_megatron.yaml`. It is also the worked example for the run-specific
 `artifacts/RL_SCORE_DEFINITIONS.md` that an agent writes when designing or changing objectives;
 the E2E shell script does not generate that artifact. These thresholds reproduce the current
 PhiX174 computational profile, not universal phage-design optima or evidence of bootability.
 
 GDPO receives each objective row below as a separate `[0, 1]` objective. The scalar `weight_*`
-settings are diagnostic and do not reweight objectives after GDPO normalization. The first 12
+settings are diagnostic and do not reweight objectives after GDPO normalization. The first 11
 objectives are forced to zero unless the sequence has an exact sequence-safety `PASS`; the three
 safety objectives remain unmasked so failures still provide learning signal. Missing, invalid, non-finite,
 or unavailable measurements map to zero when scoring returns a row. Configured Arc, DUST, or
@@ -410,7 +444,6 @@ the exact-safety mask. The implementations for the individual terms are:
 | `gc_content`               | [`calculate_gc_content`](../src/bionemo/evo2_phage_gen/qc.py) and [`add_nucleotide_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                                         |
 | `nt_homopolymer`           | [`calculate_nt_homopolymer_len`](../src/bionemo/evo2_phage_gen/qc.py) and [`add_nucleotide_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                                 |
 | `dustmask_end`             | [`calculate_dustmasker_metrics`](../src/bionemo/evo2_phage_gen/qc.py) and [`add_nucleotide_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                                                 |
-| `protein_hit_count`        | [`_add_mmseqs_hit_rewards`](../src/bionemo/evo2_phage_gen/reward.py) and [`add_protein_alignment_evidence`](../src/bionemo/evo2_phage_gen/protein_evidence.py)                                                                                                                |
 | `tropism`                  | [`smooth_protein_match_integrity`](../src/bionemo/evo2_phage_gen/protein_evidence.py), [`summarize_smooth_reference_evidence`](../src/bionemo/evo2_phage_gen/protein_evidence.py), and [`_add_smooth_reference_rewards`](../src/bionemo/evo2_phage_gen/reward.py)             |
 | `required_genes`           | [`summarize_required_gene_evidence`](../src/bionemo/evo2_phage_gen/protein_evidence.py) and [`_add_required_gene_rewards`](../src/bionemo/evo2_phage_gen/reward.py)                                                                                                           |
 | `synteny`                  | [`score_function_matches` / `smooth_protein_match_integrity`](../src/bionemo/evo2_phage_gen/protein_evidence.py), [`score_smooth_synteny`](../src/bionemo/evo2_phage_gen/protein_evidence.py), and [`_add_smooth_reference_rewards`](../src/bionemo/evo2_phage_gen/reward.py) |
@@ -451,8 +484,7 @@ for the exact flags and their roles.
   it selects the best interior aggregate checkpoint and records `has_max_score_sequences: false`.
   This is training-score attainment; final acceptance still requires the screening stage below.
 - **Final per-genome QC** uses exact safety `PASS` plus the Arc target-profile waterfall: A/C/G/T
-  only; length 5,306–5,730 nt; GC 30–65%; homopolymer ≤10; at least seven distinct PHROG families
-  with ≥0.75 query and target coverage; a PhiX G hit at 60–100% identity with ≥0.95 query and target
+  only; length 5,306–5,730 nt; GC 30–65%; homopolymer ≤10; a PhiX G hit at 60–100% identity with ≥0.95 query and target
   coverage; mean per-ORF PHROGs member identity 0–95%; all nine required gene-copy slots meeting
   their calibrated family-coverage thresholds; and those same nine functions in circular
   order with no excess qualifying copies. K and A\* are outside this synteny profile. DUST ≤0.9 is an online/checkpoint
@@ -483,7 +515,7 @@ in the online reward path.
 
 The PHROGs consensus annotation search uses sensitivity 7.5 from
 [`mmseqs_protein_database_sensitivity`](../configs/arc_genome_design_filtering_local.yaml).
-It supplies protein-family and required-function evidence for online rewards and final
+It supplies required-function and synteny evidence for online rewards and final
 screening. This recovers significant partial hits missed at sensitivity 4.0 while retaining
 the existing E-value and native-coverage rules. Benchmark cost against the actual called
 protein workload and thread allocation when adapting the recipe to larger genomes.
@@ -548,9 +580,11 @@ function. See the [sequence-alignment statistics discussion](https://www.ncbi.nl
 for the role of sequence composition and search selection in interpreting chance matches.
 
 The identity targets above apply to **direct-reference** evidence. Synteny also uses
-`score_function_matches`: a best PHROG-consensus hit in an allowed family supplies
-`min(1,qcov/qmin,tcov/tmin)` credit without a 90% identity requirement. Each mapped
-slot uses the stronger route. Family recognition searches all consensuses, not
+`score_function_matches`: every admitted PHROG-consensus hit in an allowed family
+supplies `min(1,qcov/qmin,tcov/tmin)` credit without a 90% identity requirement.
+Global assignment selects at most one ORF per function and one function per ORF;
+a stronger unrelated-family hit cannot hide partial required-function evidence.
+Each mapped slot uses the stronger route. Family recognition searches all consensuses, not
 individual database members; the separate AAI search uses members. The
 [function profile](../configs/required_genes.md#synteny-uses-the-same-function-definitions)
 documents the mapping, short-J ORF/coverage calibration, and natural-genome replay.
@@ -574,15 +608,14 @@ The downloader verifies the recipe-pinned SHA256 of `FAA_phrog.tar.gz` and build
 protein database selected by `mmseqs_db_aai_database`, which is required when AAI is enabled.
 Changing the database changes the measurement and belongs in a new experiment.
 
-| Objective (reward column)                                               | Zero credit                                                                                                                                                               | Full credit                                                                                                                                                                    | Partial credit and rationale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `protein_hit_count` (`reward_external_protein_hit_count`)               | No measured PHROGs hit, missing alignment lengths, or missing output from an otherwise completed Arc run.                                                                 | Effective unique-family coverage ≥7; the hard gate separately requires at least 7 unique families meeting the calibrated coverage threshold.                                   | For each PHROGs target family, retain the best `min(query_coverage,target_coverage)` and sum across unique families; reward `min(sum/7,1)`. Presence credit is identity-independent. The PHROG-consensus threshold is 0.75, calibrated because consensus lengths differ systematically from member proteins; the exact PhiX spike gate remains 0.95. Duplicate ORFs cannot inflate family evidence, and fragments cannot pass the hard gate.                                                                                                                                  |
-| `tropism` (`reward_external_tropism`)                                   | No called-ORF G match with E < 1, identity >5%, and positive coverage on both sides.                                                                                      | A G match with E ≤1e-5, identity ≥95%, and both coverages ≥0.99.                                                                                                               | Maximum four-term geometric-mean integrity among called-ORF matches to PhiX G, using the factors above. The independent hard gate requires identity ≥60% and both coverages ≥0.95. Partial evidence can guide RL before final QC passes. The G proxy follows the [PhiX design workflow](https://www.science.org/doi/10.1126/science.aec2657).                                                                                                                                                                                                                                 |
-| `required_genes` (`reward_external_required_genes`)                     | Missing/invalid metrics or native coverage, an empty profile, or no allowed-family evidence.                                                                              | All configured named functions have distinct ORFs meeting both coverage targets.                                                                                               | Mean assigned coverage credit over the nine named A/B/C/D/E/F/G/H/J functions. Per-hit credit is `min(1,qcov/qmin,tcov/tmin)`; missing functions earn zero. Explicit PHROG alternatives fill one slot, including the viable alternate J; unrelated annotations and extra copies cannot replace missing functions. Coverage defaults to 0.75/0.75, with C 0.70/0.47, E 0.58/0.75, B 0.75/0.68, and alternate J (PHROG3780) 0.64/0.75. See the [biological rationale and limits](../configs/required_genes.md) for experimental evidence, K/A\* scope, and adaptation guidance. |
-| `synteny` (`reward_external_synteny`)                                   | No positive match evidence, or the weighted synteny score is ≤0 after penalties.                                                                                          | All nine mapped function slots have full-credit one-to-one ORF matches in circular order, with no excess homolog mass. Supported family matches do not need 90% PhiX identity. | Each edge uses the stronger of direct PhiX integrity and allowed-family coverage credit. Maximum-weight one-to-one assignment gives content *C*; circular order-preserving assignment gives *O*; excess homolog mass gives *D*. Score `clip(0.25C + 0.75O - 0.75D, 0, 1)` with nine mapped slots. Final synteny uses the same families and coverage targets, requiring all nine functions in order with no extra qualifying copies. See [function-aware synteny](../configs/required_genes.md#synteny-uses-the-same-function-definitions).                                    |
-| `gene_a_origin` (`reward_gene_a_origin`)                                | No A match evidence, or no complete in-frame site in the accepted window with recognition, binding, and nicking match fractions all above 25%.                            | Full A integrity and one exact functional 28-nt site within ±30 nt of offset 345, in the same frame, with no extra strong sites.                                               | Score `(A × M × P × U)**0.25`, where P is position/frame eligibility and U is `1/max(1,strong_site_count)`, with baseline-adjusted motif score M defined below. The position/frame window is an acceptance gate within this reward; eligible offsets have no distance penalty. This is online shaping and a diagnostic, not a final hard gate.                                                                                                                                                                                                                                |
-| `average_protein_identity` (`reward_external_average_protein_identity`) | No hit-bearing ORFs, missing AAI measurement, or missing output from an otherwise completed Arc run.                                                                      | Mean identity ≤95% with at least 10 hit-bearing ORFs.                                                                                                                          | Average the lowest-E-value individual PHROGs protein hit per called ORF, without a family-level reduction or consensus coverage gate. Score `novelty × min(hit_ORF_count/10,1)`: novelty is 1 through 95% and `max(0.25, (100-AAI)/5)` above 95%. Final Arc QC requires AAI ≤95% after its upstream gene-content gates; it does not require the reward's 10-ORF full-credit state. This optional divergence objective is separate from gene completeness and biological viability.                                                                                            |
-| `mmseqs_cluster_diversity` (`reward_mmseqs_cluster_diversity`)          | The genome fails the valid-character, hard-length, GC, or homopolymer prefilter, or is missing from MMseqs output. No finite cluster size otherwise reaches exactly zero. | A singleton within its prompt group.                                                                                                                                           | At 99% aligned nucleotide identity and ≥95% coverage of both genomes (`--cov-mode 0`, `--seq-id-mode 0`, `--cluster-mode 0`), a member of a cluster of size *N* scores `1/N`. Circular inputs are canonicalized. A shared short gene alone cannot qualify. DUST is not part of this prefilter, and a failed MMseqs command fails the scoring batch. This is within-batch diversity, not a per-genome viability gate; final passers use the same thresholds for separate set-level selection. [MMseqs2](https://doi.org/10.1038/nbt.3988) supplies the implementation.         |
+| Objective (reward column)                                               | Zero credit                                                                                                                                                               | Full credit                                                                                                                                                                    | Partial credit and rationale                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tropism` (`reward_external_tropism`)                                   | No called-ORF G match with E < 1, identity >5%, and positive coverage on both sides.                                                                                      | A G match with E ≤1e-5, identity ≥95%, and both coverages ≥0.99.                                                                                                               | Maximum four-term geometric-mean integrity among called-ORF matches to PhiX G, using the factors above. The independent hard gate requires identity ≥60% and both coverages ≥0.95. Partial evidence can guide RL before final QC passes. The G proxy follows the [PhiX design workflow](https://www.science.org/doi/10.1126/science.aec2657).                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `required_genes` (`reward_external_required_genes`)                     | Missing/invalid metrics or native coverage, an empty profile, or no allowed-family evidence.                                                                              | All configured named functions have distinct ORFs meeting both coverage targets.                                                                                               | Mean assigned coverage credit over the nine named A/B/C/D/E/F/G/H/J functions. Per-hit credit is `min(1,qcov/qmin,tcov/tmin)`; missing functions earn zero. Explicit PHROG alternatives fill one slot, including the viable alternate J; unrelated annotations and extra copies cannot replace missing functions. Coverage defaults to 0.75/0.75, with C 0.70/0.47, E 0.58/0.75, B 0.75/0.68, and alternate J (PHROG3780) 0.64/0.75. See the [biological rationale and limits](../configs/required_genes.md) for experimental evidence, K/A\* scope, and adaptation guidance.                                                                                                                                                                                   |
+| `synteny` (`reward_external_synteny`)                                   | No positive match evidence, or the weighted synteny score is ≤0 after penalties.                                                                                          | All nine mapped function slots have full-credit one-to-one ORF matches in circular order, with no excess homolog mass. Supported family matches do not need 90% PhiX identity. | Each edge uses the stronger of direct PhiX integrity and allowed-family coverage credit. Maximum-weight one-to-one assignment gives content *C*; circular order-preserving assignment gives *O*; excess homolog mass gives *D*. Score `clip(0.25C + 0.75O - 0.75D, 0, 1)` with nine mapped slots. Final synteny uses the same families and coverage targets, requiring all nine functions in order with no extra qualifying copies. See [function-aware synteny](../configs/required_genes.md#synteny-uses-the-same-function-definitions).                                                                                                                                                                                                                      |
+| `gene_a_origin` (`reward_gene_a_origin`)                                | No A match evidence, or no complete in-frame site in the accepted window with recognition, binding, and nicking match fractions all above 25%.                            | Full A integrity and one exact functional 28-nt site within ±30 nt of offset 345, in the same frame, with no extra strong sites.                                               | Score `(A × M × P × U)**0.25`, where P is position/frame eligibility and U is `1/max(1,strong_site_count)`, with baseline-adjusted motif score M defined below. The position/frame window is an acceptance gate within this reward; eligible offsets have no distance penalty. This is online shaping and a diagnostic, not a final hard gate.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `average_protein_identity` (`reward_external_average_protein_identity`) | No hit-bearing ORFs, missing AAI measurement, or missing output from an otherwise completed Arc run.                                                                      | Mean identity ≤95% with at least 10 hit-bearing ORFs.                                                                                                                          | Average the lowest-E-value individual PHROGs protein hit per called ORF, without a family-level reduction or consensus coverage gate. Score `novelty × min(hit_ORF_count/10,1)`: novelty is 1 through 95% and `max(0.25, (100-AAI)/5)` above 95%. Final Arc QC requires AAI ≤95% after its upstream gene-content gates; it does not require the reward's 10-ORF full-credit state. This optional divergence objective is separate from gene completeness and biological viability.                                                                                                                                                                                                                                                                              |
+| `mmseqs_cluster_diversity` (`reward_mmseqs_cluster_diversity`)          | The genome fails the valid-character, hard-length, GC, or homopolymer prefilter, or is missing from MMseqs output. No finite cluster size otherwise reaches exactly zero. | A singleton across eligible prompts sharing the design goal in this scoring batch.                                                                                             | At 99% aligned nucleotide identity and ≥95% coverage of both genomes (`--cov-mode 0`, `--seq-id-mode 0`, `--cluster-mode 0`), a member of a cluster of size *N* scores `1/N`. Sequences retain their supplied start and strand; the default prompts share coordinate 1. Arbitrarily rotated near-clones are not guaranteed to share a cluster. A shared short gene alone cannot qualify. DUST is not part of this prefilter, and a failed MMseqs command fails the scoring batch. All prompts for the same design goal share this batch pool. This is within-batch diversity, not a per-genome viability gate; final passers use the same thresholds for separate set-level selection. [MMseqs2](https://doi.org/10.1038/nbt.3988) supplies the implementation. |
 
 For gene-A origin, rescale each motif match fraction with `f(x) = max(0, (x - 0.25) / 0.75)`.
 Let `r` cover the first 10 nt (recognition), `b` the next 18 nt (binding), and `n` positions

@@ -19,6 +19,7 @@
 
 import random
 import timeit
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -66,6 +67,22 @@ token after the pipe and it is a 'd' character. Make sure tests are consistent w
 """
 
 MAX_TAG_LEN = 2048
+
+
+def test_conditioned_dna_without_taxonomy():
+    """Short conditioned documents keep DNA/EOD targets, excluding prefixes and padding."""
+    dataset = object.__new__(Evo2Dataset)
+    dataset.config = SimpleNamespace(tokenizer=SimpleNamespace(eod=0), mask_phylogenetic_tags=False)
+    # Shifted labels cross an EOD into another conditioned document, then synthetic padding.
+    raw = torch.tensor(list(b"+$ACGT\x00+~tgca\x00\x00\x00"))
+    upstream_mask = torch.ones(len(raw) - 1)
+    upstream_mask[-2:] = 0
+    batch = dataset._modify_gpt_batch(
+        {"tokens": raw[:-1].clone(), "labels": raw[1:].clone(), "loss_mask": upstream_mask}
+    )
+    torch.testing.assert_close(
+        batch["loss_mask"], torch.tensor([0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0], dtype=torch.float32)
+    )
 
 
 @pytest.fixture

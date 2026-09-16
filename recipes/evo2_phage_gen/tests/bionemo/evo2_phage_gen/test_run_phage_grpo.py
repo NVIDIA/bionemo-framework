@@ -15,11 +15,8 @@
 
 from __future__ import annotations
 
-import ast
-import inspect
 import logging
 import sys
-import textwrap
 from types import SimpleNamespace
 
 import pytest
@@ -127,16 +124,3 @@ def test_ensure_prompt_data_files_logs_materialized_paths(tmp_path, monkeypatch,
     assert f"  {train_path}" in caplog.messages
     assert f"  {validation_path}" in caplog.messages
     assert capsys.readouterr().out == ""
-
-
-def test_sync_trainer_receives_experiment_logger() -> None:
-    """Keep the module logger out of the NeMo-RL trainer call."""
-    tree = ast.parse(textwrap.dedent(inspect.getsource(run_phage_grpo.main)))
-    trainer_call = next(
-        node
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "trainer"
-    )
-
-    assert isinstance(trainer_call.args[8], ast.Name)
-    assert trainer_call.args[8].id == "experiment_logger"

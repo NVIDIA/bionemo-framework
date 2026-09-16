@@ -21,6 +21,7 @@ import random
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 from megatron.bridge.training.tokenizers.config import TokenizerConfig
 from megatron.bridge.training.tokenizers.tokenizer import build_tokenizer
@@ -79,7 +80,8 @@ def test_preprocessing_context_without_seed_advances_current_random_state() -> N
         assert random.getstate() != initial_state
 
 
-def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
+@pytest.mark.parametrize("mask_phylogenetic_tags", [True, False])
+def test_preprocessor_creates_expected_files(tmp_path: Path, mask_phylogenetic_tags: bool) -> None:
     """Verifies that preprocessing creates all expected output files."""
     test_fasta_file_path = create_fasta_file(tmp_path / "test.fasta", num_sequences=20, sequence_length=10000)
     output_dir = tmp_path / "processed_data"
@@ -137,7 +139,9 @@ def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
     with open(config_file_path, "w") as f:
         yaml.dump(dataset_config, f)
 
-    dataset_provider = Evo2DatasetProvider(random_seed=42, dataset_config_path=config_file_path)
+    dataset_provider = Evo2DatasetProvider(
+        random_seed=42, dataset_config_path=config_file_path, mask_phylogenetic_tags=mask_phylogenetic_tags
+    )
     tokenizer = build_tokenizer(
         TokenizerConfig(
             tokenizer_type="HuggingFaceTokenizer",
@@ -157,6 +161,7 @@ def test_preprocessor_creates_expected_files(tmp_path: Path) -> None:
     assert train_ds is not None
     assert val_ds is not None
     assert test_ds is not None
+    assert all(ds.config.mask_phylogenetic_tags == mask_phylogenetic_tags for ds in (train_ds, val_ds, test_ds))
     # Megatron rounds each split up to a whole number of epochs, so dataset lengths can exceed the request.
     assert len(train_ds) >= requested_samples[0]
     assert len(val_ds) >= requested_samples[1]

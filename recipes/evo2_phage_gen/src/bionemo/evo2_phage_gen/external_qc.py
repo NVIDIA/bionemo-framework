@@ -112,7 +112,7 @@ def check_arc_qc_prerequisites(
                 "phrogs_consensus_db",
                 config,
                 "mmseqs_db_protein_database",
-                required=homology_required and bool(config.get("protein_database_hit_count_filter")),
+                required=homology_required and bool(config.get("protein_database_search")),
             ),
             _check_path(
                 "tropism_mmseqs_db",

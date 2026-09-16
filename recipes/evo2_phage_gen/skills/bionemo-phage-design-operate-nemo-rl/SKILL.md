@@ -40,6 +40,12 @@ Use native Megatron-Bridge `torch_dist` checkpoints: `checkpointing.model_save_f
 
 The recipe dataset uses task name `phage_qc` regardless of JSONL location. Primary retention uses `val:phage_qc/mean_reward`; TensorBoard normally emits `validation/phage_qc/...`. A path-derived task name such as `rl-validation` points to the generic dataset being used instead.
 
+The default PhiX update uses two interleaved origin prompts (16/24 bases), each with 384 generations,
+for 768 genomes total. GDPO groups identical prompt token sequences, including repeated input
+records; record count alone does not establish normalization-group count. Diversity instead pools
+eligible genomes across both prompts in the synchronous environment scoring batch. Validation
+still generates one completion for each of its 96 prompt records.
+
 Retain latest resumable, aggregate-best, and the best positive `all_objectives_max_score_rate` checkpoints. The supervisor hardlinks them. Final selection prefers the checkpoint with the highest fraction of sequences maximizing every configured objective; otherwise it chooses the best interior aggregate checkpoint and records `has_max_score_sequences: false`. This rate measures gated training scores, not final QC acceptance.
 
 Follow [monitoring guidance](references/monitoring-guidance.md) for scientific trends, W&B cluster-size histograms, and runtime diagnosis. Record commands, consequential settings, job/checkpoint paths, validation results, and decisions in `RUNLOG.md`; summarize the current finding and next step in `SUMMARY.md`. Use optimizer step for comparisons: W&B's history cursor is a logging counter, and its service can fail while training continues.

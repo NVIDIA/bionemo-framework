@@ -41,7 +41,6 @@ CELL_RE = re.compile(
     r"prefix(?P<prefix>\d+)_temp(?P<temperature>\d+(?:\.\d+)?)$"
 )
 EXTERNAL_OBJECTIVES = {
-    "protein_hit_count": ("reward_external_protein_hit_count", "protein_database_hit_count_measurement_available"),
     "tropism": ("reward_external_tropism", "smooth_reference_measurement_available"),
     "required_genes": ("reward_external_required_genes", "required_genes_measurement_available"),
     "synteny": ("reward_external_synteny", "smooth_reference_measurement_available"),
@@ -69,7 +68,6 @@ REWARD_COLUMNS = (
     "reward_nt_homopolymer",
     "reward_dustmask_end",
     "reward_nucleotide_pass",
-    "reward_external_protein_hit_count",
     "reward_external_tropism",
     "reward_external_required_genes",
     "reward_external_synteny",
@@ -81,7 +79,6 @@ REWARD_COLUMNS = (
     "reward_safety_lysogeny",
 )
 BIOLOGY_COLUMNS = (
-    "protein_database_hit_count",
     "tropism_protein_mmseqs_percent_identity",
     "required_genes_matched_count",
     "required_genes_total_count",
@@ -238,7 +235,6 @@ def score_cell(
         work_dir=work_dir,
         tool_bin_dir=tool_bin_dir,
         fail_on_error=True,
-        enable_protein_hit_count=bool(arc.get("protein_database_hit_count_filter")),
         enable_tropism=bool(arc.get("tropism_protein_sequence_identity_filter")),
         enable_synteny=bool(arc.get("syntenic_gene_count_filter")),
         enable_average_protein_identity=bool(arc.get("average_protein_sequence_identity_filter")),
@@ -272,7 +268,6 @@ def score_cell(
             nt_homopolymer=1,
             dustmask_end=1,
             nucleotide_pass=1,
-            protein_hit_count=1,
             tropism=1,
             required_genes=1,
             synteny=1,

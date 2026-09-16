@@ -201,10 +201,7 @@ def test_dry_run(tmp_path: Path) -> None:
     log = (result_root / "RUNLOG.md").read_text()
     assert "TARGET_LENGTH=6000" in log
     assert "MAX_SEQ_LENGTH=6144" in log
-    assert (
-        "sampling selection: temperature=1.0, prompt lengths=16 24, "
-        "anchors=origin:1 before_g:2387 after_h:3918 a_cluster_start:3973, max new tokens=6000"
-    ) in log
+    assert ("sampling selection: temperature=1.0, prompt lengths=16 24, anchors=origin:1, max new tokens=6000") in log
     for command in (
         "evo2_phage_prepare_external_assets",
         "evo2_phage_sequence_safety",
@@ -305,6 +302,7 @@ def test_dry_run(tmp_path: Path) -> None:
     ]
     assert len(sft_commands) == 3
     assert all("--eod-pad-in-loss-mask" not in command for command in sft_commands)
+    assert all("--skip-taxonomy-loss-mask" in command for command in sft_commands)
     sft_command = next(command for command in sft_commands if "--max-steps" in command and "12000" in command)
     assert sft_command[sft_command.index("--keep-best-k") + 1] == "3"
     assert sft_command[sft_command.index("--model-size") + 1] == "evo2_7b_base"
@@ -344,12 +342,7 @@ def test_dry_run(tmp_path: Path) -> None:
     control_anchors = [
         rotation_control[index + 1] for index, value in enumerate(rotation_control) if value == "--prompt-anchor"
     ]
-    assert control_anchors == [
-        "coordinate_origin:1",
-        "before_g:2387",
-        "after_h:3918",
-        "a_cluster_start:3973",
-    ]
+    assert control_anchors == ["coordinate_origin:1"]
 
     rl_control = next(
         shlex.split(line.partition("command: ")[2])
@@ -397,8 +390,6 @@ def test_dry_run(tmp_path: Path) -> None:
     assert "policy.generation.mcore_generation_config.kv_cache_management_mode=offload" in gdpo
     assert "env.phage_qc.external_qc.lovis4u_parallel_jobs=64" in gdpo
     assert "env.phage_qc.external_qc.lovis4u_mmseqs_threads=2" in gdpo
-    assert "env.phage_qc.mmseqs_cluster_diversity.parallel_jobs=16" in gdpo
-    assert "env.phage_qc.mmseqs_cluster_diversity.threads=8" in gdpo
     assert (
         "env.phage_qc.external_qc.work_dir="
         + str(tmp_path / "node-local/evo2-phage-gen/result-7b-base/external-qc/pilot")
@@ -611,13 +602,18 @@ def test_single_gpu_plan(tmp_path: Path) -> None:
     commands = [shlex.split(line.partition("command: ")[2]) for line in log.splitlines() if "command: " in line]
     prompt_banks = [command for command in commands if command[:2] == ["evo2_phage_generation", "write-rl-prompts"]]
     assert len(prompt_banks) == 2
-    assert all(command.count("--prompt-anchor") == 4 for command in prompt_banks)
+    final_prompts = [command for command in commands if command[:2] == ["evo2_phage_generation", "write-prompts"]]
+    assert len(final_prompts) == 1
+    for command in prompt_banks + final_prompts:
+        anchors = [command[index + 1] for index, value in enumerate(command) if value == "--prompt-anchor"]
+        assert anchors == ["origin:1"]
+    assert final_prompts[0][final_prompts[0].index("--num-prompts") + 1] == "500"
     calibration = next(
         command
         for command in commands
         if command[:1] == ["env"] and "scripts/calibration/run_sft_sampling_sweep.sh" in command
     )
-    assert "PROMPT_ANCHORS=origin:1 before_g:2387 after_h:3918 a_cluster_start:3973" in calibration
+    assert "PROMPT_ANCHORS=origin:1" in calibration
     sft = next(command for command in commands if command[:1] == ["torchrun"] and "--max-steps" in command)
     assert sft[sft.index("--nproc-per-node") + 1] == "1"
     assert sft[sft.index("--tensor-model-parallel-size") + 1] == "1"

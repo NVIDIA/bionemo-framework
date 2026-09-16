@@ -17,4 +17,6 @@ Choose among local, SSH, Slurm, Lepton, or manual execution from what is actuall
 
 Use the [compute guidance](references/compute-guidance.md) and a bounded full-shape smoke test to size training, RL, generation, and computational filters. Preserve whole-genome context and the intended effective batch. Respond to memory pressure from measurements rather than silently changing the scientific task.
 
+Preserve diversity's shared design-goal pool when distributing scoring: one batch-wide MMseqs job uses its configured threads, while separate goals use separate environments. Splitting this pool by prompt or GPU rank changes the reward.
+
 Use a durable job facility for long work and record its job ID, command, result directory, and log location. Reattach after reconnecting. Check startup, then poll at the cadence of useful progress; distinguish submission from completion and trainer progress from tracker liveness. Follow the user's agreed run budget and scientific continuation decisions rather than automatically relaunching completed segments. W&B is optional unless requested; local logs remain useful when a tracker fails.

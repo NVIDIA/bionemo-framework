@@ -186,9 +186,7 @@ def write_rl_prompt_bank(
             order = [stratum for _ in range(repeats_per_length) for stratum in strata]
     elif grouped:
         base_count, extra_count = divmod(num_records, len(strata))
-        order = [
-            stratum for index, stratum in enumerate(strata) for _ in range(base_count + (index < extra_count))
-        ]
+        order = [stratum for index, stratum in enumerate(strata) for _ in range(base_count + (index < extra_count))]
     else:
         order = [strata[index % len(strata)] for index in range(num_records)]
     counters = {(anchor.name if anchor else None, length): 0 for anchor, length, _ in strata}
@@ -514,16 +512,12 @@ def finalize_ranked_rollout(
     """Join likelihood and QC evidence, then rank accepted candidates without making a viability claim."""
     from scipy.stats import spearmanr
 
-    from bionemo.evo2_phage_gen.calibration_novelty import canonical_circular_sequence
-
     generated = _fasta_records(generated_fasta)
     sequence_by_id = dict(generated)
     generated_order = {record_id: index for index, (record_id, _) in enumerate(generated)}
     safety_payload = json.loads(safety_manifest.read_text())
     safety_by_id = {str(row["record_id"]): str(row["state"]) for row in safety_payload["records"]}
-    target_sequences = {
-        canonical_circular_sequence(sequence) for _, sequence in _fasta_records(target_fasta, allow_empty=True)
-    }
+    target_sequences = {sequence for _, sequence in _fasta_records(target_fasta, allow_empty=True)}
     with likelihood_csv.open() as handle:
         score_rows = list(csv.DictReader(handle))
     score_ids = [row["record_id"] for row in score_rows]
@@ -551,23 +545,22 @@ def finalize_ranked_rollout(
     accepted_ids: list[str] = []
     accepted_rank_by_id: dict[str, int] = {}
     duplicate_of_by_id: dict[str, str] = {}
-    accepted_canonical: dict[str, str] = {}
+    accepted_sequences: dict[str, str] = {}
     for score in candidate_order:
         record_id = score["record_id"]
-        canonical = canonical_circular_sequence(sequence_by_id[record_id])
-        duplicate_of = accepted_canonical.get(canonical)
+        sequence = sequence_by_id[record_id]
+        duplicate_of = accepted_sequences.get(sequence)
         if duplicate_of is not None:
             duplicate_of_by_id[record_id] = duplicate_of
-        if safety_by_id.get(record_id) == "PASS" and canonical in target_sequences and duplicate_of is None:
+        if safety_by_id.get(record_id) == "PASS" and sequence in target_sequences and duplicate_of is None:
             accepted_ids.append(record_id)
             accepted_rank_by_id[record_id] = len(accepted_ids)
-            accepted_canonical[canonical] = record_id
+            accepted_sequences[sequence] = record_id
 
     report_rows = []
     for likelihood_rank, score in enumerate(score_rows, start=1):
         record_id = score["record_id"]
         sequence = sequence_by_id[record_id]
-        canonical = canonical_circular_sequence(sequence)
         report_rows.append(
             {
                 "likelihood_rank": likelihood_rank,
@@ -579,7 +572,7 @@ def finalize_ranked_rollout(
                 "total_log_probability": float(score["total_log_probability"]),
                 "mean_log_probability_per_nucleotide": float(score["mean_log_probability_per_nucleotide"]),
                 "safety_state": safety_by_id.get(record_id, "NOT_EVALUATED"),
-                "target_profile_pass": canonical in target_sequences,
+                "target_profile_pass": sequence in target_sequences,
                 "accepted": record_id in accepted_rank_by_id,
                 "duplicate_of_higher_priority_candidate": duplicate_of_by_id.get(record_id),
             }
@@ -757,7 +750,7 @@ def main() -> None:
 
     deduplication_parser = subparsers.add_parser(
         "deduplicate-fasta",
-        help="Remove exact, circular, and reverse-complement biological duplicates",
+        help="Remove exact sequence duplicates, preserving supplied starts and strands",
     )
     deduplication_parser.add_argument("--input-fasta", type=Path, required=True)
     deduplication_parser.add_argument("--output-fasta", type=Path, required=True)

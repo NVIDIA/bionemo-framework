@@ -17,6 +17,8 @@ NUM_PROMPTS="${NUM_PROMPTS:-64}"
 # Paired cells share a biological ceiling beyond PhiX's 5,800-nt reward zero.
 # Unlike RL max_new_tokens, this total includes prompt bases.
 TARGET_LENGTH="${TARGET_LENGTH:-6000}"
+# Fixed-length sampling remains available; set 1 to measure learned termination.
+STOP_ON_EOS="${STOP_ON_EOS:-0}"
 MARKER="${MARKER:-+~}"
 TOP_K="${TOP_K:-5}"
 TOP_P="${TOP_P:-1.0}"
@@ -40,6 +42,12 @@ declare -a CALIBRATION_PRECISION_ARGS=()
 if [[ "${HOPPER_FP8_INFERENCE}" == "1" ]]; then
   CALIBRATION_PRECISION_ARGS=(--hopper-fp8)
 fi
+declare -a TERMINATION_ARGS=()
+case "${STOP_ON_EOS}" in
+  0) ;;
+  1) TERMINATION_ARGS=(--stop-on-eos) ;;
+  *) echo "STOP_ON_EOS must be 0 or 1" >&2; exit 2 ;;
+esac
 
 if [[ "${SOURCE_ENV}" == "1" ]]; then
   # shellcheck source=/dev/null
@@ -85,6 +93,7 @@ python -m bionemo.evo2_phage_gen.sampling_calibration materialize \
   --prompt-batch-size "${PROMPT_BATCH_SIZE}" \
   --max-seq-length "${MAX_SEQ_LENGTH}" \
   "${CALIBRATION_PRECISION_ARGS[@]}" \
+  "${TERMINATION_ARGS[@]}" \
   > "${RUN_ROOT}/logs/materialize.log"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
@@ -145,7 +154,8 @@ run_worker() {
         --max-seq-length "${MAX_SEQ_LENGTH}" \
         --top-k "${TOP_K}" \
         --top-p "${TOP_P}" \
-        "${CALIBRATION_PRECISION_ARGS[@]}"
+        "${CALIBRATION_PRECISION_ARGS[@]}" \
+        "${TERMINATION_ARGS[@]}"
     )
     if (( ${#inference_command[@]} == 0 )); then
       echo "${cell_key}: command builder returned no arguments" >&2

@@ -198,7 +198,14 @@ def _linear_ordered_integrity(
     reference_order: tuple[str, ...],
     candidate_order: tuple[str, ...],
 ) -> float:
-    """Return a maximum-weight order-preserving one-to-one alignment."""
+    """Return the largest sum of match credits that preserves both linear orders.
+
+    This is a weighted longest-common-subsequence calculation: skip a reference
+    locus, skip a candidate ORF, or match the two after the best smaller prefixes.
+    Taking a match from the previous row/column prevents reuse of either locus.
+    Gaps are allowed without a separate penalty; missing credit is accounted for
+    by the caller's reference-count denominator. The caller handles circular cuts.
+    """
     previous = [0.0] * (len(candidate_order) + 1)
     for reference in reference_order:
         current = [0.0]
@@ -837,6 +844,17 @@ def summarize_function_synteny(
         assigned = {candidate: reference for reference, candidate in assignment}
         observed = [assigned[candidate] for candidate in candidates if candidate in assigned]
         homologs = {candidate for _reference, candidate in edges}
+        order_violations = _circular_order_violation_count(observed, list(order))
+        if order_violations and len(edges) > len(homologs):
+            # Ambiguous family hits can tie for maximum content. Accept an
+            # equally complete circular ordering instead of rejecting whichever
+            # arbitrary tied assignment the content solver returned.
+            ordered_count = max(
+                _linear_ordered_integrity(edges, order, candidates[offset:] + candidates[:offset])
+                for offset in range(len(candidates))
+            )
+            if ordered_count == len(assignment):
+                order_violations = 0
         rows.append(
             {
                 "id_prompt": str(sequence.id_prompt),
@@ -844,7 +862,7 @@ def summarize_function_synteny(
                 "num_syntenic_genes": len(assignment),
                 "reference_num_genes": len(order),
                 "duplicate_reference_gene_count": len(homologs) - len(assignment),
-                "reference_order_violation_count": _circular_order_violation_count(observed, list(order)),
+                "reference_order_violation_count": order_violations,
                 "missing_synteny_output": str(sequence.id_prompt) not in candidate_orders and not hits.empty,
             }
         )
@@ -1064,27 +1082,6 @@ def _full_length_hits(hits_df: pd.DataFrame, prefix: str, minimum_coverage: floa
     ].copy()
 
 
-def valid_coverage_aware_protein_database_hit_count(
-    hits_df: pd.DataFrame,
-    sequences_df: pd.DataFrame,
-    id_column: str = "id_prompt",
-    min_hits: int = 7,
-    minimum_reciprocal_coverage: float = 0.75,
-) -> pd.DataFrame:
-    """Keep genomes with enough unique, reciprocally full-length target families."""
-    hits_df = _full_length_hits(hits_df, "protein_database", minimum_reciprocal_coverage)
-    target = "protein_database_mmseqs_target"
-    if id_column not in hits_df or target not in hits_df:
-        result = sequences_df.iloc[0:0].copy()
-        result["protein_database_hit_count"] = pd.Series(dtype="int64")
-        return result
-    hits_df["_genome_id"] = hits_df[id_column].astype(str).str.rsplit("_", n=1).str[0]
-    counts = hits_df.drop_duplicates(["_genome_id", target])["_genome_id"].value_counts()
-    result = sequences_df.loc[sequences_df["id_prompt"].astype(str).isin(counts[counts >= min_hits].index)].copy()
-    result["protein_database_hit_count"] = result["id_prompt"].astype(str).map(counts).fillna(0).astype(int)
-    return result
-
-
 def valid_coverage_aware_mmseqs_pident(
     hits_df: pd.DataFrame,
     prefix: str,
@@ -1146,8 +1143,11 @@ def score_function_matches(
     This evidence is shared by required-gene completeness and function-aware
     synteny. Upstream search admission supplies significance; annotation labels
     alone never establish equivalence. Return matches and measurement availability.
-    The caller supplies the best hit per ORF against all PHROG consensuses, before
-    restricting to these families. No additional percent-identity cutoff is applied.
+    The caller supplies all search-admitted hits against PHROG consensuses, before
+    restricting to these families. A stronger unrelated hit must not erase partial
+    function evidence. Downstream one-to-one assignment prevents one ORF from
+    filling multiple functions; this table contains alternatives, not assignments.
+    No additional percent-identity cutoff or competing-hit multiplier is applied.
     """
     error = "The required families must map named functions to nonempty, disjoint lists of explicit phrog:ID selectors"
     if not isinstance(required_families, dict):

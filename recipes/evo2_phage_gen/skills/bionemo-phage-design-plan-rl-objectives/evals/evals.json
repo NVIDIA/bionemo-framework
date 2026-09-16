@@ -227,7 +227,7 @@
       "prompt": "Plan objectives for a circular whole-genome phage design. Several annotated elements are explicit redesign targets, circular prefix prompting will likely be used, and two reward functions must be newly invented. Define the sampling and validation handoff before implementation.",
       "expected_output": "An objective plan that preserves editable target bases, minimizes fixed prompt sequence, and gives every reward meaningful biological controls.",
       "assertions": [
-        "Before accepting circular prompting, the response requires a verified termini class and aligns ORF calling, prompt rotation, synteny, and any terminal-repeat reward with it rather than trusting LOCUS alone.",
+        "Before accepting circular prompting, the response requires a verified termini class and aligns ORF calling, synteny, and any terminal-repeat reward with it rather than trusting LOCUS alone. Prompt rotation additionally needs related-assembly start-site and SFT-exposure evidence; biological rotation compatibility alone does not qualify arbitrary starts.",
         "The response records circular coordinates and uncertainty for all intended-to-change elements as prompt-exclusion intervals, including intervals that cross the chosen origin.",
         "It identifies neutral anchor intervals or requires a different prompt strategy rather than silently fixing part of a redesign target.",
         "It requires prompt size to be reported in bases and as a genome fraction, starts from the shortest model-compatible prompt, and does not scale length linearly with genome size by default.",

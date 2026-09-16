@@ -4,7 +4,7 @@ These numbers are context for the documented PhiX174 experiments, not defaults f
 
 ## 2026-08-24 8xH100 rerun
 
-- The final rollout generated and SFT-likelihood scored 1,000 designs; exact/circular/reverse-complement deduplication retained 1,000 biological representatives.
+- The final rollout generated and SFT-likelihood scored 1,000 designs; deduplication retained 1,000 representatives before hard QC.
 - Pre-safety nucleotide QC submitted 991 representatives and excluded 9.
 - Safety screening reported 989 PASS, 0 FAIL, and 2 INDETERMINATE.
 - Target hard QC retained 513 safety-PASS representatives.

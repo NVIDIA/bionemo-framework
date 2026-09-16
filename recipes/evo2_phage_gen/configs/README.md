@@ -81,9 +81,12 @@ give the exact formula and its relationship to independent hard QC.
 
 The PHROGs consensus annotation search uses `mmseqs_protein_database_sensitivity: 7.5`
 and `mmseqs_threads: 16` in the maintained Arc template. The same search feeds online
-protein-family and required-function rewards and final screening. Higher sensitivity
-recovers significant partial matches that the prefilter can otherwise miss; the E-value
-admission and native-coverage/function rules still determine which evidence earns credit.
+required-function and synteny rewards and final screening. These consume all
+admitted hits through a global one-to-one ORF/function assignment; the strongest
+hit per ORF remains the displayed annotation. The
+`protein_database_search` flag enables this search and annotation stage; it does not
+filter genomes by hit count. Higher sensitivity recovers significant partial matches
+that the prefilter can otherwise miss; the E-value admission and native-coverage/function rules still determine which evidence earns credit.
 Its runtime depends on the called protein workload and CPU allocation. This setting is
 separate from the small reference-panel search above and the individual-protein AAI search.
 
@@ -91,24 +94,32 @@ Hard QC determines screening eligibility. RL rewards also provide partial credit
 learning; a component's full-credit count is not its hard-QC pass count. Novelty measures
 similarity, not viability: a known viable genome can legitimately fail a novelty criterion.
 
-| Measurement             | Default behavior                                                                                                                                                                                                                         |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Nucleotide QC           | ACGT only, GC 30–65%, homopolymers ≤10 bases. DUST supplies a separate online low-complexity objective.                                                                                                                                  |
-| Protein-family evidence | At least seven distinct PHROG targets with ≥75% coverage of both the called ORF and target. Multiple fragments of the same family do not increase the family count.                                                                      |
-| Required functions      | Named A/B/C/D/E/F/G/H/J slots with explicit allowed PHROG families, including the viable alternate J. K and A\* are outside this term. See the [biological rationale, formula, and coverage limits](required_genes.md).                  |
-| Synteny                 | All nine curated functions in circular order, with distinct full-coverage ORFs and no extra qualifying copies. Smooth synteny also admits partial reference/family evidence; K/A\* are outside this profile.                             |
-| Spike/G match           | Hard QC requires ≥60% identity and ≥95% bidirectional coverage against PhiX174 G. The RL target is stricter: 95% identity and 99% coverage for full credit.                                                                              |
-| AAI novelty             | Mean identity of the lowest-E-value individual PHROGs protein hit per called ORF; optional hard cutoff ≤95%. RL scales novelty by `min(hit_ORFs / 10, 1)` to require supporting evidence. Annotation uses a separate consensus database. |
-| Gene-A origin           | Four-factor geometric mean of A integrity, baseline-adjusted motif, position, and strong-site uniqueness; not a final hard gate.                                                                                                         |
-| Genome diversity        | Online and final clustering require 99% identity and 95% coverage of both circular genomes. Online inverse-cluster-size credit is computed within prompt groups and requires hard-length eligibility.                                    |
-| Safety                  | Separate AMR, toxin, and lysogeny checks. Missing required evidence remains INDETERMINATE, not PASS.                                                                                                                                     |
+| Measurement        | Default behavior                                                                                                                                                                                                                                                                  |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nucleotide QC      | ACGT only, GC 30–65%, homopolymers ≤10 bases. DUST supplies a separate online low-complexity objective.                                                                                                                                                                           |
+| Required functions | Named A/B/C/D/E/F/G/H/J slots with explicit allowed PHROG families, including the viable alternate J. K and A\* are outside this term. See the [biological rationale, formula, and coverage limits](required_genes.md).                                                           |
+| Synteny            | All nine curated functions in circular order, with distinct full-coverage ORFs and no extra qualifying copies. Smooth synteny also admits partial reference/family evidence; K/A\* are outside this profile.                                                                      |
+| Spike/G match      | Hard QC requires ≥60% identity and ≥95% bidirectional coverage against PhiX174 G. The RL target is stricter: 95% identity and 99% coverage for full credit.                                                                                                                       |
+| AAI novelty        | Mean identity of the lowest-E-value individual PHROGs protein hit per called ORF; optional hard cutoff ≤95%. RL scales novelty by `min(hit_ORFs / 10, 1)` to require supporting evidence. Annotation uses a separate consensus database.                                          |
+| Gene-A origin      | Four-factor geometric mean of A integrity, baseline-adjusted motif, position, and strong-site uniqueness; not a final hard gate.                                                                                                                                                  |
+| Genome diversity   | Online and final clustering require 99% identity and 95% coverage of both genomes, preserving supplied starts and strands. Online inverse-cluster-size credit pools all eligible prompts for the same design goal within each scoring batch and requires hard-length eligibility. |
+| Safety             | Separate AMR, toxin, and lysogeny checks. Missing required evidence remains INDETERMINATE, not PASS.                                                                                                                                                                              |
 
 The profile adapts [King et al.](https://doi.org/10.1126/science.aec2657) for architecture
 preservation and RL, rather than reproducing every optional diversification filter. In particular,
-architectural-distance filter 7 is diagnostic-only. The RL full-credit targets are shaping choices,
+architectural-distance filter 7 is diagnostic-only. The named-function gate requires
+nine distinct matched ORFs, covering the paper's ≥7-hit condition without an additional
+generic family-count or coverage quota. The RL full-credit targets are shaping choices,
 not experimentally established viability requirements. See the
 [score definitions](../examples/README.md#current-phix174-gdpo-score-definitions) for formulas,
 eligibility rules, and GDPO versus scalar-GRPO aggregation.
+
+When final screening enables `checkv_filter`, only classifications in
+`checkv_quality_range` survive. The maintained list includes Low-quality,
+Medium-quality, High-quality, and Complete; Not-determined or missing classifications
+do not pass. CheckV results are matched by exact FASTA identifier (the first header
+token), so similarly named candidates cannot inherit one another's classification.
+CheckV remains disabled in online RL scoring.
 
 ## Synteny and Arc's codon-landmark score
 

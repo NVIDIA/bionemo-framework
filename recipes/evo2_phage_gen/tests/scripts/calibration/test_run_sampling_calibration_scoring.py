@@ -73,6 +73,8 @@ import json, os, sys
 from pathlib import Path
 
 args = sys.argv[1:]
+# A child that consumes stdin must not steal subsequent cells from its worker.
+sys.stdin.read()
 with open(os.environ["CALLS"], "a") as handle:
     handle.write(json.dumps(args) + "\\n")
 for option in ("--output-csv", "--metrics-csv"):
@@ -90,7 +92,8 @@ if "validate-all" in args:
     (generation_root / "SUCCEEDED").touch()
     (generation_root / "cells.tsv").write_text(
         "index\tcell\tprefix\ttemperature\tprompt_file\tgeneration_jsonl\tprompt_anchor\tprompt_anchor_start\n"
-        f"0\tprefix16_temp1.0\t16\t1.0\tprompt.jsonl\t{generation_root / 'cell.jsonl'}\torigin\t1\n"
+        f"0\tprefix16_temp1.0\t16\t1.0\tprompt.jsonl\t{generation_root / 'cell0.jsonl'}\torigin\t1\n"
+        f"1\tprefix24_temp1.0\t24\t1.0\tprompt.jsonl\t{generation_root / 'cell1.jsonl'}\torigin\t1\n"
     )
     safety_evidence = (
         '{"source":"test","source_version":"v1","replication_host_domains":["BACTERIA"],"confirmed":true}'
@@ -122,19 +125,14 @@ if "validate-all" in args:
 
     assert completed.returncode == 0, completed.stderr
     invocations = [json.loads(line) for line in calls.read_text().splitlines()]
-    score = next(args for args in invocations if "score-cell" in args)
+    scores = [args for args in invocations if "score-cell" in args]
+    assert len(scores) == 2
     expected = {
         "--safety-asset-manifest": str(tmp_path / "asset-manifest.yaml"),
         "--safety-policy": str(tmp_path / "safety-policy.yaml"),
         "--safety-host-domain": "BACTERIA",
         "--safety-host-evidence-json": safety_evidence,
     }
-    for option, value in expected.items():
-        assert score[score.index(option) + 1] == value
-
-
-def test_scoring_workers_use_dedicated_input_descriptor() -> None:
-    script = SCRIPT.read_text(encoding="utf-8")
-
-    assert "read -r -u 3 cell_index" in script
-    assert 'done 3< "${GENERATION_ROOT}/cells.tsv"' in script
+    for score in scores:
+        for option, value in expected.items():
+            assert score[score.index(option) + 1] == value

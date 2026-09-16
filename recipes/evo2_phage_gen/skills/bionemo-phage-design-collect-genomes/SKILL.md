@@ -30,7 +30,9 @@ If reads are absent, use a transposase-based prep, or PhageTerm is inconclusive,
 4. Record the molecular form: collapsed deposit `[DTR][unique]` is one circularly permuted concatemer repeat unit; packaged genome `[DTR][unique][DTR]` is one DTR longer. Use one form for length, coding density, coordinates, prompts, synteny, and rewards.
 5. Established biology classifies canonical ssDNA Microviridae such as PhiX174 as genuinely circular; absence of a terminal repeat is consistent but not sufficient by itself. End CDS markers `<1..N` and `M..>L` with no origin-spanning `join()` support linear annotation.
 
-Do not infer termini from a shared first gene; deposit origins and strands are arbitrary. An ORF-calling pseudo-prefix is representation, not termini evidence.
+Do not infer termini from a shared first gene. Deposit origins and strands are representation choices and may follow strong annotation conventions. An ORF-calling pseudo-prefix is representation, not termini evidence.
+
+For a rotation-compatible target, measure start-site variability among related assemblies before recommending circular prompts. Map deposited starts and strands to homologous reference coordinates, report concentration by lineage and independent sequence cluster, and check submission/annotation conventions. Compare those starts with the actual SFT corpus and any rotation augmentation; internal sequence exposure is not start-context exposure. Use the [collection guidance](references/collection-guidance.md#start-site-variability) for the handoff. The current PhiX workflow uses coordinate 1 because its related SFT records favor that start, while retaining circular ORF handling and biological scoring.
 
 Validate and document the collection using the concise [collection guidance](references/collection-guidance.md). Normalize stable record IDs without losing their source IDs, and keep conflicting host annotations separate rather than guessing.
 

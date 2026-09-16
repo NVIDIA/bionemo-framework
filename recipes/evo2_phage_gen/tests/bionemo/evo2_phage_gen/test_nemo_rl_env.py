@@ -274,24 +274,6 @@ def test_environment_maps_genome_length_reward_bounds(tmp_path: Path):
     ) == (3000.0, 5359.0, 5391.0, 5426.0)
 
 
-def test_environment_maps_mmseqs_circular_topology_without_changing_generic_default(tmp_path: Path):
-    """The RL actor should preserve explicit circular topology and default generic clustering to linear."""
-    if getattr(nemo_rl_env, "_NEMO_RL_IMPORT_ERROR", None) is not None:
-        pytest.skip("NeMo-RL is unavailable")
-
-    env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
-    base = {"sequence_safety": _sequence_safety_mapping(tmp_path)}
-
-    assert env_cls(base).mmseqs_cluster_diversity.circular is False
-    circular_env = env_cls({**base, "mmseqs_cluster_diversity": {"enabled": True, "circular": True}})
-    assert circular_env.mmseqs_cluster_diversity.circular is True
-    assert circular_env.mmseqs_cluster_diversity.min_seq_id == 0.99
-    assert circular_env.mmseqs_cluster_diversity.coverage == 0.95
-    explicit = env_cls({**base, "mmseqs_cluster_diversity": {"min_seq_id": 0.99, "coverage": 0.9}})
-    assert explicit.mmseqs_cluster_diversity.min_seq_id == 0.99
-    assert explicit.mmseqs_cluster_diversity.coverage == 0.9
-
-
 def test_environment_parses_no_eod_reward_gate(tmp_path: Path):
     """Old custom configs remain ungated; the PhiX YAMLs explicitly enable the gate."""
     if getattr(nemo_rl_env, "_NEMO_RL_IMPORT_ERROR", None) is not None:
@@ -368,16 +350,12 @@ def test_default_gdpo_objectives_expose_three_independent_safety_signals():
     """Omitting custom objectives must not silently drop the three mandatory safety signals."""
     objectives = nemo_rl_env._coerce_gdpo_objectives(None)
 
-    safety_objectives = objectives[-3:]
-    assert [objective.name for objective in safety_objectives] == ["safety_amr", "safety_toxin", "safety_lysogeny"]
-    assert [objective.columns for objective in safety_objectives] == [
-        ("reward_safety_amr",),
-        ("reward_safety_toxin",),
-        ("reward_safety_lysogeny",),
-    ]
-    assert all(objective.requires_safety_eligibility is False for objective in safety_objectives)
-    assert all(objective.requires_safety_eligibility is True for objective in objectives[:-3])
-    assert all("reward_nucleotide_pass" not in objective.columns for objective in objectives)
+    by_name = {objective.name: objective for objective in objectives}
+    safety_names = {"safety_amr", "safety_toxin", "safety_lysogeny"}
+    for name in safety_names:
+        assert by_name[name].columns == (f"reward_{name}",)
+        assert by_name[name].requires_safety_eligibility is False
+    assert all(objective.requires_safety_eligibility for objective in objectives if objective.name not in safety_names)
 
 
 @pytest.mark.parametrize("invalid", ["false", 0, 1, None])
@@ -745,7 +723,7 @@ def test_scalar_no_eod_gate_penalizes_without_masking(monkeypatch) -> None:
                 "sequence": ["ACGT", "ACGT", "ACGT"],
                 "prompt_group": ["AAAA", "AAAA", "AAAA"],
                 "reward": [0.75, 0.80, 0.85],
-                "reward_external_protein_hit_count": [0.4, 0.6, 0.8],
+                "reward_external_required_genes": [0.4, 0.6, 0.8],
                 "safety_gate_state": ["PASS", "PASS", "PASS"],
                 "safety_gate_pass": [1.0, 1.0, 1.0],
             }
@@ -973,16 +951,16 @@ def test_global_post_process_metrics_leave_task_namespace_to_nemo_rl():
     env.reward_output_mode = "gdpo"
     env.gdpo_objectives = (
         GDPOObjective("valid_nt_chars", ("reward_valid_nt_chars",)),
-        GDPOObjective("protein_hit_count", ("reward_external_protein_hit_count",)),
+        GDPOObjective("required_genes", ("reward_external_required_genes",)),
     )
-    env._last_gdpo_objective_scores = pd.DataFrame({"valid_nt_chars": [0.99], "protein_hit_count": [0.99]})
+    env._last_gdpo_objective_scores = pd.DataFrame({"valid_nt_chars": [0.99], "required_genes": [0.99]})
     batch = {
         "total_reward": torch.tensor([1.0, 0.0]),
         "extra_env_info": [
             {
                 "_phage_qc_scored": {
                     "reward_valid_nt_chars": 1.0,
-                    "reward_external_protein_hit_count": 0.25,
+                    "reward_external_required_genes": 0.25,
                     "safety_gate_state": "PASS",
                     "safety_gate_pass": 1.0,
                     "reward": 1.0,
@@ -992,7 +970,7 @@ def test_global_post_process_metrics_leave_task_namespace_to_nemo_rl():
             {
                 "_phage_qc_scored": {
                     "reward_valid_nt_chars": 0.0,
-                    "reward_external_protein_hit_count": 0.75,
+                    "reward_external_required_genes": 0.75,
                     "safety_gate_state": "PASS",
                     "safety_gate_pass": 1.0,
                     "reward": 0.0,
@@ -1008,8 +986,8 @@ def test_global_post_process_metrics_leave_task_namespace_to_nemo_rl():
     assert metrics["gdpo/valid_nt_chars_mean"] == 0.5
     assert metrics["gdpo/valid_nt_chars_std"] == pytest.approx(0.5)
     assert metrics["gdpo/valid_nt_chars_nonzero_rate"] == 0.5
-    assert metrics["gdpo/protein_hit_count_std"] == pytest.approx(0.25)
-    assert metrics["gdpo/protein_hit_count_nonzero_rate"] == 1.0
+    assert metrics["gdpo/required_genes_std"] == pytest.approx(0.25)
+    assert metrics["gdpo/required_genes_nonzero_rate"] == 1.0
     assert metrics[f"{TIMING_METRIC_MARKER_PREFIX}phage_qc/reward/total_s"] == 3.0
     assert "phage_qc/__timing__/phage_qc/reward/total_s" not in metrics
 
@@ -1277,7 +1255,6 @@ def test_configured_metrics_use_gated_scores_and_opt_in_lengths():
             "generation_capped_without_eod": [False, False, True, False],
             "prompt_nt_length": [16, 16, 24, 24],
             "tropism_measurement_available": [1.0] * 4,
-            "predicted_orf_count": [999] * 4,
         },
         index=[5] * 4,
     )
@@ -1295,7 +1272,7 @@ def test_configured_metrics_use_gated_scores_and_opt_in_lengths():
     assert metrics["tropism_measurement_available_rate"] == 1.0
     assert "tropism_protein_mmseqs_percent_identity_mean" not in metrics
     assert not any(key.startswith("by_prompt_nt_length/") for key in metrics)
-    assert not any("orf_count" in key or "binary_" in key or "unused" in key for key in metrics)
+    assert not any("unused" in key for key in metrics)
     split = phage_qc_metrics_from_scored(
         scored, RewardWeights(), objectives=objectives, zero_reward_without_eod=True, log_by_prompt_nt_length=True
     )

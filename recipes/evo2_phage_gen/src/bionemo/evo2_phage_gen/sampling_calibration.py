@@ -135,8 +135,9 @@ def build_inference_command(
     top_k: int,
     top_p: float,
     hopper_fp8: bool = False,
+    stop_on_eos: bool = False,
 ) -> list[str]:
-    """Build one strict target-total-length Evo2 inference command."""
+    """Build inference with a total DNA cap, optionally allowing an earlier sampled EOD."""
     max_new_tokens = target_length - cell.prefix_length
     if max_new_tokens <= 0:
         raise ValueError("target_length must exceed prefix length")
@@ -180,9 +181,10 @@ def build_inference_command(
                 "--fp8-all-layers",
             ]
         )
+    if not stop_on_eos:
+        command.append("--ignore-eos")
     command.extend(
         [
-            "--ignore-eos",
             "--strict-generation",
             "--stream-output",
             "--output-file",
@@ -233,6 +235,7 @@ def materialize_sweep(
     prompt_batch_size: int,
     max_seq_length: int,
     hopper_fp8: bool = False,
+    stop_on_eos: bool = False,
 ) -> dict:
     """Materialize the sweep configuration and all cell prompt banks."""
     if prompt_anchors and reference_sequence is None:
@@ -265,7 +268,7 @@ def materialize_sweep(
 
     cells_path = run_root / "cells.tsv"
     sweep_config = {
-        "schema_version": 2,
+        "schema_version": 3,
         "state": "planned",
         "checkpoint": str(checkpoint.resolve()),
         "reference_start": reference_start,
@@ -278,6 +281,7 @@ def materialize_sweep(
         "temperatures": [float(value) for value in temperatures],
         "num_prompts_per_cell": int(num_prompts),
         "target_length": int(target_length),
+        "stop_on_eos": bool(stop_on_eos),
         "top_k": int(top_k),
         "top_p": float(top_p),
         "seed": int(seed),
@@ -361,6 +365,7 @@ def _parse_args() -> argparse.Namespace:
     materialize.add_argument("--prompt-batch-size", type=int, default=16)
     materialize.add_argument("--max-seq-length", type=int, default=6144)
     materialize.add_argument("--hopper-fp8", action="store_true")
+    materialize.add_argument("--stop-on-eos", action="store_true", help="Allow sampled EOD before the total DNA cap")
 
     print_command = subparsers.add_parser("print-command")
     print_command.add_argument("--infer-script", type=Path, required=True)
@@ -378,6 +383,7 @@ def _parse_args() -> argparse.Namespace:
     print_command.add_argument("--top-k", type=int, required=True)
     print_command.add_argument("--top-p", type=float, required=True)
     print_command.add_argument("--hopper-fp8", action="store_true")
+    print_command.add_argument("--stop-on-eos", action="store_true", help="Allow sampled EOD before the total DNA cap")
 
     validate = subparsers.add_parser("validate-cell")
     validate.add_argument("--output", type=Path, required=True)
@@ -412,6 +418,7 @@ def main() -> None:
             prompt_batch_size=args.prompt_batch_size,
             max_seq_length=args.max_seq_length,
             hopper_fp8=args.hopper_fp8,
+            stop_on_eos=args.stop_on_eos,
         )
         print(json.dumps(sweep_config, sort_keys=True))
     elif args.command == "print-command":
@@ -430,6 +437,7 @@ def main() -> None:
             top_k=args.top_k,
             top_p=args.top_p,
             hopper_fp8=args.hopper_fp8,
+            stop_on_eos=args.stop_on_eos,
         )
         sys.stdout.buffer.write(b"\0".join(item.encode() for item in command) + b"\0")
     elif args.command == "validate-cell":

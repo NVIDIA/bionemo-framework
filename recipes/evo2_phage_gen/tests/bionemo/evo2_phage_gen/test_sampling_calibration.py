@@ -120,13 +120,15 @@ def test_write_cell_prompts_supports_marker_only_control(tmp_path: Path) -> None
     ]
 
 
-def test_build_inference_command_preserves_total_target_length(tmp_path: Path) -> None:
+@pytest.mark.parametrize("prefix_length", [24, 1500])
+@pytest.mark.parametrize("stop_on_eos", [False, True])
+def test_build_inference_command_preserves_total_target_length(tmp_path: Path, prefix_length, stop_on_eos) -> None:
     command = build_inference_command(
         infer_script=tmp_path / "infer.py",
         checkpoint=tmp_path / "checkpoint",
         prompt_file=tmp_path / "prompts.jsonl",
         output_file=tmp_path / "output.jsonl",
-        cell=SweepCell(prefix_length=24, temperature=1.0),
+        cell=SweepCell(prefix_length=prefix_length, temperature=1.0),
         target_length=6000,
         seed=7,
         tensor_parallel_size=1,
@@ -135,15 +137,16 @@ def test_build_inference_command_preserves_total_target_length(tmp_path: Path) -
         max_seq_length=10240,
         top_k=17,
         top_p=0.85,
+        stop_on_eos=stop_on_eos,
     )
 
-    assert command[command.index("--max-new-tokens") + 1] == "5976"
+    assert int(command[command.index("--max-new-tokens") + 1]) + prefix_length == 6000
     assert command[command.index("--temperature") + 1] == "1.0"
     assert command[command.index("--top-k") + 1] == "17"
     assert command[command.index("--top-p") + 1] == "0.85"
     assert command[command.index("--tensor-parallel-size") + 1] == "1"
     assert command[command.index("--inference-backend") + 1] == "dynamic"
-    assert "--ignore-eos" in command
+    assert ("--ignore-eos" in command) is not stop_on_eos
     assert "--strict-generation" in command
 
 

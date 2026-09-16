@@ -57,7 +57,6 @@ def summarize_setting(path: Path, *, bootstrap_seed: int = 174, bootstrap_replic
     safety_environment_ok = bool(len(scored) and safety_objective_interpretability(scored).all().all())
     target_signal = pd.concat(
         [
-            _numeric(scored, "reward_external_protein_hit_count"),
             _numeric(scored, "reward_external_tropism"),
             _numeric(scored, "reward_external_required_genes"),
         ],

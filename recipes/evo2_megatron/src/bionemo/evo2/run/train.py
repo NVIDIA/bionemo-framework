@@ -416,6 +416,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Do not predict EOD/Pad tokens (typical default, but not default in original evo2).",
     )  # DONE
     parser.add_argument(
+        "--skip-taxonomy-loss-mask",
+        action="store_true",
+        help="Skip phylogenetic-tag parsing for indexed datasets known to contain no taxonomy text. "
+        "Non-DNA targets stay masked; EOD and padding behavior is unchanged.",
+    )
+    parser.add_argument(
         "--cross-entropy-loss-fusion",
         action="store_true",
         default=False,
@@ -830,6 +836,7 @@ def train(args: argparse.Namespace) -> None:
         recipe_kwargs["dataset_config_path"] = args.dataset_config
 
     recipe_kwargs["pad_eod_loss_mask"] = args.eod_pad_in_loss_mask
+    recipe_kwargs["mask_phylogenetic_tags"] = not args.skip_taxonomy_loss_mask
 
     # Parallelism
     recipe_kwargs["tensor_model_parallel_size"] = args.tensor_model_parallel_size

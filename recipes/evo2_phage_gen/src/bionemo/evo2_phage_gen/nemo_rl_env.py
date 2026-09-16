@@ -73,13 +73,12 @@ DEFAULT_GDPO_OBJECTIVES: tuple[GDPOObjective, ...] = (
     GDPOObjective(
         name="function",
         columns=(
-            "reward_external_protein_hit_count",
             "reward_external_tropism",
             "reward_external_required_genes",
             "reward_gene_a_origin",
         ),
     ),
-    GDPOObjective(name="architecture", columns=("reward_external_synteny",)),
+    GDPOObjective(name="synteny", columns=("reward_external_synteny",)),
     GDPOObjective(
         name="novelty",
         columns=(
@@ -674,7 +673,6 @@ def phage_qc_metrics_from_scored(
         "reward_gc_content": ("gc_content",),
         "reward_nt_homopolymer": ("max_nt_homopolymer_length",),
         "reward_dustmask_end": ("dustmask_max_end_masked_fraction",),
-        "reward_external_protein_hit_count": ("protein_database_effective_family_count",),
         "reward_external_tropism": ("tropism_protein_mmseqs_percent_identity",),
         "reward_external_synteny": (
             "synteny_smooth_content_score",
@@ -706,7 +704,6 @@ def phage_qc_metrics_from_scored(
                 metrics[f"{column}_mean"] = mean_value
 
     support_prefixes = {
-        "reward_external_protein_hit_count": "protein_database_hit_count",
         "reward_external_tropism": "tropism",
         "reward_external_synteny": "synteny",
         "reward_external_average_protein_identity": "average_protein_identity",
@@ -856,7 +853,6 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 nt_homopolymer=float(cfg.get("weight_nt_homopolymer", 1.0)),
                 dustmask_end=float(cfg.get("weight_dustmask_end", 0.0)),
                 nucleotide_pass=float(cfg.get("weight_nucleotide_pass", 0.0)),
-                protein_hit_count=float(cfg.get("weight_protein_hit_count", 0.0)),
                 tropism=float(cfg.get("weight_tropism", 0.0)),
                 synteny=float(cfg.get("weight_synteny", 0.0)),
                 gene_a_origin=float(cfg.get("weight_gene_a_origin", 0.0)),
@@ -896,7 +892,6 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 timeout_seconds=external_qc_cfg.get("timeout_seconds", 1800.0),
                 enable_orf=bool(external_qc_cfg.get("enable_orf", False)),
                 enable_coding_density=bool(external_qc_cfg.get("enable_coding_density", False)),
-                enable_protein_hit_count=bool(external_qc_cfg.get("enable_protein_hit_count", True)),
                 enable_tropism=bool(external_qc_cfg.get("enable_tropism", True)),
                 enable_synteny=bool(external_qc_cfg.get("enable_synteny", False)),
                 enable_average_protein_identity=bool(external_qc_cfg.get("enable_average_protein_identity", False)),
@@ -935,7 +930,6 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
             mmseqs_cfg = cfg.get("mmseqs_cluster_diversity", {}) or {}
             self.mmseqs_cluster_diversity = MMseqsClusterDiversityConfig(
                 enabled=bool(mmseqs_cfg.get("enabled", False)),
-                circular=bool(mmseqs_cfg.get("circular", False)),
                 mmseqs_bin=str(mmseqs_cfg.get("mmseqs_bin", "mmseqs")),
                 work_dir=mmseqs_cfg.get("work_dir", "data/checkpoints/phage_grpo_mmseqs_cluster_diversity"),
                 keep_artifacts=bool(mmseqs_cfg.get("keep_artifacts", False)),
@@ -944,7 +938,6 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 cov_mode=int(mmseqs_cfg.get("cov_mode", 0)),
                 seq_id_mode=int(mmseqs_cfg.get("seq_id_mode", 0)),
                 cluster_mode=int(mmseqs_cfg.get("cluster_mode", 0)),
-                parallel_jobs=int(mmseqs_cfg.get("parallel_jobs", 1)),
                 threads=mmseqs_cfg.get("threads"),
                 verbosity=int(mmseqs_cfg.get("verbosity", 0)),
             )

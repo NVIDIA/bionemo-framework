@@ -162,7 +162,7 @@ PATCHED_SYNTENY_METRICS_FUNCTION = '''def count_syntenic_genes_all(
         if not set(functions.values()).issubset(families):
             raise ValueError("Synteny functions must be defined in required_gene_families")
         results = config["results_save_dir"]
-        hits = pd.read_csv(os.path.join(results, config["mmseqs_protein_database_results_dir_save_location"], "mmseqs2_hits.csv"))
+        hits = pd.read_csv(os.path.join(results, config["mmseqs_protein_database_results_dir_save_location"], "mmseqs2_all_hits.csv"))
         matches, available = score_function_matches(
             hits, families, config.get("protein_match_min_reciprocal_coverage", 0.75),
             config.get("required_gene_family_coverage"),
@@ -197,24 +197,6 @@ PATCHED_ONLINE_MODE_CONFIG = """    with open(config_file, 'r') as f:
         config = yaml.safe_load(f)
     online_measurement_mode = bool(config.get("online_measurement_mode", False))
 """
-ARC_ONLINE_PROTEIN_FILTER = """            filtered_df = valid_protein_database_hit_count(mmseqs_results_df, seq_df, 'id_prompt', config["protein_database_hit_count"])
-"""
-PATCHED_ONLINE_PROTEIN_FILTER = """            if online_measurement_mode:
-                hit_genome_ids = mmseqs_results_df["id_prompt"].astype(str).str.rsplit("_", n=1).str[0]
-                hit_counts = hit_genome_ids.value_counts()
-                filtered_df = seq_df.copy()
-                filtered_df["protein_database_hit_count"] = (
-                    filtered_df["id_prompt"].map(hit_counts).fillna(0).astype(int)
-                )
-            else:
-                filtered_df = valid_coverage_aware_protein_database_hit_count(
-                    mmseqs_results_df,
-                    seq_df,
-                    'id_prompt',
-                    config["protein_database_hit_count"],
-                    config.get("protein_match_min_reciprocal_coverage", 0.75),
-                )
-"""
 ARC_ONLINE_TROPISM_FILTER = """            filtered_df = valid_mmseqs_pident(mmseqs_results_df, "tropism_protein", config["tropism_protein_sequence_identity_range"], filtered_df)
 """
 PATCHED_ONLINE_TROPISM_FILTER = """            save_mmseqs_pident_metrics(
@@ -238,7 +220,7 @@ ARC_REQUIRED_GENE_CALL_SUFFIX = """                                   sequences_
 PATCHED_REQUIRED_GENE_CALL_SUFFIX = """                                   sequences_df=filtered_df,
                                    metrics_csv=f'{config["results_save_dir"]}/{config.get("required_genes_metrics_file_save_location", "qc6_required_genes_metrics.csv")}',
                                    filter_results=not online_measurement_mode,
-                                   protein_database_hits_df=mmseqs_results_df,
+                                   protein_database_hits_df=pd.read_csv(f'{config["results_save_dir"]}/{config["mmseqs_protein_database_results_dir_save_location"]}/mmseqs2_all_hits.csv'),
                                    minimum_reciprocal_coverage=config.get("protein_match_min_reciprocal_coverage", 0.75),
                                    family_coverage_thresholds=config.get("required_gene_family_coverage"))
 """
@@ -397,7 +379,6 @@ def _apply_online_measurement_patches(output_dir: Path) -> None:
         return
     replacements = (
         (ARC_ONLINE_MODE_CONFIG_ANCHOR, PATCHED_ONLINE_MODE_CONFIG),
-        (ARC_ONLINE_PROTEIN_FILTER, PATCHED_ONLINE_PROTEIN_FILTER),
         (ARC_ONLINE_TROPISM_FILTER, PATCHED_ONLINE_TROPISM_FILTER),
         (ARC_REQUIRED_GENE_CALL_SUFFIX, PATCHED_REQUIRED_GENE_CALL_SUFFIX),
         (ARC_AAI_CALL_SUFFIX, PATCHED_AAI_CALL_SUFFIX),
@@ -630,7 +611,6 @@ def _apply_protein_hard_gate_patch(output_dir: Path) -> None:
     text = pipeline_path.read_text()
     import_source = """from bionemo.evo2_phage_gen.protein_evidence import (
     valid_coverage_aware_mmseqs_pident,
-    valid_coverage_aware_protein_database_hit_count,
 )
 
 

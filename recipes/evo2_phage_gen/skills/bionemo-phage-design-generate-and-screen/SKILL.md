@@ -21,11 +21,11 @@ Process candidates in this order:
 
 1. retain and validate the complete raw-generation denominator;
 2. before deduplication, score every raw design with the selected pre-RL SFT when that ranking evidence is requested, using the validated direct `iter_*` path recorded by `RESULT_ROOT/rl/sft-checkpoint/preparation-manifest.json`;
-3. remove exact biological duplicates, including circular and reverse-complement equivalents when applicable;
+3. remove exact sequence duplicates, preserving the supplied start and strand;
 4. run every required external and internal QC component with its configured positive controls on the representatives;
 5. treat missing required evidence or tool failure as INDETERMINATE rather than PASS;
 6. apply the approved target hard-filter profile as the cheap-to-expensive waterfall defined in the rollout guidance;
-7. cluster only the safety-PASS hard-QC set at the approved identity and coverage thresholds for diversity reporting; and
+7. cluster only the safety-PASS hard-QC set in its supplied sequence order at the approved identity and coverage thresholds for diversity reporting; and
 8. rank cluster representatives only when the objective plan defines a defensible ranking.
 
 Short genomes, no predicted genes/ORFs, missing measured genes, and header-only or empty tool results must follow their explicit scientific behavior rather than crash the rollout. Confirm that each enabled filter executed and report any unavailable component; never silently skip a gate.
@@ -39,6 +39,10 @@ after safety and target hard QC with 99% identity, 95% coverage of both genomes,
 As the final rollout/report step, score every generated design with that validated model-only SFT checkpoint and its intended conditioning prefix; retain the full-state source for exact SFT-training resume. Attach total and mean per-nucleotide log probability to each design and report residual correlation between that score and sequence length. Use the mean score for ordering only when length and prompt serialization are comparable. In particular, whole-sequence likelihood is origin-dependent for circular genomes, so retain it as a diagnostic rather than globally ranking a mixed-origin rollout unless an origin-normalized method was validated. [Black et al.](https://doi.org/10.64898/2026.06.12.731871) found that Evo 2 likelihood enriched for experimentally bootable PhiX174 designs, supporting within-protocol ranking—not a transferable cutoff or proof of viability.
 
 Write the generated FASTA, per-candidate scores/states, final passing sequences, cluster assignments, and a concise waterfall from generated through PASS/FAIL/INDETERMINATE. Record checkpoint, sampling settings, tool/database versions, commands, counts, selected candidates, and limitations in the stage summary and `RUNLOG.md`. State that computational screening does not establish bootability, host range, therapeutic safety, or efficacy.
+When CheckV filtering is enabled, retain only exact FASTA-ID matches with a quality
+listed in `checkv_quality_range`; missing or unclassified results do not pass the
+maintained PhiX profile. See the [filter contract](references/rollout-guidance.md).
+
 For long final rollouts, keep independently validated completion markers for raw generation,
 deduplication, likelihood, safety, target and diagnostic branches, final clustering, and reporting so
 a restart reuses only scientifically complete evidence.

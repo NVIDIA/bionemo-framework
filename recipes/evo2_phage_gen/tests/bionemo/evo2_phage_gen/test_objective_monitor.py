@@ -56,7 +56,7 @@ def _event(
     return {
         "step": step,
         "aggregate_reward": 5.0,
-        "objectives": {"protein_hit_count": objective},
+        "objectives": {"required_genes": objective},
     }
 
 
@@ -72,9 +72,9 @@ def test_reward_gain_with_collapsing_support_starts_rebound_window():
     assert result["decision"] == "continue"
     assert result["reason"] == "signal_pending_confirmation:1/8"
     assert result["latest_complete_step"] == 30
-    assert result["objectives"]["protein_hit_count"]["status"] == "warning"
-    assert result["objectives"]["protein_hit_count"]["signal_streak"] == 1
-    assert "reward_support_divergence" in result["objectives"]["protein_hit_count"]["signals"]
+    assert result["objectives"]["required_genes"]["status"] == "warning"
+    assert result["objectives"]["required_genes"]["signal_streak"] == 1
+    assert "reward_support_divergence" in result["objectives"]["required_genes"]["signals"]
 
 
 def test_sustained_reward_support_divergence_pauses_after_rebound_window():
@@ -83,8 +83,8 @@ def test_sustained_reward_support_divergence_pauses_after_rebound_window():
     result = evaluate_objective_history(history)
 
     assert result["decision"] == "pause_for_diagnosis"
-    assert result["objectives"]["protein_hit_count"]["status"] == "suspicious"
-    assert result["objectives"]["protein_hit_count"]["signal_streak"] == 8
+    assert result["objectives"]["required_genes"]["status"] == "suspicious"
+    assert result["objectives"]["required_genes"]["signal_streak"] == 8
 
 
 def test_reward_and_support_improving_together_continues():
@@ -97,7 +97,7 @@ def test_reward_and_support_improving_together_continues():
     result = evaluate_objective_history(history)
 
     assert result["decision"] == "continue"
-    assert result["objectives"]["protein_hit_count"]["status"] == "healthy"
+    assert result["objectives"]["required_genes"]["status"] == "healthy"
 
 
 def test_objective_history_accepts_custom_max_score_and_instability_thresholds():
@@ -121,10 +121,10 @@ def test_objective_history_accepts_custom_max_score_and_instability_thresholds()
         instability_history, objective_reward_range_threshold=0.25, minimum_reward_sign_changes=1
     )
 
-    assert "reward_max_score_divergence" not in strict_max_score["objectives"]["protein_hit_count"]["signals"]
-    assert "reward_max_score_divergence" in sensitive_max_score["objectives"]["protein_hit_count"]["signals"]
-    assert "objective_instability" not in strict_instability["objectives"]["protein_hit_count"]["signals"]
-    assert "objective_instability" in sensitive_instability["objectives"]["protein_hit_count"]["signals"]
+    assert "reward_max_score_divergence" not in strict_max_score["objectives"]["required_genes"]["signals"]
+    assert "reward_max_score_divergence" in sensitive_max_score["objectives"]["required_genes"]["signals"]
+    assert "objective_instability" not in strict_instability["objectives"]["required_genes"]["signals"]
+    assert "objective_instability" in sensitive_instability["objectives"]["required_genes"]["signals"]
 
 
 def test_missing_per_objective_metrics_pause_after_three_events():
@@ -146,8 +146,8 @@ def test_enabled_objective_with_no_measurements_starts_confirmation_window():
 
     assert result["decision"] == "continue"
     assert result["reason"] == "signal_pending_confirmation:1/8"
-    assert result["objectives"]["protein_hit_count"]["status"] == "warning"
-    assert "objective_unmeasured" in result["objectives"]["protein_hit_count"]["signals"]
+    assert result["objectives"]["required_genes"]["status"] == "warning"
+    assert "objective_unmeasured" in result["objectives"]["required_genes"]["signals"]
 
 
 def test_enabled_objective_with_no_measurements_pauses_after_confirmation_window():
@@ -156,8 +156,8 @@ def test_enabled_objective_with_no_measurements_pauses_after_confirmation_window
     result = evaluate_objective_history(history)
 
     assert result["decision"] == "pause_for_diagnosis"
-    assert result["objectives"]["protein_hit_count"]["status"] == "suspicious"
-    assert result["objectives"]["protein_hit_count"]["signal_streak"] == 8
+    assert result["objectives"]["required_genes"]["status"] == "suspicious"
+    assert result["objectives"]["required_genes"]["signal_streak"] == 8
 
 
 def _masking_history(active_counts: list[int]) -> list[dict]:

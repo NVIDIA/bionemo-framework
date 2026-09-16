@@ -15,7 +15,9 @@
 
 """Focused tests for smooth, ORF-gated reference evidence."""
 
+from itertools import combinations
 from pathlib import Path
+from random import Random
 
 import pandas as pd
 import pytest
@@ -286,6 +288,7 @@ def test_smooth_reference_summary_reuses_orf_hits_for_synteny_tropism_and_gene_a
         (("A", "G", "J", "J"), False),
         (("A", "G"), False),
         (("A", "G", "unrelated"), False),
+        (("G", "A|J", "A|J"), True),  # A tied assignment must not hide valid circular order.
     ],
 )
 def test_function_synteny_preserves_order_and_copy_checks(functions, full_credit):
@@ -294,7 +297,11 @@ def test_function_synteny_preserves_order_and_copy_checks(functions, full_credit
     targets = {"A": "phrog_713", "G": "phrog_1483", "J": "phrog_3780", "unrelated": "phrog_11693"}
     candidates = tuple(f"umi1_ORF.{i}" for i in range(len(functions)))
     hits = _required_hits(
-        *[(candidate, "", targets[function], 1.0) for candidate, function in zip(candidates, functions, strict=True)]
+        *[
+            (candidate, "", targets[alternative], 1.0)
+            for candidate, function in zip(candidates, functions, strict=True)
+            for alternative in function.split("|")
+        ]
     )
     matches, available = protein_evidence.score_function_matches(hits, families)
     assert available
@@ -434,84 +441,116 @@ def test_smooth_match_penalizes_both_truncations_and_fusions():
     assert 0.0 < fusion < complete
 
 
-def test_ordered_partial_matches_outscore_the_same_scrambled_matches():
-    """Synteny must add signal beyond reference content for identical edge weights."""
-    reference_order = ("A", "B", "C", "D")
-    ordered = protein_evidence.score_smooth_synteny(
-        {("A", "a"): 0.2, ("B", "b"): 0.2, ("C", "c"): 0.2, ("D", "d"): 0.2},
-        reference_order=reference_order,
-        candidate_order=("a", "b", "c", "d"),
-        order_weight=0.75,
-        duplicate_penalty_weight=0.75,
-    )
-    scrambled = protein_evidence.score_smooth_synteny(
-        {("A", "a"): 0.2, ("B", "b"): 0.2, ("C", "c"): 0.2, ("D", "d"): 0.2},
-        reference_order=reference_order,
-        candidate_order=("a", "c", "b", "d"),
-        order_weight=0.75,
-        duplicate_penalty_weight=0.75,
-    )
-
-    assert ordered.content_score == pytest.approx(scrambled.content_score)
-    assert ordered.reward == pytest.approx(0.2)
-    assert 0.0 < scrambled.reward < ordered.reward
-
-
-def test_smooth_synteny_does_not_reward_deletion_or_order_repair_by_duplication():
-    """A candidate cannot raise synteny by deleting evidence or adding a second homolog."""
-    reference_order = ("A", "B", "C", "D")
-    swapped = protein_evidence.score_smooth_synteny(
-        {("A", "a"): 1.0, ("B", "b"): 1.0, ("C", "c"): 1.0, ("D", "d"): 1.0},
-        reference_order=reference_order,
-        candidate_order=("a", "c", "b", "d"),
-        order_weight=0.75,
-        duplicate_penalty_weight=0.75,
-    )
-    deleted = protein_evidence.score_smooth_synteny(
-        {("A", "a"): 1.0, ("B", "b"): 1.0, ("D", "d"): 1.0},
-        reference_order=reference_order,
-        candidate_order=("a", "b", "d"),
-        order_weight=0.75,
-        duplicate_penalty_weight=0.75,
-    )
-    duplicated = protein_evidence.score_smooth_synteny(
-        {
-            ("A", "a"): 1.0,
-            ("B", "b"): 1.0,
-            ("B", "b_ordered"): 1.0,
-            ("C", "c"): 1.0,
-            ("D", "d"): 1.0,
-        },
-        reference_order=reference_order,
-        candidate_order=("a", "b_ordered", "c", "b", "d"),
-        order_weight=0.75,
-        duplicate_penalty_weight=0.75,
+@pytest.mark.parametrize(
+    ("reference", "candidates", "expected"),
+    [
+        pytest.param("", ({"A": 1.0},), 0.0, id="empty-reference"),
+        pytest.param("ABC", (), 0.0, id="empty-candidate"),
+        pytest.param("ABC", ({}, {}), 0.0, id="no-matches"),
+        pytest.param("ABC", ({"A": 0.2}, {"B": 0.5}, {"C": 0.8}), 1.5, id="weighted-in-order"),
+        pytest.param("ABCD", ({"A": 1.0}, {"C": 1.0}, {"B": 1.0}, {"D": 1.0}), 3.0, id="swap"),
+        pytest.param("ABC", ({"C": 1.0}, {"B": 1.0}, {"A": 1.0}), 1.0, id="reversed-linear-order"),
+        pytest.param("ABC", ({"C": 1.0}, {"A": 1.0}, {"B": 1.0}), 2.0, id="linear-cut-is-fixed"),
+        pytest.param("ABCD", ({"A": 1.0}, {}, {"D": 0.5}), 1.5, id="skip-both-kinds-of-gap"),
+        pytest.param("AB", ({"A": 1.0, "B": 1.0},), 1.0, id="cannot-reuse-candidate"),
+        pytest.param("A", ({"A": 0.4}, {"A": 0.9}), 0.9, id="cannot-reuse-reference"),
+        # B(.9)+C(.2) beats the longer A(.2)+B(.2)+C(.2) alignment.
+        pytest.param("ABC", ({"B": 0.9}, {"A": 0.2}, {"B": 0.2}, {"C": 0.2}), 1.1, id="weight-over-count"),
+        # A(.8)+B(.8)+C(.8) beats greedily taking the two .9 edges.
+        pytest.param("ABC", ({"A": 0.8, "B": 0.9}, {"B": 0.8, "C": 0.9}, {"C": 0.8}), 2.4, id="global-choice"),
+    ],
+)
+def test_linear_ordered_gold(reference, candidates, expected):
+    """Hand-solved weighted alignments; each dictionary describes one candidate ORF."""
+    candidate_order = tuple(f"orf{i}" for i in range(len(candidates)))
+    edges = {(gene, candidate_order[i]): credit for i, hits in enumerate(candidates) for gene, credit in hits.items()}
+    assert protein_evidence._linear_ordered_integrity(edges, tuple(reference), candidate_order) == pytest.approx(
+        expected
     )
 
-    assert deleted.reward < swapped.reward
-    assert duplicated.reward == pytest.approx(swapped.reward)
-    assert duplicated.duplicate_score == pytest.approx(0.25)
+
+def test_linear_ordered_exhaustive():
+    """Check the DP against all equally sized ordered subsequence pairs, without a recurrence."""
+    random = Random(20260916)
+    for n_reference in range(5):
+        for n_candidate in range(5):
+            references = tuple(f"r{i}" for i in range(n_reference))
+            candidates = tuple(f"c{i}" for i in range(n_candidate))
+            for _ in range(8):
+                edges = {(r, c): random.choice((0.0, 0.25, 0.5, 1.0)) for r in references for c in candidates}
+                # Enumerate every order-preserving one-to-one pairing. Small matrices
+                # make this independent, deliberately slow definition practical.
+                expected = max(
+                    sum(edges[(r, c)] for r, c in zip(rs, cs, strict=True))
+                    for length in range(min(n_reference, n_candidate) + 1)
+                    for rs in combinations(references, length)
+                    for cs in combinations(candidates, length)
+                )
+                observed = protein_evidence._linear_ordered_integrity(edges, references, candidates)
+                assert observed == pytest.approx(expected), (references, candidates, edges)
 
 
-def test_smooth_synteny_is_rotation_invariant_and_one_to_one():
-    """Circular rotation is neutral and one ORF cannot satisfy two reference loci."""
-    rotated = protein_evidence.score_smooth_synteny(
-        {("A", "a"): 1.0, ("B", "b"): 1.0, ("C", "c"): 1.0, ("D", "d"): 1.0},
-        reference_order=("A", "B", "C", "D"),
-        candidate_order=("d", "a", "b", "c"),
-        order_weight=0.75,
-        duplicate_penalty_weight=0.75,
-    )
-    ambiguous = protein_evidence.score_smooth_synteny(
-        {("A", "shared"): 1.0, ("B", "shared"): 1.0},
-        reference_order=("A", "B"),
-        candidate_order=("shared",),
-        order_weight=0.75,
-        duplicate_penalty_weight=0.75,
-    )
+@pytest.mark.parametrize(
+    ("reference", "candidates", "expected"),
+    [
+        # Expected tuple: content sum, circular ordered sum, excess mass, reward.
+        # With four reference slots the reward is (content + 3*ordered - 3*excess)/16.
+        pytest.param("ABCD", (), (0, 0, 0, 0), id="empty-candidate"),
+        pytest.param("ABCD", ({}, {}), (0, 0, 0, 0), id="no-homologs"),
+        pytest.param("ABCD", ({"A": 1}, {"B": 1}, {"C": 1}, {"D": 1}), (4, 4, 0, 1), id="complete"),
+        pytest.param("ABCD", ({"A": 1}, {"C": 1}, {"B": 1}, {"D": 1}), (4, 3, 0, 0.8125), id="one-swap"),
+        pytest.param("ABCD", ({"D": 1}, {"C": 1}, {"B": 1}, {"A": 1}), (4, 2, 0, 0.625), id="reversed-order"),
+        pytest.param("ABCD", ({"A": 1}, {"B": 1}, {"D": 1}), (3, 3, 0, 0.75), id="missing-one"),
+        pytest.param("ABCD", ({"A": 1}, {"D": 1}), (2, 2, 0, 0.5), id="missing-two"),
+        pytest.param("ABCD", ({"A": 1},), (1, 1, 0, 0.25), id="single-gene-foothold"),
+        pytest.param("ABCD", ({"A": 0.2}, {"B": 0.2}, {"C": 0.2}, {"D": 0.2}), (0.8, 0.8, 0, 0.2), id="partial"),
+        pytest.param(
+            "ABCD", ({"A": 0.2}, {"C": 0.2}, {"B": 0.2}, {"D": 0.2}), (0.8, 0.6, 0, 0.1625), id="partial-swap"
+        ),
+        pytest.param("ABCD", ({"A": 1}, {}, {"B": 1}, {"C": 1}, {"D": 1}), (4, 4, 0, 1), id="unrelated-extra-gene"),
+        # Repairing A-C-B-D with another B recovers one unit of order and pays
+        # one unit of excess: it must tie the one-swap score, not improve on it.
+        pytest.param(
+            "ABCD", ({"A": 1}, {"B": 1}, {"C": 1}, {"B": 1}, {"D": 1}), (4, 4, 1, 0.8125), id="duplicate-repair"
+        ),
+        pytest.param(
+            "ABCD", ({"A": 1}, {"B": 1}, {"B": 0.5}, {"C": 1}, {"D": 1}), (4, 4, 0.5, 0.90625), id="partial-copy"
+        ),
+        pytest.param("ABCD", ({"A": 1}, {"A": 1}, {"A": 1}), (1, 1, 2, 0), id="excess-clips-to-zero"),
+        pytest.param("AB", ({"A": 1, "B": 1},), (1, 1, 0, 0.5), id="one-orf-two-possible-functions"),
+    ],
+)
+def test_smooth_synteny_gold(reference, candidates, expected):
+    """Exact score ladder, repeated at every circular cut of both genomes.
 
-    assert rotated.reward == 1.0
-    assert ambiguous.content_integrity_sum == 1.0
+    These are mathematical gold cases for admitted match credits, not claims that
+    a particular score predicts biological viability. Expected values are hand
+    calculations, never snapshots of the implementation under test.
+    """
+    candidate_order = tuple(f"orf{i}" for i in range(len(candidates)))
+    edges = {(gene, candidate_order[i]): credit for i, hits in enumerate(candidates) for gene, credit in hits.items()}
+    for reference_cut in range(len(reference)):
+        reference_order = tuple(reference[reference_cut:] + reference[:reference_cut])
+        for candidate_cut in range(max(1, len(candidate_order))):
+            result = protein_evidence.score_smooth_synteny(
+                edges,
+                reference_order=reference_order,
+                candidate_order=candidate_order[candidate_cut:] + candidate_order[:candidate_cut],
+                order_weight=0.75,
+                duplicate_penalty_weight=0.75,
+            )
+            assert (
+                result.content_integrity_sum,
+                result.ordered_integrity_sum,
+                result.duplicate_integrity_sum,
+                result.reward,
+            ) == pytest.approx(expected)
+            assert (result.content_score, result.ordered_score, result.duplicate_score) == pytest.approx(
+                tuple(total / len(reference) for total in expected[:3])
+            )
+            assert len({r for r, _ in result.assignment}) == len(result.assignment)
+            assert len({c for _, c in result.assignment}) == len(result.assignment)
+            assert sum(edges[pair] for pair in result.assignment) == pytest.approx(expected[0])
 
 
 def test_smooth_synteny_scales_beyond_twenty_reference_loci():

@@ -528,12 +528,6 @@ def _validate_control_support(row: dict[str, Any], environment: Any) -> dict[str
         external_components = (
             ("enable_orf", "orf", "reward_external_orf", None),
             ("enable_coding_density", "coding_density", "reward_external_coding_density", None),
-            (
-                "enable_protein_hit_count",
-                "protein_database_hit_count",
-                "reward_external_protein_hit_count",
-                "protein_database_hit_count_measurement_available",
-            ),
             ("enable_tropism", "tropism", "reward_external_tropism", "tropism_measurement_available"),
             ("enable_synteny", "synteny", "reward_external_synteny", "synteny_measurement_available"),
             (
@@ -593,15 +587,15 @@ def _validate_control_support(row: dict[str, Any], environment: Any) -> dict[str
 
 
 def _comparable_control_metrics(row: dict[str, Any]) -> dict[str, object]:
-    """Return reward, filter, and measurement outcomes that must be origin-invariant."""
+    """Return intrinsic component outcomes that must be origin-invariant."""
     metrics: dict[str, object] = {}
     for name, value in row.items():
-        if name.endswith("_cluster_deduplicated_pass"):
-            # This is a set-relative representative choice, not an intrinsic genome outcome.
+        if name in {"reward", "reward_mmseqs_cluster_diversity"}:
+            # Diversity preserves supplied starts; it and the aggregate reward can
+            # change when rotating a member relative to the rest of its batch.
             continue
         if not (
-            name == "reward"
-            or name.startswith(("reward_", "valid_"))
+            name.startswith(("reward_", "valid_"))
             or name.endswith(
                 (
                     "_pass",
@@ -710,9 +704,16 @@ def run_environment_control(config_path: Path, control_fasta: Path, output_dir: 
             }
         )
 
+    # Keep the complete measured vectors in the report, but only compare objectives
+    # that do not include the start-dependent, batch-relative diversity component.
+    compared_objectives = {
+        objective.name
+        for objective in environment.gdpo_objectives
+        if "reward_mmseqs_cluster_diversity" not in objective.columns
+    }
     baseline = control_rows[0]
     for row in control_rows[1:]:
-        if row["objectives"] != baseline["objectives"]:
+        if any(row["objectives"][name] != baseline["objectives"][name] for name in compared_objectives):
             raise RLEnvironmentControlError(f"GDPO objectives differ for circular rotation {row['record_id']}")
         if row["support"] != baseline["support"]:
             raise RLEnvironmentControlError(f"measurement support differs for circular rotation {row['record_id']}")
@@ -730,8 +731,10 @@ def run_environment_control(config_path: Path, control_fasta: Path, output_dir: 
         result: dict[str, Any] = {key: value for key, value in baseline.items() if key != "metrics"}
     else:
         result = {
-            "schema_version": 2,
-            "rotation_invariant": True,
+            "schema_version": 3,
+            "intrinsic_scores_rotation_invariant": True,
+            "compared_objectives": sorted(compared_objectives),
+            "excluded_objectives": sorted(set(objective_names) - compared_objectives),
             "compared_metric_count": len(baseline["metrics"]),
             "records": [{key: value for key, value in row.items() if key != "metrics"} for row in control_rows],
         }

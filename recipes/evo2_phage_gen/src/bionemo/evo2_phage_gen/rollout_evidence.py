@@ -30,8 +30,6 @@ from pathlib import Path
 from typing import Any
 
 
-_IUPAC_COMPLEMENT = str.maketrans("ACGTRYSWKMBDHVN", "TGCAYRSWMKVHDBN")
-_IUPAC_SYMBOLS = frozenset("ACGTRYSWKMBDHVN")
 _UNAMBIGUOUS_DNA = frozenset("ACGT")
 _ARC_COUNT_FILE_KEYS = (
     "nucleotide_filter_counts_file_save_location",
@@ -52,7 +50,6 @@ _ARC_WATERFALL_COLUMNS = (
     "count_coding_density_filter",
     "count_aa_homopolymer_len_filter",
     "count_initial_before_homology_metrics",
-    "count_protein_database_hit_count_filter",
     "count_training_data_sequence_identity_filter",
     "count_checkv_quality_filter",
     "count_seq_ident_to_reference_genome_filter",
@@ -67,7 +64,7 @@ _ARC_WATERFALL_COLUMNS = (
 )
 _WORKFLOW_ORDER = (
     "raw_generation",
-    "exact_circular_reverse_complement_deduplication",
+    "exact_sequence_deduplication",
     "safety_and_target_hard_qc",
     "post_qc_mmseqs_99pct_clustering",
     "ranking",
@@ -118,65 +115,23 @@ def _write_fasta(path: Path, records: list[tuple[str, str]]) -> Path:
     return path
 
 
-def _least_rotation(sequence: str) -> str:
-    if not sequence:
-        return ""
-    doubled = sequence + sequence
-    first, second, offset = 0, 1, 0
-    length = len(sequence)
-    while first < length and second < length and offset < length:
-        left, right = doubled[first + offset], doubled[second + offset]
-        if left == right:
-            offset += 1
-            continue
-        if left > right:
-            first = first + offset + 1
-            if first == second:
-                first += 1
-        else:
-            second = second + offset + 1
-            if first == second:
-                second += 1
-        offset = 0
-    start = min(first, second)
-    return doubled[start : start + length]
-
-
-def canonical_circular_sequence(sequence: str) -> str:
-    """Return a rotation- and strand-invariant representation of circular DNA."""
-    sequence = sequence.upper()
-    unsupported = sorted(set(sequence) - _IUPAC_SYMBOLS)
-    if unsupported:
-        raise ValueError(f"unsupported IUPAC symbols: {''.join(unsupported)}")
-    reverse_complement = sequence.translate(_IUPAC_COMPLEMENT)[::-1]
-    return min(_least_rotation(sequence), _least_rotation(reverse_complement))
-
-
 def deduplicate_fasta(
     source_fasta: Path,
     representative_fasta: Path,
     mapping_csv: Path,
     report_json: Path,
 ) -> Path:
-    """Keep the first exact/circular/reverse-complement representative in generation order."""
+    """Keep the first occurrence of each sequence, preserving its supplied start and strand."""
     records = read_fasta(source_fasta)
     exact_representative: dict[str, str] = {}
-    circular_representative: dict[str, str] = {}
     representatives: list[tuple[str, str]] = []
     mapping_rows: list[dict[str, Any]] = []
     for index, (record_id, sequence) in enumerate(records):
         representative_id = exact_representative.get(sequence)
         duplicate_reason = "exact" if representative_id is not None else ""
-        canonical = canonical_circular_sequence(sequence) if set(sequence) <= _UNAMBIGUOUS_DNA else None
-        if representative_id is None and canonical is not None:
-            representative_id = circular_representative.get(canonical)
-            if representative_id is not None:
-                duplicate_reason = "circular_or_reverse_complement"
         if representative_id is None:
             representative_id = record_id
             representatives.append((record_id, sequence))
-            if canonical is not None:
-                circular_representative[canonical] = record_id
         exact_representative[sequence] = representative_id
         mapping_rows.append(
             {
@@ -199,20 +154,19 @@ def deduplicate_fasta(
     report = {
         "schema_version": 1,
         "state": "succeeded",
-        "order": "generation order; first biological occurrence is the representative",
-        "canonicalization": "exact, then least circular rotation across forward and reverse-complement DNA",
+        "order": "generation order; first exact sequence occurrence is the representative",
+        "comparison": "exact sequence after uppercasing; supplied start and strand are preserved",
         "counts": {
             "raw_records": len(records),
             "representative_records": len(representatives),
             "exact_duplicates_removed": reasons["exact"],
-            "circular_or_reverse_complement_duplicates_removed": reasons["circular_or_reverse_complement"],
         },
         "artifacts": {
             "source_fasta": str(Path(source_fasta).resolve()),
             "representative_fasta": str(Path(representative_fasta).resolve()),
             "mapping_csv": str(Path(mapping_csv).resolve()),
         },
-        "note": "Non-ACGT records are eligible for exact deduplication only and remain subject to hard QC.",
+        "note": "Deduplication does not imply acceptance; representatives remain subject to hard QC.",
     }
     report_json.parent.mkdir(parents=True, exist_ok=True)
     report_json.write_text(json.dumps(report, indent=2) + "\n")
@@ -362,25 +316,13 @@ def _reconcile_safety_input(
         raise ValueError(
             f"safety input/representative mismatch: unknown={unknown}, sequence_mismatches={sequence_mismatches}"
         )
+    for record_id, sequence in safety_input:
+        unsupported = sorted(set(sequence) - set("ACGTRYSWKMBDHVN"))
+        if unsupported:
+            raise ValueError(f"unsupported IUPAC symbols: {''.join(unsupported)} (safety input {record_id})")
     states, counts = _safety_states(safety_manifest, set(safety_input_by_id))
     excluded = set(representative_by_id) - set(safety_input_by_id)
     return states, counts, excluded
-
-
-def _canonical_representatives(
-    representatives: list[tuple[str, str]],
-    *,
-    allow_unsupported_ids: set[str],
-) -> dict[str, str | None]:
-    canonical_by_id: dict[str, str | None] = {}
-    for record_id, sequence in representatives:
-        try:
-            canonical_by_id[record_id] = canonical_circular_sequence(sequence)
-        except ValueError:
-            if record_id not in allow_unsupported_ids:
-                raise
-            canonical_by_id[record_id] = None
-    return canonical_by_id
 
 
 def select_hard_qc_passers(
@@ -399,16 +341,8 @@ def select_hard_qc_passers(
         safety_manifest,
         safety_input_fasta,
     )
-    target_sequences = {
-        canonical_circular_sequence(sequence) for _, sequence in read_fasta(target_fasta, allow_empty=True)
-    }
-    representative_canonical = _canonical_representatives(
-        representatives,
-        allow_unsupported_ids=pre_safety_excluded,
-    )
-    target_pass_ids = {
-        record_id for record_id, canonical in representative_canonical.items() if canonical in target_sequences
-    }
+    target_sequences = {sequence for _, sequence in read_fasta(target_fasta, allow_empty=True)}
+    target_pass_ids = {record_id for record_id, sequence in representatives if sequence in target_sequences}
     hard_qc_records = [
         (record_id, sequence)
         for record_id, sequence in representatives
@@ -676,21 +610,11 @@ def finalize_rollout_report(
     safety_state_by_representative = {
         record_id: safety_by_id.get(record_id, "NOT_SCREENED_PRE_SAFETY_QC") for record_id in representative_ids
     }
-    target_sequences = {
-        canonical_circular_sequence(sequence) for _, sequence in read_fasta(target_fasta, allow_empty=True)
-    }
-    diagnostic_sequences = {
-        canonical_circular_sequence(sequence) for _, sequence in read_fasta(diagnostic_fasta, allow_empty=True)
-    }
-    representative_canonical = _canonical_representatives(
-        representative_records,
-        allow_unsupported_ids=pre_safety_excluded,
-    )
-    target_pass_ids = {
-        record_id for record_id, canonical in representative_canonical.items() if canonical in target_sequences
-    }
+    target_sequences = {sequence for _, sequence in read_fasta(target_fasta, allow_empty=True)}
+    diagnostic_sequences = {sequence for _, sequence in read_fasta(diagnostic_fasta, allow_empty=True)}
+    target_pass_ids = {record_id for record_id, sequence in representative_records if sequence in target_sequences}
     diagnostic_pass_ids = {
-        record_id for record_id, canonical in representative_canonical.items() if canonical in diagnostic_sequences
+        record_id for record_id, sequence in representative_records if sequence in diagnostic_sequences
     }
     hard_qc_ids = {record_id for record_id in target_pass_ids if safety_by_id.get(record_id) == "PASS"}
 
@@ -747,7 +671,7 @@ def finalize_rollout_report(
                 "accepted_rank": accepted_rank_by_id.get(record_id),
                 "record_id": record_id,
                 "representative_id": representative_id,
-                "is_biological_representative": is_representative,
+                "is_exact_sequence_representative": is_representative,
                 "duplicate_reason": mapping.get("duplicate_reason") or None,
                 "sequence": sequence_by_id[record_id],
                 "length_nt": len(sequence_by_id[record_id]),
@@ -779,7 +703,7 @@ def finalize_rollout_report(
     counts = {
         "raw_generated": len(raw_ids),
         "raw_likelihood_scored": len(score_rows),
-        "biological_representatives": len(representative_ids),
+        "exact_sequence_representatives": len(representative_ids),
         "duplicates_removed": duplicate_count,
         "safety_input_representatives": len(representative_ids) - len(pre_safety_excluded),
         "pre_safety_qc_excluded_representatives": len(pre_safety_excluded),
@@ -793,7 +717,7 @@ def finalize_rollout_report(
         "accepted_cluster_representatives": len(accepted_ids),
     }
     report = {
-        "schema_version": 2,
+        "schema_version": 3,
         "state": "succeeded",
         "scope": "computational PhiX174 whole-genome rollout; no wet-lab viability claim",
         "workflow_order": list(_WORKFLOW_ORDER),
@@ -854,14 +778,14 @@ def finalize_rollout_report(
     summary_path.write_text(
         "# PhiX174 run summary\n\n"
         f"- Raw generated and SFT-likelihood scored: {counts['raw_generated']}\n"
-        f"- Biological representatives after exact/circular/RC deduplication: {counts['biological_representatives']}\n"
+        f"- Representatives after exact-sequence deduplication: {counts['exact_sequence_representatives']}\n"
         f"- Representatives submitted to safety / excluded by pre-safety QC: "
         f"{counts['safety_input_representatives']} / {counts['pre_safety_qc_excluded_representatives']}\n"
         f"- Safety states (PASS / FAIL / INDETERMINATE): {counts['safety_pass_representatives']} / "
         f"{counts['safety_fail_representatives']} / {counts['safety_indeterminate_representatives']}\n"
         f"- Safety-PASS target hard-QC representatives: {counts['hard_qc_pass_representatives']}\n"
         f"- Post-QC 99%-identity clusters and accepted representatives: {counts['post_qc_99pct_clusters']}\n\n"
-        "Order: raw generation → biological deduplication → safety and hard QC → post-QC clustering → ranking.\n\n"
+        "Order: raw generation → exact-sequence deduplication → safety and hard QC → post-QC clustering → ranking.\n\n"
         f"{likelihood_summary} Likelihood is a within-protocol signal, not a universal bootability threshold. "
         "Computational candidates are not evidence of wet-lab viability or safety.\n"
     )

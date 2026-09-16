@@ -34,14 +34,12 @@ def test_summarize_setting_clusters_only_rows_in_that_setting(tmp_path):
     scored = pd.DataFrame(
         {
             "reward": [0.8, 0.6],
-            "reward_external_protein_hit_count": [1.0, 0.5],
             "reward_external_tropism": [1.0, 0.0],
             "reward_external_required_genes": [0.5, 0.5],
             "reward_external_synteny": [0.7, 0.1],
             "reward_gene_a_origin": [0.6, 0.2],
             "reward_external_average_protein_identity": [1.0, 1.0],
             "external_qc_tool_succeeded": [1.0, 1.0],
-            "protein_database_hit_count_measurement_available": [1.0, 1.0],
             "tropism_measurement_available": [1.0, 1.0],
             "required_genes_measurement_available": [1.0, 1.0],
             "synteny_measurement_available": [1.0, 1.0],
@@ -59,7 +57,7 @@ def test_summarize_setting_clusters_only_rows_in_that_setting(tmp_path):
     assert summary["within_setting_99pct_cluster_count"] == 1
     assert summary["within_setting_clusterable_count"] == 2
     assert summary["within_setting_99pct_distinct_rate"] == 0.5
-    assert summary["target_signal_mean"] == pytest.approx(7 / 12)
+    assert summary["target_signal_mean"] == pytest.approx(0.5)
     assert summary["all_external_measurements_available_rate"] == 1.0
     assert summary["gene_a_origin_reward_mean"] == pytest.approx(0.4)
     assert not any("full_qc" in key for key in summary)
@@ -81,7 +79,6 @@ def test_summarize_setting_rejects_unexplained_missing_safety_evidence(tmp_path)
     pd.DataFrame(
         {
             "external_qc_tool_succeeded": [1.0],
-            "protein_database_hit_count_measurement_available": [1.0],
             "tropism_measurement_available": [1.0],
             "required_genes_measurement_available": [1.0],
             "synteny_measurement_available": [1.0],
@@ -109,11 +106,9 @@ def test_build_selection_table_records_configurable_comparability_margin(tmp_pat
     frame = pd.DataFrame(
         {
             "reward": [0.8],
-            "reward_external_protein_hit_count": [0.8],
             "reward_external_tropism": [0.8],
             "reward_external_required_genes": [0.8],
             "external_qc_tool_succeeded": [1.0],
-            "protein_database_hit_count_measurement_available": [1.0],
             "tropism_measurement_available": [1.0],
             "required_genes_measurement_available": [1.0],
             "synteny_measurement_available": [1.0],

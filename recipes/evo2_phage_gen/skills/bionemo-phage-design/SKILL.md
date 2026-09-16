@@ -40,6 +40,6 @@ For therapeutic work, use the applicable [design and viability guidance](referen
 
 For the PhiX case study, keep filters 1–6, 8, and 9 enabled and filter 7 diagnostic-only. Default to GDPO and cluster inverse-frequency diversity using the current example's identity and coverage settings unless the experiment selects another method. Each objective should have an interpretable zero, target one, graded partial credit, and explicit missing/invalid behavior.
 
-Read component quality, support, termination placement, and diversity alongside aggregate reward. Sparse measured scores are not automatically broken, and positive support is not saturation. Keep raw generation, biological representatives, hard-QC passes, and post-QC clusters as separate denominators.
+Read component quality, support, termination placement, and diversity alongside aggregate reward. Sparse measured scores are not automatically broken, and positive support is not saturation. Keep raw generation, exact-sequence representatives, hard-QC passes, and post-QC clusters as separate denominators.
 
 Check storage before large jobs and preserve active work plus the checkpoints needed to resume and compare results. Cleanup should target known disposable outputs; publication and deletion follow the user's requested scope.

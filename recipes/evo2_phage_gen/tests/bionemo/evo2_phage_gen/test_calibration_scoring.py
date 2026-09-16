@@ -114,14 +114,12 @@ def test_summarize_cell_separates_measured_zero_from_missing_support():
     scored = pd.DataFrame(
         {
             "reward_nucleotide_pass": [1.0, 1.0],
-            "reward_external_protein_hit_count": [0.5, 0.0],
             "reward_external_tropism": [0.0, 0.0],
             "reward_external_required_genes": [0.2, 0.0],
             "reward_external_synteny": [0.1, 0.0],
             "reward_gene_a_origin": [0.3, 0.0],
             "reward_external_average_protein_identity": [0.8, 0.0],
             "external_qc_tool_succeeded": [1.0, 1.0],
-            "protein_database_hit_count_measurement_available": [1.0, 1.0],
             "tropism_measurement_available": [1.0, 1.0],
             "required_genes_measurement_available": [1.0, 0.0],
             "required_genes_total_count": [10, 10],
@@ -171,7 +169,6 @@ def test_summarize_cell_accepts_explicit_safety_inapplicability():
     scored = pd.DataFrame(
         {
             "external_qc_tool_succeeded": [1.0],
-            "protein_database_hit_count_measurement_available": [1.0],
             "tropism_measurement_available": [1.0],
             "required_genes_measurement_available": [1.0],
             "synteny_measurement_available": [1.0],

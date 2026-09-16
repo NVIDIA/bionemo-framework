@@ -29,50 +29,6 @@ from bionemo.evo2_phage_gen.qc import save_fasta
 
 
 SEARCH_COLUMNS = ("query", "target", "pident", "qcov", "tcov", "alnlen", "qlen", "tlen", "evalue")
-IUPAC_COMPLEMENT = str.maketrans("ACGTRYSWKMBDHVN", "TGCAYRSWMKVHDBN")
-IUPAC_SYMBOLS = frozenset("ACGTRYSWKMBDHVN")
-
-
-def _least_rotation(sequence: str) -> str:
-    sequence = sequence.upper()
-    if not sequence:
-        return ""
-    doubled = sequence + sequence
-    first, second, offset = 0, 1, 0
-    length = len(sequence)
-    while first < length and second < length and offset < length:
-        left, right = doubled[first + offset], doubled[second + offset]
-        if left == right:
-            offset += 1
-            continue
-        if left > right:
-            first = first + offset + 1
-            if first == second:
-                first += 1
-        else:
-            second = second + offset + 1
-            if first == second:
-                second += 1
-        offset = 0
-    start = min(first, second)
-    return doubled[start : start + length]
-
-
-def canonical_circular_sequence(sequence: str) -> str:
-    """Return the rotation- and strand-invariant canonical form of circular DNA."""
-    sequence = sequence.upper()
-    unsupported = sorted(set(sequence) - IUPAC_SYMBOLS)
-    if unsupported:
-        raise ValueError(f"unsupported IUPAC symbols: {''.join(unsupported)}")
-    reverse_complement = sequence.translate(IUPAC_COMPLEMENT)[::-1]
-    return min(_least_rotation(sequence), _least_rotation(reverse_complement))
-
-
-def _canonical_circular_sequence_if_supported(sequence: str) -> str | None:
-    sequence = sequence.upper()
-    if set(sequence) - IUPAC_SYMBOLS:
-        return None
-    return canonical_circular_sequence(sequence)
 
 
 def _read_fasta_records(path: Path) -> list[tuple[str, str]]:
@@ -228,16 +184,13 @@ def measure_novelty(
         attempt_dir / "sft-search.log",
     )
 
-    target_hashes = {
-        canonical_circular_sequence(sequence) for sequence in _read_fasta_sequences(reference_payload_fasta)
-    }
-    sft_hashes = {canonical_circular_sequence(sequence) for sequence in _read_fasta_sequences(sft_payload_fasta)}
-    # Non-DNA model samples are valid negative calibration outcomes. They cannot be exact genome
-    # copies, but should not abort novelty measurement for the rest of the sweep.
-    canonical = sweep["sequence"].map(_canonical_circular_sequence_if_supported)
+    target_sequences = set(_read_fasta_sequences(reference_payload_fasta))
+    sft_sequences = set(_read_fasta_sequences(sft_payload_fasta))
+    # Exact copies preserve the supplied start and strand. Near copies are measured by MMseqs.
+    sequences = sweep["sequence"].str.upper()
     metrics = sweep[["id_prompt", "cell"]].copy()
-    metrics["exact_target_circular_or_revcomp"] = canonical.isin(target_hashes).astype(float)
-    metrics["exact_sft_circular_or_revcomp"] = canonical.isin(sft_hashes).astype(float)
+    metrics["exact_target_copy"] = sequences.isin(target_sequences).astype(float)
+    metrics["exact_sft_copy"] = sequences.isin(sft_sequences).astype(float)
     metrics = metrics.merge(_top_hits(target_m8, "target"), on="id_prompt", how="left")
     metrics = metrics.merge(_top_hits(sft_m8, "sft"), on="id_prompt", how="left")
     metrics["target_near_copy_98_9pct"] = (metrics["target_pident"].fillna(0.0) >= 98.9).astype(float)
@@ -254,8 +207,8 @@ def summarize_novelty(metrics: pd.DataFrame) -> pd.DataFrame:
         rows.append(
             {
                 "cell": cell,
-                "exact_target_copy_rate": float(group["exact_target_circular_or_revcomp"].mean()),
-                "exact_sft_copy_rate": float(group["exact_sft_circular_or_revcomp"].mean()),
+                "exact_target_copy_rate": float(group["exact_target_copy"].mean()),
+                "exact_sft_copy_rate": float(group["exact_sft_copy"].mean()),
                 "target_near_copy_rate": float(group["target_near_copy_98_9pct"].mean()),
                 "sft_near_copy_rate": float(group["sft_near_copy_98_9pct"].mean()),
                 "target_pident_mean": float(pd.to_numeric(group["target_pident"], errors="coerce").fillna(0).mean()),

@@ -100,7 +100,8 @@ orfipy_tmp_proteins_file_save_location: "qc4_orfipy_proteins_tmp.fasta"
 orfipy_proteins_file_save_location: "qc4_orfipy_proteins.fasta"
 homology_filter_seqs_circular_fasta_file_save_location: "qc4_homology_filter_seqs_pseudocircularized.fasta"
 
-protein_database_hit_count_filter: true
+# Search PHROGs for required-function and synteny evidence; this is not a hit-count gate.
+protein_database_search: true
 mmseqs_threads: 16
 mmseqs_db_protein_database: "recipes/evo2_phage_gen/data/external/phrogs/phrogs_consensus_db_pad"
 # AAI uses individual natural proteins, not the annotation consensuses above:
@@ -110,13 +111,10 @@ mmseqs_db_protein_database: "recipes/evo2_phage_gen/data/external/phrogs/phrogs_
 mmseqs_db_aai_database: "recipes/evo2_phage_gen/data/external/phrogs/phrogs_member_db"
 mmseqs_protein_database_results_dir_save_location: "qc4_mmseqs_results_protein_database"
 # Recover significant partial-function hits that the lower-sensitivity prefilter can miss.
-# Shared by online protein-family/required-function evidence and final Arc screening.
+# Shared by online required-function/synteny evidence and final Arc screening.
 mmseqs_protein_database_sensitivity: 7.5
-protein_database_hit_count: 7
-# King Methods B.1.9 counts protein hits, not seven distinct families. Our patched
-# family/coverage gate is stronger; see configs/README.md for the measurement definitions.
-# https://doi.org/10.1101/2025.09.12.675911
-# PHROG targets are profile consensuses (calibrated at 0.75); the exact G target stays strict.
+# Default coverage for required-family matches; family-specific thresholds override this.
+# PHROG targets are profile consensuses; the exact G target stays strict.
 protein_match_min_reciprocal_coverage: 0.75
 tropism_match_min_reciprocal_coverage: 0.95
 
@@ -129,6 +127,8 @@ training_data_sequence_identity_metrics_file_save_location: "qc4_training_data_s
 
 checkv_filter: false
 checkv_threads: 16
+# Final screening enables this gate: only listed qualities survive. Missing or
+# unclassified results, including Not-determined, do not pass this profile.
 checkv_quality_range: ["Low-quality", "Medium-quality", "High-quality", "Complete"]
 checkv_results_dir_save_location: "qc4_checkv_results"
 
@@ -212,6 +212,8 @@ average_protein_sequence_identity_range: [0, 95]
 average_protein_sequence_identity_metrics_file_save_location: "qc6_average_protein_sequence_identity_metrics.csv"
 
 required_genes_filter: true
+# Nine named functions on distinct ORFs also satisfy the paper's >=7 protein-hit
+# requirement, without a separate generic family-count/coverage gate.
 # Specific PhiX functions for productive infection; annotation labels cannot
 # substitute for these families. Experimental rationale and limits, including
 # optional K/A*, are documented in configs/required_genes.md.

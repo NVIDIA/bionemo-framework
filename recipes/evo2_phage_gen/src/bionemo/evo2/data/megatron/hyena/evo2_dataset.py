@@ -22,12 +22,20 @@
 #     python ci/scripts/check_copied_files.py --fix
 # --- END COPIED FILE NOTICE ---
 
+from dataclasses import dataclass
 from typing import ClassVar, Dict, Optional
 
 import torch
-from megatron.core.datasets.gpt_dataset import GPTDataset
+from megatron.core.datasets.gpt_dataset import GPTDataset, GPTDatasetConfig
 
 from bionemo.evo2.models.megatron.hyena.hyena_utils import make_upper_case
+
+
+@dataclass
+class Evo2DatasetConfig(GPTDatasetConfig):
+    """GPT sampling configuration with Evo2's optional taxonomy loss mask."""
+
+    mask_phylogenetic_tags: bool = True
 
 
 class Evo2Dataset(GPTDataset):
@@ -103,14 +111,18 @@ class Evo2Dataset(GPTDataset):
         # Mask degenerate (and U) DNA tokens
         not_dna_mask = ~torch.isin(labels, torch.tensor(self.DNA_TOKENS, device=labels.device))
         loss_mask[control_mask | not_dna_mask] = 0
-        phylotag_mask = self.mask_phylogenetic_tags(
-            labels,
-            self.TAG_BOUNDS,
-            self.TAG_CHARS,
-            eod_token_id,
-            self.MAX_TAG_LEN,
-        )
-        loss_mask = loss_mask * phylotag_mask
+        # Only parse taxonomy when the corpus can contain it. On taxonomy-free conditioned DNA,
+        # the tag heuristic can otherwise mistake a short prefix-bearing fragment for a tag.
+        # Plain GPTDatasetConfig callers retain the standard Evo2 taxonomy behavior.
+        if getattr(self.config, "mask_phylogenetic_tags", True):
+            phylotag_mask = self.mask_phylogenetic_tags(
+                labels,
+                self.TAG_BOUNDS,
+                self.TAG_CHARS,
+                eod_token_id,
+                self.MAX_TAG_LEN,
+            )
+            loss_mask = loss_mask * phylotag_mask
         if self.RESET_PAD_EOD_MASK:
             loss_mask[supervised_eod_mask] = 1
         databatch["loss_mask"] = loss_mask

@@ -132,7 +132,6 @@ def _write_control_config(tmp_path: Path) -> Path:
         },
         "external_qc": {
             "enabled": True,
-            "enable_protein_hit_count": False,
             "enable_tropism": True,
             "enable_synteny": False,
             "enable_average_protein_identity": False,
@@ -230,7 +229,7 @@ def test_environment_control_rejects_skipped_metric(tmp_path, monkeypatch):
         rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
 
 
-def test_environment_control_requires_identical_metrics_across_circular_rotations(tmp_path, monkeypatch):
+def test_rotation_control_compares_intrinsic_scores(tmp_path, monkeypatch):
     config_path = _write_control_config(tmp_path)
     control_fasta = tmp_path / "phix-rotations.fna"
     sequence = "AAAACCCCGGGGTTTTACGT"
@@ -240,21 +239,18 @@ def test_environment_control_requires_identical_metrics_across_circular_rotation
     def score(message_log_batch, **_kwargs):
         assert len(message_log_batch) == 2
         scores = pd.concat([_control_scores(sequence), _control_scores(rotated)], ignore_index=True)
-        scores["mmseqs_cluster_size"] = 2
-        for column in (
-            "reward_binary_historical_core_cluster_deduplicated_pass",
-            "reward_binary_core_cluster_deduplicated_pass",
-            "reward_binary_historical_full_qc_cluster_deduplicated_pass",
-            "reward_binary_full_qc_cluster_deduplicated_pass",
-        ):
-            scores[column] = [1.0, 0.0]
+        scores["mmseqs_cluster_size"] = [1, 2]
+        scores["reward_mmseqs_cluster_diversity"] = [1.0, 0.5]
+        scores["reward"] = [0.9, 0.8]
         return scores
 
     monkeypatch.setattr(nemo_rl_env, "score_message_logs", score)
 
     result = rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
 
-    assert result["rotation_invariant"] is True
+    assert result["intrinsic_scores_rotation_invariant"] is True
+    assert result["excluded_objectives"] == ["diversity"]
+    assert [row["objectives"]["diversity"] for row in result["records"]] == [1.0, 0.5]
     assert [row["record_id"] for row in result["records"]] == ["origin", "rotated"]
 
 

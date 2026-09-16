@@ -71,12 +71,12 @@
     {
       "id": "bionemo-phage-design-collect-genomes-006-canonical-phix-topology",
       "prompt": "Is PhiX174 circular, and do I need a new literature search before choosing its ORF-calling and prompt-rotation behavior?",
-      "expected_output": "A direct canonical classification without unnecessary research.",
+      "expected_output": "A direct canonical topology classification, distinguished from evidence needed to choose model prompt starts.",
       "assertions": [
-        "The response states directly that PhiX174 is a genuinely circular ssDNA Microviridae genome and permits circular ORF handling and prompt rotation.",
+        "The response states directly that PhiX174 is genuinely circular ssDNA and supports circular ORF handling, but biological rotation validity does not establish model support for arbitrary prompt starts. The maintained PhiX prompts use reference coordinate 1.",
         "It uses canonical phage or family knowledge for this standard case rather than launching broad literature research merely to reconfirm it.",
         "It distinguishes a pseudocircular ORF prefix from evidence about biological termini.",
-        "It reserves deposit-level or primary-source investigation for ambiguous identities, atypical assemblies, or evidence that conflicts with the canonical classification."
+        "For prompt design it checks related-assembly start-site and strand variability, submission/annotation conventions, and actual SFT start exposure or rotation augmentation. It distinguishes internal occurrences from start-context exposure and does not infer a universal convention or a biological replication origin from a few exact prefixes."
       ],
       "expected_skill": "bionemo-phage-design-collect-genomes",
       "expected_script": null

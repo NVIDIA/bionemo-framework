@@ -15,6 +15,13 @@ Positive support is not a full-credit score. More gene content or a higher aggre
 
 Use the native W&B histogram at `train/phage_qc/mmseqs_cluster_size` or `validation/phage_qc/mmseqs_cluster_size` for cluster-size distributions over optimizer steps. Color represents cluster count: one observation per unique cluster, with unclustered rows excluded. Validation pools scoring-batch distributions without reclustering. TensorBoard receives diversity objective statistics; its histogram hook does not emit this distribution.
 
+Online clusters span all eligible prompts for the same design goal within a scoring batch.
+The two PhiX origin prefixes share that diversity pool, while GDPO normalizes rewards separately
+for each identical prompt token sequence (384 completions per length in the default update).
+Repeated prompt records do not create extra GDPO normalization groups. Compare diversity only
+with its eligible population size in view: the 768-generation training and 96-generation validation
+batches have different duplicate opportunities, and larger batches can lower inverse-size credit.
+
 Use comparable windows rather than SFT-style patience. At validation every ten steps, roughly ten banks (about 100 updates) is a useful horizon for noisy RL, not an automatic countdown. A recovered excursion or a plateau below an earlier peak is not by itself a reason to stop. Sustained deterioration across supported components and training rollouts warrants diagnosis and a checkpoint decision within the agreed experiment budget.
 
 Low measured safety scores and faithfully sampled invalid genomes are learning outcomes. Missing artifacts, unexplained NOT_RUN, or failed enabled scorers make the evidence uninterpretable and need repair. Record a concise continue, diagnose, stop, or restart decision at useful scientific boundaries; ask only when the next action needs a genuinely new user choice or authority.

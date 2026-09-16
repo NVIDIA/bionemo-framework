@@ -25,15 +25,17 @@ checkpointing:
   higher_is_better: true
 
 grpo:
-  # Legacy synchronous GRPO stops at either limit. This 96-row bank yields six updates per epoch
-  # at 16 prompts/update, so 500 epochs permits 3,000 updates and cannot truncate the 500-step run.
+  # Legacy synchronous GRPO stops at either limit. This 96-row bank yields 48 updates per epoch
+  # at two prompts/update, so 500 epochs cannot truncate the configured 500-step run.
   max_num_epochs: 500
-  # Sixteen prompt records cover two examples from each anchor-by-length stratum.
-  # Forty-eight generations per prompt make a 768-rollout global update; on DP8 each
+  # The interleaved origin-only bank supplies one record at each length (16/24 nt).
+  # Keep all 384 completions for each actual prompt in one GDPO normalization group.
+  # Both groups share the same design goal and one batch-wide diversity pool.
+  # Together they make a 768-rollout global update; on DP8 each
   # H100 receives one packed 96-request generation wave. This is the largest tested
   # one-wave point below the 1,024-rollout recurrent-state capacity limit on 8xH100.
-  num_prompts_per_step: 16
-  num_generations_per_prompt: 48
+  num_prompts_per_step: 2
+  num_generations_per_prompt: 384
   max_num_steps: 500
   val_period: 10
   val_batch_size: 96
@@ -147,7 +149,6 @@ env:
     weight_nt_homopolymer: 1.0
     weight_dustmask_end: 1.0
     weight_nucleotide_pass: 1.0
-    weight_protein_hit_count: 1.0
     weight_tropism: 1.0
     weight_synteny: 0.25
     weight_gene_a_origin: 0.25
@@ -169,9 +170,6 @@ env:
         requires_safety_eligibility: true
       - name: "dustmask_end"
         columns: ["reward_dustmask_end"]
-        requires_safety_eligibility: true
-      - name: "protein_hit_count"
-        columns: ["reward_external_protein_hit_count"]
         requires_safety_eligibility: true
       - name: "tropism"
         columns: ["reward_external_tropism"]
@@ -206,7 +204,6 @@ env:
       work_dir: "data/checkpoints/${run_id}_external_qc"
       fail_on_error: true
       timeout_seconds: 1800
-      enable_protein_hit_count: true
       enable_tropism: true
       enable_synteny: true
       enable_average_protein_identity: true
@@ -225,17 +222,16 @@ env:
       phrogs_threads: 64
     mmseqs_cluster_diversity:
       enabled: true
-      circular: true
       mmseqs_bin: "data/external/bin/mmseqs"
       work_dir: "data/checkpoints/${run_id}_mmseqs_cluster_diversity"
       keep_artifacts: false
-      # Match final rollout clustering: near-whole-genome identity and overlap.
+      # Pool all prompts for this design goal within the scoring batch.
+      # Preserve supplied starts/strands, as in final rollout clustering.
       min_seq_id: 0.99
       coverage: 0.95
       cov_mode: 0
       seq_id_mode: 0
       cluster_mode: 0
-      parallel_jobs: 1
       threads: 64
       verbosity: 0
 

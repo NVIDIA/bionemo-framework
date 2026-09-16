@@ -4,13 +4,35 @@
 | ------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | [`qc.py`](../../../src/bionemo/evo2_phage_gen/qc.py)                                                                                             | Sequence normalization, nucleotide measurements, NCBI DustMasker execution, and hard nucleotide acceptance.                    |
 | [`reward.py`](../../../src/bionemo/evo2_phage_gen/reward.py)                                                                                     | Reward shaping, weights, aggregation, and composition of the scoring pipeline. Private helpers execute and read Arc artifacts. |
-| [`protein_evidence.py`](../../../src/bionemo/evo2_phage_gen/protein_evidence.py)                                                                 | Alignment coverage, distinct-family evidence, reference-locus matching, circular order, and origin scoring.                    |
+| [`protein_evidence.py`](../../../src/bionemo/evo2_phage_gen/protein_evidence.py)                                                                 | Alignment coverage, named-function evidence, reference-locus matching, circular order, and origin scoring.                     |
 | [`arc_pipeline.py`](../../../src/bionemo/evo2_phage_gen/arc_pipeline.py), [`external_qc.py`](../../../src/bionemo/evo2_phage_gen/external_qc.py) | Prepare the pinned Arc source and check external-tool prerequisites.                                                           |
 | [`nemo_rl_env.py`](../../../src/bionemo/evo2_phage_gen/nemo_rl_env.py)                                                                           | Convert rollout messages to scored sequences, build gated GDPO objectives, and report training metrics.                        |
 
 ## Public scoring entry points
 
 `score_sequences` runs nucleotide measurement, optional Arc and cluster scoring, configured sequence-safety scanning, and scalar aggregation. `score_fasta` supplies its FASTA/CSV interface.
+
+### Batch diversity
+
+`add_mmseqs_cluster_diversity_rewards` treats each scoring call as one design goal and pools all
+eligible genomes across its prompts. Different goals require separate calls or RL environments.
+Eligibility requires valid nucleotide characters, hard length and GC intervals, and the homopolymer
+limit. Each member of a cluster of size N receives `1/N`; excluded rows and missing MMseqs output
+receive zero. Tool failures raise rather than supplying singleton credit. Cluster IDs are opaque
+and identify clusters within a scoring batch; populations from different calls are not reclustered.
+
+Online and final clustering pass sequences to MMseqs in their supplied order, with 99% identity
+and 95% reciprocal coverage. The default PhiX prompts share coordinate 1. A sequence-dependent
+rotation can change drastically after a point mutation and prevent near-clones from meeting
+coverage, so the recipe does not rotate or reverse-complement inputs before clustering. Arbitrary
+rotations are not guaranteed to cluster together; alternative prompt origins need separate
+qualification. Circular ORF and synteny handling remain independent of this alignment convention.
+One MMseqs job uses the configured `threads` for the entire pool. The synchronous trainer gathers task rows before
+scoring, so the pool spans generation workers; per-sample async scoring would need aggregation
+before this reward can express batch diversity. GDPO normalization remains separate, grouping by
+identical prompt token sequences rather than by design goal or input-record ID.
+
+### Nucleotide scoring
 
 For a target-specific workflow that already has measurements, use `add_nucleotide_rewards` independently. It copies its input and invokes no external tools:
 
@@ -73,7 +95,8 @@ provide the exact factors and config values.
 The PHROGs consensus annotation search is configured separately by
 `mmseqs_protein_database_sensitivity` (7.5) and `mmseqs_threads` (16) in the
 [maintained Arc template](../../../configs/arc_genome_design_filtering_local.yaml).
-It feeds online protein-family/required-function evidence and final screening. Higher
+`protein_database_search` enables this evidence and annotation stage for required
+functions, synteny, and final screening; it does not filter by total family count. Higher
 sensitivity recovers significant partial hits missed by the prefilter; it does not relax
 native-coverage thresholds or the requirement for distinct functions. Benchmark the
 search stage and end-to-end scoring with representative protein workloads and CPU threads.
@@ -92,6 +115,8 @@ configured functions. Each edge earns `min(1,qcov/qmin,tcov/tmin)`; defaults and
 family-specific overrides have the same normalization. Extra genes and copies cannot
 replace missing functions or increase the denominator. Final required-function
 acceptance requires all functions to have distinct ORFs meeting both coverage targets.
+The PhiX profile's nine distinct matches also cover the paper's ≥7-hit condition;
+there is no additional generic family-count gate.
 The private CSV reader checks producer availability and finite, consistent counts;
 unavailable evidence earns zero and remains unavailable. Keep this separate from a
 successful search with no matching genes.
@@ -127,8 +152,14 @@ Do not confuse its flags with the upstream visualization/synteny measurement sta
 
 `score_function_matches(hits_df, required_families, ...)` returns per-ORF/function
 `credit` and `full_length` columns plus measurement availability. Both completeness
-and synteny consume this evidence. Search admission comes from the best hit per
-ORF against all PHROG consensuses; no additional identity threshold is applied to
+and synteny consume this evidence. Supply all search-admitted hits against PHROG
+consensuses, before selecting a displayed annotation or filtering by family.
+The search writes `mmseqs2_all_hits.csv` for these scoring and final-screening
+readers; `mmseqs2_hits.csv` retains the lowest-E-value annotation per ORF.
+Global assignment maximizes total coverage credit subject to one ORF per function
+and one function per ORF. Alternatives for one function use their maximum credit,
+not a sum. Stronger unrelated-family matches must not erase partial evidence;
+no competing-hit multiplier or additional identity threshold is applied to
 allowed-family coverage credit. The current command inherits MMseqs's 1e-3 E-value
 cutoff; this is an admission gate, not a continuous significance multiplier in
 family credit. This is distinct from the individual-member AAI search.
@@ -145,7 +176,9 @@ Tropism and gene-A origin retain their original direct-reference evidence.
 `summarize_function_synteny` supplies the final hard-synteny measurements
 from full-coverage family matches and called-ORF coordinates. The current profile
 allows no missing functions, order violations, or extra qualifying copies. Partial
-matches remain graded RL evidence. An unmapped profile still uses reference-only
+matches remain graded RL evidence. When complete assignments tie, accept a
+circularly ordered alternative instead of depending on an arbitrary content-only
+tie. An unmapped profile still uses reference-only
 synteny and its LoVis cluster gate. Use the
 [biological profile](../../../configs/required_genes.md#synteny-uses-the-same-function-definitions)
 for the 72-nt short-J calling threshold, family-specific coverage calibration, and

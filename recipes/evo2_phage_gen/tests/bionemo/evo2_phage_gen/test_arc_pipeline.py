@@ -15,6 +15,7 @@
 
 """Tests for ``bionemo.evo2_phage_gen.arc_pipeline``."""
 
+import ast
 import importlib.util
 import os
 from pathlib import Path
@@ -29,11 +30,8 @@ from bionemo.evo2_phage_gen.arc_pipeline import (
     ARC_EVO2_GIT_URL,
     ARC_EVO2_REV,
     ARC_PIPELINE_FILES,
-    DEFAULT_ARC_PIPELINE_PATCH,
     DEFAULT_ARC_PIPELINE_SOURCE_DIR,
     DEFAULT_PHIX174_FASTA,
-    PATCHED_LOVIS4U_COMMAND,
-    _apply_lovis4u_runtime_patches,
     _apply_online_measurement_patches,
     _assert_arc_source_revision,
     prepare_arc_pipeline_workdir,
@@ -134,16 +132,6 @@ def run_mmseqs_search_proteins(query_fasta: str, mmseqs_db: str, results_dir: st
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-def test_lovis4u_patch_handles_source_trailing_whitespace(tmp_path):
-    """The compatible Arc source has a trailing space after the LoVis4u executable."""
-    visualization_path = tmp_path / "genetic_architecture_visualization.py"
-    visualization_path.write_text("    command = [\n        'lovis4u', \n        '-gff', input_gff_dir,\n    ]\n")
-
-    _apply_lovis4u_runtime_patches(tmp_path)
-
-    assert PATCHED_LOVIS4U_COMMAND in visualization_path.read_text()
 
 
 def test_online_measurement_patch_rejects_missing_gbk_conversion_anchor(tmp_path):
@@ -278,37 +266,8 @@ def test_prepare_arc_pipeline_requires_compatible_arc_revision(tmp_path, monkeyp
         )
 
 
-def test_prepare_arc_pipeline_filters_extension_only_orfipy_calls(tmp_path):
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
-    pipeline_source = """def run_pipeline(config, seq_fasta):
-    run_orfipy("circular.fasta",
-                config["orfipy_threads"],
-                config["orfipy_start_codons"],
-                config["orfipy_stop_codons"],
-                config["orfipy_strand"],
-                config["orfipy_min_max_orf_lengths"][0],
-                config["orfipy_min_max_orf_lengths"][1],
-                config["results_save_dir"],
-                config["orfipy_orfs_file_save_location"],
-                config["orfipy_tmp_proteins_file_save_location"],
-                config["orfipy_proteins_file_save_location"])
-"""
-    for filename in ARC_PIPELINE_FILES:
-        content = pipeline_source if filename == "genome_design_filtering_pipeline.py" else "print('ok')\n"
-        if filename == "genetic_architecture.py":
-            content = f'fasta_file = "{ARC_GENETIC_ARCHITECTURE_IMPORT_FASTA}"\n'
-        (source_dir / filename).write_text(content)
-    reference_fasta = tmp_path / "reference.fna"
-    reference_fasta.write_text(">reference\nACGT\n")
-
-    arc_pipeline._apply_pseudocircular_orf_filter_patch(source_dir)
-    prepared = (source_dir / "genome_design_filtering_pipeline.py").read_text()
-    assert "remove_pseudocircular_extension_orfs(" in prepared
-    assert "seq_fasta," in prepared
-
-
-def test_prepare_arc_pipeline_workdir_applies_maintained_patch(tmp_path):
+@pytest.mark.parametrize("with_hits", [False, True])
+def test_prepare_arc_pipeline_workdir_applies_maintained_patch(tmp_path, with_hits):
     """The real Arc source should be patched from the tracked maintained patch."""
     if not DEFAULT_ARC_PIPELINE_SOURCE_DIR.exists() or not DEFAULT_PHIX174_FASTA.exists():
         pytest.skip("Arc source assets are not available")
@@ -322,44 +281,133 @@ def test_prepare_arc_pipeline_workdir_applies_maintained_patch(tmp_path):
     )
 
     pipeline_text = (workdir / "genome_design_filtering_pipeline.py").read_text()
-    assert DEFAULT_ARC_PIPELINE_PATCH.exists()
-    assert "save_mmseqs_pident_metrics" in pipeline_text
-    assert "metrics_df.to_csv(metrics_csv, index=False)" in pipeline_text
-    assert "online_measurement_mode" in pipeline_text
-    assert "Skipping unconsumed GBK conversion during online measurement." in pipeline_text
-    assert 'config.get("lovis4u_collect_pdfs", True)' in pipeline_text
-    assert "Skipping LoVis4u PDF collection" in pipeline_text
-    visualization_text = (workdir / "genetic_architecture_visualization.py").read_text()
-    assert "bionemo.evo2_phage_gen.lovis4u_metrics" in visualization_text
-    assert 'config.get("lovis4u_mmseqs_threads")' in visualization_text
+    for filename in ARC_PIPELINE_FILES:
+        compile((workdir / filename).read_text(), filename, "exec")
+
+    # Exercise the emitted search stage: a successful no-hit must still reach
+    # downstream required-function measurement instead of a generic count gate.
+    main = next(
+        node for node in ast.parse(pipeline_text).body if isinstance(node, ast.FunctionDef) and node.name == "main"
+    )
+    search = next(
+        node
+        for node in ast.walk(main)
+        if isinstance(node, ast.If) and ast.unparse(node.test) == "run_protein_database_search"
+    )
+    config = {
+        "results_save_dir": str(tmp_path),
+        "orfipy_proteins_file_save_location": "proteins.fasta",
+        "mmseqs_db_protein_database": "phrogs",
+        "mmseqs_protein_database_results_dir_save_location": "phrogs_hits",
+        "mmseqs_threads": 1,
+        "mmseqs_protein_database_sensitivity": 7.5,
+        "homology_filter_counts_file_save_location": "counts.csv",
+        "homology_filter_seqs_csv_file_save_location": "sequences.csv",
+        "gff_dir_save_location": "gff",
+        "gbk_dir_save_location": "gbk",
+        "required_gene_families": {"A": ["phrog:1"], "B": ["phrog:2"]},
+    }
+    sequences = pd.DataFrame({"id_prompt": ["sample"], "genome_id": ["genome_1"], "sequence": ["ACGT"]})
+    (tmp_path / "proteins.fasta").write_text(">sample_ORF.1\nMMMM\n>sample_ORF.2\nMMMM\n")
+    (tmp_path / "phrogs_hits").mkdir()
+    converter = _load_synthetic_mmseqs_pipeline(tmp_path, "search_stage_converter")
+    hits = (
+        [
+            ("sample_ORF.1", "phrog_942", 1e-90, 90, 100, 100, 100, 1, 1),
+            ("sample_ORF.1", "phrog_1", 1e-10, 50, 100, 100, 100, 1, 1),
+            ("sample_ORF.1", "phrog_2", 1e-8, 40, 100, 100, 100, 1, 1),
+            ("sample_ORF.2", "phrog_1", 1e-6, 35, 40, 100, 100, 0.375, 0.375),
+        ]
+        if with_hits
+        else []
+    )
+    calls = []
+
+    def search_hits(**kwargs):
+        calls.append(kwargs)
+        return converter.mmseqs_results_to_df(
+            hits, kwargs["query_fasta"], kwargs["output_csv"], kwargs["descriptive_prefix"], kwargs["only_top_hits"]
+        )
+
+    namespace = {
+        "config": config,
+        "run_protein_database_search": True,
+        "seq_df": sequences.copy(),
+        "filtered_df": sequences.copy(),
+        "filter_counts": pd.DataFrame({"count_initial_before_homology_metrics": [1]}),
+        "run_mmseqs_search_proteins": search_hits,
+        "pd": pd,
+        "os": os,
+        "online_measurement_mode": True,
+    }
+    exec(compile(ast.Module(body=[search], type_ignores=[]), str(workdir), "exec"), namespace)
+    assert len(calls) == 1
+    pd.testing.assert_frame_equal(pd.read_csv(tmp_path / "sequences.csv"), sequences)
+    all_hits = pd.read_csv(tmp_path / "phrogs_hits/mmseqs2_all_hits.csv")
+    best_hits = pd.read_csv(tmp_path / "phrogs_hits/mmseqs2_hits.csv")
+    assert len(all_hits) == len(hits)
+    assert best_hits["protein_database_mmseqs_target"].tolist() == (["phrog_942", "phrog_1"] if with_hits else [])
+
+    # Exercise the emitted call, including which artifact it supplies. An
+    # ambiguous ORF fills B, leaving the second ORF's partial A evidence useful.
+    tree = ast.parse(pipeline_text)
+    definition = next(
+        node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "valid_gene_annotations"
+    )
+    required_call = next(
+        node
+        for node in ast.walk(main)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "valid_gene_annotations"
+    )
+    namespace["mmseqs_results_df"] = best_hits
+    required_module = ast.fix_missing_locations(
+        ast.Module(body=[definition, ast.Expr(required_call)], type_ignores=[])
+    )
+    exec(compile(required_module, str(workdir), "exec"), namespace)
+    measured = pd.read_csv(tmp_path / "qc6_required_genes_metrics.csv")
+    assert measured["required_genes_integrity_sum"].tolist() == ([1.5] if with_hits else [0.0])
+    assert measured["required_genes_full_length_count"].tolist() == ([1] if with_hits else [0])
 
 
-def test_maintained_arc_patch_guards_empty_synteny_counts() -> None:
-    """Empty synteny output tolerates absent counts."""
-    patch_text = DEFAULT_ARC_PIPELINE_PATCH.read_text()
-    assert "if os.path.exists(synteny_counts_csv):" in patch_text
-    assert "synteny_filter_counts = pd.read_csv(synteny_counts_csv)" in patch_text
+@pytest.mark.parametrize(
+    ("with_results", "allowed", "expected_ids"),
+    [
+        (True, ["Complete", "Low-quality"], ["umi1", "low"]),
+        (True, ["Not-determined"], ["umi10 description"]),
+        (False, ["Complete", "Low-quality"], []),
+    ],
+)
+def test_checkv_quality_filter(tmp_path, monkeypatch, with_results, allowed, expected_ids):
+    """Only allowed, exactly identified records survive; missing evidence never passes."""
+    module = _load_prepared_arc_pipeline(tmp_path, "patched_arc_checkv", monkeypatch)
+    sequences = pd.DataFrame(
+        {
+            "id_prompt": ["umi10 description", "umi1", "unclassified", "low", "missing"],
+            "sequence": ["ACGT", "TGCA", "AAAA", "CCCC", "GGGG"],
+            "genome_id": ["g1", "g2", "g3", "g4", "g5"],
+        }
+    )
+    before = sequences.copy(deep=True)
+    quality = pd.DataFrame(
+        {
+            "contig_id": ["umi1", "umi10", "low", "unclassified", "unrelated"],
+            "checkv_quality": ["Complete", "Not-determined", "Low-quality", None, "Complete"],
+        }
+    )
+    if not with_results:
+        quality = quality.iloc[:0]
+    quality_path = tmp_path / "quality_summary.tsv"
+    quality.to_csv(quality_path, sep="\t", index=False)
 
+    result = module.valid_checkv_quality(str(quality_path), allowed, sequences)
 
-def test_maintained_arc_patch_uses_local_empty_input_run_state() -> None:
-    """Empty inputs should skip work without changing the caller's Arc config."""
-    patch_text = DEFAULT_ARC_PIPELINE_PATCH.read_text()
-
-    assert 'config["prodigal_based_filters"] = False' not in patch_text
-    assert 'config["protein_database_hit_count_filter"] = False' not in patch_text
-    assert 'config["mmseqs_clustering_filter"] = False' not in patch_text
-    assert 'config["genetic_architecture_visualization_and_synteny_filtering"] = False' not in patch_text
-    assert "run_prodigal_based_filters" in patch_text
-    assert "+        run_orfipy = " not in patch_text
-    assert "run_protein_database_hit_count_filter" in patch_text
-    assert "run_mmseqs_clustering_filter" in patch_text
-    assert "run_genetic_architecture_visualization_and_synteny_filtering" in patch_text
-
-
-def test_maintained_patch_honors_lovis4u_pdf_collection_flag():
-    patch_text = DEFAULT_ARC_PIPELINE_PATCH.read_text()
-    assert '+            if config.get("lovis4u_collect_pdfs", True):' in patch_text
-    assert "Skipping LoVis4u PDF collection" in patch_text
+    assert result["id_prompt"].tolist() == expected_ids
+    assert result["checkv_quality"].isin(allowed).all()
+    pd.testing.assert_frame_equal(
+        result[sequences.columns].reset_index(drop=True),
+        sequences.loc[sequences["id_prompt"].isin(expected_ids)].reset_index(drop=True),
+    )
+    pd.testing.assert_frame_equal(sequences, before)
 
 
 def test_patched_arc_required_gene_measurement_does_not_filter_or_delete(tmp_path, monkeypatch):
@@ -529,7 +577,6 @@ def valid_gene_annotations(input_gff_dir, input_gbk_dir, required_products, sequ
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
-    assert callable(module.valid_coverage_aware_protein_database_hit_count)
     assert callable(module.valid_coverage_aware_mmseqs_pident)
 
 
@@ -602,26 +649,6 @@ def count_total_num_genes(gff_directory, results_csv):
     assert metrics["average_protein_identity_gene_count"].tolist() == [1, 1]
 
 
-def test_synteny_patch_replaces_arc_edge_counter(tmp_path):
-    pipeline_path = tmp_path / "genome_design_filtering_pipeline.py"
-    pipeline_path.write_text(
-        """def count_syntenic_genes_all(root_dir, gff_dir, input_csv, output_csv):
-    raise NotImplementedError
-
-
-def valid_syntenic_gene_count(input_csv, output_csv):
-    pass
-"""
-    )
-
-    arc_pipeline._apply_synteny_metrics_patch(tmp_path)
-
-    patched = pipeline_path.read_text()
-    compile(patched, str(pipeline_path), "exec")
-    assert "measure_reference_cluster_synteny" in patched
-    assert "raise NotImplementedError" not in patched
-
-
 def test_arc_function_synteny_uses_shared_family_evidence(tmp_path):
     """The emitted Arc reader must admit alternate J and reject its extra copy."""
     namespace = {"pd": pd, "os": os}
@@ -652,7 +679,10 @@ def test_arc_function_synteny_uses_shared_family_evidence(tmp_path):
             )
     (tmp_path / "orfs.fasta").write_text("".join(orfs))
     (tmp_path / "phrogs").mkdir()
-    pd.DataFrame(rows).to_csv(tmp_path / "phrogs/mmseqs2_hits.csv", index=False)
+    pd.DataFrame(rows).to_csv(tmp_path / "phrogs/mmseqs2_all_hits.csv", index=False)
+    # The annotation winner is unrelated; it must not hide admitted family hits.
+    annotations = pd.DataFrame(rows).assign(protein_database_mmseqs_target="phrog_942")
+    annotations.to_csv(tmp_path / "phrogs/mmseqs2_hits.csv", index=False)
     input_csv, output_csv = tmp_path / "input.csv", tmp_path / "output.csv"
     pd.DataFrame({"id_prompt": ["single", "duplicate"], "genome_id": ["genome_1", "genome_2"]}).to_csv(
         input_csv, index=False
@@ -677,8 +707,8 @@ def test_arc_function_synteny_uses_shared_family_evidence(tmp_path):
     assert reference_synteny_pass_mask(measured).tolist() == [True, False]
 
 
-def test_patched_arc_hard_protein_gates_require_unique_full_length_families(tmp_path):
-    """Final Arc protein-count and tropism gates must reject duplicates and high-identity fragments."""
+def test_arc_tropism_gate_rejects_fragments(tmp_path):
+    """Final Arc tropism gate must reject high-identity fragments."""
     pipeline_path = tmp_path / "genome_design_filtering_pipeline.py"
     pipeline_path.write_text(
         """import pandas as pd
@@ -696,36 +726,6 @@ def test_patched_arc_hard_protein_gates_require_unique_full_length_families(tmp_
     spec.loader.exec_module(module)
 
     sequences = pd.DataFrame({"id_prompt": ["duplicate", "complete"], "sequence": ["ACGT", "ACGT"]})
-    protein_hits = pd.DataFrame(
-        {
-            "id_prompt": [
-                "duplicate_ORF.1",
-                "duplicate_ORF.2",
-                "duplicate_ORF.3",
-                "complete_ORF.1",
-                "complete_ORF.2",
-            ],
-            "protein_database_mmseqs_target": ["family_A", "family_A", "family_B", "family_A", "family_B"],
-            "protein_database_mmseqs_percent_identity": [100.0, 100.0, 100.0, 100.0, 100.0],
-            "protein_database_mmseqs_alignment_length": [100, 100, 50, 100, 100],
-            "protein_database_mmseqs_query_length": [100, 100, 50, 100, 100],
-            "protein_database_mmseqs_target_length": [100, 100, 100, 100, 100],
-            "protein_database_mmseqs_query_coverage": [1, 1, 1, 1, 1],
-            "protein_database_mmseqs_target_coverage": [1, 1, 0.5, 1, 1],
-        }
-    )
-
-    protein_pass = module.valid_coverage_aware_protein_database_hit_count(
-        protein_hits,
-        sequences,
-        id_column="id_prompt",
-        min_hits=2,
-        minimum_reciprocal_coverage=0.95,
-    )
-
-    assert protein_pass["id_prompt"].tolist() == ["complete"]
-    assert protein_pass["protein_database_hit_count"].tolist() == [2]
-
     tropism_hits = pd.DataFrame(
         {
             "id_prompt": ["duplicate_ORF.1", "complete_ORF.1"],

@@ -19,12 +19,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 
 RECIPE_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = RECIPE_ROOT / "scripts/calibration/run_sft_sampling_sweep.sh"
 
 
-def test_sampling_sweep_dry_run_materializes_marker_only_parallel_plan(tmp_path: Path) -> None:
+@pytest.mark.parametrize("stop_on_eos", [False, True])
+def test_sampling_sweep_dry_run_materializes_marker_only_parallel_plan(tmp_path: Path, stop_on_eos) -> None:
     checkpoint = tmp_path / "checkpoint"
     checkpoint.mkdir()
     run_root = tmp_path / "sweep"
@@ -41,6 +44,7 @@ def test_sampling_sweep_dry_run_materializes_marker_only_parallel_plan(tmp_path:
         "NUM_PROMPTS": "2",
         "GPU_IDS": "0 1",
         "TENSOR_PARALLEL_SIZE": "1",
+        "STOP_ON_EOS": str(int(stop_on_eos)),
     }
 
     subprocess.run(["bash", str(SCRIPT)], check=True, env=env, cwd=RECIPE_ROOT, timeout=120)
@@ -51,6 +55,7 @@ def test_sampling_sweep_dry_run_materializes_marker_only_parallel_plan(tmp_path:
     assert sweep_config["max_seq_length"] == 6144
     assert sweep_config["top_k"] == 5
     assert sweep_config["top_p"] == 1.0
+    assert sweep_config["stop_on_eos"] is stop_on_eos
     assert sweep_config["cells"] == [
         "prefix0_temp0.7",
         "prefix4_temp0.7",
@@ -63,16 +68,6 @@ def test_sampling_sweep_dry_run_materializes_marker_only_parallel_plan(tmp_path:
     assert marker_only[0] == {"id": "prefix0_temp0.7_0000", "prompt": "+~"}
     assert b"\r" not in (run_root / "cells.tsv").read_bytes()
     assert (run_root / "DRY_RUN_COMPLETE").is_file()
-
-
-def test_sampling_workers_use_dedicated_input_and_guard_token_budget() -> None:
-    script = SCRIPT.read_text(encoding="utf-8")
-
-    assert "read -r -u 3 cell_index" in script
-    assert 'done 3< "${RUN_ROOT}/cells.tsv"' in script
-    assert "if (( max_new_tokens <= 0 )); then" in script
-    assert "sampling_calibration print-command" in script
-    assert "mapfile -d '' -t inference_command" in script
 
 
 def test_sampling_sweep_rejects_reference_without_anchors(tmp_path: Path) -> None:

@@ -35,7 +35,6 @@ DEFAULT_OBJECTIVES = (
     "nt_homopolymer",
     "dustmask_end",
     "nucleotide_pass",
-    "protein_hit_count",
     "tropism",
     "required_genes",
     "synteny",
@@ -53,7 +52,6 @@ REQUIRED_FIELDS = (
 )
 
 EXTERNAL_SUPPORT_PREFIX = {
-    "protein_hit_count": "protein_database_hit_count",
     "tropism": "tropism",
     "required_genes": "required_genes",
     "synteny": "synteny",

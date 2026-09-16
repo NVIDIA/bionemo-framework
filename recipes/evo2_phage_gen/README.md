@@ -36,15 +36,17 @@ See the [example README](examples/README.md) for additional launch options and o
 
 The end-to-end run takes approximately 4 days on a server with 8 H100 GPUs, and uses 1.5TB of storage.
 
-Run the following from `recipes/evo2_phage_gen` to reproduce the `7b-base` end-to-end configuration
-summarized above:
+Run the following from `recipes/evo2_phage_gen` for the current `7b-base` end-to-end configuration.
+All default prompts start at reference coordinate 1; see the
+[prompt-origin rationale](examples/README.md#prompt-origin) for the related-assembly and SFT evidence.
+The historical results above used earlier settings.
 
 ```bash
 ./.ci_build.sh
 ./examples/phix174_8xh100.sh \
   --model-variant 7b-base  \
   --sampling-selection "examples/default-sampling-selection.yaml" \
-  --result-root "$PWD/results/phix174-8xh100"
+  --result-root "$PWD/results/phix174-8xh100-origin"
 ```
 
 Like the Evo 2 recipe, `.ci_build.sh` creates an editable Python 3.12 virtual

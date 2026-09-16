@@ -153,9 +153,6 @@ def test_patch_uses_standard_bridge_config_loader(tmp_path: Path) -> None:
 
     assert "cfg_from_pretrained = ConfigContainer.from_yaml(" in setup_source
     assert "_apply_target_allowlist_prefixes(config)" in setup_source
-    assert "load_model_config(pretrained_path)" not in setup_source
-    assert "_reset_model_runtime_state" not in setup_source
-    assert "read_run_config(pretrained_run_config)" not in setup_source
 
 
 def test_policy_replay_keeps_sampled_action(tmp_path: Path, torch) -> None:

@@ -82,6 +82,13 @@ torchrun --nproc-per-node 2 --no-python \
 > dynamic inference ignores it because segmented prefill and fused recurrent
 > decode already own those phases.
 
+For indexed datasets verified to contain no taxonomy text, `--skip-taxonomy-loss-mask`
+disables phylogenetic-tag parsing. Non-DNA targets remain masked, including non-DNA
+conditioning prefixes. Genuine EOD supervision and synthetic-padding exclusion are
+unchanged. Leave this option off for corpora containing taxonomy annotations: their
+letters can overlap DNA tokens and require the tag parser. Keep the same mask setting
+for training and validation; changing it changes the loss being measured.
+
 ### Checkpoint retention
 
 `--most-recent-k K` keeps the latest K checkpoints; `-1` leaves all cleanup to

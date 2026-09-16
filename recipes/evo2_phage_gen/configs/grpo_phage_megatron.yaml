@@ -281,7 +281,6 @@ env:
     weight_nt_homopolymer: 1.0
     weight_dustmask_end: 1.0
     weight_nucleotide_pass: 0.0
-    weight_protein_hit_count: 1.0
     weight_tropism: 1.0
     weight_synteny: 0.25
     weight_gene_a_origin: 0.25
@@ -319,7 +318,6 @@ env:
       keep_artifacts: false
       fail_on_error: true
       timeout_seconds: 1800
-      enable_protein_hit_count: true
       enable_tropism: true
       enable_synteny: true
       enable_average_protein_identity: true

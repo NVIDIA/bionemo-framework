@@ -139,8 +139,12 @@ edge credit = max(direct PhiX protein-match integrity, allowed-family coverage c
 
 The direct-reference route reaches full credit at 90% identity, E ≤1e-5, and 95%
 coverage of both proteins. **Those identity and E-value targets do not apply to
-the family route.** That route searches all PHROG consensus sequences, retains
-the lowest-E-value hit per ORF, then checks its allowed family. The current search
+the family route.** That route searches all PHROG consensus sequences and retains
+every admitted hit in an allowed family as an ORF/function alternative. Global
+assignment maximizes total coverage credit with at most one ORF per function and
+one function per ORF. A stronger hit to an unrelated family does not discard
+partial evidence for a required function. Alternatives for the same function
+use their highest coverage credit; they do not add together. The current search
 inherits MMseqs's E-value cutoff of 1e-3 (the command does not supply `-e`), with
 sensitivity 7.5 and no minimum percent identity. Search admission is a hard gate;
 E-value is not a further smooth multiplier, so an admitted hit meeting both
@@ -151,6 +155,16 @@ For example, native alpha3 F receives full family credit at 23.9% consensus
 identity, E=2.4e-22, and approximately 95–98% coverage. This percentage is not its
 identity to PhiX F.
 
+The search writes `mmseqs2_all_hits.csv` under
+`mmseqs_protein_database_results_dir_save_location` for online scoring and final
+required-function/synteny screening. The separate `mmseqs2_hits.csv` keeps the
+lowest-E-value hit per ORF for displayed annotations. AAI still uses its own
+individual-member search and lowest-E-value hit per ORF. Family credit has no
+competing-hit multiplier: weakening an unrelated alignment should not improve
+the required-function score when its own alignment is unchanged. Search admission
+and curated family membership establish the candidate evidence; coverage sets
+its credit. These assignments are sequence evidence, not proof of function.
+
 A supported family alternative can therefore fill a slot completely even with a
 weak direct PhiX match. Reference-only partial evidence remains useful before a
 family hit is admitted. Maximum one-to-one matching, circular order, and excess
@@ -160,7 +174,9 @@ can reduce synteny, including a partial copy in the smooth score.
 
 Final synteny acceptance uses the same family definitions and coverage thresholds:
 all nine functions must have distinct qualifying ORFs in circular order, with no
-extra qualifying copies. Partial hits guide RL but do not count as intact copies
+extra qualifying copies. When full-coverage alternatives tie, a complete assignment
+in circular order is sufficient; an arbitrary conflicting tie does not reject it.
+Partial hits guide RL but do not count as intact copies
 for this gate. Tropism still measures PhiX G and origin still uses PhiX A evidence
 and its origin motif; full synteny is not full credit on those objectives or proof
 of genome viability. Profiles without `synteny_reference_functions` retain
