@@ -32,6 +32,11 @@ Independent ready stages may overlap when compute permits. SFT selection precede
 
 For a realized PhiX rerun, the [example README](../../examples/README.md) is the command and settings reference. Run the script directly, adapt it, or compose stage skills through the available scheduler. Reuse its completed-stage markers; start a separate SFT-anchored result root for material changes to model, prompts, rewards, or sampling. Execution-only adaptations need not redefine the experiment.
 
+For a requested quick live pipeline check, use the example's `--quick-e2e` preset in a separate
+result root. It reduces data, update and rollout counts while retaining all stages, whole-genome
+budgets and QC rules. Follow the README artifact checklist; report it as execution evidence,
+not a learning result or a full-batch capacity qualification.
+
 ## Keep the scientific endpoint visible
 
 Use viable references, biological reasoning, and controls to align shaped rewards with final QC. Tested rewards are starting points; adapted goals may need new measurements. Cover complete-genome viability, productive infection, intended-use safety, host direction, and diversity. Host-range predictions are one signal, not proof of productive infection.

@@ -85,6 +85,68 @@ refuses to change model families within an existing result root.
 The two-character SFT conditioning prefix remains input context but is excluded from next-token
 loss; the biological sequence immediately after it remains supervised.
 
+## Quick live end-to-end check
+
+Use `--quick-e2e` to test the complete pipeline on real GPUs, not to assess learning or
+candidate quality. It runs safety controls, SFT data preparation/training/selection,
+calibration, GDPO updates and full-state reload, then generation, likelihood scoring,
+screening, clustering and reporting. Genome-length budgets, reward definitions and
+safety/acceptance rules are unchanged. An empty accepted FASTA is a valid scientific result.
+
+```bash
+# Same Dockerfile-matched container and .ci_build.sh environment as the full run.
+./examples/phix174_8xh100.sh --quick-e2e --dry-run --result-root /tmp/phix-quick-plan
+./examples/phix174_8xh100.sh --quick-e2e --result-root "$PWD/results/phix-quick"
+```
+
+The preset selects 256 SFT source records reproducibly (before unchanged safety and
+leakage filtering), holds out 8 validation and 8 test records, runs the two-update SFT
+smoke plus 4 SFT updates with evaluation/checkpointing every update, and calibrates
+8 samples per prompt length at temperature 1.0. It carries the reviewed bundled
+sampling selection; this small calibration does not establish a new optimum.
+RL uses 32 rollouts (2 groups of 16), 8 validation prompts, the three-update pilot
+and its fresh-process reload, then 4 updates with validation/save every update.
+Final generation and SFT likelihood cover exactly **16 raw designs**.
+For this bounded execution check only, SFT selection may choose the lowest-loss endpoint
+without waiting for a post-best loss rebound. The selection JSON labels `quick_e2e: true`;
+it is not a convergence claim. Normal SFT selection retains its curve-review requirement.
+
+With cached model weights and databases, the intended budget is a few hours on
+8×H100; initial downloads/builds can take longer. The quick mode is not a full-batch
+memory or throughput qualification. Without an explicit result root it uses
+`results/phix174-8xh100-origin-quick`, separate from the normal experiment.
+Resume with the same preset and overrides; completed-stage markers work normally.
+
+Check these artifacts before calling the E2E test successful:
+
+- `stages/00.done` through `50.done`, and `RUN COMPLETE: 6/6 steps complete` in `RUNLOG.md`;
+- SFT checkpoints, `sft/checkpoint-selection.json`, held-out evaluation, and calibration scores;
+- `rl/sft-checkpoint/preparation-manifest.json`, `rl-pilot/qualification.json`, real RL
+  checkpoints and `rl/checkpoint-selection.json`;
+- 16 generated records and 16 entries in `rollout/sft-likelihood/ranked-designs.csv`;
+- `rollout/final-designs.json` with `state: succeeded`, the safety/QC waterfall and
+  post-QC clusters, `rollout/accepted_candidates.fasta` (possibly empty), and `SUMMARY.md`.
+
+Environment overrides take precedence over the preset. These controls also work without
+`--quick-e2e`; normal defaults are unchanged:
+
+| Workload control                                                |                 Normal |   Quick |
+| --------------------------------------------------------------- | ---------------------: | ------: |
+| `SFT_SOURCE_LIMIT` (0 means all); `SFT_HOLDOUT_COUNT` per split |                 0; 100 |  256; 8 |
+| `SFT_MAX_STEPS`; `SFT_EVAL_INTERVAL`; `SFT_EVAL_ITERS`          |          12000; 400; 4 | 4; 1; 1 |
+| `SFT_WARMUP_STEPS`; `SFT_DECAY_STEPS`                           |             600; 11400 |    0; 4 |
+| `CALIBRATION_PROMPTS`; `CALIBRATION_TEMPERATURES`               | 64; seven temperatures |  8; 1.0 |
+| `RL_MAX_STEPS`; `RL_VAL_INTERVAL`; `RL_SAVE_INTERVAL`           |            500; 10; 10 | 4; 1; 1 |
+| `RL_GLOBAL_BATCH_SIZE`; `RL_GENERATIONS_PER_PROMPT`             |               768; 384 |  32; 16 |
+| `RL_TRAIN_RECORDS`; `RL_VALIDATION_RECORDS`                     |                 96; 96 |    8; 8 |
+| `RL_TRAIN_MICRO_BATCH_SIZE`; `RL_PROMPT_BATCH_SIZE` per GPU     |                  8; 96 |    1; 4 |
+| `FINAL_GENERATION_COUNT`; `FINAL_PROMPT_BATCH_SIZE` per GPU     |               1000; 96 |   16; 8 |
+
+Choose batch sizes divisible by the GPU/microbatch layout and the generation-group size.
+Keep enough saved validation points for an interior RL checkpoint selection; a single
+terminal checkpoint is not a substitute. The three-update pilot stays fixed to exercise
+validation followed by another update and a separate full-state restore.
+
 ## Common operations
 
 ```bash

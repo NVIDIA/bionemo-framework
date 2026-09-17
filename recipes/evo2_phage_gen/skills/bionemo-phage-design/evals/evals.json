@@ -2,6 +2,19 @@
   "skill_name": "bionemo-phage-design",
   "evals": [
     {
+      "id": "bionemo-phage-design-004-quick-e2e",
+      "prompt": "Run a quick real PhiX E2E check in the current Dockerfile container, including SFT, RL and final screening. Use very few steps and generations, keep biological rules unchanged, and fix execution bugs until all artifacts exist.",
+      "expected_output": "An opt-in quick E2E execution and artifact audit, not a scientific qualification claim.",
+      "assertions": [
+        "It uses examples/phix174_8xh100.sh --quick-e2e in a separate result root and follows the README workload controls rather than skipping stages.",
+        "It keeps whole-genome token budgets and safety/acceptance rules while reducing workload counts.",
+        "It verifies SFT and RL selection/checkpoints, pilot full-state reload, all 16 raw and likelihood records, succeeded final report, accepted FASTA and summary.",
+        "It distinguishes successful execution with zero accepted candidates from biological success, and does not call the small batch a full-shape capacity qualification."
+      ],
+      "expected_skill": "bionemo-phage-design",
+      "expected_script": "examples/phix174_8xh100.sh"
+    },
+    {
       "id": "bionemo-phage-design-001-interactive-intake",
       "prompt": "I would like to design a phage.",
       "expected_output": "A concise interactive intake that resolves the biologically material choices before execution.",

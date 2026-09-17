@@ -59,7 +59,8 @@ running individual recipe commands by hand.
 
 Use tmux or a scheduler for long runs. `NUM_GPUS` defaults to 8, `NUM_CPUS` to `nproc`, and
 `SFT_TENSOR_PARALLEL_SIZE` may adapt a measured smaller topology.
-The [8×H100 example](examples/README.md) documents dry runs, preparation-only mode, stage markers,
+The [8×H100 example](examples/README.md) documents dry runs, an opt-in
+[quick live E2E check](examples/README.md#quick-live-end-to-end-check), preparation-only mode, stage markers,
 sampling overrides, outputs, and all RL objectives.
 
 ## Run with an agent

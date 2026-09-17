@@ -9,6 +9,7 @@ set -Eeuo pipefail
 RECIPE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 RESULT_ROOT="${RECIPE_ROOT}/results/phix174-8xh100-origin"
 DRY_RUN=0
+QUICK_E2E=0
 PREPARE_ONLY=0
 CALIBRATE_ONLY=0
 RESUME_FROM=00
@@ -61,46 +62,19 @@ for ((gpu_index=0; gpu_index<NUM_GPUS; gpu_index++)); do
   GPU_IDS+="${GPU_IDS:+ }${gpu_index}"
 done
 MONITOR_INTERVAL_SECONDS="${MONITOR_INTERVAL_SECONDS:-600}"
-SFT_MAX_STEPS="${SFT_MAX_STEPS:-12000}"
 PHAROKKA_DATABASE_URL="${PHAROKKA_DATABASE_URL:-https://zenodo.org/records/21755221/files/pharokka_v1.11.0_databases.tar.gz?download=1}"
 PHAROKKA_DATABASE_MD5="${PHAROKKA_DATABASE_MD5:-143bb375ddb0b0653e5cb5671f4a7629}"
 PHAROKKA_DATABASE_RELEASE="${PHAROKKA_DATABASE_RELEASE:-Pharokka database v1.11.0 / PHROGs v4}"
-CALIBRATION_WORKERS="${CALIBRATION_WORKERS:-8}"
 # Global rollout 768 over DP8 gives 96 local requests. This is distinct from policy training MBS.
-RL_PROMPT_BATCH_SIZE="${RL_PROMPT_BATCH_SIZE:-96}"
 # Standalone final generation has no optimizer state resident, so reuse the qualified local wave.
-FINAL_PROMPT_BATCH_SIZE="${FINAL_PROMPT_BATCH_SIZE:-96}"
 # MBS8 is the qualified H100 default, not a measured ceiling. Offload-cache MBS32 passed two
 # steady-state GB300 updates, but that does not establish H100 capacity; TP1 MBS64 also exceeds
 # the signed-int32 local GLU span.
-RL_TRAIN_MICRO_BATCH_SIZE="${RL_TRAIN_MICRO_BATCH_SIZE:-8}"
 SAFETY_BATCH_SIZE="${SAFETY_BATCH_SIZE:-128}"
 SAFETY_ORF_WORKERS="${SAFETY_ORF_WORKERS:-32}"
 SAFETY_THREADS="${SAFETY_THREADS:-32}"
 SAFETY_PHROGS_THREADS="${SAFETY_PHROGS_THREADS:-64}"
 PHIX174_HOST_EVIDENCE_JSON='{"source":"NCBI Datasets v2alpha genome dataset report","source_version":"NCBI Datasets v2alpha API","replication_host_domains":["BACTERIA"],"confirmed":true,"metadata":{"accession":"NC_001422.1","intended_design_context":"PhiX/Microviridae bacterial phage"}}'
-if [[ ! "${RL_PROMPT_BATCH_SIZE}" =~ ^[1-9][0-9]*$ ]]; then
-  printf 'RL_PROMPT_BATCH_SIZE must be a positive integer; got %q\n' "${RL_PROMPT_BATCH_SIZE}" >&2
-  exit 2
-fi
-if [[ ! "${FINAL_PROMPT_BATCH_SIZE}" =~ ^[1-9][0-9]*$ ]]; then
-  printf 'FINAL_PROMPT_BATCH_SIZE must be a positive integer; got %q\n' "${FINAL_PROMPT_BATCH_SIZE}" >&2
-  exit 2
-fi
-if [[ ! "${RL_TRAIN_MICRO_BATCH_SIZE}" =~ ^[1-9][0-9]*$ ]]; then
-  printf 'RL_TRAIN_MICRO_BATCH_SIZE must be a positive integer; got %q\n' \
-    "${RL_TRAIN_MICRO_BATCH_SIZE}" >&2
-  exit 2
-fi
-if ((768 % (NUM_GPUS * RL_TRAIN_MICRO_BATCH_SIZE) != 0)); then
-  printf 'RL global batch 768 must be divisible by NUM_GPUS * RL_TRAIN_MICRO_BATCH_SIZE (%s * %s)\n' \
-    "${NUM_GPUS}" "${RL_TRAIN_MICRO_BATCH_SIZE}" >&2
-  exit 2
-fi
-if [[ ! "${SFT_MAX_STEPS}" =~ ^[1-9][0-9]*$ ]]; then
-  printf 'SFT_MAX_STEPS must be a positive integer; got %q\n' "${SFT_MAX_STEPS}" >&2
-  exit 2
-fi
 if [[ ! "${WANDB_INIT_TIMEOUT}" =~ ^[1-9][0-9]*$ ]]; then
   printf 'WANDB_INIT_TIMEOUT must be a positive integer; got %q\n' "${WANDB_INIT_TIMEOUT}" >&2
   exit 2
@@ -121,6 +95,7 @@ usage() {
     '  --calibrate-only           Stop after calibration scoring for sampling review' \
     '  --resume-from ID           Start at stage 00, 10, 20, 30, 40, or 50' \
     '  --dry-run                  Record and print commands without external work' \
+    '  --quick-e2e                Live all-stage smoke with small counts (not a learning experiment)' \
     '  -h, --help                 Show this help'
 }
 
@@ -153,10 +128,52 @@ while (($#)); do
     --calibrate-only) CALIBRATE_ONLY=1; shift ;;
     --resume-from) RESUME_FROM="$2"; shift 2 ;;
     --dry-run) DRY_RUN=1; shift ;;
+    --quick-e2e) QUICK_E2E=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
   esac
 done
+# Workload sizes are independent of scientific thresholds and the generation length budget.
+# Explicit environment values override the preset; see the README for supported controls.
+if [[ "${QUICK_E2E}" == "1" ]]; then
+  : "${SFT_SOURCE_LIMIT:=256}" "${SFT_HOLDOUT_COUNT:=8}" "${SFT_MAX_STEPS:=4}"
+  : "${SFT_EVAL_INTERVAL:=1}" "${SFT_EVAL_ITERS:=1}" "${SFT_WARMUP_STEPS:=0}" "${SFT_DECAY_STEPS:=${SFT_MAX_STEPS}}"
+  : "${CALIBRATION_PROMPTS:=8}" "${CALIBRATION_TEMPERATURES:=1.0}" "${CALIBRATION_WORKERS:=2}"
+  : "${RL_MAX_STEPS:=4}" "${RL_GLOBAL_BATCH_SIZE:=32}" "${RL_GENERATIONS_PER_PROMPT:=16}"
+  : "${RL_VALIDATION_RECORDS:=8}" "${RL_TRAIN_RECORDS:=8}" "${RL_SAVE_INTERVAL:=1}" "${RL_VAL_INTERVAL:=1}"
+  : "${RL_TRAIN_MICRO_BATCH_SIZE:=1}" "${RL_PROMPT_BATCH_SIZE:=4}"
+  : "${FINAL_GENERATION_COUNT:=16}" "${FINAL_PROMPT_BATCH_SIZE:=8}"
+  [[ "${RESULT_ROOT}" != "${RECIPE_ROOT}/results/phix174-8xh100-origin" ]] || RESULT_ROOT+="-quick"
+  # A tiny calibration tests execution, not sampling selection. Carry the reviewed default.
+  : "${SAMPLING_SELECTION_SOURCE:=${RECIPE_ROOT}/examples/default-sampling-selection.yaml}"
+fi
+: "${SFT_SOURCE_LIMIT:=0}" "${SFT_HOLDOUT_COUNT:=100}" "${SFT_MAX_STEPS:=12000}"
+: "${SFT_EVAL_INTERVAL:=400}" "${SFT_EVAL_ITERS:=4}" "${SFT_WARMUP_STEPS:=600}" "${SFT_DECAY_STEPS:=11400}"
+: "${CALIBRATION_PROMPTS:=64}" "${CALIBRATION_TEMPERATURES:=0.3 0.5 0.7 0.9 1.0 1.1 1.3}" "${CALIBRATION_WORKERS:=8}"
+: "${RL_MAX_STEPS:=500}" "${RL_GLOBAL_BATCH_SIZE:=768}" "${RL_GENERATIONS_PER_PROMPT:=384}"
+: "${RL_VALIDATION_RECORDS:=96}" "${RL_TRAIN_RECORDS:=96}" "${RL_SAVE_INTERVAL:=10}" "${RL_VAL_INTERVAL:=10}"
+: "${RL_TRAIN_MICRO_BATCH_SIZE:=8}" "${RL_PROMPT_BATCH_SIZE:=96}"
+: "${FINAL_GENERATION_COUNT:=1000}" "${FINAL_PROMPT_BATCH_SIZE:=96}"
+for count_name in SFT_HOLDOUT_COUNT SFT_MAX_STEPS SFT_EVAL_INTERVAL SFT_EVAL_ITERS SFT_DECAY_STEPS \
+  CALIBRATION_PROMPTS CALIBRATION_WORKERS RL_MAX_STEPS RL_GLOBAL_BATCH_SIZE RL_GENERATIONS_PER_PROMPT \
+  RL_VALIDATION_RECORDS RL_TRAIN_RECORDS RL_SAVE_INTERVAL RL_VAL_INTERVAL RL_TRAIN_MICRO_BATCH_SIZE \
+  RL_PROMPT_BATCH_SIZE FINAL_GENERATION_COUNT FINAL_PROMPT_BATCH_SIZE; do
+  if [[ ! "${!count_name}" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s must be a positive integer; got %q\n' "${count_name}" "${!count_name}" >&2; exit 2
+  fi
+done
+for count_name in SFT_SOURCE_LIMIT SFT_WARMUP_STEPS; do
+  if [[ ! "${!count_name}" =~ ^(0|[1-9][0-9]*)$ ]]; then
+    printf '%s must be a nonnegative integer; got %q\n' "${count_name}" "${!count_name}" >&2; exit 2
+  fi
+done
+if ((RL_GLOBAL_BATCH_SIZE % (NUM_GPUS * RL_TRAIN_MICRO_BATCH_SIZE) != 0 || RL_GLOBAL_BATCH_SIZE % RL_GENERATIONS_PER_PROMPT != 0)); then
+  printf 'RL global batch %s must be divisible by NUM_GPUS * RL_TRAIN_MICRO_BATCH_SIZE and RL_GENERATIONS_PER_PROMPT\n' "${RL_GLOBAL_BATCH_SIZE}" >&2
+  exit 2
+fi
+if ((SFT_SOURCE_LIMIT > 0 && SFT_SOURCE_LIMIT <= 2 * SFT_HOLDOUT_COUNT)); then
+  printf '%s\n' 'SFT_SOURCE_LIMIT must leave training records after both holdouts' >&2; exit 2
+fi
 if [[ "${WANDB_ENABLED}" != "1" && "${WANDB_OPTION_CONFIGURED}" == "1" ]]; then
   printf '%s\n' '--wandb-entity and project overrides require --wandb' >&2
   exit 2
@@ -344,7 +361,7 @@ printf '%s\n' "${MODEL_VARIANT}" > "${MODEL_VARIANT_STATE}"
 note "model variant: ${MODEL_VARIANT} (${BASE_CHECKPOINT_RESOURCE}, model size ${MODEL_SIZE})"
 
 sampling_selection_fields() {
-  python - "$1" <<'PY'
+  python - "$1" "${RL_TRAIN_RECORDS}" "${FINAL_GENERATION_COUNT}" <<'PY'
 import math
 import re
 import sys
@@ -443,8 +460,8 @@ fields = (
     str(seed_stride),
     "-".join([*(str(value) for value in prompt_lengths), *(name for name, _ in anchors)]),
     # The default loader consumes two interleaved prompt records per step.
-    str(96),
-    str((1000 + strata - 1) // strata),
+    sys.argv[2],
+    str((int(sys.argv[3]) + strata - 1) // strata),
 )
 print("\t".join(fields))
 PY
@@ -651,7 +668,7 @@ select_checkpoint() {
       --output "${output}"
     return
   fi
-  python - "${mode}" "${tensorboard_root}" "${checkpoint_root}" "${output}" <<'PY'
+  python - "${mode}" "${tensorboard_root}" "${checkpoint_root}" "${output}" "${QUICK_E2E}" <<'PY'
 import json, sys
 from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
@@ -673,13 +690,14 @@ values = sorted((int(step), float(value[1])) for step, value in points.items())
 if len(values) < 3:
     raise SystemExit("need at least three comparable validation events")
 index = min(range(len(values)), key=lambda i: (values[i][1], values[i][0]))
-if index > len(values) - 3:
+quick_e2e = sys.argv[5] == "1"
+if index > len(values) - 3 and not quick_e2e:
     raise SystemExit("best validation is at the run boundary; extend/inspect the run before selecting")
 step, value = values[index]
 checkpoint = ckpt_root / f"iter_{step:07d}"
 if not checkpoint.is_dir():
     raise SystemExit(f"selected validation step has no checkpoint: {checkpoint}")
-result = {"metric": chosen_tag, "direction": "minimize", "step": step, "value": value, "checkpoint": str(checkpoint.resolve())}
+result = {"metric": chosen_tag, "direction": "minimize", "step": step, "value": value, "checkpoint": str(checkpoint.resolve()), "quick_e2e": quick_e2e}
 output.parent.mkdir(parents=True, exist_ok=True); output.write_text(json.dumps(result, indent=2) + "\n")
 print(result["checkpoint"])
 PY
@@ -724,7 +742,7 @@ python - "${RESULT_ROOT}/settings.json" "${NUM_GPUS}" "${NUM_CPUS}" "${gpu_type}
   "${MODEL_VARIANT}" "${BASE_CHECKPOINT_RESOURCE}" "${MODEL_SIZE}" \
   "${WANDB_ENABLED}" "${WANDB_ENTITY_NAME}" "${WANDB_SFT_PROJECT_NAME}" "${WANDB_RL_PROJECT_NAME}" \
   "${WANDB_SFT_RUN_NAME}" "${WANDB_RL_RUN_NAME}" "${WANDB_INIT_TIMEOUT}" \
-  "${INFERENCE_PRECISION_NAME}" <<'PY'
+  "${INFERENCE_PRECISION_NAME}" "${QUICK_E2E}" "${FINAL_GENERATION_COUNT}" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -749,6 +767,8 @@ from pathlib import Path
     wandb_rl_run_name,
     wandb_init_timeout,
     inference_precision,
+    quick_e2e,
+    final_generation_count,
 ) = sys.argv[1:]
 wandb_is_enabled = wandb_enabled == "1"
 settings = {
@@ -765,7 +785,8 @@ settings = {
     "inference_precision": inference_precision,
     "whole_genome": True,
     "safety_screen": "current configured databases",
-    "final_generation_count": 1000,
+    "final_generation_count": int(final_generation_count),
+    "quick_e2e": quick_e2e == "1",
     "wandb_enabled": wandb_is_enabled,
     "wandb_entity": (wandb_entity or None) if wandb_is_enabled else None,
     "wandb_sft_project": wandb_sft_project,
@@ -833,6 +854,26 @@ PY
 
 stage_10() {
   local source=data/external/zenodo/microviridae_sft_training_data_processed.fna safety="${RESULT_ROOT}/sft/source-safety" prep="${RESULT_ROOT}/sft/prepared"
+  if ((SFT_SOURCE_LIMIT > 0)); then
+    note "using a deterministic ${SFT_SOURCE_LIMIT}-record SFT subset (seed 1234); safety and split filters are unchanged"
+    if [[ "${DRY_RUN}" != "1" ]]; then
+      python - "${source}" "${safety}/source-subset.fna" "${SFT_SOURCE_LIMIT}" <<'PY'
+import random
+import sys
+from pathlib import Path
+from Bio import SeqIO
+
+records = list(SeqIO.parse(sys.argv[1], "fasta"))
+limit = int(sys.argv[3])
+if limit > len(records):
+    raise SystemExit(f"SFT_SOURCE_LIMIT={limit} exceeds {len(records)} source records")
+indices = sorted(random.Random(1234).sample(range(len(records)), limit))
+Path(sys.argv[2]).parent.mkdir(parents=True, exist_ok=True)
+SeqIO.write((records[i] for i in indices), sys.argv[2], "fasta")
+PY
+    fi
+    source="${safety}/source-subset.fna"
+  fi
   if [[ "${DRY_RUN}" == "1" ]]; then note 'remove the two-character model prefix for safety scanning while preserving FASTA IDs'; else
     python - "${source}" "${safety}/biological.fna" <<'PY'
 from pathlib import Path
@@ -851,7 +892,7 @@ PY
   check_scan "${safety}/scan/manifest.json"
   run evo2_phage_summarize_safety_manifest --manifest "${safety}/scan/manifest.json" --output "${safety}/summary.json"
   run_result 'SFT safety partition' "${safety}/partition.log" evo2_phage_sequence_safety filter-fasta --input-fasta "${source}" --scan-manifest "${safety}/scan/manifest.json" --output-dir "${safety}/partitions" --overwrite
-  run evo2_phage_prepare_sft_split --source-fasta "${safety}/partitions/pass.fasta" --output-dir "${prep}" --mmseqs-bin data/external/bin/mmseqs --validation-count 100 --test-count 100 --seed 1234 --min-seq-id 0.98 --coverage 0.8 --cov-mode 0 --threads 16
+  run evo2_phage_prepare_sft_split --source-fasta "${safety}/partitions/pass.fasta" --output-dir "${prep}" --mmseqs-bin data/external/bin/mmseqs --validation-count "${SFT_HOLDOUT_COUNT}" --test-count "${SFT_HOLDOUT_COUNT}" --seed 1234 --min-seq-id 0.98 --coverage 0.8 --cov-mode 0 --threads 16
   run preprocess_evo2 --config "${prep}/preprocess.yaml"; state sft-prepared "${prep}"
 }
 
@@ -887,7 +928,7 @@ stage_20() {
       monitored 'SFT smoke' "${RESULT_ROOT}/sft/smoke.log" torchrun --nproc-per-node "${NUM_GPUS}" --no-python train_evo2 "${model[@]}" --dataset-config "${prep}/training_dataset.yaml" --finetune-ckpt-dir "${base_mbridge}" --global-batch-size 32 --max-steps 2 --eval-interval 1 --eval-iters 1 --warmup-steps 0 --decay-steps 2 --result-dir "${RESULT_ROOT}/sft/smoke" --experiment-name evo2-smoke
       [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/20-sft-smoke.done"
     fi
-    monitored 'SFT training' "${sft}/train.log" torchrun --nproc-per-node "${NUM_GPUS}" --no-python train_evo2 "${model[@]}" --dataset-config "${prep}/training_dataset.yaml" --finetune-ckpt-dir "${base_mbridge}" --global-batch-size 32 --max-steps "${SFT_MAX_STEPS}" --eval-interval 400 --eval-iters 4 --lr 1e-5 --min-lr 1e-6 --warmup-steps 600 --decay-steps 11400 --enable-preemption --keep-best-k 3 --most-recent-k 1 --checkpoint-metric-name 'lm loss' --strict-checkpoint-metric --checkpoint-metric-step-tolerance 1 --result-dir "${sft}" --experiment-name evo2 "${SFT_WANDB_ARGS[@]}"
+    monitored 'SFT training' "${sft}/train.log" torchrun --nproc-per-node "${NUM_GPUS}" --no-python train_evo2 "${model[@]}" --dataset-config "${prep}/training_dataset.yaml" --finetune-ckpt-dir "${base_mbridge}" --global-batch-size 32 --max-steps "${SFT_MAX_STEPS}" --eval-interval "${SFT_EVAL_INTERVAL}" --eval-iters "${SFT_EVAL_ITERS}" --lr 1e-5 --min-lr 1e-6 --warmup-steps "${SFT_WARMUP_STEPS}" --decay-steps "${SFT_DECAY_STEPS}" --enable-preemption --keep-best-k 3 --most-recent-k 1 --checkpoint-metric-name 'lm loss' --strict-checkpoint-metric --checkpoint-metric-step-tolerance 1 --result-dir "${sft}" --experiment-name evo2 "${SFT_WANDB_ARGS[@]}"
     [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/20-sft.done"
   fi
   [[ "${DRY_RUN}" == "1" ]] && selected='<selected-sft>' || selected="$(select_checkpoint sft "${sft}/evo2/tb_logs" "${sft}/evo2/checkpoints" "${RESULT_ROOT}/sft/checkpoint-selection.json")"
@@ -903,7 +944,7 @@ stage_30() {
   if [[ -f "${STAGE_DIR}/30-calibration-generation.done" ]]; then
     note 'substage 30-calibration-generation already complete'
   else
-    monitored 'calibration generation' "${calibration}/generation.log" env SOURCE_ENV=0 RUN_ROOT="${calibration}/generation" CKPT_DIR="${selected}" PROMPT_LENGTHS='16 24' PROMPT_ANCHORS='origin:1' REFERENCE_FASTA="${PHIX_REFERENCE_FASTA}" TEMPERATURES='0.3 0.5 0.7 0.9 1.0 1.1 1.3' NUM_PROMPTS=64 TARGET_LENGTH=6000 MAX_SEQ_LENGTH=6144 GPU_IDS="${GPU_IDS}" TENSOR_PARALLEL_SIZE=1 HOPPER_FP8_INFERENCE="${HOPPER_FP8_INFERENCE}" scripts/calibration/run_sft_sampling_sweep.sh
+    monitored 'calibration generation' "${calibration}/generation.log" env SOURCE_ENV=0 RUN_ROOT="${calibration}/generation" CKPT_DIR="${selected}" PROMPT_LENGTHS='16 24' PROMPT_ANCHORS='origin:1' REFERENCE_FASTA="${PHIX_REFERENCE_FASTA}" TEMPERATURES="${CALIBRATION_TEMPERATURES}" NUM_PROMPTS="${CALIBRATION_PROMPTS}" TARGET_LENGTH=6000 MAX_SEQ_LENGTH=6144 GPU_IDS="${GPU_IDS}" TENSOR_PARALLEL_SIZE=1 HOPPER_FP8_INFERENCE="${HOPPER_FP8_INFERENCE}" scripts/calibration/run_sft_sampling_sweep.sh
     [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/30-calibration-generation.done"
   fi
   if [[ -f "${STAGE_DIR}/30-calibration-scoring.done" ]]; then
@@ -964,7 +1005,7 @@ PY
     --prompt-lengths "${SAMPLING_PROMPT_LENGTHS[@]}" --num-records "${SAMPLING_TRAIN_RECORDS}" \
     --reference-fasta "${PHIX_REFERENCE_FASTA}" "${prompt_anchor_args[@]}" --id-prefix train
   run evo2_phage_generation write-rl-prompts --output "${RESULT_ROOT}/rl/validation.jsonl" \
-    --prompt-lengths "${SAMPLING_PROMPT_LENGTHS[@]}" --num-records 96 \
+    --prompt-lengths "${SAMPLING_PROMPT_LENGTHS[@]}" --num-records "${RL_VALIDATION_RECORDS}" \
     --reference-fasta "${PHIX_REFERENCE_FASTA}" "${prompt_anchor_args[@]}" --id-prefix validation
 }
 
@@ -1014,6 +1055,10 @@ stage_40() {
       --control-fasta "${control}/reference-rotations.fasta" --control-dir "${control}"
     local common=(checkpointing.pretrained_checkpoint.path="${rl_checkpoint}" checkpointing.save_optimizer=true checkpointing.metric_name=val:phage_qc/mean_reward policy.model_name="${RL_MODEL_NAME}" data.train.data_path="${rl}/train.jsonl" data.validation.data_path="${rl}/validation.jsonl" cluster.gpus_per_node="${NUM_GPUS}" policy.train_micro_batch_size="${RL_TRAIN_MICRO_BATCH_SIZE}" policy.generation.max_new_tokens="${SAMPLING_MAX_NEW_TOKENS}" policy.generation.temperature="${SAMPLING_TEMPERATURE}" policy.generation.top_k="${SAMPLING_TOP_K}" policy.generation.top_p="${SAMPLING_TOP_P}" policy.generation.mcore_generation_config.max_model_len="${RL_MAX_MODEL_LEN}" policy.generation.mcore_generation_config.max_requests="${RL_PROMPT_BATCH_SIZE}" policy.generation.mcore_generation_config.prompt_batch_size="${RL_PROMPT_BATCH_SIZE}" policy.generation.mcore_generation_config.kv_cache_management_mode=offload policy.generation.mcore_generation_config.generation_adapter_config.seed="${SAMPLING_RL_SEED}" policy.generation.mcore_generation_config.generation_adapter_config.seed_stride="${SAMPLING_SEED_STRIDE}" env.phage_qc.external_qc.lovis4u_parallel_jobs=64 env.phage_qc.external_qc.lovis4u_mmseqs_threads=2)
     note "RL policy train microbatch: ${RL_TRAIN_MICRO_BATCH_SIZE}; native packed mixed-length decode group size: ${RL_PROMPT_BATCH_SIZE}; generation context ceiling: ${RL_MAX_MODEL_LEN}"
+    common+=(policy.train_global_batch_size="${RL_GLOBAL_BATCH_SIZE}" policy.generation_batch_size="${RL_GLOBAL_BATCH_SIZE}"
+      grpo.num_prompts_per_step="$((RL_GLOBAL_BATCH_SIZE / RL_GENERATIONS_PER_PROMPT))"
+      grpo.num_generations_per_prompt="${RL_GENERATIONS_PER_PROMPT}"
+      grpo.val_batch_size="${RL_VALIDATION_RECORDS}" grpo.max_val_samples="${RL_VALIDATION_RECORDS}")
     if [[ -f "${STAGE_DIR}/40-pilot.done" ]]; then
       note 'substage 40-pilot already complete'
     else
@@ -1040,13 +1085,13 @@ stage_40() {
       check_objectives "${RESULT_ROOT}/rl-pilot/objective-health.json"
       [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/40-pilot-check.done"
     fi
-    monitored "500-step DP${NUM_GPUS} GDPO" "${rl}/runner.log" \
+    monitored "${RL_MAX_STEPS}-step DP${NUM_GPUS} GDPO" "${rl}/runner.log" \
       python -m bionemo.evo2_phage_gen.rl_checkpoint_selection supervise \
         --tensorboard-root "${rl}/logs" \
         --checkpoint-root "${rl}/checkpoints" \
         --protected-root "${rl}/protected-checkpoints" \
         --poll-seconds 30 -- \
-      evo2_phage_run_gdpo --config configs/gdpo_phage_megatron.yaml "${common[@]}" "${RL_WANDB_ARGS[@]}" checkpointing.checkpoint_dir="${rl}/checkpoints" env.phage_qc.external_qc.work_dir="${RL_EXTERNAL_QC_WORK_ROOT}/full" env.phage_qc.mmseqs_cluster_diversity.work_dir="${rl}/mmseqs" env.phage_qc.sequence_safety.work_dir="${rl}/safety" logger.log_dir="${rl}/logs"
+      evo2_phage_run_gdpo --config configs/gdpo_phage_megatron.yaml "${common[@]}" "${RL_WANDB_ARGS[@]}" grpo.max_num_steps="${RL_MAX_STEPS}" grpo.val_period="${RL_VAL_INTERVAL}" checkpointing.save_period="${RL_SAVE_INTERVAL}" checkpointing.checkpoint_dir="${rl}/checkpoints" env.phage_qc.external_qc.work_dir="${RL_EXTERNAL_QC_WORK_ROOT}/full" env.phage_qc.mmseqs_cluster_diversity.work_dir="${rl}/mmseqs" env.phage_qc.sequence_safety.work_dir="${rl}/safety" logger.log_dir="${rl}/logs"
     [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/40-rl.done"
   fi
   run evo2_phage_monitor_objectives --tensorboard-root "${rl}/logs" --config configs/gdpo_phage_megatron.yaml --output "${rl}/objective-health.json" --history-output "${rl}/objective-history.json"
@@ -1078,7 +1123,7 @@ stage_50() {
       return 2
     fi
   fi
-  fasta="${rollout}/fasta/phix174_prompt${SAMPLING_PROMPT_LABEL}_temp${SAMPLING_TEMPERATURE}.n1000.fasta"
+  fasta="${rollout}/fasta/phix174_prompt${SAMPLING_PROMPT_LABEL}_temp${SAMPLING_TEMPERATURE}.n${FINAL_GENERATION_COUNT}.fasta"
   safety="${rollout}/sequence-safety"
   likelihood="${rollout}/sft-likelihood"
   dedup="${rollout}/deduplication"
@@ -1104,9 +1149,10 @@ stage_50() {
     prompt_files+=("${rollout}/prompts/final_prompt${prompt_length}_${final_per_length}.jsonl")
   done
   worker_count="${NUM_GPUS}"
+  ((worker_count <= FINAL_GENERATION_COUNT)) || worker_count="${FINAL_GENERATION_COUNT}"
   note "interleave prompt lengths (${SAMPLING_PROMPT_LENGTHS_TEXT}) across ${worker_count} deterministic mixed-length shard(s)"
   run evo2_phage_generation write-inference-shards --input-jsonl "${prompt_files[@]}" \
-    --output-dir "${shard_dir}" --num-records 1000 --num-shards "${worker_count}"
+    --output-dir "${shard_dir}" --num-records "${FINAL_GENERATION_COUNT}" --num-shards "${worker_count}"
   started=${SECONDS}
   for ((wave_start=0; wave_start<worker_count; wave_start+=NUM_GPUS)); do
     wave_end="$((wave_start + NUM_GPUS))"
@@ -1157,27 +1203,27 @@ stage_50() {
     ((failed == 0)) || return 1
   done
   if [[ "${DRY_RUN}" != "1" ]]; then
-    python - "${outputs[@]}" <<'PY'
+    python - "${FINAL_GENERATION_COUNT}" "${outputs[@]}" <<'PY'
 import json, sys
 seen = set()
-for path in sys.argv[1:]:
+for path in sys.argv[2:]:
     records = [json.loads(line) for line in open(path) if line.strip()]
     for record in records:
         if record["id"] in seen:
             raise SystemExit(f'duplicate generated ID: {record["id"]}')
         seen.add(record["id"])
-if len(seen) != 1000:
-    raise SystemExit(f"expected 1000 generated records, found {len(seen)}")
+if len(seen) != int(sys.argv[1]):
+    raise SystemExit(f"expected {sys.argv[1]} generated records, found {len(seen)}")
 PY
   fi
   run evo2_phage_generation jsonl-to-fasta --input-jsonl "${outputs[@]}" --output-fasta "${fasta}"
   if [[ "${DRY_RUN}" != "1" ]]; then
-    python - "${fasta}" <<'PY'
+    python - "${fasta}" "${FINAL_GENERATION_COUNT}" <<'PY'
 from Bio import SeqIO
 import sys
 count = sum(1 for _ in SeqIO.parse(sys.argv[1], "fasta"))
-if count != 1000:
-    raise SystemExit(f"expected exactly 1000 generated genomes, found {count}")
+if count != int(sys.argv[2]):
+    raise SystemExit(f"expected exactly {sys.argv[2]} generated genomes, found {count}")
 PY
   fi
     [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/50-rollout.done"
@@ -1411,7 +1457,8 @@ PY
   fi
 }
 
-printf '%s\n' '00 prepare inputs/tools/controls' '10 safety-screen and prepare SFT' '20 train/select/evaluate SFT' '30 calibrate sampling' '40 prepare SFT checkpoint for RL; pilot/check/train/monitor/select GDPO' '50 generate, SFT-score, deduplicate, hard-QC, cluster, and report 1,000 genomes' > "${RESULT_ROOT}/stage-plan.txt"
+final_count_label="$(python -c 'import sys; print(f"{int(sys.argv[1]):,}")' "${FINAL_GENERATION_COUNT}")"
+printf '%s\n' '00 prepare inputs/tools/controls' '10 safety-screen and prepare SFT' '20 train/select/evaluate SFT' '30 calibrate sampling' '40 prepare SFT checkpoint for RL; pilot/check/train/monitor/select GDPO' "50 generate, SFT-score, deduplicate, hard-QC, cluster, and report ${final_count_label} genomes" > "${RESULT_ROOT}/stage-plan.txt"
 for id in 00 10 20 30 40 50; do
   ((10#${id} < 10#${RESUME_FROM})) && continue
   [[ "${PREPARE_ONLY}" == "1" && "${id}" != 00 ]] && continue

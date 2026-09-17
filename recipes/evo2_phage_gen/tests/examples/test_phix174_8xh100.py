@@ -27,6 +27,7 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -144,6 +145,110 @@ def test_same_result_lock(tmp_path: Path) -> None:
     assert "already running for this result directory" in completed.stderr
 
 
+def test_quick_e2e(tmp_path: Path) -> None:
+    """The live smoke still exercises all stages with checkpoints and a small raw denominator."""
+    result = tmp_path / "quick"
+    completed = subprocess.run(
+        ["bash", str(SCRIPT), "--quick-e2e", "--dry-run", "--result-root", str(result)],
+        cwd=RECIPE_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "6/6 steps planned" in completed.stdout
+    settings = json.loads((result / "settings.json").read_text())
+    assert settings["quick_e2e"] is True
+    assert settings["final_generation_count"] == 16
+    log = (result / "RUNLOG.md").read_text()
+    commands = [shlex.split(line.partition("command: ")[2]) for line in log.splitlines() if "command: " in line]
+    sft = next(c for c in commands if "train_evo2" in c and "--keep-best-k" in c)
+    assert sft[sft.index("--max-steps") + 1] == "4"
+    assert sft[sft.index("--eval-interval") + 1] == "1"
+    assert sft[sft.index("--warmup-steps") + 1] == "0"
+    assert sft[sft.index("--decay-steps") + 1] == "4"
+    split = next(c for c in commands if "evo2_phage_prepare_sft_split" in c)
+    assert split[split.index("--validation-count") + 1] == "8"
+    assert split[split.index("--test-count") + 1] == "8"
+    sweep = next(c for c in commands if "scripts/calibration/run_sft_sampling_sweep.sh" in c)
+    assert "NUM_PROMPTS=8" in sweep and "TEMPERATURES=1.0" in sweep
+    rl = _gdpo_commands(commands)
+    assert len(rl) == 3  # Pilot, fresh-process reload, and the selected training run.
+    for c in rl:
+        assert "policy.train_global_batch_size=32" in c
+        assert "policy.generation_batch_size=32" in c
+        assert "grpo.num_generations_per_prompt=16" in c
+        assert "grpo.max_val_samples=8" in c
+        assert "policy.generation.max_new_tokens=6000" in c
+    assert "grpo.max_num_steps=4" in rl[-1]
+    assert "grpo.val_period=1" in rl[-1]
+    assert "checkpointing.save_period=1" in rl[-1]
+    shard = next(c for c in commands if "write-inference-shards" in c)
+    assert shard[shard.index("--num-records") + 1] == "16"
+    assert any("predict_evo2" in c for c in commands)
+    assert any("finalize-rollout" in c for c in commands)
+    assert sum("evo2_phage_sequence_safety" in c and "reference-controls" in " ".join(c) for c in commands) == 6
+
+
+def test_quick_sft_selection(tmp_path: Path, monkeypatch) -> None:
+    """A bounded smoke may select its endpoint, without relaxing scientific-run selection."""
+    from tensorboard.compat.proto.event_pb2 import Event
+    from tensorboard.compat.proto.summary_pb2 import Summary
+    from tensorboard.summary.writer.event_file_writer import EventFileWriter
+
+    logs, checkpoints = tmp_path / "logs", tmp_path / "checkpoints"
+    writer = EventFileWriter(str(logs))
+    for step, loss in [(1, 2.0), (2, 1.9), (3, 1.8), (4, 1.7)]:
+        writer.add_event(
+            Event(
+                wall_time=float(step),
+                step=step,
+                summary=Summary(value=[Summary.Value(tag="lm loss validation", simple_value=loss)]),
+            )
+        )
+        _write_mbridge_checkpoint(checkpoints, iteration_number=step)
+    writer.close()
+    output = tmp_path / "selection.json"
+    body = SCRIPT.read_text().split("select_checkpoint() {", 1)[1].split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+    args = ["-", "sft", str(logs), str(checkpoints), str(output)]
+    monkeypatch.setattr(sys, "argv", [*args, "0"])
+    with pytest.raises(SystemExit, match="run boundary"):
+        exec(compile(body, str(SCRIPT), "exec"), {})
+    monkeypatch.setattr(sys, "argv", [*args, "1"])
+    exec(compile(body, str(SCRIPT), "exec"), {})
+    selected = json.loads(output.read_text())
+    assert selected["step"] == 4
+    assert selected["quick_e2e"] is True
+
+
+def test_quick_overrides(tmp_path: Path) -> None:
+    """Explicit counts win over the preset; tiny rollouts do not launch empty GPU shards."""
+    result = tmp_path / "overrides"
+    completed = subprocess.run(
+        ["bash", str(SCRIPT), "--quick-e2e", "--dry-run", "--result-root", str(result)],
+        cwd=RECIPE_ROOT,
+        env={**os.environ, "FINAL_GENERATION_COUNT": "3", "RL_MAX_STEPS": "6", "SFT_MAX_STEPS": "6"},
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    settings = json.loads((result / "settings.json").read_text())
+    assert settings["final_generation_count"] == 3
+    assert settings["sft_max_steps"] == 6
+    commands = [
+        shlex.split(line.partition("command: ")[2])
+        for line in (result / "RUNLOG.md").read_text().splitlines()
+        if "command: " in line
+    ]
+    shard = next(c for c in commands if "write-inference-shards" in c)
+    assert shard[shard.index("--num-records") + 1] == "3"
+    assert shard[shard.index("--num-shards") + 1] == "3"
+    assert "grpo.max_num_steps=6" in _gdpo_commands(commands)[-1]
+
+
 def test_dry_run(tmp_path: Path) -> None:
     subprocess.run(["bash", "-n", str(SCRIPT)], check=True, timeout=10)
     assert "export NCCL_GRAPH_REGISTER=0" in SCRIPT.read_text()
@@ -190,6 +295,7 @@ def test_dry_run(tmp_path: Path) -> None:
         "whole_genome": True,
         "safety_screen": "current configured databases",
         "final_generation_count": 1000,
+        "quick_e2e": False,
         "wandb_enabled": False,
         "wandb_entity": None,
         "wandb_sft_project": "evo2-phage-design-sft",

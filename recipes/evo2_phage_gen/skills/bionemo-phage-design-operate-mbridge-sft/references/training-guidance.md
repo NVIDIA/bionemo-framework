@@ -10,6 +10,10 @@ Checkpoint retention is a storage choice. Megatron's `--most-recent-k K` keeps o
 
 Set the training ceiling and validation cadence in optimizer updates and examples or tokens seen, not epoch count alone. Treat `max_steps` as a safety ceiling. At every validation/checkpoint boundary, compare only points with the same data, loss, and evaluation semantics; record the current best, ordinary-noise or minimum-material-change band, train trend, decision, and rationale in durable run state.
 
+Exception for the requested quick pipeline check: `--quick-e2e` keeps a bounded SFT budget
+and labels its best-loss selection as execution-only, allowing an endpoint selection.
+It does not establish convergence; see the example README's quick artifact checklist.
+
 One material post-best validation regression is a warning, not a stop. Stop when three consecutive post-best validation points exceed the recorded band while training loss continues materially downward. Choose validation cadence so those confirmations span no more than approximately 1,000 optimizer steps from the first regression. If the third point remains genuinely ambiguous, `one_more` permits at most one additional validation interval with its reason recorded; a recovery within the band clears the divergence candidate. A short plateau alone is not this overfitting pattern.
 
 The supervisor may launch the next segment only after a durable `continue` or `one_more`; `stop` ends SFT at that checkpoint boundary. Best-checkpoint retention does not authorize continuation: preserve the lowest credible validation-loss checkpoint separately from the later checkpoint that established stopping evidence. Then evaluate the selected checkpoint once on the held-out test set. Resume only when model, data, optimizer/scheduler, and serialization semantics remain compatible, restoring the saved step, optimizer, scheduler, and RNG state rather than reinitializing from the base checkpoint.
