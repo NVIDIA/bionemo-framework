@@ -669,7 +669,17 @@ def run_environment_control(config_path: Path, control_fasta: Path, output_dir: 
         ]
         for record in records
     ]
-    metadata = [{"record_id": record.sequence_id} for record in records]
+    # FASTA references are complete-genome fixtures, not sampled rollouts. Model
+    # them as explicitly terminated responses so the configured EOD gate remains
+    # active; this checks scoring, not the policy's ability to emit EOD.
+    metadata = [
+        {
+            "record_id": record.sequence_id,
+            "_generation_stopped_on_eod": True,
+            "_generation_capped_without_eod": False,
+        }
+        for record in records
+    ]
     environment_result = environment_class.step(environment, messages, metadata)
     if environment_result.answers != [record.sequence for record in records]:
         raise RLEnvironmentControlError("exact environment did not reconstruct the complete control genome")
@@ -738,6 +748,7 @@ def run_environment_control(config_path: Path, control_fasta: Path, output_dir: 
             "compared_metric_count": len(baseline["metrics"]),
             "records": [{key: value for key, value in row.items() if key != "metrics"} for row in control_rows],
         }
+    result["termination_evidence"] = "constructed_complete_genome_control"
     (output_dir / "result.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     return result
 

@@ -49,6 +49,10 @@ All CLI tools are defined in `pyproject.toml` under `[project.scripts]`.
 
 Run any tool with `--help` for full usage details.
 
+`train_evo2 --attention-backend {auto,flash,fused,unfused}` overrides the model's
+attention implementation. Omitting it preserves the model provider's default.
+The PhiX launcher explicitly selects `fused` for its 26.07 SFT and RL workflows.
+
 ## Quick start
 
 ### Training with mock data (Hyena)

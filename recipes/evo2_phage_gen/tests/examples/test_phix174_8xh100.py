@@ -167,12 +167,15 @@ def test_quick_e2e(tmp_path: Path) -> None:
     assert sft[sft.index("--max-steps") + 1] == "4"
     assert sft[sft.index("--eval-interval") + 1] == "1"
     assert sft[sft.index("--warmup-steps") + 1] == "0"
+    assert sft[sft.index("--attention-backend") + 1] == "fused"
     assert sft[sft.index("--decay-steps") + 1] == "4"
     split = next(c for c in commands if "evo2_phage_prepare_sft_split" in c)
     assert split[split.index("--validation-count") + 1] == "8"
     assert split[split.index("--test-count") + 1] == "8"
     sweep = next(c for c in commands if "scripts/calibration/run_sft_sampling_sweep.sh" in c)
     assert "NUM_PROMPTS=8" in sweep and "TEMPERATURES=1.0" in sweep
+    scoring = next(c for c in commands if "scripts/calibration/run_sampling_calibration_scoring.sh" in c)
+    assert "EXPECTED_RECORDS=8" in scoring
     rl = _gdpo_commands(commands)
     assert len(rl) == 3  # Pilot, fresh-process reload, and the selected training run.
     for c in rl:
@@ -228,7 +231,13 @@ def test_quick_overrides(tmp_path: Path) -> None:
     completed = subprocess.run(
         ["bash", str(SCRIPT), "--quick-e2e", "--dry-run", "--result-root", str(result)],
         cwd=RECIPE_ROOT,
-        env={**os.environ, "FINAL_GENERATION_COUNT": "3", "RL_MAX_STEPS": "6", "SFT_MAX_STEPS": "6"},
+        env={
+            **os.environ,
+            "FINAL_GENERATION_COUNT": "3",
+            "CALIBRATION_PROMPTS": "3",
+            "RL_MAX_STEPS": "6",
+            "SFT_MAX_STEPS": "6",
+        },
         check=False,
         capture_output=True,
         text=True,
@@ -247,6 +256,28 @@ def test_quick_overrides(tmp_path: Path) -> None:
     assert shard[shard.index("--num-records") + 1] == "3"
     assert shard[shard.index("--num-shards") + 1] == "3"
     assert "grpo.max_num_steps=6" in _gdpo_commands(commands)[-1]
+    scoring = next(c for c in commands if "scripts/calibration/run_sampling_calibration_scoring.sh" in c)
+    assert "EXPECTED_RECORDS=3" in scoring
+
+
+def test_monitored_timeout(tmp_path: Path) -> None:
+    """A stalled quick stage must fail instead of emitting indefinite healthy-looking heartbeats."""
+    body = SCRIPT.read_text().split("monitored() {", 1)[1].split("\n}\n", 1)[0]
+    shell = (
+        "set -Eeuo pipefail\n"
+        'note() { printf "%s\\n" "$*"; }\n'
+        "DRY_RUN=0; MONITOR_INTERVAL_SECONDS=1; STAGE_TIMEOUT_SECONDS=1\n"
+        "monitored() {" + body + "\n}\n"
+        'monitored stalled "$1" sleep 30\n'
+    )
+    completed = subprocess.run(
+        ["bash", "-c", shell, "bash", str(tmp_path / "hung.log")],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=15,
+    )
+    assert completed.returncode == 124
 
 
 def test_dry_run(tmp_path: Path) -> None:

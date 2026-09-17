@@ -82,11 +82,12 @@ def _write_minimal_config(
     return config_path
 
 
-def _write_control_config(tmp_path: Path) -> Path:
+def _write_control_config(tmp_path: Path, *, zero_reward_without_eod: bool = False) -> Path:
     config_path = _write_minimal_config(tmp_path, include_adapter=True)
     config = yaml.safe_load(config_path.read_text())
     config["env"]["phage_qc"] = {
         "reward_output_mode": "gdpo",
+        "zero_reward_without_eod": zero_reward_without_eod,
         "weight_valid_nt_chars": 1.0,
         "weight_tropism": 1.0,
         "weight_mmseqs_cluster_diversity": 1.0,
@@ -176,8 +177,9 @@ def _control_scores(sequence: str) -> pd.DataFrame:
     return pd.DataFrame([row])
 
 
-def test_environment_control_runs_exact_step(tmp_path, monkeypatch):
-    config_path = _write_control_config(tmp_path)
+@pytest.mark.parametrize("zero_reward_without_eod", [False, True])
+def test_environment_control_runs_exact_step(tmp_path, monkeypatch, zero_reward_without_eod):
+    config_path = _write_control_config(tmp_path, zero_reward_without_eod=zero_reward_without_eod)
     control_fasta = tmp_path / "phix.fna"
     sequence = "ACGT" * 5
     control_fasta.write_text(f">phix\n{sequence}\n")
@@ -196,6 +198,11 @@ def test_environment_control_runs_exact_step(tmp_path, monkeypatch):
     result = rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
 
     assert result["record_id"] == "phix"
+    assert result["termination_evidence"] == "constructed_complete_genome_control"
+    assert (
+        yaml.safe_load(config_path.read_text())["env"]["phage_qc"]["zero_reward_without_eod"]
+        is zero_reward_without_eod
+    )
     assert result["sequence_length"] == 20
     assert result["objectives"] == {
         "valid_nt_chars": 1.0,
@@ -230,7 +237,7 @@ def test_environment_control_rejects_skipped_metric(tmp_path, monkeypatch):
 
 
 def test_rotation_control_compares_intrinsic_scores(tmp_path, monkeypatch):
-    config_path = _write_control_config(tmp_path)
+    config_path = _write_control_config(tmp_path, zero_reward_without_eod=True)
     control_fasta = tmp_path / "phix-rotations.fna"
     sequence = "AAAACCCCGGGGTTTTACGT"
     rotated = sequence[8:] + sequence[:8]
@@ -249,6 +256,7 @@ def test_rotation_control_compares_intrinsic_scores(tmp_path, monkeypatch):
     result = rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
 
     assert result["intrinsic_scores_rotation_invariant"] is True
+    assert result["termination_evidence"] == "constructed_complete_genome_control"
     assert result["excluded_objectives"] == ["diversity"]
     assert [row["objectives"]["diversity"] for row in result["records"]] == [1.0, 0.5]
     assert [row["record_id"] for row in result["records"]] == ["origin", "rotated"]

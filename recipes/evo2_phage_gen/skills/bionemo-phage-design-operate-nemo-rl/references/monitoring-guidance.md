@@ -2,6 +2,11 @@
 
 Use a job facility that survives the chat session. Record its identifier and log location, check startup, then observe at the cadence of meaningful progress or the next validation/checkpoint. Use a harness scheduler, a scoped cron task, or an attached waiting process when available. Reattach after reconnecting. Repeated unchanged polls add little to the runlog.
 
+The checkpoint supervisor forwards INT/TERM to the trainer's separate process group,
+then kills that group after a 30-second grace period if it does not exit. This also
+applies when the quick E2E subprocess timeout fires. Inspect the failed stage and
+resume from completed artifacts; a timeout does not qualify an update or checkpoint.
+
 ## Read the experiment
 
 Read training rollouts and the fixed validation bank together. The bank provides longitudinal comparison; different seeds or prompts do not make it a biological-label holdout. Track:

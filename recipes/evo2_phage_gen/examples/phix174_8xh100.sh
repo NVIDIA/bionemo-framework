@@ -62,6 +62,7 @@ for ((gpu_index=0; gpu_index<NUM_GPUS; gpu_index++)); do
   GPU_IDS+="${GPU_IDS:+ }${gpu_index}"
 done
 MONITOR_INTERVAL_SECONDS="${MONITOR_INTERVAL_SECONDS:-600}"
+SFT_ATTENTION_BACKEND="${SFT_ATTENTION_BACKEND:-fused}"
 PHAROKKA_DATABASE_URL="${PHAROKKA_DATABASE_URL:-https://zenodo.org/records/21755221/files/pharokka_v1.11.0_databases.tar.gz?download=1}"
 PHAROKKA_DATABASE_MD5="${PHAROKKA_DATABASE_MD5:-143bb375ddb0b0653e5cb5671f4a7629}"
 PHAROKKA_DATABASE_RELEASE="${PHAROKKA_DATABASE_RELEASE:-Pharokka database v1.11.0 / PHROGs v4}"
@@ -143,6 +144,7 @@ if [[ "${QUICK_E2E}" == "1" ]]; then
   : "${RL_VALIDATION_RECORDS:=8}" "${RL_TRAIN_RECORDS:=8}" "${RL_SAVE_INTERVAL:=1}" "${RL_VAL_INTERVAL:=1}"
   : "${RL_TRAIN_MICRO_BATCH_SIZE:=1}" "${RL_PROMPT_BATCH_SIZE:=4}"
   : "${FINAL_GENERATION_COUNT:=16}" "${FINAL_PROMPT_BATCH_SIZE:=8}"
+  : "${STAGE_TIMEOUT_SECONDS:=3600}"
   [[ "${RESULT_ROOT}" != "${RECIPE_ROOT}/results/phix174-8xh100-origin" ]] || RESULT_ROOT+="-quick"
   # A tiny calibration tests execution, not sampling selection. Carry the reviewed default.
   : "${SAMPLING_SELECTION_SOURCE:=${RECIPE_ROOT}/examples/default-sampling-selection.yaml}"
@@ -154,6 +156,7 @@ fi
 : "${RL_VALIDATION_RECORDS:=96}" "${RL_TRAIN_RECORDS:=96}" "${RL_SAVE_INTERVAL:=10}" "${RL_VAL_INTERVAL:=10}"
 : "${RL_TRAIN_MICRO_BATCH_SIZE:=8}" "${RL_PROMPT_BATCH_SIZE:=96}"
 : "${FINAL_GENERATION_COUNT:=1000}" "${FINAL_PROMPT_BATCH_SIZE:=96}"
+: "${STAGE_TIMEOUT_SECONDS:=0}"
 for count_name in SFT_HOLDOUT_COUNT SFT_MAX_STEPS SFT_EVAL_INTERVAL SFT_EVAL_ITERS SFT_DECAY_STEPS \
   CALIBRATION_PROMPTS CALIBRATION_WORKERS RL_MAX_STEPS RL_GLOBAL_BATCH_SIZE RL_GENERATIONS_PER_PROMPT \
   RL_VALIDATION_RECORDS RL_TRAIN_RECORDS RL_SAVE_INTERVAL RL_VAL_INTERVAL RL_TRAIN_MICRO_BATCH_SIZE \
@@ -162,7 +165,7 @@ for count_name in SFT_HOLDOUT_COUNT SFT_MAX_STEPS SFT_EVAL_INTERVAL SFT_EVAL_ITE
     printf '%s must be a positive integer; got %q\n' "${count_name}" "${!count_name}" >&2; exit 2
   fi
 done
-for count_name in SFT_SOURCE_LIMIT SFT_WARMUP_STEPS; do
+for count_name in SFT_SOURCE_LIMIT SFT_WARMUP_STEPS STAGE_TIMEOUT_SECONDS; do
   if [[ ! "${!count_name}" =~ ^(0|[1-9][0-9]*)$ ]]; then
     printf '%s must be a nonnegative integer; got %q\n' "${count_name}" "${!count_name}" >&2; exit 2
   fi
@@ -544,6 +547,11 @@ run_result() {
 monitored() {
   local label="$1" log="$2"
   shift 2
+  # A live smoke must terminate on a wedged subprocess, not heartbeat indefinitely.
+  # GNU timeout isolates/signals the child process group; full runs are unbounded by default.
+  if ((STAGE_TIMEOUT_SECONDS > 0)); then
+    set -- timeout --kill-after=60s "${STAGE_TIMEOUT_SECONDS}s" "$@"
+  fi
   printf -v command '%q ' "$@"
   note "command: ${command}"
   note "monitor: ${label}; log: ${log}"
@@ -899,7 +907,7 @@ PY
 stage_20() {
   local prep base_nemo base_iteration base_mbridge="${RESULT_ROOT}/checkpoints/${BASE_CHECKPOINT_DIR}" sft="${RESULT_ROOT}/sft/train" selected
   prep="$(read_state sft-prepared)"
-  local model=(--skip-taxonomy-loss-mask --hf-tokenizer-model-path tokenizers/nucleotide_fast_tokenizer_512 --model-size "${MODEL_SIZE}" --micro-batch-size 1 --seq-length 10240 --tensor-model-parallel-size "${SFT_TENSOR_PARALLEL_SIZE}" --use-precision-aware-optimizer --bf16-main-grads --grad-reduce-in-fp32 --overlap-grad-reduce --cross-entropy-loss-fusion --no-weight-decay-embeddings --no-renormalize-loss --use-subquadratic-ops --no-fp32-residual-connection --activation-checkpoint-recompute-num-layers 1 --mixed-precision-recipe bf16_mixed)
+  local model=(--skip-taxonomy-loss-mask --hf-tokenizer-model-path tokenizers/nucleotide_fast_tokenizer_512 --model-size "${MODEL_SIZE}" --micro-batch-size 1 --seq-length 10240 --tensor-model-parallel-size "${SFT_TENSOR_PARALLEL_SIZE}" --attention-backend "${SFT_ATTENTION_BACKEND}" --use-precision-aware-optimizer --bf16-main-grads --grad-reduce-in-fp32 --overlap-grad-reduce --cross-entropy-loss-fusion --no-weight-decay-embeddings --no-renormalize-loss --use-subquadratic-ops --no-fp32-residual-connection --activation-checkpoint-recompute-num-layers 1 --mixed-precision-recipe bf16_mixed)
   if [[ -f "${STAGE_DIR}/20-sft.done" ]]; then
     note 'substage 20-sft already complete'
   else
@@ -951,7 +959,7 @@ stage_30() {
     note 'substage 30-calibration-scoring already complete'
   else
     prepare_arc_pipeline
-    monitored 'calibration scoring' "${calibration}/scoring.log" env SOURCE_ENV=0 CALIBRATION_ROOT="${calibration}" GENERATION_ROOT="${calibration}/generation" ARC_CONFIG="${RECIPE_ROOT}/configs/arc_genome_design_filtering_local.yaml" PIPELINE_SCRIPT="${RECIPE_ROOT}/data/arc_pipeline_patched/genome_design_filtering_pipeline.py" TOOL_BIN_DIR="${RECIPE_ROOT}/data/external/bin" REFERENCE_FASTA="${RECIPE_ROOT}/data/external/arc_evo2/phage_gen/data/NC_001422_1.fna" SFT_FASTA="${RESULT_ROOT}/sft/source-safety/partitions/pass.fasta" SAFETY_ASSET_MANIFEST="${RECIPE_ROOT}/data/external/safety/asset_manifest.yaml" SAFETY_POLICY="${RECIPE_ROOT}/configs/phage_safety_policy.yaml" SAFETY_HOST_DOMAIN=BACTERIA SAFETY_HOST_EVIDENCE_JSON="${PHIX174_HOST_EVIDENCE_JSON}" WORKERS="${CALIBRATION_WORKERS}" scripts/calibration/run_sampling_calibration_scoring.sh
+    monitored 'calibration scoring' "${calibration}/scoring.log" env SOURCE_ENV=0 CALIBRATION_ROOT="${calibration}" GENERATION_ROOT="${calibration}/generation" EXPECTED_RECORDS="${CALIBRATION_PROMPTS}" ARC_CONFIG="${RECIPE_ROOT}/configs/arc_genome_design_filtering_local.yaml" PIPELINE_SCRIPT="${RECIPE_ROOT}/data/arc_pipeline_patched/genome_design_filtering_pipeline.py" TOOL_BIN_DIR="${RECIPE_ROOT}/data/external/bin" REFERENCE_FASTA="${RECIPE_ROOT}/data/external/arc_evo2/phage_gen/data/NC_001422_1.fna" SFT_FASTA="${RESULT_ROOT}/sft/source-safety/partitions/pass.fasta" SAFETY_ASSET_MANIFEST="${RECIPE_ROOT}/data/external/safety/asset_manifest.yaml" SAFETY_POLICY="${RECIPE_ROOT}/configs/phage_safety_policy.yaml" SAFETY_HOST_DOMAIN=BACTERIA SAFETY_HOST_EVIDENCE_JSON="${PHIX174_HOST_EVIDENCE_JSON}" WORKERS="${CALIBRATION_WORKERS}" scripts/calibration/run_sampling_calibration_scoring.sh
     [[ "${DRY_RUN}" == "1" ]] || touch "${STAGE_DIR}/30-calibration-scoring.done"
   fi
   if [[ "${CALIBRATE_ONLY}" == "1" ]]; then

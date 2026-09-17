@@ -37,6 +37,7 @@ from megatron.bridge.training.mixed_precision import MIXED_PRECISION_RECIPES
 from megatron.bridge.training.post_training.checkpointing import has_modelopt_state
 from megatron.bridge.training.pretrain import pretrain
 from megatron.bridge.utils.common_utils import get_local_rank_preinit, get_rank_safe
+from megatron.core.transformer.enums import AttnBackend
 
 from bionemo.evo2.data.dataset_tokenizer import DEFAULT_HF_TOKENIZER_MODEL_PATH
 from bionemo.evo2.models.evo2_provider import MODEL_OPTIONS, hyena_forward_step, infer_model_type
@@ -594,6 +595,12 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         help="Dropout probability for the attention layers.",
     )  # DONE
     parser.add_argument(
+        "--attention-backend",
+        choices=("auto", "flash", "fused", "unfused"),
+        default=None,
+        help="Override the model's attention implementation; otherwise retain its provider default.",
+    )
+    parser.add_argument(
         "--use-subquadratic-ops",
         action="store_true",
         help="Use accelerated subquadratic FFT/causal-conv1d kernels, including projection/mixer B2B fusion.",
@@ -926,6 +933,8 @@ def train(args: argparse.Namespace) -> None:
         cfg.model.hidden_dropout = args.hidden_dropout
     if args.attention_dropout is not None:
         cfg.model.attention_dropout = args.attention_dropout
+    if args.attention_backend is not None:
+        cfg.model.attention_backend = AttnBackend[args.attention_backend]
     if args.ffn_hidden_size is not None:
         cfg.model.ffn_hidden_size = args.ffn_hidden_size
 

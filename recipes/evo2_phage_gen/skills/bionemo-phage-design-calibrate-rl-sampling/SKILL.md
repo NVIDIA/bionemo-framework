@@ -11,6 +11,11 @@ Use the selected SFT checkpoint's actual serialization and the project's scienti
 
 The [PhiX example README](../../examples/README.md) describes commands, the review stop, selection schema, and resume markers. An explicit `--sampling-selection` is a reviewed override, not the outcome of fresh calibration. If selection is delegated, inspect `calibration/scoring/selection-evidence.csv` and neighboring score/novelty evidence, write `calibration/sampling-selection.yaml`, and continue. No further acknowledgment is needed within the delegated scope.
 
+For a reduced execution check, the example's `CALIBRATION_PROMPTS` sets both
+generated and expected scored rows per cell; `--quick-e2e` uses eight. When calling
+the generation and scoring scripts separately, keep `NUM_PROMPTS` and
+`EXPECTED_RECORDS` equal rather than inheriting the scorer's 64-row default.
+
 ## Construct prompts
 
 Reconstruct conditioning, orientation, wrappers, tokenization, BOS/EOS, padding, and the continuation boundary from SFT. Use only cues the model saw.

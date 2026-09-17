@@ -35,6 +35,11 @@ The PhiX configs enable `zero_reward_without_eod` by default with a 6,000-token 
 
 Compare configured objectives with emitted scores and positive/failure controls. Separate valid zero or candidate-level safety failure from unavailable measurements. Diagnose missing scorers; keep sparse but measured objectives visible. Record deliberate objective changes and report them in the next useful update.
 
+The readiness check treats complete reference FASTA records as constructed terminated-response
+controls and labels that evidence in its report. It retains the configured missing-EOD gate;
+control success verifies scoring, not the policy's ability to terminate. Use actual pilot tokens
+for termination and cap behavior.
+
 ## Save and select
 
 Use native Megatron-Bridge `torch_dist` checkpoints: `checkpointing.model_save_format: null`, `save_consolidated: false`, Megatron enabled, DTensor disabled. Weights live at `step_N/policy/weights/iter_0000000`. Keep `save_optimizer: true` for compatible continuation; a model-only fallback restores step/dataloader/weights but initializes fresh Adam. Recipe config edits do not require reinstalling NeMo-RL.

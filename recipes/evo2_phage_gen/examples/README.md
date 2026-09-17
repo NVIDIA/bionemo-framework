@@ -63,11 +63,13 @@ when changing images; do not reuse compiled extensions or older image-specific d
 workers use the same runtime. Before training on a new image/node combination, verify CUDA
 initialization, NCCL collectives, and the required subquadratic kernel on every worker.
 
-The RL configs select cuDNN fused attention with
-`policy.megatron_cfg.attention_backend=fused`. This avoids the FA4/CuTe backward stall
+The PhiX launcher selects cuDNN fused attention for SFT (`--attention-backend fused`)
+and RL (`policy.megatron_cfg.attention_backend=fused`). This avoids the FA4/CuTe backward stall
 reproduced on the tested 26.07 H100 stack; environment-only `NVTE_*` selectors are not
-sufficient because the Evo2 provider can reset them. This setting applies to RL policy
-and reference computation, not the native packed-generation adapter. Qualify full updates,
+sufficient because the Evo2 provider can reset them. Set `SFT_ATTENTION_BACKEND` to
+qualify a different SFT implementation; the generic `train_evo2` CLI otherwise retains
+its provider default. These settings apply to SFT and RL policy/reference computation,
+not the native packed-generation adapter. Qualify full updates,
 validation and checkpoint reload when changing the runtime or attention backend.
 
 For a fresh PhiX experiment, use the trained-further 7B-1M model and a new result root:
@@ -116,6 +118,10 @@ With cached model weights and databases, the intended budget is a few hours on
 memory or throughput qualification. Without an explicit result root it uses
 `results/phix174-8xh100-origin-quick`, separate from the normal experiment.
 Resume with the same preset and overrides; completed-stage markers work normally.
+Quick mode bounds each monitored subprocess to one hour so a wedged trainer fails
+instead of emitting heartbeats indefinitely. Set `STAGE_TIMEOUT_SECONDS` to change
+that bound (0 disables it); normal runs default to 0. A timeout is an execution
+failure to investigate, not a reason to mark the stage complete.
 
 Check these artifacts before calling the E2E test successful:
 
@@ -143,6 +149,7 @@ Environment overrides take precedence over the preset. These controls also work 
 | `FINAL_GENERATION_COUNT`; `FINAL_PROMPT_BATCH_SIZE` per GPU     |               1000; 96 |   16; 8 |
 
 Choose batch sizes divisible by the GPU/microbatch layout and the generation-group size.
+`CALIBRATION_PROMPTS` sets the per-cell count for both generation and score validation.
 Keep enough saved validation points for an interior RL checkpoint selection; a single
 terminal checkpoint is not a substitute. The three-update pilot stays fixed to exercise
 validation followed by another update and a separate full-state restore.
@@ -448,7 +455,10 @@ transferable threshold.
 
 Before GDPO, the exact configured environment scores the reference at coordinate 1. An explicit
 custom selection with additional anchors also checks those reference rotations for identical
-reward, filter, and measurement-support outcomes. Arc hard QC removes ORFipy calls beginning
+reward, filter, and measurement-support outcomes. Complete FASTA references are constructed
+terminated-response controls, labeled `termination_evidence: constructed_complete_genome_control`
+in the result. The missing-EOD gate stays enabled; this checks scoring, not learned termination.
+Arc hard QC removes ORFipy calls beginning
 wholly inside its appended pseudocircular tail, while retaining cross-origin ORFs, so tail length
 cannot create rotation-dependent duplicate genes.
 Raw endpoint-local DUST fractions can differ by linear origin, but the tested PhiX rotations have

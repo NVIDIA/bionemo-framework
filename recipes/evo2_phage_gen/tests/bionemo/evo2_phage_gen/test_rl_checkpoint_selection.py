@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import os
 import shutil
+import signal
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -167,6 +170,44 @@ def test_supervisor_polls_and_performs_a_final_sync(monkeypatch, tmp_path: Path)
     assert status == 0
     assert len(calls) >= 2
     assert calls[-1] == tmp_path / "logs"
+
+
+def test_supervisor_kills_unresponsive_child(tmp_path: Path) -> None:
+    """An outer timeout must not orphan the trainer's separate process group."""
+    ready = tmp_path / "child.pid"
+    child_code = (
+        "import os,signal,time; from pathlib import Path; "
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        f"Path({str(ready)!r}).write_text(str(os.getpid())); time.sleep(60)"
+    )
+    supervisor_code = (
+        "import sys; from pathlib import Path; "
+        "from bionemo.evo2_phage_gen import rl_checkpoint_selection as m; "
+        "m._SHUTDOWN_GRACE_SECONDS=0.1; m._sync_from_tensorboard=lambda *args:None; "
+        f"sys.exit(m.supervise([sys.executable,'-c',{child_code!r}], "
+        "tensorboard_root=Path('.'),checkpoint_root=Path('.'),protected_root=Path('.'),poll_seconds=30))"
+    )
+    process = subprocess.Popen([sys.executable, "-c", supervisor_code], start_new_session=True)
+    child_pid = None
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert ready.exists(), "supervised child did not start"
+        child_pid = int(ready.read_text())
+        process.send_signal(signal.SIGTERM)
+        process.wait(timeout=5)
+        assert process.returncode != 0
+        with pytest.raises(ProcessLookupError):
+            os.kill(child_pid, 0)
+    finally:
+        for pid in (child_pid, process.pid):
+            if pid is not None:
+                try:
+                    os.killpg(pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+        process.wait(timeout=5)
 
 
 def test_sync_waits_for_an_atomically_published_checkpoint(monkeypatch, tmp_path: Path) -> None:

@@ -1,5 +1,11 @@
 # SFT training guidance
 
+The PhiX launcher explicitly uses `train_evo2 --attention-backend fused` on its 26.07
+runtime to avoid the observed FA4/CuTe backward stall. The generic training CLI can
+select `auto`, `flash`, `fused`, or `unfused`; omitting the flag retains the provider
+default. Qualify updates and reloads for a changed backend instead of relying on
+environment-only TE selectors, which the provider resets during model construction.
+
 Resolve the current training command and record the base model/version, explicit train/validation/test inputs, tokenizer and serialization, context length, precision, optimizer, effective batch, random seed, validation cadence, and checkpoint cadence.
 
 Record loss masking explicitly. For a verified taxonomy-free indexed corpus, pass `--skip-taxonomy-loss-mask` to train and evaluation; the PhiX example does this. The generic taxonomy parser can mask short conditioned DNA fragments as text. The bypass retains non-DNA masking (including PhiX prefixes), genuine EOD targets, and synthetic-padding exclusion. Taxonomy-annotated corpora still need the parser. Changing this setting changes supervised positions and loss comparability, so start a new attempt rather than treating it as an exact resume.
@@ -13,6 +19,9 @@ Set the training ceiling and validation cadence in optimizer updates and example
 Exception for the requested quick pipeline check: `--quick-e2e` keeps a bounded SFT budget
 and labels its best-loss selection as execution-only, allowing an endpoint selection.
 It does not establish convergence; see the example README's quick artifact checklist.
+Quick monitored stages have a one-hour timeout by default; a heartbeat without new
+training artifacts is not progress. Inspect the stage log on timeout and resume only
+completed markers, keeping the original failure evidence.
 
 One material post-best validation regression is a warning, not a stop. Stop when three consecutive post-best validation points exceed the recorded band while training loss continues materially downward. Choose validation cadence so those confirmations span no more than approximately 1,000 optimizer steps from the first regression. If the third point remains genuinely ambiguous, `one_more` permits at most one additional validation interval with its reason recorded; a recovery within the band clears the divergence candidate. A short plateau alone is not this overfitting pattern.
 

@@ -25,6 +25,7 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from bionemo.evo2_phage_gen.objective_monitor import (
 
 AGGREGATE_METRIC = "mean_reward"
 MAX_SCORE_METRIC = "all_objectives_max_score_rate"
+_SHUTDOWN_GRACE_SECONDS = 30.0
 
 
 def _finite_float(value: Any, *, name: str) -> float:
@@ -278,13 +280,24 @@ def supervise(
     if not command:
         raise ValueError("missing supervised command")
     process = subprocess.Popen(list(command), start_new_session=True)
+    kill_timer: threading.Timer | None = None
+
+    def signal_child_group(signum: int) -> None:
+        try:
+            os.killpg(process.pid, signum)
+        except ProcessLookupError:
+            pass
 
     def forward_signal(signum: int, _frame: Any) -> None:
-        if process.poll() is None:
-            try:
-                os.killpg(process.pid, signum)
-            except ProcessLookupError:
-                pass
+        nonlocal kill_timer
+        # The trainer owns a separate session. An outer timeout cannot kill it
+        # with the supervisor, so bound graceful shutdown here as well. A timer
+        # also works while protecting a checkpoint after the driver has exited.
+        if kill_timer is None:
+            kill_timer = threading.Timer(_SHUTDOWN_GRACE_SECONDS, signal_child_group, (signal.SIGKILL,))
+            kill_timer.daemon = True
+            kill_timer.start()
+        signal_child_group(signum)
 
     previous_handlers = {signum: signal.signal(signum, forward_signal) for signum in (signal.SIGINT, signal.SIGTERM)}
     sync_error: Exception | None = None
@@ -311,6 +324,10 @@ def supervise(
             sync_error = error
             print(f"final checkpoint protection failed: {error}", file=sys.stderr, flush=True)
     finally:
+        if kill_timer is not None:
+            kill_timer.cancel()
+            # The driver may exit before its workers; clean up the remaining group.
+            signal_child_group(signal.SIGKILL)
         for signum, handler in previous_handlers.items():
             signal.signal(signum, handler)
     if return_code == 0 and sync_error is not None:

@@ -8,6 +8,7 @@
       "assertions": [
         "It uses examples/phix174_8xh100.sh --quick-e2e in a separate result root and follows the README workload controls rather than skipping stages.",
         "It keeps whole-genome token budgets and safety/acceptance rules while reducing workload counts.",
+        "It uses the PhiX launcher's explicit fused SFT/RL attention settings, checks actual update/artifact progress rather than heartbeats alone, and diagnoses a quick-child timeout instead of marking that stage complete.",
         "It verifies SFT and RL selection/checkpoints, pilot full-state reload, all 16 raw and likelihood records, succeeded final report, accepted FASTA and summary.",
         "It distinguishes successful execution with zero accepted candidates from biological success, and does not call the small batch a full-shape capacity qualification."
       ],
