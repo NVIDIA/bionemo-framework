@@ -46,7 +46,7 @@ def test_required_functions_match_synteny_profile():
     """Completeness and ordered gene content must refer to the same function slots."""
     arc = yaml.safe_load((RECIPE_ROOT / "configs/arc_genome_design_filtering_local.yaml").read_text())
     required_functions = set(arc["required_gene_families"])
-    synteny_functions = list(arc["synteny_reference_functions"].values())
+    synteny_functions = list(arc["core_gene_reference_functions"].values())
     assert required_functions
     assert set(synteny_functions) == required_functions
     assert len(synteny_functions) == len(required_functions)

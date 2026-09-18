@@ -153,11 +153,11 @@ PATCHED_SYNTENY_METRICS_FUNCTION = '''def count_syntenic_genes_all(
     """Measure protein synteny from curated functions or reference clusters."""
     from bionemo.evo2_phage_gen.protein_evidence import (
         measure_reference_cluster_synteny, score_function_matches,
-        summarize_function_synteny, load_candidate_orf_context, write_reference_protein_fasta,
+        summarize_core_gene_ordered_conservation, load_candidate_orf_context, write_reference_protein_fasta,
     )
 
-    if config is not None and config.get("synteny_reference_functions") is not None:
-        functions = config["synteny_reference_functions"]
+    if config is not None and config.get("core_gene_reference_functions") is not None:
+        functions = config["core_gene_reference_functions"]
         families = config["required_gene_families"]
         if not set(functions.values()).issubset(families):
             raise ValueError("Synteny functions must be defined in required_gene_families")
@@ -172,7 +172,7 @@ PATCHED_SYNTENY_METRICS_FUNCTION = '''def count_syntenic_genes_all(
         _, orders = load_candidate_orf_context(os.path.join(results, config["orfipy_orfs_file_save_location"]))
         order = write_reference_protein_fasta(reference_gff_path, os.path.join(results, "synteny_reference_proteins.fasta"))
         sequences = pd.read_csv(input_csv)
-        metrics = summarize_function_synteny(
+        metrics = summarize_core_gene_ordered_conservation(
             matches, sequences, candidate_orders=orders, reference_order=order, reference_functions=functions,
         )
         columns = [column for column in metrics if column not in ("id_prompt", "genome_id")]
@@ -306,8 +306,8 @@ ARC_SYNTENY_FILTER_RESULT = """    filtered_df = df[df[['num_syntenic_genes', 't
     removed_ids = set(df["genome_id"]) - set(filtered_df["genome_id"])
 """
 PATCHED_SYNTENY_FILTER_RESULT = """    if filter_results:
-        from bionemo.evo2_phage_gen.protein_evidence import reference_synteny_pass_mask
-        filtered_df = df[reference_synteny_pass_mask(df, max_missing_reference_genes)]
+        from bionemo.evo2_phage_gen.protein_evidence import core_gene_ordered_conservation_pass_mask
+        filtered_df = df[core_gene_ordered_conservation_pass_mask(df, max_missing_reference_genes)]
         removed_ids = set(df["genome_id"]) - set(filtered_df["genome_id"])
     else:
         filtered_df = df
@@ -319,7 +319,7 @@ ARC_SYNTENY_CALL_SUFFIX = """                                      pdf_dir=f'{co
 PATCHED_SYNTENY_CALL_SUFFIX = """                                      pdf_dir=f'{config["results_save_dir"]}/{config["genetic_architecture_visualization_pdf_dir_save_location"]}',
                                       metadata_dir=f'{config["results_save_dir"]}/{config["genetic_architecture_visualization_dir_save_location"]}',
                                       filter_results=not online_measurement_mode,
-                                      max_missing_reference_genes=config.get("synteny_max_missing_reference_genes", 0))
+                                      max_missing_reference_genes=config.get("core_gene_max_missing_functions", 0))
 """
 ARC_PIPELINE_FILES = (
     "genome_design_filtering_pipeline.py",

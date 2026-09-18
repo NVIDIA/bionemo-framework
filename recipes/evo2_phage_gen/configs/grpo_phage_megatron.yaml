@@ -284,7 +284,8 @@ env:
     weight_dustmask_end: 1.0
     weight_nucleotide_pass: 0.0
     weight_tropism: 1.0
-    weight_synteny: 1.0
+    weight_core_gene_ordered_conservation: 1.0
+    weight_accessory_gene_diversification: 1.0
     weight_gene_a_origin: 1.0
     weight_average_protein_identity: 1.0
     weight_required_genes: 1.0
@@ -321,7 +322,8 @@ env:
       fail_on_error: true
       timeout_seconds: 1800
       enable_tropism: true
-      enable_synteny: true
+      enable_core_gene_ordered_conservation: true
+      enable_accessory_gene_diversification: true
       enable_average_protein_identity: true
       enable_required_genes: true
       # Nine PhiX functions; viable K loss and alternate J are described in the Arc profile.
@@ -335,11 +337,11 @@ env:
       # Identity settings are fractions; 5% is a shaping baseline, not a homology threshold.
       # The 90% target below does not apply to the family route: a supported family
       # match can give full synteny gene credit at lower identity. See configs/required_genes.md.
-      synteny_identity_zero_credit: 0.05
-      synteny_identity_full_credit: 0.90
-      synteny_reciprocal_coverage_full_credit: 0.95
-      synteny_order_weight: 0.75
-      synteny_duplicate_penalty_weight: 0.75
+      core_gene_identity_zero_credit: 0.05
+      core_gene_identity_full_credit: 0.90
+      core_gene_reciprocal_coverage_full_credit: 0.95
+      core_gene_order_weight: 0.75
+      core_gene_duplicate_penalty_weight: 0.75
       tropism_identity_zero_credit: 0.05
       # Shaping targets; the independent hard gate uses >=60% identity and >=0.95 coverage.
       # https://doi.org/10.1101/2025.09.12.675911, Methods B.1.9.

@@ -52,18 +52,18 @@ accepted = nucleotide_pass_mask(measured, config)
 
 `accepted` means nucleotide acceptance only. `reward_nucleotide_pass` uses exactly this predicate, including both homopolymer bounds. It does not replace protein, synteny, or safety screening.
 
-| Public function in `reward.py` | Inputs and result                                                                                                                                                        |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `score_genome_length`          | Length in nucleotides and a configured four-point envelope; returns a score in [0, 1], independent of hard min/max.                                                      |
-| `score_tropism_identity`       | Percent identity, explicit measured-hit status, and an identity threshold; no hit earns zero. This is the identity curve used when smooth reference scoring is disabled. |
-| `score_aai_novelty`            | Mean protein identity in percent; full credit through 95%, then a taper with a 0.25 floor. This curve is a PhiX preference, not a universal viability rule.              |
-| `score_aai_evidence`           | Number of measured proteins; linear credit up to ten. Multiply by novelty so absent evidence cannot earn novelty credit.                                                 |
-| `score_synteny_counts`         | Matched reference loci, fixed reference count, excess copies, and order violations; returns (reward, reference coverage, copy balance, reference deficit).               |
-| `aggregate_rewards`            | Scored columns and positive component weights; adds the bounded weighted scalar reward subject to the safety gate. GDPO instead uses its configured objective columns.   |
+| Public function in `reward.py`        | Inputs and result                                                                                                                                                        |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `score_genome_length`                 | Length in nucleotides and a configured four-point envelope; returns a score in [0, 1], independent of hard min/max.                                                      |
+| `score_tropism_identity`              | Percent identity, explicit measured-hit status, and an identity threshold; no hit earns zero. This is the identity curve used when smooth reference scoring is disabled. |
+| `score_aai_novelty`                   | Mean protein identity in percent; full credit through 95%, then a taper with a 0.25 floor. This curve is a PhiX preference, not a universal viability rule.              |
+| `score_aai_evidence`                  | Number of measured proteins; linear credit up to ten. Multiply by novelty so absent evidence cannot earn novelty credit.                                                 |
+| `score_core_gene_conservation_counts` | Matched reference loci, fixed reference count, excess copies, and order violations; returns (reward, reference coverage, copy balance, reference deficit).               |
+| `aggregate_rewards`                   | Scored columns and positive component weights; adds the bounded weighted scalar reward subject to the safety gate. GDPO instead uses its configured objective columns.   |
 
-The protein-evidence, synteny, and origin functions are public in `protein_evidence.py`: `smooth_protein_match_integrity`, `summarize_smooth_reference_evidence`, `score_smooth_synteny`, `score_function_matches`, `summarize_function_synteny`, and `score_gene_a_origin`. The [worked PhiX reward definitions](../../../examples/README.md#current-phix174-gdpo-score-definitions) identify which functions the shipped profile selects. Keep CSV readers, subprocess arguments, and artifact reconciliation private; those helpers are not standalone biological scoring APIs.
+The protein-evidence, synteny, and origin functions are public in `protein_evidence.py`: `smooth_protein_match_integrity`, `summarize_smooth_reference_evidence`, `score_core_gene_ordered_conservation`, `score_function_matches`, `summarize_core_gene_ordered_conservation`, and `score_gene_a_origin`. The [worked PhiX reward definitions](../../../examples/README.md#current-phix174-gdpo-score-definitions) identify which functions the shipped profile selects. Keep CSV readers, subprocess arguments, and artifact reconciliation private; those helpers are not standalone biological scoring APIs.
 
-The online reference search in `reward.py` runs the protein `createdb`, `align -e 1`,
+The shared reference search in `reference_search.py` runs the protein `createdb`, `align -e 1`,
 and `convertalis` stages explicitly. Its private exhaustive candidate database contains
 the complete target index plus a NUL terminator, included in every query entry's length;
 the original target index is unchanged. This avoids the pinned MMseqs `fake_pref`
@@ -127,17 +127,17 @@ for new profiles. `required_genes_integrity_sum` is summed normalized coverage i
 this term, not the smooth reference-protein geometric mean. Any profile change needs
 replay on viable and disrupted controls before interpreting a new run against old scores.
 
-## Synteny entry points
+## Core gene ordered conservation entry points
 
-| Function in `protein_evidence.py`     | Result and role                                                                                                                   |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `score_smooth_synteny`                | Returns `SmoothSyntenyScore`: the continuous synteny reward, content, circular-order, excess-copy components, and assignment.     |
-| `summarize_function_synteny`          | Measures matched functions, order violations, and extra copies for hard synteny using curated families.                           |
-| `measure_reference_cluster_synteny`   | Writes hard-synteny measurements from LoVis4u protein clusters for an unmapped profile.                                           |
-| `reference_synteny_pass_mask`         | Applies the configured completeness, order, and copy rules to hard-synteny measurements.                                          |
-| `summarize_smooth_reference_evidence` | Combines reference/family evidence for smooth synteny, tropism, and gene-A origin. Its broader name reflects these three outputs. |
+| Function in `protein_evidence.py`          | Result and role                                                                                                                             |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `score_core_gene_ordered_conservation`     | Returns `CoreGeneOrderedConservationScore`: the continuous synteny reward, content, circular-order, excess-copy components, and assignment. |
+| `summarize_core_gene_ordered_conservation` | Measures matched functions, order violations, and extra copies for hard synteny using curated families.                                     |
+| `measure_reference_cluster_synteny`        | Writes hard-synteny measurements from LoVis4u protein clusters for an unmapped profile.                                                     |
+| `core_gene_ordered_conservation_pass_mask` | Applies the configured completeness, order, and copy rules to hard-synteny measurements.                                                    |
+| `summarize_smooth_reference_evidence`      | Combines reference/family evidence for smooth synteny, tropism, and gene-A origin. Its broader name reflects these three outputs.           |
 
-In `reward.py`, `_add_synteny_count_rewards` reads hard measurements, derives the
+In `reward.py`, `_add_core_gene_count_rewards` reads hard measurements, derives the
 count-based reward, and records the hard pass. `_add_smooth_reference_rewards`
 then replaces the reward when smooth scoring is enabled; it preserves the hard
 pass. These are private pipeline readers, not additional objectives.
@@ -164,7 +164,7 @@ allowed-family coverage credit. The current command inherits MMseqs's 1e-3 E-val
 cutoff; this is an admission gate, not a continuous significance multiplier in
 family credit. This is distinct from the individual-member AAI search.
 
-The Arc config's `synteny_reference_functions` maps canonical reference GFF locus
+The Arc config's `core_gene_reference_functions` maps canonical reference GFF locus
 IDs to distinct names in `required_gene_families`. Pass that mapping and measured
 `function_matches` to `summarize_smooth_reference_evidence`. Each mapped slot uses
 `max(direct_reference_integrity, family_coverage_credit)`; only mapped loci enter
@@ -173,7 +173,7 @@ slot credit without the direct route's 90% identity target. The PhiX profile map
 A/B/C/D/E/F/G/H/J and excludes K/A\*. Order and excess-copy penalties still apply.
 Tropism and gene-A origin retain their original direct-reference evidence.
 
-`summarize_function_synteny` supplies the final hard-synteny measurements
+`summarize_core_gene_ordered_conservation` supplies the final hard-synteny measurements
 from full-coverage family matches and called-ORF coordinates. The current profile
 allows no missing functions, order violations, or extra qualifying copies. Partial
 matches remain graded RL evidence. When complete assignments tie, accept a
@@ -221,3 +221,21 @@ listed GDPO objective. GDPO standardizes each configured objective within identi
 prompt token sequences and sums those advantages with coefficient 1 before final
 normalization. Preserve the current gating and normalization unless the objective
 plan explicitly changes them. See [configuration details](../../../configs/README.md#reward-weights-and-gdpo-groups).
+
+## Accessory repertoire entry points
+
+`accessory_genes.score_accessory_diversification(k, x)` implements the two-state K/X
+surface. `summarize_accessory_gene_evidence` consumes all admitted PHROGs hits plus
+core ORF reservations and returns per-genome metrics and per-ORF assignments.
+`measure_accessory_gene_artifacts(config, sequences_df, env=...)` reuses saved search artifacts
+or the shared exhaustive search in `reference_search.run_reference_protein_search`.
+Pass the configured tool environment when a new search may be needed. Completed
+search tables are published atomically, so failed partial output cannot become
+evidence for a later objective. This helper never filters sequences. The online reward reader maps these measurements back
+to rollout IDs; failed or empty measurements cannot earn K-loss credit.
+
+Use the [accessory definition](../../../configs/accessory_genes.md) for formulas,
+family alternatives, coverage, K-swap evidence, copy penalties, and the relationship
+to AAI. `accessory_gene_diversification` is separate from required functions and
+`core_gene_ordered_conservation`; the latter retains its previous formula and gate.
+Do not add an Arc acceptance filter merely to implement this RL objective.

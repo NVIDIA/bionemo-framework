@@ -172,7 +172,8 @@
       "assertions": [
         "The response adds biologically justified intermediate rewards such as required-gene completeness and reasonable synteny instead of relying only on sparse terminal rewards. Required functions are grounded in experimental functional evidence with host/assay conditions and exceptions; reference presence or shared annotation text alone does not establish essentiality or interchangeable detection targets. Detection alternatives may be supported by diverse natural homologs and domain/profile evidence rather than only previously demonstrated swaps, with genome compatibility kept as a separate claim.",
         "Each intermediate reward uses carefully calibrated partial credit toward an evidence-supported range with meaningful zero and target anchors.",
-        "Intermediate terms remain separately logged and their support and learnability are monitored."
+        "Intermediate terms remain separately logged and their support and learnability are monitored.",
+        "For the maintained PhiX profile, distinguish core_gene_ordered_conservation from accessory_gene_diversification. K/X novelty is an RL reward and diagnostic, not an additional final Arc filter; partial core evidence is excluded from accessory credit and missing measurements cannot earn K-loss credit."
       ],
       "expected_skill": "bionemo-phage-design-plan-rl-objectives",
       "expected_script": null

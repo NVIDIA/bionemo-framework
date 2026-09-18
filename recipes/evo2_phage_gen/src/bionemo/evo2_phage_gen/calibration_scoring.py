@@ -43,8 +43,15 @@ CELL_RE = re.compile(
 EXTERNAL_OBJECTIVES = {
     "tropism": ("reward_external_tropism", "smooth_reference_measurement_available"),
     "required_genes": ("reward_external_required_genes", "required_genes_measurement_available"),
-    "synteny": ("reward_external_synteny", "smooth_reference_measurement_available"),
+    "core_gene_ordered_conservation": (
+        "reward_external_core_gene_ordered_conservation",
+        "smooth_reference_measurement_available",
+    ),
     "gene_a_origin": ("reward_gene_a_origin", "smooth_reference_measurement_available"),
+    "accessory_gene_diversification": (
+        "reward_external_accessory_gene_diversification",
+        "accessory_gene_diversification_measurement_available",
+    ),
     "average_protein_identity": (
         "reward_external_average_protein_identity",
         "average_protein_identity_measurement_available",
@@ -53,7 +60,7 @@ EXTERNAL_OBJECTIVES = {
 EXTERNAL_SUPPORT_COLUMNS = tuple(
     dict.fromkeys(
         [support_column for _reward_column, support_column in EXTERNAL_OBJECTIVES.values()]
-        + ["tropism_measurement_available", "synteny_measurement_available"]
+        + ["tropism_measurement_available", "core_gene_ordered_conservation_measurement_available"]
     )
 )
 SAFETY_OBJECTIVES = ("amr", "toxin", "lysogeny")
@@ -70,8 +77,9 @@ REWARD_COLUMNS = (
     "reward_nucleotide_pass",
     "reward_external_tropism",
     "reward_external_required_genes",
-    "reward_external_synteny",
+    "reward_external_core_gene_ordered_conservation",
     "reward_gene_a_origin",
+    "reward_external_accessory_gene_diversification",
     "reward_external_average_protein_identity",
     "reward_mmseqs_cluster_diversity",
     "reward_safety_amr",
@@ -236,9 +244,10 @@ def score_cell(
         tool_bin_dir=tool_bin_dir,
         fail_on_error=True,
         enable_tropism=bool(arc.get("tropism_protein_sequence_identity_filter")),
-        enable_synteny=bool(arc.get("syntenic_gene_count_filter")),
+        enable_core_gene_ordered_conservation=bool(arc.get("syntenic_gene_count_filter")),
         enable_average_protein_identity=bool(arc.get("average_protein_sequence_identity_filter")),
         enable_required_genes=bool(arc.get("required_genes_filter")),
+        enable_accessory_gene_diversification=bool(arc.get("accessory_gene_k_families")),
         protein_match_min_reciprocal_coverage=float(arc.get("protein_match_min_reciprocal_coverage", 0.75)),
         tropism_match_min_reciprocal_coverage=float(arc.get("tropism_match_min_reciprocal_coverage", 0.95)),
         enable_smooth_reference_rewards=True,
@@ -270,8 +279,9 @@ def score_cell(
             nucleotide_pass=1,
             tropism=1,
             required_genes=1,
-            synteny=1,
+            core_gene_ordered_conservation=1,
             gene_a_origin=1,
+            accessory_gene_diversification=1,
             average_protein_identity=1,
             mmseqs_cluster_diversity=1,
         ),

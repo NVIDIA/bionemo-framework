@@ -127,7 +127,7 @@ inclusion; shared pilot-protein annotation text is insufficient by itself.
 
 ## Synteny uses the same function definitions
 
-`synteny_reference_functions` maps nine canonical reference GFF locus IDs to
+`core_gene_reference_functions` maps nine canonical reference GFF locus IDs to
 A/B/C/D/E/F/G/H/J. Their genomic positions define circular order; K and A\* are
 outside both the required-function set and this synteny denominator.
 
@@ -179,7 +179,7 @@ in circular order is sufficient; an arbitrary conflicting tie does not reject it
 Partial hits guide RL but do not count as intact copies
 for this gate. Tropism still measures PhiX G and origin still uses PhiX A evidence
 and its origin motif; full synteny is not full credit on those objectives or proof
-of genome viability. Profiles without `synteny_reference_functions` retain
+of genome viability. Profiles without `core_gene_reference_functions` retain
 reference-locus scoring and the LoVis cluster gate.
 
 ## Adapting the profile

@@ -262,7 +262,7 @@ syntenic_gene_count_filter: true
 # gives full gene credit to supported family matches meeting coverage thresholds.
 # The direct-reference 90% identity target does not apply to family credit.
 # Hard synteny requires all nine full-length functions in order without extra copies.
-synteny_reference_functions:
+core_gene_reference_functions:
   NC_001422.1_ORF.23: A
   NC_001422.1_ORF.14: B
   NC_001422.1_ORF.1: C
@@ -272,7 +272,7 @@ synteny_reference_functions:
   NC_001422.1_ORF.3: G
   NC_001422.1_ORF.22: H
   NC_001422.1_ORF.11: J
-synteny_max_missing_reference_genes: 0
+core_gene_max_missing_functions: 0
 # Legacy Arc call arguments; the patched gate uses the allowance above plus order/copy checks.
 syntenic_gene_count_range: [10, 12]
 total_gene_count_range: [10, 12]
@@ -287,3 +287,12 @@ synteny_filter_counts_file_save_location: "qc6_synteny_filter_counts.csv"
 synteny_metrics_file_save_location: "qc6_synteny_filter_metrics.csv"
 synteny_filter_seqs_csv_file_save_location: "qc6_synteny_filter_seqs.csv"
 synteny_filter_seqs_fasta_file_save_location: "qc6_synteny_filter_seqs.fasta"
+
+# Accessory RL reward / diagnostic profile; this does not add a final Arc filter.
+# See configs/accessory_genes.md for the K/X surface, evidence and copy penalties.
+accessory_gene_k_reference_locus: "NC_001422.1_ORF.15"
+accessory_gene_k_families: ["phrog:1713"]  # PhiX/G4-like K; distant K-like families remain eligible X.
+accessory_gene_min_reciprocal_coverage: 0.75
+# Shaping target for substitutions within supported K homologs, not a family cutoff.
+accessory_gene_k_full_novelty_identity: 0.95
+accessory_gene_metrics_file_save_location: "qc6_accessory_genes_metrics.csv"

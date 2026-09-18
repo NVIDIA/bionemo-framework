@@ -37,7 +37,8 @@ DEFAULT_OBJECTIVES = (
     "nucleotide_pass",
     "tropism",
     "required_genes",
-    "synteny",
+    "core_gene_ordered_conservation",
+    "accessory_gene_diversification",
     "average_protein_identity",
     "mmseqs_cluster_diversity",
 )
@@ -54,7 +55,8 @@ REQUIRED_FIELDS = (
 EXTERNAL_SUPPORT_PREFIX = {
     "tropism": "tropism",
     "required_genes": "required_genes",
-    "synteny": "synteny",
+    "core_gene_ordered_conservation": "core_gene_ordered_conservation",
+    "accessory_gene_diversification": "accessory_gene_diversification",
     "average_protein_identity": "average_protein_identity",
 }
 

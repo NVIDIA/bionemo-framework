@@ -83,3 +83,9 @@ Use $bionemo-phage-generation to adapt the PhiX174 example for this GB300 node, 
 Thanks to Samuel King, Jessica Sacher, Jan Zheng, Avery Noonan, Michael Poon, and colleagues at
 Tabula Bio, and to Eric Bastien and Nick Conley at Locus Biosciences, for discussions, guidance, and
 feedback that shaped the recipe and its safety controls.
+
+The protein objectives now distinguish `core_gene_ordered_conservation` (the
+existing core/function/order score) from `accessory_gene_diversification` (K/X
+novelty and accessory copy budget). See the [accessory score definition](configs/accessory_genes.md)
+for the full score surface, evidence exclusions, and historical Arc comparison.
+The accessory metric is an RL reward and diagnostic only; it adds no final filter.

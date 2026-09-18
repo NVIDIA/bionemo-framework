@@ -57,3 +57,12 @@ still generates one completion for each of its 96 prompt records.
 Retain latest resumable, aggregate-best, and the best positive `all_objectives_max_score_rate` checkpoints. The supervisor hardlinks them. Final selection prefers the checkpoint with the highest fraction of sequences maximizing every configured objective; otherwise it chooses the best interior aggregate checkpoint and records `has_max_score_sequences: false`. This rate measures gated training scores, not final QC acceptance.
 
 Follow [monitoring guidance](references/monitoring-guidance.md) for scientific trends, W&B cluster-size histograms, and runtime diagnosis. Record commands, consequential settings, job/checkpoint paths, validation results, and decisions in `RUNLOG.md`; summarize the current finding and next step in `SUMMARY.md`. Use optimizer step for comparisons: W&B's history cursor is a logging counter, and its service can fail while training continues.
+
+For the PhiX profile, distinguish `core_gene_ordered_conservation` from
+`accessory_gene_diversification`. The former preserves the existing core order/copy
+rules; the latter rewards K/X repertoire changes, excludes partial core matches,
+and penalizes accessory copies. It is an RL reward and diagnostic only, not a new
+final filter or a claim of exact agreement with Arc's historical cluster counts.
+Use the [accessory definition](../../configs/accessory_genes.md) before adapting
+families or thresholds. K-family absence requires available search evidence; a
+missing artifact is never a deletion reward. AAI includes all hit-bearing proteins.

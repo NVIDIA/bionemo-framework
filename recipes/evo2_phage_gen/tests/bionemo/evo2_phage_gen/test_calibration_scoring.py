@@ -116,15 +116,17 @@ def test_summarize_cell_separates_measured_zero_from_missing_support():
             "reward_nucleotide_pass": [1.0, 1.0],
             "reward_external_tropism": [0.0, 0.0],
             "reward_external_required_genes": [0.2, 0.0],
-            "reward_external_synteny": [0.1, 0.0],
+            "reward_external_core_gene_ordered_conservation": [0.1, 0.0],
             "reward_gene_a_origin": [0.3, 0.0],
+            "reward_external_accessory_gene_diversification": [0.5, 0.0],
             "reward_external_average_protein_identity": [0.8, 0.0],
             "external_qc_tool_succeeded": [1.0, 1.0],
             "tropism_measurement_available": [1.0, 1.0],
             "required_genes_measurement_available": [1.0, 0.0],
             "required_genes_total_count": [10, 10],
-            "synteny_measurement_available": [1.0, 0.0],
+            "core_gene_ordered_conservation_measurement_available": [1.0, 0.0],
             "smooth_reference_measurement_available": [1.0, 0.0],
+            "accessory_gene_diversification_measurement_available": [1.0, 0.0],
             "average_protein_identity_measurement_available": [1.0, 0.0],
             "reward_safety_amr": [1.0, 1.0],
             "reward_safety_toxin": [1.0, 0.0],
@@ -148,7 +150,7 @@ def test_summarize_cell_separates_measured_zero_from_missing_support():
 
     assert summary["tropism_reward_mean"] == 0.0
     assert summary["tropism_support_rate"] == 0.5
-    assert summary["synteny_support_rate"] == 0.5
+    assert summary["core_gene_ordered_conservation_support_rate"] == 0.5
     assert summary["gene_a_origin_reward_mean"] == 0.15
     assert summary["gene_a_origin_support_rate"] == 0.5
     assert summary["reward_gene_a_origin_mean"] == 0.15
@@ -171,7 +173,7 @@ def test_summarize_cell_accepts_explicit_safety_inapplicability():
             "external_qc_tool_succeeded": [1.0],
             "tropism_measurement_available": [1.0],
             "required_genes_measurement_available": [1.0],
-            "synteny_measurement_available": [1.0],
+            "core_gene_ordered_conservation_measurement_available": [1.0],
             "smooth_reference_measurement_available": [1.0],
             "average_protein_identity_measurement_available": [1.0],
             "safety_amr_measurement_available": [1.0],

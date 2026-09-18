@@ -25,9 +25,9 @@ Use gene-deletion and truncation controls to check incremental recovery of gene 
 
 Required-gene objectives use named functions with explicit, reviewed PHROG alternatives via `required_gene_families`; annotation labels cannot substitute for a function. Use the [required-function API](references/reward-api.md#required-functions) and [biological profile](../../configs/required_genes.md) for the mean-coverage formula, calibrated targets, and experimental scope.
 
-For function-aware synteny, use the same family evidence and `synteny_reference_functions` mapping described in the [synteny API](references/reward-api.md#function-aware-synteny). Supported family matches bypass the direct-reference 90% identity target while retaining order and copy checks; tropism and origin keep their own criteria. Preserve short natural J alternatives, including their ORF-calling and coverage calibration, when adapting the PhiX profile. Broader natural-homolog and domain/profile evidence can justify other detection alternatives without a published successful swap; document that this establishes plausible function, not genome compatibility. Do not infer essentiality solely from a reference annotation or presence in viable controls.
+For function-aware synteny, use the same family evidence and `core_gene_reference_functions` mapping described in the [synteny API](references/reward-api.md#function-aware-synteny). Supported family matches bypass the direct-reference 90% identity target while retaining order and copy checks; tropism and origin keep their own criteria. Preserve short natural J alternatives, including their ORF-calling and coverage calibration, when adapting the PhiX profile. Broader natural-homolog and domain/profile evidence can justify other detection alternatives without a published successful swap; document that this establishes plausible function, not genome compatibility. Do not infer essentiality solely from a reference annotation or presence in viable controls.
 
-Use the [synteny entry points](references/reward-api.md#synteny-entry-points) for content/order/copy scoring. Arc’s separate `genetic_architecture` codon-landmark score has no current RL objective; its similarly named visualization stage is still needed for protein measurements. Keep these roles distinct.
+Use the [synteny entry points](references/reward-api.md#core-gene-ordered-conservation-entry-points) for content/order/copy scoring. Arc’s separate `genetic_architecture` codon-landmark score has no current RL objective; its similarly named visualization stage is still needed for protein measurements. Keep these roles distinct.
 
 The PHROGs annotation search has its own [configured sensitivity and CPU allocation](references/reward-api.md), shared by online function evidence and final screening. Evaluate search sensitivity separately from coverage/assignment rules, and compare absolute stage cost with end-to-end timing before judging a runtime ratio.
 
@@ -57,3 +57,12 @@ Add focused tests that demonstrate:
 Before declaring reward work complete, create or refresh `artifacts/RL_SCORE_DEFINITIONS.md` in the selected result root. Reconcile it against the implemented reward columns, formulas, resolved configuration, and focused boundary/failure tests. For every enabled objective, state the measured quantity and units, direction, exact formula and settings, zero-credit and full-credit regions or categorical states, both-side partial-credit behavior when applicable, missing/invalid/empty/no-hit/missing-gene/tool-failure behavior, biological rationale and citations, controls and telemetry, and relationship to final hard QC. This is an agent-produced implementation artifact, not a required stage of the fully scripted run. Use the **Current PhiX174 GDPO score definitions** section in `examples/README.md` as a worked format, not as target-independent scientific defaults.
 
 Use the execution skill for a real installed-environment smoke test when local imports are not representative. Run the relevant focused tests after implementation and record the command, settings, results, and any scientific limitation in the stage summary and `RUNLOG.md`.
+
+For the PhiX profile, distinguish `core_gene_ordered_conservation` from
+`accessory_gene_diversification`. The former preserves the existing core order/copy
+rules; the latter rewards K/X repertoire changes, excludes partial core matches,
+and penalizes accessory copies. It is an RL reward and diagnostic only, not a new
+final filter or a claim of exact agreement with Arc's historical cluster counts.
+Use the [accessory definition](../../configs/accessory_genes.md) before adapting
+families or thresholds. K-family absence requires available search evidence; a
+missing artifact is never a deletion reward. AAI includes all hit-bearing proteins.

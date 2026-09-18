@@ -222,12 +222,12 @@ def test_sequence_safety_mapping_is_parsed_without_bool_or_host_scope_coercion(t
 
     string_bool = copy.deepcopy(raw)
     string_bool["enabled"] = "false"
-    with pytest.raises(TypeError, match="enabled.*boolean"):
+    with pytest.raises(TypeError, match=r"enabled.*boolean"):
         nemo_rl_env._coerce_sequence_safety_config(string_bool)
 
     unconfirmed = copy.deepcopy(raw)
     unconfirmed["host_evidence"]["confirmed"] = "true"
-    with pytest.raises(TypeError, match="confirmed.*boolean"):
+    with pytest.raises(TypeError, match=r"confirmed.*boolean"):
         nemo_rl_env._coerce_sequence_safety_config(unconfirmed)
 
     eukaryotic_evidence = copy.deepcopy(raw)
@@ -242,12 +242,12 @@ def test_environment_requires_enabled_sequence_safety(tmp_path: Path):
         pytest.skip("NeMo-RL is unavailable")
 
     env_cls = nemo_rl_env.PhageQCEnvironment.__ray_metadata__.modified_class
-    with pytest.raises(ValueError, match="sequence_safety.*required"):
+    with pytest.raises(ValueError, match=r"sequence_safety.*required"):
         env_cls({})
 
     disabled = _sequence_safety_mapping(tmp_path)
     disabled["enabled"] = False
-    with pytest.raises(ValueError, match="sequence_safety.*enabled"):
+    with pytest.raises(ValueError, match=r"sequence_safety.*enabled"):
         env_cls({"sequence_safety": disabled})
 
 
@@ -370,7 +370,7 @@ def test_gdpo_objective_parser_rejects_non_boolean_safety_eligibility(invalid: o
         }
     ]
 
-    with pytest.raises(TypeError, match="requires_safety_eligibility.*boolean"):
+    with pytest.raises(TypeError, match=r"requires_safety_eligibility.*boolean"):
         nemo_rl_env._coerce_gdpo_objectives(raw)
 
 
@@ -897,7 +897,7 @@ def test_scored_records_exclude_full_sequence_from_rollout_metadata():
             "reward": [0.5],
             "reward_biological": [0.75],
             "reward_safety_amr": [1.0],
-            "synteny_measurement_available": [1.0],
+            "core_gene_ordered_conservation_measurement_available": [1.0],
             "missing_status": ["unavailable"],
             "mmseqs_cluster_id": ["group0:seq_0"],
             "safety_gate_state": ["PASS"],
@@ -926,7 +926,7 @@ def test_scored_records_exclude_full_sequence_from_rollout_metadata():
             "reward": 0.5,
             "reward_biological": 0.75,
             "reward_safety_amr": 1.0,
-            "synteny_measurement_available": 1.0,
+            "core_gene_ordered_conservation_measurement_available": 1.0,
             "mmseqs_cluster_id": "group0:seq_0",
             "safety_gate_state": "PASS",
             "safety_gate_reason_codes": '["SAFETY_OK"]',
@@ -1250,7 +1250,7 @@ def test_global_post_process_metrics_does_not_fill_optional_fields_from_actor_ca
             {
                 "_phage_qc_scored": {
                     "reward_valid_nt_chars": 1.0,
-                    "reward_external_synteny_pass": 1.0,
+                    "reward_external_core_gene_ordered_conservation_pass": 1.0,
                     "reward_external_average_protein_identity_pass": 1.0,
                     "reward_external_required_genes_pass": 1.0,
                     "safety_gate_state": "PASS",
@@ -1265,7 +1265,7 @@ def test_global_post_process_metrics_does_not_fill_optional_fields_from_actor_ca
             {
                 "_phage_qc_scored": {
                     "reward_valid_nt_chars": 1.0,
-                    "reward_external_synteny_pass": 1.0,
+                    "reward_external_core_gene_ordered_conservation_pass": 1.0,
                     "reward_external_average_protein_identity_pass": 1.0,
                     "reward_external_required_genes_pass": 1.0,
                     "safety_gate_state": "PASS",

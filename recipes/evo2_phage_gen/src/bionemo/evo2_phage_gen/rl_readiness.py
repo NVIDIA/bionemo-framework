@@ -526,10 +526,21 @@ def _validate_control_support(row: dict[str, Any], environment: Any) -> dict[str
         _require_control_value(row, "external_qc_measurement_available", 1.0, "external QC was not measured")
         support["external_qc"] = True
         external_components = (
+            (
+                "enable_accessory_gene_diversification",
+                "accessory_gene_diversification",
+                "reward_external_accessory_gene_diversification",
+                "accessory_gene_diversification_measurement_available",
+            ),
             ("enable_orf", "orf", "reward_external_orf", None),
             ("enable_coding_density", "coding_density", "reward_external_coding_density", None),
             ("enable_tropism", "tropism", "reward_external_tropism", "tropism_measurement_available"),
-            ("enable_synteny", "synteny", "reward_external_synteny", "synteny_measurement_available"),
+            (
+                "enable_core_gene_ordered_conservation",
+                "core_gene_ordered_conservation",
+                "reward_external_core_gene_ordered_conservation",
+                "core_gene_ordered_conservation_measurement_available",
+            ),
             (
                 "enable_average_protein_identity",
                 "average_protein_identity",

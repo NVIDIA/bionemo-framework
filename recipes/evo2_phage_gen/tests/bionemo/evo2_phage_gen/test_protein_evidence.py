@@ -259,10 +259,10 @@ def test_smooth_reference_summary_reuses_orf_hits_for_synteny_tropism_and_gene_a
         candidate_orf_sequences={"umi1_ORF.1": a_orf, "umi1_ORF.2": "ATG" * 34},
         candidate_orders={"umi1": ("umi1_ORF.1", "umi1_ORF.2"), "umi2": ()},
         reference_order=("A", "G"),
-        synteny_match_parameters=SMOOTH_SYNTENY_MATCH,
+        core_gene_match_parameters=SMOOTH_SYNTENY_MATCH,
         tropism_match_parameters=SMOOTH_TROPISM_MATCH,
-        synteny_order_weight=0.75,
-        synteny_duplicate_penalty_weight=0.75,
+        core_gene_order_weight=0.75,
+        core_gene_duplicate_penalty_weight=0.75,
         gene_a_reference_locus="A",
         tropism_reference_locus="G",
         gene_a_origin_motif=motif,
@@ -270,11 +270,11 @@ def test_smooth_reference_summary_reuses_orf_hits_for_synteny_tropism_and_gene_a
         gene_a_origin_offset_tolerance_nt=6,
     ).set_index("id_prompt")
 
-    assert observed.loc["umi1", "reward_external_synteny"] == 1.0
+    assert observed.loc["umi1", "reward_external_core_gene_ordered_conservation"] == 1.0
     assert observed.loc["umi1", "reward_external_tropism"] == 1.0
     assert observed.loc["umi1", "reward_gene_a_origin"] == 1.0
     assert observed.loc["umi1", "smooth_reference_matched_loci"] == 2
-    assert observed.loc["umi2", "reward_external_synteny"] == 0.0
+    assert observed.loc["umi2", "reward_external_core_gene_ordered_conservation"] == 0.0
     assert observed.loc["umi2", "reward_external_tropism"] == 0.0
     assert observed.loc["umi2", "reward_gene_a_origin"] == 0.0
 
@@ -313,10 +313,10 @@ def test_function_synteny_preserves_order_and_copy_checks(functions, full_credit
         candidate_orf_sequences=dict.fromkeys(candidates, "ATG" * 100),
         candidate_orders={"umi1": candidates},
         reference_order=reference_order,
-        synteny_match_parameters=SMOOTH_SYNTENY_MATCH,
+        core_gene_match_parameters=SMOOTH_SYNTENY_MATCH,
         tropism_match_parameters=SMOOTH_TROPISM_MATCH,
-        synteny_order_weight=0.75,
-        synteny_duplicate_penalty_weight=0.75,
+        core_gene_order_weight=0.75,
+        core_gene_duplicate_penalty_weight=0.75,
         gene_a_reference_locus="ref_A",
         tropism_reference_locus="ref_G",
         gene_a_origin_motif="CAACTTGATATTAATAACACTATAGACCAC",
@@ -325,17 +325,17 @@ def test_function_synteny_preserves_order_and_copy_checks(functions, full_credit
         function_matches=matches,
         reference_functions=reference_functions,
     ).iloc[0]
-    assert bool(observed.reward_external_synteny == 1.0) is full_credit
+    assert bool(observed.reward_external_core_gene_ordered_conservation == 1.0) is full_credit
     assert observed.reward_external_tropism == 0.0
     assert observed.reward_gene_a_origin == 0.0
-    hard = protein_evidence.summarize_function_synteny(
+    hard = protein_evidence.summarize_core_gene_ordered_conservation(
         matches,
         pd.DataFrame({"id_prompt": ["umi1"], "genome_id": ["genome_1"]}),
         candidate_orders={"umi1": candidates},
         reference_order=reference_order,
         reference_functions=reference_functions,
     )
-    assert protein_evidence.reference_synteny_pass_mask(hard).tolist() == [full_credit]
+    assert protein_evidence.core_gene_ordered_conservation_pass_mask(hard).tolist() == [full_credit]
 
 
 def test_smooth_reference_summary_rejects_invalid_match_settings_without_hits():
@@ -347,10 +347,10 @@ def test_smooth_reference_summary_rejects_invalid_match_settings_without_hits():
             candidate_orf_sequences={},
             candidate_orders={"umi1": ()},
             reference_order=("A",),
-            synteny_match_parameters={**SMOOTH_SYNTENY_MATCH, "identity_full_credit": 0.0},
+            core_gene_match_parameters={**SMOOTH_SYNTENY_MATCH, "identity_full_credit": 0.0},
             tropism_match_parameters=SMOOTH_TROPISM_MATCH,
-            synteny_order_weight=0.75,
-            synteny_duplicate_penalty_weight=0.75,
+            core_gene_order_weight=0.75,
+            core_gene_duplicate_penalty_weight=0.75,
             gene_a_reference_locus="A",
             tropism_reference_locus="G",
             gene_a_origin_motif="CAACTTGATATTAATAACACTATAGACCAC",
@@ -532,7 +532,7 @@ def test_smooth_synteny_gold(reference, candidates, expected):
     for reference_cut in range(len(reference)):
         reference_order = tuple(reference[reference_cut:] + reference[:reference_cut])
         for candidate_cut in range(max(1, len(candidate_order))):
-            result = protein_evidence.score_smooth_synteny(
+            result = protein_evidence.score_core_gene_ordered_conservation(
                 edges,
                 reference_order=reference_order,
                 candidate_order=candidate_order[candidate_cut:] + candidate_order[:candidate_cut],
@@ -561,7 +561,7 @@ def test_smooth_synteny_scales_beyond_twenty_reference_loci():
         (reference, candidate): 1.0 for reference, candidate in zip(reference_order, candidate_order, strict=True)
     }
 
-    result = protein_evidence.score_smooth_synteny(
+    result = protein_evidence.score_core_gene_ordered_conservation(
         edges,
         reference_order=reference_order,
         candidate_order=candidate_order,
@@ -886,11 +886,11 @@ def test_synteny_deficit_allowance_keeps_order_copy_and_measurement_checks():
             "missing_synteny_output": [False, False, False, False, False, True, False],
         }
     )
-    assert protein_evidence.reference_synteny_pass_mask(metrics).tolist() == [True] + [False] * 6
-    assert protein_evidence.reference_synteny_pass_mask(metrics, 1).tolist() == [True, True] + [False] * 5
+    assert protein_evidence.core_gene_ordered_conservation_pass_mask(metrics).tolist() == [True] + [False] * 6
+    assert protein_evidence.core_gene_ordered_conservation_pass_mask(metrics, 1).tolist() == [True, True] + [False] * 5
 
 
 @pytest.mark.parametrize("allowance", [-1, 1.5, True])
 def test_synteny_deficit_allowance_requires_nonnegative_integer(allowance):
     with pytest.raises(ValueError, match="missing reference"):
-        protein_evidence.reference_synteny_pass_mask(pd.DataFrame(), allowance)
+        protein_evidence.core_gene_ordered_conservation_pass_mask(pd.DataFrame(), allowance)

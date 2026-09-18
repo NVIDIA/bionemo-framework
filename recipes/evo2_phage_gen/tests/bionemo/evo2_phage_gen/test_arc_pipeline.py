@@ -41,7 +41,7 @@ from bionemo.evo2_phage_gen.arc_pipeline import (
     prepare_arc_pipeline_workdir,
 )
 from bionemo.evo2_phage_gen.external_qc import ARC_GENETIC_ARCHITECTURE_IMPORT_FASTA
-from bionemo.evo2_phage_gen.protein_evidence import reference_synteny_pass_mask
+from bionemo.evo2_phage_gen.protein_evidence import core_gene_ordered_conservation_pass_mask
 
 
 def _load_prepared_arc_pipeline(tmp_path: Path, module_name: str, monkeypatch):
@@ -145,7 +145,7 @@ def run_mmseqs_search_proteins(query_fasta: str, mmseqs_db: str, results_dir: st
         (False, True, None),
         (True, False, None),
         (False, True, "required"),
-        (False, True, "synteny"),
+        (False, True, "core_gene_ordered_conservation"),
         (False, True, "safety"),
     ],
 )
@@ -224,9 +224,9 @@ def test_final_gate_order(tmp_path, online, filter7, empty_at):
 
     def synteny(**kwargs):
         df = pd.read_csv(kwargs["input_csv"])
-        calls.append(("synteny", df.id_prompt.tolist()))
+        calls.append(("core_gene_ordered_conservation", df.id_prompt.tolist()))
         if kwargs["filter_results"]:
-            df = df.iloc[:0] if empty_at == "synteny" else df[df.id_prompt != "wrong_order"]
+            df = df.iloc[:0] if empty_at == "core_gene_ordered_conservation" else df[df.id_prompt != "wrong_order"]
         df.to_csv(kwargs["output_csv"], index=False)
 
     def remove_architecture(df, *args):
@@ -278,7 +278,7 @@ def test_final_gate_order(tmp_path, online, filter7, empty_at):
     observed = dict(calls)
     assert observed["required"] == ids
     if online:
-        assert observed["synteny"] == ids
+        assert observed["core_gene_ordered_conservation"] == ids
         assert observed["aai"] == ids
         expected = ids
     elif empty_at:
@@ -286,7 +286,7 @@ def test_final_gate_order(tmp_path, online, filter7, empty_at):
         assert "filter7" not in observed
         expected = []
     else:
-        assert observed["synteny"] == [i for i in ids if i != "missing_gene"]
+        assert observed["core_gene_ordered_conservation"] == [i for i in ids if i != "missing_gene"]
         qualified = ["keep", "high_aai", "filter7"]
         if filter7:
             assert observed["filter7"] == qualified
@@ -868,13 +868,13 @@ def test_arc_function_synteny_uses_shared_family_evidence(tmp_path):
             "orfipy_orfs_file_save_location": "orfs.fasta",
             "mmseqs_protein_database_results_dir_save_location": "phrogs",
             "required_gene_families": {"A": ["phrog:713"], "J": ["phrog:2354", "phrog:3780"]},
-            "synteny_reference_functions": {"A": "A", "J": "J"},
+            "core_gene_reference_functions": {"A": "A", "J": "J"},
         },
     )
     measured = pd.read_csv(output_csv)
     assert measured["num_syntenic_genes"].tolist() == [2, 2]
     assert measured["duplicate_reference_gene_count"].tolist() == [0, 1]
-    assert reference_synteny_pass_mask(measured).tolist() == [True, False]
+    assert core_gene_ordered_conservation_pass_mask(measured).tolist() == [True, False]
 
 
 def test_arc_tropism_gate_rejects_fragments(tmp_path):

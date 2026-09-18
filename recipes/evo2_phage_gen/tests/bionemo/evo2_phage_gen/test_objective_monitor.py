@@ -129,14 +129,14 @@ def test_objective_history_accepts_custom_max_score_and_instability_thresholds()
 
 def test_missing_per_objective_metrics_pause_after_three_events():
     history = [
-        {"step": step, "aggregate_reward": 5.0, "objectives": {"synteny": {"reward_mean": 0.1}}}
+        {"step": step, "aggregate_reward": 5.0, "objectives": {"core_gene_ordered_conservation": {"reward_mean": 0.1}}}
         for step in (10, 20, 30)
     ]
 
     result = evaluate_objective_history(history)
 
     assert result["decision"] == "pause_for_diagnosis"
-    assert "missing_required_telemetry" in result["objectives"]["synteny"]["signals"]
+    assert "missing_required_telemetry" in result["objectives"]["core_gene_ordered_conservation"]["signals"]
 
 
 def test_enabled_objective_with_no_measurements_starts_confirmation_window():

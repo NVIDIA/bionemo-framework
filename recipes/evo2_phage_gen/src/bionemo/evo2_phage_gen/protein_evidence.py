@@ -36,7 +36,7 @@ ORFIPY_INTERVAL_RE = re.compile(r"\[(\d+)-(\d+)\]")
 
 
 @dataclass(frozen=True)
-class SmoothSyntenyScore:
+class CoreGeneOrderedConservationScore:
     """Synteny reward and its content, circular-order, and excess-copy components."""
 
     reward: float
@@ -221,25 +221,25 @@ def _linear_ordered_integrity(
     return previous[-1]
 
 
-def score_smooth_synteny(
+def score_core_gene_ordered_conservation(
     edge_weights: dict[tuple[str, str], float],
     *,
     reference_order: tuple[str, ...],
     candidate_order: tuple[str, ...],
     order_weight: float,
     duplicate_penalty_weight: float,
-) -> SmoothSyntenyScore:
+) -> CoreGeneOrderedConservationScore:
     """Compute the smooth synteny reward from graded ORF-to-slot matches.
 
     Slots may use direct reference or curated family evidence. This is the
-    ``reward_external_synteny`` scorer, separate from Arc's start/stop-codon score.
+    ``reward_external_core_gene_ordered_conservation`` scorer, separate from Arc's start/stop-codon score.
     The excess term measures best-match mass beyond the one-to-one content
     assignment, including partial homologs; it is not a count of intact copies.
     Unmatched extra ORFs contribute neither credit nor excess mass. The final
     subtraction is clipped at zero, so positive content can still score zero.
     """
     if not reference_order:
-        return SmoothSyntenyScore(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, ())
+        return CoreGeneOrderedConservationScore(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, ())
     if len(set(reference_order)) != len(reference_order) or len(set(candidate_order)) != len(candidate_order):
         raise ValueError("Reference and candidate orders must contain unique locus identifiers")
     if not 0.0 <= order_weight <= 1.0 or duplicate_penalty_weight < 0.0:
@@ -279,7 +279,7 @@ def score_smooth_synteny(
         + order_weight * ordered_score
         - duplicate_penalty_weight * duplicate_score
     )
-    return SmoothSyntenyScore(
+    return CoreGeneOrderedConservationScore(
         reward=max(0.0, min(1.0, reward)),
         content_score=content_score,
         ordered_score=ordered_score,
@@ -448,10 +448,10 @@ def summarize_smooth_reference_evidence(
     candidate_orf_sequences: dict[str, str],
     candidate_orders: dict[str, tuple[str, ...]],
     reference_order: tuple[str, ...],
-    synteny_match_parameters: dict[str, float],
+    core_gene_match_parameters: dict[str, float],
     tropism_match_parameters: dict[str, float],
-    synteny_order_weight: float,
-    synteny_duplicate_penalty_weight: float,
+    core_gene_order_weight: float,
+    core_gene_duplicate_penalty_weight: float,
     gene_a_reference_locus: str,
     tropism_reference_locus: str,
     gene_a_origin_motif: str,
@@ -467,7 +467,7 @@ def summarize_smooth_reference_evidence(
     Only mapped loci enter that synteny's denominator. Tropism and
     origin retain the original reference-protein evidence and their own criteria.
     """
-    _validate_smooth_protein_match_config(**synteny_match_parameters)
+    _validate_smooth_protein_match_config(**core_gene_match_parameters)
     _validate_smooth_protein_match_config(**tropism_match_parameters)
     synteny_order = reference_order
     function_edges = {}
@@ -506,7 +506,7 @@ def summarize_smooth_reference_evidence(
             "reference_coverage": hit.qcov,
             "candidate_coverage": hit.tcov,
         }
-        synteny_integrity = smooth_protein_match_integrity(**evidence, **synteny_match_parameters)
+        synteny_integrity = smooth_protein_match_integrity(**evidence, **core_gene_match_parameters)
         edge = (reference, candidate)
         synteny_edges.setdefault(genome_id, {})[edge] = max(
             synteny_integrity,
@@ -521,10 +521,10 @@ def summarize_smooth_reference_evidence(
 
     output_columns = [
         "id_prompt",
-        "reward_external_synteny",
-        "synteny_smooth_content_score",
-        "synteny_smooth_ordered_score",
-        "synteny_smooth_duplicate_score",
+        "reward_external_core_gene_ordered_conservation",
+        "core_gene_ordered_conservation_content_score",
+        "core_gene_ordered_conservation_ordered_score",
+        "core_gene_ordered_conservation_duplicate_score",
         "smooth_reference_matched_loci",
         "smooth_reference_best_integrity",
         "reward_external_tropism",
@@ -540,12 +540,12 @@ def summarize_smooth_reference_evidence(
         edges = {edge: value for edge, value in reference_edges.items() if edge[0] in synteny_order}
         for edge, value in function_edges.get(genome_id, {}).items():
             edges[edge] = max(edges.get(edge, 0.0), value)
-        synteny = score_smooth_synteny(
+        synteny = score_core_gene_ordered_conservation(
             edges,
             reference_order=synteny_order,
             candidate_order=candidate_orders.get(genome_id, ()),
-            order_weight=synteny_order_weight,
-            duplicate_penalty_weight=synteny_duplicate_penalty_weight,
+            order_weight=core_gene_order_weight,
+            duplicate_penalty_weight=core_gene_duplicate_penalty_weight,
         )
         # Family alternatives affect synteny, not the A-reference origin criterion.
         if reference_functions is None:
@@ -568,10 +568,10 @@ def summarize_smooth_reference_evidence(
         rows.append(
             {
                 "id_prompt": genome_id,
-                "reward_external_synteny": synteny.reward,
-                "synteny_smooth_content_score": synteny.content_score,
-                "synteny_smooth_ordered_score": synteny.ordered_score,
-                "synteny_smooth_duplicate_score": synteny.duplicate_score,
+                "reward_external_core_gene_ordered_conservation": synteny.reward,
+                "core_gene_ordered_conservation_content_score": synteny.content_score,
+                "core_gene_ordered_conservation_ordered_score": synteny.ordered_score,
+                "core_gene_ordered_conservation_duplicate_score": synteny.duplicate_score,
                 "smooth_reference_matched_loci": len(synteny.assignment),
                 "smooth_reference_best_integrity": max(edges.values(), default=0.0),
                 "reward_external_tropism": max(tropism_edges.get(genome_id, {}).values(), default=0.0),
@@ -813,7 +813,7 @@ def _function_reference_order(
     return tuple(reference for reference in reference_order if reference in reference_functions)
 
 
-def summarize_function_synteny(
+def summarize_core_gene_ordered_conservation(
     function_matches: pd.DataFrame,
     sequences_df: pd.DataFrame,
     *,
@@ -869,7 +869,7 @@ def summarize_function_synteny(
     return pd.DataFrame(rows)
 
 
-def reference_synteny_pass_mask(metrics: pd.DataFrame, max_missing_reference_genes: int = 0) -> pd.Series:
+def core_gene_ordered_conservation_pass_mask(metrics: pd.DataFrame, max_missing_reference_genes: int = 0) -> pd.Series:
     """Apply a calibrated reference-deficit allowance, retaining order/copy checks.
 
     Accept measurements from reference clusters or mapped function slots. An

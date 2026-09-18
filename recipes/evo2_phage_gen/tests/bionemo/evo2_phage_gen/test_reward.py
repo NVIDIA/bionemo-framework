@@ -29,8 +29,7 @@ import yaml
 from Bio import SeqIO
 from Bio.Seq import Seq
 
-from bionemo.evo2_phage_gen import reward as reward_module
-from bionemo.evo2_phage_gen import sequence_safety_cli
+from bionemo.evo2_phage_gen import reference_search, sequence_safety_cli
 from bionemo.evo2_phage_gen.design_scope import HostDomain, HostEvidence
 from bionemo.evo2_phage_gen.protein_evidence import (
     add_protein_alignment_evidence,
@@ -48,9 +47,9 @@ from bionemo.evo2_phage_gen.reward import (
     RewardWeights,
     SequenceSafetyRewardConfig,
     _add_average_protein_identity_rewards,
+    _add_core_gene_count_rewards,
     _add_required_gene_rewards,
     _add_smooth_reference_rewards,
-    _add_synteny_count_rewards,
     _add_tropism_rewards,
     _external_qc_env,
     _upper_bound_ratio_score,
@@ -59,9 +58,9 @@ from bionemo.evo2_phage_gen.reward import (
     binary_cluster_deduplicated_pass_mask,
     score_aai_evidence,
     score_aai_novelty,
+    score_core_gene_conservation_counts,
     score_fasta,
     score_sequences,
-    score_synteny_counts,
     score_tropism_identity,
 )
 
@@ -1139,7 +1138,7 @@ def test_external_qc_config_enables_paper_ready_validation_filters(tmp_path):
         tmp_path / "run",
         input_fasta,
         ExternalQCRewardConfig(
-            enable_synteny=True,
+            enable_core_gene_ordered_conservation=True,
             enable_average_protein_identity=True,
             enable_required_genes=True,
             protein_match_min_reciprocal_coverage=0.9,
@@ -1253,6 +1252,8 @@ def test_smooth_search_stages(tmp_path, monkeypatch, failed_stage):
         assert command[command.index("--threads") + 1] == "8"
         stage = command[1]
         if stage == failed_stage:
+            if stage == "convertalis":
+                Path(command[5]).write_text("partial failed output")
             raise subprocess.CalledProcessError(-11, command)
         if stage == "createdb":
             Path(command[3] + ".index").write_bytes(b"0\t0\t91\n")
@@ -1290,12 +1291,12 @@ def test_smooth_search_stages(tmp_path, monkeypatch, failed_stage):
     )
     if failed_stage:
         with pytest.raises(subprocess.CalledProcessError):
-            reward_module._run_smooth_reference_search(**kwargs)
+            reference_search.run_reference_protein_search(**kwargs)
         assert [cmd[1] for cmd in commands].count(failed_stage) == 1
         assert commands[-1][1] == failed_stage
         assert not kwargs["output_tsv"].exists()
     else:
-        reward_module._run_smooth_reference_search(**kwargs)
+        reference_search.run_reference_protein_search(**kwargs)
         assert [cmd[1] for cmd in commands] == ["createdb", "createdb", "align", "convertalis"]
         assert kwargs["output_tsv"].read_text() == hits
 
@@ -1312,7 +1313,7 @@ def test_exhaustive_prefilter_termination(tmp_path, pages):
     target_index.write_bytes(target_data)
     pref = tmp_path / "pref"
 
-    reward_module._write_exhaustive_prefilter(query_index, target_index, pref)
+    reference_search._write_exhaustive_prefilter(query_index, target_index, pref)
 
     assert not pref.is_symlink()
     assert pref.read_bytes() == target_data + b"\0"
@@ -1330,7 +1331,7 @@ def test_exhaustive_prefilter_does_not_overwrite(tmp_path):
     pref = tmp_path / "pref"
     pref.symlink_to(target)
     with pytest.raises(FileExistsError):
-        reward_module._write_exhaustive_prefilter(query, target, pref)
+        reference_search._write_exhaustive_prefilter(query, target, pref)
     assert target.read_bytes() == b"0\t0\t15\n"
 
 
@@ -1380,8 +1381,8 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
     scored = pd.DataFrame(
         {
             "arc_qc_id": ["umi1", "umi2"],
-            "reward_external_synteny": [0.0, 0.0],
-            "reward_external_synteny_pass": [1.0, 0.0],
+            "reward_external_core_gene_ordered_conservation": [0.0, 0.0],
+            "reward_external_core_gene_ordered_conservation_pass": [1.0, 0.0],
             "reward_external_tropism": [0.0, 0.0],
             "reward_external_tropism_pass": [1.0, 0.0],
             "reward_gene_a_origin": [0.0, 0.0],
@@ -1389,9 +1390,9 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
     )
     external = ExternalQCRewardConfig(
         enable_smooth_reference_rewards=True,
-        synteny_identity_zero_credit=identity_zero_credit,
+        core_gene_identity_zero_credit=identity_zero_credit,
         tropism_identity_zero_credit=identity_zero_credit,
-        enable_synteny=True,
+        enable_core_gene_ordered_conservation=True,
         enable_tropism=True,
         enable_gene_a_origin=True,
         gene_a_reference_locus="A",
@@ -1411,7 +1412,7 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
     }
     if function_aware:
         config.update(
-            synteny_reference_functions={"A": "A", "G": "G"},
+            core_gene_reference_functions={"A": "A", "G": "G"},
             required_gene_families={"A": ["phrog:713"], "G": ["phrog:1483"]},
             mmseqs_protein_database_results_dir_save_location="phrogs",
         )
@@ -1439,13 +1440,17 @@ def test_smooth_reference_rewards_replace_only_shaped_scores_and_preserve_hard_p
         external_qc=external,
     )
 
-    assert observed.loc[0, "reward_external_synteny"] == (1.0 if function_aware else expected)
+    assert observed.loc[0, "reward_external_core_gene_ordered_conservation"] == (1.0 if function_aware else expected)
     assert observed.loc[0, "reward_external_tropism"] == expected
     assert observed.loc[0, "reward_gene_a_origin"] == expected
-    assert observed.loc[0, "reward_external_synteny_pass"] == 1.0
+    assert observed.loc[0, "reward_external_core_gene_ordered_conservation_pass"] == 1.0
     assert observed.loc[0, "reward_external_tropism_pass"] == 1.0
     assert observed.loc[0, "smooth_reference_measurement_available"] == 1.0
-    for column in ("reward_external_synteny", "reward_external_tropism", "reward_gene_a_origin"):
+    for column in (
+        "reward_external_core_gene_ordered_conservation",
+        "reward_external_tropism",
+        "reward_gene_a_origin",
+    ):
         assert observed.loc[1, column] == 0.0
 
 
@@ -1519,13 +1524,13 @@ def test_smooth_empty_cohort(tmp_path, monkeypatch, upstream, state):
         "use_nucleotide_filtered_df_instead": upstream == "nucleotide",
         "orf_filter_seqs_csv_file_save_location": "eligible.csv",
         "nucleotide_filter_seqs_csv_file_save_location": "eligible.csv",
-        "synteny_reference_functions": {"A": "A"},
+        "core_gene_reference_functions": {"A": "A"},
         "required_gene_families": {"A": ["phrog:713"]},
         "mmseqs_protein_database_results_dir_save_location": "phrogs",
     }
     external = ExternalQCRewardConfig(
         enable_smooth_reference_rewards=True,
-        enable_synteny=True,
+        enable_core_gene_ordered_conservation=True,
         enable_tropism=True,
         enable_gene_a_origin=True,
         gene_a_reference_locus="A",
@@ -1541,7 +1546,11 @@ def test_smooth_empty_cohort(tmp_path, monkeypatch, upstream, state):
     observed = _add_smooth_reference_rewards(
         scored, run_dir=tmp_path, input_fasta=input_fasta, config=config, external_qc=external
     )
-    for column in ("reward_external_synteny", "reward_external_tropism", "reward_gene_a_origin"):
+    for column in (
+        "reward_external_core_gene_ordered_conservation",
+        "reward_external_tropism",
+        "reward_gene_a_origin",
+    ):
         assert observed[column].tolist() == [0.0]
     for column in ("smooth_reference_stage_reached", "smooth_reference_measurement_available"):
         assert observed[column].tolist() == [float(state == "no_orfs")]
@@ -1818,7 +1827,7 @@ def test_score_sequences_can_fold_in_external_qc_rewards(tmp_path, monkeypatch):
             gc_content=0,
             nt_homopolymer=0,
             tropism=1,
-            synteny=1,
+            core_gene_ordered_conservation=1,
             average_protein_identity=1,
             required_genes=1,
         ),
@@ -1828,19 +1837,19 @@ def test_score_sequences_can_fold_in_external_qc_rewards(tmp_path, monkeypatch):
             pipeline_script=pipeline_script,
             work_dir=tmp_path / "work",
             keep_artifacts=False,
-            enable_synteny=True,
+            enable_core_gene_ordered_conservation=True,
             enable_average_protein_identity=True,
             enable_required_genes=True,
         ),
     )
 
     assert scored["reward"].tolist() == [0.0, 0.0]
-    assert scored.loc[0, "reward_external_synteny"] == 1.0
+    assert scored.loc[0, "reward_external_core_gene_ordered_conservation"] == 1.0
     assert scored.loc[0, "reward_external_average_protein_identity"] == 1.0
     assert scored.loc[0, "reward_external_required_genes"] == 1.0
     assert scored.loc[1, "reward_external_required_genes"] == 0.5
     assert scored.loc[1, "reward_external_tropism"] == 0.5
-    assert scored.loc[1, "reward_external_synteny"] == 0.5
+    assert scored.loc[1, "reward_external_core_gene_ordered_conservation"] == 0.5
     assert scored["average_protein_identity_measurement_available"].tolist() == [1.0, 1.0]
     assert scored["required_genes_measurement_available"].tolist() == [1.0, 1.0]
     assert scored["timing/phage_qc/reward/external_qc/cleanup_s"].ge(0.0).all()
@@ -1958,11 +1967,11 @@ def test_synteny_count_reward_uses_fixed_reference_denominator_and_copy_balance(
     df = pd.DataFrame(
         {
             "arc_qc_id": ["complete", "gene_deleted", "duplicated", "delete_and_duplicate", "invalid"],
-            "reward_external_synteny": [0.0] * 5,
+            "reward_external_core_gene_ordered_conservation": [0.0] * 5,
         }
     )
 
-    scored = _add_synteny_count_rewards(
+    scored = _add_core_gene_count_rewards(
         df,
         run_dir,
         {
@@ -1971,9 +1980,11 @@ def test_synteny_count_reward_uses_fixed_reference_denominator_and_copy_balance(
         },
     )
 
-    assert scored["reward_external_synteny"].tolist() == pytest.approx([1.0, 10 / 11, 0.5, 10 / 33, 0.0])
-    assert scored["synteny_reference_coverage_score"].tolist() == pytest.approx([1.0, 10 / 11, 1.0, 10 / 11, 0.0])
-    assert scored["synteny_copy_balance_score"].tolist() == [1.0, 1.0, 0.5, 1 / 3, 0.0]
+    assert scored["reward_external_core_gene_ordered_conservation"].tolist() == pytest.approx(
+        [1.0, 10 / 11, 0.5, 10 / 33, 0.0]
+    )
+    assert scored["core_gene_reference_coverage_score"].tolist() == pytest.approx([1.0, 10 / 11, 1.0, 10 / 11, 0.0])
+    assert scored["core_gene_copy_balance_score"].tolist() == [1.0, 1.0, 0.5, 1 / 3, 0.0]
 
 
 def test_online_synteny_pass_uses_metrics_not_measurement_survivor_csv(tmp_path):
@@ -1991,8 +2002,10 @@ def test_online_synteny_pass_uses_metrics_not_measurement_survivor_csv(tmp_path)
     ).to_csv(tmp_path / "metrics.csv", index=False)
     pd.DataFrame({"id_prompt": ["valid", "invalid"]}).to_csv(tmp_path / "survivors.csv", index=False)
 
-    scored = _add_synteny_count_rewards(
-        pd.DataFrame({"arc_qc_id": ["valid", "invalid"], "reward_external_synteny": [0.0, 0.0]}),
+    scored = _add_core_gene_count_rewards(
+        pd.DataFrame(
+            {"arc_qc_id": ["valid", "invalid"], "reward_external_core_gene_ordered_conservation": [0.0, 0.0]}
+        ),
         tmp_path,
         {
             "online_measurement_mode": True,
@@ -2001,7 +2014,7 @@ def test_online_synteny_pass_uses_metrics_not_measurement_survivor_csv(tmp_path)
         },
     )
 
-    assert scored["reward_external_synteny_pass"].tolist() == [1.0, 0.0]
+    assert scored["reward_external_core_gene_ordered_conservation_pass"].tolist() == [1.0, 0.0]
 
 
 def test_online_synteny_allows_configured_loss_but_not_order_or_copy_errors(tmp_path):
@@ -2018,12 +2031,12 @@ def test_online_synteny_allows_configured_loss_but_not_order_or_copy_errors(tmp_
             "missing_synteny_output": [False] * 5 + [True],
         }
     ).to_csv(tmp_path / "metrics.csv", index=False)
-    config = {"synteny_metrics_file_save_location": "metrics.csv", "synteny_max_missing_reference_genes": 1}
-    scored = _add_synteny_count_rewards(pd.DataFrame({"arc_qc_id": ids}), tmp_path, config)
-    assert scored["reward_external_synteny_pass"].tolist() == [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
-    config["synteny_max_missing_reference_genes"] = 0
-    strict = _add_synteny_count_rewards(pd.DataFrame({"arc_qc_id": ids}), tmp_path, config)
-    assert strict["reward_external_synteny_pass"].tolist() == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    config = {"synteny_metrics_file_save_location": "metrics.csv", "core_gene_max_missing_functions": 1}
+    scored = _add_core_gene_count_rewards(pd.DataFrame({"arc_qc_id": ids}), tmp_path, config)
+    assert scored["reward_external_core_gene_ordered_conservation_pass"].tolist() == [1.0, 1.0, 0.0, 0.0, 0.0, 0.0]
+    config["core_gene_max_missing_functions"] = 0
+    strict = _add_core_gene_count_rewards(pd.DataFrame({"arc_qc_id": ids}), tmp_path, config)
+    assert strict["reward_external_core_gene_ordered_conservation_pass"].tolist() == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
 
 def test_synteny_count_reward_does_not_score_unmeasured_rows(tmp_path):
@@ -2044,11 +2057,11 @@ def test_synteny_count_reward_does_not_score_unmeasured_rows(tmp_path):
     df = pd.DataFrame(
         {
             "arc_qc_id": ["measured", "not_reached", "artifact_missing"],
-            "reward_external_synteny": [0.0, 0.0, 0.0],
+            "reward_external_core_gene_ordered_conservation": [0.0, 0.0, 0.0],
         }
     )
 
-    scored = _add_synteny_count_rewards(
+    scored = _add_core_gene_count_rewards(
         df,
         run_dir,
         {
@@ -2057,20 +2070,20 @@ def test_synteny_count_reward_does_not_score_unmeasured_rows(tmp_path):
         },
     )
 
-    assert scored["reward_external_synteny"].tolist() == [1.0, 0.0, 0.0]
-    assert scored["synteny_stage_reached"].tolist() == [1.0, 0.0, 1.0]
-    assert scored["synteny_measurement_available"].tolist() == [1.0, 0.0, 0.0]
-    assert scored["synteny_missing_artifact"].tolist() == [0.0, 1.0, 1.0]
+    assert scored["reward_external_core_gene_ordered_conservation"].tolist() == [1.0, 0.0, 0.0]
+    assert scored["core_gene_ordered_conservation_stage_reached"].tolist() == [1.0, 0.0, 1.0]
+    assert scored["core_gene_ordered_conservation_measurement_available"].tolist() == [1.0, 0.0, 0.0]
+    assert scored["core_gene_ordered_conservation_missing_artifact"].tolist() == [0.0, 1.0, 1.0]
     assert pd.isna(scored.loc[1, "num_syntenic_genes"])
-    assert pd.isna(scored.loc[1, "synteny_copy_balance_score"])
+    assert pd.isna(scored.loc[1, "core_gene_copy_balance_score"])
 
 
-def testscore_synteny_counts_uses_fixed_reference_denominator():
-    assert score_synteny_counts(11, 11, 0)[0] == 1.0
-    assert score_synteny_counts(10, 11, 0)[0] == pytest.approx(10 / 11)
-    assert score_synteny_counts(11, 11, 1)[0] == 0.5
-    assert score_synteny_counts(10, 11, 2)[0] == pytest.approx(10 / 33)
-    assert score_synteny_counts(12, 11, 0)[0] == 0.0
+def testscore_core_gene_conservation_counts_uses_fixed_reference_denominator():
+    assert score_core_gene_conservation_counts(11, 11, 0)[0] == 1.0
+    assert score_core_gene_conservation_counts(10, 11, 0)[0] == pytest.approx(10 / 11)
+    assert score_core_gene_conservation_counts(11, 11, 1)[0] == 0.5
+    assert score_core_gene_conservation_counts(10, 11, 2)[0] == pytest.approx(10 / 33)
+    assert score_core_gene_conservation_counts(12, 11, 0)[0] == 0.0
 
 
 def test_reference_cluster_synteny_rejects_deletion_hidden_by_duplicates(tmp_path):
@@ -2115,13 +2128,18 @@ def test_reference_cluster_synteny_rejects_deletion_hidden_by_duplicates(tmp_pat
     assert metrics["reference_num_genes"].tolist() == [2, 2]
     assert metrics["duplicate_reference_gene_count"].tolist() == [0, 1]
 
-    scored = _add_synteny_count_rewards(
-        pd.DataFrame({"arc_qc_id": ["complete", "delete_duplicate"], "reward_external_synteny": [0.0, 0.0]}),
+    scored = _add_core_gene_count_rewards(
+        pd.DataFrame(
+            {
+                "arc_qc_id": ["complete", "delete_duplicate"],
+                "reward_external_core_gene_ordered_conservation": [0.0, 0.0],
+            }
+        ),
         tmp_path,
         {"synteny_metrics_file_save_location": "metrics.csv"},
     )
-    assert scored["reward_external_synteny"].tolist() == [1.0, 0.25]
-    assert scored["reward_external_synteny_pass"].tolist() == [1.0, 0.0]
+    assert scored["reward_external_core_gene_ordered_conservation"].tolist() == [1.0, 0.25]
+    assert scored["reward_external_core_gene_ordered_conservation_pass"].tolist() == [1.0, 0.0]
 
 
 def test_reference_cluster_synteny_ignores_reference_features_absent_from_staged_gff(tmp_path):
@@ -2199,18 +2217,18 @@ def test_reference_cluster_synteny_penalizes_reordered_loci(tmp_path):
     observed = pd.read_csv(output_csv)
     assert observed["num_syntenic_genes"].tolist() == [3, 3]
     assert observed["reference_order_violation_count"].tolist() == [0, 3]
-    scored = _add_synteny_count_rewards(
+    scored = _add_core_gene_count_rewards(
         pd.DataFrame(
             {
                 "arc_qc_id": ["complete", "reordered"],
-                "reward_external_synteny": [0.0, 0.0],
+                "reward_external_core_gene_ordered_conservation": [0.0, 0.0],
             }
         ),
         tmp_path,
         {"synteny_metrics_file_save_location": "output.csv"},
     )
-    assert scored["reward_external_synteny"].tolist() == [1.0, 0.25]
-    assert scored["reward_external_synteny_pass"].tolist() == [1.0, 0.0]
+    assert scored["reward_external_core_gene_ordered_conservation"].tolist() == [1.0, 0.25]
+    assert scored["reward_external_core_gene_ordered_conservation_pass"].tolist() == [1.0, 0.0]
 
 
 def test_member_aai_does_not_fall_back_to_consensus(tmp_path):
@@ -2356,10 +2374,10 @@ def test_synteny_requires_complete_measurements(tmp_path):
     """A survivor row cannot manufacture missing reference, duplication or order evidence."""
     path = tmp_path / "qc6_synteny_filter_metrics.csv"
     pd.DataFrame({"id_prompt": ["a"], "num_syntenic_genes": [10], "total_num_genes": [10]}).to_csv(path, index=False)
-    scored = _add_synteny_count_rewards(pd.DataFrame({"arc_qc_id": ["a"]}), tmp_path, {})
-    assert scored["reward_external_synteny"].tolist() == [0.0]
-    assert scored["synteny_measurement_available"].tolist() == [0.0]
-    assert scored["synteny_missing_artifact"].tolist() == [1.0]
+    scored = _add_core_gene_count_rewards(pd.DataFrame({"arc_qc_id": ["a"]}), tmp_path, {})
+    assert scored["reward_external_core_gene_ordered_conservation"].tolist() == [0.0]
+    assert scored["core_gene_ordered_conservation_measurement_available"].tolist() == [0.0]
+    assert scored["core_gene_ordered_conservation_missing_artifact"].tolist() == [1.0]
 
 
 def test_nucleotide_reward_uses_screening_bounds():

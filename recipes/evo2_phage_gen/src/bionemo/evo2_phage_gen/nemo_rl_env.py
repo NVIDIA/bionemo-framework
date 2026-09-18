@@ -78,7 +78,8 @@ DEFAULT_GDPO_OBJECTIVES: tuple[GDPOObjective, ...] = (
             "reward_gene_a_origin",
         ),
     ),
-    GDPOObjective(name="synteny", columns=("reward_external_synteny",)),
+    GDPOObjective(name="core_gene_ordered_conservation", columns=("reward_external_core_gene_ordered_conservation",)),
+    GDPOObjective(name="accessory_gene_diversification", columns=("reward_external_accessory_gene_diversification",)),
     GDPOObjective(
         name="novelty",
         columns=(
@@ -671,10 +672,10 @@ def phage_qc_metrics_from_scored(
         "reward_nt_homopolymer": ("max_nt_homopolymer_length",),
         "reward_dustmask_end": ("dustmask_max_end_masked_fraction",),
         "reward_external_tropism": ("tropism_protein_mmseqs_percent_identity",),
-        "reward_external_synteny": (
-            "synteny_smooth_content_score",
-            "synteny_smooth_ordered_score",
-            "synteny_smooth_duplicate_score",
+        "reward_external_core_gene_ordered_conservation": (
+            "core_gene_ordered_conservation_content_score",
+            "core_gene_ordered_conservation_ordered_score",
+            "core_gene_ordered_conservation_duplicate_score",
         ),
         "reward_gene_a_origin": ("gene_a_origin_motif_score", "gene_a_origin_position_score"),
         "reward_external_average_protein_identity": (
@@ -683,16 +684,22 @@ def phage_qc_metrics_from_scored(
             "average_protein_identity_evidence_score",
         ),
         "reward_external_required_genes": ("required_genes_integrity_sum",),
+        "reward_external_accessory_gene_diversification": (
+            "accessory_k_credit",
+            "accessory_x_credit",
+            "accessory_distinct_type_mass",
+            "accessory_duplicate_mass",
+        ),
         "reward_mmseqs_cluster_diversity": (
             "mmseqs_cluster_valid_for_clustering",
             "mmseqs_cluster_missing_from_output",
         ),
     }
-    if "synteny_smooth_content_score" not in scored:
-        inputs["reward_external_synteny"] = (
-            "synteny_reference_coverage_score",
-            "synteny_copy_balance_score",
-            "synteny_order_score",
+    if "core_gene_ordered_conservation_content_score" not in scored:
+        inputs["reward_external_core_gene_ordered_conservation"] = (
+            "core_gene_reference_coverage_score",
+            "core_gene_copy_balance_score",
+            "core_gene_order_score",
         )
     for reward_column in sorted(reward_columns):
         for column in inputs.get(reward_column, ()):
@@ -702,9 +709,10 @@ def phage_qc_metrics_from_scored(
 
     support_prefixes = {
         "reward_external_tropism": "tropism",
-        "reward_external_synteny": "synteny",
+        "reward_external_core_gene_ordered_conservation": "core_gene_ordered_conservation",
         "reward_external_average_protein_identity": "average_protein_identity",
         "reward_external_required_genes": "required_genes",
+        "reward_external_accessory_gene_diversification": "accessory_gene_diversification",
     }
     for reward_column in sorted(reward_columns):
         prefix = support_prefixes.get(reward_column)
@@ -854,7 +862,8 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 dustmask_end=float(cfg.get("weight_dustmask_end", 0.0)),
                 nucleotide_pass=float(cfg.get("weight_nucleotide_pass", 0.0)),
                 tropism=float(cfg.get("weight_tropism", 0.0)),
-                synteny=float(cfg.get("weight_synteny", 0.0)),
+                core_gene_ordered_conservation=float(cfg.get("weight_core_gene_ordered_conservation", 0.0)),
+                accessory_gene_diversification=float(cfg.get("weight_accessory_gene_diversification", 0.0)),
                 gene_a_origin=float(cfg.get("weight_gene_a_origin", 0.0)),
                 average_protein_identity=float(cfg.get("weight_average_protein_identity", 0.0)),
                 required_genes=float(cfg.get("weight_required_genes", 0.0)),
@@ -893,9 +902,14 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 enable_orf=bool(external_qc_cfg.get("enable_orf", False)),
                 enable_coding_density=bool(external_qc_cfg.get("enable_coding_density", False)),
                 enable_tropism=bool(external_qc_cfg.get("enable_tropism", True)),
-                enable_synteny=bool(external_qc_cfg.get("enable_synteny", False)),
+                enable_core_gene_ordered_conservation=bool(
+                    external_qc_cfg.get("enable_core_gene_ordered_conservation", False)
+                ),
                 enable_average_protein_identity=bool(external_qc_cfg.get("enable_average_protein_identity", False)),
                 enable_required_genes=bool(external_qc_cfg.get("enable_required_genes", False)),
+                enable_accessory_gene_diversification=bool(
+                    external_qc_cfg.get("enable_accessory_gene_diversification", False)
+                ),
                 protein_match_min_reciprocal_coverage=float(
                     external_qc_cfg.get("protein_match_min_reciprocal_coverage", 0.75)
                 ),
@@ -904,13 +918,15 @@ if _NEMO_RL_IMPORT_ERROR is None:  # pragma: no cover
                 ),
                 enable_smooth_reference_rewards=bool(external_qc_cfg.get("enable_smooth_reference_rewards", False)),
                 enable_gene_a_origin=bool(external_qc_cfg.get("enable_gene_a_origin", False)),
-                synteny_identity_zero_credit=float(external_qc_cfg.get("synteny_identity_zero_credit", 0.05)),
-                synteny_identity_full_credit=float(external_qc_cfg.get("synteny_identity_full_credit", 0.90)),
-                synteny_reciprocal_coverage_full_credit=float(
-                    external_qc_cfg.get("synteny_reciprocal_coverage_full_credit", 0.95)
+                core_gene_identity_zero_credit=float(external_qc_cfg.get("core_gene_identity_zero_credit", 0.05)),
+                core_gene_identity_full_credit=float(external_qc_cfg.get("core_gene_identity_full_credit", 0.90)),
+                core_gene_reciprocal_coverage_full_credit=float(
+                    external_qc_cfg.get("core_gene_reciprocal_coverage_full_credit", 0.95)
                 ),
-                synteny_order_weight=float(external_qc_cfg.get("synteny_order_weight", 0.75)),
-                synteny_duplicate_penalty_weight=float(external_qc_cfg.get("synteny_duplicate_penalty_weight", 0.75)),
+                core_gene_order_weight=float(external_qc_cfg.get("core_gene_order_weight", 0.75)),
+                core_gene_duplicate_penalty_weight=float(
+                    external_qc_cfg.get("core_gene_duplicate_penalty_weight", 0.75)
+                ),
                 tropism_identity_zero_credit=float(external_qc_cfg.get("tropism_identity_zero_credit", 0.05)),
                 tropism_identity_full_credit=float(external_qc_cfg.get("tropism_identity_full_credit", 0.95)),
                 tropism_reciprocal_coverage_full_credit=float(

@@ -134,7 +134,7 @@ def _write_control_config(tmp_path: Path, *, zero_reward_without_eod: bool = Fal
         "external_qc": {
             "enabled": True,
             "enable_tropism": True,
-            "enable_synteny": False,
+            "enable_core_gene_ordered_conservation": False,
             "enable_average_protein_identity": False,
             "enable_required_genes": False,
         },

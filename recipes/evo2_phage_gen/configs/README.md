@@ -80,10 +80,10 @@ measured packaging limit. Literature citations are beside the YAML defaults.
 
 With `external_qc.enable_smooth_reference_rewards`, protein-match integrity is the geometric
 mean of E-value significance, baseline-adjusted identity, and native query/target coverage.
-`synteny_identity_zero_credit` / `synteny_identity_full_credit` default to 0.05 / 0.90;
+`core_gene_identity_zero_credit` / `core_gene_identity_full_credit` default to 0.05 / 0.90;
 the tropism equivalents use 0.05 / 0.95. These identity settings are fractions.
 These are direct-reference match targets, with reciprocal-coverage targets of 0.95
-for synteny and 0.99 for tropism. For synteny, `synteny_reference_functions` also
+for synteny and 0.99 for tropism. For synteny, `core_gene_reference_functions` also
 admits the same curated families as required genes: each edge uses the stronger
 of direct-reference integrity and normalized family coverage. A qualifying family
 match earns full gene credit without 90% identity to PhiX or the consensus.
@@ -149,11 +149,11 @@ CheckV remains disabled in online RL scoring.
 
 ## Synteny and Arc's codon-landmark score
 
-The active `synteny` objective measures protein/function content, circular order,
+The active `core_gene_ordered_conservation` objective measures protein/function content, circular order,
 and excess homolog copies. Its scorer is
-[`score_smooth_synteny`](../src/bionemo/evo2_phage_gen/protein_evidence.py), returning
-`SmoothSyntenyScore`; the reward column is `reward_external_synteny`.
-`summarize_function_synteny` produces the corresponding hard-QC measurements.
+[`score_core_gene_ordered_conservation`](../src/bionemo/evo2_phage_gen/protein_evidence.py), returning
+`CoreGeneOrderedConservationScore`; the reward column is `reward_external_core_gene_ordered_conservation`.
+`summarize_core_gene_ordered_conservation` produces the corresponding hard-QC measurements.
 Profiles without a function map use `measure_reference_cluster_synteny` for hard
 measurements from LoVis4u protein clusters. All of these functions concern synteny.
 
@@ -174,3 +174,9 @@ sets its final-screening flags explicitly; the base template's `false` values
 are not a description of every execution mode. The codon-landmark score's
 scientific usefulness and continued role in final screening remain separate
 review questions from the active synteny reward.
+
+The protein objectives now distinguish `core_gene_ordered_conservation` (the
+existing core/function/order score) from `accessory_gene_diversification` (K/X
+novelty and accessory copy budget). See the [accessory score definition](accessory_genes.md)
+for the full score surface, evidence exclusions, and historical Arc comparison.
+The accessory metric is an RL reward and diagnostic only; it adds no final filter.
