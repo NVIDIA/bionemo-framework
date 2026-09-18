@@ -128,6 +128,18 @@ not experimentally established viability requirements. See the
 [score definitions](../examples/README.md#current-phix174-gdpo-score-definitions) for formulas,
 eligibility rules, and GDPO versus scalar-GRPO aggregation.
 
+Final screening applies required functions and synteny before diversification. The
+launcher supplies `sequence_safety_manifest` and `sequence_safety_input_fasta` to
+intersect safety PASS before the optional filter-7 architecture-removal gate and
+the final AAI novelty gate. FAIL, INDETERMINATE and safety-input exclusions do not
+reach novelty filtering. Standalone Arc runs without a safety manifest remain
+safety-unqualified. The architecture **keep** gate stays in upstream homology QC;
+it is separate from filter 7's novelty **remove** gate. Final clustering follows
+all per-genome filters. The upstream `qc5`/`qc6` filenames are retained; their
+numbers no longer specify execution order, and waterfall readers preserve the
+order recorded in each run's count columns. Online RL still measures enabled
+objectives without applying these final acceptance gates.
+
 When final screening enables `checkv_filter`, only classifications in
 `checkv_quality_range` survive. The maintained list includes Low-quality,
 Medium-quality, High-quality, and Complete; Not-determined or missing classifications

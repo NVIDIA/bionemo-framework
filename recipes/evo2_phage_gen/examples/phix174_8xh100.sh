@@ -1328,7 +1328,8 @@ PY
       return
     fi
     python - configs/arc_genome_design_filtering_local.yaml "${dedup}/representatives.fasta" \
-      "${branch_root}" "${remove_filter}" <<'PY'
+      "${branch_root}" "${remove_filter}" "${safety}/scan/manifest.json" \
+      "${safety}/input-qc/qc2_nt_filter_seqs.fasta" <<'PY'
 from pathlib import Path
 import sys
 import yaml
@@ -1343,6 +1344,9 @@ config.update({
     "results_save_dir": str(output / "arc"),
     "current_config_file": str(output / "config.yaml"),
     "evo_gen_seqs_fasta_file_save_location": str(fasta),
+    # Apply the existing safety scan before any diversification exclusions.
+    "sequence_safety_manifest": str(Path(sys.argv[5]).resolve()),
+    "sequence_safety_input_fasta": str(Path(sys.argv[6]).resolve()),
     "orf_filtering": True,
     "use_nucleotide_filtered_df": True,
     "homology_filtering": True,

@@ -61,6 +61,7 @@ _ARC_WATERFALL_COLUMNS = (
     "count_average_protein_sequence_identity_filter",
     "count_required_genes_filter",
     "count_syntenic_gene_count_filter",
+    "count_sequence_safety_filter",
 )
 _WORKFLOW_ORDER = (
     "raw_generation",
@@ -244,10 +245,11 @@ def summarize_arc_screen(
     final_count = len(read_fasta(terminal_fasta, allow_empty=True))
     waterfall: list[dict[str, int | str]] = []
     previous_count = input_count
-    for field in _ARC_WATERFALL_COLUMNS:
-        if field not in count_values:
+    # CSV columns record execution order. Preserve it rather than reinterpreting
+    # saved counts using today's filter order (novelty now follows biological QC).
+    for field, count in count_values.items():
+        if field not in _ARC_WATERFALL_COLUMNS:
             continue
-        count = count_values[field]
         if count > previous_count:
             raise ValueError(f"non-monotonic Arc waterfall at {field}: {count} > {previous_count}")
         waterfall.append({"stage": field, "count": count})
@@ -323,6 +325,23 @@ def _reconcile_safety_input(
     states, counts = _safety_states(safety_manifest, set(safety_input_by_id))
     excluded = set(representative_by_id) - set(safety_input_by_id)
     return states, counts, excluded
+
+
+def load_safety_pass_sequences(
+    representative_fasta: Path,
+    safety_manifest: Path,
+    *,
+    safety_input_fasta: Path | None = None,
+) -> set[str]:
+    """Load reconciled safety-PASS sequences for Arc's pre-diversification gate.
+
+    Arc can rename candidate IDs. Reconcile the scan with original representatives
+    first, then join by exact sequence; FAIL, INDETERMINATE and excluded inputs
+    cannot enter the novelty stage.
+    """
+    representatives = read_fasta(representative_fasta, allow_empty=True)
+    states, _, _ = _reconcile_safety_input(representatives, safety_manifest, safety_input_fasta)
+    return {sequence for record_id, sequence in representatives if states.get(record_id) == "PASS"}
 
 
 def select_hard_qc_passers(

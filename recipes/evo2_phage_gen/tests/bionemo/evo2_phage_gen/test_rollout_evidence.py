@@ -212,7 +212,29 @@ def test_post_qc_clustering_pins_contract(tmp_path):
     assert cluster_command[cluster_command.index("-c") + 1] == "0.95"
 
 
-def test_arc_summary_omits_internal_clustering(tmp_path):
+@pytest.mark.parametrize(
+    ("columns", "counts"),
+    [
+        (
+            [
+                "count_required_genes_filter",
+                "count_syntenic_gene_count_filter",
+                "count_sequence_safety_filter",
+                "count_average_protein_sequence_identity_filter",
+            ],
+            [2, 2, 2, 1],
+        ),
+        (
+            [
+                "count_average_protein_sequence_identity_filter",
+                "count_required_genes_filter",
+                "count_syntenic_gene_count_filter",
+            ],
+            [2, 2, 1],
+        ),
+    ],
+)
+def test_arc_summary_preserves_execution_order(tmp_path, columns, counts):
     representatives = tmp_path / "representatives.fasta"
     representatives.write_text(">a\nAACG\n>b\nGGTT\n>c\nTTGC\n")
     arc = tmp_path / "arc"
@@ -223,9 +245,7 @@ def test_arc_summary_omits_internal_clustering(tmp_path):
     (arc / "qc3_orf_filter_counts.csv").write_text("count_orf_count_filter\n2\n")
     (arc / "qc4_homology_filter_counts.csv").write_text("count_tropism_protein_sequence_identity_filter\n2\n")
     (arc / "qc5_diversification_filter_counts.csv").write_text("count_genetic_architecture_score_remove_filter\n2\n")
-    (arc / "qc6_synteny_filter_counts.csv").write_text(
-        "count_required_genes_filter,count_syntenic_gene_count_filter\n2,1\n"
-    )
+    (arc / "qc6_synteny_filter_counts.csv").write_text(",".join(columns) + "\n" + ",".join(map(str, counts)) + "\n")
     (arc / "qc6_synteny_filter_seqs.fasta").write_text(">a\nAACG\n")
     config = tmp_path / "config.yaml"
     config.write_text(
@@ -255,7 +275,9 @@ def test_arc_summary_omits_internal_clustering(tmp_path):
     assert report["input_representatives"] == 3
     assert report["final_pass_count"] == 1
     assert not report["arc_internal_mmseqs_clustering"]
-    assert report["waterfall"][-1] == {"stage": "count_syntenic_gene_count_filter", "count": 1}
+    assert report["waterfall"][-len(columns) :] == [
+        {"stage": stage, "count": count} for stage, count in zip(columns, counts, strict=True)
+    ]
 
 
 def test_final_report_reconciles_raw_and_representative_denominators(tmp_path):

@@ -565,9 +565,15 @@ for the exact flags and their roles.
   This is training-score attainment; final acceptance still requires the screening stage below.
 - **Final per-genome QC** uses exact safety `PASS` plus the Arc target-profile waterfall: A/C/G/T
   only; length 5,306–5,730 nt; GC 30–65%; homopolymer ≤10; a PhiX G hit at 60–100% identity with ≥0.95 query and target
-  coverage; mean per-ORF PHROGs member identity 0–95%; all nine required gene-copy slots meeting
+  coverage; all nine required gene-copy slots meeting
   their calibrated family-coverage thresholds; and those same nine functions in circular
-  order with no excess qualifying copies. K and A\* are outside this synteny profile. DUST ≤0.9 is an online/checkpoint
+  order with no excess qualifying copies; safety PASS; then diversification exclusions,
+  ending with mean per-ORF PHROGs member identity 0–95%. Filter 7's architecture-removal
+  novelty gate runs only in its separate diagnostic branch, after biological and safety
+  qualification and before AAI. The architecture **keep** gate remains upstream QC.
+  This order retains gene/synteny evidence for biologically complete candidates that fail
+  novelty. The launcher passes the saved safety manifest and its input FASTA to Arc;
+  no additional safety search is needed. K and A\* are outside this synteny profile. DUST ≤0.9 is an online/checkpoint
   condition, not a repeated Arc final gate.
 - **Set-level selection** clusters final passers at 99% identity and 95% coverage of both genomes and retains representatives. The
   rollout-relative diversity reward is therefore not interpreted as an intrinsic genome PASS/FAIL

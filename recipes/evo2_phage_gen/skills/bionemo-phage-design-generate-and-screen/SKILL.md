@@ -24,7 +24,7 @@ Process candidates in this order:
 3. remove exact sequence duplicates, preserving the supplied start and strand;
 4. run every required external and internal QC component with its configured positive controls on the representatives;
 5. treat missing required evidence or tool failure as INDETERMINATE rather than PASS;
-6. apply the approved target hard-filter profile as the cheap-to-expensive waterfall defined in the rollout guidance;
+6. apply the approved biological hard-filter profile, intersect exact safety PASS, then apply diversification exclusions with AAI last;
 7. cluster only the safety-PASS hard-QC set in its supplied sequence order at the approved identity and coverage thresholds for diversity reporting; and
 8. rank cluster representatives only when the objective plan defines a defensible ranking.
 
@@ -32,7 +32,13 @@ Short genomes, no predicted genes/ORFs, missing measured genes, and header-only 
 When pre-safety QC filters the representative set, retain its exact safety-input FASTA: report excluded representatives separately, and still require one manifest row for every sequence actually submitted to safety.
 
 For the PhiX174 target profile, apply filters 1–6, 8, and 9 with filter 7 disabled. Run the filter-7-enabled diagnostic separately so it cannot overwrite or be confused with the target result. Filter 7 uses Arc’s start/stop-codon landmark score, which is separate from the protein-based synteny objective. The final launcher also enables the composite landmark-score keep range; neither landmark filter runs during RL. See the [Arc flag definitions](../../configs/README.md#synteny-and-arcs-codon-landmark-score).
-Disable Arc's internal pre-QC clustering for this final rollout. Run the final MMseqs clustering
+For this profile, required functions and synteny precede safety qualification;
+filter 7's optional novelty removal follows safety, and AAI is the last per-genome
+filter. Keep the architecture **keep** gate in upstream QC. Pass the saved safety
+manifest and exact safety-input FASTA to Arc, as the maintained launcher does, so
+FAIL/INDETERMINATE candidates cannot enter diversification. Gene/synteny evidence
+must remain available for biologically complete candidates rejected only for novelty.
+Disable Arc's internal clustering for this final rollout. Run the final MMseqs clustering
 after safety and target hard QC with 99% identity, 95% coverage of both genomes, coverage mode 0, and cluster mode
 0, and retain the complete candidate-to-cluster membership table.
 

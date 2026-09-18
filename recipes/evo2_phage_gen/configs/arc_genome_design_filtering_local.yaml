@@ -28,6 +28,12 @@ prompt: ""
 initialized_seqs_csv_file_save_location: "qc1_initial_seqs.csv"
 initialized_seqs_fasta_file_save_location: "qc1_initial_seqs.fasta"
 
+# The final-rollout launcher supplies these saved safety artifacts. Safety PASS
+# is intersected after gene/synteny QC and before diversification; RL does not
+# apply this offline gate. Null leaves standalone Arc screening safety-unqualified.
+sequence_safety_manifest: null
+sequence_safety_input_fasta: null
+
 ################################
 ### 2. NUCLEOTIDE FILTERING ####
 ################################
@@ -160,6 +166,11 @@ homology_filter_seqs_fasta_file_save_location: "qc4_homology_filter_seqs.fasta"
 ### 5. DIVERSIFICATION FILTERING ####
 ######################################
 
+# Execution follows the protein-completeness/synteny stage below and safety PASS.
+# qc5/qc6 names are retained artifact names, not execution-order numbers. Optional
+# novelty exclusions run here; AAI runs last. Final clustering is handled outside
+# Arc after all individual-genome gates.
+
 diversification_filtering: false
 use_homology_filtered_df: true
 use_orf_filtered_df_instead: false
@@ -207,6 +218,9 @@ use_reference_genome: false
 reference_genome_gff_file_save_location: "recipes/evo2_phage_gen/data/external/arc_evo2/phage_gen/data/NC_001422.1_pseudocircular.gff"
 allow_gff_product_order_synteny_fallback: false
 
+# Applied last, after required functions, synteny, safety and optional novelty
+# exclusions. Near-reference candidates retain biological evidence even if AAI
+# rejects them; the enabled threshold is unchanged.
 average_protein_sequence_identity_filter: true
 average_protein_sequence_identity_range: [0, 95]
 average_protein_sequence_identity_metrics_file_save_location: "qc6_average_protein_sequence_identity_metrics.csv"

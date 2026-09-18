@@ -17,11 +17,15 @@
 
 import ast
 import importlib.util
+import json
 import os
+import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+import yaml
 from Bio import SeqIO
 from Bio.Seq import Seq
 
@@ -132,6 +136,172 @@ def run_mmseqs_search_proteins(query_fasta: str, mmseqs_db: str, results_dir: st
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+@pytest.mark.parametrize(
+    ("online", "filter7", "empty_at"),
+    [
+        (False, False, None),
+        (False, True, None),
+        (True, False, None),
+        (False, True, "required"),
+        (False, True, "synteny"),
+        (False, True, "safety"),
+    ],
+)
+def test_final_gate_order(tmp_path, online, filter7, empty_at):
+    """Exercise emitted stage dataflow: biology and safety before novelty, with RL unfiltered."""
+    if not DEFAULT_ARC_PIPELINE_SOURCE_DIR.exists() or not DEFAULT_PHIX174_FASTA.exists():
+        pytest.skip("Arc source assets are not available")
+    workdir = tmp_path / "patched"
+    prepare_arc_pipeline_workdir(DEFAULT_ARC_PIPELINE_SOURCE_DIR, workdir, phix174_fasta=DEFAULT_PHIX174_FASTA)
+    tree = ast.parse((workdir / "genome_design_filtering_pipeline.py").read_text())
+    main = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "main")
+    first = next(
+        i
+        for i, node in enumerate(main.body)
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(t, ast.Name) and t.id == "run_genetic_architecture_visualization_and_synteny_filtering"
+            for t in node.targets
+        )
+    )
+    config = yaml.safe_load((arc_pipeline.RECIPE_ROOT / "configs/arc_genome_design_filtering_local.yaml").read_text())
+    config.update(
+        results_save_dir=str(tmp_path),
+        homology_filtering=True,
+        diversification_filtering=not online,
+        genetic_architecture_visualization_and_synteny_filtering=True,
+        genetic_architecture_remove_filter=filter7,
+    )
+    sequences = ["AAAA", "AAAC", "AAAG", "AAAT", "AACA", "AACC", "AACG"]
+    ids = ["keep", "high_aai", "missing_gene", "wrong_order", "unsafe", "unknown_safety", "filter7"]
+    rows = pd.DataFrame({"id_prompt": ids, "sequence": sequences})
+    original = tmp_path / "original.fasta"
+    original.write_text("".join(f">original-{i}\n{seq}\n" for i, seq in enumerate(sequences)))
+    manifest = tmp_path / "safety.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "records": [
+                    {
+                        "record_id": f"original-{i}",
+                        "state": "FAIL" if empty_at == "safety" or i == 4 else "INDETERMINATE" if i == 5 else "PASS",
+                    }
+                    for i in range(len(ids))
+                ]
+            }
+        )
+    )
+    config.update(
+        evo_gen_seqs_fasta_file_save_location=str(original),
+        sequence_safety_manifest=str(manifest),
+        sequence_safety_input_fasta=str(original),
+    )
+    rows.to_csv(tmp_path / config["homology_filter_seqs_csv_file_save_location"], index=False)
+    counts = pd.DataFrame({"count_tropism_protein_sequence_identity_filter": [len(rows)]})
+    counts.to_csv(tmp_path / config["homology_filter_counts_file_save_location"], index=False)
+    hits = tmp_path / config["mmseqs_protein_database_results_dir_save_location"]
+    hits.mkdir()
+    (hits / "mmseqs2_all_hits.csv").write_text("id_prompt\n")
+    calls = []
+
+    def no_op(*args, **kwargs):
+        pass
+
+    def add_mapping(**kwargs):
+        df = pd.read_csv(kwargs["input_csv"])
+        df["genome_id"] = [f"genome-{i}" for i in range(len(df))]
+        df.to_csv(kwargs["output_csv"], index=False)
+
+    def required(**kwargs):
+        df = kwargs["sequences_df"]
+        assert "genome_id" in df  # Must not depend on AAI running first to load the ID map.
+        calls.append(("required", df.id_prompt.tolist()))
+        if not kwargs["filter_results"]:
+            return df
+        return df.iloc[:0] if empty_at == "required" else df[df.id_prompt != "missing_gene"]
+
+    def synteny(**kwargs):
+        df = pd.read_csv(kwargs["input_csv"])
+        calls.append(("synteny", df.id_prompt.tolist()))
+        if kwargs["filter_results"]:
+            df = df.iloc[:0] if empty_at == "synteny" else df[df.id_prompt != "wrong_order"]
+        df.to_csv(kwargs["output_csv"], index=False)
+
+    def remove_architecture(df, *args):
+        assert args[-2] == "remove"
+        calls.append(("filter7", df.id_prompt.tolist()))
+        return df[df.id_prompt != "filter7"]
+
+    def aai(*args, **kwargs):
+        df = pd.read_csv(args[2])
+        calls.append(("aai", df.id_prompt.tolist()))
+        assert kwargs["query_fasta"] == str(tmp_path / config["orfipy_proteins_file_save_location"])
+        if kwargs["filter_results"]:
+            df = df[df.id_prompt != "high_aai"]
+        df.to_csv(args[3], index=False)
+
+    def save_fasta(df, path):
+        Path(path).write_text("".join(f">{row.id_prompt}\n{row.sequence}\n" for row in df.itertuples()))
+
+    namespace = dict(
+        config=config,
+        pd=pd,
+        os=os,
+        shutil=shutil,
+        online_measurement_mode=online,
+        filtered_df=rows.copy(),
+        seq_df=rows.copy(),
+        seq_fasta=str(original),
+        filter_counts=counts,
+        annotate_protein_hits=no_op,
+        batch_create_gff_files=no_op,
+        batch_convert_gff_to_gbk=no_op,
+        add_genome_id_mapping=add_mapping,
+        valid_gene_annotations=required,
+        run_lovis4u_in_conda_env=no_op,
+        count_syntenic_genes_all=no_op,
+        count_total_num_genes=no_op,
+        valid_syntenic_gene_count=synteny,
+        calculate_average_protein_percent_identity=no_op,
+        valid_average_protein_percent_identity=aai,
+        save_df_as_fasta=save_fasta,
+        valid_genetic_architecture_score=remove_architecture,
+        ga=SimpleNamespace(
+            phix174_truth_matrix_blurred_sigma5=None,
+            phix174_weight_vector=None,
+            phix174_normalization_vector_blurred_sigma5=None,
+        ),
+    )
+    exec(compile(ast.Module(body=main.body[first:], type_ignores=[]), str(workdir), "exec"), namespace)
+    observed = dict(calls)
+    assert observed["required"] == ids
+    if online:
+        assert observed["synteny"] == ids
+        assert observed["aai"] == ids
+        expected = ids
+    elif empty_at:
+        assert "aai" not in observed
+        assert "filter7" not in observed
+        expected = []
+    else:
+        assert observed["synteny"] == [i for i in ids if i != "missing_gene"]
+        qualified = ["keep", "high_aai", "filter7"]
+        if filter7:
+            assert observed["filter7"] == qualified
+            qualified.remove("filter7")
+        assert observed["aai"] == qualified
+        expected = [i for i in qualified if i != "high_aai"]
+    terminal = pd.read_csv(tmp_path / config["synteny_filter_seqs_csv_file_save_location"])
+    assert terminal.id_prompt.tolist() == expected
+    fasta = list(SeqIO.parse(tmp_path / config["synteny_filter_seqs_fasta_file_save_location"], "fasta"))
+    assert [record.id for record in fasta] == expected
+    final_counts = pd.read_csv(tmp_path / config["synteny_filter_counts_file_save_location"])
+    assert final_counts.iloc[0, -1] == len(expected)
+    if not online and not empty_at:
+        assert final_counts.loc[0, "count_sequence_safety_filter"] == 3
+        assert final_counts.columns[-1] == "count_average_protein_sequence_identity_filter"
 
 
 def test_online_measurement_patch_rejects_missing_gbk_conversion_anchor(tmp_path):

@@ -1404,6 +1404,51 @@ def test_stage40_pilot_check_marker_skips_completed_pilot_check(tmp_path: Path) 
     assert "monitor: 500-step DP8 GDPO" in log
 
 
+def test_final_safety_config(tmp_path: Path, monkeypatch) -> None:
+    """Both Arc branches consume the already completed safety scan before novelty."""
+    reference = tmp_path / "reference.fasta"
+    reference.write_text(">reference\nATGAAATAA\n")
+    gff = tmp_path / "reference.gff"
+    gff.write_text(
+        "##gff-version 3\nreference\ttest\tCDS\t1\t9\t.\t+\t0\tID=A;product=A\n##FASTA\n>reference\nATGAAATAA\n"
+    )
+    base = tmp_path / "a/b/c/config.yaml"
+    base.parent.mkdir(parents=True)
+    base.write_text(
+        yaml.safe_dump(
+            {
+                "genetic_architecture_reference_genome": str(reference),
+                "reference_genome_gff_file_save_location": str(gff),
+            }
+        )
+    )
+    body = (
+        SCRIPT.read_text().split("  write_arc_rollout_config() {", 1)[1].split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+    )
+    for filter7 in ("false", "true"):
+        output = tmp_path / filter7
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "-",
+                str(base),
+                str(tmp_path / "representatives.fasta"),
+                str(output),
+                filter7,
+                str(tmp_path / "safety/manifest.json"),
+                str(tmp_path / "safety/input.fasta"),
+            ],
+        )
+        exec(compile(body, str(SCRIPT), "exec"), {})
+        config = yaml.safe_load((output / "config.yaml").read_text())
+        assert config["sequence_safety_manifest"] == str(tmp_path / "safety/manifest.json")
+        assert config["sequence_safety_input_fasta"] == str(tmp_path / "safety/input.fasta")
+        assert config["genetic_architecture_filter"] is True
+        assert config["genetic_architecture_remove_filter"] is (filter7 == "true")
+        assert config["mmseqs_clustering_filter"] is False
+
+
 def test_stage50_granular_markers_skip_completed_work(tmp_path: Path) -> None:
     result_root = tmp_path / "result"
     stage_root = result_root / "stages"

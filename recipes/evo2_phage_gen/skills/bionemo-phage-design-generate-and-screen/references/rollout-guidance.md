@@ -34,9 +34,17 @@ Final-design reports use schema 3, `counts.exact_sequence_representatives`, and
 from the embedded clustering evidence: current runs use 95%, while historical runs
 may use different coverage at the same 99% identity.
 
-- Apply valid gates as a cheap-to-expensive waterfall and retain each stage's input, PASS, FAIL, INDETERMINATE, survivor counts, and per-candidate reasons; a final conjunction alone is not diagnostic.
+- Apply biological gates as a cheap-to-expensive waterfall, qualify safety PASS, then apply diversification. For the PhiX profile, required functions and hard synteny precede safety; optional filter-7 architecture removal follows safety, with AAI last and clustering afterward. The architecture keep gate remains upstream QC. Retain each stage's input, PASS, FAIL, INDETERMINATE, survivor counts, and per-candidate reasons; a final conjunction alone is not diagnostic.
 - Use intrinsic properties for per-candidate PASS gates. Express rollout-relative diversity as a diagnostic or explicit set-level portfolio rule, not an intrinsic genome property; use saturated model maxima or narrow bands as gates only when controls validate a separating boundary.
 - Trace dataflow, then define and replay candidate gates on saved measurements first. A gate that fed an online reward shaped the historical policy, but only adopting its change in-loop requires a new RL attempt; a genuinely post-hoc gate may be versioned and reapplied without retraining.
+
+The final launcher passes `sequence_safety_manifest` and `sequence_safety_input_fasta`
+to Arc. Arc reconciles the saved scan against the original representatives, joins
+by exact sequence despite renamed Arc IDs, and excludes FAIL/INDETERMINATE and
+pre-safety-excluded inputs before novelty. No extra safety search is required.
+The retained `qc5`/`qc6` artifact names do not specify execution order; read the
+recorded count-column order, including for older runs. Standalone screening without
+a safety manifest is not safety-qualified.
 
 The example refreshes the derived Arc pipeline before new final screening, including
 a direct stage-50 entry. This applies current patches such as the CheckV quality gate;
