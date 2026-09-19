@@ -22,6 +22,7 @@ import pytest
 import yaml
 
 from bionemo.evo2_phage_gen import nemo_rl_env, rl_readiness
+from bionemo.evo2_phage_gen.accessory_genes import summarize_accessory_gene_evidence
 from bionemo.evo2_phage_gen.rl_readiness import check_rl_readiness
 
 
@@ -234,6 +235,54 @@ def test_environment_control_rejects_skipped_metric(tmp_path, monkeypatch):
 
     with pytest.raises(rl_readiness.RLEnvironmentControlError, match=r"tropism.*not measured"):
         rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
+
+
+@pytest.mark.parametrize("has_proteins", [True, False])
+def test_accessory_environment_control(tmp_path, monkeypatch, has_proteins):
+    """Real accessory telemetry must pass readiness only when its evidence is available."""
+    config_path = _write_control_config(tmp_path)
+    config = yaml.safe_load(config_path.read_text())
+    config["env"]["phage_qc"]["external_qc"]["enable_accessory_gene_diversification"] = True
+    config["env"]["phage_qc"]["gdpo_objectives"].append(
+        {"name": "accessory", "columns": ["reward_external_accessory_gene_diversification"]}
+    )
+    config_path.write_text(yaml.safe_dump(config))
+    control_fasta = tmp_path / "phix.fna"
+    sequence = "ACGT" * 5
+    control_fasta.write_text(f">phix\n{sequence}\n")
+    hits = pd.DataFrame(
+        {
+            "id_prompt": ["phix_ORF.1"],
+            "protein_database_mmseqs_target": [1713],
+            "protein_database_mmseqs_e_value": [1e-20],
+            "protein_database_mmseqs_percent_identity": [100.0],
+            "protein_database_mmseqs_alignment_length": [100],
+            "protein_database_mmseqs_query_length": [100],
+            "protein_database_mmseqs_target_length": [100],
+            "protein_database_mmseqs_query_coverage": [1.0],
+            "protein_database_mmseqs_target_coverage": [1.0],
+        }
+    )
+    accessory, _ = summarize_accessory_gene_evidence(
+        hits if has_proteins else hits.iloc[:0],
+        pd.DataFrame({"id_prompt": ["phix"]}),
+        reserved_core_orfs=set(),
+        core_families={"phrog:713"},
+        k_families={"phrog:1713"},
+        candidate_proteins={"phix_ORF.1": "M" + "A" * 99} if has_proteins else {},
+        reference_k_protein="M" + "A" * 99,
+    )
+    scored = pd.concat([_control_scores(sequence), accessory], axis=1)
+    monkeypatch.setattr(nemo_rl_env, "score_message_logs", lambda *_args, **_kwargs: scored)
+    if has_proteins:
+        result = rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
+        assert result["support"]["accessory_gene_diversification"] is True
+        assert result["objectives"]["accessory"] == 0.5
+    else:
+        with pytest.raises(
+            rl_readiness.RLEnvironmentControlError, match="accessory_gene_diversification was not measured"
+        ):
+            rl_readiness.run_environment_control(config_path, control_fasta, tmp_path / "control")
 
 
 def test_rotation_control_compares_intrinsic_scores(tmp_path, monkeypatch):

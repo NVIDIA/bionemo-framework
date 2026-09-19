@@ -208,7 +208,8 @@ def summarize_accessory_gene_evidence(
                 "accessory_duplicate_mass": duplicate_mass,
                 "accessory_gene_diversification_base_score": base,
                 "reward_external_accessory_gene_diversification": score,
-                "accessory_gene_diversification_measurement_available": available,
+                # Match numeric support telemetry consumed by RL readiness.
+                "accessory_gene_diversification_measurement_available": float(available),
             }
         )
     return pd.DataFrame(rows, columns=["id_prompt", *ACCESSORY_METRIC_COLUMNS]), chosen
