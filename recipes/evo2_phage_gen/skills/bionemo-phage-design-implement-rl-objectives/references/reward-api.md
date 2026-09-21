@@ -235,7 +235,10 @@ evidence for a later objective. This helper never filters sequences. The online 
 to rollout IDs; failed or empty measurements cannot earn K-loss credit.
 
 Use the [accessory definition](../../../configs/accessory_genes.md) for formulas,
-family alternatives, coverage, K-swap evidence, copy penalties, and the relationship
+family alternatives, coverage, copy penalties, and the relationship
 to AAI. `accessory_gene_diversification` is separate from required functions and
 `core_gene_ordered_conservation`; the latter retains its previous formula and gate.
 Do not add an Arc acceptance filter merely to implement this RL objective.
+X requires eligible evidence outside both the configured K families and the core
+gene pool. K sequence variants never supply X; a distinct family with a K-like
+annotation can qualify. No reference-K identity threshold enters this reward.

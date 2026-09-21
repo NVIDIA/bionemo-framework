@@ -290,9 +290,7 @@ synteny_filter_seqs_fasta_file_save_location: "qc6_synteny_filter_seqs.fasta"
 
 # Accessory RL reward / diagnostic profile; this does not add a final Arc filter.
 # See configs/accessory_genes.md for the K/X surface, evidence and copy penalties.
-accessory_gene_k_reference_locus: "NC_001422.1_ORF.15"
 accessory_gene_k_families: ["phrog:1713"]  # PhiX/G4-like K; distant K-like families remain eligible X.
+# X requires a family outside K and the reserved core genes; K mutations are not X.
 accessory_gene_min_reciprocal_coverage: 0.75
-# Shaping target for substitutions within supported K homologs, not a family cutoff.
-accessory_gene_k_full_novelty_identity: 0.95
 accessory_gene_metrics_file_save_location: "qc6_accessory_genes_metrics.csv"

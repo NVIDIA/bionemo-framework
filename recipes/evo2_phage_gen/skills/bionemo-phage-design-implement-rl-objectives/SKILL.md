@@ -61,7 +61,9 @@ Use the execution skill for a real installed-environment smoke test when local i
 For the PhiX profile, distinguish `core_gene_ordered_conservation` from
 `accessory_gene_diversification`. The former preserves the existing core order/copy
 rules; the latter rewards K/X repertoire changes, excludes partial core matches,
-and penalizes accessory copies. It is an RL reward and diagnostic only, not a new
+and penalizes accessory copies. X must be outside K and the nine core families;
+K mutations do not supply X, while a distinct K-like family may qualify.
+It is an RL reward and diagnostic only, not a new
 final filter or a claim of exact agreement with Arc's historical cluster counts.
 Use the [accessory definition](../../configs/accessory_genes.md) before adapting
 families or thresholds. K-family absence requires available search evidence; a

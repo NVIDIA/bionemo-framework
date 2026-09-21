@@ -46,7 +46,6 @@ def _measure(hits, *, reserved=(), proteins=None):
         core_families={"phrog:713"},
         k_families={"phrog:1713"},
         candidate_proteins=proteins or {f"g_ORF.{i}": "M" + "A" * 99 for i in range(1, 8)},
-        reference_k_protein="M" + "A" * 99,
     )
 
 
@@ -72,6 +71,10 @@ def test_k_x_surface():
 
 
 def test_accessory_pool_excludes_core():
+    # Additional copies of a core family cannot supply X, even with K retained.
+    metrics, _ = _measure([_hit(1, 1713), _hit(2, 713), _hit(3, 713)])
+    assert metrics.iloc[0].accessory_x_credit == 0
+    assert metrics.iloc[0].reward_external_accessory_gene_diversification == 0.5
     # A secondary partial core hit reserves ORF 1; a direct-reference core hit
     # reserves ORF 2. A different, unapproved family on ORF 3 remains an extra.
     hits = [_hit(1, 900), _hit(1, 713, 0.2), _hit(2, 901), _hit(3, 902, 0.4)]
@@ -107,7 +110,7 @@ def test_accessory_copy_budget(families, expected):
     assert row.reward_external_accessory_gene_diversification == pytest.approx(expected)
 
 
-def test_accessory_evidence_and_k_swap():
+def test_accessory_evidence_and_k_variants():
     # One ORF's weaker alternate family cannot manufacture another accessory type.
     metrics, _ = _measure([_hit(1, 900), _hit(1, 901, evalue=1e-5)])
     assert metrics.iloc[0].accessory_distinct_type_mass == 1
@@ -116,10 +119,11 @@ def test_accessory_evidence_and_k_swap():
     assert metrics.iloc[0].reward_external_accessory_gene_diversification == 1
     assert metrics.iloc[0].accessory_duplicate_mass == 0
     assert set(assignments.accessory_type) == {"K", "phrog:8511"}
-    # An intact supported K homolog can provide novelty without a non-K family.
+    # Mutations within the K family cannot manufacture an accessory X.
     metrics, _ = _measure([_hit(1, 1713)], proteins={"g_ORF.1": "M" + "C" * 10 + "A" * 89})
-    assert metrics.iloc[0].reward_external_accessory_gene_diversification == 1
-    # A truncated identical K fragment is incomplete, not a divergent K swap.
+    assert metrics.iloc[0].accessory_x_credit == 0
+    assert metrics.iloc[0].reward_external_accessory_gene_diversification == 0.5
+    # A truncated K fragment is incomplete K, not X.
     metrics, _ = _measure([_hit(1, 1713, 0.5)], proteins={"g_ORF.1": "M" + "A" * 49})
     assert metrics.iloc[0].accessory_x_credit == 0
     # Missing search columns cannot be interpreted as a supported K deletion.
@@ -131,7 +135,6 @@ def test_accessory_evidence_and_k_swap():
             core_families={"phrog:713"},
             k_families={"phrog:1713"},
             candidate_proteins={"g_ORF.1": "MA"},
-            reference_k_protein="MA",
         )
 
 
@@ -139,10 +142,7 @@ def test_accessory_artifact_measurement(tmp_path, monkeypatch):
     """Shared reference evidence reserves partial core ORFs; empty cohorts earn no loss credit."""
     dna = "ATG" + "GCT" * 99
     (tmp_path / "reference.gff").write_text(
-        "##gff-version 3\n"
-        "ref\t.\tCDS\t1\t300\t.\t+\t0\tID=refA\n"
-        "ref\t.\tCDS\t301\t600\t.\t+\t0\tID=refK\n"
-        f"##FASTA\n>ref\n{dna * 2}\n"
+        f"##gff-version 3\nref\t.\tCDS\t1\t300\t.\t+\t0\tID=refA\n##FASTA\n>ref\n{dna}\n"
     )
     (tmp_path / "proteins.faa").write_text("".join(f">g_ORF.{i}\nM{'A' * 99}\n" for i in (1, 2, 3)))
     (tmp_path / "phrogs").mkdir()
@@ -154,7 +154,6 @@ def test_accessory_artifact_measurement(tmp_path, monkeypatch):
         "smooth_reference_genome_gff_file": str(tmp_path / "reference.gff"),
         "core_gene_reference_functions": {"refA": "A"},
         "required_gene_families": {"A": ["phrog:713"]},
-        "accessory_gene_k_reference_locus": "refK",
         "accessory_gene_k_families": ["phrog:1713"],
         "orfipy_proteins_file_save_location": "proteins.faa",
         "mmseqs_protein_database_results_dir_save_location": "phrogs",

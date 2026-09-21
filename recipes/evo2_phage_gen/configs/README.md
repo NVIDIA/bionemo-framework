@@ -179,4 +179,5 @@ The protein objectives now distinguish `core_gene_ordered_conservation` (the
 existing core/function/order score) from `accessory_gene_diversification` (K/X
 novelty and accessory copy budget). See the [accessory score definition](accessory_genes.md)
 for the full score surface, evidence exclusions, and historical Arc comparison.
+X requires a distinct family outside K and the nine core genes; mutations within K do not supply X.
 The accessory metric is an RL reward and diagnostic only; it adds no final filter.

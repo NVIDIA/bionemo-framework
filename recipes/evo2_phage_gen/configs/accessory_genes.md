@@ -1,8 +1,8 @@
 # Accessory-gene diversification
 
 `accessory_gene_diversification` is an RL reward and a diagnostic, **not a final
-acceptance filter**. It favors K loss, a supported divergent K homolog, or one or
-two supported accessory types outside the core profile. It does not replace
+acceptance filter**. It favors K loss or one or two supported accessory types
+outside the K and core-gene families. It does not replace
 required-gene completeness, `core_gene_ordered_conservation`, safety, or AAI.
 
 The implementation is in
@@ -66,16 +66,17 @@ biological benefit.
 ## K and X score surface
 
 `k` is the strongest K completeness credit, including reserved K evidence.
-`x` is the strongest eligible non-K completeness credit or supported K-swap credit.
+`x` is the strongest eligible completeness credit for a family outside K and the
+nine core genes. K variants and copies or partial matches of core genes cannot
+contribute X credit. A distinct family can qualify even if its annotated role is K-like.
 It is not a sum: splitting one useful addition into several fragments cannot
 manufacture a complete X.
 
-A supported K swap earns `q * min(1, (1 - identity_to_reference_K) / 0.05)`.
-Completeness and divergence come from the **same ORF**. Identity is computed
-between paired residues in a global amino-acid alignment to the configured PhiX
-K protein (match 2, mismatch -1, gap open -5, gap extend -0.5). Gaps alone earn no
-novelty, so an identical truncated K is not a swap. The 95% full-novelty identity
-is a shaping setting, not a biological or family-membership threshold.
+There is no sequence-divergence bonus within K. A full PHROG1713 match remains K
+regardless of substitutions relative to PhiX or its source organism. With no X,
+it scores 0.50 before copy penalties. Replacing K with an eligible PHROG8511
+protein instead supplies X; keeping both families supplies K+X. Both earn 1.0
+when their coverage credits are full and there are no excess copies.
 
 With no qualifying X:
 
@@ -125,7 +126,8 @@ unmatched ORF counts do not enter the budget.
 
 AAI still includes all hit-bearing called proteins, including K and X, and keeps
 its existing `min(hit-bearing ORFs / 10, 1)` evidence factor. A borrowed natural K
-can be novel relative to PhiX while retaining a 100% best natural-database match.
+can retain a 100% best natural-database match. That identity does not determine
+whether its family supplies K or X.
 
 ## Outputs and migration
 
@@ -133,7 +135,7 @@ can be novel relative to PhiX while retaining a 100% best natural-database match
 `qc6_accessory_genes_metrics.csv` records K/X credit, distinct mass, duplicate
 mass, base score, final score and measurement availability.
 `qc6_accessory_genes_assignments.csv` retains selected and excluded ORFs with
-their families, coverage, eligibility and K-swap credit. RL logs only the compact
+their families, coverage and eligibility. RL logs only the compact
 K/X/mass diagnostics for this configured objective.
 
 The former `synteny` objective is now `core_gene_ordered_conservation`; its
@@ -142,7 +144,11 @@ and `reward_external_synteny` to the corresponding new names. Reference/function
 settings now use the `core_gene_` prefix. Historical W&B names remain historical;
 do not silently join them with the new accessory objective.
 
-This is **accessory diversification v1**, not a reproduction of Arc's historical
+This is **accessory diversification v2**. It removes v1's within-K divergence
+bonus: historical full-credit K-only designs need rescoring under this definition.
+The K/X surface and copy penalties are unchanged, including 0.75 for K loss alone.
+
+This is not a reproduction of Arc's historical
 cluster-row filter. That filter did not check order, used annotation-dependent
 10–12 counts, and excluded (11,11). Our old shaped comparator assigned full credit
 to (10,10), (10,11), (10,12), (11,12), (12,12), and 0.5 to (11,11). Those counts do

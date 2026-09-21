@@ -270,7 +270,6 @@ def test_accessory_environment_control(tmp_path, monkeypatch, has_proteins):
         core_families={"phrog:713"},
         k_families={"phrog:1713"},
         candidate_proteins={"phix_ORF.1": "M" + "A" * 99} if has_proteins else {},
-        reference_k_protein="M" + "A" * 99,
     )
     scored = pd.concat([_control_scores(sequence), accessory], axis=1)
     monkeypatch.setattr(nemo_rl_env, "score_message_logs", lambda *_args, **_kwargs: scored)

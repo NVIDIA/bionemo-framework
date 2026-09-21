@@ -15,8 +15,8 @@
 
 """Accessory repertoire diversification, separate from core completeness and order.
 
-K may be retained or lost. A supported non-core protein or divergent K homolog
-provides additional novelty; redundant copies and more than two accessory types
+K may be retained or lost. A supported family outside K and the core genes
+provides accessory X evidence; redundant copies and more than two accessory types
 reduce credit. See configs/accessory_genes.md for the state surface and limits.
 """
 
@@ -27,7 +27,6 @@ from pathlib import Path
 
 import pandas as pd
 from Bio import SeqIO
-from Bio.Align import PairwiseAligner
 
 from bionemo.evo2_phage_gen.protein_evidence import smooth_protein_match_integrity, write_reference_protein_fasta
 from bionemo.evo2_phage_gen.reference_search import run_reference_protein_search
@@ -56,8 +55,8 @@ def score_accessory_diversification(k: float, x: float) -> float:
     These are reward-shaping choices, not estimates of viability.
 
     Call only with available evidence. k=0 means no admitted K evidence after a
-    successful search, not a missing measurement. x can include a supported K
-    swap, whose completeness and sequence divergence must belong to the same ORF.
+    successful search, not a missing measurement. x requires an eligible family
+    outside K and the core genes; sequence divergence within K supplies no X credit.
     """
     if not all(math.isfinite(value) and 0 <= value <= 1 for value in (k, x)):
         raise ValueError("Accessory completeness credits must be finite values in [0, 1]")
@@ -74,21 +73,6 @@ def _family(value: object) -> str:
     return f"phrog:{match[1]}"
 
 
-def _k_divergence(candidate: str, reference: str, full_novelty_identity: float) -> float:
-    # Compare to the actual K reference, never to a PHROG consensus or the source
-    # organism's name. Gaps alone earn no novelty: an identical truncated K is
-    # still non-novel. Family coverage separately supplies completeness credit.
-    aligner = PairwiseAligner(
-        mode="global", match_score=2, mismatch_score=-1, open_gap_score=-5, extend_gap_score=-0.5
-    )
-    counts = aligner.align(reference.rstrip("*"), candidate.rstrip("*"))[0].counts()
-    paired = counts.identities + counts.mismatches
-    if not paired:
-        return 0.0
-    identity = counts.identities / paired
-    return min(1.0, (1.0 - identity) / (1.0 - full_novelty_identity))
-
-
 def summarize_accessory_gene_evidence(
     hits_df: pd.DataFrame,
     sequences_df: pd.DataFrame,
@@ -97,9 +81,7 @@ def summarize_accessory_gene_evidence(
     core_families: set[str],
     k_families: set[str],
     candidate_proteins: dict[str, str],
-    reference_k_protein: str,
     minimum_reciprocal_coverage: float = 0.75,
-    k_full_novelty_identity: float = 0.95,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Return per-genome metrics and per-ORF assignments from all admitted PHROGs hits.
 
@@ -116,10 +98,8 @@ def summarize_accessory_gene_evidence(
     max(0, N-2) + D). Unknown ORFs without admitted hits contribute neither novelty
     nor copy mass. Empty ORF cohorts are unavailable, not K deletions.
     """
-    if not 0 < minimum_reciprocal_coverage <= 1 or not 0 <= k_full_novelty_identity < 1:
-        raise ValueError("Invalid accessory coverage or K identity setting")
-    if not reference_k_protein.rstrip("*"):
-        raise ValueError("Accessory scoring requires an explicit reference K protein")
+    if not 0 < minimum_reciprocal_coverage <= 1:
+        raise ValueError("Invalid accessory coverage setting")
     core_families = {_family(value) for value in core_families}
     k_families = {_family(value) for value in k_families}
     if not k_families or core_families & k_families:
@@ -158,7 +138,7 @@ def summarize_accessory_gene_evidence(
     ).clip(upper=1.0)
     hits = hits.loc[hits.credit > 0].copy()
     hits["id_prompt"] = hits.id_prompt.astype(str)
-    if not set(hits.id_prompt).issubset(candidate_proteins):
+    if any(not candidate_proteins.get(orf, "").rstrip("*") for orf in set(hits.id_prompt)):
         raise ValueError("Accessory hits refer to missing called-protein evidence")
     core_orfs = reserved_core_orfs | set(hits.loc[hits.family.isin(core_families), "id_prompt"])
     # Type follows the strongest match, not a distant shared role: two distinct
@@ -167,14 +147,6 @@ def summarize_accessory_gene_evidence(
     chosen["eligible"] = ~chosen.id_prompt.isin(core_orfs)
     chosen["accessory_type"] = chosen.family.where(~chosen.family.isin(k_families), "K")
     chosen["genome_id"] = chosen.id_prompt.str.rsplit("_", n=1).str[0]
-    chosen["k_novelty_credit"] = 0.0
-    for index, hit in chosen.loc[chosen.eligible & chosen.accessory_type.eq("K")].iterrows():
-        candidate = candidate_proteins[hit.id_prompt]
-        if not candidate.rstrip("*"):
-            raise ValueError("Accessory K protein sequence is empty")
-        chosen.loc[index, "k_novelty_credit"] = hit.credit * _k_divergence(
-            candidate, reference_k_protein, k_full_novelty_identity
-        )
     measured_genomes = {
         identifier.rsplit("_", 1)[0] for identifier, protein in candidate_proteins.items() if protein.rstrip("*")
     }
@@ -187,11 +159,12 @@ def summarize_accessory_gene_evidence(
             if genome_hits.accessory_type.eq("K").any()
             else 0.0
         )
-        x = max(
+        # Family novelty only: K variants and reserved core ORFs cannot supply X.
+        # An eligible different family may still have a K-like biological role.
+        x = (
             eligible.loc[eligible.accessory_type.ne("K"), "credit"].max()
             if eligible.accessory_type.ne("K").any()
-            else 0.0,
-            eligible.k_novelty_credit.max() if not eligible.empty else 0.0,
+            else 0.0
         )
         types = eligible.groupby("accessory_type").credit.max()
         distinct_mass = float(types.sum())
@@ -244,10 +217,6 @@ def measure_accessory_gene_artifacts(
     )
     reference_fasta = run_dir / "smooth_reference_proteins.fasta"
     write_reference_protein_fasta(reference_gff, reference_fasta)
-    reference_proteins = {record.id: str(record.seq) for record in SeqIO.parse(reference_fasta, "fasta")}
-    k_reference = config["accessory_gene_k_reference_locus"]
-    if k_reference not in reference_proteins:
-        raise ValueError(f"Reference K locus {k_reference!r} is absent from the reference annotation")
     protein_fasta = run_dir / config["orfipy_proteins_file_save_location"]
     proteins = {record.id: str(record.seq) for record in SeqIO.parse(protein_fasta, "fasta")}
     family_hits = pd.read_csv(
@@ -302,9 +271,7 @@ def measure_accessory_gene_artifacts(
         core_families={family for allowed in families.values() for family in allowed},
         k_families=set(config["accessory_gene_k_families"]),
         candidate_proteins=proteins,
-        reference_k_protein=reference_proteins[k_reference],
         minimum_reciprocal_coverage=float(config.get("accessory_gene_min_reciprocal_coverage", 0.75)),
-        k_full_novelty_identity=float(config.get("accessory_gene_k_full_novelty_identity", 0.95)),
     )
     metrics.to_csv(metrics_path, index=False)
     assignments.to_csv(assignments_path, index=False)
